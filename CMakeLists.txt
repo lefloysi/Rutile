@@ -45,6 +45,13 @@ if(RUTILE_BUILD_EXAMPLES)
     add_subdirectory("example")
 endif()
 
+rutile_get_runtime_targets(RUTILE_REGISTERED_RUNTIME_TARGETS)
+if(RUTILE_REGISTERED_RUNTIME_TARGETS)
+    add_custom_target(rutile-runtimes DEPENDS ${RUTILE_REGISTERED_RUNTIME_TARGETS})
+else()
+    add_custom_target(rutile-runtimes)
+endif()
+
 if(RUTILE_INSTALL)
     install(RUNTIME_DEPENDENCY_SET RutileRuntimeDependencies
         DESTINATION "${CMAKE_INSTALL_BINDIR}"

@@ -70,6 +70,11 @@ function(rutile_copy_runtime_dependencies target_name)
         message(FATAL_ERROR "Rutile target '${target_name}' does not exist")
     endif()
 
+    cmake_parse_arguments(RUTILE_COPY_RUNTIME "" "DESTINATION" "" ${ARGN})
+    if(NOT RUTILE_COPY_RUNTIME_DESTINATION)
+        set(RUTILE_COPY_RUNTIME_DESTINATION "$<TARGET_FILE_DIR:${target_name}>")
+    endif()
+
     rutile_get_runtime_targets(runtime_targets)
     if(NOT runtime_targets AND NOT RUTILE_RUNTIME_FILES)
         return()
@@ -93,9 +98,11 @@ function(rutile_copy_runtime_dependencies target_name)
     endif()
 
     add_custom_command(TARGET "${target_name}" POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${RUTILE_COPY_RUNTIME_DESTINATION}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${runtime_files}
-            "$<TARGET_FILE_DIR:${target_name}>"
+            "${RUTILE_COPY_RUNTIME_DESTINATION}"
         COMMAND_EXPAND_LISTS
     )
 endfunction()
