@@ -1,0 +1,68 @@
+cmake_minimum_required(VERSION 3.50)
+
+project(rt-vulkan C CXX)
+
+find_package(Vulkan REQUIRED)
+find_package(glslang CONFIG REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+include(RutileTarget)
+
+add_library(${PROJECT_NAME} SHARED)
+target_compile_features(${PROJECT_NAME} PRIVATE
+    c_std_11
+    cxx_std_23
+)
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    "$<$<CONFIG:Debug>:RTVK_ENABLE_VULKAN_VALIDATION>"
+)
+
+target_sources(${PROJECT_NAME} PRIVATE
+    "src/core.c"
+    "src/error.c"
+    "src/init.c"
+    "src/atomic.cpp"
+    "src/shader_compiler.cpp"
+    "src/shader_compiler.h"
+    "src/vma.cpp"
+    "src/atomic.h"
+    "src/resource/buffer.c"
+    "src/resource/buffer.h"
+    "src/resource/compute_program.c"
+    "src/resource/compute_program.h"
+    "src/resource/command_buffer.c"
+    "src/resource/command_buffer.h"
+    "src/resource/framebuffer.c"
+    "src/resource/framebuffer.h"
+    "src/resource/graphics_program.c"
+    "src/resource/graphics_program.h"
+    "src/resource/queue.c"
+    "src/resource/queue.h"
+    "src/resource/resource.c"
+    "src/resource/resource.h"
+    "src/resource/texture.c"
+    "src/resource/texture.h"
+    "src/extension/swapchain/swapchain.c"
+    "src/extension/swapchain/swapchain.h"
+    "src/extension/swapchain/glfw/glfw.c"
+    "src/extension/swapchain/glfw/glfw.h"
+    "src/error.h"
+    "src/core.h"
+    "src/types.h"
+    "src/context.h"
+    "src/context.c"
+)
+
+rutile_configure_shared_library(${PROJECT_NAME})
+
+target_link_libraries(${PROJECT_NAME}
+    PUBLIC
+        Vulkan::Vulkan
+    PRIVATE
+        glslang::glslang
+        glslang::SPIRV
+        glslang::glslang-default-resource-limits
+        GPUOpen::VulkanMemoryAllocator
+        ${CMAKE_DL_LIBS}
+        Threads::Threads
+)

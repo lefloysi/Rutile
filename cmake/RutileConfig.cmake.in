@@ -1,0 +1,32 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Vulkan)
+find_dependency(glfw3 CONFIG)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/RutileTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/RutileTarget.cmake")
+
+set(RUTILE_RUNTIME_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_BINDIR@")
+if(EXISTS "${RUTILE_RUNTIME_DIR}")
+    file(GLOB RUTILE_RUNTIME_FILES CONFIGURE_DEPENDS
+        "${RUTILE_RUNTIME_DIR}/*.dll"
+        "${RUTILE_RUNTIME_DIR}/*.dylib"
+        "${RUTILE_RUNTIME_DIR}/*.so"
+    )
+endif()
+
+foreach(runtime_target
+    Rutile::rt-vulkan
+    Rutile::rt-dx12
+    Rutile::rt-validation
+    Rutile::rt-logging-layer
+)
+    if(TARGET "${runtime_target}")
+        set_property(GLOBAL APPEND PROPERTY RUTILE_RUNTIME_TARGETS "${runtime_target}")
+    endif()
+endforeach()
+
+check_required_components(Rutile)
