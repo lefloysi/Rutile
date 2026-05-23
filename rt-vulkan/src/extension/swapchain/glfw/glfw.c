@@ -40,7 +40,10 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 
 static void* rtvk_glfw_symbol(const char* name) {
 #if defined(_WIN32)
-	HMODULE module = GetModuleHandleA("glfw3.dll");
+	HMODULE module = GetModuleHandleA(NULL);
+	void* symbol = module ? (void*)GetProcAddress(module, name) : NULL;
+	if (symbol) { return symbol; }
+	module = GetModuleHandleA("glfw3.dll");
 	if (!module) {
 		module = LoadLibraryA("glfw3.dll");
 	}
@@ -48,7 +51,10 @@ static void* rtvk_glfw_symbol(const char* name) {
 #else
 	void* symbol = dlsym(RTLD_DEFAULT, name);
 	if (symbol) { return symbol; }
-	void* module = dlopen("libglfw.so.3", RTLD_LAZY | RTLD_LOCAL);
+	void* module = dlopen(NULL, RTLD_LAZY | RTLD_LOCAL);
+	symbol = module ? dlsym(module, name) : NULL;
+	if (symbol) { return symbol; }
+	module = dlopen("libglfw.so.3", RTLD_LAZY | RTLD_LOCAL);
 	if (!module) {
 		module = dlopen("libglfw.so", RTLD_LAZY | RTLD_LOCAL);
 	}
@@ -67,7 +73,7 @@ static bool rtvk_glfw_resolve(void) {
 		(PFN_rtvk_glfwGetFramebufferSize)rtvk_glfw_symbol("glfwGetFramebufferSize");
 
 	if (!rtvk_glfw.create_window_surface || !rtvk_glfw.get_framebuffer_size) {
-		rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW runtime is not loaded or does not export Vulkan window functions");
+		rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW symbols are not exported by the executable or available from glfw3.dll");
 		return false;
 	}
 

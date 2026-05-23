@@ -264,6 +264,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 	u64 value = queue->pending_tail->value;
 	u32 timeline_wait_count = queue->wait_count;
 	u32 binary_wait_count = queue->binary_wait_count;
+	u32 binary_signal_count = queue->binary_signal_count;
 	u32 wait_count = timeline_wait_count + binary_wait_count;
 	VkSemaphore wait_semaphores[16];
 	u64 wait_values[16];
@@ -280,12 +281,21 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 		wait_stages[wait_index] = rtvk_queue_wait_stage(queue);
 	}
 
+	VkSemaphore signal_semaphores[9];
+	u64 signal_values[9];
+	signal_semaphores[0] = queue->vk_timeline;
+	signal_values[0] = value;
+	for (u32 i = 0; i < binary_signal_count; i++) {
+		signal_semaphores[i + 1] = queue->binary_signals[i];
+		signal_values[i + 1] = 0;
+	}
+
 	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
 	timeline_info.pNext = NULL;
 	timeline_info.waitSemaphoreValueCount = wait_count;
 	timeline_info.pWaitSemaphoreValues = wait_count ? wait_values : NULL;
-	timeline_info.signalSemaphoreValueCount = 1;
-	timeline_info.pSignalSemaphoreValues = &value;
+	timeline_info.signalSemaphoreValueCount = 1 + binary_signal_count;
+	timeline_info.pSignalSemaphoreValues = signal_values;
 
 	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.pNext = &timeline_info;
@@ -294,8 +304,8 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 	submit_info.pWaitDstStageMask = wait_count ? wait_stages : NULL;
 	submit_info.commandBufferCount = command_buffer_count;
 	submit_info.pCommandBuffers = command_buffer_count ? command_buffers : NULL;
-	submit_info.signalSemaphoreCount = 1;
-	submit_info.pSignalSemaphores = &queue->vk_timeline;
+	submit_info.signalSemaphoreCount = 1 + binary_signal_count;
+	submit_info.pSignalSemaphores = signal_semaphores;
 
 	VkResult result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
@@ -307,6 +317,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 
 	queue->wait_count = 0;
 	queue->binary_wait_count = 0;
+	queue->binary_signal_count = 0;
 	struct rtvk_submitted_batch* head = queue->pending_head;
 	struct rtvk_submitted_batch* tail = queue->pending_tail;
 	queue->pending_head = NULL;
@@ -317,6 +328,16 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 }
 struct rtvk_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	return rtvk_queue_submit(ctx, queue, NULL);
+}
+
+bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore) {
+	if (!queue || !semaphore) { return false; }
+	if (queue->binary_signal_count >= sizeof(queue->binary_signals) / sizeof(queue->binary_signals[0])) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "queue has too many binary signal semaphores");
+		return false;
+	}
+	queue->binary_signals[queue->binary_signal_count++] = semaphore;
+	return true;
 }
 
 struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore) {
@@ -340,6 +361,9 @@ struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rt
 void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_timepoint timepoint) {
 	if (!queue || !timepoint.queue || timepoint.value == 0) { return; }
 	if (queue == timepoint.queue && timepoint.value > queue->submitted_value) { return; }
+	if (timepoint.value > timepoint.queue->submitted_value) {
+		rtvk_queue_flush(ctx, timepoint.queue);
+	}
 	if (queue->wait_count >= sizeof(queue->wait_timepoints) / sizeof(queue->wait_timepoints[0])) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "queue has too many wait timepoints");
 		return;

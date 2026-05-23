@@ -6,16 +6,12 @@ if(NOT WIN32)
     return()
 endif()
 
-find_package(glfw3 CONFIG REQUIRED)
 include(RutileTarget)
 
 add_library(${PROJECT_NAME} SHARED)
 target_compile_features(${PROJECT_NAME} PRIVATE
     c_std_11
     cxx_std_23
-)
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-    GLFW_EXPOSE_NATIVE_WIN32
 )
 target_sources(${PROJECT_NAME} PRIVATE
     "src/atomic.cpp"
@@ -51,8 +47,6 @@ target_sources(${PROJECT_NAME} PRIVATE
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
-    PUBLIC
-        glfw
     PRIVATE
         Rutile::backend-tools
         d3d12

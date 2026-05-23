@@ -48,6 +48,7 @@ struct rtvk_texture {
 	VkFormat vk_format;
 	VkImageLayout vk_layout;
 	enum rt_texture_type type;
+	bool swapchain_image;
 };
 
 RTVK_DECLARE_NEW_RESOURCE(texture)

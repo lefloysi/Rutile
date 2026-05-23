@@ -121,6 +121,14 @@ static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swap
 		return;
 	}
 
+	if (frame->has_acquire_wait_timepoint) {
+		struct rtvk_timepoint timepoint = { frame->acquire_wait_queue, frame->acquire_wait_value };
+		rtvk_timepoint_wait(ctx, timepoint);
+		frame->acquire_wait_queue = NULL;
+		frame->acquire_wait_value = 0;
+		frame->has_acquire_wait_timepoint = false;
+	}
+
 	if (frame->has_present_timepoint) {
 		struct rtvk_timepoint timepoint = { frame->present_queue, frame->present_value };
 		rtvk_timepoint_wait(ctx, timepoint);
@@ -626,6 +634,7 @@ static bool rtvk_swapchain_submit_present_transition(
 }
 
 bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height) {
+	bool ok = false;
 	if (!swapchain || !swapchain->vk_surface || !swapchain->vk_swapchain) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain resize requires a valid swapchain");
 		return false;
@@ -633,11 +642,13 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	if (width == 0 || height == 0) {
 		return false;
 	}
+
+	rtvk_swapchain_lock_unacquired(swapchain);
 	if (width == swapchain->extent.width && height == swapchain->extent.height) {
+		rtvk_swapchain_unlock(swapchain);
 		return true;
 	}
 
-	rtvk_swapchain_lock_unacquired(swapchain);
 	vkDeviceWaitIdle(ctx->vk_device);
 	VkSurfaceKHR surface = swapchain->vk_surface;
 	struct rtvk_queue* present_queue = swapchain->present_queue;
@@ -656,7 +667,7 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 		swapchain->present_queue = NULL;
 	}
 
-	bool ok = rtvk_swapchain_create_for_surface(ctx, swapchain, surface, width, height);
+	ok = rtvk_swapchain_create_for_surface(ctx, swapchain, surface, width, height);
 	if (present_queue) {
 		rtvk_release_resource(present_queue);
 	}
@@ -695,24 +706,49 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	}
 
 	acquire.framebuffer = rtvk_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]);
-	acquire.timepoint = rtvk_timepoint_to_public(rtvk_queue_wait_binary(ctx, swapchain->present_queue, frame->image_available));
+	struct rtvk_timepoint acquire_wait = rtvk_queue_wait_binary(ctx, swapchain->present_queue, frame->image_available);
+	frame->acquire_wait_queue = acquire_wait.queue;
+	frame->acquire_wait_value = acquire_wait.value;
+	frame->has_acquire_wait_timepoint = acquire_wait.value != 0;
+	acquire.timepoint = rtvk_timepoint_to_public(acquire_wait);
 	swapchain->frame_acquired = true;
 	rtvk_swapchain_unlock(swapchain);
 	return acquire;
 }
 
 void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered) {
+	if (!swapchain || !swapchain->frames || swapchain->image_count == 0 || !swapchain->frame_acquired) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires an acquired frame");
+		return;
+	}
 	struct rtvk_swapchain_frame* frame = &swapchain->frames[swapchain->current_frame_index];
 	if (!rendered.queue || rendered.value == 0) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
 	}
-	rtvk_queue_flush(ctx, rendered.queue);
-
-	if (!rtvk_swapchain_submit_present_transition(ctx, swapchain, frame, rendered)) {
+	struct rtvk_texture* texture = swapchain->textures[swapchain->current_image_index];
+	texture = texture ? texture->active : NULL;
+	if (!texture) {
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
+	}
+	if (texture->vk_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+		if (rendered.value > rendered.queue->submitted_value) {
+			if (!rtvk_queue_signal_binary_on_next_flush(rendered.queue, frame->present_ready)) {
+				rtvk_swapchain_mark_unacquired(swapchain);
+				return;
+			}
+			rtvk_queue_flush(ctx, rendered.queue);
+		} else {
+			rtvk_queue_signal_binary_after_timepoint(rendered.queue, rendered.value, frame->present_ready);
+		}
+	} else {
+		rtvk_queue_flush(ctx, rendered.queue);
+		if (!rtvk_swapchain_submit_present_transition(ctx, swapchain, frame, rendered)) {
+			rtvk_swapchain_mark_unacquired(swapchain);
+			return;
+		}
 	}
 
 	VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };

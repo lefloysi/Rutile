@@ -542,9 +542,18 @@ void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_com
 	rtvk_throwf(RT_UNSUPPORTED_FEATURE, "stencil clear is not implemented yet");
 }
 void rtvk_command_buffer_end_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
-
 	struct rtvk_command_buffer* node = command_buffer->active;
+	struct rtvk_texture_view* color_view = node ? node->color_texture_view : NULL;
 	vkCmdEndRendering(node->vk_command_buffer);
+	if (color_view && color_view->texture && color_view->texture->swapchain_image) {
+		rtvk_command_buffer_transition_texture(
+			node,
+			color_view,
+			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			0,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+	}
 	command_buffer->framebuffer = NULL;
 }
 void rtvk_command_buffer_end(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {

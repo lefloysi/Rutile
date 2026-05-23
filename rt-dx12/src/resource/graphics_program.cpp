@@ -298,7 +298,6 @@ static bool rtdx_graphics_program_create_pipeline(
 	}
 
 	D3D12_INPUT_ELEMENT_DESC elements[RTDX_MAX_VERTEX_ATTRIBUTES] = {};
-	const char* semantic_names[RTDX_MAX_VERTEX_ATTRIBUTES] = {};
 	for (u32 i = 0; i < program->vertex_layout.attribute_count; i++) {
 		DXGI_FORMAT format = rtdx_vertex_format(program->vertex_attributes[i].format);
 		if (format == DXGI_FORMAT_UNKNOWN) {
@@ -313,8 +312,7 @@ static bool rtdx_graphics_program_create_pipeline(
 			rtdx_release(&pixel_shader);
 			return false;
 		}
-		semantic_names[i] = "RUTILE";
-		elements[i].SemanticName = semantic_names[i];
+		elements[i].SemanticName = "TEXCOORD";
 		elements[i].SemanticIndex = program->vertex_attributes[i].location;
 		elements[i].Format = format;
 		elements[i].InputSlot = 0;
@@ -344,8 +342,12 @@ static bool rtdx_graphics_program_create_pipeline(
 	pipeline_info.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
 	pipeline_info.RasterizerState.DepthClipEnable = TRUE;
 	pipeline_info.DepthStencilState.DepthEnable = depth_format != DXGI_FORMAT_UNKNOWN;
-	pipeline_info.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-	pipeline_info.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	pipeline_info.DepthStencilState.DepthWriteMask = pipeline_info.DepthStencilState.DepthEnable
+		? D3D12_DEPTH_WRITE_MASK_ALL
+		: D3D12_DEPTH_WRITE_MASK_ZERO;
+	pipeline_info.DepthStencilState.DepthFunc = pipeline_info.DepthStencilState.DepthEnable
+		? D3D12_COMPARISON_FUNC_LESS
+		: D3D12_COMPARISON_FUNC_ALWAYS;
 	pipeline_info.DepthStencilState.StencilEnable = FALSE;
 	pipeline_info.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
 	pipeline_info.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
@@ -359,6 +361,7 @@ static bool rtdx_graphics_program_create_pipeline(
 	pipeline_info.RTVFormats[0] = color_format;
 	pipeline_info.DSVFormat = depth_format;
 	pipeline_info.SampleDesc.Count = 1;
+	pipeline_info.SampleDesc.Quality = 0;
 	if (program->vertex_layout.attribute_count > 0) {
 		pipeline_info.InputLayout = { elements, program->vertex_layout.attribute_count };
 	} else {

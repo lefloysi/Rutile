@@ -49,6 +49,7 @@ struct rtvk_queue {
 	struct rtvk_submitted_batch* pending_tail;
 	struct rtvk_timepoint wait_timepoints[8];
 	VkSemaphore binary_waits[8];
+	VkSemaphore binary_signals[8];
 
 	u64 timeline_value;
 	u64 submitted_value;
@@ -57,6 +58,7 @@ struct rtvk_queue {
 	u32 queue_index;
 	u32 wait_count;
 	u32 binary_wait_count;
+	u32 binary_signal_count;
 };
 
 static inline struct rtvk_queue* rtvk_queue_from_handle(rt_queue queue) { return (struct rtvk_queue*)queue; }
@@ -74,6 +76,7 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue);
 struct rtvk_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_queue* queue);
 struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore);
+bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore);
 struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue* queue, u64 wait_value, VkSemaphore semaphore);
 void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue);
 void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoint);

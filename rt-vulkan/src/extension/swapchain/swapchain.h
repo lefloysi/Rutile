@@ -63,12 +63,15 @@ struct rtvk_swapchain_frame {
 	VkCommandBuffer present_command_buffer;
 
 	struct rtvk_queue* present_queue;
+	struct rtvk_queue* acquire_wait_queue;
 
+	u64 acquire_wait_value;
 	u64 present_value;
 	VkFormat vk_format;
 	u32 width;
 	u32 height;
 	u32 present_command_family_index;
+	bool has_acquire_wait_timepoint;
 	bool has_present_timepoint;
 };
 

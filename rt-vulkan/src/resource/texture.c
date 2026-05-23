@@ -428,6 +428,7 @@ struct rtvk_texture* rtvk_texture_create_for_swapchain_image(struct rtvk_context
 	node->vk_format = format;
 	node->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	node->type = RT_TEXTURE_2D;
+	node->swapchain_image = true;
 	node->width = width;
 	node->height = height;
 	node->depth = 1;

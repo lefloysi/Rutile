@@ -70,8 +70,12 @@ struct rtdx_command_buffer {
 	struct rtdx_buffer* vertex_buffer;
 	struct rtdx_buffer_storage* vertex_buffer_storage;
 	rtdx_uniform_slot* uniform_slots;
+	struct rtdx_texture_view** recorded_texture_views;
 
 	u32 uniform_slot_count;
+	u32 recorded_texture_view_count;
+	u32 recorded_texture_view_capacity;
+	u32 descriptor_cursor;
 	bool recording;
 };
 RTDX_DECLARE_NEW_RESOURCE(command_buffer)

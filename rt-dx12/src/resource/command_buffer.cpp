@@ -127,8 +127,11 @@ RTDX_DEFINE_RESOURCE_PRIVATE(command_buffer)
 static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_buffer* command_buffer);
 static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot);
 static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer* command_buffer, u32 index);
+static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* texture_view);
 static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx);
 static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue);
+
+static constexpr u32 RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT = 1024;
 
 void rtdx_command_buffer_init(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
@@ -163,6 +166,13 @@ static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_b
 	free(command_buffer->uniform_slots);
 	command_buffer->uniform_slots = NULL;
 	command_buffer->uniform_slot_count = 0;
+	for (u32 i = 0; i < command_buffer->recorded_texture_view_count; ++i) {
+		rtdx_release_resource(command_buffer->recorded_texture_views[i]);
+	}
+	free(command_buffer->recorded_texture_views);
+	command_buffer->recorded_texture_views = NULL;
+	command_buffer->recorded_texture_view_count = 0;
+	command_buffer->recorded_texture_view_capacity = 0;
 	rtdx_release(&command_buffer->d3d_srv_heap);
 	rtdx_release(&command_buffer->d3d_sampler_heap);
 	rtdx_release_resource(command_buffer->color_texture_view);
@@ -206,12 +216,28 @@ static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_b
 	return &command_buffer->uniform_slots[index];
 }
 
+static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* texture_view) {
+	if (command_buffer->recorded_texture_view_count >= command_buffer->recorded_texture_view_capacity) {
+		u32 capacity = command_buffer->recorded_texture_view_capacity ? command_buffer->recorded_texture_view_capacity * 2 : 16;
+		void* views = realloc(command_buffer->recorded_texture_views, sizeof(command_buffer->recorded_texture_views[0]) * capacity);
+		if (!views) {
+			rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate recorded texture view list");
+			return false;
+		}
+		command_buffer->recorded_texture_views = (struct rtdx_texture_view**)views;
+		command_buffer->recorded_texture_view_capacity = capacity;
+	}
+
+	rtdx_retain_resource(texture_view);
+	command_buffer->recorded_texture_views[command_buffer->recorded_texture_view_count++] = texture_view;
+	return true;
+}
+
 static bool rtdx_command_buffer_prepare_descriptor_heaps(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
-	constexpr u32 descriptor_count = 8;
 	if (!command_buffer->d3d_srv_heap) {
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-		heap_desc.NumDescriptors = descriptor_count;
+		heap_desc.NumDescriptors = RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT;
 		heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&command_buffer->d3d_srv_heap));
 		if (FAILED(result)) {
@@ -222,7 +248,7 @@ static bool rtdx_command_buffer_prepare_descriptor_heaps(struct rtdx_context* ct
 	if (!command_buffer->d3d_sampler_heap) {
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-		heap_desc.NumDescriptors = descriptor_count;
+		heap_desc.NumDescriptors = RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT;
 		heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&command_buffer->d3d_sampler_heap));
 		if (FAILED(result)) {
@@ -343,6 +369,7 @@ void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buf
 	command_buffer->vertex_buffer = NULL;
 	command_buffer->color_texture_view = NULL;
 	command_buffer->depth_texture_view = NULL;
+	node->descriptor_cursor = 0;
 }
 
 static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* view, D3D12_RESOURCE_STATES next_state) {
@@ -581,31 +608,39 @@ void rtdx_command_buffer_uniform_texture(
 	if (!rtdx_command_buffer_prepare_descriptor_heaps(ctx, node)) {
 		return;
 	}
+	if (node->descriptor_cursor >= RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT) {
+		rtdx_throwf(RT_OUT_OF_DEVICE_MEMORY, "command buffer descriptor heap is full");
+		return;
+	}
 
 	rtdx_command_buffer_transition_texture(node, texture_view, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
+	u32 descriptor_index = node->descriptor_cursor++;
 	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
 	srv_desc.Format = texture_view->dxgi_format;
 	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srv_desc.Texture2D.MostDetailedMip = 0;
 	srv_desc.Texture2D.MipLevels = 1;
-	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, internal_location->slot);
+	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
 	ctx->d3d_device->CreateShaderResourceView(texture_view->d3d_resource, &srv_desc, srv_cpu);
-	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, internal_location->slot);
+	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, texture_view->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
 	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap, node->d3d_sampler_heap };
 	node->d3d_command_list->SetDescriptorHeaps(2, heaps);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		internal_location->root_parameter,
-		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, internal_location->slot));
+		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index));
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		internal_location->sampler_root_parameter,
-		rtdx_heap_gpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, internal_location->slot));
+		rtdx_heap_gpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index));
 
 	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, internal_location->slot);
 	if (!slot) {
+		return;
+	}
+	if (!rtdx_command_buffer_record_texture_view(node, texture_view)) {
 		return;
 	}
 	rtdx_command_buffer_clear_uniform_slot(slot);
