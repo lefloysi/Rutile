@@ -90,6 +90,16 @@ void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location l
 		rtdx_texture_view_from_handle(texture_view));
 }
 
+void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
+	rtdx_command_buffer_storage_buffer(
+		rtdx_get_current_context(),
+		rtdx_command_buffer_from_handle(command_buffer),
+		binding,
+		rtdx_buffer_from_handle(buffer),
+		offset,
+		size);
+}
+
 void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
 	rtdx_command_buffer_bind_vertex_buffer(
 		rtdx_get_current_context(),
@@ -185,7 +195,7 @@ static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot) {
 	if (!slot) {
 		return;
 	}
-	if (slot->kind == RTDX_UNIFORM_SLOT_BUFFER) {
+	if (slot->kind == RTDX_UNIFORM_SLOT_BUFFER || slot->kind == RTDX_UNIFORM_SLOT_STORAGE_BUFFER) {
 		rtdx_buffer_storage_release(slot->buffer.storage);
 	}
 	if (slot->kind == RTDX_UNIFORM_SLOT_TEXTURE) {
@@ -647,6 +657,89 @@ void rtdx_command_buffer_uniform_texture(
 	rtdx_retain_resource(texture_view);
 	slot->kind = RTDX_UNIFORM_SLOT_TEXTURE;
 	slot->texture.view = texture_view;
+}
+
+void rtdx_command_buffer_storage_buffer(
+	struct rtdx_context* ctx,
+	struct rtdx_command_buffer* command_buffer,
+	u32 binding,
+	struct rtdx_buffer* buffer,
+	u64 offset,
+	u64 size) {
+	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires active rendering");
+		return;
+	}
+	if (!command_buffer->graphics_program) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
+		return;
+	}
+	rtdx_uniform_location* location = NULL;
+	for (u32 i = 0; i < command_buffer->graphics_program->uniform_location_count; ++i) {
+		rtdx_uniform_location* candidate = &command_buffer->graphics_program->uniform_locations[i];
+		if (candidate->kind == RTDX_UNIFORM_LOCATION_STORAGE_BUFFER && candidate->slot == binding) {
+			location = candidate;
+			break;
+		}
+	}
+	if (!location) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "storage buffer binding is not declared by the active graphics program");
+		return;
+	}
+	if (!buffer || !buffer->storage || !buffer->storage->d3d_resource) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "storage buffer has no storage");
+		return;
+	}
+	if (!(buffer->storage->usage & RT_BUFFER_USAGE_STORAGE) || (buffer->storage->usage & RT_BUFFER_USAGE_STAGING)) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "buffer usage is not compatible with storage binding");
+		return;
+	}
+	if (size == 0 || offset > buffer->storage->size || size > buffer->storage->size - offset) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "storage buffer range is invalid");
+		return;
+	}
+	if (!rtdx_command_buffer_prepare_descriptor_heaps(ctx, node)) {
+		return;
+	}
+	if (node->descriptor_cursor >= RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT) {
+		rtdx_throwf(RT_OUT_OF_DEVICE_MEMORY, "command buffer descriptor heap is full");
+		return;
+	}
+
+	u32 descriptor_index = node->descriptor_cursor++;
+	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+	srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srv_desc.Buffer.FirstElement = offset / 4u;
+	srv_desc.Buffer.NumElements = static_cast<UINT>(size / 4u);
+	srv_desc.Buffer.StructureByteStride = 0;
+	srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
+	ctx->d3d_device->CreateShaderResourceView(buffer->storage->d3d_resource, &srv_desc, srv_cpu);
+	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap };
+	node->d3d_command_list->SetDescriptorHeaps(1, heaps);
+	node->d3d_command_list->SetGraphicsRootDescriptorTable(
+		location->root_parameter,
+		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index));
+
+	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, binding);
+	if (!slot) {
+		return;
+	}
+	if (slot->kind == RTDX_UNIFORM_SLOT_STORAGE_BUFFER &&
+		slot->buffer.storage == buffer->storage &&
+		slot->buffer.offset == offset &&
+		slot->buffer.size == size) {
+		return;
+	}
+	rtdx_command_buffer_clear_uniform_slot(slot);
+	rtdx_buffer_storage_retain(buffer->storage);
+	slot->kind = RTDX_UNIFORM_SLOT_STORAGE_BUFFER;
+	slot->buffer.storage = buffer->storage;
+	slot->buffer.offset = offset;
+	slot->buffer.size = size;
 }
 
 void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_buffer* buffer, u64 offset) {

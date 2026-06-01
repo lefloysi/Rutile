@@ -10,6 +10,7 @@
 RT_EXPORT rt_swapchain rtSwapchainCreate(void) { return rtval_rtSwapchainCreate(); }
 RT_EXPORT void rtSwapchainDestroy(rt_swapchain swapchain) { rtval_rtSwapchainDestroy(swapchain); }
 RT_EXPORT void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) { rtval_rtSwapchainResize(swapchain, width, height); }
+RT_EXPORT void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled) { rtval_rtSwapchainSetVsync(swapchain, enabled); }
 RT_EXPORT rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) { return rtval_rtSwapchainAcquire(swapchain); }
 RT_EXPORT void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) { rtval_rtSwapchainPresent(swapchain, rendered); }
 RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) { rtval_rtSwapchainBindWindowGLFW(swapchain, window); }
@@ -45,6 +46,20 @@ void rtval_rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 
 	rtval_next_rtSwapchainResize(swapchain, width, height);
 	rtval_report_error("rtSwapchainResize");
+}
+
+void rtval_rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled) {
+	if (!swapchain) {
+		RTVAL_DROP("swapchain_set_vsync: NULL swapchain");
+		return;
+	}
+	if (!rtval_next_rtSwapchainSetVsync) {
+		RTVAL_DROP("swapchain_set_vsync: next function is NULL");
+		return;
+	}
+
+	rtval_next_rtSwapchainSetVsync(swapchain, enabled);
+	rtval_report_error("rtSwapchainSetVsync");
 }
 
 rt_swapchain_acquire_result rtval_rtSwapchainAcquire(rt_swapchain swapchain) {

@@ -1237,6 +1237,8 @@ static inline bool rtTimepointReached(rt_timepoint timepoint) {
 
 #if defined(_WIN32)
 #define RT__THREAD_LOCAL __declspec(thread)
+#elif defined(__cplusplus)
+#define RT__THREAD_LOCAL thread_local
 #else
 #define RT__THREAD_LOCAL _Thread_local
 #endif
@@ -1247,6 +1249,8 @@ static inline bool rtTimepointReached(rt_timepoint timepoint) {
 typedef HMODULE rt__dll_handle;
 #else
 #include <dlfcn.h>
+#include <limits.h>
+#include <unistd.h>
 typedef void* rt__dll_handle;
 #endif
 
@@ -1332,7 +1336,31 @@ static rt__dll_handle rt__dll_open(const char* path) {
 }
 
 static bool rt__exe_dir_path(char* out, usize out_size) {
+	if (!out || out_size == 0) {
+		return false;
+	}
+	out[0] = '\0';
+
+#if defined(__linux__)
+	char path[PATH_MAX];
+	ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	if (length <= 0) {
+		return false;
+	}
+	path[length] = '\0';
+
+	char* slash = strrchr(path, '/');
+	if (!slash) {
+		return false;
+	}
+	*(slash + 1) = '\0';
+
+	snprintf(out, out_size, "%s", path);
+	out[out_size - 1] = '\0';
+	return true;
+#else
 	return false;
+#endif
 }
 
 static void rt__dll_last_error_message(char* out, usize out_size) {

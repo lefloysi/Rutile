@@ -15,6 +15,7 @@ enum class ShaderStage {
 
 enum class ShaderResourceKind {
 	UniformBuffer,
+	StorageBuffer,
 	Texture,
 };
 

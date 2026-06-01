@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.50)
+cmake_minimum_required(VERSION 3.28.0)
 
 project(rt-vulkan C CXX)
 
@@ -7,6 +7,17 @@ find_package(glslang CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 include(RutileTarget)
+
+set(RUTILE_VULKAN_LIBRARY Vulkan::Vulkan)
+if(UNIX AND NOT APPLE)
+    if(EXISTS "/usr/lib/x86_64-linux-gnu/libvulkan.so")
+        set(RUTILE_VULKAN_LIBRARY "/usr/lib/x86_64-linux-gnu/libvulkan.so")
+    elseif(EXISTS "/lib/x86_64-linux-gnu/libvulkan.so")
+        set(RUTILE_VULKAN_LIBRARY "/lib/x86_64-linux-gnu/libvulkan.so")
+    else()
+        message(FATAL_ERROR "Could not find the Linux system Vulkan loader. Install libvulkan-dev.")
+    endif()
+endif()
 
 add_library(${PROJECT_NAME} SHARED)
 target_compile_features(${PROJECT_NAME} PRIVATE
@@ -57,7 +68,7 @@ rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
-        Vulkan::Vulkan
+        ${RUTILE_VULKAN_LIBRARY}
     PRIVATE
         glslang::glslang
         glslang::SPIRV

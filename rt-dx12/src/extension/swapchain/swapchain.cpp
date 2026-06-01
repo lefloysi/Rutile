@@ -23,6 +23,13 @@ void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 		height);
 }
 
+void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled) {
+	rtdx_swapchain_set_vsync(
+		rtdx_get_current_context(),
+		rtdx_swapchain_from_handle(swapchain),
+		enabled);
+}
+
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 	return rtdx_swapchain_acquire(
 		rtdx_get_current_context(),
@@ -50,6 +57,7 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	swapchain->vsync = true;
 	InitializeCriticalSection(&swapchain->frame_lock);
 	InitializeConditionVariable(&swapchain->frame_condition);
 }
@@ -155,6 +163,14 @@ bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 	bool ok = rtdx_swapchain_create_framebuffers(ctx, swapchain);
 	rtdx_swapchain_unlock(swapchain);
 	return ok;
+}
+
+void rtdx_swapchain_set_vsync(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, bool enabled) {
+	(void)ctx;
+	if (!swapchain) {
+		return;
+	}
+	swapchain->vsync = enabled;
 }
 
 void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
@@ -389,7 +405,9 @@ void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swa
 		return;
 	}
 
-	HRESULT result = swapchain->dxgi_swapchain->Present(0, ctx->allow_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
+	const UINT sync_interval = swapchain->vsync ? 1u : 0u;
+	const UINT present_flags = !swapchain->vsync && ctx->allow_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+	HRESULT result = swapchain->dxgi_swapchain->Present(sync_interval, present_flags);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain::Present failed: 0x%08x", (u32)result);
 		rtdx_swapchain_mark_unacquired(swapchain);

@@ -76,6 +76,7 @@ PFN_rtTimepointReached next_rtTimepointReached = NULL;
 PFN_rtSwapchainCreate next_rtSwapchainCreate = NULL;
 PFN_rtSwapchainDestroy next_rtSwapchainDestroy = NULL;
 PFN_rtSwapchainResize next_rtSwapchainResize = NULL;
+PFN_rtSwapchainSetVsync next_rtSwapchainSetVsync = NULL;
 PFN_rtSwapchainAcquire next_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent next_rtSwapchainPresent = NULL;
 PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW = NULL;
@@ -161,6 +162,7 @@ RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
 	next_rtSwapchainCreate = (PFN_rtSwapchainCreate)next.get_proc(&next, "rtSwapchainCreate");
 	next_rtSwapchainDestroy = (PFN_rtSwapchainDestroy)next.get_proc(&next, "rtSwapchainDestroy");
 	next_rtSwapchainResize = (PFN_rtSwapchainResize)next.get_proc(&next, "rtSwapchainResize");
+	next_rtSwapchainSetVsync = (PFN_rtSwapchainSetVsync)next.get_proc(&next, "rtSwapchainSetVsync");
 	next_rtSwapchainAcquire = (PFN_rtSwapchainAcquire)next.get_proc(&next, "rtSwapchainAcquire");
 	next_rtSwapchainPresent = (PFN_rtSwapchainPresent)next.get_proc(&next, "rtSwapchainPresent");
 	next_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)next.get_proc(&next, "rtSwapchainBindWindowGLFW");

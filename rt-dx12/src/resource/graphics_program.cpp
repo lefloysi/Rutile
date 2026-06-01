@@ -544,6 +544,10 @@ static bool rtdx_graphics_program_add_location(
 		location->kind = RTDX_UNIFORM_LOCATION_BUFFER;
 		location->root_parameter = resource.binding;
 		location->sampler_root_parameter = 0;
+	} else if (resource.kind == rutile::backend_tools::ShaderResourceKind::StorageBuffer) {
+		location->kind = RTDX_UNIFORM_LOCATION_STORAGE_BUFFER;
+		location->root_parameter = RTDX_MAX_SHADER_BINDINGS + resource.binding;
+		location->sampler_root_parameter = 0;
 	} else {
 		location->kind = RTDX_UNIFORM_LOCATION_TEXTURE;
 		location->root_parameter = RTDX_MAX_SHADER_BINDINGS + resource.binding;

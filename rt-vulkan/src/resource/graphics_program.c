@@ -197,7 +197,9 @@ static bool rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 		bindings[i].binding = program->uniform_locations[i].binding;
 		bindings[i].descriptorType = program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_TEXTURE ?
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER :
-			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			(program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER ?
+				VK_DESCRIPTOR_TYPE_STORAGE_BUFFER :
+				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 		bindings[i].descriptorCount = 1;
 		bindings[i].stageFlags = program->uniform_locations[i].stages;
 		bindings[i].pImmutableSamplers = NULL;
@@ -613,6 +615,9 @@ static bool rtvk_graphics_program_add_uniform_block(
 	VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, block->name);
 	if (existing) {
+		if (existing->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && existing->binding == block->binding) {
+			return true;
+		}
 		if (existing->kind != RTVK_UNIFORM_LOCATION_BUFFER || existing->binding != block->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniform block %s uses different bindings across shader stages", block->name);
 			return false;
@@ -622,6 +627,10 @@ static bool rtvk_graphics_program_add_uniform_block(
 	}
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
+		if (program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER &&
+			program->uniform_locations[i].binding == block->binding) {
+			return true;
+		}
 		if (program->uniform_locations[i].binding == block->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, block->name);
 			return false;
@@ -679,9 +688,59 @@ static bool rtvk_graphics_program_add_texture(
 	return true;
 }
 
+static bool rtvk_graphics_program_add_storage_buffer(
+	struct rtvk_graphics_program* program,
+	const rtvk_shader_resource* resource,
+	VkShaderStageFlags stages) {
+	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, resource->name);
+	if (existing) {
+		if (existing->kind != RTVK_UNIFORM_LOCATION_STORAGE_BUFFER || existing->binding != resource->binding) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "storage buffer %s uses different bindings across shader stages", resource->name);
+			return false;
+		}
+		existing->stages |= stages;
+		return true;
+	}
+
+	for (u32 i = 0; i < program->uniform_location_count; i++) {
+		if (program->uniform_locations[i].binding == resource->binding) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, resource->name);
+			return false;
+		}
+	}
+	if (!rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1)) {
+		return false;
+	}
+
+	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
+	location->program = program;
+	snprintf(location->name, sizeof(location->name), "%s", resource->name);
+	location->name[sizeof(location->name) - 1] = '\0';
+	location->stages = stages;
+	location->kind = RTVK_UNIFORM_LOCATION_STORAGE_BUFFER;
+	location->binding = resource->binding;
+	location->index = program->uniform_location_count;
+	program->uniform_location_count++;
+	return true;
+}
+
 static bool rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_program* program) {
 	program->uniform_location_count = 0;
 
+	for (u32 i = 0; i < program->vertex_reflection.resource_count; i++) {
+		const rtvk_shader_resource* resource = &program->vertex_reflection.resources[i];
+		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER &&
+			!rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT)) {
+			return false;
+		}
+	}
+	for (u32 i = 0; i < program->fragment_reflection.resource_count; i++) {
+		const rtvk_shader_resource* resource = &program->fragment_reflection.resources[i];
+		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER &&
+			!rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT)) {
+			return false;
+		}
+	}
 	for (u32 i = 0; i < program->vertex_reflection.uniform_block_count; i++) {
 		if (!rtvk_graphics_program_add_uniform_block(program, &program->vertex_reflection.uniform_blocks[i], VK_SHADER_STAGE_VERTEX_BIT)) {
 			return false;

@@ -26,6 +26,7 @@ RTDX_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graph
 RTDX_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 RTDX_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTDX_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
+RTDX_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
 RTDX_API void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 RTDX_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 RTDX_API void rtCmdEndRendering(rt_command_buffer command_buffer);
@@ -35,6 +36,7 @@ RTDX_EXTERN_C_EXIT
 typedef enum rtdx_uniform_slot_kind {
 	RTDX_UNIFORM_SLOT_EMPTY,
 	RTDX_UNIFORM_SLOT_BUFFER,
+	RTDX_UNIFORM_SLOT_STORAGE_BUFFER,
 	RTDX_UNIFORM_SLOT_TEXTURE,
 } rtdx_uniform_slot_kind;
 
@@ -89,6 +91,7 @@ void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct r
 void rtdx_command_buffer_set_scissor(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtdx_command_buffer_uniform_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, rt_uniform_location location, struct rtdx_buffer* buffer, u64 offset, u64 size);
 void rtdx_command_buffer_uniform_texture(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, rt_uniform_location location, struct rtdx_texture_view* texture_view);
+void rtdx_command_buffer_storage_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 binding, struct rtdx_buffer* buffer, u64 offset, u64 size);
 void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_buffer* buffer, u64 offset);
 void rtdx_command_buffer_draw(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex);
 void rtdx_command_buffer_end_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer);

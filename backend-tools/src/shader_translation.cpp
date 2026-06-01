@@ -3,6 +3,7 @@
 #include <glslang/Public/ResourceLimits.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
+#include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_hlsl.hpp>
 
 #include <algorithm>
@@ -85,32 +86,20 @@ void validate_source(EShLanguage language, u64 size, const void* source) {
 	}
 }
 
-void append_reflection_resources(glslang::TProgram& program, std::vector<ShaderResource>& resources) {
-	if (!program.buildReflection(EShReflectionDefault)) {
-		throw std::runtime_error("shader reflection failed");
+void append_spirv_resources(const std::vector<u32>& spirv, std::vector<ShaderResource>& resources) {
+	spirv_cross::Compiler compiler(spirv);
+	spirv_cross::ShaderResources reflected = compiler.get_shader_resources();
+	auto binding_of = [&](const spirv_cross::Resource& resource) {
+		return compiler.get_decoration(resource.id, spv::DecorationBinding);
+	};
+	for (const spirv_cross::Resource& resource : reflected.uniform_buffers) {
+		resources.push_back({ resource.name, ShaderResourceKind::UniformBuffer, binding_of(resource) });
 	}
-
-	int block_count = std::max(program.getNumUniformBlocks(), 0);
-	for (int i = 0; i < block_count; i++) {
-		const glslang::TObjectReflection& block = program.getUniformBlock(i);
-		int binding = block.getBinding();
-		if (binding < 0) {
-			throw std::runtime_error("uniform block '" + block.name + "' has no binding");
-		}
-		resources.push_back({ block.name, ShaderResourceKind::UniformBuffer, static_cast<u32>(binding) });
+	for (const spirv_cross::Resource& resource : reflected.storage_buffers) {
+		resources.push_back({ resource.name, ShaderResourceKind::StorageBuffer, binding_of(resource) });
 	}
-
-	int uniform_count = std::max(program.getNumUniformVariables(), 0);
-	for (int i = 0; i < uniform_count; i++) {
-		const glslang::TObjectReflection& uniform = program.getUniform(i);
-		if (uniform.index >= 0) {
-			continue;
-		}
-		int binding = uniform.getBinding();
-		if (binding < 0) {
-			continue;
-		}
-		resources.push_back({ uniform.name, ShaderResourceKind::Texture, static_cast<u32>(binding) });
+	for (const spirv_cross::Resource& resource : reflected.sampled_images) {
+		resources.push_back({ resource.name, ShaderResourceKind::Texture, binding_of(resource) });
 	}
 }
 
@@ -143,8 +132,8 @@ StageTranslation compile_stage_to_spirv(ShaderStage stage, u64 size, const void*
 	}
 
 	StageTranslation output;
-	append_reflection_resources(program, output.resources);
 	glslang::GlslangToSpv(*intermediate, output.spirv);
+	append_spirv_resources(output.spirv, output.resources);
 	return output;
 }
 

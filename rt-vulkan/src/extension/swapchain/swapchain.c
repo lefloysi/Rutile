@@ -26,6 +26,13 @@ void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 		height);
 }
 
+void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled) {
+	rtvk_swapchain_set_vsync(
+		rtvk_get_current_context(),
+		rtvk_swapchain_from_handle(swapchain),
+		enabled);
+}
+
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 	return rtvk_swapchain_acquire(
 		rtvk_get_current_context(),
@@ -48,6 +55,7 @@ RTVK_DEFINE_RESOURCE_PRIVATE(swapchain)
 
 void rtvk_swapchain_init(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
+	swapchain->vsync = true;
 #if defined(_WIN32)
 	InitializeCriticalSection(&swapchain->frame_lock);
 	InitializeConditionVariable(&swapchain->frame_condition);
@@ -327,7 +335,10 @@ static VkSurfaceFormatKHR rtvk_swapchain_choose_format(VkSurfaceFormatKHR* forma
 	return formats[0];
 }
 
-static VkPresentModeKHR rtvk_swapchain_choose_present_mode(VkPresentModeKHR* present_modes, u32 present_mode_count) {
+static VkPresentModeKHR rtvk_swapchain_choose_present_mode(VkPresentModeKHR* present_modes, u32 present_mode_count, bool vsync) {
+	if (vsync) {
+		return VK_PRESENT_MODE_FIFO_KHR;
+	}
 	for (u32 i = 0; i < present_mode_count; i++) {
 		if (present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
 			return present_modes[i];
@@ -438,7 +449,7 @@ bool rtvk_swapchain_create_for_surface(
 	}
 
 	VkSurfaceFormatKHR format = rtvk_swapchain_choose_format(formats, format_count);
-	VkPresentModeKHR present_mode = rtvk_swapchain_choose_present_mode(present_modes, present_mode_count);
+	VkPresentModeKHR present_mode = rtvk_swapchain_choose_present_mode(present_modes, present_mode_count, swapchain->vsync);
 	free(formats);
 	free(present_modes);
 
@@ -503,6 +514,14 @@ bool rtvk_swapchain_create_for_surface(
 	}
 
 	return true;
+}
+
+void rtvk_swapchain_set_vsync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, bool enabled) {
+	(void)ctx;
+	if (!swapchain) {
+		return;
+	}
+	swapchain->vsync = enabled;
 }
 
 static bool rtvk_swapchain_prepare_present_command(
@@ -688,13 +707,13 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 
-	swapchain->current_frame_index = swapchain->next_frame_index;
+	u32 acquire_frame_index = swapchain->next_frame_index;
 	swapchain->next_frame_index = (swapchain->next_frame_index + 1) % swapchain->image_count;
-	struct rtvk_swapchain_frame* frame = &swapchain->frames[swapchain->current_frame_index];
+	struct rtvk_swapchain_frame* acquire_frame = &swapchain->frames[acquire_frame_index];
 
-	rtvk_swapchain_wait_frame(ctx, frame);
+	rtvk_swapchain_wait_frame(ctx, acquire_frame);
 
-	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, UINT64_MAX, frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
+	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, UINT64_MAX, acquire_frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
@@ -705,11 +724,17 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 
+	swapchain->current_frame_index = swapchain->current_image_index;
+	struct rtvk_swapchain_frame* present_frame = &swapchain->frames[swapchain->current_frame_index];
+	if (present_frame != acquire_frame) {
+		rtvk_swapchain_wait_frame(ctx, present_frame);
+	}
+
 	acquire.framebuffer = rtvk_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]);
-	struct rtvk_timepoint acquire_wait = rtvk_queue_wait_binary(ctx, swapchain->present_queue, frame->image_available);
-	frame->acquire_wait_queue = acquire_wait.queue;
-	frame->acquire_wait_value = acquire_wait.value;
-	frame->has_acquire_wait_timepoint = acquire_wait.value != 0;
+	struct rtvk_timepoint acquire_wait = rtvk_queue_wait_binary(ctx, swapchain->present_queue, acquire_frame->image_available);
+	acquire_frame->acquire_wait_queue = acquire_wait.queue;
+	acquire_frame->acquire_wait_value = acquire_wait.value;
+	acquire_frame->has_acquire_wait_timepoint = acquire_wait.value != 0;
 	acquire.timepoint = rtvk_timepoint_to_public(acquire_wait);
 	swapchain->frame_acquired = true;
 	rtvk_swapchain_unlock(swapchain);

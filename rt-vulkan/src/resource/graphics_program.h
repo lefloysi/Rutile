@@ -29,6 +29,7 @@ RTVK_API rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_progra
 
 typedef enum rtvk_uniform_location_kind {
 	RTVK_UNIFORM_LOCATION_BUFFER,
+	RTVK_UNIFORM_LOCATION_STORAGE_BUFFER,
 	RTVK_UNIFORM_LOCATION_TEXTURE,
 } rtvk_uniform_location_kind;
 

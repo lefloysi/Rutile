@@ -1,3 +1,5 @@
+include_guard(GLOBAL)
+
 function(rutile_set_common_output_dirs target_name)
     set_target_properties(${target_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

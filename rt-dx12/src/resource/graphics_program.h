@@ -33,6 +33,7 @@ RTDX_EXTERN_C_EXIT
 
 typedef enum rtdx_uniform_location_kind {
 	RTDX_UNIFORM_LOCATION_BUFFER,
+	RTDX_UNIFORM_LOCATION_STORAGE_BUFFER,
 	RTDX_UNIFORM_LOCATION_TEXTURE,
 } rtdx_uniform_location_kind;
 

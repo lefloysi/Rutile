@@ -19,6 +19,7 @@
 RTVK_API rt_swapchain rtSwapchainCreate(void);
 RTVK_API void rtSwapchainDestroy(rt_swapchain swapchain);
 RTVK_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
+RTVK_API void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled);
 
 RTVK_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTVK_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
@@ -46,6 +47,7 @@ struct rtvk_swapchain {
 	u32 current_frame_index;
 	u32 next_frame_index;
 	bool frame_acquired;
+	bool vsync;
 #if defined(_WIN32)
 	CRITICAL_SECTION frame_lock;
 	CONDITION_VARIABLE frame_condition;
@@ -84,6 +86,7 @@ bool rtvk_swapchain_create_for_surface(
 	u32 width,
 	u32 height);
 bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height);
+void rtvk_swapchain_set_vsync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, bool enabled);
 
 rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain);
 void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered);

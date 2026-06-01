@@ -39,7 +39,6 @@ void rtvk_finish_resource_base(struct rtvk_context* ctx, struct rtvk_resource_ba
 	base->ctx = NULL;
 	rtvk_atomic_bool_store(&base->zombie, true);
 }
-
 static void rtvk_resource_try_free(struct rtvk_resource_base* base) {
 	if (rtvk_resource_ready_to_destroy(base)) {
 		rtvk_resource_finalize(base);
