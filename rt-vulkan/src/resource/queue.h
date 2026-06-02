@@ -28,6 +28,14 @@ struct rtvk_submitted_batch {
 	u64 value;
 };
 
+struct rtvk_retired_upload_resource {
+	struct rtvk_retired_upload_resource* next;
+	struct rtvk_timepoint timepoint;
+	VkCommandPool command_pool;
+	VkBuffer staging_buffer;
+	VmaAllocation staging_allocation;
+};
+
 struct rtvk_queue {
 	struct rtvk_resource_base base;
 
@@ -47,12 +55,14 @@ struct rtvk_queue {
 	struct rtvk_submitted_batch* submitted_tail;
 	struct rtvk_submitted_batch* pending_head;
 	struct rtvk_submitted_batch* pending_tail;
+	struct rtvk_retired_upload_resource* retired_uploads;
 	struct rtvk_timepoint wait_timepoints[8];
 	VkSemaphore binary_waits[8];
 	VkSemaphore binary_signals[8];
 
 	u64 timeline_value;
 	u64 submitted_value;
+	u64 completed_value;
 	enum rt_queue_capability capability;
 	u32 family_index;
 	u32 queue_index;
@@ -79,6 +89,7 @@ struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rt
 bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore);
 struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue* queue, u64 wait_value, VkSemaphore semaphore);
 void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue);
+void rtvk_queue_retire_upload_resources(struct rtvk_context* ctx, struct rtvk_queue* queue, bool command, bool staging);
 void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoint);
 bool rtvk_timepoint_reached(struct rtvk_context* ctx, struct rtvk_timepoint timepoint);
 

@@ -164,6 +164,7 @@ void rtCmdDispatch(rt_command_buffer command_buffer, u32 group_count_x, u32 grou
 static void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* command_buffer);
 static void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot* slot);
 static rtvk_uniform_slot* rtvk_command_buffer_uniform_slot(struct rtvk_command_buffer* command_buffer, u32 index);
+static void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 static void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 static void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 static void rtvk_command_buffer_wait_pending(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
@@ -216,7 +217,7 @@ static void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_b
 	command_buffer->color_texture_view = NULL;
 	rtvk_release_resource(command_buffer->depth_texture_view);
 	command_buffer->depth_texture_view = NULL;
-	rtvk_command_buffer_destroy_descriptor_pools(command_buffer->base.ctx, command_buffer);
+	rtvk_command_buffer_reset_descriptor_pools(command_buffer->base.ctx, command_buffer);
 	command_buffer->bound_descriptor_set = VK_NULL_HANDLE;
 	command_buffer->uniforms_dirty = true;
 }
@@ -253,6 +254,24 @@ static rtvk_uniform_slot* rtvk_command_buffer_uniform_slot(struct rtvk_command_b
 	memset(&command_buffer->uniform_slots[command_buffer->uniform_slot_count], 0, sizeof(command_buffer->uniform_slots[0]) * (count - command_buffer->uniform_slot_count));
 	command_buffer->uniform_slot_count = count;
 	return &command_buffer->uniform_slots[index];
+}
+
+static void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	if (!command_buffer) {
+		return;
+	}
+	command_buffer->current_descriptor_pool = command_buffer->descriptor_pools;
+	for (rtvk_descriptor_pool_node* pool = command_buffer->descriptor_pools; pool; pool = pool->next) {
+		if (!pool->vk_pool) {
+			continue;
+		}
+		VkResult result = vkResetDescriptorPool(ctx->vk_device, pool->vk_pool, 0);
+		if (result != VK_SUCCESS) {
+			rtvk_throwf(rtvk_error_from_vk(result), NULL);
+			continue;
+		}
+		pool->allocated_sets = 0;
+	}
 }
 
 static void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
@@ -357,12 +376,14 @@ static struct rtvk_command_buffer* rtvk_command_buffer_take_reusable_node(struct
 	return NULL;
 }
 static bool rtvk_command_buffer_prepare(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue) {
-	rtvk_queue_collect(ctx, queue);
-
 	rtvk_command_buffer_recycle_node(command_buffer, command_buffer->active);
 	command_buffer->active = NULL;
 
 	struct rtvk_command_buffer* node = rtvk_command_buffer_take_reusable_node(command_buffer, queue->family_index);
+	if (!node) {
+		rtvk_queue_collect(ctx, queue);
+		node = rtvk_command_buffer_take_reusable_node(command_buffer, queue->family_index);
+	}
 	if (!node) {
 		node = rtvk_command_buffer_node_create(ctx, queue->family_index);
 	}

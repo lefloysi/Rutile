@@ -55,7 +55,7 @@ RTVK_DEFINE_RESOURCE_PRIVATE(swapchain)
 
 void rtvk_swapchain_init(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
-	swapchain->vsync = true;
+	swapchain->vsync = false;
 #if defined(_WIN32)
 	InitializeCriticalSection(&swapchain->frame_lock);
 	InitializeConditionVariable(&swapchain->frame_condition);
@@ -711,8 +711,6 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	swapchain->next_frame_index = (swapchain->next_frame_index + 1) % swapchain->image_count;
 	struct rtvk_swapchain_frame* acquire_frame = &swapchain->frames[acquire_frame_index];
 
-	rtvk_swapchain_wait_frame(ctx, acquire_frame);
-
 	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, UINT64_MAX, acquire_frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		rtvk_swapchain_unlock(swapchain);
@@ -725,16 +723,9 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	}
 
 	swapchain->current_frame_index = swapchain->current_image_index;
-	struct rtvk_swapchain_frame* present_frame = &swapchain->frames[swapchain->current_frame_index];
-	if (present_frame != acquire_frame) {
-		rtvk_swapchain_wait_frame(ctx, present_frame);
-	}
 
 	acquire.framebuffer = rtvk_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]);
 	struct rtvk_timepoint acquire_wait = rtvk_queue_wait_binary(ctx, swapchain->present_queue, acquire_frame->image_available);
-	acquire_frame->acquire_wait_queue = acquire_wait.queue;
-	acquire_frame->acquire_wait_value = acquire_wait.value;
-	acquire_frame->has_acquire_wait_timepoint = acquire_wait.value != 0;
 	acquire.timepoint = rtvk_timepoint_to_public(acquire_wait);
 	swapchain->frame_acquired = true;
 	rtvk_swapchain_unlock(swapchain);
@@ -796,13 +787,5 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		return;
 	}
 
-	struct rtvk_timepoint present_done = rtvk_queue_signal(ctx, swapchain->present_queue);
-	if (rtError() != RT_SUCCESS) {
-		rtvk_swapchain_mark_unacquired(swapchain);
-		return;
-	}
-	frame->present_queue = present_done.queue;
-	frame->present_value = present_done.value;
-	frame->has_present_timepoint = present_done.value != 0;
 	rtvk_swapchain_mark_unacquired(swapchain);
 }

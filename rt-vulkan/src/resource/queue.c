@@ -49,6 +49,7 @@ bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 
 bool rtvk_timepoint_complete(struct rtvk_timepoint timepoint);
+static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value);
 
 struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index) {
 	struct rtvk_queue* queue = RTVK_ALLOC_RESOURCE(struct rtvk_queue);
@@ -100,6 +101,8 @@ void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 		rtvk_timepoint_wait(ctx, last);
 	}
 	rtvk_queue_collect(ctx, queue);
+	rtvk_queue_retire_upload_resources(ctx, queue, true, true);
+	rtvk_queue_collect_to_value(ctx, queue, queue->timeline_value);
 	if (queue->vk_timeline) {
 		vkDestroySemaphore(ctx->vk_device, queue->vk_timeline, VK_ALLOCATOR);
 		queue->vk_timeline = VK_NULL_HANDLE;
@@ -146,6 +149,9 @@ u64 rtvk_queue_completed_value(struct rtvk_context* ctx, struct rtvk_queue* queu
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return 0;
 	}
+	if (value > queue->completed_value) {
+		queue->completed_value = value;
+	}
 	return value;
 }
 struct rtvk_submitted_batch* rtvk_queue_create_batch(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u64 value) {
@@ -189,10 +195,21 @@ static void rtvk_queue_push_submitted_list(struct rtvk_queue* queue, struct rtvk
 	}
 	queue->submitted_tail = tail;
 }
-void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+
+static void rtvk_queue_destroy_retired_upload(struct rtvk_context* ctx, struct rtvk_retired_upload_resource* retired) {
+	if (!retired) { return; }
+	if (retired->command_pool) {
+		vkDestroyCommandPool(ctx->vk_device, retired->command_pool, VK_ALLOCATOR);
+	}
+	if (retired->staging_buffer) {
+		vmaDestroyBuffer(ctx->vma_allocator, retired->staging_buffer, retired->staging_allocation);
+	}
+	free(retired);
+}
+
+static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value) {
 	if (!queue) { return; }
 
-	u64 completed_value = rtvk_queue_completed_value(ctx, queue);
 	while (queue->submitted_head && queue->submitted_head->value <= completed_value) {
 		struct rtvk_submitted_batch* batch = queue->submitted_head;
 		queue->submitted_head = batch->next;
@@ -209,7 +226,68 @@ void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 		rtvk_command_buffer_node_release(batch->command_buffer_node);
 		free(batch);
 	}
+
+	struct rtvk_retired_upload_resource** retired_link = &queue->retired_uploads;
+	while (*retired_link) {
+		struct rtvk_retired_upload_resource* retired = *retired_link;
+		if (retired->timepoint.queue == queue && retired->timepoint.value > completed_value) {
+			retired_link = &retired->next;
+			continue;
+		}
+		*retired_link = retired->next;
+		rtvk_queue_destroy_retired_upload(ctx, retired);
+	}
 }
+
+void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+	if (!queue) { return; }
+	rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
+}
+
+void rtvk_queue_retire_upload_resources(struct rtvk_context* ctx, struct rtvk_queue* queue, bool command, bool staging) {
+	if (!queue) { return; }
+	if ((!command || !queue->upload_command_pool) && (!staging || !queue->upload_staging_buffer)) {
+		return;
+	}
+
+	struct rtvk_timepoint timepoint = queue->upload_command_timepoint;
+	if (rtvk_timepoint_complete(timepoint) || timepoint.value <= queue->completed_value) {
+		if (command && queue->upload_command_pool) {
+			vkDestroyCommandPool(ctx->vk_device, queue->upload_command_pool, VK_ALLOCATOR);
+			queue->upload_command_pool = VK_NULL_HANDLE;
+			queue->upload_command_buffer = VK_NULL_HANDLE;
+		}
+		if (staging && queue->upload_staging_buffer) {
+			vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
+			queue->upload_staging_buffer = VK_NULL_HANDLE;
+			queue->upload_staging_allocation = NULL;
+			queue->upload_staging_size = 0;
+		}
+		return;
+	}
+
+	struct rtvk_retired_upload_resource* retired = calloc(1, sizeof(*retired));
+	if (!retired) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate retired upload resource");
+		return;
+	}
+	retired->timepoint = timepoint;
+	if (command) {
+		retired->command_pool = queue->upload_command_pool;
+		queue->upload_command_pool = VK_NULL_HANDLE;
+		queue->upload_command_buffer = VK_NULL_HANDLE;
+	}
+	if (staging) {
+		retired->staging_buffer = queue->upload_staging_buffer;
+		retired->staging_allocation = queue->upload_staging_allocation;
+		queue->upload_staging_buffer = VK_NULL_HANDLE;
+		queue->upload_staging_allocation = NULL;
+		queue->upload_staging_size = 0;
+	}
+	retired->next = queue->retired_uploads;
+	queue->retired_uploads = retired;
+}
+
 struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_command_buffer* command_buffer) {
 	if (!queue) { return (struct rtvk_timepoint){ NULL, 0 }; }
 
@@ -217,8 +295,6 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer has not been recorded");
 		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
-
-	rtvk_queue_collect(ctx, queue);
 
 	u64 value = queue->timeline_value + 1;
 	struct rtvk_submitted_batch* batch = rtvk_queue_create_batch(ctx, command_buffer, value);
@@ -347,7 +423,6 @@ struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rt
 		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
-	rtvk_queue_collect(ctx, queue);
 	u64 value = queue->timeline_value + 1;
 	queue->wait_count = 0;
 	queue->timeline_value = value;
@@ -427,6 +502,7 @@ struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceK
 
 void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoint) {
 	if (rtvk_timepoint_complete(timepoint)) { return; }
+	if (timepoint.value <= timepoint.queue->completed_value) { return; }
 	if (timepoint.value > timepoint.queue->submitted_value) {
 		rtvk_queue_flush(ctx, timepoint.queue);
 	}
@@ -442,16 +518,23 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoi
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 	}
-	rtvk_queue_collect(ctx, timepoint.queue);
+	if (timepoint.value > timepoint.queue->completed_value) {
+		timepoint.queue->completed_value = timepoint.value;
+	}
+	rtvk_queue_collect_to_value(ctx, timepoint.queue, timepoint.queue->completed_value);
 }
 bool rtvk_timepoint_reached(struct rtvk_context* ctx, struct rtvk_timepoint timepoint) {
 	if (rtvk_timepoint_complete(timepoint)) { return true; }
+	if (timepoint.value <= timepoint.queue->completed_value) { return true; }
 
 	u64 value = 0;
 	VkResult result = vkGetSemaphoreCounterValue(ctx->vk_device, timepoint.queue->vk_timeline, &value);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return false;
+	}
+	if (value > timepoint.queue->completed_value) {
+		timepoint.queue->completed_value = value;
 	}
 	return value >= timepoint.value;
 }

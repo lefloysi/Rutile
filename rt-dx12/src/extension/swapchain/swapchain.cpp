@@ -57,7 +57,7 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
-	swapchain->vsync = true;
+	swapchain->vsync = false;
 	InitializeCriticalSection(&swapchain->frame_lock);
 	InitializeConditionVariable(&swapchain->frame_condition);
 }

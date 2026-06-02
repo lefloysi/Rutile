@@ -628,7 +628,12 @@ struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_qu
 
 static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
-		rtvk_timepoint_wait(ctx, queue->upload_command_timepoint);
+		rtvk_queue_collect(ctx, queue);
+		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+			rtvk_queue_retire_upload_resources(ctx, queue, true, false);
+		}
+	}
+	if (queue->upload_command_pool && queue->upload_command_buffer) {
 		queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
 		vkResetCommandPool(ctx->vk_device, queue->upload_command_pool, 0);
 		return true;
@@ -659,20 +664,26 @@ static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 
 static bool rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 size) {
 	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
-		rtvk_timepoint_wait(ctx, queue->upload_command_timepoint);
-		queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
+		rtvk_queue_collect(ctx, queue);
+		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+			rtvk_queue_retire_upload_resources(ctx, queue, false, true);
+		}
+	}
+	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
 		return true;
 	}
 
-	rtvk_timepoint_wait(ctx, queue->upload_command_timepoint);
-	queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
+	rtvk_queue_collect(ctx, queue);
 	if (queue->upload_staging_buffer) {
-		vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
-		queue->upload_staging_buffer = VK_NULL_HANDLE;
-		queue->upload_staging_allocation = NULL;
-		queue->upload_staging_size = 0;
+		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+			rtvk_queue_retire_upload_resources(ctx, queue, false, true);
+		} else {
+			vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
+			queue->upload_staging_buffer = VK_NULL_HANDLE;
+			queue->upload_staging_allocation = NULL;
+			queue->upload_staging_size = 0;
+		}
 	}
-
 	VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	buffer_info.size = size;
 	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -1034,7 +1045,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 
 static bool rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	if (queue->copy_command_pool && queue->copy_command_buffer) {
-		rtvk_timepoint_wait(ctx, queue->copy_command_timepoint);
+		rtvk_queue_collect(ctx, queue);
 		queue->copy_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
 		vkResetCommandPool(ctx->vk_device, queue->copy_command_pool, 0);
 		return true;
