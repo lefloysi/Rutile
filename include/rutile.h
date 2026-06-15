@@ -1226,7 +1226,6 @@ static inline bool rtTimepointReached(rt_timepoint timepoint) {
 #endif /* RT_NO_API_WRAPPERS */
 
 #ifdef RUTILE_IMPL
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

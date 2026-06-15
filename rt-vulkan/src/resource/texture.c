@@ -274,6 +274,18 @@ static bool rtvk_texture_view_needs_bgra_swizzle(VkFormat format) {
 	return format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
 }
 
+static u32 rtvk_texture_mip_level_count(u32 width, u32 height, u32 depth) {
+	u32 max_extent = width > height ? width : height;
+	max_extent = max_extent > depth ? max_extent : depth;
+	max_extent = max_extent > 1u ? max_extent : 1u;
+	u32 mip_levels = 1;
+	while (max_extent > 1) {
+		max_extent = (max_extent + 1) / 2;
+		++mip_levels;
+	}
+	return mip_levels;
+}
+
 static VkAccessFlags rtvk_texture_layout_access(VkImageLayout layout) {
 	switch (layout) {
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: return VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -432,6 +444,7 @@ struct rtvk_texture* rtvk_texture_create_for_swapchain_image(struct rtvk_context
 	node->width = width;
 	node->height = height;
 	node->depth = 1;
+	node->mip_levels = 1;
 	texture->active = node;
 	return texture;
 }
@@ -460,7 +473,7 @@ static struct rtvk_texture_view* rtvk_texture_view_create_for_image(struct rtvk_
 	view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(node->vk_format);
 	view_info.subresourceRange.baseMipLevel = 0;
-	view_info.subresourceRange.levelCount = 1;
+	view_info.subresourceRange.levelCount = node->mip_levels ? node->mip_levels : 1;
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = layer_count;
 
@@ -749,7 +762,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 	image_info.extent.width = offset_x;
 	image_info.extent.height = offset_y;
 	image_info.extent.depth = 1;
-	image_info.mipLevels = 1;
+	image_info.mipLevels = rtvk_texture_mip_level_count(offset_x, offset_y, 1);
 	image_info.arrayLayers = 1;
 	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
 	image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -778,6 +791,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 	node->width = offset_x;
 	node->height = offset_y;
 	node->depth = 1;
+	node->mip_levels = image_info.mipLevels;
 	const VkImageAspectFlags aspect = rtvk_texture_format_aspect(vk_format);
 	if ((rtvk_format_has_depth(vk_format) || rtvk_format_has_stencil(vk_format)) && !data) {
 		rtvk_texture_recycle_node(texture, texture->active);
@@ -831,7 +845,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 						 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	if (data && upload_size) {
-		VkBufferImageCopy copy = { 0 };
+		VkBufferImageCopy copy = {};
 		copy.bufferOffset = 0;
 		copy.imageSubresource.aspectMask = aspect;
 		copy.imageSubresource.mipLevel = 0;
@@ -847,6 +861,87 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&copy);
+
+		if (node->mip_levels > 1) {
+			u32 mip_width = offset_x;
+			u32 mip_height = offset_y;
+			for (u32 mip_level = 1; mip_level < node->mip_levels; ++mip_level) {
+				VkImageMemoryBarrier src_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				src_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				src_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				src_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				src_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				src_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				src_barrier.image = node->vk_image;
+				src_barrier.subresourceRange.aspectMask = aspect;
+				src_barrier.subresourceRange.baseMipLevel = mip_level - 1;
+				src_barrier.subresourceRange.levelCount = 1;
+				src_barrier.subresourceRange.baseArrayLayer = 0;
+				src_barrier.subresourceRange.layerCount = 1;
+				vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+									 0, 0, NULL, 0, NULL, 1, &src_barrier);
+
+				VkImageBlit blit = { 0 };
+				blit.srcSubresource.aspectMask = aspect;
+				blit.srcSubresource.mipLevel = mip_level - 1;
+				blit.srcSubresource.baseArrayLayer = 0;
+				blit.srcSubresource.layerCount = 1;
+				blit.srcOffsets[0].x = 0;
+				blit.srcOffsets[0].y = 0;
+				blit.srcOffsets[0].z = 0;
+				blit.srcOffsets[1].x = (i32)mip_width;
+				blit.srcOffsets[1].y = (i32)mip_height;
+				blit.srcOffsets[1].z = 1;
+				blit.dstSubresource.aspectMask = aspect;
+				blit.dstSubresource.mipLevel = mip_level;
+				blit.dstSubresource.baseArrayLayer = 0;
+				blit.dstSubresource.layerCount = 1;
+				blit.dstOffsets[0].x = 0;
+				blit.dstOffsets[0].y = 0;
+				blit.dstOffsets[0].z = 0;
+				blit.dstOffsets[1].x = (i32)((mip_width >> 1) > 1u ? (mip_width >> 1) : 1u);
+				blit.dstOffsets[1].y = (i32)((mip_height >> 1) > 1u ? (mip_height >> 1) : 1u);
+				blit.dstOffsets[1].z = 1;
+				vkCmdBlitImage(command_buffer, node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+							   node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+				VkImageMemoryBarrier dst_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				dst_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				dst_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				dst_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				dst_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				dst_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				dst_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				dst_barrier.image = node->vk_image;
+				dst_barrier.subresourceRange.aspectMask = aspect;
+				dst_barrier.subresourceRange.baseMipLevel = mip_level - 1;
+				dst_barrier.subresourceRange.levelCount = 1;
+				dst_barrier.subresourceRange.baseArrayLayer = 0;
+				dst_barrier.subresourceRange.layerCount = 1;
+				vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+									 0, 0, NULL, 0, NULL, 1, &dst_barrier);
+
+				mip_width = (mip_width >> 1) > 1u ? (mip_width >> 1) : 1u;
+				mip_height = (mip_height >> 1) > 1u ? (mip_height >> 1) : 1u;
+			}
+
+			VkImageMemoryBarrier final_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			final_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			final_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			final_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			final_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			final_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			final_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			final_barrier.image = node->vk_image;
+			final_barrier.subresourceRange.aspectMask = aspect;
+			final_barrier.subresourceRange.baseMipLevel = node->mip_levels - 1;
+			final_barrier.subresourceRange.levelCount = 1;
+			final_barrier.subresourceRange.baseArrayLayer = 0;
+			final_barrier.subresourceRange.layerCount = 1;
+			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+								 0, 0, NULL, 0, NULL, 1, &final_barrier);
+		}
 
 		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;

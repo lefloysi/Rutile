@@ -45,6 +45,7 @@ struct rtvk_texture {
 	u32 width;
 	u32 height;
 	u32 depth;
+	u32 mip_levels;
 	VkFormat vk_format;
 	VkImageLayout vk_layout;
 	enum rt_texture_type type;
