@@ -5,7 +5,7 @@
 #include "framebuffer.h"
 #include "graphics_program.h"
 #include "texture.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 
 #include <stdlib.h>
 

@@ -1,5 +1,6 @@
-#include "procs.h"
+#include "handles.h"
 #include "logger.h"
+#include "procs.h"
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -24,7 +25,9 @@ void rtval_rtInit(const char* const* features, u32 feature_count) {
 }
 
 void rtval_rtExit(void) {
-	rtval_command_buffer_reset_tracking();
+	rtval_queue_release_all();
+	rtval_handle_report_leaks();
+	rtval_handle_reset_registry();
 	rtval_next_rtExit();
 	rtval_report_error("rtExit");
 }

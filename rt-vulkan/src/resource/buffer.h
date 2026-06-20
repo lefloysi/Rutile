@@ -36,7 +36,7 @@ struct rtvk_buffer {
 	u64 size;
 	enum rt_buffer_mode mode;
 	enum rt_buffer_usage usage;
-	atomic_u32 ref_count;
+	u32 ref_count;
 };
 RTVK_DECLARE_NEW_RESOURCE(buffer)
 
@@ -47,6 +47,7 @@ void* rtvk_buffer_map(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 
 void rtvk_buffer_unmap(struct rtvk_context* ctx, struct rtvk_buffer* buffer);
 void rtvk_buffer_node_retain(struct rtvk_buffer* buffer);
 void rtvk_buffer_node_release(struct rtvk_buffer* buffer);
+u32 rtvk_buffer_debug_live_count(void);
 
 #endif
 

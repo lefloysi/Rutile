@@ -41,16 +41,25 @@ void rtvk_framebuffer_init(struct rtvk_context* ctx, struct rtvk_framebuffer* fr
 }
 void rtvk_framebuffer_finish(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer) {
 	for (u32 i = 0; i < framebuffer->color_texture_count; i++) {
+		if (framebuffer->color_views[i]) {
+			rtvk_release_resource(framebuffer->color_views[i]);
+		}
 		framebuffer->color_views[i] = NULL;
 	}
 	framebuffer->color_texture_count = 0;
+	if (framebuffer->depth_view) {
+		rtvk_release_resource(framebuffer->depth_view);
+	}
 	framebuffer->depth_view = NULL;
+	if (framebuffer->stencil_view) {
+		rtvk_release_resource(framebuffer->stencil_view);
+	}
 	framebuffer->stencil_view = NULL;
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(framebuffer));
 }
 
 bool rtvk_texture_view_valid(struct rtvk_texture_view* view) {
-	return view && view->base.type == RT_RESOURCE_TEXTURE_VIEW && view->texture && view->vk_image_view;
+	return view && view->base.type == RT_RESOURCE_TEXTURE_VIEW && view->vk_image_view;
 }
 
 void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, u32 slot, struct rtvk_texture_view* view) {
@@ -68,6 +77,12 @@ void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_frame
 		return;
 	}
 
+	if (view) {
+		rtvk_retain_resource(view);
+	}
+	if (framebuffer->color_views[slot]) {
+		rtvk_release_resource(framebuffer->color_views[slot]);
+	}
 	framebuffer->color_views[slot] = view;
 	if (view && slot >= framebuffer->color_texture_count) {
 		framebuffer->color_texture_count = slot + 1;
@@ -106,10 +121,22 @@ void rtvk_framebuffer_set_depth_view(struct rtvk_context* ctx, struct rtvk_frame
 		rtvk_throwf(RT_IMPROPER_USAGE, "framebuffer depth texture view format has no depth aspect");
 		return;
 	}
+	if (view) {
+		rtvk_retain_resource(view);
+	}
+	if (framebuffer->depth_view) {
+		rtvk_release_resource(framebuffer->depth_view);
+	}
 	framebuffer->depth_view = view;
 }
 
 void rtvk_framebuffer_set_stencil_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, struct rtvk_texture_view* view) {
+	if (view) {
+		rtvk_retain_resource(view);
+	}
+	if (framebuffer->stencil_view) {
+		rtvk_release_resource(framebuffer->stencil_view);
+	}
 	framebuffer->stencil_view = view;
 }
 

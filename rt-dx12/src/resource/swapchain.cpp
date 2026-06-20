@@ -1,4 +1,4 @@
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 #include "context.h"
 #include "error.h"
 
@@ -23,12 +23,6 @@ void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 		height);
 }
 
-void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled) {
-	rtdx_swapchain_set_vsync(
-		rtdx_get_current_context(),
-		rtdx_swapchain_from_handle(swapchain),
-		enabled);
-}
 
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 	return rtdx_swapchain_acquire(

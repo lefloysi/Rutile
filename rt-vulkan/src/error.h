@@ -23,6 +23,17 @@ RTVK_API void rtvk_vprintf(const char* format, va_list args);
 RTVK_API void rtvk_throwf(enum rt_error error, const char* format, ...);
 RTVK_API enum rt_error rtvk_error_from_vk(VkResult result);
 
+#define RTVK_CHECK_ALLOC(ptr, bytes, what)                  \
+	do {                                                    \
+		if (!(ptr)) {                                       \
+			rtvk_throwf(                                     \
+				RT_OUT_OF_HOST_MEMORY,                       \
+				"failed to allocate %zu bytes for %s",       \
+				(usize)(bytes),                               \
+				(what));                                     \
+		}                                                   \
+	} while (0)
+
 RTVK_EXTERN_C_EXIT
 #endif /* RTVK_ERROR_H */
 

@@ -25,8 +25,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/queue.cpp"
     "src/resource/resource.cpp"
     "src/resource/texture.cpp"
-    "src/extension/swapchain/swapchain.cpp"
-    "src/extension/swapchain/glfw/glfw.cpp"
+    "src/resource/swapchain.cpp"
+    "src/resource/glfw/glfw.cpp"
     "src/error.h"
     "src/atomic.h"
     "src/core.h"
@@ -40,8 +40,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/queue.h"
     "src/resource/resource.h"
     "src/resource/texture.h"
-    "src/extension/swapchain/swapchain.h"
-    "src/extension/swapchain/glfw/glfw.h"
+    "src/resource/swapchain.h"
+    "src/resource/glfw/glfw.h"
 )
 
 rutile_configure_shared_library(${PROJECT_NAME})

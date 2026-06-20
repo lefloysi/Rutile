@@ -8,8 +8,8 @@
 #include "resource/graphics_program.h"
 #include "error.h"
 #include "resource/queue.h"
-#include "extension/swapchain/swapchain.h"
-#include "extension/swapchain/glfw/glfw.h"
+#include "resource/swapchain.h"
+#include "resource/glfw/glfw.h"
 #include "resource/texture.h"
 
 /*===============================================================================================*/

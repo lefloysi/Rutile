@@ -30,9 +30,9 @@ typedef enum rtvk_resource_type {
 struct rtvk_resource_base {
 	rtvk_resource_type type;
 	struct rtvk_context* ctx;
-	atomic_u32 ref_count;
-	atomic_u32 job_count;
-	atomic_bool zombie;
+	u32 ref_count;
+	u32 job_count;
+	bool zombie;
 };
 
 struct rtvk_timepoint {
@@ -58,8 +58,14 @@ rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint);
 #define RTVK_ALLOC_RESOURCE(type) (type*)rtvk_alloc_resource(sizeof(type))
 #define RTVK_FREE_RESOURCE(resource) rtvk_free_resource(resource)
 #define RTVK_RESOURCE_BASE(resource) (&(resource)->base)
-#define rtvk_retain_resource(resource) rtvk_retain_resource_impl(resource)
-#define rtvk_release_resource(resource) rtvk_release_resource_impl(resource)
+#define rtvk_retain_resource(resource) rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)));
+#define rtvk_release_resource(resource)                                                     \
+	do {                                                                                   \
+		if (resource) {                                                                    \
+			rtvk_resource_release((RTVK_RESOURCE_BASE(resource)));                         \
+			(resource) = NULL;                                                             \
+		}                                                                                  \
+	} while (0)
 
 #define RTVK_DECLARE_NEW_RESOURCE(type)                                                                              \
 	static inline struct rtvk_##type* rtvk_##type##_from_handle(rt_##type type) { return (struct rtvk_##type*)type; } \

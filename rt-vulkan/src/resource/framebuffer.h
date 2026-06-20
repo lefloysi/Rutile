@@ -9,6 +9,16 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+RTVK_API rt_framebuffer rtFramebufferCreate(void);
+RTVK_API void rtFramebufferDestroy(rt_framebuffer framebuffer);
+RTVK_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot);
+RTVK_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view);
+RTVK_API void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view);
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 struct rtvk_framebuffer {
 	struct rtvk_resource_base base;
 	struct rtvk_texture_view* color_views[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
@@ -19,11 +29,6 @@ struct rtvk_framebuffer {
 };
 RTVK_DECLARE_NEW_RESOURCE(framebuffer)
 
-RTVK_API rt_framebuffer rtFramebufferCreate(void);
-RTVK_API void rtFramebufferDestroy(rt_framebuffer framebuffer);
-RTVK_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot);
-RTVK_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view);
-RTVK_API void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view);
 
 bool rtvk_texture_view_valid(struct rtvk_texture_view* view);
 void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, u32 slot, struct rtvk_texture_view* view);

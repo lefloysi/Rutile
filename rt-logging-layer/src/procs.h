@@ -84,7 +84,6 @@ extern PFN_rtTimepointReached next_rtTimepointReached;
 extern PFN_rtSwapchainCreate next_rtSwapchainCreate;
 extern PFN_rtSwapchainDestroy next_rtSwapchainDestroy;
 extern PFN_rtSwapchainResize next_rtSwapchainResize;
-extern PFN_rtSwapchainSetVsync next_rtSwapchainSetVsync;
 extern PFN_rtSwapchainAcquire next_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent next_rtSwapchainPresent;
 extern PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW;

@@ -1,0 +1,2732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The Rutile Graphics API: A Specification</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --page-text: #111;
+            --page-background: #fff;
+            --page-border: #000;
+        }
+
+        body[data-theme="dark"] {
+            --page-text: #f2f2f2;
+            --page-background: #111;
+            --page-border: #888;
+        }
+
+        @page {
+            margin: 1in;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 12pt;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            color: var(--page-text);
+            background: var(--page-background);
+            font-family: "Roboto", Arial, sans-serif;
+            line-height: 1.4;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        nav a {
+            display: block;
+        }
+
+        code {
+            font-family: "Roboto Mono", "Courier New", Courier, monospace;
+            font-size: 0.95em;
+        }
+
+        pre {
+            margin: 1rem 0;
+            padding: 0.75rem;
+            overflow-x: visible;
+            border: 1px solid var(--page-border);
+            background: transparent;
+            page-break-inside: avoid;
+        }
+
+        pre code {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            white-space: pre-wrap;
+        }
+
+        main {
+            max-width: 72rem;
+            margin: 0;
+            padding: 2rem 2.5rem 3rem;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5 {
+            font-weight: 700;
+            line-height: 1.2;
+            page-break-after: avoid;
+        }
+
+        h1 {
+            margin: 0 0 1.75rem;
+            font-size: 1.6rem;
+            text-align: left;
+        }
+
+        h2 {
+            margin-top: 1.8rem;
+            margin-bottom: 0.75rem;
+            font-size: 1.2rem;
+        }
+
+        h3 {
+            margin-top: 1.2rem;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+
+        h4,
+        h5 {
+            margin-top: 0.9rem;
+            margin-bottom: 0;
+            font-size: 1rem;
+        }
+
+        p {
+            margin: 0.5rem 0;
+            orphans: 3;
+            widows: 3;
+        }
+
+        h4 + p,
+        h5 + p,
+        .stack-term + p,
+        .stack-term + .stacked-detail {
+            margin-top: 0;
+        }
+
+        ul {
+            margin: 0.75rem 0 1rem;
+            padding-left: 1.4rem;
+        }
+
+        nav ul {
+            padding-left: 0;
+            list-style: none;
+        }
+
+        nav ul ul {
+            margin: 0.2rem 0 0.45rem 1.4rem;
+            padding-left: 0;
+            list-style: none;
+        }
+
+        li + li {
+            margin-top: 0.2rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            page-break-inside: avoid;
+        }
+
+        th,
+        td {
+            padding: 0.5rem;
+            text-align: left;
+            vertical-align: top;
+            border: 1px solid var(--page-border);
+        }
+
+        th {
+            font-weight: 700;
+        }
+
+        .error-table .error-name {
+            width: 15rem;
+        }
+
+        .error-table .error-value {
+            width: 4rem;
+            white-space: nowrap;
+        }
+
+        .stack {
+            margin: 0.75rem 0 1rem;
+        }
+
+        .stack-item + .stack-item {
+            margin-top: 0.8rem;
+        }
+
+        .stack-term {
+            display: block;
+            margin: 0;
+            font-weight: 700;
+        }
+
+        .boxed-code,
+        .api-signature {
+            margin: 0.75rem 0;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--page-border);
+            background: transparent;
+            font-family: "Roboto Mono", "Courier New", Courier, monospace;
+            page-break-inside: avoid;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.35rem 0.65rem;
+            border: 1px solid var(--page-border);
+            background: var(--page-background);
+            color: var(--page-text);
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .boxed-code code,
+        .api-signature code {
+            display: block;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            white-space: pre-wrap;
+        }
+
+        .stacked-list li,
+        .stack-item {
+            margin-top: 0.8rem;
+        }
+
+        .stacked-list li:first-child,
+        .stack-item:first-child {
+            margin-top: 0;
+        }
+
+        .stacked-detail {
+            margin: 0;
+        }
+
+        .api-entry {
+            margin: 1rem 0 1.25rem;
+            page-break-inside: avoid;
+        }
+
+        .api-meta {
+            margin: 0.25rem 0;
+        }
+
+        .api-param {
+            margin: 0.55rem 0 0;
+            font-weight: 700;
+        }
+
+        .api-param + p {
+            margin-top: 0;
+        }
+
+        .api-cond-list {
+            margin: 0.5rem 0 1rem;
+        }
+
+        .api-cond-list li {
+            margin-top: 0.45rem;
+        }
+
+        .api-cond-list li:first-child {
+            margin-top: 0;
+        }
+
+        .api-cond-list p {
+            margin: 0;
+        }
+
+        @media print {
+            html,
+            body {
+                color: #111;
+                background: #fff;
+            }
+
+            body {
+                --page-text: #111;
+                --page-background: #fff;
+                --page-border: #000;
+            }
+
+            main {
+                max-width: none;
+                margin: 0;
+                padding: 0;
+            }
+
+            .theme-toggle {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body data-theme="dark">
+    <button class="theme-toggle" type="button" aria-label="Toggle color theme">Light mode</button>
+    <main>
+        <h1>The Rutile Graphics API: A Specification</h1>
+
+        <nav aria-label="Table of contents">
+            <h2>Contents</h2>
+            <ul>
+                <li><a href="#introduction">1. Introduction</a>
+                    <ul>
+                        <li><a href="#what-is-rutile">1.1 What is Rutile?</a></li>
+                        <li><a href="#design-goals">1.2 Design goals</a>
+                            <ul>
+                                <li><a href="#design-object-model">1.2.1 Object model</a></li>
+                                <li><a href="#design-no-global-bind">1.2.2 No global bind state</a></li>
+                                <li><a href="#design-abstraction">1.2.3 Abstraction-friendly interface</a></li>
+                                <li><a href="#design-no-global-state">1.2.4 No global state beyond initialization</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#backend-scope">1.3 Scope of the backend interface</a>
+                            <ul>
+                                <li><a href="#scope-platforms">1.3.1 Target platforms</a></li>
+                                <li><a href="#scope-loading">1.3.2 Function loading</a></li>
+                                <li><a href="#scope-frontend">1.3.3 Frontend responsibility</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#scope-of-spec">1.4 Scope of this specification</a></li>
+                    </ul>
+                </li>
+                <li><a href="#conventions">2. Conventions and definitions</a>
+                    <ul>
+                        <li><a href="#normative-conventions">2.1 Normative language</a></li>
+                        <li><a href="#terms-and-notation">2.2 Terms and notation</a></li>
+                        <li><a href="#function-spec-structure">2.3 Function specification structure</a></li>
+                        <li><a href="#behavior-categories">2.4 Behavior categories</a>
+                            <ul>
+                                <li><a href="#undefined-behavior">2.4.1 Undefined behavior</a></li>
+                                <li><a href="#race-condition">2.4.2 Race condition</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#operation">2.5 Operations</a></li>
+                        <li><a href="#backend-instances">2.6 Backend instances</a></li>
+                        <li><a href="#concurrency">2.7 Concurrency</a></li>
+                    </ul>
+                </li>
+                <li><a href="#errors">3. Errors</a>
+                    <ul>
+                        <li><a href="#error-model">3.1 Error model</a></li>
+                        <li><a href="#error-accessors">3.2 Error accessors</a></li>
+                        <li><a href="#error-message-buffer">3.3 Error message buffer</a></li>
+                        <li><a href="#canonical-error-set">3.4 Canonical error set</a></li>
+                    </ul>
+                </li>
+                <li><a href="#data-types">4. Data types and state</a>
+                    <ul>
+                        <li><a href="#scalar-types">4.1 Scalar types</a></li>
+                        <li><a href="#handles">4.2 Handles</a>
+                            <ul>
+                                <li><a href="#reserved-values">4.2.1 Reserved values</a></li>
+                                <li><a href="#validity-rules">4.2.2 Validity rules</a></li>
+                                <li><a href="#identity-and-reuse">4.2.3 Identity and reuse</a></li>
+                                <li><a href="#opaqueness">4.2.4 Opaqueness</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li><a href="#api-init">5. Initialization and shutdown</a>
+                    <ul>
+                        <li><a href="#backend-state">5.1 Backend state</a></li>
+                        <li><a href="#initialization">5.2 Initialization</a></li>
+                        <li><a href="#shutdown">5.3 Shutdown</a></li>
+                    </ul>
+                </li>
+                <li><a href="#free-functions">6. Free functions</a>
+                    <ul>
+                        <li><a href="#free-functions-error">6.1 rtError</a></li>
+                        <li><a href="#free-functions-error-message">6.2 rtErrorMessage</a></li>
+                        <li><a href="#free-functions-clear-error">6.3 rtClearError</a></li>
+                        <li><a href="#free-functions-name">6.4 rtGetName</a></li>
+                        <li><a href="#free-functions-format-caps">6.5 rtQueryFormatCapabilities</a></li>
+                    </ul>
+                </li>
+                <li><a href="#resources">7. Objects and resources</a>
+                    <ul>
+                        <li><a href="#resource-types-list">7.1 Resource types</a></li>
+                        <li><a href="#resource-lifecycle">7.2 Lifecycle</a></li>
+                        <li><a href="#common-rules">7.3 Common rules</a></li>
+                        <li><a href="#generic-create-destroy">7.4 Generic create and destroy pattern</a>
+                            <ul>
+                                <li><a href="#generic-create">7.4.1 Create</a></li>
+                                <li><a href="#generic-destroy">7.4.2 Destroy</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li><a href="#validation-layers">8. Validation layers</a></li>
+                <li><a href="#resource-types">9. Resource-specific operations</a>
+                    <ul>
+                        <li><a href="#swapchain-section">9.1 Swapchain</a>
+                            <ul>
+                                <li><a href="#swapchain-state">9.1.1 Swapchain state</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#texture-section">9.2 Texture</a>
+                            <ul>
+                                <li><a href="#texture-state">9.2.1 Texture state</a></li>
+                                <li><a href="#texture-storage-definition">9.2.2 Storage definition</a></li>
+                                <li><a href="#texture-extent-model">9.2.3 Extent model</a></li>
+                                <li><a href="#texture-mip-levels">9.2.4 Mip levels</a></li>
+                                <li><a href="#texture-kinds">9.2.5 Texture kinds</a></li>
+                                <li><a href="#texture-formats">9.2.6 Formats</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#buffer-section">9.3 Buffer</a>
+                            <ul>
+                                <li><a href="#buffer-state">9.3.1 Buffer state</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#sampler-section">9.4 Sampler</a>
+                            <ul>
+                                <li><a href="#sampler-desc">9.4.1 rt_sampler_desc</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#framebuffer-section">9.5 Framebuffer</a>
+                            <ul>
+                                <li><a href="#framebuffer-state">9.5.1 Framebuffer state</a></li>
+                                <li><a href="#framebuffer-ownership">9.5.2 Ownership</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="#graphics-program-section">9.6 Graphics program</a>
+                            <ul>
+                                <li><a href="#graphics-program-state">9.6.1 Graphics program state</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li><a href="#queues">10. Queues</a>
+                    <ul>
+                        <li><a href="#queue-model">10.1 Queue model</a></li>
+                        <li><a href="#queue-capability">10.2 Queue capability</a></li>
+                        <li><a href="#query-queue">10.3 rtQueueQuery</a></li>
+                    </ul>
+                </li>
+                <li><a href="#synchronization">11. Synchronization</a>
+                    <ul>
+                        <li><a href="#timepoint-model">11.1 Timepoint model</a></li>
+                        <li><a href="#rt-timepoint">11.2 rt_timepoint</a></li>
+                        <li><a href="#timepoint-wait">11.3 rtTimepointWait</a></li>
+                        <li><a href="#timepoint-reached">11.4 rtTimepointReached</a></li>
+                    </ul>
+                </li>
+                <li><a href="#command-buffers">12. Command buffers</a>
+                    <ul>
+                        <li><a href="#command_buffer-lifecycle">12.1 Lifecycle</a></li>
+                        <li><a href="#command_buffer-recording">12.2 Recording and submission</a></li>
+                        <li><a href="#command_buffer-sync">12.3 Synchronization commands</a></li>
+                        <li><a href="#command_buffer-copy">12.4 Copy commands</a></li>
+                        <li><a href="#command_buffer-binding">12.5 Binding commands</a></li>
+                        <li><a href="#command_buffer-state">12.6 Rendering state commands</a></li>
+                        <li><a href="#command_buffer-rendering">12.7 Rendering commands</a></li>
+                        <li><a href="#command_buffer-draw">12.8 Draw commands</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- ═══════════════════════════════════════════════════════ §1 Introduction -->
+        <section id="introduction">
+            <h2>1. Introduction</h2>
+
+            <h3 id="what-is-rutile">1.1 What is Rutile?</h3>
+            <p>
+                Rutile is a graphics API that occupies the layer between user-facing frontends and low-level
+                platform graphics APIs. It defines a common backend interface that multiple conforming
+                implementations can satisfy, permitting a frontend to be written once and run on any
+                conforming backend.
+            </p>
+            <p>
+                Rutile is a user-space API. It does not interact with graphics hardware directly and does
+                not define driver-level behavior. Implementations sit on top of driver-space APIs such as
+                Vulkan, Metal, or Direct3D 12, or on top of software renderers.
+            </p>
+            <p>
+                This specification describes the externally visible behavior that a conforming backend
+                implementation must exhibit. Internal caching, deferred work, platform integration,
+                memory management strategy, and command dispatch mechanisms are unconstrained except
+                where they affect externally visible results.
+            </p>
+
+            <h3 id="design-goals">1.2 Design goals</h3>
+
+            <h4 id="design-object-model">1.2.1 Object model</h4>
+            <p>
+                Rutile adopts an object model in the tradition of OpenGL. Resources are opaque objects
+                referenced through handles, operations on those objects are expressed as function calls,
+                and the lifetime of each object is explicit. This model maps cleanly onto most language
+                runtimes and is straightforward to wrap.
+            </p>
+
+            <h4 id="design-no-global-bind">1.2.2 No global bind state</h4>
+            <p>
+                Rutile departs from OpenGL by eliminating global bind state. In OpenGL, resources must
+                be bound to global slots before they can be used; this couples unrelated operations,
+                complicates reasoning about resource state, and introduces hidden dependencies between
+                call sites. In Rutile, resources are passed directly to the functions that operate on
+                them. No global binding table exists.
+            </p>
+
+            <h4 id="design-abstraction">1.2.3 Abstraction-friendly interface</h4>
+            <p>
+                Rutile does not attempt to be a convenient end-user API. It assumes that a frontend —
+                a framework, a wrapper library, or a set of language-specific bindings — will sit
+                between Rutile and application code. Design choices are made to make that frontend layer
+                as straightforward to write as possible, not to make raw Rutile calls pleasant to write
+                directly.
+            </p>
+            <p>
+                Concretely: ownership and lifetime rules are specified precisely enough that a
+                RAII wrapper can be written without ambiguity; error state is exposed in a form that
+                is easy to check and forward; implicit behavior that would be difficult for a frontend
+                to intercept or override is avoided.
+            </p>
+
+            <h4 id="design-no-global-state">1.2.4 No global state beyond initialization</h4>
+            <p>
+                With the exception of the backend instance and the thread-local error state, Rutile
+                defines no global state. All resource state is owned by individual objects and is
+                reachable only through valid handles. This constraint prevents hidden interference
+                between independent call sites within the same process.
+            </p>
+
+            <h3 id="backend-scope">1.3 Scope of the backend interface</h3>
+
+            <h4 id="scope-platforms">1.3.1 Target platforms</h4>
+            <p>
+                A conforming Rutile backend MUST be implemented on top of one or more of the following:
+                Vulkan, Metal, Direct3D 12, or a software renderer. OpenGL is not a supported
+                implementation target. Its global bind model is structurally incompatible with Rutile's
+                resource design; supporting it would require either emulating global bind state in the
+                backend or violating Rutile's object model guarantees.
+            </p>
+
+            <h4 id="scope-loading">1.3.2 Function loading</h4>
+            <p>
+                Rutile does not define how its functions are loaded. Whether a backend is linked
+                statically, loaded as a shared library, or resolved through a custom loader is outside
+                the scope of this specification. Each function has a canonical exported symbol name;
+                how that name is resolved at runtime is the responsibility of the loader.
+            </p>
+
+            <h4 id="scope-frontend">1.3.3 Frontend responsibility</h4>
+            <p>
+                Rutile does not define a frontend. Language bindings, RAII wrappers, render-graph
+                systems, and higher-level scene abstractions are frontend concerns. This specification
+                defines only what a backend must do and places no requirements on anything that calls
+                into a backend.
+            </p>
+
+            <h3 id="scope-of-spec">1.4 Scope of this specification</h3>
+            <p>This specification defines the data types and object state, the resource model, lifecycle
+            rules, initialization requirements, validation-layer semantics, and error behavior of the
+            backend function interface.</p>
+            <p>This specification does not define rendering algorithms, performance requirements,
+            internal implementation strategy, threading guarantees beyond those explicitly stated,
+            function loading mechanisms, or frontend design.</p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ §2 Conventions and definitions -->
+        <section id="conventions">
+            <h2>2. Conventions and definitions</h2>
+
+            <h3 id="normative-conventions">2.1 Normative language</h3>
+            <p>
+                The key words MUST, MUST NOT, and MAY are used as defined below. Statements
+                using these words define required, prohibited, or optional behavior of a conforming
+                implementation.
+            </p>
+            <div class="stack">
+                <div class="stack-item">
+                    <strong class="stack-term">MUST</strong>
+                    <p class="stacked-detail">indicates required behavior. A conforming implementation must satisfy this constraint unconditionally.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">MUST NOT</strong>
+                    <p class="stacked-detail">indicates prohibited behavior. A conforming implementation must never exhibit this behavior.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">MAY</strong>
+                    <p class="stacked-detail">indicates optional behavior. A conforming implementation is permitted but not required to exhibit this behavior.</p>
+                </div>
+            </div>
+
+            <h3 id="terms-and-notation">2.2 Terms and notation</h3>
+            <div class="stack">
+                <div class="stack-item">
+                    <code class="stack-term">throw an error</code>
+                    <p class="stacked-detail">to set the thread-local error value to a non-success error code</p>
+                </div>
+                <div class="stack-item">
+                    <code class="stack-term">throw a message</code>
+                    <p class="stacked-detail">to write a string into the thread-local error message buffer</p>
+                </div>
+            </div>
+
+            <h3 id="function-spec-structure">2.3 Function specification structure</h3>
+            <p>
+                Each function specification uses the following fields. All fields are present for
+                every function; a field with no applicable content is marked None.
+            </p>
+            <div class="stack">
+                <div class="stack-item">
+                    <strong class="stack-term">Requirements</strong>
+                    <p class="stacked-detail">observable backend behavior required by this specification. Requirements are not validation obligations unless the requirement explicitly says the backend must diagnose the condition.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Pre-conditions</strong>
+                    <p class="stacked-detail">conditions that must hold before the call is made. If they do not hold, behavior is undefined. The backend is not required to detect, report, or recover from violated pre-conditions.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Post-conditions</strong>
+                    <p class="stacked-detail">guarantees that hold if and only if the operation succeeds.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Errors</strong>
+                    <p class="stacked-detail">the complete set of error codes this function may throw.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Default</strong>
+                    <p class="stacked-detail">the value returned when the function throws. Applies only to functions with a non-void return type.</p>
+                </div>
+            </div>
+
+            <h3 id="behavior-categories">2.4 Behavior categories</h3>
+
+            <h4 id="undefined-behavior">2.4.1 Undefined behavior</h4>
+            <p>
+                Undefined behavior is behavior for which this specification imposes no requirements on
+                the implementation. An implementation is not required to detect, diagnose, or handle
+                undefined behavior in any particular way.
+            </p>
+
+            <h4 id="race-condition">2.4.2 Race condition</h4>
+            <p>
+                Concurrent access to shared state that does not satisfy the synchronization rules stated
+                by this specification constitutes a race condition and is undefined behavior.
+            </p>
+
+            <h3 id="operation">2.5 Operations</h3>
+            <p>
+                An operation is any Rutile function call that reads, writes, creates, destroys, or
+                otherwise interacts with backend-managed state. Operations execute in the order issued
+                unless this specification explicitly states otherwise. An operation begins when the call
+                starts execution and ends when it returns, unless a specific operation states otherwise.
+            </p>
+
+            <h3 id="backend-instances">2.6 Backend instances</h3>
+            <p>
+                A backend instance is a single isolated execution context of the Rutile implementation.
+                All valid handles are scoped to the backend instance that created them. A backend
+                instance begins when Rutile is initialized and ends when it is shut down. The active
+                backend instance is global backend-managed state. This specification currently defines
+                no direct interface for interacting with backend instances; the frontend manages the
+                instance conceptually.
+            </p>
+
+            <h3 id="concurrency">2.7 Concurrency</h3>
+            <p>
+                Unless explicitly specified as thread-safe, any Rutile function call that operates on
+                a given handle must not execute concurrently with any other Rutile function call that
+                operates on the same handle. Concurrent operations on disjoint handles are permitted
+                unless they share underlying backend-managed state (for example, two operations that
+                both write to the same framebuffer).
+            </p>
+            <p>
+                Concurrent operations on the same handle are undefined behavior unless every
+                concurrently called operation is explicitly specified as thread-safe for that handle.
+            </p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ §3 Errors -->
+        <section id="errors">
+            <h2>3. Errors</h2>
+
+            <h3 id="error-model">3.1 Error model</h3>
+            <p>
+                Rutile uses a thread-local error state of type <code>rt_error</code> and a thread-local
+                error message buffer. Operations report failure by setting the thread-local error state
+                rather than returning an <code>rt_error</code> directly, unless a specific function in
+                this specification explicitly returns <code>rt_error</code>.
+            </p>
+            <p>
+                The error state is sticky. Successful operations are not required to clear a previous
+                error. Callers that need a known baseline must call
+                <a href="#free-functions-clear-error"><code>rtClearError()</code></a> before issuing
+                the operation they want to observe.
+            </p>
+            <p>
+                On failure, an operation writes an appropriate non-success error code. An operation MAY
+                also write a diagnostic message. Message contents are implementation-defined unless a
+                specific function states otherwise.
+            </p>
+            <p>
+                Validation layers MAY validate pre-conditions and write
+                <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a> when violations are
+                detected. The backend is not required to detect invalid handles, null pointers, invalid
+                enum values, invalid object state, or invalid call ordering unless a function explicitly
+                defines such detection as backend behavior.
+            </p>
+
+            <h3 id="error-accessors">3.2 Error accessors</h3>
+            <p>
+                The functions <a href="#free-functions-error"><code>rtError</code></a> and
+                <a href="#free-functions-error-message"><code>rtErrorMessage</code></a> are the
+                primary means of reading error state. They are free functions and are specified in full
+                in <a href="#free-functions">section 6</a>.
+            </p>
+
+            <h3 id="error-message-buffer">3.3 Error message buffer</h3>
+            <p>
+                The backend MAY write to the thread-local error message buffer when it reports an
+                error. Before any operation writes a message, the buffer contains an empty string.
+            </p>
+            <p>
+                When a message is written, it is null-terminated and stored in implementation-owned
+                thread-local storage. The Vulkan backend stores at most 1023 message bytes plus the
+                null terminator.
+            </p>
+            <p>
+                Where this specification requires a message but does not specify its exact contents,
+                the content is implementation-defined.
+            </p>
+
+            <h3 id="canonical-error-set">3.4 Canonical error set</h3>
+            <table class="error-table">
+                <thead>
+                    <tr>
+                        <th class="error-name">Name</th>
+                        <th class="error-value">Value</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="error-name"><code id="rt-success">RT_SUCCESS</code></td>
+                        <td class="error-value"><code>0</code></td>
+                        <td>the operation completed successfully</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-out-of-host-memory">RT_OUT_OF_HOST_MEMORY</code></td>
+                        <td class="error-value"><code>1</code></td>
+                        <td>the operation failed due to a host-side allocation failure</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-out-of-device-memory">RT_OUT_OF_DEVICE_MEMORY</code></td>
+                        <td class="error-value"><code>2</code></td>
+                        <td>the operation failed due to a device-side allocation failure</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-improper-usage">RT_IMPROPER_USAGE</code></td>
+                        <td class="error-value"><code>3</code></td>
+                        <td>the operation failed because Rutile usage rules were violated. Backends are not required to detect improper usage unless a specific rule requires detection.</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-platform-failure">RT_PLATFORM_FAILURE</code></td>
+                        <td class="error-value"><code>4</code></td>
+                        <td>the operation failed because the platform or operating system rejected it</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-device-lost">RT_DEVICE_LOST</code></td>
+                        <td class="error-value"><code>5</code></td>
+                        <td>the graphics device was lost. After this error, continued use of affected device resources is undefined unless the implementation states otherwise.</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-already-initialized">RT_ALREADY_INITIALIZED</code></td>
+                        <td class="error-value"><code>6</code></td>
+                        <td>initialization was requested while the backend was already initialized. The existing backend state is not modified.</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-unsupported-platform">RT_UNSUPPORTED_PLATFORM</code></td>
+                        <td class="error-value"><code>7</code></td>
+                        <td>the operation could not be performed because the current platform does not support the required capability.</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-no-backend">RT_NO_BACKEND</code></td>
+                        <td class="error-value"><code>8</code></td>
+                        <td>the loader could not find or load a requested backend</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-unsupported-feature">RT_UNSUPPORTED_FEATURE</code></td>
+                        <td class="error-value"><code>9</code></td>
+                        <td>the requested operation is valid API usage but is not supported by the current backend</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-initialization-failed">RT_INITIALIZATION_FAILED</code></td>
+                        <td class="error-value"><code>10</code></td>
+                        <td>backend initialization or a backend-created object failed for an implementation-specific reason</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-layer-not-present">RT_LAYER_NOT_PRESENT</code></td>
+                        <td class="error-value"><code>11</code></td>
+                        <td>a requested Vulkan layer or Rutile layer is not available</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-extension-not-present">RT_EXTENSION_NOT_PRESENT</code></td>
+                        <td class="error-value"><code>12</code></td>
+                        <td>a required extension or required exported procedure is not available</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-incompatible-driver">RT_INCOMPATIBLE_DRIVER</code></td>
+                        <td class="error-value"><code>13</code></td>
+                        <td>the installed graphics driver cannot support the backend</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-shader-compilation-failed">RT_SHADER_COMPILATION_FAILED</code></td>
+                        <td class="error-value"><code>14</code></td>
+                        <td>shader source translation failed</td>
+                    </tr>
+                    <tr>
+                        <td class="error-name"><code id="rt-shader-link-failed">RT_SHADER_LINK_FAILED</code></td>
+                        <td class="error-value"><code>15</code></td>
+                        <td>shader stages compiled but could not be linked into a usable program layout or pipeline state</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- ══════════════════════════════════════════════ §4 Data types and state -->
+        <section id="data-types">
+            <h2>4. Data types and state</h2>
+
+            <h3 id="scalar-types">4.1 Scalar types</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Bit Size</th>
+                        <th>C equivalent</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>bool</td><td>8</td><td>bool</td></tr>
+                    <tr><td>char</td><td>8</td><td>char</td></tr>
+                    <tr><td>i08</td><td>8</td><td>int8_t</td></tr>
+                    <tr><td>i16</td><td>16</td><td>int16_t</td></tr>
+                    <tr><td>i32</td><td>32</td><td>int32_t</td></tr>
+                    <tr><td>i64</td><td>64</td><td>int64_t</td></tr>
+                    <tr><td>u08</td><td>8</td><td>uint8_t</td></tr>
+                    <tr><td>u16</td><td>16</td><td>uint16_t</td></tr>
+                    <tr><td>u32</td><td>32</td><td>uint32_t</td></tr>
+                    <tr><td>u64</td><td>64</td><td>uint64_t</td></tr>
+                    <tr><td>f32</td><td>32</td><td>float</td></tr>
+                    <tr><td>f64</td><td>64</td><td>double</td></tr>
+                </tbody>
+            </table>
+
+            <h3 id="handles">4.2 Handles</h3>
+            <p>
+                All handle types are type-safe opaque resource identifiers with a <code>_h</code>
+                suffix, such as <code>swapchain_h</code> or <code>framebuffer_h</code>. Every resource
+                type has a corresponding handle type. From the perspective of Rutile users, all handles
+                have the representation of an unsigned 64-bit integer (<code>u64</code>), but their
+                internal representation is implementation-defined.
+            </p>
+
+            <h4 id="reserved-values">4.2.1 Reserved values</h4>
+            <p>
+                The value <code>0</code> is reserved and represents null. Any non-zero value is
+                invalid unless it was returned by a create function — either directly or implicitly
+                through a successful create function that creates backend-owned child resources — and
+                has not been destroyed.
+            </p>
+
+            <h4 id="validity-rules">4.2.2 Validity rules</h4>
+            <p>A handle is valid if and only if all of the following are true:</p>
+            <ul>
+                <li>it was returned by a successful Rutile function call that created a resource, either directly or implicitly</li>
+                <li>the resource has not been destroyed</li>
+                <li>the handle is used within the backend instance that created it</li>
+            </ul>
+            <p>A handle is invalid if any of the following are true:</p>
+            <ul>
+                <li>it was not returned by a successful resource-creating Rutile function call, either directly or implicitly</li>
+                <li>the resource it referred to has since been destroyed</li>
+                <li>it is used with a different backend instance</li>
+            </ul>
+            <p>
+                Null is not valid. Using null as though it referred to a valid resource is undefined
+                behavior unless a function explicitly defines behavior for a null argument. Use of any
+                invalid handle is undefined behavior.
+            </p>
+
+            <h4 id="identity-and-reuse">4.2.3 Identity and reuse</h4>
+            <p>
+                A handle value has no persistent identity beyond the lifetime of the resource it
+                represents. Each valid resource MUST be associated with exactly one unique handle value
+                within the backend instance. While a resource exists, its handle value MUST be unique
+                within that instance. The backend MAY reuse a handle value after the previous resource
+                associated with it has been destroyed. Reuse MUST NOT affect any currently existing
+                resource.
+            </p>
+            <p>
+                Handle comparison is defined behavior only when both operands are null or are valid
+                handles of the same type. Comparing an invalid handle is undefined behavior. Two handles
+                sharing the same numeric value do not imply identity: if handle A is destroyed and a
+                subsequent create call returns a new handle that happens to share A's numeric value,
+                the two handles name distinct resources. Equality of numeric values across distinct
+                resource lifetimes has no defined meaning.
+            </p>
+
+            <h4 id="opaqueness">4.2.4 Opaqueness</h4>
+            <p>
+                Any interpretation of a handle value other than null-check or same-type equality
+                comparison is undefined behavior. No bit pattern, numeric range, ordering, or encoding
+                within the handle value has defined meaning to Rutile users.
+            </p>
+        </section>
+
+        <!-- ═══════════════════════════════════════ §5 Initialization and shutdown -->
+        <section id="api-init">
+            <h2>5. Initialization and shutdown</h2>
+
+            <h3 id="backend-state">5.1 Backend state</h3>
+            <p>
+                The backend has exactly two global states: Uninitialized and Initialized. In the
+                Uninitialized state, calling any Rutile function other than
+                <a href="#initialization"><code>rtInit()</code></a>,
+                <a href="#free-functions-name"><code>rtGetName()</code></a>, and
+                <a href="#free-functions-error"><code>rtError()</code></a> is undefined behavior.
+            </p>
+
+            <h3 id="initialization">5.2 Initialization</h3>
+            <div class="boxed-code"><code id="api-init-signature">void rtInit(
+    u32 ext_count,
+    const char* const* extensions
+)</code></div>
+            <p class="api-meta"><strong>Parameters:</strong></p>
+            <ul>
+                <li><code>ext_count</code> — the number of extension name strings in <code>extensions</code>. May be <code>0</code>.</li>
+                <li><code>extensions</code> — a pointer to <code>ext_count</code> null-terminated UTF-8 extension name strings identifying the extensions to enable. May be <code>null</code> when <code>ext_count</code> is <code>0</code>.</li>
+            </ul>
+            <p>This function MUST:</p>
+            <ul>
+                <li>transition the backend to the Initialized state so that it is ready to accept all Rutile function calls</li>
+                <li>set the error state to <a href="#rt-success"><code>RT_SUCCESS</code></a> on success</li>
+                <li>leave the backend in the Uninitialized state if initialization fails</li>
+            </ul>
+            <p>Errors: <a href="#rt-already-initialized"><code>RT_ALREADY_INITIALIZED</code></a>,
+            <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>,
+            <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>,
+            <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>,
+            <a href="#rt-unsupported-platform"><code>RT_UNSUPPORTED_PLATFORM</code></a></p>
+
+            <h3 id="shutdown">5.3 Shutdown</h3>
+            <div class="boxed-code"><code id="api-exit">void rtExit()</code></div>
+            <p>This function MUST:</p>
+            <ul>
+                <li>clean up all backend state</li>
+                <li>clean up all backend-allocated resources before it returns</li>
+                <li>invalidate all handles previously returned by the backend</li>
+                <li>transition the backend to the Uninitialized state</li>
+                <li>leave a subsequent call to <code>rtInit()</code> legal</li>
+            </ul>
+            <p>
+                Resource destruction MAY be deferred during normal execution, but no resource may
+                remain uncleaned when <code>rtExit()</code> returns.
+            </p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════ §6 Free functions -->
+        <section id="free-functions">
+            <h2>6. Free functions</h2>
+            <p>
+                Free functions are Rutile functions not associated with any resource or handle. Unless
+                a function below explicitly states otherwise, free functions require the backend to be
+                in the Initialized state; calling them before <a href="#initialization"><code>rtInit()</code></a>
+                is undefined behavior.
+            </p>
+
+            <div class="api-entry">
+                <h3 id="free-functions-error" class="api-signature"><code>rt_error rtError()</code></h3>
+                <p>
+                    Returns the current value of the thread-local error state.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The thread-local error state is not modified.</li>
+                    <li>The thread-local error message buffer is not modified.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+                <p class="api-meta"><strong>Notes:</strong> This function is defined behavior in both
+                the Initialized and Uninitialized states. When called before any operation has executed
+                on the calling thread, the returned value is uninitialized and its interpretation is
+                undefined.</p>
+            </div>
+
+            <div class="api-entry">
+                <h3 id="free-functions-error-message" class="api-signature"><code>const char* rtErrorMessage()</code></h3>
+                <p>
+                    Returns a pointer to the thread-local error message buffer.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The returned pointer refers to thread-local storage and remains valid for the lifetime of the calling thread.</li>
+                    <li>The buffer contents are only guaranteed to remain unchanged until the next operation executes on the same thread.</li>
+                    <li>Before any message is written, and after <code>rtClearError()</code>, the buffer contains an empty string.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h3 id="free-functions-clear-error" class="api-signature"><code>void rtClearError()</code></h3>
+                <p>
+                    Clears the thread-local error state and error message buffer.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The thread-local error state is <a href="#rt-success"><code>RT_SUCCESS</code></a>.</li>
+                    <li>The thread-local error message buffer contains an empty string.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h3 id="free-functions-name" class="api-signature"><code>const char* rtGetName()</code></h3>
+                <p>
+                    Returns a pointer to an implementation-defined string identifying the backend.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The returned pointer MUST refer to static storage and MUST remain valid for the lifetime of the program.</li>
+                    <li>The returned string MUST be encoded as UTF-8 and MUST be null-terminated.</li>
+                    <li>The content of the string is implementation-defined.</li>
+                    <li>The returned pointer MUST NOT change between calls.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+                <p class="api-meta"><strong>Notes:</strong> This function is defined behavior in both
+                the Initialized and Uninitialized states.</p>
+            </div>
+
+            <div class="api-entry">
+                <h3 id="free-functions-format-caps" class="api-signature"><code>rt_format_usage rtQueryFormatCapabilities(
+    rt_format format
+)</code></h3>
+                <p>
+                    Returns the backend-declared <code>rt_format_usage</code> flags for
+                    <code>format</code>. The result describes the Vulkan backend's advertised Rutile
+                    usage support, not a full physical-device feature query.
+                </p>
+                <p><code>rt_format_usage</code> is a bitmask type with the following flags:</p>
+                <table>
+                    <thead><tr><th>Name</th><th>Value</th><th>Meaning</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>RT_FORMAT_USAGE_NONE</code></td><td><code>0</code></td><td>no supported usages</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_SAMPLED</code></td><td><code>0x01</code></td><td>can be sampled in a shader</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_COLOR_ATTACHMENT</code></td><td><code>0x02</code></td><td>can be used as a color attachment</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_DEPTH_ATTACHMENT</code></td><td><code>0x04</code></td><td>can be used as a depth or depth-stencil attachment</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_STORAGE</code></td><td><code>0x08</code></td><td>can be bound as a storage image for read/write access in a shader</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_TRANSFER_SRC</code></td><td><code>0x10</code></td><td>can be the source of a copy operation</td></tr>
+                        <tr><td><code>RT_FORMAT_USAGE_TRANSFER_DST</code></td><td><code>0x20</code></td><td>can be the destination of a copy operation</td></tr>
+                    </tbody>
+                </table>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+                <p class="api-meta"><strong>Vulkan backend:</strong></p>
+                <ul>
+                    <li><code>RT_RGBA8_UNORM</code> reports sampled, color attachment, storage, transfer source, and transfer destination usage.</li>
+                    <li><code>RT_D16_UNORM</code>, <code>RT_D32_SFLOAT</code>, <code>RT_S8_UINT</code>, <code>RT_D24_UNORM_S8_UINT</code>, and <code>RT_D32_SFLOAT_S8_UINT</code> report sampled, depth attachment, transfer source, and transfer destination usage.</li>
+                    <li>All other formats report <code>RT_FORMAT_USAGE_NONE</code>.</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════ §7 Objects and resources -->
+        <section id="resources">
+            <h2>7. Objects and resources</h2>
+            <p>
+                A resource is any backend-managed object. All resources are referenced through
+                type-safe handles, and all resource behavior is expressed in terms of creation,
+                state change, use, and destruction.
+            </p>
+
+            <h3 id="resource-types-list">7.1 Resource types</h3>
+            <div class="stack">
+                <div class="stack-item">
+                    <strong class="stack-term">buffer</strong>
+                    <p class="stacked-detail">a linear, untyped memory resource; interpretation as vertex data, index data, uniform data, or storage is determined by how it is bound</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">texture</strong>
+                    <p class="stacked-detail">a texel-addressable image resource used for sampling, storage, or attachment purposes</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">sampler</strong>
+                    <p class="stacked-detail">an immutable state object controlling how a texture is sampled (filtering, addressing, LOD)</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">framebuffer</strong>
+                    <p class="stacked-detail">a collection of texture attachments that rendering operations write into; may be user-owned or swapchain-owned</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">graphics_program</strong>
+                    <p class="stacked-detail">a linked GPU executable composed from a vertex stage and a fragment stage, each provided as RSIR bytecode</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">command_buffer</strong>
+                    <p class="stacked-detail">a recorded sequence of GPU commands prepared for later submission to a queue</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">swapchain</strong>
+                    <p class="stacked-detail">a presentation resource that manages presentable images for platform-specific display paths</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">queue</strong>
+                    <p class="stacked-detail">a submission endpoint that executes GPU work; queried from the backend via <code>rtQueueQuery</code>, not user-created or destroyed</p>
+                </div>
+            </div>
+
+            <h3 id="resource-lifecycle">7.2 Lifecycle</h3>
+            <p>
+                Every resource follows the lifecycle: Allocate, Configure, Use, Destroy. Allocation
+                creates a resource and returns its handle. Configuration modifies resource state when
+                the resource type supports it. Use operates on a valid resource according to its
+                function contract. Destroy makes the handle invalid immediately.
+            </p>
+            <p>
+                Queue handles are an exception to this lifecycle. They are allocated and managed
+                entirely by the backend at initialization time. The caller queries them via
+                <a href="#query-queue"><code>rtQueueQuery</code></a> but does not create or destroy
+                them. Queue handles are valid for the lifetime of the initialized backend and MUST
+                NOT be passed to any destroy function.
+            </p>
+
+            <h3 id="common-rules">7.3 Common rules</h3>
+            <ul>
+                <li>Destroying null MUST be a no-op.</li>
+                <li>Destroying an invalid non-null handle is undefined behavior.</li>
+                <li>A failed creation MUST NOT leak resources.</li>
+                <li>Resource state MUST NOT be unnecessarily duplicated. Where a platform already owns
+                the authoritative value for a piece of state, the backend MAY use that platform state
+                as the source of truth.</li>
+            </ul>
+
+            <h3 id="generic-create-destroy">7.4 Generic create and destroy pattern</h3>
+            <p>
+                Each resource type defines its own typed handle <code>TYPE_h</code> and follows a
+                resource-specific create and destroy function pattern. The common forms are shown below.
+            </p>
+
+            <h4 id="generic-create">7.4.1 Create</h4>
+            <div class="boxed-code"><code>TYPE_h rtTYPECreate()</code></div>
+            <p>
+                On success, returns a valid handle and sets the error state to
+                <a href="#rt-success"><code>RT_SUCCESS</code></a>. On failure, returns null and throws
+                the appropriate error.
+            </p>
+
+            <h4 id="generic-destroy">7.4.2 Destroy</h4>
+            <div class="boxed-code"><code>void rtTYPEDestroy(
+    TYPE_h handle
+)</code></div>
+            <p>
+                Destroy MUST NOT fail. Destroying null MUST be a no-op. After destroy returns, the
+                handle is immediately invalid. The backend MAY defer the physical cleanup of resources,
+                but all resources MUST be cleaned up before <a href="#api-exit"><code>rtExit()</code></a>
+                returns.
+            </p>
+        </section>
+
+        <!-- ══════════════════════════════════════════════ §8 Validation layers -->
+        <section id="validation-layers">
+            <h2>8. Validation layers</h2>
+            <p>
+                A validation layer is an optional intermediary that sits between the frontend and the
+                backend, intercepting calls made through the operation model. A validation layer may
+                export the same Rutile function names as a backend and forward calls to another loaded
+                implementation.
+            </p>
+            <p>
+                Without a validation layer, calls flow from the frontend through loaded Rutile functions
+                directly to the backend. With a validation layer inserted, calls flow from the frontend
+                through loaded Rutile functions into the layer, which then forwards them through a second
+                set of loaded Rutile functions to the backend.
+            </p>
+            <p>Validation layers may:</p>
+            <ul>
+                <li>validate calls against the rules defined in this specification before the backend sees them, and throw <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a> for violations</li>
+                <li>record Rutile function traffic for debugging, tracing, or tooling purposes</li>
+                <li>stop execution or emit diagnostics when frontend behavior violates required rules</li>
+                <li>observe, annotate, or adapt calls before forwarding them to a conforming implementation</li>
+                <li>modify opaque handles</li>
+                <li>introduce additional synchronization to make Rutile functions safe to call concurrently without external synchronization</li>
+            </ul>
+            <p>
+                Validation layers are fully composable. Backend implementations MAY rely on validation
+                layers for additional diagnostics and are therefore not required to duplicate validation
+                that is not mandated by this specification or the error model.
+            </p>
+        </section>
+
+        <!-- ══════════════════════════════════════ §9 Resource-specific operations -->
+        <section id="resource-types">
+            <h2>9. Resource-specific operations</h2>
+            <p>
+                The sections that follow define behavior specific to each resource type. The global
+                lifecycle, handle, initialization, and error rules defined in sections 2 through 7
+                apply throughout and are not repeated unless a resource explicitly differs.
+            </p>
+
+            <h3 id="swapchain-section">9.1 Swapchain</h3>
+            <p>
+                A swapchain is a presentation resource that manages one or more presentable images.
+                Base Rutile does not define a swapchain creation function. Swapchains are created by
+                extension-defined entry points such as <code>rtWin32SwapchainCreate()</code>. Platform
+                bindings and presentation target associations are extension-defined rather than part
+                of the core API.
+            </p>
+
+            <h4 id="swapchain-state">9.1.1 Swapchain state</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Default</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Width</td>
+                        <td>u32</td>
+                        <td>the presentation width in pixels</td>
+                        <td><code>0</code></td>
+                    </tr>
+                    <tr>
+                        <td>Height</td>
+                        <td>u32</td>
+                        <td>the presentation height in pixels</td>
+                        <td><code>0</code></td>
+                    </tr>
+                    <tr>
+                        <td>Image count</td>
+                        <td>u32</td>
+                        <td>the number of presentable images owned by the swapchain</td>
+                        <td><code>0</code></td>
+                    </tr>
+                    <tr>
+                        <td>Presentation binding</td>
+                        <td>opaque</td>
+                        <td>the implementation-defined presentation binding established by the creating extension</td>
+                        <td>implementation-defined</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtSwapchainDestroy(
+    rt_swapchain swapchain
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The swapchain handle is immediately invalid.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>rt_swapchain_acquire_result rtSwapchainAcquire(
+    rt_swapchain swapchain
+)</code></h4>
+                <p>
+                    Acquires the next presentable image from the swapchain. The returned result
+                    contains a swapchain-owned <code>rt_framebuffer</code> wrapping the image and
+                    an acquire <code>rt_timepoint</code> that rendering work must wait on before
+                    using that framebuffer. Only one framebuffer may be acquired per swapchain at a
+                    time.
+                </p>
+                <p>
+                    The caller MUST NOT call <code>rtFramebufferDestroy</code> or any
+                    <code>rtFramebufferSet*</code> function on the returned handle.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>swapchain</code><p>must be valid</p></li>
+                    <li><p>no framebuffer acquired from <code>swapchain</code> may currently be outstanding</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The result framebuffer refers to a swapchain-owned framebuffer wrapping the acquired image.</li>
+                    <li>The result timepoint represents completion of image acquisition.</li>
+                    <li>The handle remains valid until <code>rtSwapchainPresent</code> is called on this swapchain.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> result fields are zero/null</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtSwapchainPresent(
+    rt_swapchain swapchain,
+    rt_timepoint rendered
+)</code></h4>
+                <p>
+                    Presents the currently acquired swapchain image. The backend waits for
+                    <code>rendered</code> to be reached before presenting, ensuring that all
+                    rendering to the acquired framebuffer has completed. After this call
+                    returns, the framebuffer handle previously returned by
+                    <code>rtSwapchainAcquire</code> is immediately invalid.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>swapchain</code><p>must be valid and have a currently acquired framebuffer</p></li>
+                    <li><code>rendered</code><p>must be a timepoint for work that renders to the acquired framebuffer</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The framebuffer handle previously returned by <code>rtSwapchainAcquire</code> is immediately invalid.</li>
+                    <li>The swapchain has no outstanding acquired framebuffer.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <h3 id="texture-section">9.2 Texture</h3>
+            <p>
+                A texture is a texel-addressable resource. A texture handle identifies the texture
+                object; texture storage and contents are part of its state.
+            </p>
+            <p>
+                Texture kind is described by <code>rt_texture_type</code>. This section defines
+                <code>RT_TEXTURE_1D</code>, <code>RT_TEXTURE_2D</code>, <code>RT_TEXTURE_3D</code>,
+                <code>RT_TEXTURE_1D_ARRAY</code>, and <code>RT_TEXTURE_2D_ARRAY</code>. Proxy textures,
+                rectangle textures, cube textures, cube arrays, and other specialized kinds are not
+                defined by this specification.
+            </p>
+
+            <h4 id="texture-state">9.2.1 Texture state</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Default</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Target</td>
+                        <td>rt_texture_type</td>
+                        <td>the texture kind</td>
+                        <td><code>RT_TEXTURE_UNKNOWN</code></td>
+                    </tr>
+                    <tr><td>Width</td><td>u32</td><td>the width of the texture in texels</td><td><code>0</code></td></tr>
+                    <tr><td>Height</td><td>u32</td><td>the height of the texture in texels</td><td><code>0</code></td></tr>
+                    <tr><td>Depth</td><td>u32</td><td>the depth of the texture in texels</td><td><code>0</code></td></tr>
+                    <tr><td>Layers</td><td>u32</td><td>the layer count of the texture</td><td><code>0</code></td></tr>
+                    <tr><td>Levels</td><td>u32</td><td>the number of defined mip levels</td><td><code>0</code></td></tr>
+                    <tr>
+                        <td>Internal format</td>
+                        <td>rt_format</td>
+                        <td>the storage format of the texture</td>
+                        <td><code>RT_FORMAT_UNKNOWN</code></td>
+                    </tr>
+                    <tr><td>Texel data</td><td>opaque</td><td>the texel contents stored in the texture</td><td>undefined</td></tr>
+                </tbody>
+            </table>
+
+            <h4 id="texture-storage-definition">9.2.2 Storage definition</h4>
+            <p>
+                A newly created texture has no defined storage and kind <code>RT_TEXTURE_UNKNOWN</code>.
+                Storage is defined when <code>levels &gt; 0</code> and undefined when <code>levels == 0</code>.
+                When storage is undefined, the extent fields and internal format retain their current
+                state values, but those values do not describe usable texture storage.
+            </p>
+
+            <h4 id="texture-extent-model">9.2.3 Extent model</h4>
+            <p>
+                Once storage is defined, every texture is described using four extents:
+                <code>width</code>, <code>height</code>, <code>depth</code>, and <code>layers</code>.
+                The values of unused extents are fixed as follows:
+            </p>
+            <ul>
+                <li><code>RT_TEXTURE_1D</code>: <code>height == 1</code>, <code>depth == 1</code>, <code>layers == 1</code></li>
+                <li><code>RT_TEXTURE_2D</code>: <code>depth == 1</code>, <code>layers == 1</code></li>
+                <li><code>RT_TEXTURE_3D</code>: <code>layers == 1</code></li>
+                <li><code>RT_TEXTURE_1D_ARRAY</code>: <code>height == 1</code>, <code>depth == 1</code></li>
+                <li><code>RT_TEXTURE_2D_ARRAY</code>: <code>depth == 1</code></li>
+            </ul>
+
+            <h4 id="texture-mip-levels">9.2.4 Mip levels</h4>
+            <p>
+                Mip level <code>0</code> is the base level. Each successive mip level halves
+                <code>width</code>, <code>height</code>, and <code>depth</code>, rounding down and
+                clamping to a minimum of <code>1</code> for each active spatial dimension. The layer
+                count does not change across mip levels.
+            </p>
+
+            <h4 id="texture-kinds">9.2.5 Texture kinds</h4>
+            <p>
+                Texture kind is described by <code>rt_texture_type</code>. The value
+                <code>RT_TEXTURE_UNKNOWN</code> is reserved as the <code>0</code> value and indicates
+                that no texture kind has been defined. The supported kinds are
+                <code>RT_TEXTURE_1D</code>, <code>RT_TEXTURE_2D</code>, <code>RT_TEXTURE_3D</code>,
+                <code>RT_TEXTURE_1D_ARRAY</code>, and <code>RT_TEXTURE_2D_ARRAY</code>.
+            </p>
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>RT_TEXTURE_UNKNOWN</code></td><td><code>0</code></td></tr>
+                    <tr><td><code>RT_TEXTURE_1D</code></td><td><code>1</code></td></tr>
+                    <tr><td><code>RT_TEXTURE_2D</code></td><td><code>2</code></td></tr>
+                    <tr><td><code>RT_TEXTURE_3D</code></td><td><code>3</code></td></tr>
+                    <tr><td><code>RT_TEXTURE_1D_ARRAY</code></td><td><code>4</code></td></tr>
+                    <tr><td><code>RT_TEXTURE_2D_ARRAY</code></td><td><code>5</code></td></tr>
+                </tbody>
+            </table>
+            <p>
+                <code>rtTextureData</code> accepts any defined texture kind as its <code>target</code>
+                argument. The interpretation of the <code>z</code> extent parameter depends on the
+                target kind: for <code>RT_TEXTURE_3D</code>, <code>z</code> specifies the volume
+                depth; for <code>RT_TEXTURE_1D_ARRAY</code> and <code>RT_TEXTURE_2D_ARRAY</code>,
+                <code>z</code> specifies the layer count; for <code>RT_TEXTURE_1D</code> and
+                <code>RT_TEXTURE_2D</code>, <code>z</code> must be <code>1</code>.
+            </p>
+
+            <h4 id="texture-formats">9.2.6 Formats</h4>
+            <p>
+                Texture storage format is described by <code>rt_format</code>. The value
+                <code>RT_FORMAT_UNKNOWN</code> is reserved as the <code>0</code> value and indicates
+                that no format has been defined. Format suffixes are interpreted as follows:
+                <code>UNORM</code> denotes unsigned normalized fixed-point storage;
+                <code>SFLOAT</code> denotes signed floating-point storage;
+                <code>SINT</code> denotes signed integer storage;
+                <code>UINT</code> denotes unsigned integer storage.
+            </p>
+            <p>
+                Depth, stencil, and depth-stencil formats are attachment-oriented. Not every backend
+                is required to support every format natively. Format capability rules are not yet
+                defined by this specification.
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Formats</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr id="normalized-color-formats">
+                        <td>Normalized color</td>
+                        <td><code>RT_R8_UNORM</code>, <code>RT_RG8_UNORM</code>, <code>RT_RGB8_UNORM</code>, <code>RT_RGBA8_UNORM</code>, <code>RT_R16_UNORM</code>, <code>RT_RG16_UNORM</code>, <code>RT_RGB16_UNORM</code>, <code>RT_RGBA16_UNORM</code></td>
+                    </tr>
+                    <tr id="floating-point-color-formats">
+                        <td>Floating-point color</td>
+                        <td><code>RT_R16_SFLOAT</code>, <code>RT_RG16_SFLOAT</code>, <code>RT_RGB16_SFLOAT</code>, <code>RT_RGBA16_SFLOAT</code>, <code>RT_R32_SFLOAT</code>, <code>RT_RG32_SFLOAT</code>, <code>RT_RGB32_SFLOAT</code>, <code>RT_RGBA32_SFLOAT</code></td>
+                    </tr>
+                    <tr id="signed-integer-color-formats">
+                        <td>Signed integer color</td>
+                        <td><code>RT_R8_SINT</code>, <code>RT_RG8_SINT</code>, <code>RT_RGB8_SINT</code>, <code>RT_RGBA8_SINT</code>, <code>RT_R16_SINT</code>, <code>RT_RG16_SINT</code>, <code>RT_RGB16_SINT</code>, <code>RT_RGBA16_SINT</code>, <code>RT_R32_SINT</code>, <code>RT_RG32_SINT</code>, <code>RT_RGB32_SINT</code>, <code>RT_RGBA32_SINT</code></td>
+                    </tr>
+                    <tr id="unsigned-integer-color-formats">
+                        <td>Unsigned integer color</td>
+                        <td><code>RT_R8_UINT</code>, <code>RT_RG8_UINT</code>, <code>RT_RGB8_UINT</code>, <code>RT_RGBA8_UINT</code>, <code>RT_R16_UINT</code>, <code>RT_RG16_UINT</code>, <code>RT_RGB16_UINT</code>, <code>RT_RGBA16_UINT</code>, <code>RT_R32_UINT</code>, <code>RT_RG32_UINT</code>, <code>RT_RGB32_UINT</code>, <code>RT_RGBA32_UINT</code></td>
+                    </tr>
+                    <tr id="depth-formats">
+                        <td>Depth</td>
+                        <td><code>RT_D16_UNORM</code>, <code>RT_D32_SFLOAT</code></td>
+                    </tr>
+                    <tr id="stencil-formats">
+                        <td>Stencil</td>
+                        <td><code>RT_S8_UINT</code></td>
+                    </tr>
+                    <tr id="depth-stencil-formats">
+                        <td>Depth-stencil</td>
+                        <td><code>RT_D24_UNORM_S8_UINT</code>, <code>RT_D32_SFLOAT_S8_UINT</code></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>Canonical numeric values for <code>rt_format</code>:</p>
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Value</th><th>Name</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>RT_FORMAT_UNKNOWN</code></td><td><code>0</code></td><td><code>RT_R8_UINT</code></td><td><code>29</code></td></tr>
+                    <tr><td><code>RT_R8_UNORM</code></td><td><code>1</code></td><td><code>RT_RG8_UINT</code></td><td><code>30</code></td></tr>
+                    <tr><td><code>RT_RG8_UNORM</code></td><td><code>2</code></td><td><code>RT_RGB8_UINT</code></td><td><code>31</code></td></tr>
+                    <tr><td><code>RT_RGB8_UNORM</code></td><td><code>3</code></td><td><code>RT_RGBA8_UINT</code></td><td><code>32</code></td></tr>
+                    <tr><td><code>RT_RGBA8_UNORM</code></td><td><code>4</code></td><td><code>RT_R16_UINT</code></td><td><code>33</code></td></tr>
+                    <tr><td><code>RT_R16_UNORM</code></td><td><code>5</code></td><td><code>RT_RG16_UINT</code></td><td><code>34</code></td></tr>
+                    <tr><td><code>RT_RG16_UNORM</code></td><td><code>6</code></td><td><code>RT_RGB16_UINT</code></td><td><code>35</code></td></tr>
+                    <tr><td><code>RT_RGB16_UNORM</code></td><td><code>7</code></td><td><code>RT_RGBA16_UINT</code></td><td><code>36</code></td></tr>
+                    <tr><td><code>RT_RGBA16_UNORM</code></td><td><code>8</code></td><td><code>RT_R32_UINT</code></td><td><code>37</code></td></tr>
+                    <tr><td><code>RT_R16_SFLOAT</code></td><td><code>9</code></td><td><code>RT_RG32_UINT</code></td><td><code>38</code></td></tr>
+                    <tr><td><code>RT_RG16_SFLOAT</code></td><td><code>10</code></td><td><code>RT_RGB32_UINT</code></td><td><code>39</code></td></tr>
+                    <tr><td><code>RT_RGB16_SFLOAT</code></td><td><code>11</code></td><td><code>RT_RGBA32_UINT</code></td><td><code>40</code></td></tr>
+                    <tr><td><code>RT_RGBA16_SFLOAT</code></td><td><code>12</code></td><td><code>RT_D16_UNORM</code></td><td><code>41</code></td></tr>
+                    <tr><td><code>RT_R32_SFLOAT</code></td><td><code>13</code></td><td><code>RT_D32_SFLOAT</code></td><td><code>42</code></td></tr>
+                    <tr><td><code>RT_RG32_SFLOAT</code></td><td><code>14</code></td><td><code>RT_S8_UINT</code></td><td><code>43</code></td></tr>
+                    <tr><td><code>RT_RGB32_SFLOAT</code></td><td><code>15</code></td><td><code>RT_D24_UNORM_S8_UINT</code></td><td><code>44</code></td></tr>
+                    <tr><td><code>RT_RGBA32_SFLOAT</code></td><td><code>16</code></td><td><code>RT_D32_SFLOAT_S8_UINT</code></td><td><code>45</code></td></tr>
+                    <tr><td><code>RT_R8_SINT</code></td><td><code>17</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RG8_SINT</code></td><td><code>18</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGB8_SINT</code></td><td><code>19</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGBA8_SINT</code></td><td><code>20</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_R16_SINT</code></td><td><code>21</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RG16_SINT</code></td><td><code>22</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGB16_SINT</code></td><td><code>23</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGBA16_SINT</code></td><td><code>24</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_R32_SINT</code></td><td><code>25</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RG32_SINT</code></td><td><code>26</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGB32_SINT</code></td><td><code>27</code></td><td></td><td></td></tr>
+                    <tr><td><code>RT_RGBA32_SINT</code></td><td><code>28</code></td><td></td><td></td></tr>
+                </tbody>
+            </table>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>texture_h rtTextureCreate()</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The returned texture is initialized to the default state defined in <a href="#texture-state">9.2.1</a>.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a>, <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtTextureDestroy(
+    texture_h tex
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tex</code><p>may be valid or null</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li><code>tex</code> is immediately invalid.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <p>The following function defines texture storage and uploads the full contents of all mip levels.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature">
+                    <code>rt_timepoint rtTextureData(
+    queue_h queue,
+    texture_h tex,
+    rt_texture_type target,
+    u32 x,
+    u32 y,
+    u32 z,
+    u32 levels,
+    rt_format internal_format,
+    const void* data
+)</code>
+                </h4>
+                <p>Defines texture storage and uploads the full contents of all mip levels. <code>x</code>, <code>y</code>, and <code>z</code> specify the base-level extents. <code>z</code> is interpreted according to <code>target</code> as described in <a href="#texture-kinds">9.2.5</a>. <code>y</code> must be <code>1</code> for <code>RT_TEXTURE_1D</code> and <code>RT_TEXTURE_1D_ARRAY</code>.</p>
+                <p>Passing <code>null</code> for <code>data</code> is defined behavior. The backend MUST allocate device storage for all specified mip levels but MUST NOT initialize their contents. This is the correct way to allocate a texture that will be written exclusively by GPU operations.</p>
+                <p class="api-meta"><strong>Requirements:</strong></p>
+                <ul>
+                    <li>This call replaces any previously defined storage and contents of <code>tex</code>.</li>
+                    <li>If <code>tex</code> previously referred to a different texture kind, this call redefines it as the kind specified by <code>target</code>.</li>
+                </ul>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>tex</code><p>must be valid</p></li>
+                    <li><code>target</code><p>must not be <code>RT_TEXTURE_UNKNOWN</code></p></li>
+                    <li><code>x</code><p>must not be <code>0</code></p></li>
+                    <li><code>y</code><p>must not be <code>0</code>; must be <code>1</code> for <code>RT_TEXTURE_1D</code> and <code>RT_TEXTURE_1D_ARRAY</code></p></li>
+                    <li><code>z</code><p>must not be <code>0</code>; must be <code>1</code> for <code>RT_TEXTURE_1D</code> and <code>RT_TEXTURE_2D</code></p></li>
+                    <li><code>levels</code><p>must not be <code>0</code> and must not exceed the full mip count implied by the active spatial extents</p></li>
+                    <li><code>data</code><p>if not <code>null</code>, must point to storage whose size equals the sum of all mip-level byte sizes in <code>[0, levels)</code>, where each mip-level size is <code>level_x(i) * level_y(i) * level_z_or_layers(i) * format_size(internal_format)</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The texture kind becomes <code>target</code>.</li>
+                    <li>Width, height, depth, and layer count are set according to the extent model in <a href="#texture-extent-model">9.2.3</a>, derived from <code>x</code>, <code>y</code>, and <code>z</code>.</li>
+                    <li>The mip level count becomes <code>levels</code>.</li>
+                    <li>The internal format becomes <code>internal_format</code>.</li>
+                    <li>The texture has defined storage.</li>
+                    <li>All mip levels in <code>[0, levels)</code> become defined.</li>
+                    <li>If <code>data != null</code>, the contents of all defined mip levels become equal to the data provided, laid out in ascending mip level order.</li>
+                    <li>If <code>data == null</code>, the contents of all defined mip levels are left uninitialized.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this upload on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+
+            <p>
+                The following function updates a subregion of previously defined texture storage.
+            </p>
+
+            <div class="api-entry">
+                <h4 class="api-signature">
+                    <code>rt_timepoint rtTextureSubdata(
+    queue_h queue,
+    texture_h tex,
+    u32 level,
+    u32 x,
+    u32 y,
+    u32 z,
+    u32 width,
+    u32 height,
+    u32 depth,
+    const void* data
+)</code>
+                </h4>
+                <p>Updates a subregion of a defined texture mip level. The origin <code>(x, y, z)</code> and extent <code>(width, height, depth)</code> address the subregion. For <code>RT_TEXTURE_3D</code>, <code>z</code> and <code>depth</code> address volume slices. For array textures, <code>z</code> and <code>depth</code> address layers. For non-layered non-volumetric textures, <code>z</code> must be <code>0</code> and <code>depth</code> must be <code>1</code>.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>tex</code><p>must be valid and have defined storage</p></li>
+                    <li><code>level</code><p>must name an existing mip level of <code>tex</code></p></li>
+                    <li><code>data</code><p>must not be <code>null</code></p></li>
+                    <li><code>x</code>, <code>y</code>, <code>z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the addressed box must lie entirely within the bounds of mip level <code>level</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>Only the addressed subregion of the addressed mip level is modified.</li>
+                    <li>Texture dimensions, mip count, and internal format are unchanged.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this upload on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+
+            <p>
+                The following function copies texel data between existing textures at mip level
+                granularity. It does not create resources. No format conversion is performed: the
+                source and destination internal formats must be equal. Copies are extent-based and
+                may operate between textures of different nominal kinds, provided the addressed mip
+                levels have matching extents and equal formats.
+            </p>
+
+            <div class="api-entry">
+                <h4 class="api-signature">
+                    <code>rt_timepoint rtTextureCopy(
+    queue_h queue,
+    texture_h src,
+    u32 src_level,
+    texture_h dst,
+    u32 dst_level
+)</code>
+                </h4>
+                <p>Copies an addressed source mip level into an addressed destination mip level.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>src</code><p>must be valid and have defined storage</p></li>
+                    <li><code>src_level</code><p>must name an existing mip level of <code>src</code></p></li>
+                    <li><code>dst</code><p>must be valid and have defined storage</p></li>
+                    <li><code>dst_level</code><p>must name an existing mip level of <code>dst</code></p></li>
+                    <li><p>the source and destination internal formats must match</p></li>
+                    <li><p>the source and destination mip extents must match</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>Only mip level <code>dst_level</code> of <code>dst</code> is modified.</li>
+                    <li>The contents of <code>dst_level</code> become an exact copy of <code>src_level</code>.</li>
+                    <li>The storage definitions of <code>src</code> and <code>dst</code> are unchanged.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this copy on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+
+            <p>
+                The following function copies a subregion from one texture into a subregion of another.
+                Unlike <code>rtTextureCopy</code>, it operates at subregion granularity
+                and does not redefine destination storage.
+            </p>
+
+            <div class="api-entry">
+                <h4 class="api-signature">
+                    <code>rt_timepoint rtTextureSubcopy(
+    queue_h queue,
+    texture_h src,
+    u32 src_level,
+    u32 src_x,
+    u32 src_y,
+    u32 src_z,
+    texture_h dst,
+    u32 dst_level,
+    u32 dst_x,
+    u32 dst_y,
+    u32 dst_z,
+    u32 width,
+    u32 height,
+    u32 depth
+)</code>
+                </h4>
+                <p>Copies a subregion of a source mip level into a subregion of a destination mip level. The <code>z</code> and <code>depth</code> parameters follow the same coordinate semantics as <code>rtTextureSubdata</code>.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>src</code><p>must be valid and have defined storage</p></li>
+                    <li><code>src_level</code><p>must name an existing mip level of <code>src</code></p></li>
+                    <li><code>src_x</code>, <code>src_y</code>, <code>src_z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the source box must lie entirely within the bounds of <code>src_level</code></p></li>
+                    <li><code>dst</code><p>must be valid and have defined storage</p></li>
+                    <li><code>dst_level</code><p>must name an existing mip level of <code>dst</code></p></li>
+                    <li><code>dst_x</code>, <code>dst_y</code>, <code>dst_z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the destination box must lie entirely within the bounds of <code>dst_level</code></p></li>
+                    <li><code>src</code>, <code>dst</code><p>the internal formats of <code>src</code> and <code>dst</code> must be equal</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>Only the addressed destination subregion is modified.</li>
+                    <li>The storage definitions of <code>src</code> and <code>dst</code> are unchanged.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this copy on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════════════════ §9.3 Buffer -->
+            <h3 id="buffer-section">9.3 Buffer</h3>
+            <p>
+                A buffer is a linear, untyped memory resource. Buffers carry no inherent
+                semantics; their interpretation as vertex data, index data, uniform data,
+                or storage is determined entirely by how they are bound.
+            </p>
+
+            <h4 id="buffer-state">9.3.1 Buffer state</h4>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Type</th><th>Description</th><th>Default</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Size</td><td>u64</td><td>the number of bytes of allocated device storage</td><td><code>0</code></td></tr>
+                    <tr><td>Data</td><td>opaque</td><td>the raw byte contents of the buffer</td><td>undefined</td></tr>
+                </tbody>
+            </table>
+            <p>A buffer has defined storage when <code>size &gt; 0</code>. A newly created buffer has no defined storage.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>buffer_h rtBufferCreate()</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The returned buffer is initialized to the default state defined in <a href="#buffer-state">9.3.1</a>.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtBufferDestroy(
+    buffer_h buf
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>may be valid or null</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li><code>buf</code> is immediately invalid.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>rt_timepoint rtBufferData(
+    queue_h queue,
+    buffer_h buf,
+    u64 size,
+    const void* data
+)</code></h4>
+                <p>Defines buffer storage and optionally uploads initial contents. Passing <code>null</code> for <code>data</code> is defined behavior: the backend MUST allocate device storage of <code>size</code> bytes but MUST NOT initialize its contents. This call replaces any previously defined storage.</p>
+                <p class="api-meta"><strong>Requirements:</strong></p>
+                <ul><li>This call replaces any previously defined storage and contents of <code>buf</code>.</li></ul>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>buf</code><p>must be valid</p></li>
+                    <li><code>size</code><p>must not be <code>0</code></p></li>
+                    <li><code>data</code><p>if not <code>null</code>, must point to at least <code>size</code> readable bytes</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The buffer size becomes <code>size</code>.</li>
+                    <li>The buffer has defined storage.</li>
+                    <li>If <code>data != null</code>, the contents become equal to the <code>size</code> bytes at <code>data</code>.</li>
+                    <li>If <code>data == null</code>, the contents are left uninitialized.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this upload on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>rt_timepoint rtBufferSubdata(
+    queue_h queue,
+    buffer_h buf,
+    u64 offset,
+    u64 size,
+    const void* data
+)</code></h4>
+                <p>Updates a subrange of a defined buffer.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>buf</code><p>must be valid and have defined storage</p></li>
+                    <li><code>data</code><p>must not be <code>null</code></p></li>
+                    <li><code>offset</code>, <code>size</code><p>the range <code>[offset, offset + size)</code> must lie entirely within the buffer's defined storage</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>Only the bytes in <code>[offset, offset + size)</code> are modified.</li>
+                    <li>The buffer size is unchanged.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this upload on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+            </div>
+
+        <!-- ══════════════════════════════════════════════════════════ §9.4 Sampler -->
+            <h3 id="sampler-section">9.4 Sampler</h3>
+            <p>
+                A sampler is an immutable state object that controls how a texture is read
+                during sampling operations. Samplers carry no reference to any texture;
+                multiple textures may be used with the same sampler.
+            </p>
+
+            <h4 id="sampler-desc">9.4.1 rt_sampler_desc</h4>
+            <p>All sampler state is captured from an <code>rt_sampler_desc</code> at creation time and is immutable thereafter.</p>
+            <div class="boxed-code"><code>struct rt_sampler_desc {
+    rt_filter       mag_filter;
+    rt_filter       min_filter;
+    rt_mip_filter   mip_filter;
+    rt_address_mode address_u;
+    rt_address_mode address_v;
+    rt_address_mode address_w;
+    u32             max_anisotropy;
+    f32             min_lod;
+    f32             max_lod;
+    f32             lod_bias;
+}</code></div>
+            <p><code>max_anisotropy</code> of <code>1</code> disables anisotropic filtering. Higher values enable it; the backend MAY clamp to the device maximum.</p>
+            <p>Enum types used by <code>rt_sampler_desc</code>:</p>
+            <table>
+                <thead><tr><th>Type</th><th>Name</th><th>Value</th></tr></thead>
+                <tbody>
+                    <tr><td rowspan="2"><code>rt_filter</code></td><td><code>RT_FILTER_NEAREST</code></td><td><code>1</code></td></tr>
+                    <tr><td><code>RT_FILTER_LINEAR</code></td><td><code>2</code></td></tr>
+                    <tr><td rowspan="3"><code>rt_mip_filter</code></td><td><code>RT_MIP_FILTER_NONE</code></td><td><code>0</code></td></tr>
+                    <tr><td><code>RT_MIP_FILTER_NEAREST</code></td><td><code>1</code></td></tr>
+                    <tr><td><code>RT_MIP_FILTER_LINEAR</code></td><td><code>2</code></td></tr>
+                    <tr><td rowspan="3"><code>rt_address_mode</code></td><td><code>RT_ADDRESS_CLAMP</code></td><td><code>1</code></td></tr>
+                    <tr><td><code>RT_ADDRESS_REPEAT</code></td><td><code>2</code></td></tr>
+                    <tr><td><code>RT_ADDRESS_MIRROR</code></td><td><code>3</code></td></tr>
+                </tbody>
+            </table>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>sampler_h rtSamplerCreate(
+    rt_sampler_desc desc
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>desc.mag_filter</code>, <code>desc.min_filter</code><p>must be defined <code>rt_filter</code> values</p></li>
+                    <li><code>desc.mip_filter</code><p>must be a defined <code>rt_mip_filter</code> value</p></li>
+                    <li><code>desc.address_u</code>, <code>desc.address_v</code>, <code>desc.address_w</code><p>must be defined <code>rt_address_mode</code> values</p></li>
+                    <li><code>desc.max_anisotropy</code><p>must be at least <code>1</code></p></li>
+                    <li><code>desc.min_lod</code><p>must be less than or equal to <code>desc.max_lod</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The returned sampler is immutable and reflects exactly the state in <code>desc</code>.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtSamplerDestroy(
+    sampler_h smp
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>smp</code><p>may be valid or null</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li><code>smp</code> is immediately invalid.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+        <!-- ══════════════════════════════════════════════════════ §9.5 Framebuffer -->
+            <h3 id="framebuffer-section">9.5 Framebuffer</h3>
+            <p>
+                A framebuffer is a collection of texture attachments that rendering operations
+                write into. Framebuffers are mutable objects; attachments may be changed between
+                rendering sessions.
+            </p>
+
+            <h4 id="framebuffer-state">9.5.1 Framebuffer state</h4>
+            <table>
+                <thead><tr><th>Field</th><th>Type</th><th>Description</th><th>Default</th></tr></thead>
+                <tbody>
+                    <tr><td>Color attachments</td><td>texture_h[]</td><td>indexed color attachment slots; each slot holds one texture or null</td><td>null (all slots)</td></tr>
+                    <tr><td>Depth attachment</td><td>texture_h</td><td>depth or depth-stencil attachment</td><td>null</td></tr>
+                </tbody>
+            </table>
+            <p>The number of available color attachment slots is implementation-defined but MUST be at least <code>4</code>. Slots are numbered from <code>0</code>.</p>
+
+            <h4 id="framebuffer-ownership">9.5.2 Ownership</h4>
+            <p>
+                Framebuffer handles are either <em>user-owned</em> or <em>swapchain-owned</em>.
+                User-owned framebuffers are created by <code>rtFramebufferCreate</code> and
+                destroyed by <code>rtFramebufferDestroy</code>. Swapchain-owned framebuffers are
+                returned by <code>rtSwapchainAcquire</code> and invalidated by
+                <code>rtSwapchainPresent</code>. The caller MUST NOT call
+                <code>rtFramebufferDestroy</code> or any <code>rtFramebufferSet*</code> function
+                on a swapchain-owned framebuffer; doing so is undefined behavior.
+            </p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>framebuffer_h rtFramebufferCreate()</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The returned framebuffer is initialized to the default state defined in <a href="#framebuffer-state">9.5.1</a>.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtFramebufferDestroy(
+    framebuffer_h fb
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>fb</code><p>may be valid or null; MUST NOT be a swapchain-owned framebuffer</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li><code>fb</code> is immediately invalid.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtFramebufferSetColorAttachment(
+    framebuffer_h fb,
+    u32 slot,
+    texture_h tex
+)</code></h4>
+                <p>Sets the texture for a color attachment slot. Pass <code>null</code> for <code>tex</code> to clear the slot.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>fb</code><p>must be a valid user-owned framebuffer</p></li>
+                    <li><code>slot</code><p>must be less than the implementation's color attachment slot count</p></li>
+                    <li><code>tex</code><p>if not <code>null</code>, must be valid and have defined storage with a color-capable format</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>Color attachment slot <code>slot</code> becomes <code>tex</code>. All other attachment slots are unchanged.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtFramebufferSetDepthAttachment(
+    framebuffer_h fb,
+    texture_h tex
+)</code></h4>
+                <p>Sets the depth attachment. Pass <code>null</code> for <code>tex</code> to clear it.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>fb</code><p>must be a valid user-owned framebuffer</p></li>
+                    <li><code>tex</code><p>if not <code>null</code>, must be valid and have defined storage with a depth or depth-stencil format</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The depth attachment becomes <code>tex</code>. All other attachment slots are unchanged.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+        <!-- ══════════════════════════════════════════════════════════ §9.6 Graphics program -->
+            <h3 id="graphics-program-section">9.6 Graphics program</h3>
+            <p>
+                A program is a linked GPU executable composed from a vertex stage and a
+                fragment stage. Shader source is provided as RSIR (Rutile Shading Language IR)
+                bytecode. A program must be linked before it can be bound for rendering.
+            </p>
+
+            <h4 id="graphics-program-state">9.6.1 Graphics program state</h4>
+            <table>
+                <thead><tr><th>Field</th><th>Type</th><th>Description</th><th>Default</th></tr></thead>
+                <tbody>
+                    <tr><td>Vertex source</td><td>opaque</td><td>RSIR bytecode for the vertex stage</td><td>null</td></tr>
+                    <tr><td>Fragment source</td><td>opaque</td><td>RSIR bytecode for the fragment stage</td><td>null</td></tr>
+                    <tr><td>Link status</td><td>bool</td><td>whether the program has been successfully linked</td><td><code>false</code></td></tr>
+                </tbody>
+            </table>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>graphics_program_h rtGraphicsProgramCreate()</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The returned program is initialized to the default state defined in <a href="#graphics-program-state">9.6.1</a>.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtGraphicsProgramDestroy(
+    graphics_program_h prog
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>prog</code><p>may be valid or null</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li><code>prog</code> is immediately invalid.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtGraphicsProgramSetVertexSource(
+    graphics_program_h prog,
+    const void* code,
+    u64 size
+)</code></h4>
+                <p>Sets the RSIR bytecode for the vertex stage. Calling this after a successful link resets the link status to <code>false</code>.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>prog</code><p>must be valid</p></li>
+                    <li><code>code</code><p>must point to at least <code>size</code> readable bytes of valid RSIR bytecode</p></li>
+                    <li><code>size</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The vertex source is updated to the provided bytecode.</li>
+                    <li>The link status becomes <code>false</code>.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtGraphicsProgramSetFragmentSource(
+    graphics_program_h prog,
+    const void* code,
+    u64 size
+)</code></h4>
+                <p>Sets the RSIR bytecode for the fragment stage. Calling this after a successful link resets the link status to <code>false</code>.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>prog</code><p>must be valid</p></li>
+                    <li><code>code</code><p>must point to at least <code>size</code> readable bytes of valid RSIR bytecode</p></li>
+                    <li><code>size</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The fragment source is updated to the provided bytecode.</li>
+                    <li>The link status becomes <code>false</code>.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtGraphicsProgramLink(
+    rt_graphics_program program
+)</code></h4>
+                <p>Compiles and links both shader stages into an executable program. On failure, sets the thread-local error state and throws a message describing the compilation or link error.</p>
+                <p class="api-meta"><strong>Requirements:</strong></p>
+                <ul>
+                    <li>If either the vertex or fragment source has not been set, the Vulkan backend writes <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>.</li>
+                </ul>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>program</code><p>must be valid</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>On success: link status becomes <code>true</code>. The program may be bound for rendering.</li>
+                    <li>On failure: link status remains <code>false</code>. A message describing the error MUST be thrown.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-shader-compilation-failed"><code>RT_SHADER_COMPILATION_FAILED</code></a>, <a href="#rt-shader-link-failed"><code>RT_SHADER_LINK_FAILED</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-initialization-failed"><code>RT_INITIALIZATION_FAILED</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════════════════ §10 Queues -->
+        <section id="queues">
+            <h2>10. Queues</h2>
+
+            <h3 id="queue-model">10.1 Queue model</h3>
+            <p>
+                A queue is a submission endpoint that accepts and executes GPU work. Queues are
+                backend-owned resources. They are not created or destroyed by the caller; they are
+                queried by capability. The backend allocates an implementation-defined number of
+                queues at initialization time. Queue handles remain valid for the lifetime of the
+                initialized backend.
+            </p>
+            <p>
+                Multiple calls to <code>rtQueueQuery</code> with the same capability MAY return the
+                same handle or different handles. The backend MAY distribute work across queues in
+                any manner it chooses.
+            </p>
+            <p>
+                Because queue handles are not created by the caller, the create and destroy pattern
+                in <a href="#generic-create-destroy">section 7.4</a> does not apply. Queue handles
+                MUST NOT be passed to any destroy function.
+            </p>
+
+            <h3 id="queue-capability">10.2 Queue capability</h3>
+            <p>
+                Queue capability is described by <code>rt_queue_capability</code>. Capability
+                values form a hierarchy: a queue that satisfies a higher capability also satisfies
+                all lower ones. The hierarchy is:
+                <code>RT_QUEUE_GRAPHICS</code> ⊇ <code>RT_QUEUE_COMPUTE</code> ⊇
+                <code>RT_QUEUE_TRANSFER</code>.
+            </p>
+            <p>
+                When a capability is requested, the returned queue satisfies at least the requested
+                capability and MAY satisfy more. For example, requesting
+                <code>RT_QUEUE_COMPUTE</code> MAY return a queue of kind
+                <code>RT_QUEUE_GRAPHICS</code> if no dedicated compute queue is available.
+            </p>
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Value</th><th>Guaranteed capabilities</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>RT_QUEUE_TRANSFER</code></td><td><code>1</code></td><td>memory transfer operations</td></tr>
+                    <tr><td><code>RT_QUEUE_COMPUTE</code></td><td><code>2</code></td><td>compute dispatch, memory transfer operations</td></tr>
+                    <tr><td><code>RT_QUEUE_GRAPHICS</code></td><td><code>3</code></td><td>graphics draw calls, compute dispatch, memory transfer operations</td></tr>
+                </tbody>
+            </table>
+
+            <div class="api-entry">
+                <h3 id="query-queue" class="api-signature"><code>rt_queue rtQueueQuery(
+    rt_queue_capability capability
+)</code></h3>
+                <p>
+                    Returns a handle to a backend-owned queue that satisfies the requested capability.
+                    The returned handle is valid for the lifetime of the initialized backend.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>capability</code><p>must be a defined <code>rt_queue_capability</code> value</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The returned handle refers to a backend-owned queue satisfying at least <code>capability</code>.</li>
+                    <li>The returned handle remains valid until <a href="#api-exit"><code>rtExit()</code></a> is called.</li>
+                    <li>Multiple calls with the same <code>capability</code> MAY return the same handle or different handles.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════ §11 Synchronization -->
+        <section id="synchronization">
+            <h2>11. Synchronization</h2>
+
+            <h3 id="timepoint-model">11.1 Timepoint model</h3>
+            <p>
+                A timepoint is a lightweight value that identifies a specific point on a queue's
+                execution timeline. Every work-submitting function returns a timepoint by value.
+                A timepoint can be used to query whether the associated work has completed on the
+                CPU, to block the CPU until completion, or to express ordering constraints in a
+                command stream.
+            </p>
+            <p>
+                Internally, each queue maintains a timeline semaphore. The <code>value</code> field
+                of an <code>rt_timepoint</code> names a specific counter value on that semaphore.
+                A timepoint is considered reached when the queue's timeline semaphore has advanced
+                to or past that value.
+            </p>
+            <p>
+                A timepoint with <code>queue == null</code> and <code>value == 0</code> is the
+                null timepoint. The null timepoint is always considered reached. Any other
+                combination of a null queue with a non-zero value, or a non-null queue with a
+                zero value, is undefined behavior.
+            </p>
+            <p>
+                A caller that discards a returned timepoint and accesses the modified resource
+                without any synchronization is in undefined behavior. The backend is not required
+                to insert implicit synchronization.
+            </p>
+
+            <h3 id="rt-timepoint">11.2 rt_timepoint</h3>
+            <p><code>rt_timepoint</code> is a plain aggregate type:</p>
+            <div class="boxed-code"><code>struct rt_timepoint {
+    queue_h queue;
+    u64     value;
+}</code></div>
+            <p>
+                Two timepoints are equal if and only if both <code>queue</code> and
+                <code>value</code> are equal. A timepoint is null if
+                <code>queue == null &amp;&amp; value == 0</code>.
+            </p>
+
+            <div class="api-entry">
+                <h3 id="timepoint-wait" class="api-signature"><code>void rtTimepointWait(
+    rt_timepoint tp
+)</code></h3>
+                <p>
+                    Blocks the calling thread until <code>tp</code> is reached. If <code>tp</code>
+                    is the null timepoint, returns immediately.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tp</code><p>must be the null timepoint or a timepoint previously returned by a work-submitting function in the current backend session</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>If <code>tp</code> is null, returns immediately without modifying any state.</li>
+                    <li>If <code>tp</code> is non-null, the work associated with <code>tp</code> has completed on the GPU before this function returns.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h3 id="timepoint-reached" class="api-signature"><code>bool rtTimepointReached(
+    rt_timepoint tp
+)</code></h3>
+                <p>
+                    Returns <code>true</code> if <code>tp</code> has been reached without blocking.
+                    Returns <code>false</code> if the associated work has not yet completed.
+                    If <code>tp</code> is the null timepoint, returns <code>true</code> immediately.
+                </p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tp</code><p>must be the null timepoint or a timepoint previously returned by a work-submitting function in the current backend session</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>No blocking occurs. This function always returns promptly.</li>
+                    <li>A return value of <code>false</code> does not guarantee the work will remain incomplete — the timeline may advance before the caller acts on the result.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>false</code></p>
+            </div>
+        </section>
+        <!-- ══════════════════════════════════════════════ §12 Command buffers -->
+        <section id="command-buffers">
+            <h2>12. Command buffers</h2>
+            <p>
+                A command buffer is a recorded sequence of GPU commands that can be submitted
+                to a queue for execution. Commands are recorded into the buffer on the CPU and
+                executed asynchronously on the GPU after submission.
+            </p>
+
+            <h3 id="command_buffer-lifecycle">12.1 Lifecycle</h3>
+            <p>A command buffer is in one of three states:</p>
+            <div class="stack">
+                <div class="stack-item">
+                    <strong class="stack-term">Initial</strong>
+                    <p class="stacked-detail">The command buffer has been created or has completed a previous submission. No commands are recorded. <code>rtCommandBufferBegin</code> may be called.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Recording</strong>
+                    <p class="stacked-detail">Commands are being recorded. <code>rtCmd*</code> functions may be called. <code>rtCommandBufferEnd</code> transitions to Executable.</p>
+                </div>
+                <div class="stack-item">
+                    <strong class="stack-term">Executable</strong>
+                    <p class="stacked-detail">Recording is complete. The buffer is ready for submission. <code>rtQueueSubmit</code> transitions back to Initial.</p>
+                </div>
+            </div>
+            <p>
+                After <code>rtQueueSubmit</code> returns, the command buffer is in the
+                Initial state and may be recorded into again. However, the GPU may still be
+                executing the submitted commands. The caller MUST ensure the returned timepoint
+                has been reached before recording new commands into the buffer.
+            </p>
+            <p>
+                The backend handles resource hazards automatically. No explicit barrier commands
+                are required between operations on the same resource within a command buffer or
+                across sequential submissions on the same queue. Cross-queue dependencies are
+                expressed using <a href="#command_buffer-sync"><code>rtCmdWaitTimepoint</code></a>.
+            </p>
+
+            <h3 id="command_buffer-recording">12.2 Recording and submission</h3>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>command_buffer_h rtCommandBufferCreate()</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The returned command buffer is in the Initial state.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCommandBufferDestroy(
+    command_buffer_h command_buffer
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>may be valid or null; MUST NOT be in the Recording state</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li><code>command_buffer</code> is immediately invalid.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBegin(
+    rt_command_buffer command_buffer,
+    rt_queue queue
+)</code></h4>
+                <p>Transitions the command buffer from Initial to Recording. Any commands previously recorded into this buffer are discarded.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be valid</p></li>
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>command_buffer</code><p>must be in the Initial state</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The command buffer is in the Recording state and contains no commands.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdEnd(
+    rt_command_buffer command_buffer
+)</code></h4>
+                <p>Transitions the command buffer from Recording to Executable.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be valid</p></li>
+                    <li><code>command_buffer</code><p>must be in the Recording state</p></li>
+                    <li><p>no rendering section may be active</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul><li>The command buffer is in the Executable state.</li></ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>rt_timepoint rtQueueSubmit(
+    rt_queue queue,
+    rt_command_buffer command_buffer
+)</code></h4>
+                <p>Submits the command buffer to <code>queue</code> for GPU execution. Returns a timepoint that is reached when all submitted commands have completed. After this call returns, the command buffer is in the Initial state.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>queue</code><p>must be valid</p></li>
+                    <li><code>command_buffer</code><p>must be valid</p></li>
+                    <li><code>command_buffer</code><p>must be in the Executable state</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong></p>
+                <ul>
+                    <li>The command buffer is in the Initial state.</li>
+                    <li>The returned timepoint is reached when all commands in the buffer have completed execution.</li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
+                <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
+            </div>
+
+            <h3 id="command_buffer-sync">12.3 Synchronization commands</h3>
+            <p>All <code>rtCmd*</code> functions require <code>command_buffer</code> to be in the Recording state.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdWaitTimepoint(
+    command_buffer_h command_buffer,
+    rt_timepoint tp
+)</code></h4>
+                <p>Inserts a GPU-side wait. All commands recorded after this point are guaranteed to execute only after <code>tp</code> has been reached. This is the mechanism for expressing cross-queue dependencies. If <code>tp</code> is the null timepoint, this command is a no-op.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tp</code><p>must be the null timepoint or a timepoint previously returned by a work-submitting function in the current backend session</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <h3 id="command_buffer-copy">12.4 Copy commands</h3>
+            <p>Copy commands may be recorded outside a rendering section.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdCopyBufferToBuffer(
+    command_buffer_h command_buffer,
+    buffer_h src,
+    u64 src_offset,
+    buffer_h dst,
+    u64 dst_offset,
+    u64 size
+)</code></h4>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>src</code><p>must be valid and have defined storage; <code>[src_offset, src_offset + size)</code> must be within bounds</p></li>
+                    <li><code>dst</code><p>must be valid and have defined storage; <code>[dst_offset, dst_offset + size)</code> must be within bounds</p></li>
+                </ul>
+                <p class="api-meta"><strong>Post-conditions:</strong> Only the addressed destination range is modified.</p>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdCopyBufferToTexture(
+    command_buffer_h command_buffer,
+    buffer_h buf,
+    u64 buf_offset,
+    texture_h tex,
+    u32 level,
+    u32 x,
+    u32 y,
+    u32 z,
+    u32 width,
+    u32 height,
+    u32 depth
+)</code></h4>
+                <p>Copies a region of buffer bytes into a texture subregion. The <code>z</code> and <code>depth</code> parameters follow the same coordinate semantics as <a href="#command_buffer-copy"><code>rtTextureSubdata</code></a>. The source bytes in the buffer are interpreted as tightly packed texels in the texture's internal format.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>must be valid and have defined storage sufficient to cover the source region</p></li>
+                    <li><code>tex</code><p>must be valid and have defined storage; the addressed box must be within bounds of <code>level</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdCopyTextureToBuffer(
+    command_buffer_h command_buffer,
+    texture_h tex,
+    u32 level,
+    u32 x,
+    u32 y,
+    u32 z,
+    u32 width,
+    u32 height,
+    u32 depth,
+    buffer_h buf,
+    u64 buf_offset
+)</code></h4>
+                <p>Copies a texture subregion into a region of a buffer. Texels are written as tightly packed bytes in the texture's internal format.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tex</code><p>must be valid and have defined storage; the addressed box must be within bounds of <code>level</code></p></li>
+                    <li><code>buf</code><p>must be valid and have defined storage sufficient to hold the destination region</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <h3 id="command_buffer-binding">12.5 Binding commands</h3>
+            <p>Binding commands may be recorded outside a rendering section. All bindings persist until overwritten or the command buffer ends.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdUseGraphicsProgram(
+    rt_command_buffer command_buffer,
+    rt_graphics_program program
+)</code></h4>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>program</code><p>must be valid and linked</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a></p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindVertexBuffer(
+    command_buffer_h command_buffer,
+    u32 slot,
+    buffer_h buf,
+    u64 offset,
+    u32 stride
+)</code></h4>
+                <p>Binds a buffer as a vertex input source. <code>stride</code> is the byte distance between successive vertices.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>must be valid and have defined storage</p></li>
+                    <li><code>offset</code><p>must be within the buffer's defined storage</p></li>
+                    <li><code>stride</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindIndexBuffer(
+    command_buffer_h command_buffer,
+    buffer_h buf,
+    u64 offset,
+    rt_index_type type
+)</code></h4>
+                <p>Binds a buffer as an index source. <code>rt_index_type</code>: <code>RT_INDEX_U16</code> (<code>1</code>), <code>RT_INDEX_U32</code> (<code>2</code>).</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>must be valid and have defined storage</p></li>
+                    <li><code>offset</code><p>must be within the buffer's defined storage</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindUniformBuffer(
+    command_buffer_h command_buffer,
+    u32 slot,
+    buffer_h buf,
+    u64 offset,
+    u64 size
+)</code></h4>
+                <p>Binds a subrange of a buffer to a uniform buffer slot. The shader accesses this slot by its number. <code>size</code> bytes starting at <code>offset</code> are visible.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>must be valid and have defined storage; <code>[offset, offset + size)</code> must be within bounds</p></li>
+                    <li><code>size</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindStorageBuffer(
+    command_buffer_h command_buffer,
+    u32 slot,
+    buffer_h buf,
+    u64 offset,
+    u64 size
+)</code></h4>
+                <p>Binds a subrange of a buffer to a storage buffer slot for read/write shader access.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>buf</code><p>must be valid and have defined storage; <code>[offset, offset + size)</code> must be within bounds</p></li>
+                    <li><code>size</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindTexture(
+    command_buffer_h command_buffer,
+    u32 slot,
+    texture_h tex,
+    sampler_h smp
+)</code></h4>
+                <p>Binds a texture and sampler pair to a texture slot. The shader samples this slot by its number.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>tex</code><p>must be valid and have defined storage</p></li>
+                    <li><code>smp</code><p>must be valid</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <h3 id="command_buffer-state">12.6 Rendering state commands</h3>
+            <p>Rendering state commands are recorded into a command buffer. State is consumed by subsequent draw calls and is reset when a command buffer is reset or recreated. The Vulkan backend owns viewport state and derives it from the active framebuffer.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdSetScissor(
+    rt_command_buffer command_buffer,
+    u32 x,
+    u32 y,
+    u32 width, u32 height
+)</code></h4>
+                <p>Sets the dynamic scissor rectangle for following draw calls.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording inside a rendering section</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdUseGraphicsProgram(
+    rt_command_buffer command_buffer,
+    rt_graphics_program program
+)</code></h4>
+                <p>Binds a linked graphics program for following draw calls.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording inside a rendering section</p></li>
+                    <li><code>program</code><p>must be valid and linked</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdUniformBuffer(
+    rt_command_buffer command_buffer,
+    rt_uniform_location location,
+    rt_buffer buffer,
+    u64 offset,
+    u64 size
+)</code></h4>
+                <p>Binds a buffer range to a buffer uniform declared by the active graphics program.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording inside a rendering section</p></li>
+                    <li><code>location</code><p>must belong to the active graphics program and identify a buffer binding</p></li>
+                    <li><code>buffer</code><p>must have storage compatible with uniform binding</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdUniformTexture(
+    rt_command_buffer command_buffer,
+    rt_uniform_location location,
+    rt_texture_view texture_view
+)</code></h4>
+                <p>Binds a texture view to a sampled texture uniform declared by the active graphics program.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording inside a rendering section</p></li>
+                    <li><code>location</code><p>must belong to the active graphics program and identify a texture binding</p></li>
+                    <li><code>texture_view</code><p>must be valid and backed by defined texture storage</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBindVertexBuffer(
+    rt_command_buffer command_buffer,
+    rt_buffer buffer,
+    u64 offset
+)</code></h4>
+                <p>Binds the vertex buffer used by following draw calls.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording inside a rendering section</p></li>
+                    <li><code>buffer</code><p>must have storage compatible with vertex binding</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <h3 id="command_buffer-rendering">12.7 Rendering commands</h3>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBeginRendering(
+    rt_command_buffer command_buffer,
+    rt_framebuffer framebuffer
+)</code></h4>
+                <p>Opens a rendering section. Draw calls MUST be recorded inside a rendering section. Rendering sections MUST NOT be nested.</p>
+                <p class="api-meta"><strong>Requirements:</strong> None</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><code>command_buffer</code><p>must be recording and not already inside a rendering section</p></li>
+                    <li><code>framebuffer</code><p>must be valid and have backend-supported attachments</p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdEndRendering(
+    rt_command_buffer command_buffer
+)</code></h4>
+                <p>Closes the current rendering section.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> must be inside a rendering section.</p>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+
+            <h3 id="command_buffer-draw">12.8 Draw commands</h3>
+            <p>Draw commands MUST be recorded inside a rendering section. A program MUST have been bound before any draw call.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdDraw(
+    rt_command_buffer command_buffer,
+    u32 vertex_count,
+    u32 first_vertex
+)</code></h4>
+                <p>Issues a non-indexed draw.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong></p>
+                <ul class="api-cond-list">
+                    <li><p>must be inside a rendering section</p></li>
+                    <li><p>a program must be bound</p></li>
+                    <li><code>vertex_count</code><p>must not be <code>0</code></p></li>
+                </ul>
+                <p class="api-meta"><strong>Errors:</strong> None</p>
+            </div>
+        </section>
+    </main>
+    <script>
+        (function () {
+            const body = document.body;
+            const button = document.querySelector(".theme-toggle");
+
+            function syncLabel() {
+                button.textContent = body.getAttribute("data-theme") === "dark" ? "Light mode" : "Dark mode";
+            }
+
+            button.addEventListener("click", function () {
+                body.setAttribute(
+                    "data-theme",
+                    body.getAttribute("data-theme") === "dark" ? "light" : "dark"
+                );
+                syncLabel();
+            });
+
+            syncLabel();
+        }());
+    </script>
+</body>
+</html>

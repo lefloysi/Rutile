@@ -1,4 +1,4 @@
-#include "extension/swapchain/glfw/glfw.h"
+#include "resource/glfw/glfw.h"
 #include "context.h"
 #include "error.h"
 

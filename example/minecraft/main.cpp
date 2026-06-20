@@ -16,6 +16,7 @@
 #include <vector>
 
 constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kLayers[] = { "RT_VALIDATION" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
 constexpr i32 kChunkSize = 16;
@@ -54,6 +55,8 @@ struct AppState {
 	std::atomic<rt_swapchain> swapchain = RT_NULL_HANDLE;
 	std::atomic<u32> framebuffer_width = 1280;
 	std::atomic<u32> framebuffer_height = 720;
+	std::atomic<bool> resize_pending = false;
+	std::atomic<bool> resize_in_progress = false;
 	f32 mouse_dx = 0.0f;
 	f32 mouse_dy = 0.0f;
 };
@@ -255,15 +258,7 @@ glm::vec3 block_color(i32 x, i32 y, i32 z) {
 	return base;
 }
 
-void push_vertex(
-	std::vector<Vertex>* vertices,
-	const glm::vec3& position,
-	const glm::vec3& color,
-	const glm::vec3& normal,
-	f32 ao,
-	const glm::vec2& pixel_uv,
-	f32 edge_mask,
-	f32 corner_mask) {
+void push_vertex(std::vector<Vertex>* vertices, const glm::vec3& position, const glm::vec3& color, const glm::vec3& normal, f32 ao, const glm::vec2& pixel_uv, f32 edge_mask, f32 corner_mask) {
 	vertices->push_back({
 		{ position.x, position.y, position.z },
 		{ color.r, color.g, color.b },
@@ -293,28 +288,12 @@ f32 voxel_ao(i32 x, i32 y, i32 z, const glm::vec3& normal, const glm::vec3& corn
 	const glm::ivec3 outside = glm::ivec3(x, y, z) + face;
 	const bool a = solid_block(outside.x + side_a.x, outside.y + side_a.y, outside.z + side_a.z);
 	const bool b = solid_block(outside.x + side_b.x, outside.y + side_b.y, outside.z + side_b.z);
-	const bool c = solid_block(outside.x + side_a.x + side_b.x, outside.y + side_a.y + side_b.y,
-		outside.z + side_a.z + side_b.z);
+	const bool c = solid_block(outside.x + side_a.x + side_b.x, outside.y + side_a.y + side_b.y, outside.z + side_a.z + side_b.z);
 	const i32 value = a && b ? 0 : 3 - (i32)a - (i32)b - (i32)c;
 	return 0.55f + (f32)value * 0.15f;
 }
 
-void push_triangle(
-	std::vector<Vertex>* vertices,
-	const glm::vec3& origin,
-	const glm::vec3& color,
-	const glm::vec3& normal,
-	const glm::vec3& a,
-	f32 ao_a,
-	const glm::vec2& uv_a,
-	const glm::vec3& b,
-	f32 ao_b,
-	const glm::vec2& uv_b,
-	const glm::vec3& c,
-	f32 ao_c,
-	const glm::vec2& uv_c,
-	f32 edge_mask,
-	f32 corner_mask) {
+void push_triangle(std::vector<Vertex>* vertices, const glm::vec3& origin, const glm::vec3& color,const glm::vec3& normal, const glm::vec3& a, f32 ao_a, const glm::vec2& uv_a, const glm::vec3& b, f32 ao_b, const glm::vec2& uv_b, const glm::vec3& c, f32 ao_c, const glm::vec2& uv_c, f32 edge_mask, f32 corner_mask) {
 	push_vertex(vertices, origin + a, color, normal, ao_a, uv_a, edge_mask, corner_mask);
 	push_vertex(vertices, origin + b, color, normal, ao_b, uv_b, edge_mask, corner_mask);
 	push_vertex(vertices, origin + c, color, normal, ao_c, uv_c, edge_mask, corner_mask);
@@ -324,13 +303,7 @@ glm::ivec3 edge_direction(const glm::vec3& direction) {
 	return glm::ivec3((i32)glm::round(direction.x), (i32)glm::round(direction.y), (i32)glm::round(direction.z));
 }
 
-void push_face(
-	std::vector<Vertex>* vertices,
-	i32 x,
-	i32 y,
-	i32 z,
-	const glm::vec3& normal,
-	const glm::vec3 corners[4]) {
+void push_face(std::vector<Vertex>* vertices, i32 x, i32 y, i32 z, const glm::vec3& normal, const glm::vec3 corners[4]) {
 	const glm::vec3 origin = glm::vec3((f32)x - kWorldX * 0.5f, (f32)y, (f32)z - kWorldZ * 0.5f);
 	const glm::vec3 color = block_color(x, y, z);
 	const f32 ao[] = {
@@ -359,26 +332,14 @@ void push_face(
 		glm::vec2(1.0f, 1.0f),
 		glm::vec2(0.0f, 1.0f),
 	};
-	const f32 edge_mask =
-		(edge_air[0] ? 1.0f : 0.0f) +
-		(edge_air[1] ? 2.0f : 0.0f) +
-		(edge_air[2] ? 4.0f : 0.0f) +
-		(edge_air[3] ? 8.0f : 0.0f);
-	const f32 corner_mask =
-		(corner_air[0] ? 1.0f : 0.0f) +
-		(corner_air[1] ? 2.0f : 0.0f) +
-		(corner_air[2] ? 4.0f : 0.0f) +
-		(corner_air[3] ? 8.0f : 0.0f);
+	const f32 edge_mask = (edge_air[0] ? 1.0f : 0.0f) + (edge_air[1] ? 2.0f : 0.0f) + (edge_air[2] ? 4.0f : 0.0f) + (edge_air[3] ? 8.0f : 0.0f);
+	const f32 corner_mask = (corner_air[0] ? 1.0f : 0.0f) + (corner_air[1] ? 2.0f : 0.0f) + (corner_air[2] ? 4.0f : 0.0f) + (corner_air[3] ? 8.0f : 0.0f);
 	if (ao[0] + ao[2] > ao[1] + ao[3]) {
-		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[1], ao[1], uv[1],
-			corners[3], ao[3], uv[3], edge_mask, corner_mask);
-		push_triangle(vertices, origin, color, normal, corners[1], ao[1], uv[1], corners[2], ao[2], uv[2],
-			corners[3], ao[3], uv[3], edge_mask, corner_mask);
+		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[1], ao[1], uv[1], corners[3], ao[3], uv[3], edge_mask, corner_mask);
+		push_triangle(vertices, origin, color, normal, corners[1], ao[1], uv[1], corners[2], ao[2], uv[2], corners[3], ao[3], uv[3], edge_mask, corner_mask);
 	} else {
-		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[1], ao[1], uv[1],
-			corners[2], ao[2], uv[2], edge_mask, corner_mask);
-		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[2], ao[2], uv[2],
-			corners[3], ao[3], uv[3], edge_mask, corner_mask);
+		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[1], ao[1], uv[1], corners[2], ao[2], uv[2], edge_mask, corner_mask);
+		push_triangle(vertices, origin, color, normal, corners[0], ao[0], uv[0], corners[2], ao[2], uv[2], corners[3], ao[3], uv[3], edge_mask, corner_mask);
 	}
 }
 
@@ -454,8 +415,7 @@ std::vector<Vertex> build_water_mesh() {
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
-	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch),
-		glm::sin(camera.yaw) * cp));
+	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
 glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
@@ -481,16 +441,11 @@ void write_water_transform(WaterUniform* uniform, const glm::mat4& transform, f3
 	uniform->padding[2] = 0.0f;
 }
 
-void recreate_depth_buffer(
-	rt_queue queue,
-	rt_texture* depth_texture,
-	rt_texture_view* depth_view,
-	u32 width,
-	u32 height) {
+void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
 	if (*depth_view) { rtTextureViewDestroy(*depth_view); }
 	if (*depth_texture) { rtTextureDestroy(*depth_texture); }
 	*depth_texture = rtTextureCreate();
-	rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
+	rtTimepointWait(rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
 	*depth_view = rtTextureViewCreate(*depth_texture);
 	if (!*depth_view) {
 		rtTextureDestroy(*depth_texture);
@@ -500,14 +455,13 @@ void recreate_depth_buffer(
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
+	if (state && state->resize_in_progress.load(std::memory_order_acquire)) {
+		return;
+	}
 	if (state && width > 0 && height > 0) {
 		state->framebuffer_width.store((u32)width, std::memory_order_release);
 		state->framebuffer_height.store((u32)height, std::memory_order_release);
-	}
-
-	rt_swapchain swapchain = state ? state->swapchain.load(std::memory_order_acquire) : RT_NULL_HANDLE;
-	if (swapchain && width > 0 && height > 0) {
-		rtSwapchainResize(swapchain, (u32)width, (u32)height);
+		state->resize_pending.store(true, std::memory_order_release);
 	}
 }
 
@@ -550,40 +504,16 @@ void update_camera(GLFWwindow* window, AppState* state, Camera* camera, f32 dt) 
 
 int main(int argc, char** argv) {
 	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
-	if (rtLoad(backend_name, nullptr, 0) != RT_SUCCESS) {
-		std::cerr << "rtLoad failed\n";
-		return 1;
-	}
-	if (!rtLoad_RT_EXT_SWAPCHAIN() || !rtLoad_RT_EXT_GLFW()) {
-		std::cerr << "required swapchain/GLFW extensions are not available\n";
-		rtUnload();
-		return 1;
-	}
+	rtLoad(backend_name, kLayers, 1);
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 
-	std::cout << "backend: " << rtGetName() << "\n";
 	rtInit(kFeatures, 1);
-	if (rtError() != RT_SUCCESS) {
-		std::cerr << "rtInit failed: " << rtErrorMessage() << "\n";
-		rtUnload();
-		return 1;
-	}
 
-	if (!glfwInit()) {
-		std::cerr << "glfwInit failed\n";
-		rtExit();
-		rtUnload();
-		return 1;
-	}
+	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile Minecraft", nullptr, nullptr);
-	if (!window) {
-		std::cerr << "glfwCreateWindow failed\n";
-		glfwTerminate();
-		rtExit();
-		rtUnload();
-		return 1;
-	}
 
 	AppState state;
 	glfwSetWindowUserPointer(window, &state);
@@ -610,24 +540,20 @@ int main(int argc, char** argv) {
 	std::vector<Vertex> vertices = build_world_mesh();
 	rt_buffer vertex_buffer = rtBufferCreate();
 	const u64 vertex_size = (u64)(vertices.size() * sizeof(vertices[0]));
-	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, vertex_size,
-		vertices.data());
+	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, vertex_size, vertices.data());
 
 	std::vector<Vertex> water_vertices = build_water_mesh();
 	rt_buffer water_vertex_buffer = rtBufferCreate();
 	const u64 water_vertex_size = (u64)(water_vertices.size() * sizeof(water_vertices[0]));
-	rtBufferData(water_vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, water_vertex_size,
-		water_vertices.data());
+	rtBufferData(water_vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, water_vertex_size, water_vertices.data());
 
 	TransformUniform transform = {};
 	rt_buffer transform_buffer = rtBufferCreate();
-	rtBufferData(transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM,
-		sizeof(transform), &transform);
+	rtBufferData(transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(transform), &transform);
 
 	WaterUniform water_transform = {};
 	rt_buffer water_transform_buffer = rtBufferCreate();
-	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM,
-		sizeof(water_transform), &water_transform);
+	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(water_transform), &water_transform);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramVertexLayout(graphics_program, &kVertexLayout);
@@ -635,16 +561,14 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramLink(graphics_program);
-	rt_uniform_location transform_location =
-		rtGraphicsProgramUniformLocation(graphics_program, "Transform");
+	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramVertexLayout(water_program, &kVertexLayout);
 	rtGraphicsProgramVertexShader(water_program, std::strlen(kWaterVertexShader), kWaterVertexShader);
 	rtGraphicsProgramFragmentShader(water_program, std::strlen(kWaterFragmentShader), kWaterFragmentShader);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA,
-		RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
+	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtGraphicsProgramLink(water_program);
 	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "Transform");
 
@@ -676,11 +600,17 @@ int main(int argc, char** argv) {
 		const u32 current_width = state.framebuffer_width.load(std::memory_order_acquire);
 		const u32 current_height = state.framebuffer_height.load(std::memory_order_acquire);
 		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
-		if (current_width && current_height && depth_size_changed) {
+		const bool resize_pending = state.resize_pending.load(std::memory_order_acquire);
+		if (current_width && current_height && (resize_pending || depth_size_changed)) {
 			rtTimepointWait(last_rendered);
 			depth_width = current_width;
 			depth_height = current_height;
+			state.resize_pending.store(false, std::memory_order_release);
+			state.resize_in_progress.store(true, std::memory_order_release);
+			rtSwapchainResize(swapchain, depth_width, depth_height);
+			state.resize_in_progress.store(false, std::memory_order_release);
 			recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
+			continue;
 		}
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
@@ -706,8 +636,7 @@ int main(int argc, char** argv) {
 		rtCmdDraw(cmd, (u32)vertices.size(), 0);
 		rtCmdUseGraphicsProgram(cmd, water_program);
 		rtCmdBindVertexBuffer(cmd, water_vertex_buffer, 0);
-		rtCmdUniformBuffer(cmd, water_transform_location, water_transform_buffer, 0,
-			sizeof(water_transform));
+		rtCmdUniformBuffer(cmd, water_transform_location, water_transform_buffer, 0, sizeof(water_transform));
 		rtCmdDraw(cmd, (u32)water_vertices.size(), 0);
 		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
@@ -734,14 +663,14 @@ int main(int argc, char** argv) {
 	rtCmdDestroy(cmd);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);
-	rtTextureViewDestroy(depth_view);
-	rtTextureDestroy(depth_texture);
 	rtBufferDestroy(water_transform_buffer);
 	rtBufferDestroy(transform_buffer);
 	rtBufferDestroy(water_vertex_buffer);
 	rtBufferDestroy(vertex_buffer);
-	state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+	rtTextureViewDestroy(depth_view);
+	rtTextureDestroy(depth_texture);
 	rtSwapchainDestroy(swapchain);
+	state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	rtExit();

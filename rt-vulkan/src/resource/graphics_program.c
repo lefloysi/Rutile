@@ -770,7 +770,7 @@ void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_p
 		return;
 	}
 	if (!program->vertex_shader_source || !program->fragment_shader_source) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "graphics program link requires vertex and fragment shaders");
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program link requires vertex and fragment shaders");
 		return;
 	}
 

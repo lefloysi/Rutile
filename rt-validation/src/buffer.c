@@ -1,105 +1,121 @@
-#include "procs.h"
+#include "buffer.h"
 #include "logger.h"
 
 #define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_RESOLVE(handle, call_name, ret)                                                          \
+	struct rtval_buffer* state = RTVAL_PAYLOAD((handle), struct rtval_buffer);                         \
+	if (!state) {                                                                                      \
+		RTVAL_DROP(call_name ": invalid handle");                                                      \
+		return ret;                                                                                    \
+	}
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_buffer rtBufferCreate(void) { return rtval_rtBufferCreate(); }
-RT_EXPORT void rtBufferDestroy(rt_buffer buffer) { rtval_rtBufferDestroy(buffer); }
-RT_EXPORT rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) { return rtval_rtBufferData(buffer, mode, usage, size, data); }
-RT_EXPORT rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) { return rtval_rtBufferSubdata(buffer, offset, size, data); }
-RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) { rtval_rtBufferRead(buffer, offset, size, data); }
-RT_EXPORT void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) { return rtval_rtBufferMap(buffer, offset, size); }
-RT_EXPORT void rtBufferUnmap(rt_buffer buffer) { rtval_rtBufferUnmap(buffer); }
+RT_EXPORT rt_buffer rtBufferCreate(void) {
+	return rtval_buffer_to_handle(rtval_buffer_create());
+}
+
+RT_EXPORT void rtBufferDestroy(rt_buffer buffer) {
+	rtval_buffer_destroy(rtval_buffer_from_handle(buffer));
+}
+
+RT_EXPORT rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
+	return rtval_buffer_data(rtval_buffer_from_handle(buffer), mode, usage, size, data);
+}
+
+RT_EXPORT rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
+	return rtval_buffer_subdata(rtval_buffer_from_handle(buffer), offset, size, data);
+}
+
+RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
+	rtval_buffer_read(rtval_buffer_from_handle(buffer), offset, size, data);
+}
+
+RT_EXPORT void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
+	return rtval_buffer_map(rtval_buffer_from_handle(buffer), offset, size);
+}
+
+RT_EXPORT void rtBufferUnmap(rt_buffer buffer) {
+	rtval_buffer_unmap(rtval_buffer_from_handle(buffer));
+}
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_buffer rtval_rtBufferCreate(void) {
-	rt_buffer buffer = rtval_next_rtBufferCreate();
+struct rtval_buffer* rtval_buffer_create(void) {
+	rt_buffer backend = rtval_next_rtBufferCreate();
+	if (!backend) {
+		rtval_report_error("rtBufferCreate");
+		return NULL;
+	}
+	struct rtval_buffer* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_BUFFER);
+	if (!handle) {
+		rtval_next_rtBufferDestroy(backend);
+		return NULL;
+	}
+	struct rtval_buffer* state = RTVAL_PAYLOAD(handle, struct rtval_buffer);
+	state->backend = backend;
 	rtval_report_error("rtBufferCreate");
-	return buffer;
+	return handle;
 }
 
-void rtval_rtBufferDestroy(rt_buffer buffer) {
-	rtval_next_rtBufferDestroy(buffer);
-	rtval_report_error("rtBufferDestroy");
+void rtval_buffer_destroy(struct rtval_buffer* buffer) {
+	if (!buffer) { return; }
+	struct rtval_buffer* state = RTVAL_PAYLOAD(buffer, struct rtval_buffer);
+	if (!state) {
+		RTVAL_DROP("rtBufferDestroy: invalid handle");
+		return;
+	}
+	rtval_next_rtBufferDestroy(state->backend);
+	rtval_handle_destroy(buffer);
 }
 
-rt_timepoint rtval_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
+rt_timepoint rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
 	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
-	if (!buffer) {
-		RTVAL_DROP("buffer_data: NULL buffer");
-		return timepoint;
-	}
-	if (mode != RT_BUFFER_STATIC && mode != RT_BUFFER_DYNAMIC) {
-		RTVAL_DROP("buffer_data: unsupported buffer mode");
-		return timepoint;
-	}
-	if (usage == RT_BUFFER_USAGE_NONE) {
-		RTVAL_DROP("buffer_data: empty usage");
-		return timepoint;
-	}
+	RTVAL_RESOLVE(buffer, "rtBufferData", timepoint);
+	if (mode != RT_BUFFER_STATIC && mode != RT_BUFFER_DYNAMIC) { RTVAL_DROP("rtBufferData: unsupported buffer mode"); return timepoint; }
+	if (usage == RT_BUFFER_USAGE_NONE)                         { RTVAL_DROP("rtBufferData: empty usage");             return timepoint; }
 
-	timepoint = rtval_next_rtBufferData(buffer, mode, usage, size, data);
+	timepoint = rtval_next_rtBufferData(state->backend, mode, usage, size, data);
 	rtval_report_error("rtBufferData");
-	return timepoint;
+	return rtval_timepoint_wrap(timepoint);
 }
 
-rt_timepoint rtval_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
+rt_timepoint rtval_buffer_subdata(struct rtval_buffer* buffer, u64 offset, u64 size, const void* data) {
 	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
-	if (!buffer) {
-		RTVAL_DROP("buffer_subdata: NULL buffer");
-		return timepoint;
-	}
-	if (size && !data) {
-		RTVAL_DROP("buffer_subdata: NULL data");
-		return timepoint;
-	}
+	RTVAL_RESOLVE(buffer, "rtBufferSubdata", timepoint);
+	if (size && !data) { RTVAL_DROP("rtBufferSubdata: NULL data"); return timepoint; }
 
-	timepoint = rtval_next_rtBufferSubdata(buffer, offset, size, data);
+	timepoint = rtval_next_rtBufferSubdata(state->backend, offset, size, data);
 	rtval_report_error("rtBufferSubdata");
-	return timepoint;
+	return rtval_timepoint_wrap(timepoint);
 }
 
-void rtval_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
-	if (!buffer) {
-		RTVAL_DROP("buffer_read: NULL buffer");
-		return;
-	}
-	if (size && !data) {
-		RTVAL_DROP("buffer_read: NULL destination");
-		return;
-	}
+void rtval_buffer_read(struct rtval_buffer* buffer, u64 offset, u64 size, void* data) {
+	RTVAL_RESOLVE(buffer, "rtBufferRead", );
+	if (size && !data) { RTVAL_DROP("rtBufferRead: NULL destination"); return; }
 
-	rtval_next_rtBufferRead(buffer, offset, size, data);
+	rtval_next_rtBufferRead(state->backend, offset, size, data);
 	rtval_report_error("rtBufferRead");
 }
 
-void* rtval_rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	if (!buffer) {
-		RTVAL_DROP("buffer_map: NULL buffer");
-		return NULL;
-	}
+void* rtval_buffer_map(struct rtval_buffer* buffer, u64 offset, u64 size) {
+	RTVAL_RESOLVE(buffer, "rtBufferMap", NULL);
 
-	void* data = rtval_next_rtBufferMap(buffer, offset, size);
+	void* data = rtval_next_rtBufferMap(state->backend, offset, size);
 	rtval_report_error("rtBufferMap");
 	return data;
 }
 
-void rtval_rtBufferUnmap(rt_buffer buffer) {
-	if (!buffer) {
-		RTVAL_DROP("buffer_unmap: NULL buffer");
-		return;
-	}
+void rtval_buffer_unmap(struct rtval_buffer* buffer) {
+	RTVAL_RESOLVE(buffer, "rtBufferUnmap", );
 
-	rtval_next_rtBufferUnmap(buffer);
+	rtval_next_rtBufferUnmap(state->backend);
 	rtval_report_error("rtBufferUnmap");
 }
 
+#undef RTVAL_RESOLVE
 #undef RTVAL_DROP
-

@@ -69,7 +69,6 @@ void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapch
 void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
 bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height);
 bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, u32 width, u32 height);
-void rtdx_swapchain_set_vsync(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, bool enabled);
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
 void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
 void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame);

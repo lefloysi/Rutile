@@ -38,6 +38,7 @@ struct rtvk_texture {
 	struct rtvk_resource_base base;
 	struct rtvk_texture* active;
 	struct rtvk_texture* next;
+	struct rtvk_texture_view* views;
 
 	VkImage vk_image;
 	VmaAllocation vma_allocation;
@@ -49,7 +50,6 @@ struct rtvk_texture {
 	VkFormat vk_format;
 	VkImageLayout vk_layout;
 	enum rt_texture_type type;
-	bool swapchain_image;
 };
 
 RTVK_DECLARE_NEW_RESOURCE(texture)
@@ -62,8 +62,11 @@ typedef struct rtvk_retired_sampler {
 struct rtvk_texture_view {
 	struct rtvk_resource_base base;
 	struct rtvk_texture* texture;
+	struct rtvk_texture_view* texture_next;
 	rtvk_retired_sampler* retired_samplers;
 
+	VkImage vk_image;
+	VkImageLayout vk_layout;
 	VkImageView vk_image_view;
 	VkSampler vk_sampler;
 
@@ -88,8 +91,10 @@ RTVK_DECLARE_NEW_RESOURCE(texture_view)
 struct rtvk_texture* rtvk_texture_create_for_swapchain_image(struct rtvk_context* ctx, VkImage image, VkFormat format, u32 width, u32 height);
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture);
 struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain(struct rtvk_context* ctx, struct rtvk_texture* texture);
+struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rtvk_context* ctx, VkImage image, VkFormat format, u32 width, u32 height);
 void rtvk_texture_node_retain(struct rtvk_texture* texture);
 void rtvk_texture_node_release(struct rtvk_texture* texture);
+u32 rtvk_texture_debug_live_count(void);
 void rtvk_texture_view_filter(struct rtvk_texture_view* texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
 void rtvk_texture_view_address(struct rtvk_texture_view* texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
 void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, u32 max_anisotropy);

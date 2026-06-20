@@ -1,4 +1,5 @@
 #include "buffer.h"
+#include <assert.h>
 #include "context.h"
 #include "error.h"
 #include "resource/queue.h"
@@ -35,6 +36,8 @@ static bool rtvk_buffer_needs_graphics_upload_queue(enum rt_buffer_usage usage) 
 					 RT_BUFFER_USAGE_UNIFORM |
 					 RT_BUFFER_USAGE_STORAGE)) != 0;
 }
+
+static u32 g_rtvk_live_buffer_nodes = 0;
 
 static struct rtvk_queue* rtvk_buffer_upload_queue(struct rtvk_context* ctx, enum rt_buffer_usage usage) {
 	if (rtvk_buffer_needs_graphics_upload_queue(usage)) {
@@ -259,22 +262,20 @@ static struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64
 	node->size = size;
 	node->mode = mode;
 	node->usage = usage;
-	rtvk_atomic_u32_init(&node->ref_count, 1);
+	node->ref_count = 1;
+	g_rtvk_live_buffer_nodes++;
 	return node;
 }
 
 void rtvk_buffer_node_retain(struct rtvk_buffer* buffer) {
-	if (!buffer) {
-		return;
-	}
-	rtvk_atomic_inc(&buffer->ref_count);
+	assert(buffer);
+	buffer->ref_count++;
 }
 
 void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
-	if (!buffer) {
-		return;
-	}
-	if (rtvk_atomic_dec(&buffer->ref_count) != 0) {
+	assert(buffer);
+	assert(buffer->ref_count > 0);
+	if (--buffer->ref_count != 0) {
 		return;
 	}
 
@@ -282,14 +283,20 @@ void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
 		vmaDestroyBuffer(buffer->base.ctx->vma_allocator, buffer->vk_buffer, buffer->vma_allocation);
 	}
 	free(buffer->shadow_data);
-	rtvk_atomic_u32_finish(&buffer->ref_count);
+	assert(g_rtvk_live_buffer_nodes > 0);
+	g_rtvk_live_buffer_nodes--;
 	free(buffer);
 }
 
+u32 rtvk_buffer_debug_live_count(void) {
+	return g_rtvk_live_buffer_nodes;
+}
+
 static bool rtvk_buffer_write_host(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	if (!buffer || !data || !size) {
+	if (!data || !size) {
 		return true;
 	}
+	assert(buffer);
 
 	VmaAllocationInfo allocation_info;
 	vmaGetAllocationInfo(ctx->vma_allocator, buffer->vma_allocation, &allocation_info);
@@ -306,9 +313,10 @@ static bool rtvk_buffer_write_host(struct rtvk_context* ctx, struct rtvk_buffer*
 }
 
 static bool rtvk_buffer_write_shadow(struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	if (!buffer || !size) {
+	if (!size) {
 		return true;
 	}
+	assert(buffer);
 	if (!buffer->shadow_data) {
 		buffer->shadow_data = calloc(1, (usize)buffer->size);
 		if (!buffer->shadow_data) {
@@ -323,9 +331,8 @@ static bool rtvk_buffer_write_shadow(struct rtvk_buffer* buffer, u64 offset, u64
 }
 
 static void rtvk_buffer_copy_host(struct rtvk_context* ctx, struct rtvk_buffer* dst, struct rtvk_buffer* src) {
-	if (!dst || !src) {
-		return;
-	}
+	assert(dst);
+	assert(src);
 
 	u64 copy_size = dst->size < src->size ? dst->size : src->size;
 	if (!copy_size) {
@@ -541,7 +548,7 @@ static struct rtvk_buffer* rtvk_buffer_take_reusable_node(
 		if (node->size == size &&
 			node->mode == mode &&
 			node->usage == usage &&
-			rtvk_atomic_load(&node->ref_count) == 1) {
+			node->ref_count == 1) {
 			*link = node->next;
 			node->next = NULL;
 			return node;
@@ -579,7 +586,9 @@ struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buf
 	buffer->mode = mode;
 	buffer->usage = usage;
 
-	rtvk_buffer_recycle_node(buffer, buffer->active);
+	if (buffer->active) {
+		rtvk_buffer_recycle_node(buffer, buffer->active);
+	}
 	buffer->active = NULL;
 
 	struct rtvk_buffer* node = rtvk_buffer_take_reusable_node(buffer, size, buffer->mode, buffer->usage);
@@ -633,7 +642,7 @@ struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_
 	}
 
 	bool replaced_storage = false;
-	if (rtvk_atomic_load(&buffer->active->ref_count) > 1) {
+	if (buffer->active->ref_count > 1) {
 		struct rtvk_buffer* old_node = buffer->active;
 
 		rtvk_buffer_recycle_node(buffer, old_node);

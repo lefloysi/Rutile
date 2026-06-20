@@ -1,7 +1,7 @@
 #include "queue.h"
 #include "context.h"
 #include "error.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 #include "resource/command_buffer.h"
 
 #include <stdlib.h>

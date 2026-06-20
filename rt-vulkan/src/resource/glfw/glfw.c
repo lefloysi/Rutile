@@ -1,4 +1,4 @@
-#include "extension/swapchain/glfw/glfw.h"
+#include "resource/glfw/glfw.h"
 #include "context.h"
 #include "error.h"
 
@@ -31,7 +31,8 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	rtvk_swapchain_bind_window_glfw(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
-		window);
+		window
+	);
 }
 
 /*===============================================================================================*/
@@ -67,10 +68,8 @@ static bool rtvk_glfw_resolve(void) {
 		return rtvk_glfw.create_window_surface && rtvk_glfw.get_framebuffer_size;
 	}
 
-	rtvk_glfw.create_window_surface =
-		(PFN_rtvk_glfwCreateWindowSurface)rtvk_glfw_symbol("glfwCreateWindowSurface");
-	rtvk_glfw.get_framebuffer_size =
-		(PFN_rtvk_glfwGetFramebufferSize)rtvk_glfw_symbol("glfwGetFramebufferSize");
+	rtvk_glfw.create_window_surface = (PFN_rtvk_glfwCreateWindowSurface)rtvk_glfw_symbol("glfwCreateWindowSurface");
+	rtvk_glfw.get_framebuffer_size = (PFN_rtvk_glfwGetFramebufferSize)rtvk_glfw_symbol("glfwGetFramebufferSize");
 
 	if (!rtvk_glfw.create_window_surface || !rtvk_glfw.get_framebuffer_size) {
 		rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW symbols are not exported by the executable or available from glfw3.dll");
@@ -94,7 +93,6 @@ void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapc
 	if (!rtvk_glfw_resolve()) { return; }
 
 	result = rtvk_glfw.create_window_surface(ctx->vk_instance, window, VK_ALLOCATOR, &surface);
-
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return;

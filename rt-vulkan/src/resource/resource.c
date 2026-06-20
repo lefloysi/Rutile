@@ -6,8 +6,10 @@
 #include "framebuffer.h"
 #include "graphics_program.h"
 #include "texture.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
+#include "error.h"
 
+#include <assert.h>
 #include <stdlib.h>
 
 void* rtvk_alloc_resource(usize size) {
@@ -27,61 +29,61 @@ void rtvk_free_resource(void* resource) {
 }
 
 void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base, rtvk_resource_type type) {
+	assert(base);
 	base->type = type;
 	base->ctx = ctx;
-	rtvk_atomic_u32_init(&base->ref_count, 1);
-	rtvk_atomic_u32_init(&base->job_count, 0);
-	rtvk_atomic_bool_init(&base->zombie, false);
+	base->ref_count = 1;
+	base->job_count = 0;
+	base->zombie = false;
 }
 
 void rtvk_finish_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base) {
-	base->type = RT_RESOURCE_UNKNOWN;
+	assert(base);
 	base->ctx = NULL;
-	rtvk_atomic_bool_store(&base->zombie, true);
+	base->zombie = true;
 }
 static void rtvk_resource_try_free(struct rtvk_resource_base* base) {
+	assert(base);
 	if (rtvk_resource_ready_to_destroy(base)) {
 		rtvk_resource_finalize(base);
-		rtvk_atomic_bool_finish(&base->zombie);
-		rtvk_atomic_u32_finish(&base->job_count);
-		rtvk_atomic_u32_finish(&base->ref_count);
 		rtvk_free_resource(base);
 	}
 }
 
 void rtvk_resource_retain(struct rtvk_resource_base* base) {
-	rtvk_atomic_inc(&base->ref_count);
+	assert(base);
+	base->ref_count++;
 }
 
 void rtvk_resource_release(struct rtvk_resource_base* base) {
-	rtvk_atomic_dec(&base->ref_count);
+	assert(base);
+	assert(base->ref_count > 0);
+	base->ref_count--;
 	rtvk_resource_try_free(base);
 }
 
-void rtvk_retain_resource_impl(void* resource) {
-	if (resource) { rtvk_resource_retain((struct rtvk_resource_base*)resource); }
-}
-
-void rtvk_release_resource_impl(void* resource) {
-	if (resource) { rtvk_resource_release((struct rtvk_resource_base*)resource); }
-}
-
 void rtvk_resource_job_begin(struct rtvk_resource_base* base) {
-	rtvk_atomic_inc(&base->job_count);
+	assert(base);
+	base->job_count++;
 }
 
 void rtvk_resource_job_end(struct rtvk_resource_base* base) {
-	rtvk_atomic_dec(&base->job_count);
+	assert(base);
+	assert(base->job_count > 0);
+	base->job_count--;
 	rtvk_resource_try_free(base);
 }
 
 void rtvk_resource_retire(struct rtvk_resource_base* base) {
-	rtvk_atomic_bool_store(&base->zombie, true);
+	assert(base);
+	base->zombie = true;
 	rtvk_resource_release(base);
 }
 
 void rtvk_resource_finalize(struct rtvk_resource_base* base) {
-	if (!base || !base->ctx || base->type == RT_RESOURCE_UNKNOWN) {
+	assert(base);
+	if (base->type == RT_RESOURCE_UNKNOWN) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "resource finalization reached RT_RESOURCE_UNKNOWN");
 		return;
 	}
 
@@ -118,9 +120,8 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 }
 
 bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base) {
-	return rtvk_atomic_bool_load(&base->zombie) &&
-		rtvk_atomic_load(&base->ref_count) == 0 &&
-		rtvk_atomic_load(&base->job_count) == 0;
+	assert(base);
+	return base->zombie && base->ref_count == 0 && base->job_count == 0;
 }
 
 rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint) {

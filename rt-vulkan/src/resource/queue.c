@@ -1,7 +1,7 @@
 #include "queue.h"
 #include "context.h"
 #include "error.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 
 #include <stdlib.h>
 
@@ -19,7 +19,8 @@ rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
 	struct rtvk_timepoint timepoint = rtvk_queue_submit(
 		rtvk_get_current_context(),
 		rtvk_queue_from_handle(queue),
-		rtvk_command_buffer_from_handle(command_buffer));
+		rtvk_command_buffer_from_handle(command_buffer)
+	);
 	return rtvk_timepoint_to_public(timepoint);
 }
 
@@ -223,7 +224,9 @@ static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_qu
 			batch->command_buffer_node->pending_timepoint.queue = NULL;
 			batch->command_buffer_node->pending_timepoint.value = 0;
 		}
-		rtvk_command_buffer_node_release(batch->command_buffer_node);
+		if (batch->command_buffer_node) {
+			rtvk_command_buffer_node_release(batch->command_buffer_node);
+		}
 		free(batch);
 	}
 
@@ -306,7 +309,10 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 		struct rtvk_command_buffer* node = command_buffer->active;
 		node->pending_timepoint = (struct rtvk_timepoint){ queue, value };
 	}
-	return (struct rtvk_timepoint){ queue, value };
+	return (struct rtvk_timepoint){
+		queue,
+		value
+	};
 }
 
 struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue) {

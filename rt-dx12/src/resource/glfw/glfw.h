@@ -2,7 +2,7 @@
 #define RTDX_GLFW_H
 
 #include "config.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 #include "rt_ext_glfw.h"
 
 /*===============================================================================================*/

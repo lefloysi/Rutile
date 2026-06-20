@@ -4,7 +4,7 @@
 #include "config.h"
 #include "types.h"
 #include "rt_ext_glfw.h"
-#include "extension/swapchain/swapchain.h"
+#include "resource/swapchain.h"
 
 /*===============================================================================================*/
 /*                                                                                               */

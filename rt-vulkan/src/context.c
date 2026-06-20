@@ -1,8 +1,11 @@
 #include "context.h"
 #include "error.h"
+#include "resource/buffer.h"
+#include "resource/texture.h"
 #include "resource/queue.h"
 #include "shader_compiler.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(_WIN32)
@@ -670,8 +673,32 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 void rtvk_context_finish(struct rtvk_context* ctx) {
 	if (!ctx) { return; }
 
+	if (rtvk_buffer_debug_live_count() || rtvk_texture_debug_live_count()) {
+		rtvk_throwf(
+			RT_IMPROPER_USAGE,
+			"shutdown with live resources: buffers=%u textures=%u",
+			rtvk_buffer_debug_live_count(),
+			rtvk_texture_debug_live_count());
+	}
+
 	rtvk_context_destroy_queues(ctx);
 	if (ctx->vma_allocator) {
+#if defined(RTVK_ENABLE_VULKAN_VALIDATION)
+		VmaTotalStatistics stats = { 0 };
+		vmaCalculateStatistics(ctx->vma_allocator, &stats);
+		if (stats.total.statistics.allocationCount) {
+			char* leak_dump = NULL;
+			vmaBuildStatsString(ctx->vma_allocator, &leak_dump, VK_TRUE);
+			fprintf(stderr,
+				"[rt-vulkan] vmaDestroyAllocator: %u dedicated/pool allocations still live (%llu bytes)\n",
+				stats.total.statistics.allocationCount,
+				(unsigned long long)stats.total.statistics.allocationBytes);
+			if (leak_dump) {
+				fprintf(stderr, "%s\n", leak_dump);
+				vmaFreeStatsString(ctx->vma_allocator, leak_dump);
+			}
+		}
+#endif
 		vmaDestroyAllocator(ctx->vma_allocator);
 		ctx->vma_allocator = VK_NULL_HANDLE;
 	}

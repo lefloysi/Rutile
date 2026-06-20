@@ -91,8 +91,6 @@ struct rtvk_command_buffer {
 	struct rtvk_framebuffer* framebuffer;
 	struct rtvk_graphics_program* graphics_program;
 	struct rtvk_compute_program* compute_program;
-	struct rtvk_texture_view* color_texture_view;
-	struct rtvk_texture_view* depth_texture_view;
 	struct rtvk_buffer* vertex_buffer;
 	struct rtvk_buffer* vertex_buffer_node;
 	rtvk_uniform_slot* uniform_slots;
