@@ -50,6 +50,7 @@ void rtval_report_error(const char* call_name) {
 		call_name ? call_name : "<unknown>",
 		(i32)error,
 		message ? message : "");
+	rtval_next_rtClearError();
 }
 
 

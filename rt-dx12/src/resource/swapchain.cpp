@@ -108,11 +108,19 @@ static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct
 			rtdx_framebuffer_destroy(ctx, swapchain->framebuffers[i]);
 			swapchain->framebuffers[i] = NULL;
 		}
+		// The texture/view wrappers may still be retained by a user command buffer that recorded
+		// into the previous back buffer. ResizeBuffers requires zero outstanding references to the
+		// swapchain's ID3D12Resource objects, so drop the back-buffer pointer directly here — the
+		// wrappers' ref-counted cleanup will then find a NULL resource and skip the release.
 		if (swapchain->texture_views[i]) {
+			swapchain->texture_views[i]->d3d_resource = NULL;
 			rtdx_texture_view_destroy(ctx, swapchain->texture_views[i]);
 			swapchain->texture_views[i] = NULL;
 		}
 		if (swapchain->textures[i]) {
+			if (swapchain->textures[i]->active) {
+				rtdx_release(&swapchain->textures[i]->active->d3d_resource);
+			}
 			rtdx_texture_destroy(ctx, swapchain->textures[i]);
 			swapchain->textures[i] = NULL;
 		}
@@ -147,7 +155,11 @@ bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 		DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0));
 	if (FAILED(result)) {
 		rtdx_swapchain_unlock(swapchain);
-		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3::ResizeBuffers failed: 0x%08x", (u32)result);
+		rtdx_throwf(
+			rtdx_error_from_hresult(result),
+			"IDXGISwapChain3::ResizeBuffers failed: %s (0x%08x)",
+			rtdx_hresult_name(result),
+			(u32)result);
 		return false;
 	}
 

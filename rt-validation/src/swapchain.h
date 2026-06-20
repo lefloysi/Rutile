@@ -6,6 +6,7 @@
 struct rtval_swapchain {
 	rt_swapchain backend;
 	struct rtval_framebuffer* current_framebuffer;
+	bool has_current_framebuffer;
 };
 
 struct rtval_swapchain* rtval_swapchain_create(void);

@@ -88,9 +88,9 @@ PFN_rtSwapchainBindWindowGLFW rtval_next_rtSwapchainBindWindowGLFW = NULL;
 PFN_rtSetOutput rtval_next_rtSetOutput = NULL;
 
 /*===============================================================================================*/
-/* central handle registry: open-addressing hashmap, each slot carries an inline payload buffer.  */
-/* state for every rtval_X lives inside its slot's payload — never on the heap. The "handle" is   */
-/* just an opaque counter-id cast to a pointer.                                                   */
+/* central handle registry: open-addressing hashmap. Each slot owns a heap-allocated payload so   */
+/* pointers returned by rtval_handle_payload stay valid across registry grows — entries that      */
+/* nest into rtval_handle_create (eg. acquire wrapping a framebuffer) rely on this stability.     */
 /*===============================================================================================*/
 
 #define RTVAL_HANDLE_PAYLOAD_SIZE 64
@@ -100,7 +100,7 @@ PFN_rtSetOutput rtval_next_rtSetOutput = NULL;
 typedef struct rtval_handle_slot {
 	void*             key;
 	rtval_handle_type type;
-	char              payload[RTVAL_HANDLE_PAYLOAD_SIZE];
+	void*             payload;  /* heap-allocated so the pointer stays stable across registry grows */
 } rtval_handle_slot;
 
 static const char* rtval_handle_type_name(rtval_handle_type t) {
@@ -181,9 +181,14 @@ void* rtval_handle_create(rtval_handle_type type) {
 		return NULL;
 	}
 	if (slot->key == RTVAL_HANDLE_EMPTY) { rtval_handle_used++; }
+	void* payload = calloc(1, RTVAL_HANDLE_PAYLOAD_SIZE);
+	if (!payload) {
+		free(key);
+		return NULL;
+	}
 	slot->key = key;
 	slot->type = type;
-	memset(slot->payload, 0, sizeof(slot->payload));
+	slot->payload = payload;
 	rtval_handle_count++;
 	return key;
 }
@@ -240,6 +245,8 @@ void rtval_handle_destroy(void* key) {
 	}
 	if (slot->key) {
 		free(slot->key);
+		free(slot->payload);
+		slot->payload = NULL;
 		slot->key = RTVAL_HANDLE_TOMBSTONE;
 		rtval_handle_count--;
 	}
@@ -250,6 +257,7 @@ void rtval_handle_reset_registry(void) {
 		void* k = rtval_handle_slots ? rtval_handle_slots[i].key : NULL;
 		if (k == RTVAL_HANDLE_EMPTY || k == RTVAL_HANDLE_TOMBSTONE) { continue; }
 		free(k);
+		free(rtval_handle_slots[i].payload);
 	}
 	free(rtval_handle_slots);
 	rtval_handle_slots = NULL;

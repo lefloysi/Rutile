@@ -5,6 +5,7 @@
 
 struct rtval_framebuffer {
 	rt_framebuffer backend;
+	bool owns_backend;
 };
 
 struct rtval_framebuffer* rtval_framebuffer_create(void);

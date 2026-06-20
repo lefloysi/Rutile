@@ -19,7 +19,10 @@ rt_texture rtTextureCreate(void) {
 }
 
 void rtTextureDestroy(rt_texture texture) {
-	rtvk_texture_destroy(rtvk_get_current_context(), rtvk_texture_from_handle(texture));
+	rtvk_texture_destroy(
+		rtvk_get_current_context(),
+		rtvk_texture_from_handle(texture)
+	);
 }
 
 rt_texture_view rtTextureViewCreate(rt_texture texture) {
@@ -31,66 +34,60 @@ rt_texture_view rtTextureViewCreate(rt_texture texture) {
 }
 
 void rtTextureViewDestroy(rt_texture_view texture_view) {
-	rtvk_texture_view_destroy(rtvk_get_current_context(), rtvk_texture_view_from_handle(texture_view));
+	rtvk_texture_view_destroy(
+		rtvk_get_current_context(),
+		rtvk_texture_view_from_handle(texture_view)
+	);
 }
 
 void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
-	rtvk_texture_view_filter(rtvk_texture_view_from_handle(texture_view), mag_filter, min_filter, mip_filter);
+	rtvk_texture_view_filter(
+		rtvk_texture_view_from_handle(texture_view),
+		mag_filter,
+		min_filter,
+		mip_filter
+	);
 }
 
 void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
-	rtvk_texture_view_address(rtvk_texture_view_from_handle(texture_view), address_u, address_v, address_w);
+	rtvk_texture_view_address(
+		rtvk_texture_view_from_handle(texture_view),
+		address_u,
+		address_v,
+		address_w
+	);
 }
 
 void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
-	rtvk_texture_view_anisotropy(rtvk_texture_view_from_handle(texture_view), max_anisotropy);
+	rtvk_texture_view_anisotropy(
+		rtvk_texture_view_from_handle(texture_view), 
+		max_anisotropy
+	);
 }
 
 void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
-	rtvk_texture_view_lod(rtvk_texture_view_from_handle(texture_view), min_lod, max_lod, lod_bias);
+	rtvk_texture_view_lod(
+		rtvk_texture_view_from_handle(texture_view), 
+		min_lod,
+		max_lod, 
+		lod_bias
+	);
 }
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 
 static VkSamplerAddressMode rtvk_sampler_address_mode(enum rt_address_mode mode) {
 	switch (mode) {
-	case RT_ADDRESS_CLAMP: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	case RT_ADDRESS_MIRROR: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-	default: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	case RT_ADDRESS_CLAMP: /***/ return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	case RT_ADDRESS_MIRROR: /**/ return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+	default: /*****************/ return VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	}
 }
 
-static void rtvk_texture_view_normalize_sampler(struct rtvk_texture_view* view) {
-	if (!view->mag_filter) {
-		view->mag_filter = RT_FILTER_LINEAR;
-	}
-	if (!view->min_filter) {
-		view->min_filter = RT_FILTER_LINEAR;
-	}
-	if (!view->mip_filter) {
-		view->mip_filter = RT_MIP_FILTER_NONE;
-	}
-	if (!view->address_u) {
-		view->address_u = RT_ADDRESS_REPEAT;
-	}
-	if (!view->address_v) {
-		view->address_v = RT_ADDRESS_REPEAT;
-	}
-	if (!view->address_w) {
-		view->address_w = RT_ADDRESS_REPEAT;
-	}
-	if (!view->max_anisotropy) {
-		view->max_anisotropy = 1;
-	}
-}
-
-static bool rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_view* view, VkSampler* sampler) {
-	if (!sampler) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "sampler output is NULL");
-		return false;
-	}
-
-	rtvk_texture_view_normalize_sampler(view);
-	*sampler = VK_NULL_HANDLE;
-
+static VkSampler rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
 	VkSamplerCreateInfo sampler_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	sampler_info.magFilter = view->mag_filter == RT_FILTER_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 	sampler_info.minFilter = view->min_filter == RT_FILTER_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
@@ -108,12 +105,13 @@ static bool rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_vi
 	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
 	sampler_info.unnormalizedCoordinates = VK_FALSE;
 
-	VkResult result = vkCreateSampler(ctx->vk_device, &sampler_info, VK_ALLOCATOR, sampler);
+	VkSampler sampler = VK_NULL_HANDLE;
+	VkResult result = vkCreateSampler(ctx->vk_device, &sampler_info, VK_ALLOCATOR, &sampler);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return VK_NULL_HANDLE;
 	}
-	return true;
+	return sampler;
 }
 
 rt_timepoint rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
@@ -328,7 +326,14 @@ void rtvk_texture_init(struct rtvk_context* ctx, struct rtvk_texture* texture) {
 
 void rtvk_texture_view_init(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(view), RT_RESOURCE_TEXTURE_VIEW);
-	rtvk_texture_view_normalize_sampler(view);
+	view->mag_filter = RT_FILTER_LINEAR;
+	view->min_filter = RT_FILTER_LINEAR;
+	view->mip_filter = RT_MIP_FILTER_NONE;
+	view->address_u = RT_ADDRESS_REPEAT;
+	view->address_v = RT_ADDRESS_REPEAT;
+	view->address_w = RT_ADDRESS_REPEAT;
+	view->max_anisotropy = 1;
+	view->vk_sampler = rtvk_sampler_create(ctx, view);
 }
 
 void rtvk_texture_finish(struct rtvk_context* ctx, struct rtvk_texture* texture) {
@@ -585,30 +590,6 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rt
 	return view;
 }
 
-static bool rtvk_texture_view_sampler_valid(struct rtvk_texture_view* texture_view) {
-	if (!texture_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture view is NULL");
-		return false;
-	}
-	return true;
-}
-
-bool rtvk_texture_view_prepare_sampler(struct rtvk_context* ctx, struct rtvk_texture_view* texture_view) {
-	if (!rtvk_texture_view_sampler_valid(texture_view)) {
-		return false;
-	}
-	if (texture_view->vk_sampler) {
-		return true;
-	}
-
-	VkSampler vk_sampler = VK_NULL_HANDLE;
-	if (!rtvk_sampler_create(ctx, texture_view, &vk_sampler)) {
-		return false;
-	}
-	texture_view->vk_sampler = vk_sampler;
-	return true;
-}
-
 static void rtvk_texture_view_retire_sampler(struct rtvk_texture_view* texture_view, VkSampler sampler) {
 	if (!sampler) {
 		return;
@@ -624,27 +605,16 @@ static void rtvk_texture_view_retire_sampler(struct rtvk_texture_view* texture_v
 	texture_view->retired_samplers = retired;
 }
 
-static bool rtvk_texture_view_recreate_sampler(struct rtvk_texture_view* texture_view) {
-	struct rtvk_context* ctx = texture_view->base.ctx;
-	VkSampler vk_sampler = VK_NULL_HANDLE;
-	if (!rtvk_sampler_create(ctx, texture_view, &vk_sampler)) {
-		return false;
-	}
-	if (texture_view->vk_sampler) {
-		rtvk_texture_view_retire_sampler(texture_view, texture_view->vk_sampler);
-	}
-	texture_view->vk_sampler = vk_sampler;
-	return true;
-}
-
-void rtvk_texture_view_filter(
-	struct rtvk_texture_view* texture_view,
-	enum rt_filter mag_filter,
-	enum rt_filter min_filter,
-	enum rt_mip_filter mip_filter) {
-	if (!rtvk_texture_view_sampler_valid(texture_view)) {
+static void rtvk_texture_view_recreate_sampler(struct rtvk_texture_view* texture_view) {
+	VkSampler vk_sampler = rtvk_sampler_create(texture_view->base.ctx, texture_view);
+	if (!vk_sampler) {
 		return;
 	}
+	rtvk_texture_view_retire_sampler(texture_view, texture_view->vk_sampler);
+	texture_view->vk_sampler = vk_sampler;
+}
+
+void rtvk_texture_view_filter(struct rtvk_texture_view* texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
 	if (texture_view->mag_filter == mag_filter &&
 		texture_view->min_filter == min_filter &&
 		texture_view->mip_filter == mip_filter) {
@@ -653,18 +623,10 @@ void rtvk_texture_view_filter(
 	texture_view->mag_filter = mag_filter;
 	texture_view->min_filter = min_filter;
 	texture_view->mip_filter = mip_filter;
-	rtvk_texture_view_normalize_sampler(texture_view);
 	rtvk_texture_view_recreate_sampler(texture_view);
 }
 
-void rtvk_texture_view_address(
-	struct rtvk_texture_view* texture_view,
-	enum rt_address_mode address_u,
-	enum rt_address_mode address_v,
-	enum rt_address_mode address_w) {
-	if (!rtvk_texture_view_sampler_valid(texture_view)) {
-		return;
-	}
+void rtvk_texture_view_address(struct rtvk_texture_view* texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	if (texture_view->address_u == address_u &&
 		texture_view->address_v == address_v &&
 		texture_view->address_w == address_w) {
@@ -673,30 +635,18 @@ void rtvk_texture_view_address(
 	texture_view->address_u = address_u;
 	texture_view->address_v = address_v;
 	texture_view->address_w = address_w;
-	rtvk_texture_view_normalize_sampler(texture_view);
 	rtvk_texture_view_recreate_sampler(texture_view);
 }
 
 void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, u32 max_anisotropy) {
-	if (!rtvk_texture_view_sampler_valid(texture_view)) {
-		return;
-	}
 	if (texture_view->max_anisotropy == max_anisotropy) {
 		return;
 	}
 	texture_view->max_anisotropy = max_anisotropy;
-	rtvk_texture_view_normalize_sampler(texture_view);
 	rtvk_texture_view_recreate_sampler(texture_view);
 }
 
-void rtvk_texture_view_lod(
-	struct rtvk_texture_view* texture_view,
-	f32 min_lod,
-	f32 max_lod,
-	f32 lod_bias) {
-	if (!rtvk_texture_view_sampler_valid(texture_view)) {
-		return;
-	}
+void rtvk_texture_view_lod(struct rtvk_texture_view* texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	if (texture_view->min_lod == min_lod &&
 		texture_view->max_lod == max_lod &&
 		texture_view->lod_bias == lod_bias) {
@@ -705,13 +655,27 @@ void rtvk_texture_view_lod(
 	texture_view->min_lod = min_lod;
 	texture_view->max_lod = max_lod;
 	texture_view->lod_bias = lod_bias;
-	rtvk_texture_view_normalize_sampler(texture_view);
 	rtvk_texture_view_recreate_sampler(texture_view);
 }
 
 struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_mip) {
 	struct rtvk_timepoint timepoint = { queue, 0 };
-	rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture copy is not implemented yet");
+	queue = rtvk_texture_graphics_queue(ctx, queue);
+	if (!queue) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy requires a graphics queue");
+		return timepoint;
+	}
+	if (!src_texture || !dst_texture || !src_texture->active || !dst_texture->active ||
+		!src_texture->active->vk_image || !dst_texture->active->vk_image) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is invalid");
+		return timepoint;
+	}
+	const u32 mip_width = src_texture->active->width >> src_mip;
+	const u32 mip_height = src_texture->active->height >> src_mip;
+	if (!rtvk_texture_copy_region(ctx, queue, src_texture, 0, 0, 0, src_mip, dst_texture, 0, 0, 0, dst_mip, mip_width ? mip_width : 1, mip_height ? mip_height : 1, 1)) {
+		return timepoint;
+	}
+	timepoint = queue->copy_command_timepoint;
 	return timepoint;
 }
 
@@ -794,6 +758,150 @@ static bool rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_qu
 		return false;
 	}
 	queue->upload_staging_size = size;
+	return true;
+}
+
+static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth) {
+	queue = rtvk_texture_graphics_queue(ctx, queue);
+	if (!queue) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy requires a graphics queue");
+		return false;
+	}
+	if (!src_texture || !src_texture->active || !src_texture->active->vk_image ||
+		!dst_texture || !dst_texture->active || !dst_texture->active->vk_image) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is invalid");
+		return false;
+	}
+	if (src_texture->active->vk_format != dst_texture->active->vk_format) {
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture copy requires matching texture formats");
+		return false;
+	}
+	if (src_texture->active->type != RT_TEXTURE_2D || dst_texture->active->type != RT_TEXTURE_2D || src_z != 0 || dst_z != 0 || depth != 1) {
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture copy currently supports only 2D textures");
+		return false;
+	}
+	if (width == 0 || height == 0) {
+		return false;
+	}
+	const u32 src_w = src_texture->active->width >> src_mip; const u32 src_mip_w = src_w ? src_w : 1;
+	const u32 src_h = src_texture->active->height >> src_mip; const u32 src_mip_h = src_h ? src_h : 1;
+	const u32 dst_w = dst_texture->active->width >> dst_mip; const u32 dst_mip_w = dst_w ? dst_w : 1;
+	const u32 dst_h = dst_texture->active->height >> dst_mip; const u32 dst_mip_h = dst_h ? dst_h : 1;
+	if (src_x > src_mip_w || src_y > src_mip_h || dst_x > dst_mip_w || dst_y > dst_mip_h ||
+		width > src_mip_w - src_x || height > src_mip_h - src_y ||
+		width > dst_mip_w - dst_x || height > dst_mip_h - dst_y) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy region is out of bounds");
+		return false;
+	}
+
+	rtvk_queue_flush(ctx, queue);
+	if (!rtvk_texture_copy_buffer_command(ctx, queue)) {
+		return false;
+	}
+	VkCommandBuffer command_buffer = queue->copy_command_buffer;
+
+	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		return false;
+	}
+
+	struct rtvk_texture* src_node = src_texture->active;
+	struct rtvk_texture* dst_node = dst_texture->active;
+	VkImageLayout src_restore_layout = src_node->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ?
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : src_node->vk_layout;
+	VkImageLayout dst_restore_layout = dst_node->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ?
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : dst_node->vk_layout;
+	VkImageAspectFlags aspect = rtvk_texture_format_aspect(src_node->vk_format);
+
+	VkImageMemoryBarrier barriers[2] = { { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER }, { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER } };
+	barriers[0].srcAccessMask = rtvk_texture_layout_access(src_node->vk_layout);
+	barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barriers[0].oldLayout = src_node->vk_layout;
+	barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[0].image = src_node->vk_image;
+	barriers[0].subresourceRange.aspectMask = aspect;
+	barriers[0].subresourceRange.baseMipLevel = src_mip;
+	barriers[0].subresourceRange.levelCount = 1;
+	barriers[0].subresourceRange.baseArrayLayer = 0;
+	barriers[0].subresourceRange.layerCount = 1;
+	barriers[1].srcAccessMask = rtvk_texture_layout_access(dst_node->vk_layout);
+	barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barriers[1].oldLayout = dst_node->vk_layout;
+	barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barriers[1].image = dst_node->vk_image;
+	barriers[1].subresourceRange.aspectMask = aspect;
+	barriers[1].subresourceRange.baseMipLevel = dst_mip;
+	barriers[1].subresourceRange.levelCount = 1;
+	barriers[1].subresourceRange.baseArrayLayer = 0;
+	barriers[1].subresourceRange.layerCount = 1;
+	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, barriers);
+
+	VkImageCopy copy = { 0 };
+	copy.srcSubresource.aspectMask = aspect;
+	copy.srcSubresource.mipLevel = src_mip;
+	copy.srcSubresource.baseArrayLayer = 0;
+	copy.srcSubresource.layerCount = 1;
+	copy.srcOffset.x = (i32)src_x;
+	copy.srcOffset.y = (i32)src_y;
+	copy.srcOffset.z = 0;
+	copy.dstSubresource.aspectMask = aspect;
+	copy.dstSubresource.mipLevel = dst_mip;
+	copy.dstSubresource.baseArrayLayer = 0;
+	copy.dstSubresource.layerCount = 1;
+	copy.dstOffset.x = (i32)dst_x;
+	copy.dstOffset.y = (i32)dst_y;
+	copy.dstOffset.z = 0;
+	copy.extent.width = width;
+	copy.extent.height = height;
+	copy.extent.depth = depth;
+	vkCmdCopyImage(command_buffer, src_node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+	barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barriers[0].dstAccessMask = rtvk_texture_layout_access(src_restore_layout);
+	barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barriers[0].newLayout = src_restore_layout;
+	barriers[0].subresourceRange.baseMipLevel = src_mip;
+	barriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barriers[1].dstAccessMask = rtvk_texture_layout_access(dst_restore_layout);
+	barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barriers[1].newLayout = dst_restore_layout;
+	barriers[1].subresourceRange.baseMipLevel = dst_mip;
+	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, barriers);
+
+	result = vkEndCommandBuffer(command_buffer);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		return false;
+	}
+
+	u64 value = queue->timeline_value + 1;
+	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	timeline_info.signalSemaphoreValueCount = 1;
+	timeline_info.pSignalSemaphoreValues = &value;
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submit_info.pNext = &timeline_info;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_buffer;
+	submit_info.signalSemaphoreCount = 1;
+	submit_info.pSignalSemaphores = &queue->vk_timeline;
+	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		return false;
+	}
+
+	queue->timeline_value = value;
+	queue->submitted_value = value;
+	queue->copy_command_timepoint = (struct rtvk_timepoint){ queue, value };
+	src_node->vk_layout = src_restore_layout;
+	dst_node->vk_layout = dst_restore_layout;
 	return true;
 }
 
@@ -1070,7 +1178,10 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 
 struct rtvk_timepoint rtvk_texture_subcopy(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtvk_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	struct rtvk_timepoint timepoint = { queue, 0 };
-	rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture subcopy is not implemented yet");
+	if (!rtvk_texture_copy_region(ctx, queue, src_texture, src_x, src_y, src_z, src_mip, dst_texture, dst_x, dst_y, dst_z, dst_mip, width, height, depth)) {
+		return timepoint;
+	}
+	timepoint = queue->copy_command_timepoint;
 	return timepoint;
 }
 

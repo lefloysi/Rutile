@@ -461,7 +461,19 @@ void rtdx_command_buffer_clear_depth(struct rtdx_context* ctx, struct rtdx_comma
 }
 
 void rtdx_command_buffer_clear_stencil(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 stencil) {
-	rtdx_throwf(RT_UNSUPPORTED_FEATURE, "stencil clear is not implemented yet");
+	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "clear stencil requires active rendering");
+		return;
+	}
+
+	struct rtdx_texture_view* depth_view = node->depth_texture_view;
+	if (!depth_view || !depth_view->dsv.ptr) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "depth attachment view is invalid");
+		return;
+	}
+
+	node->d3d_command_list->ClearDepthStencilView(depth_view->dsv, D3D12_CLEAR_FLAG_STENCIL, 0.0f, (UINT8)stencil, 0, NULL);
 }
 
 void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_graphics_program* program) {

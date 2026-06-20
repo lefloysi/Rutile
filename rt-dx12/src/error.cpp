@@ -13,6 +13,18 @@ static thread_local char rtdx_error_text[1024] = "";
 static PFN_rtOutput rtdx_output = NULL;
 static void* rtdx_output_user_data = NULL;
 
+static const char* rtdx_hresult_fallback(HRESULT result) {
+	switch (result) {
+	case E_OUTOFMEMORY: return "E_OUTOFMEMORY";
+	case DXGI_ERROR_DEVICE_REMOVED: return "DXGI_ERROR_DEVICE_REMOVED";
+	case DXGI_ERROR_DEVICE_RESET: return "DXGI_ERROR_DEVICE_RESET";
+	case DXGI_ERROR_DEVICE_HUNG: return "DXGI_ERROR_DEVICE_HUNG";
+	case DXGI_ERROR_UNSUPPORTED: return "DXGI_ERROR_UNSUPPORTED";
+	case DXGI_ERROR_INVALID_CALL: return "DXGI_ERROR_INVALID_CALL";
+	default: return "HRESULT";
+	}
+}
+
 static void rtdx_default_output(const char* message, void* user_data) {
 	fputs(message, stdout);
 	fflush(stdout);
@@ -69,6 +81,17 @@ enum rt_error rtdx_error_from_hresult(HRESULT result) {
 	case DXGI_ERROR_UNSUPPORTED: return RT_UNSUPPORTED_PLATFORM;
 	default: return RT_INITIALIZATION_FAILED;
 	}
+}
+
+const char* rtdx_hresult_name(HRESULT result) {
+	static thread_local char text[64];
+	const char* name = rtdx_hresult_fallback(result);
+	if (name != "HRESULT") {
+		return name;
+	}
+	snprintf(text, sizeof(text), "HRESULT(0x%08x)", (u32)result);
+	text[sizeof(text) - 1] = '\0';
+	return text;
 }
 
 enum rt_error rtError(void) {

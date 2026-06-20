@@ -207,6 +207,9 @@ static u32 rtdx_texture_view_bytes_per_pixel(DXGI_FORMAT format) {
 	}
 }
 
+static bool rtdx_texture_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue);
+static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size);
+
 static DXGI_FORMAT rtdx_texture_format(enum rt_format format) {
 	switch (format) {
 	case RT_RGBA8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -238,6 +241,120 @@ bool rtdx_texture_format_is_depth(DXGI_FORMAT format) {
 
 static bool rtdx_texture_view_needs_bgra_swizzle(DXGI_FORMAT format) {
 	return format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+}
+
+static bool rtdx_texture_copy_region(
+	struct rtdx_context* ctx,
+	struct rtdx_queue* queue,
+	struct rtdx_texture* src_node,
+	u32 src_x,
+	u32 src_y,
+	u32 src_z,
+	struct rtdx_texture* dst_node,
+	u32 dst_x,
+	u32 dst_y,
+	u32 dst_z,
+	u32 width,
+	u32 height,
+	u32 depth) {
+	(void)src_z;
+	(void)dst_z;
+	if (!src_node || !src_node->d3d_resource || !dst_node || !dst_node->d3d_resource) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is invalid");
+		return false;
+	}
+	if (src_node->dxgi_format != dst_node->dxgi_format) {
+		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture copy requires matching texture formats");
+		return false;
+	}
+	if (src_node->type != RT_TEXTURE_2D || dst_node->type != RT_TEXTURE_2D || depth != 1) {
+		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture copy currently supports only 2D single-layer textures");
+		return false;
+	}
+	if (src_x > src_node->width || src_y > src_node->height ||
+		dst_x > dst_node->width || dst_y > dst_node->height ||
+		width == 0 || height == 0 ||
+		width > src_node->width - src_x || height > src_node->height - src_y ||
+		width > dst_node->width - dst_x || height > dst_node->height - dst_y) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy region is out of bounds");
+		return false;
+	}
+
+	rtdx_queue_collect(ctx, queue);
+	if (!rtdx_texture_upload_command(ctx, queue)) {
+		return false;
+	}
+	ID3D12GraphicsCommandList* command_list = queue->upload_command_list;
+	D3D12_RESOURCE_STATES src_original_state = src_node->state;
+	D3D12_RESOURCE_STATES dst_original_state = dst_node->state;
+
+	if (src_original_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+		D3D12_RESOURCE_BARRIER barrier = {};
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.pResource = src_node->d3d_resource;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = src_original_state;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		command_list->ResourceBarrier(1, &barrier);
+	}
+	if (dst_original_state != D3D12_RESOURCE_STATE_COPY_DEST) {
+		D3D12_RESOURCE_BARRIER barrier = {};
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.pResource = dst_node->d3d_resource;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = dst_original_state;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+		command_list->ResourceBarrier(1, &barrier);
+	}
+
+	D3D12_TEXTURE_COPY_LOCATION src_location = {};
+	src_location.pResource = src_node->d3d_resource;
+	src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	src_location.SubresourceIndex = 0;
+
+	D3D12_TEXTURE_COPY_LOCATION dst_location = {};
+	dst_location.pResource = dst_node->d3d_resource;
+	dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dst_location.SubresourceIndex = 0;
+	command_list->CopyTextureRegion(&dst_location, dst_x, dst_y, 0, &src_location, NULL);
+
+	if (dst_original_state != D3D12_RESOURCE_STATE_COPY_DEST) {
+		D3D12_RESOURCE_BARRIER barrier = {};
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.pResource = dst_node->d3d_resource;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+		barrier.Transition.StateAfter = dst_original_state;
+		command_list->ResourceBarrier(1, &barrier);
+	}
+	if (src_original_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+		D3D12_RESOURCE_BARRIER barrier = {};
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.pResource = src_node->d3d_resource;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		barrier.Transition.StateAfter = src_original_state;
+		command_list->ResourceBarrier(1, &barrier);
+	}
+
+	HRESULT result = command_list->Close();
+	if (FAILED(result)) {
+		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Close failed: 0x%08x", (u32)result);
+		return false;
+	}
+
+	ID3D12CommandList* lists[] = { command_list };
+	queue->d3d_queue->ExecuteCommandLists(1, lists);
+	u64 fence_value = queue->fence_value + 1;
+	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
+	if (FAILED(result)) {
+		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
+		return false;
+	}
+
+	queue->fence_value = fence_value;
+	queue->upload_fence_value = fence_value;
+	return true;
 }
 
 void rtdx_texture_init(struct rtdx_context* ctx, struct rtdx_texture* texture) {
@@ -549,7 +666,24 @@ void rtdx_texture_view_lod(
 
 struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_texture* src_texture, u32 src_mip, struct rtdx_texture* dst_texture, u32 dst_mip) {
 	struct rtdx_timepoint timepoint = { queue, 0 };
-	rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture copy is not implemented yet");
+	if (!queue) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy requires a valid queue");
+		return timepoint;
+	}
+	struct rtdx_texture* src_node = src_texture ? src_texture->active : NULL;
+	struct rtdx_texture* dst_node = dst_texture ? dst_texture->active : NULL;
+	if (!src_node || !dst_node) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is invalid");
+		return timepoint;
+	}
+	if (src_mip != 0 || dst_mip != 0) {
+		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture copy currently supports only mip 0");
+		return timepoint;
+	}
+	if (!rtdx_texture_copy_region(ctx, queue, src_node, 0, 0, 0, dst_node, 0, 0, 0, src_node->width, src_node->height, 1)) {
+		return timepoint;
+	}
+	timepoint.value = queue->fence_value;
 	return timepoint;
 }
 
@@ -804,7 +938,24 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_qu
 
 struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	struct rtdx_timepoint timepoint = { queue, 0 };
-	rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture subcopy is not implemented yet");
+	if (!queue) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture subcopy requires a valid queue");
+		return timepoint;
+	}
+	struct rtdx_texture* src_node = src_texture ? src_texture->active : NULL;
+	struct rtdx_texture* dst_node = dst_texture ? dst_texture->active : NULL;
+	if (!src_node || !dst_node) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "texture subcopy source or destination is invalid");
+		return timepoint;
+	}
+	if (src_mip != 0 || dst_mip != 0 || src_z != 0 || dst_z != 0 || depth != 1) {
+		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "texture subcopy currently supports only 2D mip 0 regions");
+		return timepoint;
+	}
+	if (!rtdx_texture_copy_region(ctx, queue, src_node, src_x, src_y, src_z, dst_node, dst_x, dst_y, dst_z, width, height, depth)) {
+		return timepoint;
+	}
+	timepoint.value = queue->fence_value;
 	return timepoint;
 }
 

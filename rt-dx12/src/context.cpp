@@ -50,10 +50,7 @@ static void rtdx_context_query_present_features(struct rtdx_context* ctx) {
 		return;
 	}
 
-	BOOL allow_tearing = FALSE;
-	if (SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow_tearing, sizeof(allow_tearing)))) {
-		ctx->allow_tearing = allow_tearing == TRUE;
-	}
+	ctx->allow_tearing = false;
 	factory5->Release();
 }
 

@@ -30,6 +30,10 @@ static bool rtvk_validate_init_features(const char* const* features, u32 feature
 			flags->presentation = true;
 			continue;
 		}
+		if (rtvk_feature_equals(feature, RT_FEATURE_SWAPCHAIN_DEPTH_VIEW)) {
+			flags->swapchain_depth_view = true;
+			continue;
+		}
 
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "unsupported rtInit feature: %s", feature);
 		return false;

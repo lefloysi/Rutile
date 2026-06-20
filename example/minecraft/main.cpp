@@ -15,7 +15,7 @@
 #include <iostream>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kDefaultBackendName = "rt-dx12";
 constexpr const char* kLayers[] = { "RT_VALIDATION" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
@@ -624,12 +624,11 @@ int main(int argc, char** argv) {
 		rtBufferSubdata(transform_buffer, 0, sizeof(transform), &transform);
 		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
 
-		rtQueueWait(queue, acquired.timepoint);
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, depth_view); }
+		rtFramebufferDepthView(acquired.framebuffer, depth_view);
 		rtCmdBegin(cmd, queue);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.54f, 0.72f, 0.94f, 1.0f);
-		if (depth_view) { rtCmdClearDepth(cmd, 1.0f); }
+		rtCmdClearDepth(cmd, 1.0f);
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdBindVertexBuffer(cmd, vertex_buffer, 0);
 		rtCmdUniformBuffer(cmd, transform_location, transform_buffer, 0, sizeof(transform));
@@ -643,7 +642,7 @@ int main(int argc, char** argv) {
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
 		last_rendered = rendered;
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE); }
+		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
 
 		fps_frames++;
@@ -659,7 +658,6 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	rtTimepointWait(last_rendered);
 	rtCmdDestroy(cmd);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);

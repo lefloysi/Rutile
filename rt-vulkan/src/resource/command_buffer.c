@@ -544,7 +544,31 @@ void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_comma
 	vkCmdClearAttachments(node->vk_command_buffer, 1, &attachment, 1, &rect);
 }
 void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 stencil) {
-	rtvk_throwf(RT_UNSUPPORTED_FEATURE, "stencil clear is not implemented yet");
+	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "clear stencil requires active rendering");
+		return;
+	}
+
+	struct rtvk_texture_view* depth_view = command_buffer->framebuffer->depth_view;
+	if (!depth_view || !depth_view->vk_image_view) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "depth attachment view is invalid");
+		return;
+	}
+
+	VkClearAttachment attachment = { 0 };
+	attachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+	attachment.clearValue.depthStencil.stencil = stencil;
+
+	VkClearRect rect = { 0 };
+	rect.rect.offset.x = 0;
+	rect.rect.offset.y = 0;
+	rect.rect.extent.width = depth_view->width;
+	rect.rect.extent.height = depth_view->height;
+	rect.baseArrayLayer = 0;
+	rect.layerCount = 1;
+
+	vkCmdClearAttachments(node->vk_command_buffer, 1, &attachment, 1, &rect);
 }
 void rtvk_command_buffer_end_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
 	vkCmdEndRendering(command_buffer->active->vk_command_buffer);
@@ -808,10 +832,6 @@ void rtvk_command_buffer_uniform_texture(
 	if (resume_rendering) {
 		rtvk_command_buffer_resume_rendering(ctx, command_buffer, active_framebuffer);
 	}
-	if (!rtvk_texture_view_prepare_sampler(ctx, texture_view)) {
-		return;
-	}
-
 	rtvk_uniform_slot* slot = rtvk_command_buffer_uniform_slot(node, location->index);
 	if (!slot) {
 		return;
@@ -1215,18 +1235,6 @@ static bool rtvk_command_buffer_bind_uniform_buffers(struct rtvk_context* ctx, s
 			rtvk_uniform_slot* slot = location->index < node->uniform_slot_count ? &node->uniform_slots[location->index] : NULL;
 			if (!slot || slot->kind != RTVK_UNIFORM_SLOT_TEXTURE || !slot->texture.view) {
 				rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture %s is not bound", location->name);
-				if (buffer_infos != stack_buffer_infos) {
-					free(buffer_infos);
-				}
-				if (image_infos != stack_image_infos) {
-					free(image_infos);
-				}
-				if (writes != stack_writes) {
-					free(writes);
-				}
-				return false;
-			}
-			if (!rtvk_texture_view_prepare_sampler(ctx, slot->texture.view)) {
 				if (buffer_infos != stack_buffer_infos) {
 					free(buffer_infos);
 				}

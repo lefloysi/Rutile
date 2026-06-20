@@ -52,6 +52,7 @@ struct rtval_framebuffer* rtval_framebuffer_create(void) {
 	}
 	struct rtval_framebuffer* state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
 	state->backend = backend;
+	state->owns_backend = true;
 	rtval_report_error("rtFramebufferCreate");
 	return handle;
 }
@@ -62,6 +63,7 @@ struct rtval_framebuffer* rtval_framebuffer_wrap(rt_framebuffer backend) {
 	if (!handle) { return NULL; }
 	struct rtval_framebuffer* state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
 	state->backend = backend;
+	state->owns_backend = false;
 	rtval_report_error("rtFramebufferWrap");
 	return handle;
 }
@@ -76,7 +78,9 @@ void rtval_framebuffer_destroy(struct rtval_framebuffer* framebuffer) {
 		RTVAL_DROP("rtFramebufferDestroy: invalid handle");
 		return;
 	}
-	rtval_next_rtFramebufferDestroy(framebuffer_state->backend);
+	if (framebuffer_state->owns_backend) {
+		rtval_next_rtFramebufferDestroy(framebuffer_state->backend);
+	}
 	rtval_handle_destroy(framebuffer);
 }
 

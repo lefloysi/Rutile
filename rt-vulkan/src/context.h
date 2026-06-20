@@ -8,6 +8,7 @@
 
 typedef struct rtvk_context_flags {
 	unsigned presentation : 1;
+	unsigned swapchain_depth_view : 1;
 } rtvk_context_flags;
 
 /*===============================================================================================*/

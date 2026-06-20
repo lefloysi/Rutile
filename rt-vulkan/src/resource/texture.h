@@ -99,7 +99,6 @@ void rtvk_texture_view_filter(struct rtvk_texture_view* texture_view, enum rt_fi
 void rtvk_texture_view_address(struct rtvk_texture_view* texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
 void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, u32 max_anisotropy);
 void rtvk_texture_view_lod(struct rtvk_texture_view* texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
-bool rtvk_texture_view_prepare_sampler(struct rtvk_context* ctx, struct rtvk_texture_view* texture_view);
 VkImageAspectFlags rtvk_texture_format_aspect(VkFormat format);
 
 struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_mip);

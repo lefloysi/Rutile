@@ -204,3 +204,31 @@ Rutile is early. The loader, layer chain, extension model, and Vulkan context
 scaffold exist and build, but large parts of the backend are still incomplete.
 The project is currently best understood as an extensible graphics API
 foundation rather than a finished renderer.
+
+## OpenGL 3.3 Parity Gaps
+
+Rutile is deliberately smaller than OpenGL 3.3, but if the goal is to cover the
+common GL 3.3 surface, the current spec is still missing a few important pieces:
+
+- indexed drawing and index-buffer binding
+- instanced drawing and per-instance vertex stepping
+- viewport state
+- depth/stencil test state and stencil ops
+- depth bias / polygon offset
+- color write masks
+- primitive topology selection
+- geometry-shader support
+- sampler compare mode and broader sampler state
+- framebuffer completeness/status queries
+
+The existing surface already covers the core object model:
+
+- buffers
+- textures and texture views
+- framebuffer attachments
+- graphics programs
+- command buffers
+- queues and sync points
+
+So the next additions should mostly fill in pipeline state and draw-call
+variants, not introduce a whole new resource model.
