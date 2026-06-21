@@ -38,26 +38,20 @@ struct CameraState {
 	f32 pitch = 0.0f;
 };
 
-struct InputState {
-	bool forward = false;
-	bool backward = false;
-	bool left = false;
-	bool right = false;
-	bool up = false;
-	bool down = false;
-	f32 mouse_dx = 0.0f;
-	f32 mouse_dy = 0.0f;
-};
-
-struct AppState {
-	std::atomic<rt_swapchain> swapchain = RT_NULL_HANDLE;
-	std::atomic<u32> framebuffer_width = 1280;
-	std::atomic<u32> framebuffer_height = 720;
-	std::mutex input_mutex;
-	InputState input;
-	std::atomic_bool running = true;
-	std::atomic_bool render_failed = false;
-};
+std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
+std::atomic<u32> FramebufferWidth = 1280;
+std::atomic<u32> FramebufferHeight = 720;
+std::mutex InputMutex;
+bool MoveForward = false;
+bool MoveBackward = false;
+bool MoveLeft = false;
+bool MoveRight = false;
+bool MoveUp = false;
+bool MoveDown = false;
+f32 MouseDx = 0.0f;
+f32 MouseDy = 0.0f;
+std::atomic_bool Running = true;
+std::atomic_bool RenderFailed = false;
 
 constexpr Vertex kVertices[] = {
 	{ { -0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
@@ -123,13 +117,12 @@ void main() {
 constexpr const char* kTexturePath = "rutile.png";
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (state && width > 0 && height > 0) {
-		state->framebuffer_width.store(static_cast<u32>(width), std::memory_order_release);
-		state->framebuffer_height.store(static_cast<u32>(height), std::memory_order_release);
+	if (width > 0 && height > 0) {
+		FramebufferWidth.store(static_cast<u32>(width), std::memory_order_release);
+		FramebufferHeight.store(static_cast<u32>(height), std::memory_order_release);
 	}
 
-	rt_swapchain swapchain = state ? state->swapchain.load(std::memory_order_acquire) : RT_NULL_HANDLE;
+	rt_swapchain swapchain = Swapchain.load(std::memory_order_acquire);
 	if (!swapchain || width <= 0 || height <= 0) {
 		return;
 	}
@@ -138,9 +131,6 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 }
 
 void cursor_moved(GLFWwindow* window, double x, double y) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (!state) { return; }
-
 	static double previous_x = x;
 	static double previous_y = y;
 	const f32 dx = static_cast<f32>(x - previous_x);
@@ -148,35 +138,27 @@ void cursor_moved(GLFWwindow* window, double x, double y) {
 	previous_x = x;
 	previous_y = y;
 
-	std::lock_guard<std::mutex> lock(state->input_mutex);
-	state->input.mouse_dx += dx;
-	state->input.mouse_dy += dy;
+	std::lock_guard<std::mutex> lock(InputMutex);
+	MouseDx += dx;
+	MouseDy += dy;
 }
 
 bool key_down(GLFWwindow* window, int key) {
 	return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-void update_camera_input(GLFWwindow* window, AppState* state) {
+void update_camera_input(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
 	}
 
-	std::lock_guard<std::mutex> lock(state->input_mutex);
-	state->input.forward = key_down(window, GLFW_KEY_W);
-	state->input.backward = key_down(window, GLFW_KEY_S);
-	state->input.left = key_down(window, GLFW_KEY_A);
-	state->input.right = key_down(window, GLFW_KEY_D);
-	state->input.up = key_down(window, GLFW_KEY_E) || key_down(window, GLFW_KEY_SPACE);
-	state->input.down = key_down(window, GLFW_KEY_Q) || key_down(window, GLFW_KEY_LEFT_CONTROL);
-}
-
-InputState consume_input(AppState* state) {
-	std::lock_guard<std::mutex> lock(state->input_mutex);
-	InputState input = state->input;
-	state->input.mouse_dx = 0.0f;
-	state->input.mouse_dy = 0.0f;
-	return input;
+	std::lock_guard<std::mutex> lock(InputMutex);
+	MoveForward = key_down(window, GLFW_KEY_W);
+	MoveBackward = key_down(window, GLFW_KEY_S);
+	MoveLeft = key_down(window, GLFW_KEY_A);
+	MoveRight = key_down(window, GLFW_KEY_D);
+	MoveUp = key_down(window, GLFW_KEY_E) || key_down(window, GLFW_KEY_SPACE);
+	MoveDown = key_down(window, GLFW_KEY_Q) || key_down(window, GLFW_KEY_LEFT_CONTROL);
 }
 
 glm::vec3 camera_forward(const CameraState& camera) {
@@ -184,23 +166,45 @@ glm::vec3 camera_forward(const CameraState& camera) {
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
-void update_camera(CameraState* camera, const InputState& input, f32 delta_seconds) {
+void update_camera(CameraState* camera, f32 delta_seconds) {
 	const f32 move_speed = 2.2f;
 	const f32 mouse_sensitivity = 0.0022f;
 
-	camera->yaw += input.mouse_dx * mouse_sensitivity;
-	camera->pitch -= input.mouse_dy * mouse_sensitivity;
+	bool move_forward = false;
+	bool move_backward = false;
+	bool move_left = false;
+	bool move_right = false;
+	bool move_up = false;
+	bool move_down = false;
+	f32 mouse_dx = 0.0f;
+	f32 mouse_dy = 0.0f;
+	{
+		std::lock_guard<std::mutex> lock(InputMutex);
+		move_forward = MoveForward;
+		move_backward = MoveBackward;
+		move_left = MoveLeft;
+		move_right = MoveRight;
+		move_up = MoveUp;
+		move_down = MoveDown;
+		mouse_dx = MouseDx;
+		mouse_dy = MouseDy;
+		MouseDx = 0.0f;
+		MouseDy = 0.0f;
+	}
+
+	camera->yaw += mouse_dx * mouse_sensitivity;
+	camera->pitch -= mouse_dy * mouse_sensitivity;
 	camera->pitch = glm::clamp(camera->pitch, glm::radians(-82.0f), glm::radians(82.0f));
 
 	const glm::vec3 forward = camera_forward(*camera);
 	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
 	glm::vec3 motion = glm::vec3(0.0f);
-	if (input.forward) { motion += forward; }
-	if (input.backward) { motion -= forward; }
-	if (input.right) { motion += right; }
-	if (input.left) { motion -= right; }
-	if (input.up) { motion.y += 1.0f; }
-	if (input.down) { motion.y -= 1.0f; }
+	if (move_forward) { motion += forward; }
+	if (move_backward) { motion -= forward; }
+	if (move_right) { motion += right; }
+	if (move_left) { motion -= right; }
+	if (move_up) { motion.y += 1.0f; }
+	if (move_down) { motion.y -= 1.0f; }
 	if (glm::length(motion) > 0.0f) {
 		camera->position += glm::normalize(motion) * move_speed * delta_seconds;
 	}
@@ -233,12 +237,7 @@ TransformUniform static_transform(const glm::mat4& view_projection) {
 	return transform_from_matrix(view_projection * model);
 }
 
-void recreate_depth_buffer(
-	rt_queue queue,
-	rt_texture* depth_texture,
-	rt_texture_view* depth_view,
-	u32 width,
-	u32 height) {
+void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
 	if (*depth_view) { rtTextureViewDestroy(*depth_view); }
 	if (*depth_texture) { rtTextureDestroy(*depth_texture); }
 	*depth_texture = rtTextureCreate();
@@ -250,9 +249,9 @@ void recreate_depth_buffer(
 	}
 }
 
-f32 camera_aspect(AppState* state) {
-	const u32 width = state->framebuffer_width.load(std::memory_order_acquire);
-	const u32 height = state->framebuffer_height.load(std::memory_order_acquire);
+f32 camera_aspect(void) {
+	const u32 width = FramebufferWidth.load(std::memory_order_acquire);
+	const u32 height = FramebufferHeight.load(std::memory_order_acquire);
 	return height ? (f32)width / (f32)height : 1.0f;
 }
 
@@ -261,8 +260,8 @@ double render_time_seconds(std::chrono::steady_clock::time_point start_time) {
 	return seconds(std::chrono::steady_clock::now() - start_time).count();
 }
 
-void render_thread_main(AppState* state) {
-	rt_swapchain swapchain = state->swapchain.load(std::memory_order_acquire);
+void render_thread_main(void) {
+	rt_swapchain swapchain = Swapchain.load(std::memory_order_acquire);
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	int texture_width = 0;
@@ -270,8 +269,8 @@ void render_thread_main(AppState* state) {
 	stbi_uc* texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
 	if (!texture_pixels) {
 		std::cerr << "failed to load " << kTexturePath << "\n";
-		state->render_failed.store(true, std::memory_order_release);
-		state->running.store(false, std::memory_order_release);
+		RenderFailed.store(true, std::memory_order_release);
+		Running.store(false, std::memory_order_release);
 		return;
 	}
 
@@ -279,7 +278,7 @@ void render_thread_main(AppState* state) {
 	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(kVertices), kVertices);
 
 	CameraState camera;
-	glm::mat4 view_projection = camera_view_projection(camera_aspect(state), camera);
+	glm::mat4 view_projection = camera_view_projection(camera_aspect(), camera);
 	TransformUniform moving_uniform = moving_transform(0.0, view_projection);
 	TransformUniform static_uniform = static_transform(view_projection);
 	rt_buffer moving_transform_buffer = rtBufferCreate();
@@ -309,26 +308,26 @@ void render_thread_main(AppState* state) {
 	rt_command_buffer cmd = rtCmdCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
-	u32 depth_width = state->framebuffer_width.load(std::memory_order_acquire);
-	u32 depth_height = state->framebuffer_height.load(std::memory_order_acquire);
+	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
+	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
 	recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
 	auto start_time = std::chrono::steady_clock::now();
 	auto previous_time = start_time;
 	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
-	while (state->running.load(std::memory_order_acquire)) {
+	while (Running.load(std::memory_order_acquire)) {
 		auto now = std::chrono::steady_clock::now();
 		const std::chrono::duration<f32> delta = now - previous_time;
 		previous_time = now;
-		update_camera(&camera, consume_input(state), delta.count());
+		update_camera(&camera, delta.count());
 
-		view_projection = camera_view_projection(camera_aspect(state), camera);
+		view_projection = camera_view_projection(camera_aspect(), camera);
 		moving_uniform = moving_transform(render_time_seconds(start_time), view_projection);
 		static_uniform = static_transform(view_projection);
 		rtBufferSubdata(moving_transform_buffer, 0, transform_size, &moving_uniform);
 		rtBufferSubdata(static_transform_buffer, 0, transform_size, &static_uniform);
-		const u32 current_width = state->framebuffer_width.load(std::memory_order_acquire);
-		const u32 current_height = state->framebuffer_height.load(std::memory_order_acquire);
+		const u32 current_width = FramebufferWidth.load(std::memory_order_acquire);
+		const u32 current_height = FramebufferHeight.load(std::memory_order_acquire);
 		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
 		if (current_width && current_height && depth_size_changed) {
 			rtTimepointWait(last_rendered);
@@ -367,7 +366,7 @@ void render_thread_main(AppState* state) {
 	
 	}
 
-	state->running.store(false, std::memory_order_release);
+	Running.store(false, std::memory_order_release);
 	rtTimepointWait(last_rendered);
 
 	rtCmdDestroy(cmd);
@@ -409,7 +408,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 01 Textured Quads", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		rtExit();
@@ -418,19 +417,17 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 	glfwSwapInterval(0);
-	AppState state;
 	int framebuffer_width = 0;
 	int framebuffer_height = 0;
 	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
 	if (framebuffer_width > 0 && framebuffer_height > 0) {
-		state.framebuffer_width.store(static_cast<u32>(framebuffer_width), std::memory_order_release);
-		state.framebuffer_height.store(static_cast<u32>(framebuffer_height), std::memory_order_release);
+		FramebufferWidth.store(static_cast<u32>(framebuffer_width), std::memory_order_release);
+		FramebufferHeight.store(static_cast<u32>(framebuffer_height), std::memory_order_release);
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	state.swapchain.store(swapchain, std::memory_order_release);
-	glfwSetWindowUserPointer(window, &state);
+	Swapchain.store(swapchain, std::memory_order_release);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -438,20 +435,20 @@ int main(int argc, char** argv) {
 		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 	}
 
-	std::thread render_thread(render_thread_main, &state);
-	while (!glfwWindowShouldClose(window) && state.running.load(std::memory_order_acquire)) {
-		update_camera_input(window, &state);
+	std::thread render_thread(render_thread_main);
+	while (!glfwWindowShouldClose(window) && Running.load(std::memory_order_acquire)) {
+		update_camera_input(window);
 		glfwWaitEventsTimeout(1.0 / 120.0);
 	}
-	state.running.store(false, std::memory_order_release);
+	Running.store(false, std::memory_order_release);
 	render_thread.join();
 
-	state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+	Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 	rtSwapchainDestroy(swapchain);
 	rtExit();
 	rtUnload();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
-	return state.render_failed.load(std::memory_order_acquire) ? 1 : 0;
+	return RenderFailed.load(std::memory_order_acquire) ? 1 : 0;
 }

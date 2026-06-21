@@ -45,13 +45,11 @@ struct Camera {
 	f32 pitch = -0.23f;
 };
 
-struct AppState {
-	std::atomic<rt_swapchain> swapchain = RT_NULL_HANDLE;
-	std::atomic<u32> framebuffer_width = 1600;
-	std::atomic<u32> framebuffer_height = 900;
-	f32 mouse_dx = 0.0f;
-	f32 mouse_dy = 0.0f;
-};
+std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
+std::atomic<u32> FramebufferWidth = 1600;
+std::atomic<u32> FramebufferHeight = 900;
+f32 MouseDx = 0.0f;
+f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
 	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
@@ -289,35 +287,34 @@ void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture
 }
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (state && width > 0 && height > 0) {
-		state->framebuffer_width.store((u32)width, std::memory_order_release);
-		state->framebuffer_height.store((u32)height, std::memory_order_release);
+	(void)window;
+	if (width > 0 && height > 0) {
+		FramebufferWidth.store((u32)width, std::memory_order_release);
+		FramebufferHeight.store((u32)height, std::memory_order_release);
 	}
-	rt_swapchain swapchain = state ? state->swapchain.load(std::memory_order_acquire) : RT_NULL_HANDLE;
+	rt_swapchain swapchain = Swapchain.load(std::memory_order_acquire);
 	if (swapchain && width > 0 && height > 0) {
 		rtSwapchainResize(swapchain, (u32)width, (u32)height);
 	}
 }
 
 void cursor_moved(GLFWwindow* window, double x, double y) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (!state) { return; }
+	(void)window;
 	static double previous_x = x;
 	static double previous_y = y;
-	state->mouse_dx += (f32)(x - previous_x);
-	state->mouse_dy += (f32)(y - previous_y);
+	MouseDx += (f32)(x - previous_x);
+	MouseDy += (f32)(y - previous_y);
 	previous_x = x;
 	previous_y = y;
 }
 
-void update_camera(GLFWwindow* window, AppState* state, Camera* camera, f32 dt) {
+void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 	const f32 sensitivity = 0.0022f;
-	camera->yaw += state->mouse_dx * sensitivity;
-	camera->pitch -= state->mouse_dy * sensitivity;
+	camera->yaw += MouseDx * sensitivity;
+	camera->pitch -= MouseDy * sensitivity;
 	camera->pitch = glm::clamp(camera->pitch, -1.48f, 1.48f);
-	state->mouse_dx = 0.0f;
-	state->mouse_dy = 0.0f;
+	MouseDx = 0.0f;
+	MouseDy = 0.0f;
 
 	const glm::vec3 forward = camera_forward(*camera);
 	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
@@ -365,7 +362,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile Galaxy", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();
@@ -374,8 +371,6 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	AppState state;
-	glfwSetWindowUserPointer(window, &state);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -387,13 +382,13 @@ int main(int argc, char** argv) {
 	int framebuffer_height = 0;
 	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
 	if (framebuffer_width > 0 && framebuffer_height > 0) {
-		state.framebuffer_width.store((u32)framebuffer_width, std::memory_order_release);
-		state.framebuffer_height.store((u32)framebuffer_height, std::memory_order_release);
+		FramebufferWidth.store((u32)framebuffer_width, std::memory_order_release);
+		FramebufferHeight.store((u32)framebuffer_height, std::memory_order_release);
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	state.swapchain.store(swapchain, std::memory_order_release);
+	Swapchain.store(swapchain, std::memory_order_release);
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	std::vector<Vertex> vertices = build_galaxy();
@@ -416,8 +411,8 @@ int main(int argc, char** argv) {
 	rt_command_buffer cmd = rtCmdCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
-	u32 depth_width = state.framebuffer_width.load(std::memory_order_acquire);
-	u32 depth_height = state.framebuffer_height.load(std::memory_order_acquire);
+	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
+	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
 	recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
 
 	Camera camera;
@@ -437,10 +432,10 @@ int main(int argc, char** argv) {
 		const std::chrono::duration<f32> delta = now - previous_time;
 		const std::chrono::duration<f32> elapsed = now - start_time;
 		previous_time = now;
-		update_camera(window, &state, &camera, delta.count());
+		update_camera(window, &camera, delta.count());
 
-		const u32 current_width = state.framebuffer_width.load(std::memory_order_acquire);
-		const u32 current_height = state.framebuffer_height.load(std::memory_order_acquire);
+		const u32 current_width = FramebufferWidth.load(std::memory_order_acquire);
+		const u32 current_height = FramebufferHeight.load(std::memory_order_acquire);
 		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
 		if (current_width && current_height && depth_size_changed) {
 			rtTimepointWait(last_rendered);
@@ -479,7 +474,7 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[128];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile Galaxy - %.0f FPS - %u mesh stars, %u planets",
+			std::snprintf(title, sizeof(title), "Rutile 06 Galaxy - %.0f FPS - %u mesh stars, %u planets",
 				fps, kStarCount, kPlanetCount);
 			glfwSetWindowTitle(window, title);
 			fps_time = std::chrono::steady_clock::now();
@@ -494,7 +489,7 @@ int main(int argc, char** argv) {
 	rtTextureDestroy(depth_texture);
 	rtBufferDestroy(scene_buffer);
 	rtBufferDestroy(vertex_buffer);
-	state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+	Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 	rtSwapchainDestroy(swapchain);
 	glfwDestroyWindow(window);
 	glfwTerminate();

@@ -18,14 +18,12 @@ constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kTextureWidth = 1024;
 constexpr u32 kTextureHeight = 1024;
 
-struct AppState {
-	std::atomic<rt_swapchain> swapchain = RT_NULL_HANDLE;
-	std::atomic<u32> framebuffer_width = 1280;
-	std::atomic<u32> framebuffer_height = 720;
-	f32 mouse_x = 0.5f;
-	f32 mouse_y = 0.5f;
-	bool mouse_down = false;
-};
+std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
+std::atomic<u32> FramebufferWidth = 1280;
+std::atomic<u32> FramebufferHeight = 720;
+f32 MouseX = 0.5f;
+f32 MouseY = 0.5f;
+bool MouseDown = false;
 
 struct PlasmaParams {
 	f32 mouse[4];
@@ -149,45 +147,44 @@ u32 ceil_div_u32(u32 value, u32 divisor) {
 }
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (state && width > 0 && height > 0) {
-		state->framebuffer_width.store((u32)width, std::memory_order_release);
-		state->framebuffer_height.store((u32)height, std::memory_order_release);
+	(void)window;
+	if (width > 0 && height > 0) {
+		FramebufferWidth.store((u32)width, std::memory_order_release);
+		FramebufferHeight.store((u32)height, std::memory_order_release);
 	}
 
-	rt_swapchain swapchain = state ? state->swapchain.load(std::memory_order_acquire) : RT_NULL_HANDLE;
+	rt_swapchain swapchain = Swapchain.load(std::memory_order_acquire);
 	if (swapchain && width > 0 && height > 0) {
 		rtSwapchainResize(swapchain, (u32)width, (u32)height);
 	}
 }
 
 void cursor_moved(GLFWwindow* window, double x, double y) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (!state) { return; }
-	const u32 width = max(state->framebuffer_width.load(std::memory_order_acquire), 1u);
-	const u32 height = max(state->framebuffer_height.load(std::memory_order_acquire), 1u);
-	state->mouse_x = std::clamp((f32)x / (f32)width, 0.0f, 1.0f);
-	state->mouse_y = std::clamp((f32)y / (f32)height, 0.0f, 1.0f);
+	(void)window;
+	const u32 width = max(FramebufferWidth.load(std::memory_order_acquire), 1u);
+	const u32 height = max(FramebufferHeight.load(std::memory_order_acquire), 1u);
+	MouseX = std::clamp((f32)x / (f32)width, 0.0f, 1.0f);
+	MouseY = std::clamp((f32)y / (f32)height, 0.0f, 1.0f);
 }
 
 void mouse_button(GLFWwindow* window, int button, int action, int) {
-	AppState* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
-	if (state && button == GLFW_MOUSE_BUTTON_LEFT) {
-		state->mouse_down = action == GLFW_PRESS;
+	(void)window;
+	if (button == GLFW_MOUSE_BUTTON_LEFT) {
+		MouseDown = action == GLFW_PRESS;
 	}
 }
 
-void write_params(PlasmaParams* params, const AppState& state, f32 time) {
-	params->mouse[0] = state.mouse_x;
-	params->mouse[1] = state.mouse_y;
-	params->mouse[2] = state.mouse_down ? 1.0f : 0.0f;
+void write_params(PlasmaParams* params, f32 time) {
+	params->mouse[0] = MouseX;
+	params->mouse[1] = MouseY;
+	params->mouse[2] = MouseDown ? 1.0f : 0.0f;
 	params->mouse[3] = 0.0f;
 	params->texture[0] = (f32)kTextureWidth;
 	params->texture[1] = (f32)kTextureHeight;
 	params->texture[2] = time;
 	params->texture[3] = 0.0f;
 	params->controls[0] = 0.92f + 0.20f * std::sin(time * 0.73f);
-	params->controls[1] = state.mouse_down ? 1.0f : 0.35f;
+	params->controls[1] = MouseDown ? 1.0f : 0.35f;
 	params->controls[2] = 0.0f;
 	params->controls[3] = 0.0f;
 }
@@ -218,7 +215,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile Plasma Lab", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 07 Plasma Lab", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();
@@ -227,8 +224,6 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	AppState state;
-	glfwSetWindowUserPointer(window, &state);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetMouseButtonCallback(window, mouse_button);
@@ -237,17 +232,17 @@ int main(int argc, char** argv) {
 	int framebuffer_height = 0;
 	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
 	if (framebuffer_width > 0 && framebuffer_height > 0) {
-		state.framebuffer_width.store((u32)framebuffer_width, std::memory_order_release);
-		state.framebuffer_height.store((u32)framebuffer_height, std::memory_order_release);
+		FramebufferWidth.store((u32)framebuffer_width, std::memory_order_release);
+		FramebufferHeight.store((u32)framebuffer_height, std::memory_order_release);
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	state.swapchain.store(swapchain, std::memory_order_release);
+	Swapchain.store(swapchain, std::memory_order_release);
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 	if (!queue) {
 		std::cerr << "no graphics queue is available\n";
-		state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+		Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 		rtSwapchainDestroy(swapchain);
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -274,7 +269,7 @@ int main(int argc, char** argv) {
 		rtBufferDestroy(params_buffer);
 		rtTextureViewDestroy(plasma_view);
 		rtTextureDestroy(plasma_texture);
-		state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+		Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 		rtSwapchainDestroy(swapchain);
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -295,7 +290,7 @@ int main(int argc, char** argv) {
 		rtBufferDestroy(params_buffer);
 		rtTextureViewDestroy(plasma_view);
 		rtTextureDestroy(plasma_texture);
-		state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+		Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 		rtSwapchainDestroy(swapchain);
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -318,7 +313,7 @@ int main(int argc, char** argv) {
 
 		const auto now = std::chrono::steady_clock::now();
 		const std::chrono::duration<f32> elapsed = now - start_time;
-		write_params(&params, state, elapsed.count());
+		write_params(&params, elapsed.count());
 		rtBufferSubdata(params_buffer, 0, sizeof(params), &params);
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
@@ -350,7 +345,7 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[128];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile Plasma Lab - %.0f FPS - drag to excite the field", fps);
+			std::snprintf(title, sizeof(title), "Rutile 07 Plasma Lab - %.0f FPS - drag to excite the field", fps);
 			glfwSetWindowTitle(window, title);
 			fps_time = std::chrono::steady_clock::now();
 			fps_frames = 0;
@@ -364,7 +359,7 @@ int main(int argc, char** argv) {
 	rtBufferDestroy(params_buffer);
 	rtTextureViewDestroy(plasma_view);
 	rtTextureDestroy(plasma_texture);
-	state.swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+	Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
 	rtSwapchainDestroy(swapchain);
 	glfwDestroyWindow(window);
 	glfwTerminate();

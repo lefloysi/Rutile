@@ -24,14 +24,12 @@ typedef void (*PFN_rtSwapchainDestroy)(rt_swapchain swapchain);
 typedef void (*PFN_rtSwapchainResize)(rt_swapchain swapchain, u32 width, u32 height);
 typedef rt_swapchain_acquire_result (*PFN_rtSwapchainAcquire)(rt_swapchain swapchain);
 typedef void (*PFN_rtSwapchainPresent)(rt_swapchain swapchain, rt_timepoint rendered);
-typedef void (*PFN_rtSwapchainDepthViewEnable)(rt_swapchain swapchain, bool enable);
 
 extern PFN_rtSwapchainCreate rt_rtSwapchainCreate;
 extern PFN_rtSwapchainDestroy rt_rtSwapchainDestroy;
 extern PFN_rtSwapchainResize rt_rtSwapchainResize;
 extern PFN_rtSwapchainAcquire rt_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent rt_rtSwapchainPresent;
-extern PFN_rtSwapchainDepthViewEnable rt_rtSwapchainDepthViewEnable;
 bool rtLoad_RT_EXT_SWAPCHAIN(void);
 
 #ifndef RT_NO_API_WRAPPERS
@@ -40,7 +38,6 @@ static inline void rtSwapchainDestroy(rt_swapchain swapchain) { rt_rtSwapchainDe
 static inline void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) { rt_rtSwapchainResize(swapchain, width, height); }
 static inline rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) { return rt_rtSwapchainAcquire(swapchain); }
 static inline void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) { rt_rtSwapchainPresent(swapchain, rendered); }
-static inline void rtSwapchainDepthViewEnable(rt_swapchain swapchain, bool enable) { rt_rtSwapchainDepthViewEnable(swapchain, enable); }
 #endif
 
 #ifdef RUTILE_IMPL
@@ -50,7 +47,6 @@ PFN_rtSwapchainDestroy rt_rtSwapchainDestroy = NULL;
 PFN_rtSwapchainResize rt_rtSwapchainResize = NULL;
 PFN_rtSwapchainAcquire rt_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent rt_rtSwapchainPresent = NULL;
-PFN_rtSwapchainDepthViewEnable rt_rtSwapchainDepthViewEnable = NULL;
 
 #define RT__SWAPCHAIN_RESOLVE(name)                                                       \
 	do {                                                                                  \
@@ -67,7 +63,6 @@ bool rtLoad_RT_EXT_SWAPCHAIN(void) {
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainResize);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainAcquire);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainPresent);
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainDepthViewEnable);
 	return true;
 }
 

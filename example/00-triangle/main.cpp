@@ -20,8 +20,8 @@ static const Vertex kVertices[] = {
 };
 
 static const rt_vertex_attribute kAttributes[] = {
-	{ "in_position", offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "in_color",    offsetof(Vertex, color),    RT_RGB32_SFLOAT },
+	{ 0, offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ 1, offsetof(Vertex, color),    RT_RGB32_SFLOAT },
 };
 static const rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 2 };
 
@@ -46,15 +46,14 @@ void main() { out_color = vec4(v_color, 1.0); }
 int main(int argc, char** argv) {
 	const char* backend = argc > 1 ? argv[1] : "rt-vulkan";
 	if (rtLoad(backend, nullptr, 0) != RT_SUCCESS) { std::fprintf(stderr, "rtLoad failed\n"); return 1; }
-	if (!rtLoad_RT_EXT_SWAPCHAIN() || !rtLoad_RT_EXT_GLFW()) { std::fprintf(stderr, "missing extensions\n"); return 1; }
-
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
-	if (rtError() != RT_SUCCESS) { std::fprintf(stderr, "rtInit: %s\n", rtErrorMessage()); return 1; }
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(960, 540, "Rutile triangle", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(960, 540, "Rutile 00 Triangle", nullptr, nullptr);
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);

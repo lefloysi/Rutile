@@ -638,7 +638,7 @@ static void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* c
 	barrier.image = view->vk_image;
 	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(view->vk_format);
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.levelCount = texture && texture->active ? texture->active->mip_levels : 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 

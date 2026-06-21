@@ -47,18 +47,8 @@ int main(int argc, char** argv) {
 
 	std::cout << "backend: " << rtGetName() << "\n";
 	rtInit(nullptr, 0);
-	if (!check_rt_error("rtInit")) {
-		rtUnload();
-		return 1;
-	}
-
 	rt_queue queue = rtQueueQuery(RT_QUEUE_COMPUTE);
-	if (!queue) {
-		std::cerr << "no compute queue is available\n";
-		rtExit();
-		rtUnload();
-		return 1;
-	}
+
 
 	constexpr std::array<u32, 16> kInput = {
 		0, 1, 2, 3, 4, 5, 6, 7,
@@ -69,23 +59,10 @@ int main(int argc, char** argv) {
 
 	rt_buffer storage_buffer = rtBufferCreate();
 	rtBufferData(storage_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_STORAGE, kBufferSize, values.data());
-	if (!check_rt_error("rtBufferData")) {
-		rtBufferDestroy(storage_buffer);
-		rtExit();
-		rtUnload();
-		return 1;
-	}
 
 	rt_compute_program program = rtComputeProgramCreate();
 	rtComputeProgramShader(program, std::strlen(kComputeShader), kComputeShader);
 	rtComputeProgramLink(program);
-	if (!check_rt_error("rtComputeProgramLink")) {
-		rtComputeProgramDestroy(program);
-		rtBufferDestroy(storage_buffer);
-		rtExit();
-		rtUnload();
-		return 1;
-	}
 
 	rt_command_buffer cmd = rtCmdCreate();
 	rtCmdBegin(cmd, queue);
@@ -93,35 +70,10 @@ int main(int argc, char** argv) {
 	rtCmdStorageBuffer(cmd, 0, storage_buffer, 0, kBufferSize);
 	rtCmdDispatch(cmd, static_cast<u32>(values.size() / 8), 1, 1);
 	rtCmdEnd(cmd);
-	if (!check_rt_error("record compute dispatch")) {
-		rtCmdDestroy(cmd);
-		rtComputeProgramDestroy(program);
-		rtBufferDestroy(storage_buffer);
-		rtExit();
-		rtUnload();
-		return 1;
-	}
 
 	rt_timepoint completed = rtQueueSubmit(queue, cmd);
 	rtTimepointWait(completed);
-	if (!check_rt_error("compute dispatch")) {
-		rtCmdDestroy(cmd);
-		rtComputeProgramDestroy(program);
-		rtBufferDestroy(storage_buffer);
-		rtExit();
-		rtUnload();
-		return 1;
-	}
-
 	rtBufferRead(storage_buffer, 0, kBufferSize, values.data());
-	if (!check_rt_error("rtBufferRead")) {
-		rtCmdDestroy(cmd);
-		rtComputeProgramDestroy(program);
-		rtBufferDestroy(storage_buffer);
-		rtExit();
-		rtUnload();
-		return 1;
-	}
 
 	bool success = true;
 	for (usize i = 0; i < values.size(); i++) {

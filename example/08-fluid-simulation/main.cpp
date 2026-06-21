@@ -120,7 +120,7 @@ int main() {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(canvas_width, canvas_height, "Rutile fluid simulation", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(canvas_width, canvas_height, "Rutile 08 Fluid Simulation", nullptr, nullptr);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetMouseButtonCallback(window, mouse_button);
 
