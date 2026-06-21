@@ -7,7 +7,6 @@
 #include "graphics_program.h"
 #include "texture.h"
 #include "resource/swapchain.h"
-#include "error.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -42,7 +41,8 @@ void rtvk_finish_resource_base(struct rtvk_context* ctx, struct rtvk_resource_ba
 	base->ctx = NULL;
 	base->zombie = true;
 }
-static void rtvk_resource_try_free(struct rtvk_resource_base* base) {
+
+void rtvk_resource_try_free(struct rtvk_resource_base* base) {
 	assert(base);
 	if (rtvk_resource_ready_to_destroy(base)) {
 		rtvk_resource_finalize(base);

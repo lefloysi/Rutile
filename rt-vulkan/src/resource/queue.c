@@ -1,3 +1,4 @@
+#include <assert.h>
 #include "queue.h"
 #include "context.h"
 #include "error.h"
@@ -11,27 +12,23 @@
 
 
 rt_queue rtQueueQuery(enum rt_queue_capability capability) {
-	struct rtvk_queue* queue = rtvk_queue_query(rtvk_get_current_context(), capability);
-	return rtvk_queue_to_handle(queue);
+	return rtvk_queue_to_handle(rtvk_queue_query(rtvk_get_current_context(), capability));
 }
 
 rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	struct rtvk_timepoint timepoint = rtvk_queue_submit(
+	return rtvk_timepoint_to_public(rtvk_queue_submit(
 		rtvk_get_current_context(),
 		rtvk_queue_from_handle(queue),
 		rtvk_command_buffer_from_handle(command_buffer)
-	);
-	return rtvk_timepoint_to_public(timepoint);
+	));
 }
 
 rt_timepoint rtQueueFlush(rt_queue queue) {
-	struct rtvk_timepoint timepoint = rtvk_queue_flush(rtvk_get_current_context(), rtvk_queue_from_handle(queue));
-	return rtvk_timepoint_to_public(timepoint);
+	return rtvk_timepoint_to_public(rtvk_queue_flush(rtvk_get_current_context(), rtvk_queue_from_handle(queue)));
 }
 
 void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
-	struct rtvk_timepoint internal = { rtvk_queue_from_handle(timepoint.queue), timepoint.value };
-	rtvk_queue_wait(rtvk_get_current_context(), rtvk_queue_from_handle(queue), internal);
+	rtvk_queue_wait(rtvk_get_current_context(), rtvk_queue_from_handle(queue), (struct rtvk_timepoint){ rtvk_queue_from_handle(timepoint.queue), timepoint.value });
 }
 
 void rtTimepointWait(rt_timepoint timepoint) {
@@ -50,13 +47,16 @@ bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 
 bool rtvk_timepoint_complete(struct rtvk_timepoint timepoint);
-static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value);
 
 struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index) {
 	struct rtvk_queue* queue = RTVK_ALLOC_RESOURCE(struct rtvk_queue);
-	if (!queue) { return NULL; }
+	if (!queue) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate queue metadata");
+		return NULL;
+	}
 
-	if (!rtvk_queue_init(ctx, queue, vk_queue, capability, family_index, queue_index)) {
+	rtvk_queue_init(ctx, queue, vk_queue, capability, family_index, queue_index);
+	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_queue_finish(ctx, queue);
 		RTVK_FREE_RESOURCE(queue);
 		return NULL;
@@ -65,12 +65,12 @@ struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue,
 	return queue;
 }
 void rtvk_queue_destroy(struct rtvk_context* ctx, struct rtvk_queue* queue) {
-	if (!queue) { return; }
+	assert(queue);
 	rtvk_queue_finish(ctx, queue);
 	rtvk_resource_retire(RTVK_RESOURCE_BASE(queue));
 }
 
-bool rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index) {
+void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(queue), RT_RESOURCE_QUEUE);
 	queue->vk_queue = vk_queue;
 	queue->capability = capability;
@@ -89,41 +89,38 @@ bool rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue
 	VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &queue->vk_timeline);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-
-	return true;
 }
 void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue) {
-	if (!queue) { return; }
+	assert(queue);
 	rtvk_queue_flush(ctx, queue);
 	if (queue->timeline_value) {
 		struct rtvk_timepoint last = { queue, queue->timeline_value };
 		rtvk_timepoint_wait(ctx, last);
 	}
-	rtvk_queue_collect(ctx, queue);
 	rtvk_queue_retire_upload_resources(ctx, queue, true, true);
 	rtvk_queue_collect_to_value(ctx, queue, queue->timeline_value);
-	if (queue->vk_timeline) {
-		vkDestroySemaphore(ctx->vk_device, queue->vk_timeline, VK_ALLOCATOR);
-		queue->vk_timeline = VK_NULL_HANDLE;
-	}
-	if (queue->copy_command_pool) {
-		vkDestroyCommandPool(ctx->vk_device, queue->copy_command_pool, VK_ALLOCATOR);
-		queue->copy_command_pool = VK_NULL_HANDLE;
-		queue->copy_command_buffer = VK_NULL_HANDLE;
-	}
-	if (queue->upload_command_pool) {
-		vkDestroyCommandPool(ctx->vk_device, queue->upload_command_pool, VK_ALLOCATOR);
-		queue->upload_command_pool = VK_NULL_HANDLE;
-		queue->upload_command_buffer = VK_NULL_HANDLE;
-	}
-	if (queue->upload_staging_buffer) {
-		vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
-		queue->upload_staging_buffer = VK_NULL_HANDLE;
-		queue->upload_staging_allocation = NULL;
-		queue->upload_staging_size = 0;
-	}
+
+	vkDestroySemaphore(ctx->vk_device, queue->vk_timeline, VK_ALLOCATOR);
+	queue->vk_timeline = VK_NULL_HANDLE;
+
+
+	vkDestroyCommandPool(ctx->vk_device, queue->copy_command_pool, VK_ALLOCATOR);
+	queue->copy_command_pool = VK_NULL_HANDLE;
+	queue->copy_command_buffer = VK_NULL_HANDLE;
+
+
+	vkDestroyCommandPool(ctx->vk_device, queue->upload_command_pool, VK_ALLOCATOR);
+	queue->upload_command_pool = VK_NULL_HANDLE;
+	queue->upload_command_buffer = VK_NULL_HANDLE;
+
+
+	vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
+	queue->upload_staging_buffer = VK_NULL_HANDLE;
+	queue->upload_staging_allocation = NULL;
+	queue->upload_staging_size = 0;
+
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(queue));
 }
 
@@ -135,14 +132,15 @@ struct rtvk_queue* rtvk_queue_query(struct rtvk_context* ctx, enum rt_queue_capa
 }
 
 VkPipelineStageFlags rtvk_queue_wait_stage(struct rtvk_queue* queue) {
-	if (!queue) { return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; }
+	assert(queue);
 	if (queue->capability == RT_QUEUE_GRAPHICS) { return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; }
 	if (queue->capability == RT_QUEUE_COMPUTE) { return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT; }
 	return VK_PIPELINE_STAGE_TRANSFER_BIT;
 }
 
 u64 rtvk_queue_completed_value(struct rtvk_context* ctx, struct rtvk_queue* queue) {
-	if (!queue || !queue->vk_timeline) { return 0; }
+	assert(queue);
+	if (!queue->vk_timeline) { return 0; }
 
 	u64 value = 0;
 	VkResult result = vkGetSemaphoreCounterValue(ctx->vk_device, queue->vk_timeline, &value);
@@ -168,16 +166,19 @@ struct rtvk_submitted_batch* rtvk_queue_create_batch(struct rtvk_context* ctx, s
 	return batch;
 }
 void rtvk_queue_push_batch(struct rtvk_queue* queue, struct rtvk_submitted_batch* batch) {
+	assert(queue);
 	if (!batch) { return; }
 	if (queue->submitted_tail) {
 		queue->submitted_tail->next = batch;
-	} else {
+	}
+	else {
 		queue->submitted_head = batch;
 	}
 	queue->submitted_tail = batch;
 }
 
-static void rtvk_queue_push_pending_batch(struct rtvk_queue* queue, struct rtvk_submitted_batch* batch) {
+void rtvk_queue_push_pending_batch(struct rtvk_queue* queue, struct rtvk_submitted_batch* batch) {
+	assert(queue);
 	if (!batch) { return; }
 	if (queue->pending_tail) {
 		queue->pending_tail->next = batch;
@@ -187,7 +188,8 @@ static void rtvk_queue_push_pending_batch(struct rtvk_queue* queue, struct rtvk_
 	queue->pending_tail = batch;
 }
 
-static void rtvk_queue_push_submitted_list(struct rtvk_queue* queue, struct rtvk_submitted_batch* head, struct rtvk_submitted_batch* tail) {
+void rtvk_queue_push_submitted_list(struct rtvk_queue* queue, struct rtvk_submitted_batch* head, struct rtvk_submitted_batch* tail) {
+	assert(queue);
 	if (!head) { return; }
 	if (queue->submitted_tail) {
 		queue->submitted_tail->next = head;
@@ -197,19 +199,15 @@ static void rtvk_queue_push_submitted_list(struct rtvk_queue* queue, struct rtvk
 	queue->submitted_tail = tail;
 }
 
-static void rtvk_queue_destroy_retired_upload(struct rtvk_context* ctx, struct rtvk_retired_upload_resource* retired) {
+void rtvk_queue_destroy_retired_upload(struct rtvk_context* ctx, struct rtvk_retired_upload_resource* retired) {
 	if (!retired) { return; }
-	if (retired->command_pool) {
-		vkDestroyCommandPool(ctx->vk_device, retired->command_pool, VK_ALLOCATOR);
-	}
-	if (retired->staging_buffer) {
-		vmaDestroyBuffer(ctx->vma_allocator, retired->staging_buffer, retired->staging_allocation);
-	}
+	vkDestroyCommandPool(ctx->vk_device, retired->command_pool, VK_ALLOCATOR);
+	vmaDestroyBuffer(ctx->vma_allocator, retired->staging_buffer, retired->staging_allocation);
 	free(retired);
 }
 
-static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value) {
-	if (!queue) { return; }
+void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value) {
+	assert(queue);
 
 	while (queue->submitted_head && queue->submitted_head->value <= completed_value) {
 		struct rtvk_submitted_batch* batch = queue->submitted_head;
@@ -242,13 +240,8 @@ static void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_qu
 	}
 }
 
-void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue) {
-	if (!queue) { return; }
-	rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
-}
-
 void rtvk_queue_retire_upload_resources(struct rtvk_context* ctx, struct rtvk_queue* queue, bool command, bool staging) {
-	if (!queue) { return; }
+	assert(queue);
 	if ((!command || !queue->upload_command_pool) && (!staging || !queue->upload_staging_buffer)) {
 		return;
 	}
@@ -292,7 +285,7 @@ void rtvk_queue_retire_upload_resources(struct rtvk_context* ctx, struct rtvk_qu
 }
 
 struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_command_buffer* command_buffer) {
-	if (!queue) { return (struct rtvk_timepoint){ NULL, 0 }; }
+	assert(queue);
 
 	if (command_buffer && !command_buffer->active) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer has not been recorded");
@@ -316,7 +309,7 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 }
 
 struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue) {
-	if (!queue) { return (struct rtvk_timepoint){ NULL, 0 }; }
+	assert(queue);
 	if (!queue->pending_head) { return (struct rtvk_timepoint){ queue, queue->submitted_value }; }
 
 	u32 command_buffer_count = 0;
@@ -413,7 +406,8 @@ struct rtvk_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_qu
 }
 
 bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore) {
-	if (!queue || !semaphore) { return false; }
+	assert(queue);
+	if (!semaphore) { return false; }
 	if (queue->binary_signal_count >= sizeof(queue->binary_signals) / sizeof(queue->binary_signals[0])) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "queue has too many binary signal semaphores");
 		return false;
@@ -423,7 +417,8 @@ bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphor
 }
 
 struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore) {
-	if (!queue || !semaphore) { return (struct rtvk_timepoint){ NULL, 0 }; }
+	assert(queue);
+	if (!semaphore) { return (struct rtvk_timepoint){ NULL, 0 }; }
 	if (queue->binary_wait_count >= sizeof(queue->binary_waits) / sizeof(queue->binary_waits[0])) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "queue has too many binary wait semaphores");
 		return (struct rtvk_timepoint){ queue, queue->timeline_value };
@@ -440,7 +435,8 @@ struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rt
 }
 
 void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_timepoint timepoint) {
-	if (!queue || !timepoint.queue || timepoint.value == 0) { return; }
+	assert(queue);
+	if (!timepoint.queue || timepoint.value == 0) { return; }
 	if (queue == timepoint.queue && timepoint.value > queue->submitted_value) { return; }
 	if (timepoint.value > timepoint.queue->submitted_value) {
 		rtvk_queue_flush(ctx, timepoint.queue);
@@ -453,9 +449,10 @@ void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct 
 }
 
 struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue* queue, u64 wait_value, VkSemaphore semaphore) {
-	if (!queue || !semaphore || wait_value == 0) { return (struct rtvk_timepoint){ NULL, 0 }; }
+	assert(queue);
+	if (!semaphore || wait_value == 0) { return (struct rtvk_timepoint){ NULL, 0 }; }
 
-	rtvk_queue_collect(queue->base.ctx, queue);
+	rtvk_queue_collect_to_value(queue->base.ctx, queue, rtvk_queue_completed_value(queue->base.ctx, queue));
 
 	u64 signal_value = queue->timeline_value + 1;
 	u64 signal_values[2] = { 0, signal_value };
@@ -489,7 +486,7 @@ struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue
 
 	queue->timeline_value = signal_value;
 	queue->submitted_value = signal_value;
-	rtvk_queue_collect(queue->base.ctx, queue);
+	rtvk_queue_collect_to_value(queue->base.ctx, queue, rtvk_queue_completed_value(queue->base.ctx, queue));
 	return (struct rtvk_timepoint){ queue, signal_value };
 }
 

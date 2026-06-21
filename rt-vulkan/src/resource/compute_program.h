@@ -8,12 +8,18 @@
 #include <rt_ext_compute.h>
 #include <vulkan/vulkan.h>
 
-#define RTVK_MAX_COMPUTE_BINDINGS 32
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 RTVK_API rt_compute_program rtComputeProgramCreate(void);
 RTVK_API void rtComputeProgramDestroy(rt_compute_program program);
 RTVK_API void rtComputeProgramShader(rt_compute_program program, u64 size, const void* data);
 RTVK_API void rtComputeProgramLink(rt_compute_program program);
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 typedef enum rtvk_compute_binding_kind {
 	RTVK_COMPUTE_BINDING_EMPTY,
@@ -39,5 +45,13 @@ RTVK_DECLARE_NEW_RESOURCE(compute_program)
 
 void rtvk_compute_program_shader(struct rtvk_context* ctx, struct rtvk_compute_program* program, u64 size, const void* data);
 void rtvk_compute_program_link(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_destroy_shader(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_destroy_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_set_reflected_binding(struct rtvk_compute_program* program, u32 binding, rtvk_compute_binding_kind kind, const char* name);
+void rtvk_compute_program_apply_reflection(struct rtvk_compute_program* program, const rtvk_shader_reflection* reflection);
+void rtvk_compute_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program);
+void rtvk_compute_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program);
 
 #endif

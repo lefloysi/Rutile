@@ -76,11 +76,12 @@ static inline rt_queue rtvk_queue_to_handle(struct rtvk_queue* queue) { return (
 
 struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index);
 void rtvk_queue_destroy(struct rtvk_context* ctx, struct rtvk_queue* queue);
-bool rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index);
+void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index);
 void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue);
 struct rtvk_queue* rtvk_queue_query(struct rtvk_context* ctx, enum rt_queue_capability capability);
 struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceKHR surface);
 VkPipelineStageFlags rtvk_queue_wait_stage(struct rtvk_queue* queue);
+void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value);
 void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_timepoint timepoint);
 struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_command_buffer* command_buffer);
 struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue);
@@ -88,11 +89,8 @@ struct rtvk_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_qu
 struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore);
 bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore);
 struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue* queue, u64 wait_value, VkSemaphore semaphore);
-void rtvk_queue_collect(struct rtvk_context* ctx, struct rtvk_queue* queue);
 void rtvk_queue_retire_upload_resources(struct rtvk_context* ctx, struct rtvk_queue* queue, bool command, bool staging);
 void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoint);
 bool rtvk_timepoint_reached(struct rtvk_context* ctx, struct rtvk_timepoint timepoint);
 
 #endif
-
-

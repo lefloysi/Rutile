@@ -8,7 +8,6 @@
 
 typedef struct rtvk_context_flags {
 	unsigned presentation : 1;
-	unsigned swapchain_depth_view : 1;
 } rtvk_context_flags;
 
 /*===============================================================================================*/
@@ -26,6 +25,10 @@ struct rtvk_context {
 	struct rtvk_queue** queues;
 	u32 queue_count;
 	rtvk_context_flags flags;
+	enum rt_error error_status;
+	char error_text[1024];
+	PFN_rtOutput output;
+	void* output_user_data;
 };
 extern struct rtvk_context* current_context;
 

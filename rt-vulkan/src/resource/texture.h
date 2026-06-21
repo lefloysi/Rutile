@@ -94,12 +94,13 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain(struct rtvk_con
 struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rtvk_context* ctx, VkImage image, VkFormat format, u32 width, u32 height);
 void rtvk_texture_node_retain(struct rtvk_texture* texture);
 void rtvk_texture_node_release(struct rtvk_texture* texture);
-u32 rtvk_texture_debug_live_count(void);
 void rtvk_texture_view_filter(struct rtvk_texture_view* texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
 void rtvk_texture_view_address(struct rtvk_texture_view* texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
 void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, u32 max_anisotropy);
 void rtvk_texture_view_lod(struct rtvk_texture_view* texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 VkImageAspectFlags rtvk_texture_format_aspect(VkFormat format);
+void rtvk_texture_recycle_node(struct rtvk_texture* texture, struct rtvk_texture* node);
+void rtvk_texture_collect_nodes(struct rtvk_texture* texture);
 
 struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_mip);
 struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data);

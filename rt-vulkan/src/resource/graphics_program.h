@@ -7,7 +7,6 @@
 
 #include <vulkan/vulkan.h>
 
-#define RTVK_MAX_VERTEX_ATTRIBUTES 16
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -88,7 +87,7 @@ RTVK_DECLARE_NEW_RESOURCE(graphics_program)
 static inline struct rtvk_uniform_location* rtvk_uniform_location_from_handle(rt_uniform_location location) { return (struct rtvk_uniform_location*)location; }
 static inline rt_uniform_location rtvk_uniform_location_to_handle(struct rtvk_uniform_location* location) { return (rt_uniform_location)location; }
 
-bool rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format);
+void rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format);
 void rtvk_graphics_program_vertex_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout);
 void rtvk_graphics_program_vertex_shader(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
 void rtvk_graphics_program_fragment_shader(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
@@ -96,6 +95,12 @@ void rtvk_graphics_program_raster_state(struct rtvk_context* ctx, struct rtvk_gr
 void rtvk_graphics_program_blend_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name);
+void rtvk_graphics_program_destroy_shader(struct rtvk_context* ctx, VkShaderModule* shader);
+void rtvk_graphics_program_destroy_shader_source(char** source, u64* size);
+void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program* program);
+void rtvk_graphics_program_retire_pipeline(struct rtvk_graphics_program* program, VkPipeline pipeline);
+void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
+void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 
 #endif
 

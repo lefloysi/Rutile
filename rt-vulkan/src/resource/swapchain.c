@@ -256,28 +256,27 @@ void rtvk_swapchain_finish(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain));
 }
 
-static bool rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
-	bool ok = false;
+void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	VkImage* images = NULL;
 	u32 image_count = 0;
 
 	VkResult result = vkGetSwapchainImagesKHR(ctx->vk_device, swapchain->vk_swapchain, &image_count, NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "vkGetSwapchainImagesKHR failed while counting swapchain images");
-		return false;
+		return;
 	}
 
 	images = calloc(image_count, sizeof(*images));
 	RTVK_CHECK_ALLOC(images, (usize)image_count * sizeof(*images), "swapchain image list");
-	if (rtError() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
 
 	swapchain->frames = calloc(image_count, sizeof(*swapchain->frames));
 	RTVK_CHECK_ALLOC(swapchain->frames, (usize)image_count * sizeof(*swapchain->frames), "swapchain frame sync list");
-	if (rtError() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
 
 	swapchain->framebuffers = calloc(image_count, sizeof(*swapchain->framebuffers));
 	RTVK_CHECK_ALLOC(swapchain->framebuffers, (usize)image_count * sizeof(*swapchain->framebuffers), "swapchain framebuffer list");
-	if (rtError() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
 
 	result = vkGetSwapchainImagesKHR(ctx->vk_device, swapchain->vk_swapchain, &image_count, images);
 	if (result != VK_SUCCESS) {
@@ -288,7 +287,7 @@ static bool rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct 
 	swapchain->image_count = image_count;
 	swapchain->color_views = calloc(image_count, sizeof(*swapchain->color_views));
 	RTVK_CHECK_ALLOC(swapchain->color_views, (usize)image_count * sizeof(*swapchain->color_views), "swapchain color view list");
-	if (rtError() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
 	for (u32 i = 0; i < image_count; i++) {
 		struct rtvk_swapchain_frame* frame = &swapchain->frames[i];
 		frame->vk_image = images[i];
@@ -303,31 +302,28 @@ static bool rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct 
 
 		swapchain->color_views[i] = rtvk_texture_view_create_for_swapchain_image(ctx, images[i], swapchain->vk_format, swapchain->extent.width, swapchain->extent.height);
 		rtvk_framebuffer_set_color_view(ctx, swapchain->framebuffers[i], 0, swapchain->color_views[i]);
-		if (rtError() != RT_SUCCESS) {
+		if (rtvk_error() != RT_SUCCESS) {
 			goto cleanup;
 		}
 	}
 
-	ok = true;
-
 cleanup:
 	free(images);
-	if (!ok) {
+	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 		rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 		rtvk_swapchain_destroy_color_views(ctx, swapchain);
 	}
-	return ok;
 }
 
-static bool rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
 	if (!swapchain->frames) {
 		swapchain->frames = calloc(swapchain->image_count, sizeof(*swapchain->frames));
 		if (!swapchain->frames) {
 			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u swapchain sync frames", swapchain->image_count);
-			return false;
+			return;
 		}
 	}
 
@@ -341,18 +337,16 @@ static bool rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rt
 		if (result != VK_SUCCESS) {
 			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 			rtvk_throwf(rtvk_error_from_vk(result), NULL);
-			return false;
+			return;
 		}
 
 		result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &swapchain->frames[i].present_ready);
 		if (result != VK_SUCCESS) {
 			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 			rtvk_throwf(rtvk_error_from_vk(result), NULL);
-			return false;
+			return;
 		}
 	}
-
-	return true;
 }
 
 static VkSurfaceFormatKHR rtvk_choose_swapchain_format(VkSurfaceFormatKHR* formats, u32 format_count) {
@@ -401,14 +395,14 @@ static VkExtent2D rtvk_swapchain_choose_extent(VkSurfaceCapabilitiesKHR capabili
 	return extent;
 }
 
-bool rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
+void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
 	swapchain->vk_surface = surface;
 	swapchain->present_queue = rtvk_queue_query_present(ctx, surface);
 	if (!swapchain->present_queue) {
-		if (rtError() == RT_SUCCESS) {
+		if (rtvk_error() == RT_SUCCESS) {
 			rtvk_throwf(RT_UNSUPPORTED_PLATFORM, NULL);
 		}
-		return false;
+		return;
 	}
 	rtvk_retain_resource(swapchain->present_queue);
 
@@ -416,26 +410,26 @@ bool rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx->vk_physical_device, surface, &capabilities);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	u32 format_count = 0;
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->vk_physical_device, surface, &format_count, NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkSurfaceFormatKHR* formats = calloc(format_count, sizeof(*formats));
 	if (!formats) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan surface formats", format_count);
-		return false;
+		return;
 	}
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->vk_physical_device, surface, &format_count, formats);
 	if (result != VK_SUCCESS) {
 		free(formats);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	u32 present_mode_count = 0;
@@ -443,26 +437,26 @@ bool rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	if (result != VK_SUCCESS) {
 		free(formats);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 	if (present_mode_count == 0) {
 		free(formats);
 		rtvk_throwf(RT_INCOMPATIBLE_DRIVER, NULL);
-		return false;
+		return;
 	}
 
 	VkPresentModeKHR* present_modes = calloc(present_mode_count, sizeof(*present_modes));
 	if (!present_modes) {
 		free(formats);
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan present modes", present_mode_count);
-		return false;
+		return;
 	}
 	result = vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->vk_physical_device, surface, &present_mode_count, present_modes);
 	if (result != VK_SUCCESS) {
 		free(formats);
 		free(present_modes);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkSurfaceFormatKHR format = rtvk_choose_swapchain_format(formats, format_count);
@@ -481,7 +475,7 @@ bool rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	VkImageUsageFlags image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	if ((capabilities.supportedUsageFlags & image_usage) != image_usage) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "swapchain images do not support transfer source usage");
-		return false;
+		return;
 	}
 
 	VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
@@ -517,24 +511,19 @@ bool rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	result = vkCreateSwapchainKHR(ctx->vk_device, &swapchain_info, VK_ALLOCATOR, &swapchain->vk_swapchain);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	swapchain->vk_format = format.format;
 	swapchain->extent = swapchain_info.imageExtent;
 
-	if (!rtvk_swapchain_create_framebuffers(ctx, swapchain)) {
-		return false;
-	}
-	if (!rtvk_swapchain_create_frame_sync(ctx, swapchain)) {
-		return false;
-	}
-
-	return true;
+	rtvk_swapchain_create_framebuffers(ctx, swapchain);
+	if (rtvk_error() != RT_SUCCESS) { return; }
+	rtvk_swapchain_create_frame_sync(ctx, swapchain);
 }
 
 
-static bool rtvk_swapchain_prepare_present_command(
+void rtvk_swapchain_prepare_present_command(
 	struct rtvk_context* ctx,
 	struct rtvk_swapchain_frame* frame,
 	u32 family_index) {
@@ -542,7 +531,7 @@ static bool rtvk_swapchain_prepare_present_command(
 		rtvk_swapchain_destroy_present_command(ctx, frame);
 	}
 	if (frame->present_command_pool) {
-		return true;
+		return;
 	}
 
 	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -553,7 +542,7 @@ static bool rtvk_swapchain_prepare_present_command(
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &frame->present_command_pool);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -566,26 +555,24 @@ static bool rtvk_swapchain_prepare_present_command(
 	if (result != VK_SUCCESS) {
 		rtvk_swapchain_destroy_present_command(ctx, frame);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	frame->present_command_family_index = family_index;
-	return true;
 }
 
-static bool rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, struct rtvk_timepoint rendered) {
+void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, struct rtvk_timepoint rendered) {
 	struct rtvk_swapchain_frame* current = &swapchain->frames[swapchain->current_image_index];
 	if (!current || !rendered.queue) {
-		return false;
+		return;
 	}
-	if (!rtvk_swapchain_prepare_present_command(ctx, frame, rendered.queue->family_index)) {
-		return false;
-	}
+	rtvk_swapchain_prepare_present_command(ctx, frame, rendered.queue->family_index);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	VkResult result = vkResetCommandPool(ctx->vk_device, frame->present_command_pool, 0);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -596,7 +583,7 @@ static bool rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, s
 	result = vkBeginCommandBuffer(frame->present_command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -620,7 +607,7 @@ static bool rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, s
 	result = vkEndCommandBuffer(frame->present_command_buffer);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	if (rendered.value > rendered.queue->submitted_value) {
@@ -652,7 +639,7 @@ static bool rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, s
 	result = vkQueueSubmit(rendered.queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	struct rtvk_framebuffer* framebuffer = swapchain->framebuffers ? swapchain->framebuffers[swapchain->current_image_index] : NULL;
@@ -666,7 +653,6 @@ static bool rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, s
 	rendered.queue->timeline_value = signal_value;
 	rendered.queue->submitted_value = signal_value;
 	frame->present_done = (struct rtvk_timepoint){ rendered.queue, signal_value };
-	return true;
 }
 
 u32 rtSwapchainFramebufferCount(rt_swapchain swapchain) {
@@ -716,7 +702,8 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 		swapchain->present_queue = NULL;
 	}
 
-	ok = rtvk_swapchain_create_for_surface(ctx, swapchain, surface, width, height);
+	rtvk_swapchain_create_for_surface(ctx, swapchain, surface, width, height);
+	ok = rtvk_error() == RT_SUCCESS;
 	if (present_queue) {
 		rtvk_release_resource(present_queue);
 	}
@@ -739,9 +726,18 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	struct rtvk_swapchain_frame* acquire_frame = &swapchain->frames[swapchain->current_frame_index];
 	rtvk_swapchain_wait_frame(ctx, acquire_frame);
 
-	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, UINT64_MAX, acquire_frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
+	/* Comment ** finite timeout: the spec forbids UINT64_MAX when forward progress
+	 * cannot be guaranteed (VUID-vkAcquireNextImageKHR-surface-07783). One second is
+	 * long enough that a healthy frame pipeline never trips it, short enough that a
+	 * deadlock surfaces as VK_TIMEOUT instead of hanging the app. */
+	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, 1000000000ull, acquire_frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: swapchain is out of date");
+		rtvk_swapchain_unlock(swapchain);
+		return acquire;
+	}
+	if (result == VK_TIMEOUT || result == VK_NOT_READY) {
+		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: no image available within timeout (previous frames likely not yet presented)");
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
@@ -750,6 +746,8 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
+
+	swapchain->frame_acquired = true;
 
 	acquire.framebuffer = rtvk_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]);
 	if (!acquire.framebuffer) {
@@ -764,10 +762,8 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 	acquire.timepoint = rtvk_timepoint_to_public(acquire_frame->acquire_wait);
-	swapchain->frame_acquired = true;
 	if (!acquire.timepoint.queue || acquire.timepoint.value == 0) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: null timepoint");
-		swapchain->frame_acquired = false;
 		rtvk_swapchain_unlock(swapchain);
 		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
 	}
@@ -786,7 +782,8 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
 	}
-	if (!rtvk_swapchain_submit_present_transition(ctx, swapchain, frame, rendered)) {
+	rtvk_swapchain_submit_present_transition(ctx, swapchain, frame, rendered);
+	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
 	}

@@ -16,7 +16,7 @@
 #include <iostream>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-dx12";
+constexpr const char* kDefaultBackendName = "rt-vulkan";
 constexpr const char* kLayers[] = { "RT_VALIDATION" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 

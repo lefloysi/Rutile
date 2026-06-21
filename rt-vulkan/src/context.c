@@ -14,8 +14,6 @@
 #  include <time.h>
 #endif
 
-#define RTVK_VULKAN_API_VERSION VK_API_VERSION_1_3
-
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -133,32 +131,31 @@ static void rtvk_context_destroy_debug_messenger(struct rtvk_context* ctx) {
 }
 #endif
 
-static bool rtvk_enumerate_instance_extensions(VkExtensionProperties** out_extensions, u32* out_count) {
+static void rtvk_enumerate_instance_extensions(VkExtensionProperties** out_extensions, u32* out_count) {
 	*out_extensions = NULL;
 	*out_count = 0;
 
 	VkResult result = vkEnumerateInstanceExtensionProperties(NULL, out_count, NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	if (*out_count == 0) { return true; }
+	if (*out_count == 0) { return; }
 
 	VkExtensionProperties* extensions = calloc(*out_count, sizeof(*extensions));
 	if (!extensions) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan instance extension entries", *out_count);
-		return false;
+		return;
 	}
 
 	result = vkEnumerateInstanceExtensionProperties(NULL, out_count, extensions);
 	if (result != VK_SUCCESS) {
 		free(extensions);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	*out_extensions = extensions;
-	return true;
 }
 
 static bool rtvk_instance_extension_available(const VkExtensionProperties* available_extensions, u32 available_extension_count, const char* name) {
@@ -179,54 +176,50 @@ static bool rtvk_instance_extension_enabled(const char* const* extensions, u32 e
 	return false;
 }
 
-static bool rtvk_add_instance_extension(const char* name, const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
+static void rtvk_add_instance_extension(const char* name, const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
 	if (!rtvk_instance_extension_available(available_extensions, available_extension_count, name)) {
 		rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "required Vulkan instance extension is not available: %s", name);
-		return false;
+		return;
 	}
 	if (rtvk_instance_extension_enabled(instance_extensions, *instance_extension_count, name)) {
-		return true;
+		return;
 	}
 	if (*instance_extension_count >= instance_extension_capacity) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "too many Vulkan instance extensions requested");
-		return false;
+		return;
 	}
 	instance_extensions[*instance_extension_count] = name;
 	(*instance_extension_count)++;
-	return true;
 }
 
-static bool rtvk_add_optional_instance_extension(const char* name, const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
+static bool rtvk_try_add_instance_extension(const char* name, const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
 	if (!rtvk_instance_extension_available(available_extensions, available_extension_count, name)) {
 		return false;
 	}
-	if (!rtvk_add_instance_extension(
-			name,
-			available_extensions,
-			available_extension_count,
-			instance_extensions,
-			instance_extension_count,
-			instance_extension_capacity
-	)) {
-		return false;
-	}
-	return true;
+	rtvk_add_instance_extension(
+		name,
+		available_extensions,
+		available_extension_count,
+		instance_extensions,
+		instance_extension_count,
+		instance_extension_capacity
+	);
+	return rtvk_error() == RT_SUCCESS;
 }
 
-static bool rtvk_add_presentation_instance_extensions(const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
-	if (!rtvk_add_instance_extension(
-			VK_KHR_SURFACE_EXTENSION_NAME,
-			available_extensions,
-			available_extension_count,
-			instance_extensions,
-			instance_extension_count,
-			instance_extension_capacity
-	)) {
-		return false;
-	}
+static void rtvk_add_presentation_instance_extensions(const VkExtensionProperties* available_extensions, u32 available_extension_count, const char** instance_extensions, u32* instance_extension_count, u32 instance_extension_capacity) {
+	rtvk_add_instance_extension(
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		available_extensions,
+		available_extension_count,
+		instance_extensions,
+		instance_extension_count,
+		instance_extension_capacity
+	);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 #if defined(_WIN32)
-	return rtvk_add_instance_extension(
+	rtvk_add_instance_extension(
 		"VK_KHR_win32_surface",
 		available_extensions,
 		available_extension_count,
@@ -235,7 +228,7 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 		instance_extension_capacity
 	);
 #elif defined(__APPLE__)
-	return rtvk_add_instance_extension(
+	rtvk_add_instance_extension(
 		"VK_EXT_metal_surface",
 		available_extensions,
 		available_extension_count,
@@ -244,7 +237,7 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 		instance_extension_capacity
 	);
 #elif defined(__ANDROID__)
-	return rtvk_add_instance_extension(
+	rtvk_add_instance_extension(
 		"VK_KHR_android_surface",
 		available_extensions,
 		available_extension_count,
@@ -254,7 +247,7 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 	);
 #elif defined(__linux__)
 	bool found_surface_backend = false;
-	found_surface_backend |= rtvk_add_optional_instance_extension(
+	found_surface_backend |= rtvk_try_add_instance_extension(
 		"VK_KHR_xcb_surface",
 		available_extensions,
 		available_extension_count,
@@ -262,7 +255,7 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 		instance_extension_count,
 		instance_extension_capacity
 	);
-	found_surface_backend |= rtvk_add_optional_instance_extension(
+	found_surface_backend |= rtvk_try_add_instance_extension(
 		"VK_KHR_xlib_surface",
 		available_extensions,
 		available_extension_count,
@@ -270,7 +263,7 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 		instance_extension_count,
 		instance_extension_capacity
 	);
-	found_surface_backend |= rtvk_add_optional_instance_extension(
+	found_surface_backend |= rtvk_try_add_instance_extension(
 		"VK_KHR_wayland_surface",
 		available_extensions,
 		available_extension_count,
@@ -278,14 +271,12 @@ static bool rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 		instance_extension_count,
 		instance_extension_capacity
 	);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 	if (!found_surface_backend) {
 		rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "no supported Vulkan platform surface extension was found");
-		return false;
 	}
-	return true;
 #else
 	rtvk_throwf(RT_UNSUPPORTED_PLATFORM, "presentation is not supported on this platform");
-	return false;
 #endif
 }
 
@@ -304,29 +295,29 @@ static void rtvk_context_destroy_queues(struct rtvk_context* ctx) {
 	ctx->queue_count = 0;
 }
 
-static bool rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
+static void rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
 	u32 physical_device_count = 0;
 	VkResult result = vkEnumeratePhysicalDevices(ctx->vk_instance, &physical_device_count, NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 	if (physical_device_count == 0) {
 		rtvk_throwf(RT_INCOMPATIBLE_DRIVER, NULL);
-		return false;
+		return;
 	}
 
 	VkPhysicalDevice* physical_devices = calloc(physical_device_count, sizeof(*physical_devices));
 	if (!physical_devices) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan physical device entries", physical_device_count);
-		return false;
+		return;
 	}
 
 	result = vkEnumeratePhysicalDevices(ctx->vk_instance, &physical_device_count, physical_devices);
 	if (result != VK_SUCCESS) {
 		free(physical_devices);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	ctx->vk_physical_device = physical_devices[0];
@@ -339,15 +330,14 @@ static bool rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
 		}
 	}
 	free(physical_devices);
-	return true;
 }
 
-static bool rtvk_context_create_device(struct rtvk_context* ctx) {
+static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	u32 queue_family_count = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(ctx->vk_physical_device, &queue_family_count, NULL);
 	if (queue_family_count == 0) {
 		rtvk_throwf(RT_INCOMPATIBLE_DRIVER, NULL);
-		return false;
+		return;
 	}
 
 	VkQueueFamilyProperties* queue_families = calloc(queue_family_count, sizeof(*queue_families));
@@ -358,7 +348,7 @@ static bool rtvk_context_create_device(struct rtvk_context* ctx) {
 		free(queue_infos);
 		free(priorities);
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate Vulkan queue family metadata for %u families", queue_family_count);
-		return false;
+		return;
 	}
 
 	vkGetPhysicalDeviceQueueFamilyProperties(ctx->vk_physical_device, &queue_family_count, queue_families);
@@ -473,14 +463,14 @@ static bool rtvk_context_create_device(struct rtvk_context* ctx) {
 	if (result != VK_SUCCESS) {
 		free(queue_families);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	ctx->queues = calloc(queue_family_count, sizeof(*ctx->queues));
 	if (!ctx->queues) {
 		free(queue_families);
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan queue handles", queue_family_count);
-		return false;
+		return;
 	}
 
 	for (u32 i = 0; i < queue_family_count; i++) {
@@ -490,17 +480,16 @@ static bool rtvk_context_create_device(struct rtvk_context* ctx) {
 		struct rtvk_queue* queue = rtvk_queue_create(ctx, vk_queue, rtvk_queue_capability_from_vk(queue_families[i].queueFlags), i, 0);
 		if (!queue) {
 			free(queue_families);
-			return false;
+			return;
 		}
 		ctx->queues[ctx->queue_count] = queue;
 		ctx->queue_count++;
 	}
 
 	free(queue_families);
-	return true;
 }
 
-static bool rtvk_context_create_allocator(struct rtvk_context* ctx) {
+static void rtvk_context_create_allocator(struct rtvk_context* ctx) {
 	VmaAllocatorCreateInfo allocator_info = { 0 };
 	allocator_info.flags = 0;
 	allocator_info.physicalDevice = ctx->vk_physical_device;
@@ -511,10 +500,7 @@ static bool rtvk_context_create_allocator(struct rtvk_context* ctx) {
 	VkResult result = vmaCreateAllocator(&allocator_info, &ctx->vma_allocator);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
 	}
-
-	return true;
 }
 
 struct rtvk_context* rtvk_create_context(rtvk_context_flags flags) {
@@ -526,7 +512,7 @@ struct rtvk_context* rtvk_create_context(rtvk_context_flags flags) {
 
 	result->flags = flags;
 	rtvk_context_init(result);
-	if (rtError() != RT_SUCCESS) {
+	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_context_destroy(result);
 		return NULL;
 	}
@@ -556,18 +542,18 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 #endif
 	rtvk_shader_compiler_init();
 
-	if (!rtvk_enumerate_instance_extensions(&available_instance_extensions, &available_instance_extension_count)) {
-		return;
-	}
+	rtvk_enumerate_instance_extensions(&available_instance_extensions, &available_instance_extension_count);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	if (ctx->flags.presentation) {
-		if (!rtvk_add_presentation_instance_extensions(
-				available_instance_extensions,
-				available_instance_extension_count,
-				instance_extensions,
-				&instance_extension_count,
-				(u32)(sizeof(instance_extensions) / sizeof(instance_extensions[0]))
-		)) {
+		rtvk_add_presentation_instance_extensions(
+			available_instance_extensions,
+			available_instance_extension_count,
+			instance_extensions,
+			&instance_extension_count,
+			(u32)(sizeof(instance_extensions) / sizeof(instance_extensions[0]))
+		);
+		if (rtvk_error() != RT_SUCCESS) {
 			free(available_instance_extensions);
 			return;
 		}
@@ -575,14 +561,15 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
 	if (validation_enabled) {
-		if (!rtvk_add_instance_extension(
-				VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-				available_instance_extensions,
-				available_instance_extension_count,
-				instance_extensions,
-				&instance_extension_count,
-				(u32)(sizeof(instance_extensions) / sizeof(instance_extensions[0]))
-		)) {
+		rtvk_add_instance_extension(
+			VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+			available_instance_extensions,
+			available_instance_extension_count,
+			instance_extensions,
+			&instance_extension_count,
+			(u32)(sizeof(instance_extensions) / sizeof(instance_extensions[0]))
+		);
+		if (rtvk_error() != RT_SUCCESS) {
 			free(available_instance_extensions);
 			return;
 		}
@@ -633,25 +620,20 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 	}
 #endif
 
-	if (!rtvk_context_pick_physical_device(ctx)) { return; }
+	rtvk_context_pick_physical_device(ctx);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
-	if (!rtvk_context_create_device(ctx)) { return; }
+	rtvk_context_create_device(ctx);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
-	if (!rtvk_context_create_allocator(ctx)) { return; }
+	rtvk_context_create_allocator(ctx);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	rtvk_log_startup_time(start_ns);
 }
 
 void rtvk_context_finish(struct rtvk_context* ctx) {
 	if (!ctx) { return; }
-
-	if (rtvk_buffer_debug_live_count() || rtvk_texture_debug_live_count()) {
-		rtvk_throwf(
-			RT_IMPROPER_USAGE,
-			"shutdown with live resources: buffers=%u textures=%u",
-			rtvk_buffer_debug_live_count(),
-			rtvk_texture_debug_live_count());
-	}
 
 	rtvk_context_destroy_queues(ctx);
 	if (ctx->vma_allocator) {

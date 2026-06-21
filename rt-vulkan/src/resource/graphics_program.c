@@ -82,27 +82,27 @@ void rtvk_graphics_program_init(struct rtvk_context* ctx, struct rtvk_graphics_p
 	program->alpha_blend_op = RT_BLEND_OP_ADD;
 }
 
-static void rtvk_graphics_program_destroy_shader(struct rtvk_context* ctx, VkShaderModule* shader) {
+void rtvk_graphics_program_destroy_shader(struct rtvk_context* ctx, VkShaderModule* shader) {
 	if (*shader) {
 		vkDestroyShaderModule(ctx->vk_device, *shader, VK_ALLOCATOR);
 		*shader = VK_NULL_HANDLE;
 	}
 }
 
-static void rtvk_graphics_program_destroy_shader_source(char** source, u64* size) {
+void rtvk_graphics_program_destroy_shader_source(char** source, u64* size) {
 	free(*source);
 	*source = NULL;
 	*size = 0;
 }
 
-static void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program* program) {
+void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program* program) {
 	free(program->uniform_locations);
 	program->uniform_locations = NULL;
 	program->uniform_location_count = 0;
 	program->uniform_location_capacity = 0;
 }
 
-static void rtvk_graphics_program_retire_pipeline(struct rtvk_graphics_program* program, VkPipeline pipeline) {
+void rtvk_graphics_program_retire_pipeline(struct rtvk_graphics_program* program, VkPipeline pipeline) {
 	if (!pipeline) {
 		return;
 	}
@@ -117,7 +117,7 @@ static void rtvk_graphics_program_retire_pipeline(struct rtvk_graphics_program* 
 	program->retired_pipelines = retired;
 }
 
-static void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	(void)ctx;
 	if (program->vk_pipeline) {
 		rtvk_graphics_program_retire_pipeline(program, program->vk_pipeline);
@@ -127,7 +127,7 @@ static void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, str
 	}
 }
 
-static void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	rtvk_graphics_program_destroy_pipeline(ctx, program);
 	if (program->vk_pipeline_layout) {
 		vkDestroyPipelineLayout(ctx->vk_device, program->vk_pipeline_layout, VK_ALLOCATOR);
@@ -181,16 +181,16 @@ void rtvk_graphics_program_finish(struct rtvk_context* ctx, struct rtvk_graphics
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(program));
 }
 
-static bool rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	if (program->uniform_location_count == 0) {
-		return true;
+		return;
 	}
 
 	size_t binding_bytes = sizeof(VkDescriptorSetLayoutBinding) * program->uniform_location_count;
 	VkDescriptorSetLayoutBinding* bindings = calloc(program->uniform_location_count, sizeof(*bindings));
 	if (!bindings) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate descriptor set layout bindings");
-		return false;
+		return;
 	}
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
@@ -215,17 +215,16 @@ static bool rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 	free(bindings);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-
-	return true;
 }
 
-static bool rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+static void rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 
-	if (!program->vk_descriptor_set_layout && !rtvk_graphics_program_create_descriptor_set_layout(ctx, program)) {
-		return false;
+	if (!program->vk_descriptor_set_layout) {
+		rtvk_graphics_program_create_descriptor_set_layout(ctx, program);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
 
 	layout_info.pNext = NULL;
@@ -238,10 +237,8 @@ static bool rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ct
 	VkResult result = vkCreatePipelineLayout(ctx->vk_device, &layout_info, VK_ALLOCATOR, &program->vk_pipeline_layout);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-
-	return true;
 }
 
 static void rtvk_graphics_program_shader_stages(struct rtvk_graphics_program* program, VkPipelineShaderStageCreateInfo stages[2]) {
@@ -300,7 +297,7 @@ static void rtvk_graphics_program_color_blend_state(
 	color_blend_info->pAttachments = attachment;
 }
 
-static bool rtvk_graphics_program_create_pipeline(
+static void rtvk_graphics_program_create_pipeline(
 	struct rtvk_context* ctx,
 	struct rtvk_graphics_program* program,
 	VkFormat color_format,
@@ -323,7 +320,7 @@ static bool rtvk_graphics_program_create_pipeline(
 			attributes[i].offset = program->vertex_attributes[i].offset;
 			if (attributes[i].format == VK_FORMAT_UNDEFINED) {
 				rtvk_throwf(RT_UNSUPPORTED_FEATURE, "unsupported vertex attribute format");
-				return false;
+				return;
 			}
 		}
 
@@ -429,32 +426,30 @@ static bool rtvk_graphics_program_create_pipeline(
 	VkResult result = vkCreateGraphicsPipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, VK_ALLOCATOR, &program->vk_pipeline);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	program->vk_pipeline_format = color_format;
 	program->vk_pipeline_depth_format = depth_format;
-	return true;
 }
 
-bool rtvk_graphics_program_prepare(
+void rtvk_graphics_program_prepare(
 	struct rtvk_context* ctx,
 	struct rtvk_graphics_program* program,
 	VkFormat color_format,
 	VkFormat depth_format) {
 	if (!program || !program->vk_pipeline_layout) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before use");
-		return false;
+		return;
 	}
 
 	if (program->vk_pipeline && program->vk_pipeline_format == color_format &&
 			program->vk_pipeline_depth_format == depth_format) {
-		return true;
+		return;
 	}
 
 	rtvk_graphics_program_destroy_pipeline(ctx, program);
-
-	return rtvk_graphics_program_create_pipeline(ctx, program, color_format, depth_format);
+	rtvk_graphics_program_create_pipeline(ctx, program, color_format, depth_format);
 }
 
 void rtvk_graphics_program_vertex_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout) {
@@ -593,52 +588,50 @@ static struct rtvk_uniform_location* rtvk_graphics_program_find_uniform_location
 	return NULL;
 }
 
-static bool rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics_program* program, u32 count) {
-	if (program->uniform_location_capacity >= count) { return true; }
+static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics_program* program, u32 count) {
+	if (program->uniform_location_capacity >= count) { return; }
 	u32 capacity = program->uniform_location_capacity ? program->uniform_location_capacity : 8;
 	while (capacity < count) { capacity *= 2; }
 
 	void* locations = realloc(program->uniform_locations, sizeof(program->uniform_locations[0]) * capacity);
 	if (!locations) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate uniform locations");
-		return false;
+		return;
 	}
 
 	program->uniform_locations = locations;
 	program->uniform_location_capacity = capacity;
-	return true;
 }
 
-static bool rtvk_graphics_program_add_uniform_block(
+static void rtvk_graphics_program_add_uniform_block(
 	struct rtvk_graphics_program* program,
 	const rtvk_shader_uniform_block* block,
 	VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, block->name);
 	if (existing) {
 		if (existing->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && existing->binding == block->binding) {
-			return true;
+			return;
 		}
 		if (existing->kind != RTVK_UNIFORM_LOCATION_BUFFER || existing->binding != block->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniform block %s uses different bindings across shader stages", block->name);
-			return false;
+			return;
 		}
 		existing->stages |= stages;
-		return true;
+		return;
 	}
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		if (program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER &&
 			program->uniform_locations[i].binding == block->binding) {
-			return true;
+			return;
 		}
 		if (program->uniform_locations[i].binding == block->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, block->name);
-			return false;
+			return;
 		}
 	}
-	if (!rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1)) {
-		return false;
-	}
+	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
 	location->program = program;
@@ -649,10 +642,9 @@ static bool rtvk_graphics_program_add_uniform_block(
 	location->binding = block->binding;
 	location->index = program->uniform_location_count;
 	program->uniform_location_count++;
-	return true;
 }
 
-static bool rtvk_graphics_program_add_texture(
+static void rtvk_graphics_program_add_texture(
 	struct rtvk_graphics_program* program,
 	const rtvk_shader_texture* texture,
 	VkShaderStageFlags stages) {
@@ -660,21 +652,20 @@ static bool rtvk_graphics_program_add_texture(
 	if (existing) {
 		if (existing->kind != RTVK_UNIFORM_LOCATION_TEXTURE || existing->binding != texture->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "texture uniform %s uses different bindings across shader stages", texture->name);
-			return false;
+			return;
 		}
 		existing->stages |= stages;
-		return true;
+		return;
 	}
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		if (program->uniform_locations[i].binding == texture->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, texture->name);
-			return false;
+			return;
 		}
 	}
-	if (!rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1)) {
-		return false;
-	}
+	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
 	location->program = program;
@@ -685,10 +676,9 @@ static bool rtvk_graphics_program_add_texture(
 	location->binding = texture->binding;
 	location->index = program->uniform_location_count;
 	program->uniform_location_count++;
-	return true;
 }
 
-static bool rtvk_graphics_program_add_storage_buffer(
+static void rtvk_graphics_program_add_storage_buffer(
 	struct rtvk_graphics_program* program,
 	const rtvk_shader_resource* resource,
 	VkShaderStageFlags stages) {
@@ -696,21 +686,20 @@ static bool rtvk_graphics_program_add_storage_buffer(
 	if (existing) {
 		if (existing->kind != RTVK_UNIFORM_LOCATION_STORAGE_BUFFER || existing->binding != resource->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "storage buffer %s uses different bindings across shader stages", resource->name);
-			return false;
+			return;
 		}
 		existing->stages |= stages;
-		return true;
+		return;
 	}
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		if (program->uniform_locations[i].binding == resource->binding) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, resource->name);
-			return false;
+			return;
 		}
 	}
-	if (!rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1)) {
-		return false;
-	}
+	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
 	location->program = program;
@@ -721,47 +710,41 @@ static bool rtvk_graphics_program_add_storage_buffer(
 	location->binding = resource->binding;
 	location->index = program->uniform_location_count;
 	program->uniform_location_count++;
-	return true;
 }
 
-static bool rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_program* program) {
+static void rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_program* program) {
 	program->uniform_location_count = 0;
 
 	for (u32 i = 0; i < program->vertex_reflection.resource_count; i++) {
 		const rtvk_shader_resource* resource = &program->vertex_reflection.resources[i];
-		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER &&
-			!rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT)) {
-			return false;
+		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER) {
+			rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT);
+			if (rtvk_error() != RT_SUCCESS) { return; }
 		}
 	}
 	for (u32 i = 0; i < program->fragment_reflection.resource_count; i++) {
 		const rtvk_shader_resource* resource = &program->fragment_reflection.resources[i];
-		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER &&
-			!rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT)) {
-			return false;
+		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER) {
+			rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT);
+			if (rtvk_error() != RT_SUCCESS) { return; }
 		}
 	}
 	for (u32 i = 0; i < program->vertex_reflection.uniform_block_count; i++) {
-		if (!rtvk_graphics_program_add_uniform_block(program, &program->vertex_reflection.uniform_blocks[i], VK_SHADER_STAGE_VERTEX_BIT)) {
-			return false;
-		}
+		rtvk_graphics_program_add_uniform_block(program, &program->vertex_reflection.uniform_blocks[i], VK_SHADER_STAGE_VERTEX_BIT);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
 	for (u32 i = 0; i < program->fragment_reflection.uniform_block_count; i++) {
-		if (!rtvk_graphics_program_add_uniform_block(program, &program->fragment_reflection.uniform_blocks[i], VK_SHADER_STAGE_FRAGMENT_BIT)) {
-			return false;
-		}
+		rtvk_graphics_program_add_uniform_block(program, &program->fragment_reflection.uniform_blocks[i], VK_SHADER_STAGE_FRAGMENT_BIT);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
 	for (u32 i = 0; i < program->vertex_reflection.texture_count; i++) {
-		if (!rtvk_graphics_program_add_texture(program, &program->vertex_reflection.textures[i], VK_SHADER_STAGE_VERTEX_BIT)) {
-			return false;
-		}
+		rtvk_graphics_program_add_texture(program, &program->vertex_reflection.textures[i], VK_SHADER_STAGE_VERTEX_BIT);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
 	for (u32 i = 0; i < program->fragment_reflection.texture_count; i++) {
-		if (!rtvk_graphics_program_add_texture(program, &program->fragment_reflection.textures[i], VK_SHADER_STAGE_FRAGMENT_BIT)) {
-			return false;
-		}
+		rtvk_graphics_program_add_texture(program, &program->fragment_reflection.textures[i], VK_SHADER_STAGE_FRAGMENT_BIT);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
-	return true;
 }
 
 void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
@@ -795,11 +778,12 @@ void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_p
 	program->vertex_reflection = shaders.vertex_reflection;
 	program->fragment_reflection = shaders.fragment_reflection;
 
-	if (!rtvk_graphics_program_build_uniform_locations(program)) {
+	rtvk_graphics_program_build_uniform_locations(program);
+	if (rtvk_error() != RT_SUCCESS) {
 		return;
 	}
-	if (!program->vk_pipeline_layout && !rtvk_graphics_program_create_pipeline_layout(ctx, program)) {
-		return;
+	if (!program->vk_pipeline_layout) {
+		rtvk_graphics_program_create_pipeline_layout(ctx, program);
 	}
 }
 

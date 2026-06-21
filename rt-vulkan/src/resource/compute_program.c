@@ -28,21 +28,21 @@ void rtvk_compute_program_init(struct rtvk_context* ctx, struct rtvk_compute_pro
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(program), RT_RESOURCE_COMPUTE_PROGRAM);
 }
 
-static void rtvk_compute_program_destroy_shader(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+void rtvk_compute_program_destroy_shader(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
 	if (program->vk_shader) {
 		vkDestroyShaderModule(ctx->vk_device, program->vk_shader, VK_ALLOCATOR);
 		program->vk_shader = VK_NULL_HANDLE;
 	}
 }
 
-static void rtvk_compute_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+void rtvk_compute_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
 	if (program->vk_pipeline) {
 		vkDestroyPipeline(ctx->vk_device, program->vk_pipeline, VK_ALLOCATOR);
 		program->vk_pipeline = VK_NULL_HANDLE;
 	}
 }
 
-static void rtvk_compute_program_destroy_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+void rtvk_compute_program_destroy_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
 	rtvk_compute_program_destroy_pipeline(ctx, program);
 	if (program->vk_pipeline_layout) {
 		vkDestroyPipelineLayout(ctx->vk_device, program->vk_pipeline_layout, VK_ALLOCATOR);
@@ -97,50 +97,46 @@ void rtvk_compute_program_shader(struct rtvk_context* ctx, struct rtvk_compute_p
 	program->shader_size = size;
 }
 
-static bool rtvk_compute_program_set_reflected_binding(struct rtvk_compute_program* program, u32 binding, rtvk_compute_binding_kind kind, const char* name) {
+void rtvk_compute_program_set_reflected_binding(struct rtvk_compute_program* program, u32 binding, rtvk_compute_binding_kind kind, const char* name) {
 	if (binding >= RTVK_MAX_COMPUTE_BINDINGS) {
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "compute resource %s binding %u exceeds limit %u", name ? name : "<unnamed>", binding, RTVK_MAX_COMPUTE_BINDINGS);
-		return false;
+		return;
 	}
 	if (program->bindings[binding] && program->bindings[binding] != kind) {
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "compute resource %s binding %u conflicts with a different resource kind", name ? name : "<unnamed>", binding);
-		return false;
+		return;
 	}
 	program->bindings[binding] = kind;
 	if (program->binding_count <= binding) {
 		program->binding_count = binding + 1;
 	}
-	return true;
 }
 
-static bool rtvk_compute_program_apply_reflection(struct rtvk_compute_program* program, const rtvk_shader_reflection* reflection) {
+void rtvk_compute_program_apply_reflection(struct rtvk_compute_program* program, const rtvk_shader_reflection* reflection) {
 	memset(program->bindings, 0, sizeof(program->bindings));
 	program->binding_count = 0;
 	for (u32 i = 0; i < reflection->resource_count; i++) {
 		const rtvk_shader_resource* resource = &reflection->resources[i];
 		switch (resource->kind) {
 		case RTVK_SHADER_RESOURCE_STORAGE_BUFFER:
-			if (!rtvk_compute_program_set_reflected_binding(program, resource->binding, RTVK_COMPUTE_BINDING_STORAGE_BUFFER, resource->name)) {
-				return false;
-			}
+			rtvk_compute_program_set_reflected_binding(program, resource->binding, RTVK_COMPUTE_BINDING_STORAGE_BUFFER, resource->name);
+			if (rtvk_error() != RT_SUCCESS) { return; }
 			break;
 		case RTVK_SHADER_RESOURCE_STORAGE_TEXTURE:
-			if (!rtvk_compute_program_set_reflected_binding(program, resource->binding, RTVK_COMPUTE_BINDING_STORAGE_TEXTURE, resource->name)) {
-				return false;
-			}
+			rtvk_compute_program_set_reflected_binding(program, resource->binding, RTVK_COMPUTE_BINDING_STORAGE_TEXTURE, resource->name);
+			if (rtvk_error() != RT_SUCCESS) { return; }
 			break;
 		case RTVK_SHADER_RESOURCE_UNIFORM_BUFFER:
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "compute resource %s is a uniform buffer; Rutile compute currently supports storage buffers and storage textures only", resource->name);
-			return false;
+			return;
 		case RTVK_SHADER_RESOURCE_SAMPLED_TEXTURE:
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "compute resource %s is a sampled texture; Rutile compute currently supports storage buffers and storage textures only", resource->name);
-			return false;
+			return;
 		}
 	}
-	return true;
 }
 
-static bool rtvk_compute_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+void rtvk_compute_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
 	VkDescriptorSetLayoutBinding bindings[RTVK_MAX_COMPUTE_BINDINGS];
 	u32 count = 0;
 	for (u32 i = 0; i < program->binding_count; i++) {
@@ -161,14 +157,14 @@ static bool rtvk_compute_program_create_descriptor_set_layout(struct rtvk_contex
 	VkResult result = vkCreateDescriptorSetLayout(ctx->vk_device, &layout_info, VK_ALLOCATOR, &program->vk_descriptor_set_layout);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	return true;
 }
 
-static bool rtvk_compute_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
-	if (!program->vk_descriptor_set_layout && !rtvk_compute_program_create_descriptor_set_layout(ctx, program)) {
-		return false;
+void rtvk_compute_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+	if (!program->vk_descriptor_set_layout) {
+		rtvk_compute_program_create_descriptor_set_layout(ctx, program);
+		if (rtvk_error() != RT_SUCCESS) { return; }
 	}
 	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layout_info.setLayoutCount = 1;
@@ -176,12 +172,11 @@ static bool rtvk_compute_program_create_pipeline_layout(struct rtvk_context* ctx
 	VkResult result = vkCreatePipelineLayout(ctx->vk_device, &layout_info, VK_ALLOCATOR, &program->vk_pipeline_layout);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	return true;
 }
 
-static bool rtvk_compute_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
+void rtvk_compute_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
 	VkPipelineShaderStageCreateInfo stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
 	stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 	stage.module = program->vk_shader;
@@ -193,9 +188,8 @@ static bool rtvk_compute_program_create_pipeline(struct rtvk_context* ctx, struc
 	VkResult result = vkCreateComputePipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, VK_ALLOCATOR, &program->vk_pipeline);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	return true;
 }
 
 void rtvk_compute_program_link(struct rtvk_context* ctx, struct rtvk_compute_program* program) {
@@ -212,7 +206,8 @@ void rtvk_compute_program_link(struct rtvk_context* ctx, struct rtvk_compute_pro
 	if (!shader) {
 		return;
 	}
-	if (!rtvk_compute_program_apply_reflection(program, &reflection)) {
+	rtvk_compute_program_apply_reflection(program, &reflection);
+	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_shader_reflection_clear(&reflection);
 		if (shader) {
 			vkDestroyShaderModule(ctx->vk_device, shader, VK_ALLOCATOR);
@@ -224,8 +219,7 @@ void rtvk_compute_program_link(struct rtvk_context* ctx, struct rtvk_compute_pro
 	rtvk_shader_reflection_clear(&program->reflection);
 	program->vk_shader = shader;
 	program->reflection = reflection;
-	if (!rtvk_compute_program_create_pipeline_layout(ctx, program)) {
-		return;
-	}
+	rtvk_compute_program_create_pipeline_layout(ctx, program);
+	if (rtvk_error() != RT_SUCCESS) { return; }
 	rtvk_compute_program_create_pipeline(ctx, program);
 }

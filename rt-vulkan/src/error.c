@@ -8,7 +8,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-static thread_local enum rt_error rtvk_error = RT_SUCCESS;
+static thread_local enum rt_error rtvk_error_status = RT_SUCCESS;
 static thread_local char rtvk_error_text[1024] = "";
 
 static PFN_rtOutput rtvk_output = NULL;
@@ -50,7 +50,7 @@ void rtvk_printf(const char* format, ...) {
 void rtvk_throwf(enum rt_error error, const char* format, ...) {
 	va_list args;
 
-	rtvk_error = error;
+	rtvk_error_status = error;
 	if (!format) {
 		rtvk_error_text[0] = '\0';
 		return;
@@ -75,7 +75,11 @@ enum rt_error rtvk_error_from_vk(VkResult result) {
 }
 
 enum rt_error rtError(void) {
-	return rtvk_error;
+	return rtvk_error();
+}
+
+enum rt_error rtvk_error(void) {
+	return rtvk_error_status;
 }
 
 const char* rtErrorMessage(void) {
@@ -83,7 +87,7 @@ const char* rtErrorMessage(void) {
 }
 
 void rtClearError(void) {
-	rtvk_error = RT_SUCCESS;
+	rtvk_error_status = RT_SUCCESS;
 	rtvk_error_text[0] = '\0';
 }
 

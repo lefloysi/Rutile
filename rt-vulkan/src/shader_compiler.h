@@ -9,8 +9,6 @@
 
 RTVK_EXTERN_C_ENTER
 
-#define RTVK_MAX_SHADER_UNIFORM_NAME 64
-
 typedef struct rtvk_shader_uniform_block {
 	char name[RTVK_MAX_SHADER_UNIFORM_NAME];
 	u32 binding;

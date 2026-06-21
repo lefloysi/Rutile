@@ -22,6 +22,7 @@ RTVK_API void rtvk_printf(const char* format, ...);
 RTVK_API void rtvk_vprintf(const char* format, va_list args);
 RTVK_API void rtvk_throwf(enum rt_error error, const char* format, ...);
 RTVK_API enum rt_error rtvk_error_from_vk(VkResult result);
+RTVK_API enum rt_error rtvk_error(void);
 
 #define RTVK_CHECK_ALLOC(ptr, bytes, what)                  \
 	do {                                                    \
