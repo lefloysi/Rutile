@@ -273,6 +273,9 @@ static u32 rtvk_texture_view_bytes_per_pixel(VkFormat format) {
 	}
 }
 
+static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth);
+static void rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rtvk_queue* queue);
+
 static bool rtvk_texture_view_needs_bgra_swizzle(VkFormat format) {
 	return format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
 }
@@ -672,14 +675,15 @@ struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_qu
 	}
 	const u32 mip_width = src_texture->active->width >> src_mip;
 	const u32 mip_height = src_texture->active->height >> src_mip;
-	if (!rtvk_texture_copy_region(ctx, queue, src_texture, 0, 0, 0, src_mip, dst_texture, 0, 0, 0, dst_mip, mip_width ? mip_width : 1, mip_height ? mip_height : 1, 1)) {
+	rtvk_texture_copy_region(ctx, queue, src_texture, 0, 0, 0, src_mip, dst_texture, 0, 0, 0, dst_mip, mip_width ? mip_width : 1, mip_height ? mip_height : 1, 1);
+	if (rtError() != RT_SUCCESS) {
 		return timepoint;
 	}
 	timepoint = queue->copy_command_timepoint;
 	return timepoint;
 }
 
-static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+static void rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
 		rtvk_queue_collect(ctx, queue);
 		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
@@ -689,7 +693,7 @@ static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
 		queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
 		vkResetCommandPool(ctx->vk_device, queue->upload_command_pool, 0);
-		return true;
+		return;
 	}
 
 	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -698,7 +702,7 @@ static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &queue->upload_command_pool);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkCommandBufferAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -710,12 +714,12 @@ static bool rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 		vkDestroyCommandPool(ctx->vk_device, queue->upload_command_pool, VK_ALLOCATOR);
 		queue->upload_command_pool = VK_NULL_HANDLE;
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	return true;
+	return;
 }
 
-static bool rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 size) {
+static void rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 size) {
 	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
 		rtvk_queue_collect(ctx, queue);
 		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
@@ -723,7 +727,7 @@ static bool rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_qu
 		}
 	}
 	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
-		return true;
+		return;
 	}
 
 	rtvk_queue_collect(ctx, queue);
@@ -755,48 +759,22 @@ static bool rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_qu
 		NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 	queue->upload_staging_size = size;
-	return true;
 }
 
-static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth) {
+static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth) {
 	queue = rtvk_texture_graphics_queue(ctx, queue);
-	if (!queue) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy requires a graphics queue");
-		return false;
-	}
-	if (!src_texture || !src_texture->active || !src_texture->active->vk_image ||
-		!dst_texture || !dst_texture->active || !dst_texture->active->vk_image) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is invalid");
-		return false;
-	}
-	if (src_texture->active->vk_format != dst_texture->active->vk_format) {
-		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture copy requires matching texture formats");
-		return false;
-	}
-	if (src_texture->active->type != RT_TEXTURE_2D || dst_texture->active->type != RT_TEXTURE_2D || src_z != 0 || dst_z != 0 || depth != 1) {
-		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture copy currently supports only 2D textures");
-		return false;
-	}
-	if (width == 0 || height == 0) {
-		return false;
-	}
 	const u32 src_w = src_texture->active->width >> src_mip; const u32 src_mip_w = src_w ? src_w : 1;
 	const u32 src_h = src_texture->active->height >> src_mip; const u32 src_mip_h = src_h ? src_h : 1;
 	const u32 dst_w = dst_texture->active->width >> dst_mip; const u32 dst_mip_w = dst_w ? dst_w : 1;
 	const u32 dst_h = dst_texture->active->height >> dst_mip; const u32 dst_mip_h = dst_h ? dst_h : 1;
-	if (src_x > src_mip_w || src_y > src_mip_h || dst_x > dst_mip_w || dst_y > dst_mip_h ||
-		width > src_mip_w - src_x || height > src_mip_h - src_y ||
-		width > dst_mip_w - dst_x || height > dst_mip_h - dst_y) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy region is out of bounds");
-		return false;
-	}
 
 	rtvk_queue_flush(ctx, queue);
-	if (!rtvk_texture_copy_buffer_command(ctx, queue)) {
-		return false;
+	rtvk_texture_copy_buffer_command(ctx, queue);
+	if (rtError() != RT_SUCCESS) {
+		return;
 	}
 	VkCommandBuffer command_buffer = queue->copy_command_buffer;
 
@@ -805,7 +783,7 @@ static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	struct rtvk_texture* src_node = src_texture->active;
@@ -878,7 +856,7 @@ static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	result = vkEndCommandBuffer(command_buffer);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	u64 value = queue->timeline_value + 1;
@@ -894,7 +872,7 @@ static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	queue->timeline_value = value;
@@ -902,7 +880,6 @@ static bool rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	queue->copy_command_timepoint = (struct rtvk_timepoint){ queue, value };
 	src_node->vk_layout = src_restore_layout;
 	dst_node->vk_layout = dst_restore_layout;
-	return true;
 }
 
 struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data) {
@@ -991,9 +968,12 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 	}
 
 	u64 upload_size = (u64)offset_x * offset_y * bytes_per_pixel;
-	if (data && upload_size && !rtvk_texture_upload_staging(ctx, queue, upload_size)) {
-		rtvk_texture_node_release(node);
-		return timepoint;
+	if (data && upload_size) {
+		rtvk_texture_upload_staging(ctx, queue, upload_size);
+		if (rtError() != RT_SUCCESS) {
+			rtvk_texture_node_release(node);
+			return timepoint;
+		}
 	}
 
 	if (data && upload_size) {
@@ -1003,7 +983,8 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 		vmaFlushAllocation(ctx->vma_allocator, queue->upload_staging_allocation, 0, upload_size);
 	}
 
-	if (!rtvk_texture_upload_command(ctx, queue)) {
+	rtvk_texture_upload_command(ctx, queue);
+	if (rtError() != RT_SUCCESS) {
 		rtvk_texture_node_release(node);
 		return timepoint;
 	}
@@ -1178,7 +1159,8 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_qu
 
 struct rtvk_timepoint rtvk_texture_subcopy(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtvk_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	struct rtvk_timepoint timepoint = { queue, 0 };
-	if (!rtvk_texture_copy_region(ctx, queue, src_texture, src_x, src_y, src_z, src_mip, dst_texture, dst_x, dst_y, dst_z, dst_mip, width, height, depth)) {
+	rtvk_texture_copy_region(ctx, queue, src_texture, src_x, src_y, src_z, src_mip, dst_texture, dst_x, dst_y, dst_z, dst_mip, width, height, depth);
+	if (rtError() != RT_SUCCESS) {
 		return timepoint;
 	}
 	timepoint = queue->copy_command_timepoint;
@@ -1224,7 +1206,8 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	u64 upload_size = (u64)width * height * depth * bytes_per_pixel;
 	rtvk_queue_collect(ctx, queue);
 	rtvk_queue_flush(ctx, queue);
-	if (!rtvk_texture_upload_staging(ctx, queue, upload_size)) {
+	rtvk_texture_upload_staging(ctx, queue, upload_size);
+	if (rtError() != RT_SUCCESS) {
 		return timepoint;
 	}
 
@@ -1233,7 +1216,8 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	memcpy(staging_info.pMappedData, data, (usize)upload_size);
 	vmaFlushAllocation(ctx->vma_allocator, queue->upload_staging_allocation, 0, upload_size);
 
-	if (!rtvk_texture_upload_command(ctx, queue)) {
+	rtvk_texture_upload_command(ctx, queue);
+	if (rtError() != RT_SUCCESS) {
 		return timepoint;
 	}
 	VkCommandBuffer command_buffer = queue->upload_command_buffer;
@@ -1332,12 +1316,12 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	return timepoint;
 }
 
-static bool rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+static void rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	if (queue->copy_command_pool && queue->copy_command_buffer) {
 		rtvk_queue_collect(ctx, queue);
 		queue->copy_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
 		vkResetCommandPool(ctx->vk_device, queue->copy_command_pool, 0);
-		return true;
+		return;
 	}
 
 	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -1347,7 +1331,7 @@ static bool rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rt
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &queue->copy_command_pool);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
 
 	VkCommandBufferAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -1359,9 +1343,8 @@ static bool rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rt
 		vkDestroyCommandPool(ctx->vk_device, queue->copy_command_pool, VK_ALLOCATOR);
 		queue->copy_command_pool = VK_NULL_HANDLE;
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return false;
+		return;
 	}
-	return true;
 }
 
 struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture_view* texture_view, struct rtvk_buffer* buffer) {
@@ -1408,7 +1391,8 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 	}
 
 	rtvk_queue_flush(ctx, queue);
-	if (!rtvk_texture_copy_buffer_command(ctx, queue)) {
+	rtvk_texture_copy_buffer_command(ctx, queue);
+	if (rtError() != RT_SUCCESS) {
 		return timepoint;
 	}
 	VkCommandBuffer command_buffer = queue->copy_command_buffer;

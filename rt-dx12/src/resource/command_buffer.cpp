@@ -5,6 +5,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <chrono>
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -142,6 +143,11 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue);
 
 static constexpr u32 RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT = 1024;
+
+static u64 rtdx_command_buffer_shutdown_now_ns(void) {
+	using clock = std::chrono::steady_clock;
+	return (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now().time_since_epoch()).count();
+}
 
 void rtdx_command_buffer_init(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
@@ -814,6 +820,14 @@ void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer
 		return;
 	}
 	if (rtdx_atomic_dec(&command_buffer->base.ref_count) != 0) {
+		return;
+	}
+
+	if (command_buffer->base.ctx && command_buffer->base.ctx->shutting_down) {
+		rtdx_atomic_bool_finish(&command_buffer->base.zombie);
+		rtdx_atomic_u32_finish(&command_buffer->base.job_count);
+		rtdx_atomic_u32_finish(&command_buffer->base.ref_count);
+		free(command_buffer);
 		return;
 	}
 

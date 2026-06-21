@@ -867,20 +867,22 @@
             <h4 id="validity-rules">4.2.2 Validity rules</h4>
             <p>A handle is valid if and only if all of the following are true:</p>
             <ul>
-                <li>it was returned by a successful Rutile function call that created a resource, either directly or implicitly</li>
+                <li>it was returned by a successful Rutile function call that produces a handle, either directly or implicitly through backend-owned or swapchain-owned resource acquisition</li>
                 <li>the resource has not been destroyed</li>
                 <li>the handle is used within the backend instance that created it</li>
             </ul>
             <p>A handle is invalid if any of the following are true:</p>
             <ul>
-                <li>it was not returned by a successful resource-creating Rutile function call, either directly or implicitly</li>
+                <li>it was not returned by a successful Rutile function call that produces a handle, either directly or implicitly through backend-owned or swapchain-owned resource acquisition</li>
                 <li>the resource it referred to has since been destroyed</li>
                 <li>it is used with a different backend instance</li>
             </ul>
             <p>
                 Null is not valid. Using null as though it referred to a valid resource is undefined
                 behavior unless a function explicitly defines behavior for a null argument. Use of any
-                invalid handle is undefined behavior.
+                invalid handle is undefined behavior. Some layers, such as a validation layer, MAY
+                detect and report certain invalid-handle or invalid-operation cases, but the backend is
+                not required to detect them.
             </p>
 
             <h4 id="identity-and-reuse">4.2.3 Identity and reuse</h4>
@@ -1129,7 +1131,8 @@
                 Every resource follows the lifecycle: Allocate, Configure, Use, Destroy. Allocation
                 creates a resource and returns its handle. Configuration modifies resource state when
                 the resource type supports it. Use operates on a valid resource according to its
-                function contract. Destroy makes the handle invalid immediately.
+                function contract. Destroy ends the resource's validity immediately; the handle value
+                itself may remain unchanged, but any further use of that handle is undefined behavior.
             </p>
             <p>
                 Queue handles are an exception to this lifecycle. They are allocated and managed
@@ -1162,6 +1165,12 @@
                 <a href="#rt-success"><code>RT_SUCCESS</code></a>. On failure, returns null and throws
                 the appropriate error.
             </p>
+            <p>
+                Any Rutile function that returns a handle MUST state whether the returned handle is valid,
+                borrowed, backend-owned, swapchain-owned, or otherwise lifetime-limited by the function
+                contract. Any Rutile function that consumes a handle MUST state whether it destroys the
+                handle, invalidates it, or leaves its validity unchanged.
+            </p>
 
             <h4 id="generic-destroy">7.4.2 Destroy</h4>
             <div class="boxed-code"><code>void rtTYPEDestroy(
@@ -1169,9 +1178,18 @@
 )</code></div>
             <p>
                 Destroy MUST NOT fail. Destroying null MUST be a no-op. After destroy returns, the
-                handle is immediately invalid. The backend MAY defer the physical cleanup of resources,
-                but all resources MUST be cleaned up before <a href="#api-exit"><code>rtExit()</code></a>
+                resource can no longer be used for any operation, even if the raw handle value still
+                exists in user code. The backend MAY defer the physical cleanup of resources, but all
+                resources MUST be cleaned up before <a href="#api-exit"><code>rtExit()</code></a>
                 returns.
+            </p>
+            <p>
+                A Rutile object MAY be destroyable even when it is not yet usable for all operations on
+                that object. The backend is not required to track or expose an explicit internal state
+                for this; a function that operates on the object is responsible for defining its own
+                preconditions. Calling an operation when the object's contents do not satisfy those
+                preconditions is undefined behavior. Validation layers MAY detect and report some of
+                these cases, but such detection is not required of the backend.
             </p>
         </section>
 

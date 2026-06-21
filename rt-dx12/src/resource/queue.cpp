@@ -6,10 +6,6 @@
 
 #include <stdlib.h>
 
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
-
 rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	struct rtdx_queue* queue = rtdx_queue_query(rtdx_get_current_context(), capability);
 	return rtdx_queue_to_handle(queue);
@@ -99,7 +95,6 @@ bool rtdx_queue_init(struct rtdx_context* ctx, struct rtdx_queue* queue, enum rt
 
 void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	if (!queue) { return; }
-	rtdx_queue_wait_idle(ctx, queue);
 	rtdx_queue_collect(ctx, queue);
 	rtdx_release(&queue->upload_command_list);
 	rtdx_release(&queue->upload_allocator);
@@ -166,6 +161,10 @@ void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 		queue->submitted_head = batch->next;
 		if (!queue->submitted_head) {
 			queue->submitted_tail = NULL;
+		}
+		if (ctx && ctx->shutting_down) {
+			free(batch);
+			continue;
 		}
 		rtdx_command_buffer_node_release(batch->command_buffer_node);
 		free(batch);

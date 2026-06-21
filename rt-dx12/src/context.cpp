@@ -148,9 +148,7 @@ void rtdx_context_init(struct rtdx_context* ctx) {
 void rtdx_context_finish(struct rtdx_context* ctx) {
 	if (!ctx) { return; }
 
-	for (u32 i = 0; i < ctx->queue_count; i++) {
-		rtdx_queue_wait_idle(ctx, ctx->queues[i]);
-	}
+	ctx->shutting_down = true;
 	rtdx_context_destroy_queues(ctx);
 	rtdx_release(&ctx->d3d_device);
 	rtdx_release(&ctx->dxgi_adapter);

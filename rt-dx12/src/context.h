@@ -24,6 +24,7 @@ struct rtdx_context {
 	u32 queue_count;
 	rtdx_context_flags flags;
 	bool allow_tearing;
+	bool shutting_down;
 };
 
 extern struct rtdx_context* current_context;
