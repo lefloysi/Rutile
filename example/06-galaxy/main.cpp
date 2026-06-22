@@ -408,7 +408,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramLink(graphics_program);
 	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "Scene");
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
 	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
@@ -483,7 +483,7 @@ int main(int argc, char** argv) {
 	}
 
 	rtTimepointWait(last_rendered);
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth_texture);

@@ -12,6 +12,12 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §9.6 Graphics program
+** Implements create, destroy, shader setters, state setters, and link.
+** Linked programs are re-prepared against the active framebuffer format.
+*/
+
 rt_graphics_program rtGraphicsProgramCreate(void) {
 	struct rtvk_graphics_program* program = rtvk_graphics_program_create(rtvk_get_current_context());
 	return rtvk_graphics_program_to_handle(program);

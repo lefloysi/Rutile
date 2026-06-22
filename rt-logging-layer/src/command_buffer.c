@@ -4,11 +4,11 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_command_buffer rtCmdCreate(void) {
-	return rtlog_rtCmdCreate();
+RT_EXPORT rt_command_buffer rtCommandBufferCreate(void) {
+	return rtlog_rtCommandBufferCreate();
 }
-RT_EXPORT void rtCmdDestroy(rt_command_buffer command_buffer) {
-	rtlog_rtCmdDestroy(command_buffer);
+RT_EXPORT void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
+	rtlog_rtCommandBufferDestroy(command_buffer);
 }
 RT_EXPORT void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
 	rtlog_rtCmdBegin(command_buffer, queue);
@@ -69,22 +69,22 @@ RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtlog_rtCmdCreate(void) {
+rt_command_buffer rtlog_rtCommandBufferCreate(void) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdCreate()\n");
+	rtlog_printf("rtCommandBufferCreate()\n");
 
-	rt_command_buffer result = next_rtCmdCreate();
-	rtlog_printf("rtCmdCreate -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdCreate");
+	rt_command_buffer result = next_rtCommandBufferCreate();
+	rtlog_printf("rtCommandBufferCreate -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
+	rtlog_error("rtCommandBufferCreate");
 	return result;
 }
 
-void rtlog_rtCmdDestroy(rt_command_buffer command_buffer) {
+void rtlog_rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdDestroy(command_buffer=%s)\n", rtlog_pointer(command_buffer));
-	next_rtCmdDestroy(command_buffer);
-	rtlog_printf("rtCmdDestroy completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdDestroy");
+	rtlog_printf("rtCommandBufferDestroy(command_buffer=%s)\n", rtlog_pointer(command_buffer));
+	next_rtCommandBufferDestroy(command_buffer);
+	rtlog_printf("rtCommandBufferDestroy completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtCommandBufferDestroy");
 }
 
 void rtlog_rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {

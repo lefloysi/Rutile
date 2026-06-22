@@ -15,8 +15,8 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTVK_API rt_command_buffer rtCmdCreate(void);
-RTVK_API void rtCmdDestroy(rt_command_buffer command_buffer);
+RTVK_API rt_command_buffer rtCommandBufferCreate(void);
+RTVK_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
 
 RTVK_API void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue);
 RTVK_API void rtCmdEnd(rt_command_buffer command_buffer);

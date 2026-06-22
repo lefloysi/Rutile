@@ -8,6 +8,12 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §3 Error model
+** Implements thread-local error state, accessors, and VkResult mapping.
+** Also hosts the backend output sink used for diagnostics.
+*/
+
 static thread_local enum rt_error rtvk_error_status = RT_SUCCESS;
 static thread_local char rtvk_error_text[1024] = "";
 

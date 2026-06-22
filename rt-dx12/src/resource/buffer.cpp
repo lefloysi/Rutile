@@ -105,14 +105,6 @@ void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 		data);
 }
 
-void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	return rtdx_buffer_map(rtdx_get_current_context(), rtdx_buffer_from_handle(buffer), offset, size);
-}
-
-void rtBufferUnmap(rt_buffer buffer) {
-	rtdx_buffer_unmap(rtdx_get_current_context(), rtdx_buffer_from_handle(buffer));
-}
-
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -588,31 +580,3 @@ void rtdx_buffer_read(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 
 	buffer->storage->d3d_resource->Unmap(0, &write_range);
 }
 
-void* rtdx_buffer_map(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size) {
-	if (!buffer || !buffer->storage) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
-		return NULL;
-	}
-	if (offset > buffer->storage->size || size > buffer->storage->size - offset) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "buffer map range is out of bounds");
-		return NULL;
-	}
-	if (buffer->storage->shadow_data) {
-		return (char*)buffer->storage->shadow_data + offset;
-	}
-
-	D3D12_RANGE read_range = { (SIZE_T)offset, (SIZE_T)(offset + size) };
-	void* mapped_data = NULL;
-	HRESULT result = buffer->storage->d3d_resource->Map(0, &read_range, &mapped_data);
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Resource::Map failed: 0x%08x", (u32)result);
-		return NULL;
-	}
-	return (char*)mapped_data + offset;
-}
-
-void rtdx_buffer_unmap(struct rtdx_context* ctx, struct rtdx_buffer* buffer) {
-	if (!buffer || !buffer->storage || buffer->storage->shadow_data) { return; }
-	D3D12_RANGE write_range = { 0, 0 };
-	buffer->storage->d3d_resource->Unmap(0, &write_range);
-}

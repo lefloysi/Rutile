@@ -25,11 +25,11 @@ static bool rtval_cb_rendering(struct rtval_command_buffer* state, const char* c
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_command_buffer rtCmdCreate(void) {
+RT_EXPORT rt_command_buffer rtCommandBufferCreate(void) {
 	return rtval_command_buffer_to_handle(rtval_command_buffer_create());
 }
 
-RT_EXPORT void rtCmdDestroy(rt_command_buffer command_buffer) {
+RT_EXPORT void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtval_command_buffer_destroy(rtval_command_buffer_from_handle(command_buffer));
 }
 
@@ -146,19 +146,19 @@ RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 /*===============================================================================================*/
 
 struct rtval_command_buffer* rtval_command_buffer_create(void) {
-	rt_command_buffer backend = rtval_next_rtCmdCreate();
+	rt_command_buffer backend = rtval_next_rtCommandBufferCreate();
 	if (!backend) {
-		rtval_report_error("rtCmdCreate");
+		rtval_report_error("rtCommandBufferCreate");
 		return NULL;
 	}
 	struct rtval_command_buffer* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_COMMAND_BUFFER);
 	if (!handle) {
-		rtval_next_rtCmdDestroy(backend);
+		rtval_next_rtCommandBufferDestroy(backend);
 		return NULL;
 	}
 	struct rtval_command_buffer* state = RTVAL_PAYLOAD(handle, struct rtval_command_buffer);
 	state->backend = backend;
-	rtval_report_error("rtCmdCreate");
+	rtval_report_error("rtCommandBufferCreate");
 	return handle;
 }
 
@@ -166,10 +166,10 @@ void rtval_command_buffer_destroy(struct rtval_command_buffer* cb) {
 	if (!cb) { return; }
 	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
 	if (!state) {
-		RTVAL_DROP("rtCmdDestroy: invalid handle");
+		RTVAL_DROP("rtCommandBufferDestroy: invalid handle");
 		return;
 	}
-	rtval_next_rtCmdDestroy(state->backend);
+	rtval_next_rtCommandBufferDestroy(state->backend);
 	rtval_handle_destroy(cb);
 }
 

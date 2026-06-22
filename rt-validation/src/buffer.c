@@ -33,14 +33,6 @@ RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) 
 	rtval_buffer_read(rtval_buffer_from_handle(buffer), offset, size, data);
 }
 
-RT_EXPORT void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	return rtval_buffer_map(rtval_buffer_from_handle(buffer), offset, size);
-}
-
-RT_EXPORT void rtBufferUnmap(rt_buffer buffer) {
-	rtval_buffer_unmap(rtval_buffer_from_handle(buffer));
-}
-
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -100,21 +92,6 @@ void rtval_buffer_read(struct rtval_buffer* buffer, u64 offset, u64 size, void* 
 
 	rtval_next_rtBufferRead(state->backend, offset, size, data);
 	rtval_report_error("rtBufferRead");
-}
-
-void* rtval_buffer_map(struct rtval_buffer* buffer, u64 offset, u64 size) {
-	RTVAL_RESOLVE(buffer, "rtBufferMap", NULL);
-
-	void* data = rtval_next_rtBufferMap(state->backend, offset, size);
-	rtval_report_error("rtBufferMap");
-	return data;
-}
-
-void rtval_buffer_unmap(struct rtval_buffer* buffer) {
-	RTVAL_RESOLVE(buffer, "rtBufferUnmap", );
-
-	rtval_next_rtBufferUnmap(state->backend);
-	rtval_report_error("rtBufferUnmap");
 }
 
 #undef RTVAL_RESOLVE

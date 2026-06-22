@@ -557,7 +557,7 @@ int main(int argc, char* argv[]) {
 	rt_uniform_location color_location = rtGraphicsProgramUniformLocation(graphics_program, "ColorTexture");
 	rt_uniform_location render_params_location = rtGraphicsProgramUniformLocation(graphics_program, "RenderParams");
 	
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	Camera camera;
 	Camera target_camera;
 	write_params(&params, camera, 0.0f);
@@ -648,7 +648,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	rtTimepointWait(last_rendered);
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtComputeProgramDestroy(color_program);
 	rtComputeProgramDestroy(apply_program);

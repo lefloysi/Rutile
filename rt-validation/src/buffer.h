@@ -12,7 +12,5 @@ void                 rtval_buffer_destroy(struct rtval_buffer* buffer);
 rt_timepoint         rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 rt_timepoint         rtval_buffer_subdata(struct rtval_buffer* buffer, u64 offset, u64 size, const void* data);
 void                 rtval_buffer_read(struct rtval_buffer* buffer, u64 offset, u64 size, void* data);
-void*                rtval_buffer_map(struct rtval_buffer* buffer, u64 offset, u64 size);
-void                 rtval_buffer_unmap(struct rtval_buffer* buffer);
 
 #endif

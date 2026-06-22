@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramLink(water_program);
 	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "Transform");
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
 	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
@@ -431,7 +431,7 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtBufferDestroy(water_transform_buffer);

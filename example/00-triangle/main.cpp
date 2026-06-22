@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramFragmentShader(program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramLink(program);
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
 		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, cmd));
 	}
 
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(program);
 	rtBufferDestroy(vbo);
 	rtSwapchainDestroy(swapchain);

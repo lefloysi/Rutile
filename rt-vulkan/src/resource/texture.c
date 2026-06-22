@@ -13,6 +13,13 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §9.2 Texture
+** Implements rtTextureCreate/Destroy and the texture upload/copy paths.
+** Texture state lives on rtvk_texture; rtvk_texture_view stores image-view
+** and sampler metadata only, and swapchain-backed views never own the image.
+*/
+
 rt_texture rtTextureCreate(void) {
 	struct rtvk_texture* texture = rtvk_texture_create(rtvk_get_current_context());
 	return rtvk_texture_to_handle(texture);

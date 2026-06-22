@@ -299,7 +299,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	auto start_time = std::chrono::steady_clock::now();
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
 	}
 
 	rtTimepointWait(last_rendered);
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtComputeProgramDestroy(compute_program);
 	rtBufferDestroy(params_buffer);

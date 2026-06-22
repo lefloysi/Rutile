@@ -18,6 +18,12 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §2.6 Backend instances, §5.1 Backend state, §5.2 Init
+** Owns the process-wide instance, device, allocator, and queue table.
+** Context teardown follows queues -> allocator -> device -> messenger -> instance.
+*/
+
 struct rtvk_context* current_context = NULL;
 
 struct rtvk_context* rtvk_get_current_context(void) { return current_context; }

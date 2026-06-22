@@ -19,8 +19,6 @@ PFN_rtBufferDestroy rtval_next_rtBufferDestroy = NULL;
 PFN_rtBufferData rtval_next_rtBufferData = NULL;
 PFN_rtBufferSubdata rtval_next_rtBufferSubdata = NULL;
 PFN_rtBufferRead rtval_next_rtBufferRead = NULL;
-PFN_rtBufferMap rtval_next_rtBufferMap = NULL;
-PFN_rtBufferUnmap rtval_next_rtBufferUnmap = NULL;
 PFN_rtTextureCreate rtval_next_rtTextureCreate = NULL;
 PFN_rtTextureDestroy rtval_next_rtTextureDestroy = NULL;
 PFN_rtTextureViewCreate rtval_next_rtTextureViewCreate = NULL;
@@ -339,8 +337,6 @@ RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
 	rtval_next_rtBufferData = (PFN_rtBufferData)next.get_proc(&next, "rtBufferData");
 	rtval_next_rtBufferSubdata = (PFN_rtBufferSubdata)next.get_proc(&next, "rtBufferSubdata");
 	rtval_next_rtBufferRead = (PFN_rtBufferRead)next.get_proc(&next, "rtBufferRead");
-	rtval_next_rtBufferMap = (PFN_rtBufferMap)next.get_proc(&next, "rtBufferMap");
-	rtval_next_rtBufferUnmap = (PFN_rtBufferUnmap)next.get_proc(&next, "rtBufferUnmap");
 	rtval_next_rtTextureCreate = (PFN_rtTextureCreate)next.get_proc(&next, "rtTextureCreate");
 	rtval_next_rtTextureDestroy = (PFN_rtTextureDestroy)next.get_proc(&next, "rtTextureDestroy");
 	rtval_next_rtTextureViewCreate = (PFN_rtTextureViewCreate)next.get_proc(&next, "rtTextureViewCreate");

@@ -9,6 +9,12 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §5.2 Initialization, §5.3 Shutdown
+** Implements rtInit and rtExit plus feature-string validation.
+** rtExit is a no-op when initialization never succeeded.
+*/
+
 static bool rtvk_feature_equals(const char* feature, const char* expected) {
 	return feature && strcmp(feature, expected) == 0;
 }

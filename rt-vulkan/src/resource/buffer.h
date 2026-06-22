@@ -16,8 +16,6 @@ RTVK_API void rtBufferDestroy(rt_buffer buffer);
 RTVK_API rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 RTVK_API rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data);
 RTVK_API void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data);
-RTVK_API void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size);
-RTVK_API void rtBufferUnmap(rt_buffer buffer);
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -63,8 +61,6 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data);
 
 void rtvk_buffer_read(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, void* data);
-void* rtvk_buffer_map(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size);
-void rtvk_buffer_unmap(struct rtvk_context* ctx, struct rtvk_buffer* buffer);
 
 #endif
 

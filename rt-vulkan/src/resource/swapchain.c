@@ -25,6 +25,12 @@ const u32 rtvk_swapchain_present_mode_preferences_count =
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §9.1 Swapchain
+** Implements create, destroy, resize, acquire, and present.
+** Frame sync bridges binary semaphores onto the timeline queue model.
+*/
+
 rt_swapchain rtSwapchainCreate(void) {
 	return rtvk_swapchain_to_handle(rtvk_swapchain_create(rtvk_get_current_context()));
 }

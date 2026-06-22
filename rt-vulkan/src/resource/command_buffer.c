@@ -14,11 +14,18 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtCmdCreate(void) {
+/*
+** SPEC.html §12 Command buffers
+** Implements lifecycle, recording, binding, rendering, and draw/dispatch.
+** Recording uses per-submit nodes so submitted command pools stay alive
+** until the queue timeline passes the recorded batch.
+*/
+
+rt_command_buffer rtCommandBufferCreate(void) {
 	struct rtvk_command_buffer* command_buffer = rtvk_command_buffer_create(rtvk_get_current_context());
 	return rtvk_command_buffer_to_handle(command_buffer);
 }
-void rtCmdDestroy(rt_command_buffer command_buffer) {
+void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtvk_command_buffer_destroy(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer));
 }
 

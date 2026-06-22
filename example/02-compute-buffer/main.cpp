@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
 	rtComputeProgramShader(program, std::strlen(kComputeShader), kComputeShader);
 	rtComputeProgramLink(program);
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	rtCmdBegin(cmd, queue);
 	rtCmdUseComputeProgram(cmd, program);
 	rtCmdStorageBuffer(cmd, 0, storage_buffer, 0, kBufferSize);
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
 		std::cout << "\n";
 	}
 
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtComputeProgramDestroy(program);
 	rtBufferDestroy(storage_buffer);
 	rtExit();

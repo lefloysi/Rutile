@@ -307,8 +307,6 @@ typedef void (*PFN_rtBufferDestroy)(rt_buffer buffer);
 typedef rt_timepoint (*PFN_rtBufferData)(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 typedef rt_timepoint (*PFN_rtBufferSubdata)(rt_buffer buffer, u64 offset, u64 size, const void* data);
 typedef void (*PFN_rtBufferRead)(rt_buffer buffer, u64 offset, u64 size, void* data);
-typedef void* (*PFN_rtBufferMap)(rt_buffer buffer, u64 offset, u64 size);
-typedef void (*PFN_rtBufferUnmap)(rt_buffer buffer);
 
 typedef rt_texture (*PFN_rtTextureCreate)(void);
 typedef void (*PFN_rtTextureDestroy)(rt_texture texture);
@@ -341,8 +339,8 @@ typedef void (*PFN_rtGraphicsProgramBlendState)(rt_graphics_program program, boo
 typedef void (*PFN_rtGraphicsProgramLink)(rt_graphics_program program);
 typedef rt_uniform_location (*PFN_rtGraphicsProgramUniformLocation)(rt_graphics_program program, const char* name);
 
-typedef rt_command_buffer (*PFN_rtCmdCreate)(void);
-typedef void (*PFN_rtCmdDestroy)(rt_command_buffer command_buffer);
+typedef rt_command_buffer (*PFN_rtCommandBufferCreate)(void);
+typedef void (*PFN_rtCommandBufferDestroy)(rt_command_buffer command_buffer);
 typedef void (*PFN_rtCmdBegin)(rt_command_buffer command_buffer, rt_queue queue);
 typedef void (*PFN_rtCmdBeginRendering)(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
 typedef void (*PFN_rtCmdClearColor)(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
@@ -378,8 +376,6 @@ extern PFN_rtBufferDestroy rt_rtBufferDestroy;
 extern PFN_rtBufferData rt_rtBufferData;
 extern PFN_rtBufferSubdata rt_rtBufferSubdata;
 extern PFN_rtBufferRead rt_rtBufferRead;
-extern PFN_rtBufferMap rt_rtBufferMap;
-extern PFN_rtBufferUnmap rt_rtBufferUnmap;
 
 extern PFN_rtTextureCreate rt_rtTextureCreate;
 extern PFN_rtTextureDestroy rt_rtTextureDestroy;
@@ -412,8 +408,8 @@ extern PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState;
 extern PFN_rtGraphicsProgramLink rt_rtGraphicsProgramLink;
 extern PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation;
 
-extern PFN_rtCmdCreate rt_rtCmdCreate;
-extern PFN_rtCmdDestroy rt_rtCmdDestroy;
+extern PFN_rtCommandBufferCreate rt_rtCommandBufferCreate;
+extern PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy;
 extern PFN_rtCmdBegin rt_rtCmdBegin;
 extern PFN_rtCmdBeginRendering rt_rtCmdBeginRendering;
 extern PFN_rtCmdClearColor rt_rtCmdClearColor;
@@ -599,27 +595,6 @@ static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 siz
 */
 static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rt_rtBufferRead(buffer, offset, size, data);
-}
-
-/*!
-** @brief Map buffer storage for direct CPU access.
-**
-** @param buffer Buffer to map.
-** @param offset Byte offset into @p buffer.
-** @param size Number of bytes to map.
-** @return CPU pointer to the requested byte range, or NULL on failure.
-*/
-static inline void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	return rt_rtBufferMap(buffer, offset, size);
-}
-
-/*!
-** @brief Unmap a previously mapped buffer.
-**
-** @param buffer Buffer to unmap.
-*/
-static inline void rtBufferUnmap(rt_buffer buffer) {
-	rt_rtBufferUnmap(buffer);
 }
 
 /*!
@@ -977,8 +952,8 @@ static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_p
 ** @note Command buffers are associated with a queue when recording begins.
 ** @note Creation takes no configuration.
 */
-static inline rt_command_buffer rtCmdCreate(void) {
-	return rt_rtCmdCreate();
+static inline rt_command_buffer rtCommandBufferCreate(void) {
+	return rt_rtCommandBufferCreate();
 }
 
 /*!
@@ -989,8 +964,8 @@ static inline rt_command_buffer rtCmdCreate(void) {
 ** @note Destruction ends the public lifetime of the command buffer.
 ** @note Work already submitted may continue to reference the zombie command buffer.
 */
-static inline void rtCmdDestroy(rt_command_buffer command_buffer) {
-	rt_rtCmdDestroy(command_buffer);
+static inline void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
+	rt_rtCommandBufferDestroy(command_buffer);
 }
 
 /*!
@@ -1704,8 +1679,6 @@ PFN_rtBufferDestroy rt_rtBufferDestroy = NULL;
 PFN_rtBufferData rt_rtBufferData = NULL;
 PFN_rtBufferSubdata rt_rtBufferSubdata = NULL;
 PFN_rtBufferRead rt_rtBufferRead = NULL;
-PFN_rtBufferMap rt_rtBufferMap = NULL;
-PFN_rtBufferUnmap rt_rtBufferUnmap = NULL;
 
 PFN_rtTextureCreate rt_rtTextureCreate = NULL;
 PFN_rtTextureDestroy rt_rtTextureDestroy = NULL;
@@ -1738,8 +1711,8 @@ PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState = NULL;
 PFN_rtGraphicsProgramLink rt_rtGraphicsProgramLink = NULL;
 PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation = NULL;
 
-PFN_rtCmdCreate rt_rtCmdCreate = NULL;
-PFN_rtCmdDestroy rt_rtCmdDestroy = NULL;
+PFN_rtCommandBufferCreate rt_rtCommandBufferCreate = NULL;
+PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy = NULL;
 PFN_rtCmdBegin rt_rtCmdBegin = NULL;
 PFN_rtCmdBeginRendering rt_rtCmdBeginRendering = NULL;
 PFN_rtCmdClearColor rt_rtCmdClearColor = NULL;
@@ -1864,8 +1837,6 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	RT__CORE_RESOLVE(rtBufferData);
 	RT__CORE_RESOLVE(rtBufferSubdata);
 	RT__CORE_RESOLVE(rtBufferRead);
-	RT__CORE_RESOLVE(rtBufferMap);
-	RT__CORE_RESOLVE(rtBufferUnmap);
 
 	RT__CORE_RESOLVE(rtTextureCreate);
 	RT__CORE_RESOLVE(rtTextureDestroy);
@@ -1898,8 +1869,8 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	RT__CORE_RESOLVE(rtGraphicsProgramLink);
 	RT__CORE_RESOLVE(rtGraphicsProgramUniformLocation);
 
-	RT__CORE_RESOLVE(rtCmdCreate);
-	RT__CORE_RESOLVE(rtCmdDestroy);
+	RT__CORE_RESOLVE(rtCommandBufferCreate);
+	RT__CORE_RESOLVE(rtCommandBufferDestroy);
 	RT__CORE_RESOLVE(rtCmdBegin);
 	RT__CORE_RESOLVE(rtCmdBeginRendering);
 	RT__CORE_RESOLVE(rtCmdClearColor);
@@ -2004,8 +1975,6 @@ void rtUnload(void) {
 	rt_rtBufferData = NULL;
 	rt_rtBufferSubdata = NULL;
 	rt_rtBufferRead = NULL;
-	rt_rtBufferMap = NULL;
-	rt_rtBufferUnmap = NULL;
 	rt_rtTextureCreate = NULL;
 	rt_rtTextureDestroy = NULL;
 	rt_rtTextureViewCreate = NULL;
@@ -2035,8 +2004,8 @@ void rtUnload(void) {
 	rt_rtGraphicsProgramBlendState = NULL;
 	rt_rtGraphicsProgramLink = NULL;
 	rt_rtGraphicsProgramUniformLocation = NULL;
-	rt_rtCmdCreate = NULL;
-	rt_rtCmdDestroy = NULL;
+	rt_rtCommandBufferCreate = NULL;
+	rt_rtCommandBufferDestroy = NULL;
 	rt_rtCmdBegin = NULL;
 	rt_rtCmdBeginRendering = NULL;
 	rt_rtCmdClearColor = NULL;

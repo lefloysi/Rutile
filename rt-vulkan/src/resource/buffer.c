@@ -12,10 +12,16 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §9.3 Buffer
+** Implements rtBufferCreate/Destroy, rtBufferData, and rtBufferSubdata.
+** Buffer-node versioning keeps in-flight command lists on the old node while
+** a new upload node is allocated, then recycles the old node after submit.
+*/
+
 rt_buffer rtBufferCreate(void) {
 	return rtvk_buffer_to_handle(rtvk_buffer_create(rtvk_get_current_context()));
 }
-
 void rtBufferDestroy(rt_buffer buffer) {
 	rtvk_buffer_destroy(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer));
 }
@@ -30,7 +36,6 @@ rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_bu
 		data);
 	return rtvk_timepoint_to_public(timepoint);
 }
-
 rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
 	struct rtvk_timepoint timepoint = rtvk_buffer_subdata(
 		rtvk_get_current_context(),
@@ -40,7 +45,6 @@ rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void*
 		data);
 	return rtvk_timepoint_to_public(timepoint);
 }
-
 void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rtvk_buffer_read(
 		rtvk_get_current_context(),
@@ -50,13 +54,6 @@ void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 		data);
 }
 
-void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	return rtvk_buffer_map(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer), offset, size);
-}
-
-void rtBufferUnmap(rt_buffer buffer) {
-	rtvk_buffer_unmap(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer));
-}
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -192,8 +189,6 @@ VkPipelineStageFlags rtvk_buffer_vk_stage_for_queue(enum rt_buffer_usage usage, 
 /*===============================================================================================*/
 
 RTVK_DEFINE_RESOURCE_PRIVATE(buffer)
-
-
 
 void rtvk_buffer_init(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(buffer), RT_RESOURCE_BUFFER);
@@ -638,25 +633,3 @@ void rtvk_buffer_read(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 
 	}
 }
 
-void* rtvk_buffer_map(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size) {
-	if (!buffer || !buffer->active) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
-		return NULL;
-	}
-	if (offset > buffer->active->size || size > buffer->active->size - offset) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "buffer map range is out of bounds");
-		return NULL;
-	}
-	if (!rtvk_buffer_uses_host_storage(buffer->active->mode, buffer->active->usage)) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "buffer has no CPU-mappable storage");
-		return NULL;
-	}
-
-	VmaAllocationInfo allocation_info;
-	vmaGetAllocationInfo(ctx->vma_allocator, buffer->active->vma_allocation, &allocation_info);
-	vmaInvalidateAllocation(ctx->vma_allocator, buffer->active->vma_allocation, offset, size);
-	return (char*)allocation_info.pMappedData + offset;
-}
-
-void rtvk_buffer_unmap(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
-}

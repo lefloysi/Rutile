@@ -10,6 +10,11 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
+/*
+** SPEC.html §10 Queues, §11 Timepoints
+** Implements queue lookup, submission, flush, wait, and timepoint queries.
+** Timeline semaphores back rt_timepoint; swapchain bridging stays backend-only.
+*/
 
 rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	return rtvk_queue_to_handle(rtvk_queue_query(rtvk_get_current_context(), capability));

@@ -21,8 +21,6 @@ extern PFN_rtBufferDestroy rtval_next_rtBufferDestroy;
 extern PFN_rtBufferData rtval_next_rtBufferData;
 extern PFN_rtBufferSubdata rtval_next_rtBufferSubdata;
 extern PFN_rtBufferRead rtval_next_rtBufferRead;
-extern PFN_rtBufferMap rtval_next_rtBufferMap;
-extern PFN_rtBufferUnmap rtval_next_rtBufferUnmap;
 extern PFN_rtTextureCreate rtval_next_rtTextureCreate;
 extern PFN_rtTextureDestroy rtval_next_rtTextureDestroy;
 extern PFN_rtTextureViewCreate rtval_next_rtTextureViewCreate;

@@ -11,12 +11,12 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtCmdCreate(void) {
+rt_command_buffer rtCommandBufferCreate(void) {
 	struct rtdx_command_buffer* command_buffer = rtdx_command_buffer_create(rtdx_get_current_context());
 	return rtdx_command_buffer_to_handle(command_buffer);
 }
 
-void rtCmdDestroy(rt_command_buffer command_buffer) {
+void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtdx_command_buffer_destroy(rtdx_get_current_context(), rtdx_command_buffer_from_handle(command_buffer));
 }
 

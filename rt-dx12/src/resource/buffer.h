@@ -16,8 +16,6 @@ RTDX_API void rtBufferDestroy(rt_buffer buffer);
 RTDX_API rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 RTDX_API rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data);
 RTDX_API void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data);
-RTDX_API void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size);
-RTDX_API void rtBufferUnmap(rt_buffer buffer);
 RTDX_EXTERN_C_EXIT
 
 /*===============================================================================================*/
@@ -52,8 +50,6 @@ struct rtdx_buffer_storage {
 struct rtdx_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 struct rtdx_timepoint rtdx_buffer_subdata(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size, const void* data);
 void rtdx_buffer_read(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size, void* data);
-void* rtdx_buffer_map(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size);
-void rtdx_buffer_unmap(struct rtdx_context* ctx, struct rtdx_buffer* buffer);
 void rtdx_buffer_storage_retain(struct rtdx_buffer_storage* storage);
 void rtdx_buffer_storage_release(struct rtdx_buffer_storage* storage);
 

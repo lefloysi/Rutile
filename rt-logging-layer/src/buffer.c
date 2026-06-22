@@ -9,8 +9,6 @@ RT_EXPORT void rtBufferDestroy(rt_buffer buffer) { rtlog_rtBufferDestroy(buffer)
 RT_EXPORT rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) { return rtlog_rtBufferData(buffer, mode, usage, size, data); }
 RT_EXPORT rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) { return rtlog_rtBufferSubdata(buffer, offset, size, data); }
 RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) { rtlog_rtBufferRead(buffer, offset, size, data); }
-RT_EXPORT void* rtBufferMap(rt_buffer buffer, u64 offset, u64 size) { return rtlog_rtBufferMap(buffer, offset, size); }
-RT_EXPORT void rtBufferUnmap(rt_buffer buffer) { rtlog_rtBufferUnmap(buffer); }
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -62,21 +60,5 @@ void rtlog_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rtlog_error("rtBufferRead");
 }
 
-void* rtlog_rtBufferMap(rt_buffer buffer, u64 offset, u64 size) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtBufferMap(buffer=%s, offset=%llu, size=%llu)\n", rtlog_pointer(buffer), (u64)offset, (u64)size);
-	void* result = next_rtBufferMap(buffer, offset, size);
-	rtlog_printf("rtBufferMap -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
-	rtlog_error("rtBufferMap");
-	return result;
-}
-
-void rtlog_rtBufferUnmap(rt_buffer buffer) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtBufferUnmap(buffer=%s)\n", rtlog_pointer(buffer));
-	next_rtBufferUnmap(buffer);
-	rtlog_printf("rtBufferUnmap completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtBufferUnmap");
-}
 
 

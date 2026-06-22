@@ -305,7 +305,7 @@ void render_thread_main(void) {
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
 	rt_uniform_location image_location = rtGraphicsProgramUniformLocation(graphics_program, "Image");
 
-	rt_command_buffer cmd = rtCmdCreate();
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
 	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
@@ -369,7 +369,7 @@ void render_thread_main(void) {
 	Running.store(false, std::memory_order_release);
 	rtTimepointWait(last_rendered);
 
-	rtCmdDestroy(cmd);
+	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth_texture);

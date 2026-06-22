@@ -15,8 +15,8 @@
 /*===============================================================================================*/
 
 RTDX_EXTERN_C_ENTER
-RTDX_API rt_command_buffer rtCmdCreate(void);
-RTDX_API void rtCmdDestroy(rt_command_buffer command_buffer);
+RTDX_API rt_command_buffer rtCommandBufferCreate(void);
+RTDX_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
 RTDX_API void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue);
 RTDX_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
 RTDX_API void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
