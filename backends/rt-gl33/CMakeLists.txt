@@ -17,22 +17,15 @@ target_compile_features(${PROJECT_NAME} PRIVATE
 )
 
 target_sources(${PROJECT_NAME} PRIVATE
-    "src/core.c"
-    "src/context.c"
-    "src/error.c"
-    "src/system_win32.c"
-    "src/init.c"
-    "src/resource/swapchain.c"
-    "src/resource/glfw/glfw.c"
-    "src/core.h"
-    "src/context.h"
-    "src/error.h"
+    "src/config.h"
     "src/types.h"
-    "src/system.h"
-    "src/system_win32.h"
-    "src/resource/swapchain.h"
-    "src/resource/glfw/glfw.h"
-)
+    "src/core.c"
+    "src/core.h"
+    "src/context.c"
+    "src/context.h"
+    "src/error.c"
+    "src/error.h"
+ "src/types.h")
 
 rutile_configure_shared_library(${PROJECT_NAME})
 

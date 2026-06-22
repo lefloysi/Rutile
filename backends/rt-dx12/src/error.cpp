@@ -10,8 +10,8 @@
 static thread_local enum rt_error rtdx_error = RT_SUCCESS;
 static thread_local char rtdx_error_text[1024] = "";
 
-static PFN_rtOutput rtdx_output = NULL;
-static void* rtdx_output_user_data = NULL;
+static thread_local PFN_rtOutput rtdx_output = NULL;
+static thread_local void* rtdx_output_user_data = NULL;
 
 static const char* rtdx_hresult_fallback(HRESULT result) {
 	switch (result) {

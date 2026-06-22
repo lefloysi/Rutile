@@ -18,6 +18,10 @@ RTVK_API enum rt_error rtError(void);
 RTVK_API const char* rtErrorMessage(void);
 RTVK_API void rtClearError(void);
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 RTVK_API void rtvk_printf(const char* format, ...);
 RTVK_API void rtvk_vprintf(const char* format, va_list args);
 RTVK_API void rtvk_throwf(enum rt_error error, const char* format, ...);

@@ -17,8 +17,8 @@
 static thread_local enum rt_error rtvk_error_status = RT_SUCCESS;
 static thread_local char rtvk_error_text[1024] = "";
 
-static PFN_rtOutput rtvk_output = NULL;
-static void* rtvk_output_user_data = NULL;
+static thread_local PFN_rtOutput rtvk_output = NULL;
+static thread_local void* rtvk_output_user_data = NULL;
 
 static void rtvk_default_output(const char* message, void* user_data) {
 	fputs(message, stdout);
@@ -37,9 +37,7 @@ void rtvk_vprintf(const char* format, va_list args) {
 	char message[1024];
 	PFN_rtOutput output = rtvk_output ? rtvk_output : rtvk_default_output;
 
-	if (!format) {
-		return;
-	}
+	if (!format) { return; }
 
 	vsnprintf(message, sizeof(message), format, args);
 	message[sizeof(message) - 1] = '\0';
