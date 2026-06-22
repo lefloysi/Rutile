@@ -263,6 +263,14 @@ typedef struct rt_extent_3d {
 enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count);
 
 /*!
+** @brief Load an implementation and optional layers for development.
+**
+** @note Missing backends or layers are skipped.
+** @note The loader still fails for invalid arguments or if the selected backend cannot be initialized.
+*/
+enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
+
+/*!
 ** @brief Unload the current implementation and layers.
 **
 ** @note Core API calls are unavailable after unload.
@@ -1895,6 +1903,85 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	return RT_SUCCESS;
 }
 
+#define RT__CORE_TRY_RESOLVE(name)                                                        \
+	do {                                                                                   \
+		rt_proc_t _p = rtGetProc(#name);                                                   \
+		if (_p) {                                                                          \
+			rt_##name = (PFN_##name)_p;                                                    \
+		}                                                                                  \
+	} while (0)
+
+static void rt__load_core_development(void) {
+	RT__CORE_TRY_RESOLVE(rtInit);
+	RT__CORE_TRY_RESOLVE(rtExit);
+	RT__CORE_TRY_RESOLVE(rtSetOutput);
+	RT__CORE_TRY_RESOLVE(rtError);
+	RT__CORE_TRY_RESOLVE(rtErrorMessage);
+	RT__CORE_TRY_RESOLVE(rtClearError);
+	RT__CORE_TRY_RESOLVE(rtGetName);
+	RT__CORE_TRY_RESOLVE(rtQueryFormatCapabilities);
+
+	RT__CORE_TRY_RESOLVE(rtBufferCreate);
+	RT__CORE_TRY_RESOLVE(rtBufferDestroy);
+	RT__CORE_TRY_RESOLVE(rtBufferData);
+	RT__CORE_TRY_RESOLVE(rtBufferSubdata);
+	RT__CORE_TRY_RESOLVE(rtBufferRead);
+
+	RT__CORE_TRY_RESOLVE(rtTextureCreate);
+	RT__CORE_TRY_RESOLVE(rtTextureDestroy);
+	RT__CORE_TRY_RESOLVE(rtTextureViewCreate);
+	RT__CORE_TRY_RESOLVE(rtTextureViewDestroy);
+	RT__CORE_TRY_RESOLVE(rtTextureViewFilter);
+	RT__CORE_TRY_RESOLVE(rtTextureViewAddress);
+	RT__CORE_TRY_RESOLVE(rtTextureViewAnisotropy);
+	RT__CORE_TRY_RESOLVE(rtTextureViewLod);
+
+	RT__CORE_TRY_RESOLVE(rtTextureCopy);
+	RT__CORE_TRY_RESOLVE(rtTextureData);
+	RT__CORE_TRY_RESOLVE(rtTextureSubcopy);
+	RT__CORE_TRY_RESOLVE(rtTextureSubdata);
+	RT__CORE_TRY_RESOLVE(rtTextureViewCopyToBuffer);
+	RT__CORE_TRY_RESOLVE(rtTextureViewExtent);
+	RT__CORE_TRY_RESOLVE(rtFramebufferCreate);
+	RT__CORE_TRY_RESOLVE(rtFramebufferDestroy);
+	RT__CORE_TRY_RESOLVE(rtFramebufferColorView);
+	RT__CORE_TRY_RESOLVE(rtFramebufferSetColorView);
+	RT__CORE_TRY_RESOLVE(rtFramebufferDepthView);
+
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramCreate);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramDestroy);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramVertexLayout);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramVertexShader);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramFragmentShader);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramRasterState);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramBlendState);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramLink);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramUniformLocation);
+
+	RT__CORE_TRY_RESOLVE(rtCommandBufferCreate);
+	RT__CORE_TRY_RESOLVE(rtCommandBufferDestroy);
+	RT__CORE_TRY_RESOLVE(rtCmdBegin);
+	RT__CORE_TRY_RESOLVE(rtCmdBeginRendering);
+	RT__CORE_TRY_RESOLVE(rtCmdClearColor);
+	RT__CORE_TRY_RESOLVE(rtCmdClearDepth);
+	RT__CORE_TRY_RESOLVE(rtCmdClearStencil);
+	RT__CORE_TRY_RESOLVE(rtCmdUseGraphicsProgram);
+	RT__CORE_TRY_RESOLVE(rtCmdSetScissor);
+	RT__CORE_TRY_RESOLVE(rtCmdUniformBuffer);
+	RT__CORE_TRY_RESOLVE(rtCmdUniformTexture);
+	RT__CORE_TRY_RESOLVE(rtCmdBindVertexBuffer);
+	RT__CORE_TRY_RESOLVE(rtCmdDraw);
+	RT__CORE_TRY_RESOLVE(rtCmdEndRendering);
+	RT__CORE_TRY_RESOLVE(rtCmdEnd);
+
+	RT__CORE_TRY_RESOLVE(rtQueueQuery);
+	RT__CORE_TRY_RESOLVE(rtQueueWait);
+	RT__CORE_TRY_RESOLVE(rtQueueSubmit);
+	RT__CORE_TRY_RESOLVE(rtQueueFlush);
+	RT__CORE_TRY_RESOLVE(rtTimepointWait);
+	RT__CORE_TRY_RESOLVE(rtTimepointReached);
+}
+
 #undef RT__CORE_RESOLVE
 
 enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count) {
@@ -1954,6 +2041,60 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 		rt__loader_print_error();
 		return err;
 	}
+	rt_loaded = true;
+	return RT_SUCCESS;
+}
+
+enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count) {
+	rt__loader_clear_error_state();
+	if (layer_count > RT__MAX_LAYERS) {
+		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment requested too many layers: %u", layer_count);
+		rt__loader_print_error();
+		return RT_IMPROPER_USAGE;
+	}
+	if (layer_count && !layer_names) {
+		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment layer_count is %u but layer_names is NULL", layer_count);
+		rt__loader_print_error();
+		return RT_IMPROPER_USAGE;
+	}
+
+	rtUnload();
+
+	char message[1024];
+	enum rt_error err = RT_SUCCESS;
+	if (backend_name) {
+		err = rt__load_backend_named(backend_name, &rt__backend_dll, message, sizeof(message));
+		if (err != RT_SUCCESS) {
+			rt__loader_set_errorf(RT_SUCCESS, "development loader skipped backend %s", backend_name);
+			rt__loader_print_error();
+		}
+	}
+
+	if (!rt__backend_dll) {
+		rt_loaded = false;
+		return RT_SUCCESS;
+	}
+
+	u32 loaded_layers = 0;
+	for (u32 i = 0; i < layer_count; i++) {
+		err = rt__load_layer_named(layer_names[i], &rt__layer_links[loaded_layers], message, sizeof(message));
+		if (err != RT_SUCCESS) {
+			rt__loader_set_errorf(RT_SUCCESS, "development loader skipped layer %s", layer_names[i]);
+			rt__loader_print_error();
+			continue;
+		}
+		loaded_layers++;
+	}
+
+	rt_proc_chain chain;
+	chain.get_proc = rt__backend_proc;
+	for (u32 i = 0; i < loaded_layers; i++) {
+		rt__layer_set_next(i, chain);
+		chain = rt__layer_links[i].chain;
+	}
+	rt__chain = chain;
+
+	rt__load_core_development();
 	rt_loaded = true;
 	return RT_SUCCESS;
 }

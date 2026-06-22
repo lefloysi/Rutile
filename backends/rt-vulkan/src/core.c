@@ -1,6 +1,7 @@
 #include "core.h"
 #include "context.h"
 
+static bool rtvk_validate_init_features(const char* const* features, u32 feature_count, rtvk_context_flags* flags);
 
 /*===============================================================================================*/
 /*                                                                                               */

@@ -2,12 +2,18 @@
 #define RTGL33_CONTEXT_H
 
 #include "types.h"
+#include "platform/context.h"
 
 typedef struct rtgl_context_flags {
 	unsigned presentation : 1;
 } rtgl_context_flags;
 
 struct rtgl_context {
+	gl_context* gl_context;
+	void* thread_handle;
+	void* ready_event;
+	void* stop_event;
+	u32 thread_id;
 	rtgl_context_flags flags;
 };
 

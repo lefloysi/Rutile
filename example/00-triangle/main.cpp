@@ -44,8 +44,7 @@ void main() { out_color = vec4(v_color, 1.0); }
 )";
 
 int main(int argc, char** argv) {
-	const char* backend = argc > 1 ? argv[1] : "rt-vulkan";
-	if (rtLoad(backend, nullptr, 0) != RT_SUCCESS) { std::fprintf(stderr, "rtLoad failed\n"); return 1; }
+	if (rtLoadDevelopment("rt-gl33", nullptr, 0) != RT_SUCCESS) { std::fprintf(stderr, "rtLoadDevelopment failed\n"); return 1; }
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
 	const char* features[] = { RT_FEATURE_PRESENTATION };

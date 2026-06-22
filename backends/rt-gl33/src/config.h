@@ -9,7 +9,6 @@
 #define RTGL_EXTERN_C_EXIT
 #endif /* __cplusplus */
 
-RTGL_EXTERN_C_ENTER
 #if defined(_WIN32)
 #define RTGL_API __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -43,5 +42,7 @@ RTGL_EXTERN_C_ENTER
 		}                                                   \
 	} while (0)
 
-RTGL_EXTERN_C_EXIT
+#define RTGL_ALLOC(var, type, count, what)                  \
+	type* var = calloc((count), sizeof(type));              \
+	RTGL_CHECK_ALLOC(var, sizeof(type) * (usize)(count), (what))
 #endif /* RTGL33_CONFIG_H */

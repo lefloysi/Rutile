@@ -25,7 +25,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/context.h"
     "src/error.c"
     "src/error.h"
- "src/types.h")
+    "src/platform/context.h"
+    "src/platform/wgl/context.c"
+    "src/glad/gl.h"
+    "src/types.h")
 
 rutile_configure_shared_library(${PROJECT_NAME})
 

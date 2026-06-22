@@ -7,7 +7,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtInit(const char* const* features, u32 feature_count) {
+RTGL_API void rtInit(const char* const* features, u32 feature_count) {
 	rtgl_context_flags flags;
 
 	rtClearError();
@@ -39,16 +39,16 @@ void rtInit(const char* const* features, u32 feature_count) {
 	current_context = rtgl_create_context(flags);
 }
 
-void rtExit(void) {
+RTGL_API void rtExit(void) {
 	rtgl_context_destroy(current_context);
 	current_context = NULL;
 }
 
-const char* rtGetName(void) {
+RTGL_API const char* rtGetName(void) {
 	return "rt-gl33";
 }
 
-enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
+RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
 	(void)format;
 	return RT_FORMAT_USAGE_NONE;
 }

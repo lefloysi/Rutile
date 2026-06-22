@@ -12,7 +12,8 @@ static thread_local char rtgl_error_text[1024] = "";
 static thread_local PFN_rtOutput rtgl_output = NULL;
 static thread_local void* rtgl_output_user_data = NULL;
 
-static void rtgl_default_output(const char* message, void*) {
+static void rtgl_default_output(const char* message, void* user_data) {
+	(void)user_data;
 	fputs(message, stdout);
 }
 
@@ -20,19 +21,19 @@ static void rtgl_default_output(const char* message, void*) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtSetOutput(PFN_rtOutput output, void* user_data) {
+RTGL_API void rtSetOutput(PFN_rtOutput output, void* user_data) {
 	rtgl_set_output(output, user_data);
 }
 
-enum rt_error rtError(void) {
+RTGL_API enum rt_error rtError(void) {
 	return rtgl_error();
 }
 
-const char* rtErrorMessage(void) {
+RTGL_API const char* rtErrorMessage(void) {
 	return rtgl_error_message();
 }
 
-void rtClearError(void) {
+RTGL_API void rtClearError(void) {
 	rtgl_clear_error();
 }
 
