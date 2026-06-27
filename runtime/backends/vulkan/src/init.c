@@ -14,4 +14,3 @@
 ** Implements rtInit and rtExit plus feature-string validation.
 ** rtExit is a no-op when initialization never succeeded.
 */
-

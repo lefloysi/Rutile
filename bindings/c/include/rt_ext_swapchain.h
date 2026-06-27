@@ -12,7 +12,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 typedef struct rt_swapchain_t rt_swapchain_t;
-typedef rt_swapchain_t* rt_swapchain;
+typedef rt_swapchain_t *rt_swapchain;
 
 typedef struct rt_swapchain_acquire_result {
 	rt_framebuffer framebuffer;
@@ -48,13 +48,13 @@ PFN_rtSwapchainResize rt_rtSwapchainResize = NULL;
 PFN_rtSwapchainAcquire rt_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent rt_rtSwapchainPresent = NULL;
 
-#define RT__SWAPCHAIN_RESOLVE(name)                                                       \
-	do {                                                                                  \
-		rt_proc_t _p = rtGetProc(#name);                                                  \
-		if (!_p) {                                                                        \
-			return false;                                                                 \
-		}                                                                                 \
-		rt_##name = (PFN_##name)_p;                                                       \
+#define RT__SWAPCHAIN_RESOLVE(name)      \
+	do {                                 \
+		rt_proc_t _p = rtGetProc(#name); \
+		if (!_p) {                       \
+			return false;                \
+		}                                \
+		rt_##name = (PFN_##name)_p;      \
 	} while (0)
 
 bool rtLoad_RT_EXT_SWAPCHAIN(void) {

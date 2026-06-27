@@ -4,8 +4,8 @@
 
 #include <windows.h>
 
-using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow* window, int* width, int* height);
-using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow* window);
+using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow *window, int *width, int *height);
+using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow *window);
 
 struct rtdx_glfw_procs {
 	PFN_rtdx_glfwGetFramebufferSize get_framebuffer_size = nullptr;
@@ -19,16 +19,18 @@ static rtdx_glfw_procs rtdx_glfw;
 /*                                                                                               */
 /*===============================================================================================*/
 
-static void* rtdx_glfw_symbol(const char* name) {
+static void *rtdx_glfw_symbol(const char *name) {
 	HMODULE module = GetModuleHandleA(NULL);
-	void* symbol = module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
-	if (symbol) { return symbol; }
+	void *symbol = module ? reinterpret_cast<void *>(GetProcAddress(module, name)) : nullptr;
+	if (symbol) {
+		return symbol;
+	}
 
 	module = GetModuleHandleA("glfw3.dll");
 	if (!module) {
 		module = LoadLibraryA("glfw3.dll");
 	}
-	return module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
+	return module ? reinterpret_cast<void *>(GetProcAddress(module, name)) : nullptr;
 }
 
 static bool rtdx_glfw_resolve() {
@@ -50,7 +52,7 @@ static bool rtdx_glfw_resolve() {
 	return true;
 }
 
-void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
+void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window) {
 	int width = 0;
 	int height = 0;
 	HWND hwnd;
@@ -59,7 +61,9 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "rtSwapchainBindWindowGLFW window is NULL");
 		return;
 	}
-	if (!rtdx_glfw_resolve()) { return; }
+	if (!rtdx_glfw_resolve()) {
+		return;
+	}
 
 	rtdx_glfw.get_framebuffer_size(window, &width, &height);
 	hwnd = rtdx_glfw.get_win32_window(window);
@@ -73,7 +77,6 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 		rtdx_swapchain_from_handle(swapchain),
 		hwnd,
 		(u32)width,
-		(u32)height);
+		(u32)height
+	);
 }
-
-

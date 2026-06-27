@@ -7,7 +7,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTGL_API void rtInit(const char* const* features, u32 feature_count) {
+RTGL_API void rtInit(const char *const *features, u32 feature_count) {
 	rtgl_context_flags flags;
 
 	rtClearError();
@@ -21,9 +21,9 @@ RTGL_API void rtInit(const char* const* features, u32 feature_count) {
 		return;
 	}
 
-	flags = (rtgl_context_flags){ 0 };
+	flags = (rtgl_context_flags){0};
 	for (u32 i = 0; i < feature_count; i++) {
-		const char* feature = features[i];
+		const char *feature = features[i];
 		if (!feature) {
 			rtgl_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %u is NULL", i);
 			return;
@@ -44,7 +44,7 @@ RTGL_API void rtExit(void) {
 	current_context = NULL;
 }
 
-RTGL_API const char* rtGetName(void) {
+RTGL_API const char *rtGetName(void) {
 	return "rt-gl33";
 }
 

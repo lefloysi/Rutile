@@ -1,8 +1,8 @@
 #define RUTILE_IMPL
-#include "rutile.h"
 #include "rt_ext_compute.h"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
+#include "rutile.h"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -13,8 +13,8 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
+constexpr const char *kDefaultBackendName = "rt-vulkan";
+constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
 constexpr u32 kTextureWidth = 1024;
 constexpr u32 kTextureHeight = 1024;
 
@@ -31,7 +31,7 @@ struct PlasmaParams {
 	f32 controls[4];
 };
 
-constexpr const char* kComputeShader = R"(
+constexpr const char *kComputeShader = R"(
 #version 460
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -102,7 +102,7 @@ void main() {
 }
 )";
 
-constexpr const char* kVertexShader = R"(
+constexpr const char *kVertexShader = R"(
 #version 460
 layout(location = 0) out vec2 uv;
 
@@ -118,7 +118,7 @@ void main() {
 }
 )";
 
-constexpr const char* kFragmentShader = R"(
+constexpr const char *kFragmentShader = R"(
 #version 460
 layout(location = 0) in vec2 uv;
 layout(location = 0) out vec4 out_color;
@@ -133,7 +133,7 @@ void main() {
 }
 )";
 
-bool check_rt_error(const char* step) {
+bool check_rt_error(const char *step) {
 	if (rtError() == RT_SUCCESS) {
 		return true;
 	}
@@ -146,7 +146,7 @@ u32 ceil_div_u32(u32 value, u32 divisor) {
 	return (value + divisor - 1u) / divisor;
 }
 
-void framebuffer_resized(GLFWwindow* window, int width, int height) {
+void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	(void)window;
 	if (width > 0 && height > 0) {
 		FramebufferWidth.store((u32)width, std::memory_order_release);
@@ -159,7 +159,7 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	}
 }
 
-void cursor_moved(GLFWwindow* window, double x, double y) {
+void cursor_moved(GLFWwindow *window, double x, double y) {
 	(void)window;
 	const u32 width = max(FramebufferWidth.load(std::memory_order_acquire), 1u);
 	const u32 height = max(FramebufferHeight.load(std::memory_order_acquire), 1u);
@@ -167,14 +167,14 @@ void cursor_moved(GLFWwindow* window, double x, double y) {
 	MouseY = std::clamp((f32)y / (f32)height, 0.0f, 1.0f);
 }
 
-void mouse_button(GLFWwindow* window, int button, int action, int) {
+void mouse_button(GLFWwindow *window, int button, int action, int) {
 	(void)window;
 	if (button == GLFW_MOUSE_BUTTON_LEFT) {
 		MouseDown = action == GLFW_PRESS;
 	}
 }
 
-void write_params(PlasmaParams* params, f32 time) {
+void write_params(PlasmaParams *params, f32 time) {
 	params->mouse[0] = MouseX;
 	params->mouse[1] = MouseY;
 	params->mouse[2] = MouseDown ? 1.0f : 0.0f;
@@ -189,8 +189,8 @@ void write_params(PlasmaParams* params, f32 time) {
 	params->controls[3] = 0.0f;
 }
 
-int main(int argc, char** argv) {
-	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char **argv) {
+	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, nullptr, 0) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed: " << rtErrorMessage() << "\n";
 		return 1;
@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 07 Plasma Lab", nullptr, nullptr);
+	GLFWwindow *window = glfwCreateWindow(1280, 720, "Rutile 07 Plasma Lab", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();
@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
 	auto start_time = std::chrono::steady_clock::now();
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
+	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();

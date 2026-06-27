@@ -1,13 +1,14 @@
 #include "graphics_program.h"
 #include "context.h"
 #include "error.h"
+#include "shader_compiler.h"
 
-#include <rutile/backend_tools/shader_translation.hpp>
-
-#include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <d3dcompiler.h>
+#include <exception>
+#include <new>
 #include <string.h>
 
 /*===============================================================================================*/
@@ -15,7 +16,7 @@
 /*===============================================================================================*/
 
 rt_graphics_program rtGraphicsProgramCreate(void) {
-	struct rtdx_graphics_program* program = rtdx_graphics_program_create(rtdx_get_current_context());
+	struct rtdx_graphics_program *program = rtdx_graphics_program_create(rtdx_get_current_context());
 	return rtdx_graphics_program_to_handle(program);
 }
 
@@ -23,15 +24,19 @@ void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtdx_graphics_program_destroy(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
-void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout *layout) {
 	rtdx_graphics_program_vertex_layout(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), layout);
 }
 
-void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data) {
+void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void *data) {
+	rtdx_graphics_program_source(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), size, data);
+}
+
+void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void *data) {
 	rtdx_graphics_program_vertex_shader(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), size, data);
 }
 
-void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data) {
+void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void *data) {
 	rtdx_graphics_program_fragment_shader(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), size, data);
 }
 
@@ -47,16 +52,16 @@ void rtGraphicsProgramBlendState(
 	enum rt_blend_op color_op,
 	enum rt_blend_factor src_alpha,
 	enum rt_blend_factor dst_alpha,
-	enum rt_blend_op alpha_op) {
-	rtdx_graphics_program_blend_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program),
-									  enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
+	enum rt_blend_op alpha_op
+) {
+	rtdx_graphics_program_blend_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
 void rtGraphicsProgramLink(rt_graphics_program program) {
 	rtdx_graphics_program_link(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
-rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
+rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char *name) {
 	return rtdx_graphics_program_uniform_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
 }
 
@@ -66,7 +71,7 @@ rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program
 
 RTDX_DEFINE_RESOURCE_PRIVATE(graphics_program)
 
-void rtdx_graphics_program_init(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+void rtdx_graphics_program_init(struct rtdx_context *ctx, struct rtdx_graphics_program *program) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(program), RT_RESOURCE_GRAPHICS_PROGRAM);
 	program->cull_mode = RT_CULL_NONE;
 	program->front_face = RT_FRONT_FACE_CCW;
@@ -80,9 +85,9 @@ void rtdx_graphics_program_init(struct rtdx_context* ctx, struct rtdx_graphics_p
 	program->alpha_blend_op = RT_BLEND_OP_ADD;
 }
 
-static void rtdx_graphics_program_destroy_pipeline(struct rtdx_graphics_program* program) {
+static void rtdx_graphics_program_destroy_pipeline(struct rtdx_graphics_program *program) {
 	if (program->d3d_pipeline) {
-		rtdx_retired_graphics_pipeline* retired = (rtdx_retired_graphics_pipeline*)malloc(sizeof(*retired));
+		rtdx_retired_graphics_pipeline *retired = (rtdx_retired_graphics_pipeline *)malloc(sizeof(*retired));
 		if (!retired) {
 			rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retire graphics pipeline");
 			return;
@@ -96,10 +101,10 @@ static void rtdx_graphics_program_destroy_pipeline(struct rtdx_graphics_program*
 	program->d3d_pipeline_depth_format = DXGI_FORMAT_UNKNOWN;
 }
 
-static void rtdx_graphics_program_destroy_root_signature(struct rtdx_graphics_program* program) {
+static void rtdx_graphics_program_destroy_root_signature(struct rtdx_graphics_program *program) {
 	rtdx_graphics_program_destroy_pipeline(program);
 	if (program->d3d_root_signature) {
-		rtdx_retired_root_signature* retired = (rtdx_retired_root_signature*)malloc(sizeof(*retired));
+		rtdx_retired_root_signature *retired = (rtdx_retired_root_signature *)malloc(sizeof(*retired));
 		if (!retired) {
 			rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retire root signature");
 			return;
@@ -111,7 +116,7 @@ static void rtdx_graphics_program_destroy_root_signature(struct rtdx_graphics_pr
 	}
 }
 
-static void rtdx_graphics_program_clear_translation(struct rtdx_graphics_program* program) {
+static void rtdx_graphics_program_clear_translation(struct rtdx_graphics_program *program) {
 	free(program->vertex_hlsl);
 	free(program->fragment_hlsl);
 	free(program->uniform_locations);
@@ -123,29 +128,32 @@ static void rtdx_graphics_program_clear_translation(struct rtdx_graphics_program
 	program->uniform_location_count = 0;
 }
 
-static void rtdx_graphics_program_clear_sources(struct rtdx_graphics_program* program) {
+static void rtdx_graphics_program_clear_sources(struct rtdx_graphics_program *program) {
 	free(program->vertex_shader_source);
 	free(program->fragment_shader_source);
+	free(program->program_source);
 	program->vertex_shader_source = NULL;
 	program->fragment_shader_source = NULL;
+	program->program_source = NULL;
 	program->vertex_shader_size = 0;
 	program->fragment_shader_size = 0;
+	program->program_source_size = 0;
 	program->vertex_shader_set = false;
 	program->fragment_shader_set = false;
 }
 
-void rtdx_graphics_program_finish(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+void rtdx_graphics_program_finish(struct rtdx_context *ctx, struct rtdx_graphics_program *program) {
 	rtdx_graphics_program_destroy_root_signature(program);
 	rtdx_graphics_program_clear_translation(program);
 	rtdx_graphics_program_clear_sources(program);
 	while (program->retired_pipelines) {
-		rtdx_retired_graphics_pipeline* retired = program->retired_pipelines;
+		rtdx_retired_graphics_pipeline *retired = program->retired_pipelines;
 		program->retired_pipelines = retired->next;
 		rtdx_release(&retired->d3d_pipeline);
 		free(retired);
 	}
 	while (program->retired_root_signatures) {
-		rtdx_retired_root_signature* retired = program->retired_root_signatures;
+		rtdx_retired_root_signature *retired = program->retired_root_signatures;
 		program->retired_root_signatures = retired->next;
 		rtdx_release(&retired->d3d_root_signature);
 		free(retired);
@@ -160,40 +168,54 @@ static D3D12_BLEND_OP rtdx_blend_op(enum rt_blend_op op);
 
 static DXGI_FORMAT rtdx_vertex_format(enum rt_format format) {
 	switch (format) {
-	case RT_R32_SFLOAT: return DXGI_FORMAT_R32_FLOAT;
-	case RT_RG32_SFLOAT: return DXGI_FORMAT_R32G32_FLOAT;
-	case RT_RGB32_SFLOAT: return DXGI_FORMAT_R32G32B32_FLOAT;
-	case RT_RGBA32_SFLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
-	case RT_R32_SINT: return DXGI_FORMAT_R32_SINT;
-	case RT_RG32_SINT: return DXGI_FORMAT_R32G32_SINT;
-	case RT_RGB32_SINT: return DXGI_FORMAT_R32G32B32_SINT;
-	case RT_RGBA32_SINT: return DXGI_FORMAT_R32G32B32A32_SINT;
-	case RT_R32_UINT: return DXGI_FORMAT_R32_UINT;
-	case RT_RG32_UINT: return DXGI_FORMAT_R32G32_UINT;
-	case RT_RGB32_UINT: return DXGI_FORMAT_R32G32B32_UINT;
-	case RT_RGBA32_UINT: return DXGI_FORMAT_R32G32B32A32_UINT;
-	default: return DXGI_FORMAT_UNKNOWN;
+	case RT_R32_SFLOAT:
+		return DXGI_FORMAT_R32_FLOAT;
+	case RT_RG32_SFLOAT:
+		return DXGI_FORMAT_R32G32_FLOAT;
+	case RT_RGB32_SFLOAT:
+		return DXGI_FORMAT_R32G32B32_FLOAT;
+	case RT_RGBA32_SFLOAT:
+		return DXGI_FORMAT_R32G32B32A32_FLOAT;
+	case RT_R32_SINT:
+		return DXGI_FORMAT_R32_SINT;
+	case RT_RG32_SINT:
+		return DXGI_FORMAT_R32G32_SINT;
+	case RT_RGB32_SINT:
+		return DXGI_FORMAT_R32G32B32_SINT;
+	case RT_RGBA32_SINT:
+		return DXGI_FORMAT_R32G32B32A32_SINT;
+	case RT_R32_UINT:
+		return DXGI_FORMAT_R32_UINT;
+	case RT_RG32_UINT:
+		return DXGI_FORMAT_R32G32_UINT;
+	case RT_RGB32_UINT:
+		return DXGI_FORMAT_R32G32B32_UINT;
+	case RT_RGBA32_UINT:
+		return DXGI_FORMAT_R32G32B32A32_UINT;
+	default:
+		return DXGI_FORMAT_UNKNOWN;
 	}
 }
 
 static bool rtdx_compile_shader(
-	struct rtdx_graphics_program* program,
+	struct rtdx_graphics_program *program,
 	bool vertex_stage,
-	const char* entry,
-	const char* target,
-	ID3DBlob** out_blob) {
+	const char *entry,
+	const char *target,
+	ID3DBlob **out_blob
+) {
 	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #if defined(_DEBUG)
 	flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
-	const char* shader_source = vertex_stage ? program->vertex_hlsl : program->fragment_hlsl;
+	const char *shader_source = vertex_stage ? program->vertex_hlsl : program->fragment_hlsl;
 	u64 shader_size = vertex_stage ? program->vertex_hlsl_size : program->fragment_hlsl_size;
 	if (!shader_source || shader_size == 0) {
 		rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "graphics program has no translated %s shader", vertex_stage ? "vertex" : "fragment");
 		return false;
 	}
-	ID3DBlob* errors = NULL;
+	ID3DBlob *errors = NULL;
 	HRESULT result = D3DCompile(
 		shader_source,
 		shader_size,
@@ -205,9 +227,10 @@ static bool rtdx_compile_shader(
 		flags,
 		0,
 		out_blob,
-		&errors);
+		&errors
+	);
 	if (FAILED(result)) {
-		const char* message = errors ? (const char*)errors->GetBufferPointer() : "unknown shader compiler error";
+		const char *message = errors ? (const char *)errors->GetBufferPointer() : "unknown shader compiler error";
 		rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "%s", message);
 		rtdx_release(&errors);
 		return false;
@@ -217,7 +240,7 @@ static bool rtdx_compile_shader(
 	return true;
 }
 
-static bool rtdx_graphics_program_create_root_signature(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+static bool rtdx_graphics_program_create_root_signature(struct rtdx_context *ctx, struct rtdx_graphics_program *program) {
 	D3D12_DESCRIPTOR_RANGE srv_ranges[RTDX_MAX_SHADER_BINDINGS] = {};
 	D3D12_DESCRIPTOR_RANGE sampler_ranges[RTDX_MAX_SHADER_BINDINGS] = {};
 	for (u32 i = 0; i < RTDX_MAX_SHADER_BINDINGS; ++i) {
@@ -261,11 +284,11 @@ static bool rtdx_graphics_program_create_root_signature(struct rtdx_context* ctx
 	desc.pStaticSamplers = NULL;
 	desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	ID3DBlob* signature = NULL;
-	ID3DBlob* errors = NULL;
+	ID3DBlob *signature = NULL;
+	ID3DBlob *errors = NULL;
 	HRESULT result = D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &errors);
 	if (FAILED(result)) {
-		const char* message = errors ? (const char*)errors->GetBufferPointer() : "root signature serialization failed";
+		const char *message = errors ? (const char *)errors->GetBufferPointer() : "root signature serialization failed";
 		rtdx_throwf(RT_INITIALIZATION_FAILED, "%s", message);
 		rtdx_release(&errors);
 		return false;
@@ -282,16 +305,17 @@ static bool rtdx_graphics_program_create_root_signature(struct rtdx_context* ctx
 }
 
 static bool rtdx_graphics_program_create_pipeline(
-	struct rtdx_context* ctx,
-	struct rtdx_graphics_program* program,
+	struct rtdx_context *ctx,
+	struct rtdx_graphics_program *program,
 	DXGI_FORMAT color_format,
-	DXGI_FORMAT depth_format) {
-	ID3DBlob* vertex_shader = NULL;
+	DXGI_FORMAT depth_format
+) {
+	ID3DBlob *vertex_shader = NULL;
 	if (!rtdx_compile_shader(program, true, "main", "vs_5_0", &vertex_shader)) {
 		return false;
 	}
 
-	ID3DBlob* pixel_shader = NULL;
+	ID3DBlob *pixel_shader = NULL;
 	if (!rtdx_compile_shader(program, false, "main", "ps_5_0", &pixel_shader)) {
 		rtdx_release(&vertex_shader);
 		return false;
@@ -323,8 +347,8 @@ static bool rtdx_graphics_program_create_pipeline(
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_info = {};
 	pipeline_info.pRootSignature = program->d3d_root_signature;
-	pipeline_info.VS = { vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize() };
-	pipeline_info.PS = { pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize() };
+	pipeline_info.VS = {vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize()};
+	pipeline_info.PS = {pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize()};
 	pipeline_info.BlendState.RenderTarget[0].BlendEnable = program->blend_enabled;
 	pipeline_info.BlendState.RenderTarget[0].SrcBlend = rtdx_blend_factor(program->src_color_blend);
 	pipeline_info.BlendState.RenderTarget[0].DestBlend = rtdx_blend_factor(program->dst_color_blend);
@@ -343,11 +367,11 @@ static bool rtdx_graphics_program_create_pipeline(
 	pipeline_info.RasterizerState.DepthClipEnable = TRUE;
 	pipeline_info.DepthStencilState.DepthEnable = depth_format != DXGI_FORMAT_UNKNOWN;
 	pipeline_info.DepthStencilState.DepthWriteMask = pipeline_info.DepthStencilState.DepthEnable
-		? D3D12_DEPTH_WRITE_MASK_ALL
-		: D3D12_DEPTH_WRITE_MASK_ZERO;
+														 ? D3D12_DEPTH_WRITE_MASK_ALL
+														 : D3D12_DEPTH_WRITE_MASK_ZERO;
 	pipeline_info.DepthStencilState.DepthFunc = pipeline_info.DepthStencilState.DepthEnable
-		? D3D12_COMPARISON_FUNC_LESS
-		: D3D12_COMPARISON_FUNC_ALWAYS;
+													? D3D12_COMPARISON_FUNC_LESS
+													: D3D12_COMPARISON_FUNC_ALWAYS;
 	pipeline_info.DepthStencilState.StencilEnable = FALSE;
 	pipeline_info.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
 	pipeline_info.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
@@ -363,9 +387,9 @@ static bool rtdx_graphics_program_create_pipeline(
 	pipeline_info.SampleDesc.Count = 1;
 	pipeline_info.SampleDesc.Quality = 0;
 	if (program->vertex_layout.attribute_count > 0) {
-		pipeline_info.InputLayout = { elements, program->vertex_layout.attribute_count };
+		pipeline_info.InputLayout = {elements, program->vertex_layout.attribute_count};
 	} else {
-		pipeline_info.InputLayout = { NULL, 0 };
+		pipeline_info.InputLayout = {NULL, 0};
 	}
 
 	HRESULT result = ctx->d3d_device->CreateGraphicsPipelineState(&pipeline_info, IID_PPV_ARGS(&program->d3d_pipeline));
@@ -382,10 +406,11 @@ static bool rtdx_graphics_program_create_pipeline(
 }
 
 bool rtdx_graphics_program_prepare(
-	struct rtdx_context* ctx,
-	struct rtdx_graphics_program* program,
+	struct rtdx_context *ctx,
+	struct rtdx_graphics_program *program,
 	DXGI_FORMAT color_format,
-	DXGI_FORMAT depth_format) {
+	DXGI_FORMAT depth_format
+) {
 	if (!program || !program->d3d_root_signature) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before use");
 		return false;
@@ -401,7 +426,7 @@ bool rtdx_graphics_program_prepare(
 	return rtdx_graphics_program_create_pipeline(ctx, program, color_format, depth_format);
 }
 
-void rtdx_graphics_program_vertex_layout(struct rtdx_context* ctx, struct rtdx_graphics_program* program, const rt_vertex_layout* layout) {
+void rtdx_graphics_program_vertex_layout(struct rtdx_context *ctx, struct rtdx_graphics_program *program, const rt_vertex_layout *layout) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -427,14 +452,14 @@ void rtdx_graphics_program_vertex_layout(struct rtdx_context* ctx, struct rtdx_g
 	rtdx_graphics_program_destroy_pipeline(program);
 }
 
-static bool rtdx_graphics_program_set_source(char** dst, u64* dst_size, u64 size, const void* data) {
+static bool rtdx_graphics_program_set_source(char **dst, u64 *dst_size, u64 size, const void *data) {
 	free(*dst);
 	*dst = NULL;
 	*dst_size = 0;
 	if (!data || size == 0) {
 		return true;
 	}
-	char* copy = (char*)malloc((size_t)size);
+	char *copy = (char *)malloc((size_t)size);
 	if (!copy) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate shader source copy");
 		return false;
@@ -445,7 +470,21 @@ static bool rtdx_graphics_program_set_source(char** dst, u64* dst_size, u64 size
 	return true;
 }
 
-void rtdx_graphics_program_vertex_shader(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data) {
+void rtdx_graphics_program_source(struct rtdx_context *ctx, struct rtdx_graphics_program *program, u64 size, const void *data) {
+	(void)ctx;
+	if (!program) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
+		return;
+	}
+	if (!rtdx_graphics_program_set_source(&program->program_source, &program->program_source_size, size, data)) {
+		return;
+	}
+	rtdx_graphics_program_clear_translation(program);
+	rtdx_graphics_program_destroy_root_signature(program);
+}
+
+void rtdx_graphics_program_vertex_shader(struct rtdx_context *ctx, struct rtdx_graphics_program *program, u64 size, const void *data) {
+	(void)ctx;
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -458,7 +497,7 @@ void rtdx_graphics_program_vertex_shader(struct rtdx_context* ctx, struct rtdx_g
 	rtdx_graphics_program_destroy_root_signature(program);
 }
 
-void rtdx_graphics_program_fragment_shader(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data) {
+void rtdx_graphics_program_fragment_shader(struct rtdx_context *ctx, struct rtdx_graphics_program *program, u64 size, const void *data) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -472,11 +511,12 @@ void rtdx_graphics_program_fragment_shader(struct rtdx_context* ctx, struct rtdx
 }
 
 void rtdx_graphics_program_raster_state(
-	struct rtdx_context* ctx,
-	struct rtdx_graphics_program* program,
+	struct rtdx_context *ctx,
+	struct rtdx_graphics_program *program,
 	enum rt_cull_mode cull_mode,
 	enum rt_front_face front_face,
-	enum rt_fill_mode fill_mode) {
+	enum rt_fill_mode fill_mode
+) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -489,15 +529,16 @@ void rtdx_graphics_program_raster_state(
 }
 
 void rtdx_graphics_program_blend_state(
-	struct rtdx_context* ctx,
-	struct rtdx_graphics_program* program,
+	struct rtdx_context *ctx,
+	struct rtdx_graphics_program *program,
 	bool enabled,
 	enum rt_blend_factor src_color,
 	enum rt_blend_factor dst_color,
 	enum rt_blend_op color_op,
 	enum rt_blend_factor src_alpha,
 	enum rt_blend_factor dst_alpha,
-	enum rt_blend_op alpha_op) {
+	enum rt_blend_op alpha_op
+) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -513,91 +554,30 @@ void rtdx_graphics_program_blend_state(
 	rtdx_graphics_program_destroy_pipeline(program);
 }
 
-static char* rtdx_copy_string_bytes(const std::string& text, u64* size) {
-	char* copy = (char*)malloc(text.size() + 1);
-	if (!copy) {
-		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate translated shader source");
-		return NULL;
-	}
-	memcpy(copy, text.data(), text.size());
-	copy[text.size()] = '\0';
-	*size = (u64)text.size();
-	return copy;
-}
-
-static bool rtdx_graphics_program_add_location(
-	struct rtdx_graphics_program* program,
-	const rutile::backend_tools::ShaderResource& resource,
-	u32* count) {
-	if (resource.binding >= RTDX_MAX_SHADER_BINDINGS) {
-		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "shader resource '%s' binding %u exceeds DX12 backend binding limit %u",
-					resource.name.c_str(), resource.binding, (u32)RTDX_MAX_SHADER_BINDINGS);
-		return false;
-	}
-
-	rtdx_uniform_location* location = &program->uniform_locations[*count];
-	location->program = program;
-	snprintf(location->name, sizeof(location->name), "%s", resource.name.c_str());
-	location->name[sizeof(location->name) - 1] = '\0';
-	location->slot = resource.binding;
-	if (resource.kind == rutile::backend_tools::ShaderResourceKind::UniformBuffer) {
-		location->kind = RTDX_UNIFORM_LOCATION_BUFFER;
-		location->root_parameter = resource.binding;
-		location->sampler_root_parameter = 0;
-	} else if (resource.kind == rutile::backend_tools::ShaderResourceKind::StorageBuffer) {
-		location->kind = RTDX_UNIFORM_LOCATION_STORAGE_BUFFER;
-		location->root_parameter = RTDX_MAX_SHADER_BINDINGS + resource.binding;
-		location->sampler_root_parameter = 0;
-	} else {
-		location->kind = RTDX_UNIFORM_LOCATION_TEXTURE;
-		location->root_parameter = RTDX_MAX_SHADER_BINDINGS + resource.binding;
-		location->sampler_root_parameter = RTDX_MAX_SHADER_BINDINGS * 2 + resource.binding;
-	}
-	(*count)++;
-	return true;
-}
-
-static bool rtdx_graphics_program_translate(struct rtdx_graphics_program* program) {
+static bool rtdx_graphics_program_translate_rtslp(struct rtdx_graphics_program *program) {
 	try {
 		rtdx_graphics_program_clear_translation(program);
-		rutile::backend_tools::GraphicsTranslation translation =
-			rutile::backend_tools::translate_graphics_glsl_to_hlsl(
-				&program->vertex_layout,
-				program->vertex_shader_size,
-				program->vertex_shader_source,
-				program->fragment_shader_size,
-				program->fragment_shader_source);
+		rtdx_graphics_hlsl_compile_result translated =
+			rtdx_shader_compile_graphics_rtslp(program, program->program_source_size, program->program_source);
 
-		program->vertex_hlsl = rtdx_copy_string_bytes(translation.vertex.hlsl, &program->vertex_hlsl_size);
-		if (!program->vertex_hlsl) {
-			return false;
-		}
-		program->fragment_hlsl = rtdx_copy_string_bytes(translation.fragment.hlsl, &program->fragment_hlsl_size);
-		if (!program->fragment_hlsl) {
-			return false;
-		}
-
-		const std::vector<rutile::backend_tools::ShaderResource>& resources = translation.vertex.resources;
-		if (!resources.empty()) {
-			program->uniform_locations = (rtdx_uniform_location*)calloc(resources.size(), sizeof(program->uniform_locations[0]));
-			if (!program->uniform_locations) {
-				rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate shader uniform locations");
-				return false;
-			}
-		}
-
-		u32 count = 0;
-		for (const rutile::backend_tools::ShaderResource& resource : resources) {
-			if (!rtdx_graphics_program_add_location(program, resource, &count)) {
-				return false;
-			}
-		}
-		program->uniform_location_count = count;
+		program->vertex_hlsl = translated.vertex_hlsl;
+		program->vertex_hlsl_size = translated.vertex_hlsl_size;
+		program->fragment_hlsl = translated.fragment_hlsl;
+		program->fragment_hlsl_size = translated.fragment_hlsl_size;
+		std::fprintf(stderr, "=== RTSLP -> VERTEX HLSL ===\n%s\n=== RTSLP -> FRAGMENT HLSL ===\n%s\n", program->vertex_hlsl ? program->vertex_hlsl : "", program->fragment_hlsl ? program->fragment_hlsl : "");
+		std::fflush(stderr);
+		program->uniform_locations = translated.uniform_locations;
+		program->uniform_location_count = translated.uniform_location_count;
+		// Ownership transferred; do not let the result destructor free them.
+		translated.vertex_hlsl = NULL;
+		translated.fragment_hlsl = NULL;
+		translated.uniform_locations = NULL;
+		rtdx_graphics_hlsl_result_clear(&translated);
 		return true;
-	} catch (const std::bad_alloc&) {
+	} catch (const std::bad_alloc &) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "shader translation ran out of memory");
 		return false;
-	} catch (const std::exception& error) {
+	} catch (const std::exception &error) {
 		rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "%s", error.what());
 		return false;
 	} catch (...) {
@@ -606,16 +586,16 @@ static bool rtdx_graphics_program_translate(struct rtdx_graphics_program* progra
 	}
 }
 
-void rtdx_graphics_program_link(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+void rtdx_graphics_program_link(struct rtdx_context *ctx, struct rtdx_graphics_program *program) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
 	}
-	if (!program->vertex_shader_set || !program->fragment_shader_set) {
-		rtdx_throwf(RT_SHADER_LINK_FAILED, "graphics program link requires vertex and fragment shaders");
+	if (!program->program_source || program->program_source_size == 0) {
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "graphics program link requires an RTSLP source set via rtGraphicsProgramSource");
 		return;
 	}
-	if (!rtdx_graphics_program_translate(program)) {
+	if (!rtdx_graphics_program_translate_rtslp(program)) {
 		return;
 	}
 	if (!program->d3d_root_signature && !rtdx_graphics_program_create_root_signature(ctx, program)) {
@@ -625,49 +605,73 @@ void rtdx_graphics_program_link(struct rtdx_context* ctx, struct rtdx_graphics_p
 
 static D3D12_CULL_MODE rtdx_cull_mode(enum rt_cull_mode mode) {
 	switch (mode) {
-	case RT_CULL_NONE: return D3D12_CULL_MODE_NONE;
-	case RT_CULL_FRONT: return D3D12_CULL_MODE_FRONT;
-	case RT_CULL_BACK: return D3D12_CULL_MODE_BACK;
-	default: return D3D12_CULL_MODE_NONE;
+	case RT_CULL_NONE:
+		return D3D12_CULL_MODE_NONE;
+	case RT_CULL_FRONT:
+		return D3D12_CULL_MODE_FRONT;
+	case RT_CULL_BACK:
+		return D3D12_CULL_MODE_BACK;
+	default:
+		return D3D12_CULL_MODE_NONE;
 	}
 }
 
 static D3D12_FILL_MODE rtdx_fill_mode(enum rt_fill_mode mode) {
 	switch (mode) {
-	case RT_FILL_SOLID: return D3D12_FILL_MODE_SOLID;
-	case RT_FILL_WIREFRAME: return D3D12_FILL_MODE_WIREFRAME;
-	default: return D3D12_FILL_MODE_SOLID;
+	case RT_FILL_SOLID:
+		return D3D12_FILL_MODE_SOLID;
+	case RT_FILL_WIREFRAME:
+		return D3D12_FILL_MODE_WIREFRAME;
+	default:
+		return D3D12_FILL_MODE_SOLID;
 	}
 }
 
 static D3D12_BLEND rtdx_blend_factor(enum rt_blend_factor factor) {
 	switch (factor) {
-	case RT_BLEND_ZERO: return D3D12_BLEND_ZERO;
-	case RT_BLEND_ONE: return D3D12_BLEND_ONE;
-	case RT_BLEND_SRC_COLOR: return D3D12_BLEND_SRC_COLOR;
-	case RT_BLEND_ONE_MINUS_SRC_COLOR: return D3D12_BLEND_INV_SRC_COLOR;
-	case RT_BLEND_DST_COLOR: return D3D12_BLEND_DEST_COLOR;
-	case RT_BLEND_ONE_MINUS_DST_COLOR: return D3D12_BLEND_INV_DEST_COLOR;
-	case RT_BLEND_SRC_ALPHA: return D3D12_BLEND_SRC_ALPHA;
-	case RT_BLEND_ONE_MINUS_SRC_ALPHA: return D3D12_BLEND_INV_SRC_ALPHA;
-	case RT_BLEND_DST_ALPHA: return D3D12_BLEND_DEST_ALPHA;
-	case RT_BLEND_ONE_MINUS_DST_ALPHA: return D3D12_BLEND_INV_DEST_ALPHA;
-	default: return D3D12_BLEND_ONE;
+	case RT_BLEND_ZERO:
+		return D3D12_BLEND_ZERO;
+	case RT_BLEND_ONE:
+		return D3D12_BLEND_ONE;
+	case RT_BLEND_SRC_COLOR:
+		return D3D12_BLEND_SRC_COLOR;
+	case RT_BLEND_ONE_MINUS_SRC_COLOR:
+		return D3D12_BLEND_INV_SRC_COLOR;
+	case RT_BLEND_DST_COLOR:
+		return D3D12_BLEND_DEST_COLOR;
+	case RT_BLEND_ONE_MINUS_DST_COLOR:
+		return D3D12_BLEND_INV_DEST_COLOR;
+	case RT_BLEND_SRC_ALPHA:
+		return D3D12_BLEND_SRC_ALPHA;
+	case RT_BLEND_ONE_MINUS_SRC_ALPHA:
+		return D3D12_BLEND_INV_SRC_ALPHA;
+	case RT_BLEND_DST_ALPHA:
+		return D3D12_BLEND_DEST_ALPHA;
+	case RT_BLEND_ONE_MINUS_DST_ALPHA:
+		return D3D12_BLEND_INV_DEST_ALPHA;
+	default:
+		return D3D12_BLEND_ONE;
 	}
 }
 
 static D3D12_BLEND_OP rtdx_blend_op(enum rt_blend_op op) {
 	switch (op) {
-	case RT_BLEND_OP_ADD: return D3D12_BLEND_OP_ADD;
-	case RT_BLEND_OP_SUBTRACT: return D3D12_BLEND_OP_SUBTRACT;
-	case RT_BLEND_OP_REVERSE_SUBTRACT: return D3D12_BLEND_OP_REV_SUBTRACT;
-	case RT_BLEND_OP_MIN: return D3D12_BLEND_OP_MIN;
-	case RT_BLEND_OP_MAX: return D3D12_BLEND_OP_MAX;
-	default: return D3D12_BLEND_OP_ADD;
+	case RT_BLEND_OP_ADD:
+		return D3D12_BLEND_OP_ADD;
+	case RT_BLEND_OP_SUBTRACT:
+		return D3D12_BLEND_OP_SUBTRACT;
+	case RT_BLEND_OP_REVERSE_SUBTRACT:
+		return D3D12_BLEND_OP_REV_SUBTRACT;
+	case RT_BLEND_OP_MIN:
+		return D3D12_BLEND_OP_MIN;
+	case RT_BLEND_OP_MAX:
+		return D3D12_BLEND_OP_MAX;
+	default:
+		return D3D12_BLEND_OP_ADD;
 	}
 }
 
-rt_uniform_location rtdx_graphics_program_uniform_location(struct rtdx_context* ctx, struct rtdx_graphics_program* program, const char* name) {
+rt_uniform_location rtdx_graphics_program_uniform_location(struct rtdx_context *ctx, struct rtdx_graphics_program *program, const char *name) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return RT_NULL_HANDLE;

@@ -5,19 +5,19 @@
 #include "glad\gl.h"
 
 #include <assert.h>
+#include <process.h>
 #include <stdlib.h>
 #include <windows.h>
-#include <process.h>
 
-struct rtgl_context* current_context = NULL;
+struct rtgl_context *current_context = NULL;
 
-static GLADapiproc rtgl_glad_load_proc(void* userptr, const char* name) {
+static GLADapiproc rtgl_glad_load_proc(void *userptr, const char *name) {
 	(void)userptr;
 	return (GLADapiproc)rtgl_load_proc(name);
 }
 
-static unsigned __stdcall rtgl_context_thread(void* arg) {
-	struct rtgl_context* ctx = (struct rtgl_context*)arg;
+static unsigned __stdcall rtgl_context_thread(void *arg) {
+	struct rtgl_context *ctx = (struct rtgl_context *)arg;
 
 	ctx->gl_context = rtgl_create_glcontext(3, 3, true, NULL);
 	if (!ctx->gl_context) {
@@ -42,13 +42,15 @@ static unsigned __stdcall rtgl_context_thread(void* arg) {
 	return 0;
 }
 
-struct rtgl_context* rtgl_get_current_context(void) {
+struct rtgl_context *rtgl_get_current_context(void) {
 	return current_context;
 }
 
-struct rtgl_context* rtgl_create_context(rtgl_context_flags flags) {
+struct rtgl_context *rtgl_create_context(rtgl_context_flags flags) {
 	RTGL_ALLOC(result, struct rtgl_context, 1, "GL33 context");
-	if (!result) { return NULL; }
+	if (!result) {
+		return NULL;
+	}
 	result->flags = flags;
 	rtgl_context_init(result);
 	if (rtgl_error() != RT_SUCCESS) {
@@ -58,7 +60,7 @@ struct rtgl_context* rtgl_create_context(rtgl_context_flags flags) {
 	return result;
 }
 
-void rtgl_context_init(struct rtgl_context* ctx) {
+void rtgl_context_init(struct rtgl_context *ctx) {
 	assert(ctx);
 	ctx->ready_event = CreateEventA(NULL, TRUE, FALSE, NULL);
 	ctx->stop_event = CreateEventA(NULL, TRUE, FALSE, NULL);
@@ -67,7 +69,7 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 		return;
 	}
 
-	ctx->thread_handle = (void*)_beginthreadex(NULL, 0, rtgl_context_thread, ctx, 0, &ctx->thread_id);
+	ctx->thread_handle = (void *)_beginthreadex(NULL, 0, rtgl_context_thread, ctx, 0, &ctx->thread_id);
 	if (!ctx->thread_handle) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create GL33 worker thread");
 		return;
@@ -80,7 +82,7 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 	}
 }
 
-void rtgl_context_finish(struct rtgl_context* ctx) {
+void rtgl_context_finish(struct rtgl_context *ctx) {
 	assert(ctx);
 	if (ctx->stop_event) {
 		SetEvent((HANDLE)ctx->stop_event);
@@ -100,7 +102,7 @@ void rtgl_context_finish(struct rtgl_context* ctx) {
 	}
 }
 
-void rtgl_context_destroy(struct rtgl_context* ctx) {
+void rtgl_context_destroy(struct rtgl_context *ctx) {
 	assert(ctx);
 
 	rtgl_context_finish(ctx);

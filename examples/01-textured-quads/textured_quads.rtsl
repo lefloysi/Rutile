@@ -1,0 +1,51 @@
+uniform {
+	mat4 transform;
+}
+
+uniform albedo {
+	Sampler2D texture;
+}
+
+struct Point {
+	vec3 position;
+	vec3 color;
+	vec2 uv;
+};
+
+struct Vertex {
+	fn Vertex(Point p);
+
+	vec4 position;
+	vec3 color;
+	vec2 uv;
+}
+
+fn Vertex::Vertex(Point p) {
+	position = transform * vec4(p.position, 1.0);
+	color = p.color;
+	uv = p.uv;
+}
+
+varying Vertex {
+	clip position;
+	smooth color;
+	smooth uv;
+};
+
+struct Fragment {
+	fn Fragment(Vertex v);
+
+	vec4 color;
+}
+
+fn Fragment::Fragment(Vertex v) {
+	color = sample(albedo::texture, v.uv) * vec4(v.color, 1.0);
+}
+
+fn vert_main(vert_globals g, Point p) -> Vertex {
+	return Vertex(p);
+}
+
+fn frag_main(frag_globals g, Vertex v) -> Fragment {
+	return Fragment(v);
+}

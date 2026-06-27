@@ -6,10 +6,10 @@
 #include <stdlib.h>
 
 const VkSurfaceFormatKHR rtvk_swapchain_format_preferences[] = {
-	{ VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
-	{ VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
-	{ VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
-	{ VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+	{VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+	{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+	{VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+	{VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
 };
 const u32 rtvk_swapchain_format_preferences_count =
 	(u32)(sizeof(rtvk_swapchain_format_preferences) / sizeof(rtvk_swapchain_format_preferences[0]));
@@ -48,7 +48,6 @@ void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 	);
 }
 
-
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 	return rtvk_swapchain_acquire(
 		rtvk_get_current_context(),
@@ -57,7 +56,7 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
-	struct rtvk_timepoint timepoint = { rtvk_queue_from_handle(rendered.queue), rendered.value };
+	struct rtvk_timepoint timepoint = {rtvk_queue_from_handle(rendered.queue), rendered.value};
 	rtvk_swapchain_present(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
@@ -71,7 +70,7 @@ void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 
 RTVK_DEFINE_RESOURCE_PRIVATE(swapchain)
 
-void rtvk_swapchain_init(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+void rtvk_swapchain_init(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
 #if defined(_WIN32)
 	InitializeCriticalSection(&swapchain->frame_lock);
@@ -82,7 +81,7 @@ void rtvk_swapchain_init(struct rtvk_context* ctx, struct rtvk_swapchain* swapch
 #endif
 }
 
-static void rtvk_swapchain_lock(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_lock(struct rtvk_swapchain *swapchain) {
 #if defined(_WIN32)
 	EnterCriticalSection(&swapchain->frame_lock);
 #else
@@ -90,7 +89,7 @@ static void rtvk_swapchain_lock(struct rtvk_swapchain* swapchain) {
 #endif
 }
 
-static void rtvk_swapchain_unlock(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_unlock(struct rtvk_swapchain *swapchain) {
 #if defined(_WIN32)
 	LeaveCriticalSection(&swapchain->frame_lock);
 #else
@@ -98,7 +97,7 @@ static void rtvk_swapchain_unlock(struct rtvk_swapchain* swapchain) {
 #endif
 }
 
-static void rtvk_swapchain_lock_unacquired(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_lock_unacquired(struct rtvk_swapchain *swapchain) {
 	rtvk_swapchain_lock(swapchain);
 	while (swapchain->frame_acquired) {
 #if defined(_WIN32)
@@ -109,7 +108,7 @@ static void rtvk_swapchain_lock_unacquired(struct rtvk_swapchain* swapchain) {
 	}
 }
 
-static void rtvk_swapchain_mark_unacquired(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_mark_unacquired(struct rtvk_swapchain *swapchain) {
 	rtvk_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
 	if (swapchain->image_count) {
@@ -123,13 +122,13 @@ static void rtvk_swapchain_mark_unacquired(struct rtvk_swapchain* swapchain) {
 	rtvk_swapchain_unlock(swapchain);
 }
 
-static void rtvk_swapchain_force_unacquired(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_force_unacquired(struct rtvk_swapchain *swapchain) {
 	rtvk_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
 	rtvk_swapchain_unlock(swapchain);
 }
 
-static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_finish_sync(struct rtvk_swapchain *swapchain) {
 #if defined(_WIN32)
 	DeleteCriticalSection(&swapchain->frame_lock);
 #else
@@ -138,36 +137,60 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 #endif
 }
 
-static const char* rtvk_vk_result_name(VkResult result) {
+static const char *rtvk_vk_result_name(VkResult result) {
 	switch (result) {
-	case VK_SUCCESS: return "VK_SUCCESS";
-	case VK_NOT_READY: return "VK_NOT_READY";
-	case VK_TIMEOUT: return "VK_TIMEOUT";
-	case VK_EVENT_SET: return "VK_EVENT_SET";
-	case VK_EVENT_RESET: return "VK_EVENT_RESET";
-	case VK_INCOMPLETE: return "VK_INCOMPLETE";
-	case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-	case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-	case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-	case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-	case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-	case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-	case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-	case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-	case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
-	case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-	case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
-	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-	case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
-	case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
-	case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
-	case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
-	default: return "VK_UNKNOWN_RESULT";
+	case VK_SUCCESS:
+		return "VK_SUCCESS";
+	case VK_NOT_READY:
+		return "VK_NOT_READY";
+	case VK_TIMEOUT:
+		return "VK_TIMEOUT";
+	case VK_EVENT_SET:
+		return "VK_EVENT_SET";
+	case VK_EVENT_RESET:
+		return "VK_EVENT_RESET";
+	case VK_INCOMPLETE:
+		return "VK_INCOMPLETE";
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+		return "VK_ERROR_OUT_OF_HOST_MEMORY";
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+		return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+	case VK_ERROR_INITIALIZATION_FAILED:
+		return "VK_ERROR_INITIALIZATION_FAILED";
+	case VK_ERROR_DEVICE_LOST:
+		return "VK_ERROR_DEVICE_LOST";
+	case VK_ERROR_MEMORY_MAP_FAILED:
+		return "VK_ERROR_MEMORY_MAP_FAILED";
+	case VK_ERROR_LAYER_NOT_PRESENT:
+		return "VK_ERROR_LAYER_NOT_PRESENT";
+	case VK_ERROR_EXTENSION_NOT_PRESENT:
+		return "VK_ERROR_EXTENSION_NOT_PRESENT";
+	case VK_ERROR_FEATURE_NOT_PRESENT:
+		return "VK_ERROR_FEATURE_NOT_PRESENT";
+	case VK_ERROR_INCOMPATIBLE_DRIVER:
+		return "VK_ERROR_INCOMPATIBLE_DRIVER";
+	case VK_ERROR_TOO_MANY_OBJECTS:
+		return "VK_ERROR_TOO_MANY_OBJECTS";
+	case VK_ERROR_FORMAT_NOT_SUPPORTED:
+		return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+	case VK_ERROR_SURFACE_LOST_KHR:
+		return "VK_ERROR_SURFACE_LOST_KHR";
+	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
+		return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+	case VK_SUBOPTIMAL_KHR:
+		return "VK_SUBOPTIMAL_KHR";
+	case VK_ERROR_OUT_OF_DATE_KHR:
+		return "VK_ERROR_OUT_OF_DATE_KHR";
+	case VK_ERROR_FRAGMENTED_POOL:
+		return "VK_ERROR_FRAGMENTED_POOL";
+	case VK_ERROR_UNKNOWN:
+		return "VK_ERROR_UNKNOWN";
+	default:
+		return "VK_UNKNOWN_RESULT";
 	}
 }
 
-static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
+static void rtvk_swapchain_destroy_present_command(struct rtvk_context *ctx, struct rtvk_swapchain_frame *frame) {
 	if (frame->present_command_pool) {
 		vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
 		frame->present_command_pool = VK_NULL_HANDLE;
@@ -176,7 +199,7 @@ static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, str
 	frame->present_command_family_index = (u32)-1;
 }
 
-static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
+static void rtvk_swapchain_wait_frame(struct rtvk_context *ctx, struct rtvk_swapchain_frame *frame) {
 	if (frame->acquire_wait.queue) {
 		rtvk_timepoint_wait(ctx, frame->acquire_wait);
 		frame->acquire_wait.queue = NULL;
@@ -190,7 +213,7 @@ static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swap
 	}
 }
 
-static void rtvk_swapchain_destroy_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_destroy_frame_sync(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
 	if (!swapchain->frames) {
 		return;
 	}
@@ -210,7 +233,7 @@ static void rtvk_swapchain_destroy_frame_sync(struct rtvk_context* ctx, struct r
 	swapchain->frames = NULL;
 }
 
-static void rtvk_swapchain_destroy_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_destroy_framebuffers(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
 	if (swapchain->framebuffers) {
 		for (u32 i = 0; i < swapchain->image_count; i++) {
 			rtvk_framebuffer_destroy(ctx, swapchain->framebuffers[i]);
@@ -218,10 +241,9 @@ static void rtvk_swapchain_destroy_framebuffers(struct rtvk_context* ctx, struct
 		free(swapchain->framebuffers);
 		swapchain->framebuffers = NULL;
 	}
-
 }
 
-static void rtvk_swapchain_destroy_color_views(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+static void rtvk_swapchain_destroy_color_views(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
 	(void)ctx;
 	if (!swapchain->color_views) {
 		return;
@@ -235,7 +257,7 @@ static void rtvk_swapchain_destroy_color_views(struct rtvk_context* ctx, struct 
 	swapchain->color_views = NULL;
 }
 
-void rtvk_swapchain_finish(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+void rtvk_swapchain_finish(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
 	rtvk_swapchain_force_unacquired(swapchain);
 	if (ctx && ctx->vk_device) {
 		vkDeviceWaitIdle(ctx->vk_device);
@@ -262,8 +284,8 @@ void rtvk_swapchain_finish(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain));
 }
 
-void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
-	VkImage* images = NULL;
+void rtvk_swapchain_create_framebuffers(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
+	VkImage *images = NULL;
 	u32 image_count = 0;
 
 	VkResult result = vkGetSwapchainImagesKHR(ctx->vk_device, swapchain->vk_swapchain, &image_count, NULL);
@@ -274,15 +296,21 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 
 	images = calloc(image_count, sizeof(*images));
 	RTVK_CHECK_ALLOC(images, (usize)image_count * sizeof(*images), "swapchain image list");
-	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) {
+		goto cleanup;
+	}
 
 	swapchain->frames = calloc(image_count, sizeof(*swapchain->frames));
 	RTVK_CHECK_ALLOC(swapchain->frames, (usize)image_count * sizeof(*swapchain->frames), "swapchain frame sync list");
-	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) {
+		goto cleanup;
+	}
 
 	swapchain->framebuffers = calloc(image_count, sizeof(*swapchain->framebuffers));
 	RTVK_CHECK_ALLOC(swapchain->framebuffers, (usize)image_count * sizeof(*swapchain->framebuffers), "swapchain framebuffer list");
-	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) {
+		goto cleanup;
+	}
 
 	result = vkGetSwapchainImagesKHR(ctx->vk_device, swapchain->vk_swapchain, &image_count, images);
 	if (result != VK_SUCCESS) {
@@ -293,9 +321,11 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 	swapchain->image_count = image_count;
 	swapchain->color_views = calloc(image_count, sizeof(*swapchain->color_views));
 	RTVK_CHECK_ALLOC(swapchain->color_views, (usize)image_count * sizeof(*swapchain->color_views), "swapchain color view list");
-	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
+	if (rtvk_error() != RT_SUCCESS) {
+		goto cleanup;
+	}
 	for (u32 i = 0; i < image_count; i++) {
-		struct rtvk_swapchain_frame* frame = &swapchain->frames[i];
+		struct rtvk_swapchain_frame *frame = &swapchain->frames[i];
 		frame->vk_image = images[i];
 		frame->vk_format = swapchain->vk_format;
 		frame->width = swapchain->extent.width;
@@ -322,8 +352,8 @@ cleanup:
 	}
 }
 
-void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
-	VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+void rtvk_swapchain_create_frame_sync(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
+	VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
 	if (!swapchain->frames) {
 		swapchain->frames = calloc(swapchain->image_count, sizeof(*swapchain->frames));
@@ -355,7 +385,7 @@ void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swap
 	}
 }
 
-static VkSurfaceFormatKHR rtvk_choose_swapchain_format(VkSurfaceFormatKHR* formats, u32 format_count) {
+static VkSurfaceFormatKHR rtvk_choose_swapchain_format(VkSurfaceFormatKHR *formats, u32 format_count) {
 	for (u32 p = 0; p < rtvk_swapchain_format_preferences_count; p++) {
 		for (u32 i = 0; i < format_count; i++) {
 			if (formats[i].format == rtvk_swapchain_format_preferences[p].format && formats[i].colorSpace == rtvk_swapchain_format_preferences[p].colorSpace) {
@@ -364,10 +394,10 @@ static VkSurfaceFormatKHR rtvk_choose_swapchain_format(VkSurfaceFormatKHR* forma
 		}
 	}
 
-	return format_count ? formats[0] : (VkSurfaceFormatKHR){ VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+	return format_count ? formats[0] : (VkSurfaceFormatKHR){VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 }
 
-static VkPresentModeKHR rtvk_choose_swapchain_present_mode(VkPresentModeKHR* present_modes, u32 present_mode_count) {
+static VkPresentModeKHR rtvk_choose_swapchain_present_mode(VkPresentModeKHR *present_modes, u32 present_mode_count) {
 	for (u32 p = 0; p < rtvk_swapchain_present_mode_preferences_count; p++) {
 		for (u32 i = 0; i < present_mode_count; i++) {
 			if (present_modes[i] == rtvk_swapchain_present_mode_preferences[p]) {
@@ -401,7 +431,7 @@ static VkExtent2D rtvk_swapchain_choose_extent(VkSurfaceCapabilitiesKHR capabili
 	return extent;
 }
 
-void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
+void rtvk_swapchain_create_for_surface(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
 	swapchain->vk_surface = surface;
 	swapchain->present_queue = rtvk_queue_query_present(ctx, surface);
 	if (!swapchain->present_queue) {
@@ -426,7 +456,7 @@ void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 		return;
 	}
 
-	VkSurfaceFormatKHR* formats = calloc(format_count, sizeof(*formats));
+	VkSurfaceFormatKHR *formats = calloc(format_count, sizeof(*formats));
 	if (!formats) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan surface formats", format_count);
 		return;
@@ -451,7 +481,7 @@ void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 		return;
 	}
 
-	VkPresentModeKHR* present_modes = calloc(present_mode_count, sizeof(*present_modes));
+	VkPresentModeKHR *present_modes = calloc(present_mode_count, sizeof(*present_modes));
 	if (!present_modes) {
 		free(formats);
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u Vulkan present modes", present_mode_count);
@@ -484,7 +514,7 @@ void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 		return;
 	}
 
-	VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+	VkSwapchainCreateInfoKHR swapchain_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	swapchain_info.pNext = NULL;
 	swapchain_info.flags = 0;
 	swapchain_info.surface = surface;
@@ -495,7 +525,7 @@ void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	swapchain_info.imageArrayLayers = 1;
 	swapchain_info.imageUsage = image_usage;
 
-	struct rtvk_queue* graphics_queue = rtvk_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	struct rtvk_queue *graphics_queue = rtvk_queue_query(ctx, RT_QUEUE_GRAPHICS);
 	u32 queue_family_indices[2];
 	if (graphics_queue && graphics_queue->family_index != swapchain->present_queue->family_index) {
 		queue_family_indices[0] = graphics_queue->family_index;
@@ -524,15 +554,17 @@ void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swa
 	swapchain->extent = swapchain_info.imageExtent;
 
 	rtvk_swapchain_create_framebuffers(ctx, swapchain);
-	if (rtvk_error() != RT_SUCCESS) { return; }
+	if (rtvk_error() != RT_SUCCESS) {
+		return;
+	}
 	rtvk_swapchain_create_frame_sync(ctx, swapchain);
 }
 
-
 void rtvk_swapchain_prepare_present_command(
-	struct rtvk_context* ctx,
-	struct rtvk_swapchain_frame* frame,
-	u32 family_index) {
+	struct rtvk_context *ctx,
+	struct rtvk_swapchain_frame *frame,
+	u32 family_index
+) {
 	if (frame->present_command_pool && frame->present_command_family_index != family_index) {
 		rtvk_swapchain_destroy_present_command(ctx, frame);
 	}
@@ -540,7 +572,7 @@ void rtvk_swapchain_prepare_present_command(
 		return;
 	}
 
-	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+	VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 	pool_info.pNext = NULL;
 	pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	pool_info.queueFamilyIndex = family_index;
@@ -551,7 +583,7 @@ void rtvk_swapchain_prepare_present_command(
 		return;
 	}
 
-	VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+	VkCommandBufferAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 	allocate_info.pNext = NULL;
 	allocate_info.commandPool = frame->present_command_pool;
 	allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -567,13 +599,15 @@ void rtvk_swapchain_prepare_present_command(
 	frame->present_command_family_index = family_index;
 }
 
-void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, struct rtvk_timepoint rendered) {
-	struct rtvk_swapchain_frame* current = &swapchain->frames[swapchain->current_image_index];
+void rtvk_swapchain_submit_present_transition(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, struct rtvk_swapchain_frame *frame, struct rtvk_timepoint rendered) {
+	struct rtvk_swapchain_frame *current = &swapchain->frames[swapchain->current_image_index];
 	if (!current || !rendered.queue) {
 		return;
 	}
 	rtvk_swapchain_prepare_present_command(ctx, frame, rendered.queue->family_index);
-	if (rtvk_error() != RT_SUCCESS) { return; }
+	if (rtvk_error() != RT_SUCCESS) {
+		return;
+	}
 
 	VkResult result = vkResetCommandPool(ctx->vk_device, frame->present_command_pool, 0);
 	if (result != VK_SUCCESS) {
@@ -581,7 +615,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 	begin_info.pNext = NULL;
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	begin_info.pInheritanceInfo = NULL;
@@ -592,7 +626,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+	VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
 	barrier.pNext = NULL;
 	barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	barrier.dstAccessMask = 0;
@@ -607,8 +641,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
-	vkCmdPipelineBarrier(frame->present_command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-						 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	vkCmdPipelineBarrier(frame->present_command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	result = vkEndCommandBuffer(frame->present_command_buffer);
 	if (result != VK_SUCCESS) {
@@ -621,10 +654,10 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 	}
 
 	u64 signal_value = rendered.queue->timeline_value + 1;
-	u64 signal_values[2] = { 0, signal_value };
-	VkSemaphore signal_semaphores[2] = { frame->present_ready, rendered.queue->vk_timeline };
+	u64 signal_values[2] = {0, signal_value};
+	VkSemaphore signal_semaphores[2] = {frame->present_ready, rendered.queue->vk_timeline};
 
-	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	VkTimelineSemaphoreSubmitInfo timeline_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
 	timeline_info.pNext = NULL;
 	timeline_info.waitSemaphoreValueCount = 1;
 	timeline_info.pWaitSemaphoreValues = &rendered.value;
@@ -632,7 +665,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 	timeline_info.pSignalSemaphoreValues = signal_values;
 
 	VkPipelineStageFlags wait_stage = rtvk_queue_wait_stage(rendered.queue);
-	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
 	submit_info.pNext = &timeline_info;
 	submit_info.waitSemaphoreCount = 1;
 	submit_info.pWaitSemaphores = &rendered.queue->vk_timeline;
@@ -648,8 +681,8 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	struct rtvk_framebuffer* framebuffer = swapchain->framebuffers ? swapchain->framebuffers[swapchain->current_image_index] : NULL;
-	struct rtvk_texture_view* color_view = framebuffer ? framebuffer->color_views[0] : NULL;
+	struct rtvk_framebuffer *framebuffer = swapchain->framebuffers ? swapchain->framebuffers[swapchain->current_image_index] : NULL;
+	struct rtvk_texture_view *color_view = framebuffer ? framebuffer->color_views[0] : NULL;
 	if (color_view) {
 		color_view->vk_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		if (color_view->texture) {
@@ -658,23 +691,23 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 	}
 	rendered.queue->timeline_value = signal_value;
 	rendered.queue->submitted_value = signal_value;
-	frame->present_done = (struct rtvk_timepoint){ rendered.queue, signal_value };
+	frame->present_done = (struct rtvk_timepoint){rendered.queue, signal_value};
 }
 
 u32 rtSwapchainFramebufferCount(rt_swapchain swapchain) {
-	struct rtvk_swapchain* state = rtvk_swapchain_from_handle(swapchain);
+	struct rtvk_swapchain *state = rtvk_swapchain_from_handle(swapchain);
 	return state ? state->image_count : 0;
 }
 
 rt_framebuffer rtSwapchainFramebufferAt(rt_swapchain swapchain, u32 index) {
-	struct rtvk_swapchain* state = rtvk_swapchain_from_handle(swapchain);
+	struct rtvk_swapchain *state = rtvk_swapchain_from_handle(swapchain);
 	if (!state || index >= state->image_count || !state->framebuffers) {
 		return RT_NULL_HANDLE;
 	}
 	return rtvk_framebuffer_to_handle(state->framebuffers[index]);
 }
 
-bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height) {
+bool rtvk_swapchain_resize(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, u32 width, u32 height) {
 	bool ok = false;
 	if (!swapchain || !swapchain->vk_surface || !swapchain->vk_swapchain) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain resize requires a valid swapchain");
@@ -692,7 +725,7 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 
 	vkDeviceWaitIdle(ctx->vk_device);
 	VkSurfaceKHR surface = swapchain->vk_surface;
-	struct rtvk_queue* present_queue = swapchain->present_queue;
+	struct rtvk_queue *present_queue = swapchain->present_queue;
 	if (present_queue) {
 		rtvk_retain_resource(present_queue);
 	}
@@ -717,8 +750,8 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	return ok;
 }
 
-rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
-	rt_swapchain_acquire_result acquire = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
+rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain) {
+	rt_swapchain_acquire_result acquire = {RT_NULL_HANDLE, {RT_NULL_HANDLE, 0}};
 	if (!swapchain) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return acquire;
@@ -729,7 +762,7 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain has no sync frames");
 		return acquire;
 	}
-	struct rtvk_swapchain_frame* acquire_frame = &swapchain->frames[swapchain->current_frame_index];
+	struct rtvk_swapchain_frame *acquire_frame = &swapchain->frames[swapchain->current_frame_index];
 	rtvk_swapchain_wait_frame(ctx, acquire_frame);
 
 	/* Comment ** finite timeout: the spec forbids UINT64_MAX when forward progress
@@ -771,18 +804,18 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	if (!acquire.timepoint.queue || acquire.timepoint.value == 0) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: null timepoint");
 		rtvk_swapchain_unlock(swapchain);
-		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
+		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {RT_NULL_HANDLE, 0}};
 	}
 	rtvk_swapchain_unlock(swapchain);
 	return acquire;
 }
 
-void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered) {
+void rtvk_swapchain_present(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, struct rtvk_timepoint rendered) {
 	if (!swapchain || !swapchain->frames || swapchain->image_count == 0 || !swapchain->frame_acquired) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires an acquired frame");
 		return;
 	}
-	struct rtvk_swapchain_frame* frame = &swapchain->frames[swapchain->current_frame_index];
+	struct rtvk_swapchain_frame *frame = &swapchain->frames[swapchain->current_frame_index];
 	if (!rendered.queue || rendered.value == 0) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtvk_swapchain_mark_unacquired(swapchain);
@@ -794,7 +827,7 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		return;
 	}
 
-	VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+	VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	present_info.pNext = NULL;
 	present_info.waitSemaphoreCount = 1;
 	present_info.pWaitSemaphores = &frame->present_ready;

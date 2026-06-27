@@ -44,35 +44,35 @@ typedef struct rtdx_uniform_slot {
 	rtdx_uniform_slot_kind kind;
 	union {
 		struct {
-			struct rtdx_buffer_storage* storage;
+			struct rtdx_buffer_storage *storage;
 			u64 offset;
 			u64 size;
 		} buffer;
 		struct {
-			struct rtdx_texture_view* view;
+			struct rtdx_texture_view *view;
 		} texture;
 	};
 } rtdx_uniform_slot;
 
 struct rtdx_command_buffer {
 	struct rtdx_resource_base base;
-	struct rtdx_command_buffer* active;
-	struct rtdx_command_buffer* next;
+	struct rtdx_command_buffer *active;
+	struct rtdx_command_buffer *next;
 
-	ID3D12DescriptorHeap* d3d_srv_heap;
-	ID3D12DescriptorHeap* d3d_sampler_heap;
-	ID3D12CommandAllocator* d3d_allocator;
-	ID3D12GraphicsCommandList* d3d_command_list;
+	ID3D12DescriptorHeap *d3d_srv_heap;
+	ID3D12DescriptorHeap *d3d_sampler_heap;
+	ID3D12CommandAllocator *d3d_allocator;
+	ID3D12GraphicsCommandList *d3d_command_list;
 
-	struct rtdx_queue* queue;
-	struct rtdx_framebuffer* framebuffer;
-	struct rtdx_graphics_program* graphics_program;
-	struct rtdx_texture_view* color_texture_view;
-	struct rtdx_texture_view* depth_texture_view;
-	struct rtdx_buffer* vertex_buffer;
-	struct rtdx_buffer_storage* vertex_buffer_storage;
-	rtdx_uniform_slot* uniform_slots;
-	struct rtdx_texture_view** recorded_texture_views;
+	struct rtdx_queue *queue;
+	struct rtdx_framebuffer *framebuffer;
+	struct rtdx_graphics_program *graphics_program;
+	struct rtdx_texture_view *color_texture_view;
+	struct rtdx_texture_view *depth_texture_view;
+	struct rtdx_buffer *vertex_buffer;
+	struct rtdx_buffer_storage *vertex_buffer_storage;
+	rtdx_uniform_slot *uniform_slots;
+	struct rtdx_texture_view **recorded_texture_views;
 
 	u32 uniform_slot_count;
 	u32 recorded_texture_view_count;
@@ -82,24 +82,22 @@ struct rtdx_command_buffer {
 };
 RTDX_DECLARE_NEW_RESOURCE(command_buffer)
 
-void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue);
-void rtdx_command_buffer_begin_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_framebuffer* framebuffer);
-void rtdx_command_buffer_clear_color(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-void rtdx_command_buffer_clear_depth(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, f32 depth);
-void rtdx_command_buffer_clear_stencil(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 stencil);
-void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_graphics_program* program);
-void rtdx_command_buffer_set_scissor(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
-void rtdx_command_buffer_uniform_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, rt_uniform_location location, struct rtdx_buffer* buffer, u64 offset, u64 size);
-void rtdx_command_buffer_uniform_texture(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, rt_uniform_location location, struct rtdx_texture_view* texture_view);
-void rtdx_command_buffer_storage_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 binding, struct rtdx_buffer* buffer, u64 offset, u64 size);
-void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_buffer* buffer, u64 offset);
-void rtdx_command_buffer_draw(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex);
-void rtdx_command_buffer_end_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer);
-void rtdx_command_buffer_end(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer);
-void rtdx_command_buffer_node_retain(struct rtdx_command_buffer* command_buffer);
-void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer);
-struct rtdx_command_buffer* rtdx_command_buffer_active_node(struct rtdx_command_buffer* command_buffer);
+void rtdx_command_buffer_begin(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_queue *queue);
+void rtdx_command_buffer_begin_rendering(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_framebuffer *framebuffer);
+void rtdx_command_buffer_clear_color(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+void rtdx_command_buffer_clear_depth(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, f32 depth);
+void rtdx_command_buffer_clear_stencil(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 stencil);
+void rtdx_command_buffer_use_graphics_program(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_graphics_program *program);
+void rtdx_command_buffer_set_scissor(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 x, u32 y, u32 width, u32 height);
+void rtdx_command_buffer_uniform_buffer(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, rt_uniform_location location, struct rtdx_buffer *buffer, u64 offset, u64 size);
+void rtdx_command_buffer_uniform_texture(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, rt_uniform_location location, struct rtdx_texture_view *texture_view);
+void rtdx_command_buffer_storage_buffer(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 binding, struct rtdx_buffer *buffer, u64 offset, u64 size);
+void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_buffer *buffer, u64 offset);
+void rtdx_command_buffer_draw(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 vertex_count, u32 first_vertex);
+void rtdx_command_buffer_end_rendering(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer);
+void rtdx_command_buffer_end(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer);
+void rtdx_command_buffer_node_retain(struct rtdx_command_buffer *command_buffer);
+void rtdx_command_buffer_node_release(struct rtdx_command_buffer *command_buffer);
+struct rtdx_command_buffer *rtdx_command_buffer_active_node(struct rtdx_command_buffer *command_buffer);
 
 #endif /* RTDX_COMMAND_BUFFER_H */
-
-

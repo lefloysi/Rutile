@@ -61,8 +61,7 @@ void rtlog_rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_te
 void rtlog_rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtFramebufferDepthView(framebuffer=%s, view=%s)\n", rtlog_pointer(framebuffer),
-				 rtlog_pointer(view));
+	rtlog_printf("rtFramebufferDepthView(framebuffer=%s, view=%s)\n", rtlog_pointer(framebuffer), rtlog_pointer(view));
 	next_rtFramebufferDepthView(framebuffer, view);
 	rtlog_printf("rtFramebufferDepthView completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtFramebufferDepthView");

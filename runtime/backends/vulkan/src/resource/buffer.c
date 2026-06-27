@@ -1,59 +1,60 @@
 #include "buffer.h"
-#include <assert.h>
 #include "context.h"
 #include "error.h"
 #include "resource/queue.h"
+#include <assert.h>
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 /*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
+/*                                                                                               */ >
+	/*===============================================================================================*/
 
-/*
-** SPEC.html §9.3 Buffer
-** Implements rtBufferCreate/Destroy, rtBufferData, and rtBufferSubdata.
-** Buffer-node versioning keeps in-flight command lists on the old node while
-** a new upload node is allocated, then recycles the old node after submit.
-*/
+	/*
+	** SPEC.html §9.3 Buffer
+	** Implements rtBufferCreate/Destroy, rtBufferData, and rtBufferSubdata.
+	** Buffer-node versioning keeps in-flight command lists on the old node while
+	** a new upload node is allocated, then recycles the old node after submit.
+	*/
 
-rt_buffer rtBufferCreate(void) {
+	rt_buffer rtBufferCreate(void) {
 	return rtvk_buffer_to_handle(rtvk_buffer_create(rtvk_get_current_context()));
 }
 void rtBufferDestroy(rt_buffer buffer) {
 	rtvk_buffer_destroy(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer));
 }
 
-rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = rtvk_buffer_data(
+rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data) {
+	return rtvk_timepoint_to_public(rtvk_buffer_data(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		mode,
 		usage,
 		size,
-		data);
-	return rtvk_timepoint_to_public(timepoint);
+		data
+	));
 }
-rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
+rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void *data) {
 	struct rtvk_timepoint timepoint = rtvk_buffer_subdata(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		offset,
 		size,
-		data);
+		data
+	);
 	return rtvk_timepoint_to_public(timepoint);
 }
-void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
+void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void *data) {
 	rtvk_buffer_read(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		offset,
 		size,
-		data);
+		data
+	);
 }
-
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -66,7 +67,8 @@ enum rt_buffer_usage rtvk_default_buffer_usage(void) {
 		RT_BUFFER_USAGE_UNIFORM |
 		RT_BUFFER_USAGE_STORAGE |
 		RT_BUFFER_USAGE_TRANSFER_SRC |
-		RT_BUFFER_USAGE_TRANSFER_DST);
+		RT_BUFFER_USAGE_TRANSFER_DST
+	);
 }
 
 bool rtvk_buffer_is_staging(enum rt_buffer_usage usage) {
@@ -84,12 +86,12 @@ bool rtvk_buffer_needs_graphics_upload_queue(enum rt_buffer_usage usage) {
 					 RT_BUFFER_USAGE_STORAGE)) != 0;
 }
 
-struct rtvk_queue* rtvk_buffer_upload_queue(struct rtvk_context* ctx, enum rt_buffer_usage usage) {
+struct rtvk_queue *rtvk_buffer_upload_queue(struct rtvk_context *ctx, enum rt_buffer_usage usage) {
 	if (rtvk_buffer_needs_graphics_upload_queue(usage)) {
 		return rtvk_queue_query(ctx, RT_QUEUE_GRAPHICS);
 	}
 
-	struct rtvk_queue* queue = rtvk_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtvk_queue *queue = rtvk_queue_query(ctx, RT_QUEUE_TRANSFER);
 	if (queue) {
 		return queue;
 	}
@@ -166,7 +168,7 @@ VkPipelineStageFlags rtvk_buffer_vk_stage(enum rt_buffer_usage usage) {
 	}
 	return flags ? flags : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 }
-VkPipelineStageFlags rtvk_buffer_vk_stage_for_queue(enum rt_buffer_usage usage, struct rtvk_queue* queue) {
+VkPipelineStageFlags rtvk_buffer_vk_stage_for_queue(enum rt_buffer_usage usage, struct rtvk_queue *queue) {
 	VkPipelineStageFlags flags = rtvk_buffer_vk_stage(usage);
 	if (!queue || queue->capability == RT_QUEUE_GRAPHICS) {
 		return flags;
@@ -190,19 +192,19 @@ VkPipelineStageFlags rtvk_buffer_vk_stage_for_queue(enum rt_buffer_usage usage, 
 
 RTVK_DEFINE_RESOURCE_PRIVATE(buffer)
 
-void rtvk_buffer_init(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
+void rtvk_buffer_init(struct rtvk_context *ctx, struct rtvk_buffer *buffer) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(buffer), RT_RESOURCE_BUFFER);
 	buffer->mode = RT_BUFFER_DYNAMIC;
 	buffer->usage = rtvk_default_buffer_usage();
 }
 
-void rtvk_buffer_finish(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
+void rtvk_buffer_finish(struct rtvk_context *ctx, struct rtvk_buffer *buffer) {
 	rtvk_buffer_node_release(buffer->active);
 	buffer->active = NULL;
 
-	struct rtvk_buffer* node = buffer->next;
+	struct rtvk_buffer *node = buffer->next;
 	while (node) {
-		struct rtvk_buffer* next = node->next;
+		struct rtvk_buffer *next = node->next;
 		node->next = NULL;
 		rtvk_buffer_node_release(node);
 		node = next;
@@ -211,14 +213,14 @@ void rtvk_buffer_finish(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(buffer));
 }
 
-struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, enum rt_buffer_mode mode, enum rt_buffer_usage usage) {
-	struct rtvk_buffer* node = calloc(1, sizeof(*node));
+struct rtvk_buffer *rtvk_buffer_node_create(struct rtvk_context *ctx, u64 size, enum rt_buffer_mode mode, enum rt_buffer_usage usage) {
+	struct rtvk_buffer *node = calloc(1, sizeof(*node));
 	if (!node) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate buffer metadata");
 		return NULL;
 	}
 
-	VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
 	buffer_info.pNext = NULL;
 	buffer_info.flags = 0;
 	buffer_info.size = size;
@@ -227,7 +229,7 @@ struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, 
 	buffer_info.queueFamilyIndexCount = 0;
 	buffer_info.pQueueFamilyIndices = NULL;
 
-	VmaAllocationCreateInfo allocation_info = { 0 };
+	VmaAllocationCreateInfo allocation_info = {0};
 	if (rtvk_buffer_uses_host_storage(mode, usage)) {
 		allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
 								VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -252,12 +254,12 @@ struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, 
 	return node;
 }
 
-void rtvk_buffer_node_retain(struct rtvk_buffer* buffer) {
+void rtvk_buffer_node_retain(struct rtvk_buffer *buffer) {
 	assert(buffer);
 	buffer->base.ref_count++;
 }
 
-void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
+void rtvk_buffer_node_release(struct rtvk_buffer *buffer) {
 	assert(buffer);
 	assert(buffer->base.ref_count > 0);
 	if (--buffer->base.ref_count != 0) {
@@ -270,7 +272,7 @@ void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
 	free(buffer);
 }
 
-void rtvk_buffer_write_host(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
+void rtvk_buffer_write_host(struct rtvk_context *ctx, struct rtvk_buffer *buffer, u64 offset, u64 size, const void *data) {
 	if (!data || !size) {
 		return;
 	}
@@ -282,14 +284,14 @@ void rtvk_buffer_write_host(struct rtvk_context* ctx, struct rtvk_buffer* buffer
 		rtvk_throwf(RT_PLATFORM_FAILURE, "buffer allocation is not mapped");
 		return;
 	}
-	void* dst = (char*)allocation_info.pMappedData + offset;
+	void *dst = (char *)allocation_info.pMappedData + offset;
 	if (dst != data) {
 		memcpy(dst, data, (usize)size);
 	}
 	vmaFlushAllocation(ctx->vma_allocator, buffer->vma_allocation, offset, size);
 }
 
-void rtvk_buffer_upload_command(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+void rtvk_buffer_upload_command(struct rtvk_context *ctx, struct rtvk_queue *queue) {
 	assert(queue);
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
 		rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
@@ -298,12 +300,12 @@ void rtvk_buffer_upload_command(struct rtvk_context* ctx, struct rtvk_queue* que
 		}
 	}
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
-		queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
+		queue->upload_command_timepoint = (struct rtvk_timepoint){NULL, 0};
 		vkResetCommandPool(ctx->vk_device, queue->upload_command_pool, 0);
 		return;
 	}
 
-	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+	VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 	pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	pool_info.queueFamilyIndex = queue->family_index;
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &queue->upload_command_pool);
@@ -312,7 +314,7 @@ void rtvk_buffer_upload_command(struct rtvk_context* ctx, struct rtvk_queue* que
 		return;
 	}
 
-	VkCommandBufferAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+	VkCommandBufferAllocateInfo alloc_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 	alloc_info.commandPool = queue->upload_command_pool;
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	alloc_info.commandBufferCount = 1;
@@ -325,7 +327,7 @@ void rtvk_buffer_upload_command(struct rtvk_context* ctx, struct rtvk_queue* que
 	}
 }
 
-void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 size) {
+void rtvk_buffer_upload_staging(struct rtvk_context *ctx, struct rtvk_queue *queue, u64 size) {
 	assert(queue);
 	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
 		rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
@@ -349,12 +351,12 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 		}
 	}
 
-	VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
 	buffer_info.size = size;
 	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-	VmaAllocationCreateInfo alloc_info = { 0 };
+	VmaAllocationCreateInfo alloc_info = {0};
 	alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 	alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
 
@@ -364,7 +366,8 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 		&alloc_info,
 		&queue->upload_staging_buffer,
 		&queue->upload_staging_allocation,
-		NULL);
+		NULL
+	);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return;
@@ -372,8 +375,8 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 	queue->upload_staging_size = size;
 }
 
-struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { queue, 0 };
+struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context *ctx, struct rtvk_queue *queue, struct rtvk_buffer *buffer, u64 offset, u64 size, const void *data) {
+	struct rtvk_timepoint timepoint = {queue, 0};
 	if (!size) {
 		return timepoint;
 	}
@@ -401,7 +404,7 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 	VkCommandBuffer command_buffer = queue->upload_command_buffer;
 
 	VkResult result;
-	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
@@ -409,7 +412,7 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 		return timepoint;
 	}
 
-	VkBufferCopy copy_region = { 0 };
+	VkBufferCopy copy_region = {0};
 	copy_region.srcOffset = 0;
 	copy_region.dstOffset = offset;
 	copy_region.size = size;
@@ -419,7 +422,7 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 	if (dst_access) {
 		VkPipelineStageFlags src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		VkPipelineStageFlags dst_stage = rtvk_buffer_vk_stage_for_queue(buffer->usage, queue);
-		VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+		VkBufferMemoryBarrier barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
 		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		barrier.dstAccessMask = dst_access;
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -437,11 +440,11 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 	}
 
 	u64 signal_value = queue->timeline_value + 1;
-	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	VkTimelineSemaphoreSubmitInfo timeline_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
 	timeline_info.signalSemaphoreValueCount = 1;
 	timeline_info.pSignalSemaphoreValues = &signal_value;
 
-	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
 	submit_info.pNext = &timeline_info;
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_buffer;
@@ -461,7 +464,7 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 	return timepoint;
 }
 
-void rtvk_buffer_recycle_node(struct rtvk_buffer* buffer, struct rtvk_buffer* node) {
+void rtvk_buffer_recycle_node(struct rtvk_buffer *buffer, struct rtvk_buffer *node) {
 	if (!node) {
 		return;
 	}
@@ -469,11 +472,11 @@ void rtvk_buffer_recycle_node(struct rtvk_buffer* buffer, struct rtvk_buffer* no
 	buffer->next = node;
 }
 
-struct rtvk_buffer* rtvk_buffer_take_reusable_node(struct rtvk_buffer* buffer, u64 size, enum rt_buffer_mode mode, enum rt_buffer_usage usage) {
-	struct rtvk_buffer** link = &buffer->next;
+struct rtvk_buffer *rtvk_buffer_take_reusable_node(struct rtvk_buffer *buffer, u64 size, enum rt_buffer_mode mode, enum rt_buffer_usage usage) {
+	struct rtvk_buffer **link = &buffer->next;
 
 	while (*link) {
-		struct rtvk_buffer* node = *link;
+		struct rtvk_buffer *node = *link;
 		if (node->size == size &&
 			node->mode == mode &&
 			node->usage == usage &&
@@ -487,8 +490,8 @@ struct rtvk_buffer* rtvk_buffer_take_reusable_node(struct rtvk_buffer* buffer, u
 	return NULL;
 }
 
-struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { NULL, 0 };
+struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context *ctx, struct rtvk_buffer *buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data) {
+	struct rtvk_timepoint timepoint = {NULL, 0};
 	if (!buffer) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer is NULL");
 		return timepoint;
@@ -502,7 +505,7 @@ struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buf
 		return timepoint;
 	}
 
-	struct rtvk_queue* queue = NULL;
+	struct rtvk_queue *queue = NULL;
 	if (!rtvk_buffer_uses_host_storage(mode, usage) && size) {
 		queue = rtvk_buffer_upload_queue(ctx, usage);
 		if (!queue) {
@@ -522,7 +525,7 @@ struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buf
 	}
 	buffer->active = NULL;
 
-	struct rtvk_buffer* node = rtvk_buffer_take_reusable_node(buffer, size, buffer->mode, buffer->usage);
+	struct rtvk_buffer *node = rtvk_buffer_take_reusable_node(buffer, size, buffer->mode, buffer->usage);
 	if (!node) {
 		node = rtvk_buffer_node_create(ctx, size, buffer->mode, buffer->usage);
 	}
@@ -548,8 +551,8 @@ struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buf
 	return timepoint;
 }
 
-struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { NULL, 0 };
+struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context *ctx, struct rtvk_buffer *buffer, u64 offset, u64 size, const void *data) {
+	struct rtvk_timepoint timepoint = {NULL, 0};
 	if (!buffer || !buffer->active) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
 		return timepoint;
@@ -558,7 +561,7 @@ struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer subdata range is out of bounds");
 		return timepoint;
 	}
-	struct rtvk_queue* queue = NULL;
+	struct rtvk_queue *queue = NULL;
 	if (!rtvk_buffer_uses_host_storage(buffer->active->mode, buffer->active->usage) && size && data) {
 		queue = rtvk_buffer_upload_queue(ctx, buffer->active->usage);
 		if (!queue) {
@@ -575,12 +578,12 @@ struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_
 
 	bool replaced_storage = false;
 	if (buffer->active->base.ref_count > 1) {
-		struct rtvk_buffer* old_node = buffer->active;
+		struct rtvk_buffer *old_node = buffer->active;
 
 		rtvk_buffer_recycle_node(buffer, old_node);
 		buffer->active = NULL;
 
-		struct rtvk_buffer* new_node = rtvk_buffer_take_reusable_node(buffer, old_node->size, old_node->mode, old_node->usage);
+		struct rtvk_buffer *new_node = rtvk_buffer_take_reusable_node(buffer, old_node->size, old_node->mode, old_node->usage);
 		if (!new_node) {
 			new_node = rtvk_buffer_node_create(ctx, old_node->size, old_node->mode, old_node->usage);
 		}
@@ -605,7 +608,7 @@ struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_
 	return rtvk_buffer_upload_static(ctx, queue, buffer->active, offset, size, data);
 }
 
-void rtvk_buffer_read(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, void* data) {
+void rtvk_buffer_read(struct rtvk_context *ctx, struct rtvk_buffer *buffer, u64 offset, u64 size, void *data) {
 	if (!buffer || !buffer->active) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
 		return;
@@ -627,9 +630,8 @@ void rtvk_buffer_read(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 
 	VmaAllocationInfo allocation_info;
 	vmaGetAllocationInfo(ctx->vma_allocator, buffer->active->vma_allocation, &allocation_info);
 	vmaInvalidateAllocation(ctx->vma_allocator, buffer->active->vma_allocation, offset, size);
-	void* src = (char*)allocation_info.pMappedData + offset;
+	void *src = (char *)allocation_info.pMappedData + offset;
 	if (src != data) {
 		memcpy(data, src, (usize)size);
 	}
 }
-

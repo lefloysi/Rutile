@@ -70,5 +70,3 @@ bool rtlog_rtTimepointReached(rt_timepoint timepoint) {
 	rtlog_error("rtTimepointReached");
 	return result;
 }
-
-

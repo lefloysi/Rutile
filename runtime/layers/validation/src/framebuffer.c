@@ -39,41 +39,45 @@ RT_EXPORT void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_vie
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtval_framebuffer* rtval_framebuffer_create(void) {
+struct rtval_framebuffer *rtval_framebuffer_create(void) {
 	rt_framebuffer backend = rtval_next_rtFramebufferCreate();
 	if (!backend) {
 		rtval_report_error("rtFramebufferCreate");
 		return NULL;
 	}
-	struct rtval_framebuffer* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_FRAMEBUFFER);
+	struct rtval_framebuffer *handle = rtval_handle_create(RTVAL_HANDLE_TYPE_FRAMEBUFFER);
 	if (!handle) {
 		rtval_next_rtFramebufferDestroy(backend);
 		return NULL;
 	}
-	struct rtval_framebuffer* state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
+	struct rtval_framebuffer *state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
 	state->backend = backend;
 	state->owns_backend = true;
 	rtval_report_error("rtFramebufferCreate");
 	return handle;
 }
 
-struct rtval_framebuffer* rtval_framebuffer_wrap(rt_framebuffer backend) {
-	if (!backend) { return NULL; }
-	struct rtval_framebuffer* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_FRAMEBUFFER);
-	if (!handle) { return NULL; }
-	struct rtval_framebuffer* state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
+struct rtval_framebuffer *rtval_framebuffer_wrap(rt_framebuffer backend) {
+	if (!backend) {
+		return NULL;
+	}
+	struct rtval_framebuffer *handle = rtval_handle_create(RTVAL_HANDLE_TYPE_FRAMEBUFFER);
+	if (!handle) {
+		return NULL;
+	}
+	struct rtval_framebuffer *state = RTVAL_PAYLOAD(handle, struct rtval_framebuffer);
 	state->backend = backend;
 	state->owns_backend = false;
 	rtval_report_error("rtFramebufferWrap");
 	return handle;
 }
 
-void rtval_framebuffer_destroy(struct rtval_framebuffer* framebuffer) {
+void rtval_framebuffer_destroy(struct rtval_framebuffer *framebuffer) {
 	if (!framebuffer) {
 		RTVAL_DROP("rtFramebufferDestroy: NULL handle");
 		return;
 	}
-	struct rtval_framebuffer* framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
+	struct rtval_framebuffer *framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
 	if (!framebuffer_state) {
 		RTVAL_DROP("rtFramebufferDestroy: invalid handle");
 		return;
@@ -84,12 +88,12 @@ void rtval_framebuffer_destroy(struct rtval_framebuffer* framebuffer) {
 	rtval_handle_destroy(framebuffer);
 }
 
-rt_texture_view rtval_framebuffer_color_view(struct rtval_framebuffer* framebuffer, u32 slot) {
+rt_texture_view rtval_framebuffer_color_view(struct rtval_framebuffer *framebuffer, u32 slot) {
 	if (!framebuffer) {
 		RTVAL_DROP("rtFramebufferColorView: NULL handle");
 		return RT_NULL_HANDLE;
 	}
-	struct rtval_framebuffer* framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
+	struct rtval_framebuffer *framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
 	if (!framebuffer_state) {
 		RTVAL_DROP("rtFramebufferColorView: invalid handle");
 		return RT_NULL_HANDLE;
@@ -99,19 +103,19 @@ rt_texture_view rtval_framebuffer_color_view(struct rtval_framebuffer* framebuff
 	return result;
 }
 
-void rtval_framebuffer_set_color_view(struct rtval_framebuffer* framebuffer, u32 slot, struct rtval_texture_view* view) {
+void rtval_framebuffer_set_color_view(struct rtval_framebuffer *framebuffer, u32 slot, struct rtval_texture_view *view) {
 	if (!framebuffer) {
 		RTVAL_DROP("rtFramebufferSetColorView: NULL handle");
 		return;
 	}
-	struct rtval_framebuffer* framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
+	struct rtval_framebuffer *framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
 	if (!framebuffer_state) {
 		RTVAL_DROP("rtFramebufferSetColorView: invalid handle");
 		return;
 	}
 	rt_texture_view view_backend = RT_NULL_HANDLE;
 	if (view) {
-		struct rtval_texture_view* view_state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
+		struct rtval_texture_view *view_state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 		if (!view_state) {
 			RTVAL_DROP("rtFramebufferSetColorView: invalid view handle");
 			return;
@@ -122,19 +126,19 @@ void rtval_framebuffer_set_color_view(struct rtval_framebuffer* framebuffer, u32
 	rtval_report_error("rtFramebufferSetColorView");
 }
 
-void rtval_framebuffer_set_depth_view(struct rtval_framebuffer* framebuffer, struct rtval_texture_view* view) {
+void rtval_framebuffer_set_depth_view(struct rtval_framebuffer *framebuffer, struct rtval_texture_view *view) {
 	if (!framebuffer) {
 		RTVAL_DROP("rtFramebufferDepthView: NULL handle");
 		return;
 	}
-	struct rtval_framebuffer* framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
+	struct rtval_framebuffer *framebuffer_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
 	if (!framebuffer_state) {
 		RTVAL_DROP("rtFramebufferDepthView: invalid handle");
 		return;
 	}
 	rt_texture_view view_backend = RT_NULL_HANDLE;
 	if (view) {
-		struct rtval_texture_view* view_state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
+		struct rtval_texture_view *view_state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 		if (!view_state) {
 			RTVAL_DROP("rtFramebufferDepthView: invalid view handle");
 			return;

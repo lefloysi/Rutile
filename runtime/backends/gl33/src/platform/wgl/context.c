@@ -1,7 +1,7 @@
 #include "platform/context.h"
 
-#include "error.h"
 #include "config.h"
+#include "error.h"
 
 #include <stdlib.h>
 #include <windows.h>
@@ -12,16 +12,16 @@ struct gl_context {
 	HGLRC hglrc;
 };
 
-typedef HGLRC (WINAPI* PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int*);
+typedef HGLRC(WINAPI *PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int *);
 
-static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profile, gl_context* share) {
-	gl_context* context = NULL;
+static gl_context *rtgl_context_bootstrap(u08 major, u08 minor, bool core_profile, gl_context *share) {
+	gl_context *context = NULL;
 	HWND hwnd = NULL;
 	HDC hdc = NULL;
 	HGLRC legacy = NULL;
 	HGLRC hglrc = NULL;
 	PFN_wglCreateContextAttribsARB wglCreateContextAttribsARB = NULL;
-	WNDCLASSA wc = { 0 };
+	WNDCLASSA wc = {0};
 	ATOM atom;
 
 	wc.lpfnWndProc = DefWindowProcA;
@@ -45,7 +45,7 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 		goto fail;
 	}
 
-	PIXELFORMATDESCRIPTOR pfd = { 0 };
+	PIXELFORMATDESCRIPTOR pfd = {0};
 	pfd.nSize = sizeof(pfd);
 	pfd.nVersion = 1;
 	pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
@@ -78,10 +78,7 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 	if (wglCreateContextAttribsARB) {
 		HGLRC share_hglrc = share ? share->hglrc : NULL;
 		const int attribs[] = {
-			0x2091 /* WGL_CONTEXT_MAJOR_VERSION_ARB */, major,
-			0x2092 /* WGL_CONTEXT_MINOR_VERSION_ARB */, minor,
-			0x9126 /* WGL_CONTEXT_PROFILE_MASK_ARB */, core_profile ? 0x00000001 /* WGL_CONTEXT_CORE_PROFILE_BIT_ARB */ : 0,
-			0
+			0x2091 /* WGL_CONTEXT_MAJOR_VERSION_ARB */, major, 0x2092 /* WGL_CONTEXT_MINOR_VERSION_ARB */, minor, 0x9126 /* WGL_CONTEXT_PROFILE_MASK_ARB */, core_profile ? 0x00000001 /* WGL_CONTEXT_CORE_PROFILE_BIT_ARB */ : 0, 0
 		};
 		HGLRC modern = wglCreateContextAttribsARB(hdc, share_hglrc, attribs);
 		if (modern) {
@@ -122,12 +119,14 @@ fail:
 	return NULL;
 }
 
-gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool core_profile, gl_context* share) {
+gl_context *rtgl_create_glcontext(u08 major, u08 minor, bool core_profile, gl_context *share) {
 	return rtgl_context_bootstrap(major, minor, core_profile, share);
 }
 
-void rtgl_destroy_glcontext(gl_context* context) {
-	if (!context) { return; }
+void rtgl_destroy_glcontext(gl_context *context) {
+	if (!context) {
+		return;
+	}
 	if (wglGetCurrentContext() == context->hglrc) {
 		wglMakeCurrent(NULL, NULL);
 	}
@@ -143,7 +142,7 @@ void rtgl_destroy_glcontext(gl_context* context) {
 	free(context);
 }
 
-void rtgl_make_glcontext_current(gl_context* context) {
+void rtgl_make_glcontext_current(gl_context *context) {
 	if (!context) {
 		wglMakeCurrent(NULL, NULL);
 		return;
@@ -155,8 +154,10 @@ void rtgl_release_current_context(void) {
 	wglMakeCurrent(NULL, NULL);
 }
 
-rtgl_proc_t rtgl_load_proc(const char* name) {
+rtgl_proc_t rtgl_load_proc(const char *name) {
 	rtgl_proc_t proc = (rtgl_proc_t)wglGetProcAddress(name);
-	if (proc) { return proc; }
+	if (proc) {
+		return proc;
+	}
 	return (rtgl_proc_t)GetProcAddress(GetModuleHandleA("opengl32.dll"), name);
 }

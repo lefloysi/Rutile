@@ -31,18 +31,19 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-#define RTGL_CHECK_ALLOC(ptr, bytes, what)                  \
-	do {                                                    \
-		if (!(ptr)) {                                       \
-			rtgl_throwf(                                     \
-				RT_OUT_OF_HOST_MEMORY,                       \
-				"failed to allocate %zu bytes for %s",       \
-				(usize)(bytes),                               \
-				(what));                                     \
-		}                                                   \
+#define RTGL_CHECK_ALLOC(ptr, bytes, what)             \
+	do {                                               \
+		if (!(ptr)) {                                  \
+			rtgl_throwf(                               \
+				RT_OUT_OF_HOST_MEMORY,                 \
+				"failed to allocate %zu bytes for %s", \
+				(usize)(bytes),                        \
+				(what)                                 \
+			);                                         \
+		}                                              \
 	} while (0)
 
-#define RTGL_ALLOC(var, type, count, what)                  \
-	type* var = calloc((count), sizeof(type));              \
+#define RTGL_ALLOC(var, type, count, what)     \
+	type *var = calloc((count), sizeof(type)); \
 	RTGL_CHECK_ALLOC(var, sizeof(type) * (usize)(count), (what))
 #endif /* RTGL33_CONFIG_H */

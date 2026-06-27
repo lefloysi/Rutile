@@ -3,16 +3,16 @@
 #include "error.h"
 #include "resource/texture.h"
 
+#include <chrono>
 #include <stdlib.h>
 #include <string.h>
-#include <chrono>
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
 rt_command_buffer rtCommandBufferCreate(void) {
-	struct rtdx_command_buffer* command_buffer = rtdx_command_buffer_create(rtdx_get_current_context());
+	struct rtdx_command_buffer *command_buffer = rtdx_command_buffer_create(rtdx_get_current_context());
 	return rtdx_command_buffer_to_handle(command_buffer);
 }
 
@@ -24,14 +24,16 @@ void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
 	rtdx_command_buffer_begin(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		rtdx_queue_from_handle(queue));
+		rtdx_queue_from_handle(queue)
+	);
 }
 
 void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
 	rtdx_command_buffer_begin_rendering(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		rtdx_framebuffer_from_handle(framebuffer));
+		rtdx_framebuffer_from_handle(framebuffer)
+	);
 }
 void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
 	rtdx_command_buffer_clear_color(
@@ -41,26 +43,30 @@ void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f
 		r,
 		g,
 		b,
-		a);
+		a
+	);
 }
 void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
 	rtdx_command_buffer_clear_depth(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		depth);
+		depth
+	);
 }
 void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
 	rtdx_command_buffer_clear_stencil(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		stencil);
+		stencil
+	);
 }
 
 void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
 	rtdx_command_buffer_use_graphics_program(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		rtdx_graphics_program_from_handle(program));
+		rtdx_graphics_program_from_handle(program)
+	);
 }
 
 void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height) {
@@ -70,7 +76,8 @@ void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, 
 		x,
 		y,
 		width,
-		height);
+		height
+	);
 }
 
 void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
@@ -80,7 +87,8 @@ void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location lo
 		location,
 		rtdx_buffer_from_handle(buffer),
 		offset,
-		size);
+		size
+	);
 }
 
 void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
@@ -88,7 +96,8 @@ void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location l
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
 		location,
-		rtdx_texture_view_from_handle(texture_view));
+		rtdx_texture_view_from_handle(texture_view)
+	);
 }
 
 void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
@@ -98,7 +107,8 @@ void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer
 		binding,
 		rtdx_buffer_from_handle(buffer),
 		offset,
-		size);
+		size
+	);
 }
 
 void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
@@ -106,7 +116,8 @@ void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
 		rtdx_buffer_from_handle(buffer),
-		offset);
+		offset
+	);
 }
 
 void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex) {
@@ -114,19 +125,22 @@ void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_ver
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
 		vertex_count,
-		first_vertex);
+		first_vertex
+	);
 }
 
 void rtCmdEndRendering(rt_command_buffer command_buffer) {
 	rtdx_command_buffer_end_rendering(
 		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer));
+		rtdx_command_buffer_from_handle(command_buffer)
+	);
 }
 
 void rtCmdEnd(rt_command_buffer command_buffer) {
 	rtdx_command_buffer_end(
 		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer));
+		rtdx_command_buffer_from_handle(command_buffer)
+	);
 }
 
 /*===============================================================================================*/
@@ -135,12 +149,12 @@ void rtCmdEnd(rt_command_buffer command_buffer) {
 
 RTDX_DEFINE_RESOURCE_PRIVATE(command_buffer)
 
-static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_buffer* command_buffer);
-static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot);
-static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer* command_buffer, u32 index);
-static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* texture_view);
-static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx);
-static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue);
+static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_buffer *command_buffer);
+static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot *slot);
+static rtdx_uniform_slot *rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer *command_buffer, u32 index);
+static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer *command_buffer, struct rtdx_texture_view *texture_view);
+static struct rtdx_command_buffer *rtdx_command_buffer_node_create(struct rtdx_context *ctx);
+static bool rtdx_command_buffer_prepare(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_queue *queue);
 
 static constexpr u32 RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT = 1024;
 
@@ -149,17 +163,17 @@ static u64 rtdx_command_buffer_shutdown_now_ns(void) {
 	return (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now().time_since_epoch()).count();
 }
 
-void rtdx_command_buffer_init(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
+void rtdx_command_buffer_init(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
 	command_buffer->queue = NULL;
 }
 
-void rtdx_command_buffer_finish(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
-	struct rtdx_command_buffer* node = command_buffer->next;
+void rtdx_command_buffer_finish(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer) {
+	struct rtdx_command_buffer *node = command_buffer->next;
 	rtdx_command_buffer_node_release(command_buffer->active);
 	command_buffer->active = NULL;
 	while (node) {
-		struct rtdx_command_buffer* next = node->next;
+		struct rtdx_command_buffer *next = node->next;
 		node->next = NULL;
 		rtdx_command_buffer_node_release(node);
 		node = next;
@@ -168,7 +182,7 @@ void rtdx_command_buffer_finish(struct rtdx_context* ctx, struct rtdx_command_bu
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer));
 }
 
-static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_buffer* command_buffer) {
+static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_buffer *command_buffer) {
 	if (!command_buffer) {
 		return;
 	}
@@ -197,7 +211,7 @@ static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_b
 	command_buffer->depth_texture_view = NULL;
 }
 
-static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot) {
+static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot *slot) {
 	if (!slot) {
 		return;
 	}
@@ -210,7 +224,7 @@ static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot) {
 	*slot = {};
 }
 
-static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer* command_buffer, u32 index) {
+static rtdx_uniform_slot *rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer *command_buffer, u32 index) {
 	if (index < command_buffer->uniform_slot_count) {
 		return &command_buffer->uniform_slots[index];
 	}
@@ -219,28 +233,27 @@ static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_b
 	while (count <= index) {
 		count *= 2;
 	}
-	void* slots = realloc(command_buffer->uniform_slots, sizeof(command_buffer->uniform_slots[0]) * count);
+	void *slots = realloc(command_buffer->uniform_slots, sizeof(command_buffer->uniform_slots[0]) * count);
 	if (!slots) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer uniform slots");
 		return NULL;
 	}
 
-	command_buffer->uniform_slots = (rtdx_uniform_slot*)slots;
-	memset(&command_buffer->uniform_slots[command_buffer->uniform_slot_count], 0,
-		   sizeof(command_buffer->uniform_slots[0]) * (count - command_buffer->uniform_slot_count));
+	command_buffer->uniform_slots = (rtdx_uniform_slot *)slots;
+	memset(&command_buffer->uniform_slots[command_buffer->uniform_slot_count], 0, sizeof(command_buffer->uniform_slots[0]) * (count - command_buffer->uniform_slot_count));
 	command_buffer->uniform_slot_count = count;
 	return &command_buffer->uniform_slots[index];
 }
 
-static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* texture_view) {
+static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer *command_buffer, struct rtdx_texture_view *texture_view) {
 	if (command_buffer->recorded_texture_view_count >= command_buffer->recorded_texture_view_capacity) {
 		u32 capacity = command_buffer->recorded_texture_view_capacity ? command_buffer->recorded_texture_view_capacity * 2 : 16;
-		void* views = realloc(command_buffer->recorded_texture_views, sizeof(command_buffer->recorded_texture_views[0]) * capacity);
+		void *views = realloc(command_buffer->recorded_texture_views, sizeof(command_buffer->recorded_texture_views[0]) * capacity);
 		if (!views) {
 			rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate recorded texture view list");
 			return false;
 		}
-		command_buffer->recorded_texture_views = (struct rtdx_texture_view**)views;
+		command_buffer->recorded_texture_views = (struct rtdx_texture_view **)views;
 		command_buffer->recorded_texture_view_capacity = capacity;
 	}
 
@@ -249,7 +262,7 @@ static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* 
 	return true;
 }
 
-static bool rtdx_command_buffer_prepare_descriptor_heaps(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
+static bool rtdx_command_buffer_prepare_descriptor_heaps(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer) {
 	if (!command_buffer->d3d_srv_heap) {
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -275,20 +288,20 @@ static bool rtdx_command_buffer_prepare_descriptor_heaps(struct rtdx_context* ct
 	return true;
 }
 
-static D3D12_CPU_DESCRIPTOR_HANDLE rtdx_heap_cpu_handle(struct rtdx_context* ctx, ID3D12DescriptorHeap* heap, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 index) {
+static D3D12_CPU_DESCRIPTOR_HANDLE rtdx_heap_cpu_handle(struct rtdx_context *ctx, ID3D12DescriptorHeap *heap, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 index) {
 	D3D12_CPU_DESCRIPTOR_HANDLE handle = heap->GetCPUDescriptorHandleForHeapStart();
 	handle.ptr += (SIZE_T)index * ctx->d3d_device->GetDescriptorHandleIncrementSize(type);
 	return handle;
 }
 
-static D3D12_GPU_DESCRIPTOR_HANDLE rtdx_heap_gpu_handle(struct rtdx_context* ctx, ID3D12DescriptorHeap* heap, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 index) {
+static D3D12_GPU_DESCRIPTOR_HANDLE rtdx_heap_gpu_handle(struct rtdx_context *ctx, ID3D12DescriptorHeap *heap, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 index) {
 	D3D12_GPU_DESCRIPTOR_HANDLE handle = heap->GetGPUDescriptorHandleForHeapStart();
 	handle.ptr += (UINT64)index * ctx->d3d_device->GetDescriptorHandleIncrementSize(type);
 	return handle;
 }
 
-static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx) {
-	struct rtdx_command_buffer* node = (struct rtdx_command_buffer*)calloc(1, sizeof(*node));
+static struct rtdx_command_buffer *rtdx_command_buffer_node_create(struct rtdx_context *ctx) {
+	struct rtdx_command_buffer *node = (struct rtdx_command_buffer *)calloc(1, sizeof(*node));
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer node");
 		return NULL;
@@ -306,7 +319,8 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		node->d3d_allocator,
 		NULL,
-		IID_PPV_ARGS(&node->d3d_command_list));
+		IID_PPV_ARGS(&node->d3d_command_list)
+	);
 	if (FAILED(result)) {
 		rtdx_release(&node->d3d_allocator);
 		free(node);
@@ -319,7 +333,7 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 	return node;
 }
 
-static void rtdx_command_buffer_recycle_node(struct rtdx_command_buffer* command_buffer, struct rtdx_command_buffer* node) {
+static void rtdx_command_buffer_recycle_node(struct rtdx_command_buffer *command_buffer, struct rtdx_command_buffer *node) {
 	if (!node) {
 		return;
 	}
@@ -327,10 +341,10 @@ static void rtdx_command_buffer_recycle_node(struct rtdx_command_buffer* command
 	command_buffer->next = node;
 }
 
-static struct rtdx_command_buffer* rtdx_command_buffer_take_reusable_node(struct rtdx_command_buffer* command_buffer) {
-	struct rtdx_command_buffer** link = &command_buffer->next;
+static struct rtdx_command_buffer *rtdx_command_buffer_take_reusable_node(struct rtdx_command_buffer *command_buffer) {
+	struct rtdx_command_buffer **link = &command_buffer->next;
 	while (*link) {
-		struct rtdx_command_buffer* node = *link;
+		struct rtdx_command_buffer *node = *link;
 		if (rtdx_atomic_load(&node->base.ref_count) == 1) {
 			*link = node->next;
 			node->next = NULL;
@@ -341,13 +355,13 @@ static struct rtdx_command_buffer* rtdx_command_buffer_take_reusable_node(struct
 	return NULL;
 }
 
-static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue) {
+static bool rtdx_command_buffer_prepare(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_queue *queue) {
 	rtdx_queue_collect(ctx, queue);
 
 	rtdx_command_buffer_recycle_node(command_buffer, command_buffer->active);
 	command_buffer->active = NULL;
 
-	struct rtdx_command_buffer* node = rtdx_command_buffer_take_reusable_node(command_buffer);
+	struct rtdx_command_buffer *node = rtdx_command_buffer_take_reusable_node(command_buffer);
 	if (!node) {
 		node = rtdx_command_buffer_node_create(ctx);
 	}
@@ -360,13 +374,13 @@ static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_co
 	return true;
 }
 
-void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue) {
+void rtdx_command_buffer_begin(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_queue *queue) {
 	command_buffer->queue = queue;
 	if (!rtdx_command_buffer_prepare(ctx, command_buffer, queue)) {
 		return;
 	}
 
-	struct rtdx_command_buffer* node = command_buffer->active;
+	struct rtdx_command_buffer *node = command_buffer->active;
 	HRESULT result = node->d3d_allocator->Reset();
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandAllocator::Reset failed: 0x%08x", (u32)result);
@@ -388,7 +402,7 @@ void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buf
 	node->descriptor_cursor = 0;
 }
 
-static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* view, D3D12_RESOURCE_STATES next_state) {
+static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer *command_buffer, struct rtdx_texture_view *view, D3D12_RESOURCE_STATES next_state) {
 	if (!view || !view->d3d_resource || view->state == next_state) {
 		return;
 	}
@@ -404,16 +418,16 @@ static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer* c
 	view->state = next_state;
 }
 
-void rtdx_command_buffer_begin_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_framebuffer* framebuffer) {
+void rtdx_command_buffer_begin_rendering(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_framebuffer *framebuffer) {
 
-	struct rtdx_command_buffer* node = command_buffer->active;
-	struct rtdx_texture_view* color_view = framebuffer->color_views[0];
-	struct rtdx_texture_view* depth_view = framebuffer->depth_view;
+	struct rtdx_command_buffer *node = command_buffer->active;
+	struct rtdx_texture_view *color_view = framebuffer->color_views[0];
+	struct rtdx_texture_view *depth_view = framebuffer->depth_view;
 	rtdx_command_buffer_transition_texture(node, color_view, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	if (depth_view) {
 		rtdx_command_buffer_transition_texture(node, depth_view, D3D12_RESOURCE_STATE_DEPTH_WRITE);
 	}
-	D3D12_CPU_DESCRIPTOR_HANDLE* dsv = depth_view ? &depth_view->dsv : NULL;
+	D3D12_CPU_DESCRIPTOR_HANDLE *dsv = depth_view ? &depth_view->dsv : NULL;
 	node->d3d_command_list->OMSetRenderTargets(1, &color_view->rtv, FALSE, dsv);
 
 	command_buffer->framebuffer = framebuffer;
@@ -427,37 +441,37 @@ void rtdx_command_buffer_begin_rendering(struct rtdx_context* ctx, struct rtdx_c
 	command_buffer->depth_texture_view = depth_view;
 }
 
-void rtdx_command_buffer_clear_color(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+void rtdx_command_buffer_clear_color(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "clear color requires active rendering");
 		return;
 	}
 
-	struct rtdx_framebuffer* framebuffer = command_buffer->framebuffer;
+	struct rtdx_framebuffer *framebuffer = command_buffer->framebuffer;
 	if (!framebuffer || color_index >= framebuffer->color_texture_count) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "color attachment index is out of range");
 		return;
 	}
 
-	struct rtdx_texture_view* color_view = framebuffer->color_views[color_index];
+	struct rtdx_texture_view *color_view = framebuffer->color_views[color_index];
 	if (!color_view || !color_view->rtv.ptr) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "color attachment view is invalid");
 		return;
 	}
 
-	f32 clear_color[] = { r, g, b, a };
+	f32 clear_color[] = {r, g, b, a};
 	node->d3d_command_list->ClearRenderTargetView(color_view->rtv, clear_color, 0, NULL);
 }
 
-void rtdx_command_buffer_clear_depth(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, f32 depth) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+void rtdx_command_buffer_clear_depth(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, f32 depth) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "clear depth requires active rendering");
 		return;
 	}
 
-	struct rtdx_texture_view* depth_view = node->depth_texture_view;
+	struct rtdx_texture_view *depth_view = node->depth_texture_view;
 	if (!depth_view || !depth_view->dsv.ptr) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "depth attachment view is invalid");
 		return;
@@ -466,14 +480,14 @@ void rtdx_command_buffer_clear_depth(struct rtdx_context* ctx, struct rtdx_comma
 	node->d3d_command_list->ClearDepthStencilView(depth_view->dsv, D3D12_CLEAR_FLAG_DEPTH, depth, 0, 0, NULL);
 }
 
-void rtdx_command_buffer_clear_stencil(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 stencil) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+void rtdx_command_buffer_clear_stencil(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 stencil) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "clear stencil requires active rendering");
 		return;
 	}
 
-	struct rtdx_texture_view* depth_view = node->depth_texture_view;
+	struct rtdx_texture_view *depth_view = node->depth_texture_view;
 	if (!depth_view || !depth_view->dsv.ptr) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "depth attachment view is invalid");
 		return;
@@ -482,10 +496,10 @@ void rtdx_command_buffer_clear_stencil(struct rtdx_context* ctx, struct rtdx_com
 	node->d3d_command_list->ClearDepthStencilView(depth_view->dsv, D3D12_CLEAR_FLAG_STENCIL, 0.0f, (UINT8)stencil, 0, NULL);
 }
 
-void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_graphics_program* program) {
-	struct rtdx_command_buffer* node = command_buffer->active;
-	struct rtdx_texture_view* color_view = node ? node->color_texture_view : NULL;
-	struct rtdx_texture_view* depth_view = node ? node->depth_texture_view : NULL;
+void rtdx_command_buffer_use_graphics_program(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_graphics_program *program) {
+	struct rtdx_command_buffer *node = command_buffer->active;
+	struct rtdx_texture_view *color_view = node ? node->color_texture_view : NULL;
+	struct rtdx_texture_view *depth_view = node ? node->depth_texture_view : NULL;
 
 	if (!color_view) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "command buffer has no color attachment");
@@ -524,9 +538,9 @@ void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct r
 	command_buffer->graphics_program = program;
 }
 
-void rtdx_command_buffer_set_scissor(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height) {
+void rtdx_command_buffer_set_scissor(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 x, u32 y, u32 width, u32 height) {
 	(void)ctx;
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a scissor requires active rendering");
 		return;
@@ -541,14 +555,15 @@ void rtdx_command_buffer_set_scissor(struct rtdx_context* ctx, struct rtdx_comma
 }
 
 void rtdx_command_buffer_uniform_buffer(
-	struct rtdx_context* ctx,
-	struct rtdx_command_buffer* command_buffer,
+	struct rtdx_context *ctx,
+	struct rtdx_command_buffer *command_buffer,
 	rt_uniform_location location,
-	struct rtdx_buffer* buffer,
+	struct rtdx_buffer *buffer,
 	u64 offset,
-	u64 size) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	struct rtdx_uniform_location* internal_location = (struct rtdx_uniform_location*)location;
+	u64 size
+) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
+	struct rtdx_uniform_location *internal_location = (struct rtdx_uniform_location *)location;
 
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a uniform buffer requires active rendering");
@@ -584,7 +599,7 @@ void rtdx_command_buffer_uniform_buffer(
 	}
 	D3D12_GPU_VIRTUAL_ADDRESS gpu_address = buffer->storage->d3d_resource->GetGPUVirtualAddress() + offset;
 	node->d3d_command_list->SetGraphicsRootConstantBufferView(internal_location->root_parameter, gpu_address);
-	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, internal_location->slot);
+	rtdx_uniform_slot *slot = rtdx_command_buffer_uniform_slot(node, internal_location->slot);
 	if (!slot) {
 		return;
 	}
@@ -603,12 +618,13 @@ void rtdx_command_buffer_uniform_buffer(
 }
 
 void rtdx_command_buffer_uniform_texture(
-	struct rtdx_context* ctx,
-	struct rtdx_command_buffer* command_buffer,
+	struct rtdx_context *ctx,
+	struct rtdx_command_buffer *command_buffer,
 	rt_uniform_location location,
-	struct rtdx_texture_view* texture_view) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	struct rtdx_uniform_location* internal_location = (struct rtdx_uniform_location*)location;
+	struct rtdx_texture_view *texture_view
+) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
+	struct rtdx_uniform_location *internal_location = (struct rtdx_uniform_location *)location;
 
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a uniform texture requires active rendering");
@@ -655,16 +671,18 @@ void rtdx_command_buffer_uniform_texture(
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, texture_view->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap, node->d3d_sampler_heap };
+	ID3D12DescriptorHeap *heaps[] = {node->d3d_srv_heap, node->d3d_sampler_heap};
 	node->d3d_command_list->SetDescriptorHeaps(2, heaps);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		internal_location->root_parameter,
-		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index));
+		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index)
+	);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		internal_location->sampler_root_parameter,
-		rtdx_heap_gpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index));
+		rtdx_heap_gpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index)
+	);
 
-	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, internal_location->slot);
+	rtdx_uniform_slot *slot = rtdx_command_buffer_uniform_slot(node, internal_location->slot);
 	if (!slot) {
 		return;
 	}
@@ -678,13 +696,14 @@ void rtdx_command_buffer_uniform_texture(
 }
 
 void rtdx_command_buffer_storage_buffer(
-	struct rtdx_context* ctx,
-	struct rtdx_command_buffer* command_buffer,
+	struct rtdx_context *ctx,
+	struct rtdx_command_buffer *command_buffer,
 	u32 binding,
-	struct rtdx_buffer* buffer,
+	struct rtdx_buffer *buffer,
 	u64 offset,
-	u64 size) {
-	struct rtdx_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	u64 size
+) {
+	struct rtdx_command_buffer *node = command_buffer ? command_buffer->active : NULL;
 	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires active rendering");
 		return;
@@ -693,9 +712,9 @@ void rtdx_command_buffer_storage_buffer(
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
 		return;
 	}
-	rtdx_uniform_location* location = NULL;
+	rtdx_uniform_location *location = NULL;
 	for (u32 i = 0; i < command_buffer->graphics_program->uniform_location_count; ++i) {
-		rtdx_uniform_location* candidate = &command_buffer->graphics_program->uniform_locations[i];
+		rtdx_uniform_location *candidate = &command_buffer->graphics_program->uniform_locations[i];
 		if (candidate->kind == RTDX_UNIFORM_LOCATION_STORAGE_BUFFER && candidate->slot == binding) {
 			location = candidate;
 			break;
@@ -736,13 +755,14 @@ void rtdx_command_buffer_storage_buffer(
 	srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
 	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
 	ctx->d3d_device->CreateShaderResourceView(buffer->storage->d3d_resource, &srv_desc, srv_cpu);
-	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap };
+	ID3D12DescriptorHeap *heaps[] = {node->d3d_srv_heap};
 	node->d3d_command_list->SetDescriptorHeaps(1, heaps);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		location->root_parameter,
-		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index));
+		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index)
+	);
 
-	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, binding);
+	rtdx_uniform_slot *slot = rtdx_command_buffer_uniform_slot(node, binding);
 	if (!slot) {
 		return;
 	}
@@ -760,8 +780,8 @@ void rtdx_command_buffer_storage_buffer(
 	slot->buffer.size = size;
 }
 
-void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_buffer* buffer, u64 offset) {
-	struct rtdx_command_buffer* node = command_buffer->active;
+void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, struct rtdx_buffer *buffer, u64 offset) {
+	struct rtdx_command_buffer *node = command_buffer->active;
 	if (!buffer || !buffer->storage || !buffer->storage->d3d_resource) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "vertex buffer has no storage");
 		return;
@@ -779,7 +799,7 @@ void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtd
 	view.BufferLocation += offset;
 	view.SizeInBytes -= (UINT)offset;
 	if (command_buffer->graphics_program) {
-		struct rtdx_graphics_program* program = command_buffer->graphics_program;
+		struct rtdx_graphics_program *program = command_buffer->graphics_program;
 		view.StrideInBytes = program->vertex_layout.stride;
 	}
 	node->d3d_command_list->IASetVertexBuffers(0, 1, &view);
@@ -789,16 +809,16 @@ void rtdx_command_buffer_bind_vertex_buffer(struct rtdx_context* ctx, struct rtd
 	command_buffer->vertex_buffer = buffer;
 }
 
-void rtdx_command_buffer_draw(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex) {
+void rtdx_command_buffer_draw(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer, u32 vertex_count, u32 first_vertex) {
 	command_buffer->active->d3d_command_list->DrawInstanced(vertex_count, 1, first_vertex, 0);
 }
 
-void rtdx_command_buffer_end_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
+void rtdx_command_buffer_end_rendering(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer) {
 	command_buffer->framebuffer = NULL;
 }
 
-void rtdx_command_buffer_end(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
-	struct rtdx_command_buffer* node = command_buffer->active;
+void rtdx_command_buffer_end(struct rtdx_context *ctx, struct rtdx_command_buffer *command_buffer) {
+	struct rtdx_command_buffer *node = command_buffer->active;
 
 	HRESULT result = node->d3d_command_list->Close();
 	if (FAILED(result)) {
@@ -808,14 +828,14 @@ void rtdx_command_buffer_end(struct rtdx_context* ctx, struct rtdx_command_buffe
 	command_buffer->recording = false;
 }
 
-void rtdx_command_buffer_node_retain(struct rtdx_command_buffer* command_buffer) {
+void rtdx_command_buffer_node_retain(struct rtdx_command_buffer *command_buffer) {
 	if (!command_buffer) {
 		return;
 	}
 	rtdx_atomic_inc(&command_buffer->base.ref_count);
 }
 
-void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer) {
+void rtdx_command_buffer_node_release(struct rtdx_command_buffer *command_buffer) {
 	if (!command_buffer) {
 		return;
 	}
@@ -841,6 +861,6 @@ void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer
 	free(command_buffer);
 }
 
-struct rtdx_command_buffer* rtdx_command_buffer_active_node(struct rtdx_command_buffer* command_buffer) {
+struct rtdx_command_buffer *rtdx_command_buffer_active_node(struct rtdx_command_buffer *command_buffer) {
 	return command_buffer ? command_buffer->active : NULL;
 }

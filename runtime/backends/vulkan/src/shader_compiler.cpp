@@ -2,1335 +2,682 @@
 #include "context.h"
 #include "error.h"
 
-#include <glslang/Public/ResourceLimits.h>
-#include <glslang/Public/ShaderLang.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
+#include <rutile/backend_tools/rtslp_package.hpp>
+
+#include <spirv/unified1/spirv.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <limits>
+#include <initializer_list>
 #include <new>
-#include <set>
 #include <span>
-#include <stdexcept>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-enum {
-	RTVK_GLSL_VERSION = 460,
-};
-
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
-
-static EShLanguage rtvk_shader_stage_to_glslang(VkShaderStageFlagBits stage) {
-	switch (stage) {
-	case VK_SHADER_STAGE_VERTEX_BIT: return EShLangVertex;
-	case VK_SHADER_STAGE_FRAGMENT_BIT: return EShLangFragment;
-	case VK_SHADER_STAGE_COMPUTE_BIT: return EShLangCompute;
-	default: return EShLangCount;
-	}
-}
-
-static bool rtvk_char_is_identifier_first(char ch) {
-	return std::isalpha((unsigned char)ch) || ch == '_';
-}
-
-static bool rtvk_char_is_identifier(char ch) {
-	return std::isalnum((unsigned char)ch) || ch == '_';
-}
-
-static std::string_view rtvk_trim_left(std::string_view text) {
-	while (!text.empty() && std::isspace((unsigned char)text.front())) {
-		text.remove_prefix(1);
-	}
-	return text;
-}
-
-static std::string_view rtvk_trim_right(std::string_view text) {
-	while (!text.empty() && std::isspace((unsigned char)text.back())) {
-		text.remove_suffix(1);
-	}
-	return text;
-}
-
-static std::string_view rtvk_trim(std::string_view text) {
-	return rtvk_trim_right(rtvk_trim_left(text));
-}
-
-static bool rtvk_string_view_equals(std::string_view text, const char* value) {
-	return text == std::string_view(value);
-}
-
-typedef struct rtvk_glsl_token {
-	std::string_view text;
-	size_t start;
-	size_t end;
-} rtvk_glsl_token;
-
-static std::vector<rtvk_glsl_token> rtvk_glsl_tokens(std::string_view text) {
-	std::vector<rtvk_glsl_token> tokens;
-	for (size_t i = 0; i < text.size();) {
-		if (!rtvk_char_is_identifier_first(text[i])) {
-			i++;
-			continue;
-		}
-
-		size_t start = i++;
-		while (i < text.size() && rtvk_char_is_identifier(text[i])) {
-			i++;
-		}
-		tokens.push_back({ text.substr(start, i - start), start, i });
-	}
-	return tokens;
-}
-
-static bool rtvk_glsl_is_leading_qualifier(std::string_view token) {
-	return rtvk_string_view_equals(token, "flat") ||
-		   rtvk_string_view_equals(token, "smooth") ||
-		   rtvk_string_view_equals(token, "noperspective") ||
-		   rtvk_string_view_equals(token, "centroid") ||
-		   rtvk_string_view_equals(token, "sample") ||
-		   rtvk_string_view_equals(token, "patch") ||
-		   rtvk_string_view_equals(token, "invariant") ||
-		   rtvk_string_view_equals(token, "precise") ||
-		   rtvk_string_view_equals(token, "highp") ||
-		   rtvk_string_view_equals(token, "mediump") ||
-		   rtvk_string_view_equals(token, "lowp");
-}
-
-static bool rtvk_glsl_is_sampler_type(std::string_view token) {
-	return token.find("sampler") != std::string_view::npos ||
-		   token.find("texture") != std::string_view::npos ||
-		   token.find("image") != std::string_view::npos;
-}
-
-static bool rtvk_glsl_has_version_directive(const std::string& source) {
-	size_t offset = 0;
-	bool in_block_comment = false;
-	while (offset < source.size()) {
-		size_t end = source.find('\n', offset);
-		if (end == std::string::npos) {
-			end = source.size();
-		}
-		std::string_view line(source.data() + offset, end - offset);
-		line = rtvk_trim(line);
-		if (!line.empty() && line.back() == '\r') {
-			line.remove_suffix(1);
-			line = rtvk_trim_right(line);
-		}
-
-		while (true) {
-			if (in_block_comment) {
-				size_t close = line.find("*/");
-				if (close == std::string_view::npos) {
-					line = {};
-					break;
-				}
-				line.remove_prefix(close + 2);
-				line = rtvk_trim_left(line);
-				in_block_comment = false;
-			}
-			if (line.substr(0, 2) != "/*") {
-				break;
-			}
-			size_t close = line.find("*/", 2);
-			if (close == std::string_view::npos) {
-				line = {};
-				in_block_comment = true;
-				break;
-			}
-			line.remove_prefix(close + 2);
-			line = rtvk_trim_left(line);
-		}
-
-		if (line.empty() || line.substr(0, 2) == "//") {
-			offset = end + (end < source.size() ? 1 : 0);
-			continue;
-		}
-		return line.substr(0, 8) == "#version";
-	}
-	return false;
-}
-
-static std::string_view rtvk_glsl_code_without_line_comment(std::string_view line) {
-	size_t comment = line.find("//");
-	if (comment != std::string_view::npos) {
-		line = line.substr(0, comment);
-	}
-	return line;
-}
-
-static i32 rtvk_glsl_parse_layout_number(std::string_view code, const char* name) {
-	size_t name_offset = code.find(name);
-	if (name_offset == std::string_view::npos) {
-		return -1;
-	}
-	size_t equals = code.find('=', name_offset + std::strlen(name));
-	if (equals == std::string_view::npos) {
-		return -1;
-	}
-
-	size_t value = equals + 1;
-	while (value < code.size() && std::isspace((unsigned char)code[value])) {
-		value++;
-	}
-	if (value >= code.size() || !std::isdigit((unsigned char)code[value])) {
-		return -1;
-	}
-
-	i32 number = 0;
-	while (value < code.size() && std::isdigit((unsigned char)code[value])) {
-		number = number * 10 + (code[value] - '0');
-		value++;
-	}
-	return number;
-}
-
-typedef enum rtvk_glsl_storage {
-	RTVK_GLSL_STORAGE_NONE,
-	RTVK_GLSL_STORAGE_IN,
-	RTVK_GLSL_STORAGE_OUT,
-	RTVK_GLSL_STORAGE_ATTRIBUTE,
-	RTVK_GLSL_STORAGE_VARYING,
-} rtvk_glsl_storage;
-
-typedef struct rtvk_glsl_storage_token {
-	rtvk_glsl_storage storage;
-	size_t start;
-	size_t end;
-} rtvk_glsl_storage_token;
-
-static rtvk_glsl_storage_token rtvk_glsl_find_storage_token(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, "in")) {
-			return { RTVK_GLSL_STORAGE_IN, token.start, token.end };
-		}
-		if (rtvk_string_view_equals(token.text, "out")) {
-			return { RTVK_GLSL_STORAGE_OUT, token.start, token.end };
-		}
-		if (rtvk_string_view_equals(token.text, "attribute")) {
-			return { RTVK_GLSL_STORAGE_ATTRIBUTE, token.start, token.end };
-		}
-		if (rtvk_string_view_equals(token.text, "varying")) {
-			return { RTVK_GLSL_STORAGE_VARYING, token.start, token.end };
-		}
-		if (!rtvk_glsl_is_leading_qualifier(token.text)) {
-			break;
-		}
-	}
-	return { RTVK_GLSL_STORAGE_NONE, 0, 0 };
-}
-
-static bool rtvk_glsl_storage_uses_location(EShLanguage language, rtvk_glsl_storage storage, bool* is_input) {
-	switch (storage) {
-	case RTVK_GLSL_STORAGE_IN:
-		if (language != EShLangVertex && language != EShLangFragment) {
-			return false;
-		}
-		*is_input = true;
-		return true;
-	case RTVK_GLSL_STORAGE_OUT:
-		if (language != EShLangVertex && language != EShLangFragment) {
-			return false;
-		}
-		*is_input = false;
-		return true;
-	case RTVK_GLSL_STORAGE_ATTRIBUTE:
-		if (language != EShLangVertex) {
-			return false;
-		}
-		*is_input = true;
-		return true;
-	case RTVK_GLSL_STORAGE_VARYING:
-		*is_input = language != EShLangVertex;
-		return language == EShLangVertex || language == EShLangFragment;
-	default:
-		return false;
-	}
-}
-
-static void rtvk_glsl_replace_storage_token(std::string& line, const rtvk_glsl_storage_token& token, const char* replacement) {
-	line.replace(token.start, token.end - token.start, replacement);
-}
-
-static std::string rtvk_glsl_declaration_name(std::string_view code) {
-	code = rtvk_trim_right(code);
-	size_t semicolon = code.find(';');
-	if (semicolon != std::string_view::npos) {
-		code = code.substr(0, semicolon);
-	}
-	size_t bracket = code.find('[');
-	if (bracket != std::string_view::npos) {
-		code = code.substr(0, bracket);
-	}
-
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	if (tokens.empty()) {
-		return {};
-	}
-	return std::string(tokens.back().text);
-}
-
-static std::string rtvk_glsl_declaration_type(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	rtvk_glsl_storage_token storage = rtvk_glsl_find_storage_token(code);
-	bool after_storage = false;
-	for (const rtvk_glsl_token& token : tokens) {
-		if (!after_storage) {
-			if (token.start == storage.start && token.end == storage.end) {
-				after_storage = true;
-			}
-			continue;
-		}
-		if (!rtvk_glsl_is_leading_qualifier(token.text)) {
-			return std::string(token.text);
-		}
-	}
-	return {};
-}
-
-static std::string rtvk_glsl_uniform_name(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	if (tokens.size() < 2 || !rtvk_string_view_equals(tokens[0].text, "uniform")) {
-		return {};
-	}
-	if (code.find('{') != std::string_view::npos || code.find(';') == std::string_view::npos) {
-		return std::string(tokens[1].text);
-	}
-	return rtvk_glsl_declaration_name(code);
-}
-
-static u32 rtvk_glsl_auto_binding(std::string_view name) {
-	u32 hash = 2166136261u;
-	for (char ch : name) {
-		hash ^= (u32)(unsigned char)ch;
-		hash *= 16777619u;
-	}
-	return 128u + (hash % 16384u);
-}
-
-static u32 rtvk_glsl_resource_binding(
-	const std::unordered_map<std::string, u32>* resource_bindings,
-	std::string_view name) {
-	if (resource_bindings) {
-		auto binding = resource_bindings->find(std::string(name));
-		if (binding != resource_bindings->end()) {
-			return binding->second;
-		}
-	}
-	return rtvk_glsl_auto_binding(name);
-}
-
-typedef struct rtvk_glsl_normalizer {
-	EShLanguage language;
-	const rt_vertex_layout* vertex_layout;
-	const std::unordered_map<std::string, u32>* linked_locations;
-	const std::unordered_map<std::string, u32>* resource_bindings;
-	u32 input_location;
-	u32 output_location;
-	u32 vertex_input_index;
-	i32 brace_depth;
-} rtvk_glsl_normalizer;
-
-static void rtvk_glsl_note_explicit_location(rtvk_glsl_normalizer* normalizer, std::string_view code) {
-	i32 location = rtvk_glsl_parse_layout_number(code, "location");
-	if (location < 0) {
+void rtvk_shader_reflection_clear(rtvk_shader_reflection *reflection) {
+	if (!reflection)
 		return;
-	}
-
-	size_t layout_close = code.find(')');
-	if (layout_close != std::string_view::npos) {
-		code.remove_prefix(layout_close + 1);
-	}
-
-	rtvk_glsl_storage_token storage = rtvk_glsl_find_storage_token(code);
-	bool is_input = false;
-	if (!rtvk_glsl_storage_uses_location(normalizer->language, storage.storage, &is_input)) {
-		return;
-	}
-
-	u32 next_location = (u32)location + 1;
-	if (is_input) {
-		normalizer->input_location = std::max(normalizer->input_location, next_location);
-		if (normalizer->language == EShLangVertex) {
-			normalizer->vertex_input_index++;
-		}
-	} else {
-		normalizer->output_location = std::max(normalizer->output_location, next_location);
-	}
-}
-
-static u32 rtvk_glsl_next_interface_location(
-	rtvk_glsl_normalizer* normalizer,
-	rtvk_glsl_storage storage,
-	bool is_input,
-	std::string_view code) {
-	std::string name = rtvk_glsl_declaration_name(code);
-	if (!name.empty() && normalizer->linked_locations) {
-		auto linked = normalizer->linked_locations->find(name);
-		if (linked != normalizer->linked_locations->end()) {
-			return linked->second;
-		}
-	}
-
-	if (normalizer->language == EShLangVertex && is_input) {
-		u32 index = normalizer->vertex_input_index++;
-		if (normalizer->vertex_layout && index < normalizer->vertex_layout->attribute_count) {
-			return normalizer->vertex_layout->attributes[index].location;
-		}
-		return normalizer->input_location++;
-	}
-
-	if (storage == RTVK_GLSL_STORAGE_ATTRIBUTE || is_input) {
-		return normalizer->input_location++;
-	}
-	return normalizer->output_location++;
-}
-
-static bool rtvk_glsl_line_has_layout(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, "layout")) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static std::string_view rtvk_glsl_first_layout_arguments(std::string_view code) {
-	size_t layout = code.find("layout");
-	if (layout == std::string_view::npos) {
-		return {};
-	}
-	size_t open = code.find('(', layout);
-	if (open == std::string_view::npos) {
-		return {};
-	}
-	size_t close = code.find(')', open + 1);
-	if (close == std::string_view::npos || close <= open) {
-		return {};
-	}
-	return code.substr(open + 1, close - open - 1);
-}
-
-static std::string_view rtvk_glsl_after_first_layout(std::string_view code) {
-	size_t layout = code.find("layout");
-	if (layout == std::string_view::npos) {
-		return code;
-	}
-	size_t close = code.find(')', layout);
-	if (close == std::string_view::npos || close + 1 >= code.size()) {
-		return {};
-	}
-	return code.substr(close + 1);
-}
-
-static bool rtvk_glsl_layout_has_qualifier(std::string_view code, const char* qualifier) {
-	std::string_view arguments = rtvk_glsl_first_layout_arguments(code);
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(arguments);
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, qualifier)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static std::string rtvk_glsl_insert_layout_qualifier(std::string_view line, const std::string& qualifier) {
-	std::string rewritten(line);
-	size_t layout = rewritten.find("layout");
-	if (layout == std::string::npos) {
-		return rewritten;
-	}
-	size_t open = rewritten.find('(', layout);
-	if (open == std::string::npos) {
-		return rewritten;
-	}
-	size_t close = rewritten.find(')', open + 1);
-	if (close == std::string::npos) {
-		return rewritten;
-	}
-
-	bool has_existing = false;
-	for (size_t i = open + 1; i < close; i++) {
-		if (!std::isspace((unsigned char)rewritten[i])) {
-			has_existing = true;
-			break;
-		}
-	}
-
-	std::string insertion = qualifier;
-	if (has_existing) {
-		insertion += ", ";
-	}
-	rewritten.insert(open + 1, insertion);
-	return rewritten;
-}
-
-static bool rtvk_glsl_line_is_preprocessor(std::string_view code) {
-	code = rtvk_trim_left(code);
-	return !code.empty() && code.front() == '#';
-}
-
-static bool rtvk_glsl_line_is_version_directive(std::string_view code) {
-	code = rtvk_trim_left(code);
-	return code.substr(0, 8) == "#version";
-}
-
-static bool rtvk_glsl_line_is_comment(std::string_view code) {
-	code = rtvk_trim_left(code);
-	return code.substr(0, 2) == "//" || code.substr(0, 2) == "/*" || code.substr(0, 1) == "*";
-}
-
-static std::string rtvk_glsl_annotate_interface(rtvk_glsl_normalizer* normalizer, std::string_view line, std::string_view code) {
-	rtvk_glsl_storage_token storage = rtvk_glsl_find_storage_token(code);
-	bool is_input = false;
-	if (!rtvk_glsl_storage_uses_location(normalizer->language, storage.storage, &is_input)) {
-		return std::string(line);
-	}
-	if (code.find('{') != std::string_view::npos) {
-		return std::string(line);
-	}
-
-	u32 location = rtvk_glsl_next_interface_location(normalizer, storage.storage, is_input, code);
-	std::string rewritten(line);
-	if (storage.storage == RTVK_GLSL_STORAGE_ATTRIBUTE) {
-		rtvk_glsl_replace_storage_token(rewritten, storage, "in");
-	} else if (storage.storage == RTVK_GLSL_STORAGE_VARYING) {
-		rtvk_glsl_replace_storage_token(rewritten, storage, is_input ? "in" : "out");
-	}
-
-	return "layout(location = " + std::to_string(location) + ") " + rewritten;
-}
-
-static bool rtvk_glsl_line_is_uniform_block_start(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	if (tokens.size() < 2 || !rtvk_string_view_equals(tokens[0].text, "uniform")) {
-		return false;
-	}
-	return code.find('{') != std::string_view::npos || code.find(';') == std::string_view::npos;
-}
-
-static bool rtvk_glsl_line_is_storage_block_start(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	bool found_buffer = false;
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, "buffer")) {
-			found_buffer = true;
-			break;
-		}
-	}
-	return found_buffer && (code.find('{') != std::string_view::npos || code.find(';') == std::string_view::npos);
-}
-
-static bool rtvk_glsl_line_is_sampler_uniform(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	if (tokens.size() < 3 || !rtvk_string_view_equals(tokens[0].text, "uniform")) {
-		return false;
-	}
-	for (size_t i = 1; i + 1 < tokens.size(); i++) {
-		if (rtvk_glsl_is_sampler_type(tokens[i].text)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static std::string rtvk_glsl_resource_name(std::string_view code) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(code);
-	if (tokens.size() < 2) {
-		return {};
-	}
-	for (size_t i = 0; i + 1 < tokens.size(); i++) {
-		if (rtvk_string_view_equals(tokens[i].text, "buffer")) {
-			return std::string(tokens[i + 1].text);
-		}
-	}
-	if (rtvk_string_view_equals(tokens[0].text, "uniform")) {
-		return rtvk_glsl_uniform_name(code);
-	}
-	return {};
-}
-
-static bool rtvk_glsl_line_is_resource(std::string_view code) {
-	return rtvk_glsl_line_is_uniform_block_start(code) ||
-		   rtvk_glsl_line_is_sampler_uniform(code) ||
-		   rtvk_glsl_line_is_storage_block_start(code);
-}
-
-static std::string rtvk_glsl_annotate_resource(rtvk_glsl_normalizer* normalizer, std::string_view line, std::string_view code) {
-	if (!rtvk_glsl_line_is_resource(code)) {
-		return std::string(line);
-	}
-
-	std::string name = rtvk_glsl_resource_name(code);
-	if (name.empty()) {
-		return std::string(line);
-	}
-
-	u32 binding = rtvk_glsl_resource_binding(normalizer->resource_bindings, name);
-	return "layout(set = 0, binding = " + std::to_string(binding) + ") " + std::string(line);
-}
-
-static std::string rtvk_glsl_normalize_layout_line(rtvk_glsl_normalizer* normalizer, std::string_view line, std::string_view code) {
-	rtvk_glsl_note_explicit_location(normalizer, code);
-
-	std::string_view after_layout = rtvk_trim_left(rtvk_glsl_after_first_layout(code));
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(after_layout);
-	if (!tokens.empty() && rtvk_glsl_line_is_resource(after_layout)) {
-		if (!rtvk_glsl_layout_has_qualifier(code, "binding")) {
-			std::string name = rtvk_glsl_resource_name(after_layout);
-			if (!name.empty()) {
-				u32 binding = rtvk_glsl_resource_binding(normalizer->resource_bindings, name);
-				std::string qualifier = rtvk_glsl_layout_has_qualifier(code, "set") ? "binding = " + std::to_string(binding) : "set = 0, binding = " + std::to_string(binding);
-				return rtvk_glsl_insert_layout_qualifier(line, qualifier);
-			}
-		}
-		if (!rtvk_glsl_layout_has_qualifier(code, "set")) {
-			return rtvk_glsl_insert_layout_qualifier(line, "set = 0");
-		}
-	}
-
-	if (!rtvk_glsl_layout_has_qualifier(code, "location")) {
-		rtvk_glsl_storage_token storage = rtvk_glsl_find_storage_token(after_layout);
-		bool is_input = false;
-		if (rtvk_glsl_storage_uses_location(normalizer->language, storage.storage, &is_input) &&
-			after_layout.find('{') == std::string_view::npos) {
-			u32 location = rtvk_glsl_next_interface_location(normalizer, storage.storage, is_input, after_layout);
-			return rtvk_glsl_insert_layout_qualifier(line, "location = " + std::to_string(location));
-		}
-	}
-
-	return std::string(line);
-}
-
-static std::string rtvk_glsl_normalize_line(rtvk_glsl_normalizer* normalizer, std::string_view line) {
-	std::string_view code = rtvk_glsl_code_without_line_comment(line);
-	if (rtvk_glsl_line_is_version_directive(code)) {
-		return "#version " + std::to_string(RTVK_GLSL_VERSION);
-	}
-	if (rtvk_glsl_line_is_preprocessor(code) || rtvk_glsl_line_is_comment(code)) {
-		return std::string(line);
-	}
-
-	if (rtvk_glsl_line_has_layout(code)) {
-		return rtvk_glsl_normalize_layout_line(normalizer, line, code);
-	}
-
-	std::string_view trimmed = rtvk_trim_left(code);
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(trimmed);
-	bool has_storage_buffer_token = false;
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, "buffer")) {
-			has_storage_buffer_token = true;
-			break;
-		}
-	}
-	if (!tokens.empty() && (rtvk_string_view_equals(tokens[0].text, "uniform") || has_storage_buffer_token)) {
-		return rtvk_glsl_annotate_resource(normalizer, line, trimmed);
-	}
-
-	return rtvk_glsl_annotate_interface(normalizer, line, code);
-}
-
-static u32 rtvk_glsl_linked_location_count(const std::unordered_map<std::string, u32>* linked_locations) {
-	u32 count = 0;
-	if (!linked_locations) {
-		return count;
-	}
-	for (const auto& entry : *linked_locations) {
-		count = std::max(count, entry.second + 1);
-	}
-	return count;
-}
-
-typedef struct rtvk_glsl_interface_decl {
-	std::string name;
-	std::string type;
-	rtvk_glsl_storage storage;
-	bool has_location;
-	u32 location;
-} rtvk_glsl_interface_decl;
-
-static bool rtvk_glsl_parse_interface_decl(EShLanguage language, std::string_view line, rtvk_glsl_interface_decl* decl) {
-	std::string_view code = rtvk_glsl_code_without_line_comment(line);
-	if (rtvk_glsl_line_is_preprocessor(code) || rtvk_glsl_line_is_comment(code)) {
-		return false;
-	}
-
-	std::string_view declaration = code;
-	if (rtvk_glsl_line_has_layout(code)) {
-		declaration = rtvk_trim_left(rtvk_glsl_after_first_layout(code));
-	}
-
-	rtvk_glsl_storage_token storage = rtvk_glsl_find_storage_token(declaration);
-	bool is_input = false;
-	if (!rtvk_glsl_storage_uses_location(language, storage.storage, &is_input)) {
-		return false;
-	}
-	if (declaration.find('{') != std::string_view::npos) {
-		return false;
-	}
-
-	std::string name = rtvk_glsl_declaration_name(declaration);
-	std::string type = rtvk_glsl_declaration_type(declaration);
-	if (name.empty() || type.empty()) {
-		return false;
-	}
-
-	i32 location = rtvk_glsl_parse_layout_number(code, "location");
-	decl->name = std::move(name);
-	decl->type = std::move(type);
-	decl->storage = storage.storage;
-	decl->has_location = location >= 0;
-	decl->location = location >= 0 ? (u32)location : 0;
-	return true;
-}
-
-static void rtvk_glsl_update_brace_depth(std::string_view code, i32* brace_depth) {
-	for (char ch : code) {
-		if (ch == '{') {
-			(*brace_depth)++;
-		} else if (ch == '}' && *brace_depth > 0) {
-			(*brace_depth)--;
-		}
-	}
-}
-
-static std::vector<rtvk_glsl_interface_decl> rtvk_glsl_collect_interface_decls(EShLanguage language, u64 size, const void* source) {
-	const char* source_text = source ? (const char*)source : "";
-	std::string_view input(source_text, (size_t)size);
-	std::vector<rtvk_glsl_interface_decl> decls;
-	i32 brace_depth = 0;
-
-	size_t offset = 0;
-	while (offset <= input.size()) {
-		size_t end = input.find('\n', offset);
-		if (end == std::string_view::npos) {
-			end = input.size();
-		}
-		std::string_view line(input.data() + offset, end - offset);
-		if (!line.empty() && line.back() == '\r') {
-			line.remove_suffix(1);
-		}
-
-		std::string_view code = rtvk_glsl_code_without_line_comment(line);
-		if (brace_depth == 0) {
-			rtvk_glsl_interface_decl decl = {};
-			if (rtvk_glsl_parse_interface_decl(language, line, &decl)) {
-				decls.push_back(std::move(decl));
-			}
-		}
-		rtvk_glsl_update_brace_depth(code, &brace_depth);
-
-		if (end == input.size()) {
-			break;
-		}
-		offset = end + 1;
-	}
-	return decls;
-}
-
-static bool rtvk_glsl_decl_is_stage_input(EShLanguage language, const rtvk_glsl_interface_decl& decl) {
-	if (decl.storage == RTVK_GLSL_STORAGE_ATTRIBUTE) {
-		return language == EShLangVertex;
-	}
-	if (decl.storage == RTVK_GLSL_STORAGE_VARYING) {
-		return language != EShLangVertex;
-	}
-	return decl.storage == RTVK_GLSL_STORAGE_IN;
-}
-
-static std::unordered_map<std::string, u32> rtvk_glsl_link_graphics_stages(u64 vertex_size, const void* vertex_source, u64 fragment_size, const void* fragment_source) {
-	std::vector<rtvk_glsl_interface_decl> vertex_decls = rtvk_glsl_collect_interface_decls(EShLangVertex, vertex_size, vertex_source);
-	std::vector<rtvk_glsl_interface_decl> fragment_decls = rtvk_glsl_collect_interface_decls(EShLangFragment, fragment_size, fragment_source);
-
-	std::unordered_map<std::string, const rtvk_glsl_interface_decl*> vertex_outputs;
-	std::unordered_map<u32, const rtvk_glsl_interface_decl*> vertex_outputs_by_location;
-	std::set<u32> used_locations;
-	for (const rtvk_glsl_interface_decl& decl : vertex_decls) {
-		if (!rtvk_glsl_decl_is_stage_input(EShLangVertex, decl)) {
-			vertex_outputs[decl.name] = &decl;
-			if (decl.has_location) {
-				used_locations.insert(decl.location);
-				vertex_outputs_by_location[decl.location] = &decl;
-			}
-		}
-	}
-	for (const rtvk_glsl_interface_decl& decl : fragment_decls) {
-		if (rtvk_glsl_decl_is_stage_input(EShLangFragment, decl)) {
-			if (decl.has_location) {
-				used_locations.insert(decl.location);
-			}
-		}
-	}
-
-	std::unordered_map<std::string, u32> linked_locations;
-	u32 next_location = 0;
-	auto next_unused_location = [&]() {
-		while (used_locations.find(next_location) != used_locations.end()) {
-			next_location++;
-		}
-		used_locations.insert(next_location);
-		return next_location++;
-	};
-
-	for (const rtvk_glsl_interface_decl& fragment_decl : fragment_decls) {
-		if (!rtvk_glsl_decl_is_stage_input(EShLangFragment, fragment_decl)) {
-			continue;
-		}
-		const std::string& name = fragment_decl.name;
-		const rtvk_glsl_interface_decl* fragment = &fragment_decl;
-		auto vertex_entry = vertex_outputs.find(name);
-		if (vertex_entry == vertex_outputs.end()) {
-			if (fragment->has_location) {
-				auto vertex_location = vertex_outputs_by_location.find(fragment->location);
-				if (vertex_location != vertex_outputs_by_location.end()) {
-					if (vertex_location->second->type != fragment->type) {
-						throw std::runtime_error("type mismatch at explicit varying location " + std::to_string(fragment->location));
-					}
-					continue;
-				}
-			}
-			throw std::runtime_error("fragment input '" + name + "' has no matching vertex output");
-		}
-
-		const rtvk_glsl_interface_decl* vertex = vertex_entry->second;
-		if (vertex->type != fragment->type) {
-			throw std::runtime_error("type mismatch for varying '" + name + "'");
-		}
-		if (vertex->has_location && fragment->has_location && vertex->location != fragment->location) {
-			throw std::runtime_error("location mismatch for varying '" + name + "'");
-		}
-
-		u32 location = vertex->has_location ? vertex->location : fragment->has_location ? fragment->location
-																						: next_unused_location();
-		linked_locations[name] = location;
-		used_locations.insert(location);
-	}
-
-	return linked_locations;
-}
-
-typedef struct rtvk_glsl_resource_decl {
-	std::string name;
-	bool has_binding;
-	u32 binding;
-	rtvk_shader_resource_kind kind;
-} rtvk_glsl_resource_decl;
-
-static bool rtvk_reflection_add_resource(
-	rtvk_shader_reflection* reflection,
-	const char* name,
-	u32 binding,
-	rtvk_shader_resource_kind kind);
-
-static rtvk_shader_resource_kind rtvk_glsl_resource_kind(std::string_view declaration) {
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(declaration);
-	for (const rtvk_glsl_token& token : tokens) {
-		if (rtvk_string_view_equals(token.text, "buffer")) {
-			return RTVK_SHADER_RESOURCE_STORAGE_BUFFER;
-		}
-	}
-	if (!tokens.empty() && rtvk_string_view_equals(tokens[0].text, "buffer")) {
-		return RTVK_SHADER_RESOURCE_STORAGE_BUFFER;
-	}
-	if (rtvk_glsl_line_is_sampler_uniform(declaration)) {
-		for (size_t i = 1; i + 1 < tokens.size(); i++) {
-			if (tokens[i].text.find("image") != std::string_view::npos) {
-				return RTVK_SHADER_RESOURCE_STORAGE_TEXTURE;
-			}
-		}
-		return RTVK_SHADER_RESOURCE_SAMPLED_TEXTURE;
-	}
-	return RTVK_SHADER_RESOURCE_UNIFORM_BUFFER;
-}
-
-static bool rtvk_glsl_parse_resource_decl(std::string_view line, rtvk_glsl_resource_decl* decl) {
-	std::string_view code = rtvk_glsl_code_without_line_comment(line);
-	if (rtvk_glsl_line_is_preprocessor(code) || rtvk_glsl_line_is_comment(code)) {
-		return false;
-	}
-
-	std::string_view declaration = code;
-	if (rtvk_glsl_line_has_layout(code)) {
-		declaration = rtvk_trim_left(rtvk_glsl_after_first_layout(code));
-	}
-
-	std::vector<rtvk_glsl_token> tokens = rtvk_glsl_tokens(declaration);
-	if (tokens.empty() ||
-		(!rtvk_string_view_equals(tokens[0].text, "uniform") &&
-		 !rtvk_glsl_line_is_storage_block_start(declaration))) {
-		return false;
-	}
-	if (!rtvk_glsl_line_is_resource(declaration)) {
-		return false;
-	}
-
-	std::string name = rtvk_glsl_resource_name(declaration);
-	if (name.empty()) {
-		return false;
-	}
-
-	i32 set = rtvk_glsl_parse_layout_number(code, "set");
-	if (set > 0) {
-		throw std::runtime_error("resource '" + name + "' uses descriptor set " + std::to_string(set) + ", but Rutile currently exposes one backend-managed set");
-	}
-	i32 binding = rtvk_glsl_parse_layout_number(code, "binding");
-	decl->name = std::move(name);
-	decl->has_binding = binding >= 0;
-	decl->binding = binding >= 0 ? (u32)binding : 0;
-	decl->kind = rtvk_glsl_resource_kind(declaration);
-	return true;
-}
-
-static std::vector<rtvk_glsl_resource_decl> rtvk_glsl_collect_resource_decls(u64 size, const void* source) {
-	const char* source_text = source ? (const char*)source : "";
-	std::string_view input(source_text, (size_t)size);
-	std::vector<rtvk_glsl_resource_decl> decls;
-	i32 brace_depth = 0;
-
-	size_t offset = 0;
-	while (offset <= input.size()) {
-		size_t end = input.find('\n', offset);
-		if (end == std::string_view::npos) {
-			end = input.size();
-		}
-		std::string_view line(input.data() + offset, end - offset);
-		if (!line.empty() && line.back() == '\r') {
-			line.remove_suffix(1);
-		}
-
-		std::string_view code = rtvk_glsl_code_without_line_comment(line);
-		if (brace_depth == 0) {
-			rtvk_glsl_resource_decl decl = {};
-			if (rtvk_glsl_parse_resource_decl(line, &decl)) {
-				decls.push_back(std::move(decl));
-			}
-		}
-		rtvk_glsl_update_brace_depth(code, &brace_depth);
-
-		if (end == input.size()) {
-			break;
-		}
-		offset = end + 1;
-	}
-	return decls;
-}
-
-static std::unordered_map<std::string, u32> rtvk_glsl_link_resource_bindings(u64 vertex_size, const void* vertex_source, u64 fragment_size, const void* fragment_source) {
-	std::vector<rtvk_glsl_resource_decl> resources = rtvk_glsl_collect_resource_decls(vertex_size, vertex_source);
-	std::vector<rtvk_glsl_resource_decl> fragment_resources = rtvk_glsl_collect_resource_decls(fragment_size, fragment_source);
-	resources.insert(resources.end(), fragment_resources.begin(), fragment_resources.end());
-
-	std::unordered_map<std::string, u32> bindings;
-	std::set<u32> used_bindings;
-	for (const rtvk_glsl_resource_decl& resource : resources) {
-		if (!resource.has_binding) {
-			continue;
-		}
-		auto existing = bindings.find(resource.name);
-		if (existing != bindings.end() && existing->second != resource.binding) {
-			throw std::runtime_error("resource '" + resource.name + "' uses different bindings across shader stages");
-		}
-		bindings[resource.name] = resource.binding;
-		used_bindings.insert(resource.binding);
-	}
-
-	for (const rtvk_glsl_resource_decl& resource : resources) {
-		if (bindings.find(resource.name) != bindings.end()) {
-			continue;
-		}
-
-		u32 binding = rtvk_glsl_auto_binding(resource.name);
-		while (used_bindings.find(binding) != used_bindings.end()) {
-			binding++;
-		}
-		used_bindings.insert(binding);
-		bindings[resource.name] = binding;
-	}
-	return bindings;
-}
-
-static bool rtvk_shader_reflect_glsl_resources(u64 size, const void* source, rtvk_shader_reflection* reflection) {
-	if (!reflection) {
-		return true;
-	}
-	std::vector<rtvk_glsl_resource_decl> resources = rtvk_glsl_collect_resource_decls(size, source);
-	for (const rtvk_glsl_resource_decl& resource : resources) {
-		if (!resource.has_binding) {
-			continue;
-		}
-		if (!rtvk_reflection_add_resource(reflection, resource.name.c_str(), resource.binding, resource.kind)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-static std::string rtvk_glsl_normalize(
-	EShLanguage language,
-	const rt_vertex_layout* vertex_layout,
-	const std::unordered_map<std::string, u32>* linked_locations,
-	const std::unordered_map<std::string, u32>* resource_bindings,
-	u64 size,
-	const void* source) {
-	const char* source_text = source ? (const char*)source : "";
-	std::string input(source_text, (size_t)size);
-	std::string output;
-	output.reserve(input.size() + 256);
-	if (!rtvk_glsl_has_version_directive(input)) {
-		output += "#version ";
-		output += std::to_string(RTVK_GLSL_VERSION);
-		output += "\n";
-	}
-
-	rtvk_glsl_normalizer normalizer = {};
-	normalizer.language = language;
-	normalizer.vertex_layout = vertex_layout;
-	normalizer.linked_locations = linked_locations;
-	normalizer.resource_bindings = resource_bindings;
-	u32 linked_location_count = rtvk_glsl_linked_location_count(linked_locations);
-	if (language == EShLangVertex) {
-		normalizer.output_location = linked_location_count;
-	} else if (language == EShLangFragment) {
-		normalizer.input_location = linked_location_count;
-	}
-
-	size_t offset = 0;
-	while (offset <= input.size()) {
-		size_t end = input.find('\n', offset);
-		if (end == std::string::npos) {
-			end = input.size();
-		}
-		std::string_view line(input.data() + offset, end - offset);
-		if (!line.empty() && line.back() == '\r') {
-			line.remove_suffix(1);
-		}
-		if (normalizer.brace_depth == 0) {
-			output += rtvk_glsl_normalize_line(&normalizer, line);
-		} else {
-			output += line;
-		}
-		std::string_view code = rtvk_glsl_code_without_line_comment(line);
-		rtvk_glsl_update_brace_depth(code, &normalizer.brace_depth);
-		if (end < input.size()) {
-			output += '\n';
-		}
-		if (end == input.size()) {
-			break;
-		}
-		offset = end + 1;
-	}
-	return output;
-}
-
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
-
-void rtvk_shader_compiler_init(void) {
-	glslang::InitializeProcess();
-}
-
-void rtvk_shader_compiler_finish(void) {
-	glslang::FinalizeProcess();
-}
-
-void rtvk_shader_reflection_clear(rtvk_shader_reflection* reflection) {
-	if (!reflection) {
-		return;
-	}
 	std::free(reflection->uniform_blocks);
 	std::free(reflection->textures);
 	std::free(reflection->resources);
 	*reflection = {};
 }
 
-static bool rtvk_shader_source_valid(EShLanguage language, u64 size, const void* source) {
-	if (language == EShLangCount) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "unsupported shader stage");
-		return false;
-	}
-	if (!source && size) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "shader source is NULL but size is %llu", (u64)size);
-		return false;
-	}
-	if (size > (u64)std::numeric_limits<i32>::max()) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "shader source is too large: %llu bytes", (u64)size);
-		return false;
-	}
-
-	return true;
+static VkShaderModule rtvk_shader_compile_failed(enum rt_error error, const char *detail) {
+	rtvk_throwf(error, detail);
+	return VK_NULL_HANDLE;
 }
 
-static bool rtvk_reflection_add_resource(rtvk_shader_reflection* reflection, const char* name, u32 binding, rtvk_shader_resource_kind kind) {
-	for (u32 i = 0; i < reflection->resource_count; i++) {
-		rtvk_shader_resource* existing = &reflection->resources[i];
-		if (existing->binding == binding) {
-			if (existing->kind != kind) {
-				rtvk_throwf(RT_SHADER_LINK_FAILED, "resources %s and %s use binding %u with different kinds", existing->name, name, binding);
-				return false;
-			}
-			return true;
-		}
-	}
-
-	rtvk_shader_resource* resources = (rtvk_shader_resource*)std::realloc(
-		reflection->resources,
-		sizeof(rtvk_shader_resource) * (size_t)(reflection->resource_count + 1));
-	if (!resources) {
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate shader resource reflection");
-		return false;
-	}
-	reflection->resources = resources;
-	rtvk_shader_resource* dst = &reflection->resources[reflection->resource_count++];
-	std::snprintf(dst->name, sizeof(dst->name), "%s", name);
-	dst->name[sizeof(dst->name) - 1] = '\0';
-	dst->binding = binding;
-	dst->kind = kind;
-	return true;
-}
-
-static bool rtvk_reflect_uniform_blocks(glslang::TProgram& program, rtvk_shader_reflection* reflection) {
-	if (!reflection) {
-		return true;
-	}
-
-	*reflection = {};
-	if (!program.buildReflection(EShReflectionDefault)) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "shader reflection failed");
-		return false;
-	}
-
-	int block_count = program.getNumUniformBlocks();
-	if (block_count < 0) {
-		block_count = 0;
-	}
-	if (block_count) {
-		size_t bytes = sizeof(rtvk_shader_uniform_block) * (size_t)block_count;
-		reflection->uniform_blocks = (rtvk_shader_uniform_block*)std::calloc(1, bytes);
-		if (!reflection->uniform_blocks) {
-			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate uniform block reflection");
-			return false;
-		}
-	}
-
-	for (int i = 0; i < block_count; i++) {
-		const glslang::TObjectReflection& block = program.getUniformBlock(i);
-		int binding = block.getBinding();
-		if (binding < 0) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniform block %s has no binding", block.name.c_str());
-			return false;
-		}
-
-		rtvk_shader_uniform_block* dst = &reflection->uniform_blocks[reflection->uniform_block_count++];
-		std::snprintf(dst->name, sizeof(dst->name), "%s", block.name.c_str());
-		dst->name[sizeof(dst->name) - 1] = '\0';
-		dst->binding = (u32)binding;
-	}
-
-	int uniform_count = program.getNumUniformVariables();
-	if (uniform_count < 0) {
-		uniform_count = 0;
-	}
-	if (uniform_count) {
-		size_t bytes = sizeof(rtvk_shader_texture) * (size_t)uniform_count;
-		reflection->textures = (rtvk_shader_texture*)std::calloc(1, bytes);
-		if (!reflection->textures) {
-			rtvk_shader_reflection_clear(reflection);
-			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture reflection");
-			return false;
-		}
-	}
-	for (int i = 0; i < uniform_count; i++) {
-		const glslang::TObjectReflection& uniform = program.getUniform(i);
-		if (uniform.index >= 0) {
-			continue;
-		}
-
-		int binding = uniform.getBinding();
-		if (binding < 0) {
-			continue;
-		}
-		rtvk_shader_texture* dst = &reflection->textures[reflection->texture_count++];
-		std::snprintf(dst->name, sizeof(dst->name), "%s", uniform.name.c_str());
-		dst->name[sizeof(dst->name) - 1] = '\0';
-		dst->binding = (u32)binding;
-	}
-	return true;
-}
-
-static bool rtvk_glslang_to_spirv(EShLanguage language, u64 size, const void* source, std::vector<u32>& spirv, rtvk_shader_reflection* reflection) {
-	glslang::TShader shader(language);
-	const char* source_text = (const char*)source;
-	i32 source_length = (i32)size;
-	shader.setStringsWithLengths(&source_text, &source_length, 1);
-	shader.setEnvInput(glslang::EShSourceGlsl, language, glslang::EShClientVulkan, RTVK_GLSL_VERSION);
-	shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-	shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
-	if (!shader.parse(GetDefaultResources(), RTVK_GLSL_VERSION, false, EShMsgDefault)) {
-		rtvk_throwf(RT_SHADER_COMPILATION_FAILED, "shader compile failed: %s", shader.getInfoLog());
-		return false;
-	}
-
-	glslang::TProgram program;
-	program.addShader(&shader);
-	if (!program.link(EShMsgDefault)) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "shader link failed: %s", program.getInfoLog());
-		return false;
-	}
-
-	glslang::TIntermediate* intermediate = program.getIntermediate(language);
-	if (!intermediate) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "shader link did not produce intermediate code");
-		return false;
-	}
-	if (!rtvk_reflect_uniform_blocks(program, reflection)) {
-		return false;
-	}
-
-	glslang::GlslangToSpv(*intermediate, spirv);
-	return true;
-}
-
-static bool rtvk_shader_source_to_spirv(VkShaderStageFlagBits stage, const rt_vertex_layout* vertex_layout, const std::unordered_map<std::string, u32>* linked_locations, const std::unordered_map<std::string, u32>* resource_bindings, u64 size, const void* source, std::vector<u32>& spirv, rtvk_shader_reflection* reflection) {
-	EShLanguage language = rtvk_shader_stage_to_glslang(stage);
-	if (!rtvk_shader_source_valid(language, size, source)) {
-		return false;
-	}
-
-	std::string glsl = rtvk_glsl_normalize(language, vertex_layout, linked_locations, resource_bindings, size, source);
-	if (!rtvk_glslang_to_spirv(language, glsl.size(), glsl.data(), spirv, reflection)) {
-		return false;
-	}
-	return rtvk_shader_reflect_glsl_resources(glsl.size(), glsl.data(), reflection);
-}
-
-static bool rtvk_spirv_create_shader_module(struct rtvk_context* ctx, std::span<const u32> spirv, VkShaderModule* shader) {
-	VkShaderModuleCreateInfo shader_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-	shader_info.pNext = NULL;
-	shader_info.flags = 0;
-	shader_info.codeSize = spirv.size_bytes();
-	shader_info.pCode = spirv.data();
-
-	VkResult result = vkCreateShaderModule(ctx->vk_device, &shader_info, VK_ALLOCATOR, shader);
+static bool rtvk_spirv_create_shader_module(struct rtvk_context *ctx, std::span<u32> spirv, VkShaderModule &shader_out) {
+	VkShaderModuleCreateInfo create_info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+	create_info.codeSize = spirv.size() * sizeof(u32);
+	create_info.pCode = spirv.data();
+	const VkResult result = vkCreateShaderModule(ctx->vk_device, &create_info, VK_ALLOCATOR, &shader_out);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return false;
 	}
-
 	return true;
 }
 
-static VkShaderModule rtvk_shader_compile_failed(enum rt_error error, const char* reason) {
-	rtvk_throwf(error, "shader compile failed: %s", reason ? reason : "unknown C++ exception");
-	return VK_NULL_HANDLE;
+typedef struct rtvk_spv_writer {
+	std::vector<u32> words;
+	u32 bound;
+} rtvk_spv_writer;
+
+static void rtvk_spv_begin(rtvk_spv_writer *writer) {
+	writer->words = {
+		SpvMagicNumber,
+		SpvVersion,
+		0,
+		0,
+		0,
+	};
+	writer->bound = 1;
 }
 
-VkShaderModule rtvk_shader_compile(struct rtvk_context* ctx, VkShaderStageFlagBits stage, u64 size, const void* source, rtvk_shader_reflection* reflection, u32** spirv_source, u64* spirv_size) {
-	try {
-		std::vector<u32> spirv;
-		if (!rtvk_shader_source_to_spirv(stage, NULL, NULL, NULL, size, source, spirv, reflection)) {
-			return VK_NULL_HANDLE;
+static void rtvk_spv_reserve(rtvk_spv_writer *writer, u32 id) {
+	writer->bound = std::max(writer->bound, id + 1);
+}
+
+static u32 rtvk_spv_fresh(rtvk_spv_writer *writer) {
+	return writer->bound++;
+}
+
+static void rtvk_spv_emit(rtvk_spv_writer *writer, SpvOp op, const std::vector<u32> &operands) {
+	writer->words.push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(op));
+	writer->words.insert(writer->words.end(), operands.begin(), operands.end());
+}
+
+static void rtvk_spv_emit(rtvk_spv_writer *writer, SpvOp op, std::initializer_list<u32> operands) {
+	rtvk_spv_emit(writer, op, std::vector<u32>(operands));
+}
+
+static const rutile::backend_tools::RTInstruction *rtvk_rtslp_find_inst(
+	const std::vector<rutile::backend_tools::RTInstruction> &insts,
+	u32 result_id
+) {
+	for (const auto &inst : insts) {
+		if (inst.result_id == result_id)
+			return &inst;
+	}
+	return NULL;
+}
+
+static const rutile::backend_tools::RTFunction *rtvk_rtslp_find_stage_function(
+	const rutile::backend_tools::RTArtifactModule &module,
+	rutile::backend_tools::RTStageKind stage
+) {
+	for (const auto &fn : module.functions) {
+		if (fn.stage == stage)
+			return &fn;
+	}
+	return NULL;
+}
+
+static std::unordered_map<u32, std::string> rtvk_rtslp_struct_names(const rutile::backend_tools::RTArtifactModule &module) {
+	std::unordered_map<u32, std::string> names;
+	size_t struct_index = 0;
+	for (const auto &inst : module.type_constant_pool) {
+		if (inst.op == rutile::backend_tools::RTIROp::TypeStruct && struct_index < module.structs.size()) {
+			names.emplace(inst.result_id, module.structs[struct_index].name);
+			++struct_index;
 		}
-		VkShaderModule shader = VK_NULL_HANDLE;
-		if (!rtvk_spirv_create_shader_module(ctx, spirv, &shader)) {
-			return VK_NULL_HANDLE;
-		}
-		if (spirv_source) {
-			size_t bytes = spirv.size() * sizeof(spirv[0]);
-			u32* copy = (u32*)std::malloc(bytes);
-			if (!copy) {
-				rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate shader SPIR-V storage");
-				vkDestroyShaderModule(ctx->vk_device, shader, VK_ALLOCATOR);
-				return VK_NULL_HANDLE;
-			}
-			std::memcpy(copy, spirv.data(), bytes);
-			*spirv_source = copy;
-		}
-		if (spirv_size) {
-			*spirv_size = (u64)(spirv.size() * sizeof(spirv[0]));
-		}
-		return shader;
-	} catch (const std::bad_alloc&) {
-		return rtvk_shader_compile_failed(RT_OUT_OF_HOST_MEMORY, "out of host memory");
-	} catch (const std::exception& error) {
-		return rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, error.what());
-	} catch (...) {
-		return rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, NULL);
+	}
+	return names;
+}
+
+static const rutile::backend_tools::RTStageInterface *rtvk_rtslp_find_interface(
+	const rutile::backend_tools::RTArtifactModule &module,
+	std::string_view type_name,
+	rutile::backend_tools::RTStageRole role
+) {
+	for (const auto &interface : module.stage_interfaces) {
+		if (interface.type_name == type_name && interface.role == role)
+			return &interface;
+	}
+	return NULL;
+}
+
+static SpvBuiltIn rtvk_rtslp_builtin(const rutile::backend_tools::RTStageField &field) {
+	if (field.builtin == "position" || field.interpolation == "clip")
+		return SpvBuiltInPosition;
+	if (field.builtin == "frag_coord")
+		return SpvBuiltInFragCoord;
+	if (field.builtin == "front_facing")
+		return SpvBuiltInFrontFacing;
+	if (field.builtin == "frag_depth")
+		return SpvBuiltInFragDepth;
+	return SpvBuiltInPosition;
+}
+
+static SpvOp rtvk_rtslp_op(rutile::backend_tools::RTIROp op) {
+	using rutile::backend_tools::RTIROp;
+	switch (op) {
+	case RTIROp::TypeVoid:
+		return SpvOpTypeVoid;
+	case RTIROp::TypeBool:
+		return SpvOpTypeBool;
+	case RTIROp::TypeInt:
+	case RTIROp::TypeUInt:
+		return SpvOpTypeInt;
+	case RTIROp::TypeFloat:
+		return SpvOpTypeFloat;
+	case RTIROp::TypeVector:
+		return SpvOpTypeVector;
+	case RTIROp::TypeMatrix:
+		return SpvOpTypeMatrix;
+	case RTIROp::TypeStruct:
+		return SpvOpTypeStruct;
+	case RTIROp::TypePointer:
+		return SpvOpTypePointer;
+	case RTIROp::TypeFunction:
+		return SpvOpTypeFunction;
+	case RTIROp::ConstantInt:
+	case RTIROp::ConstantUInt:
+	case RTIROp::ConstantFloat:
+		return SpvOpConstant;
+	case RTIROp::ConstantComposite:
+		return SpvOpConstantComposite;
+	case RTIROp::Load:
+		return SpvOpLoad;
+	case RTIROp::Store:
+		return SpvOpStore;
+	case RTIROp::CompositeConstruct:
+		return SpvOpCompositeConstruct;
+	case RTIROp::CompositeExtract:
+		return SpvOpCompositeExtract;
+	case RTIROp::FMul:
+		return SpvOpFMul;
+	case RTIROp::MatrixTimesVector:
+		return SpvOpMatrixTimesVector;
+	case RTIROp::ImageSampleImplicitLod:
+		return SpvOpImageSampleImplicitLod;
+	default:
+		return SpvOpNop;
 	}
 }
 
-rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics(struct rtvk_context* ctx, const rt_vertex_layout* vertex_layout, u64 vertex_size, const void* vertex_source, u64 fragment_size, const void* fragment_source) {
+static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer *writer, const rutile::backend_tools::RTInstruction &inst) {
+	using rutile::backend_tools::RTIROp;
+	rtvk_spv_reserve(writer, inst.result_id);
+	std::vector<u32> operands;
+	switch (inst.op) {
+	case RTIROp::TypeVoid:
+	case RTIROp::TypeBool:
+		operands = {inst.result_id};
+		break;
+	case RTIROp::TypeInt:
+		operands = {inst.result_id, inst.literals[0], 1};
+		break;
+	case RTIROp::TypeUInt:
+		operands = {inst.result_id, inst.literals[0], 0};
+		break;
+	case RTIROp::TypeFloat:
+		operands = {inst.result_id, inst.literals[0]};
+		break;
+	case RTIROp::TypeVector:
+	case RTIROp::TypeMatrix:
+		operands = {inst.result_id, inst.operands[0], inst.literals[0]};
+		break;
+	case RTIROp::TypeStruct:
+	case RTIROp::TypeFunction:
+		operands = {inst.result_id};
+		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
+		break;
+	case RTIROp::TypePointer:
+		operands = {inst.result_id, inst.literals[0], inst.operands[0]};
+		break;
+	case RTIROp::ConstantInt:
+	case RTIROp::ConstantUInt:
+	case RTIROp::ConstantFloat:
+		operands = {inst.type_id, inst.result_id};
+		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
+		break;
+	case RTIROp::ConstantComposite:
+		operands = {inst.type_id, inst.result_id};
+		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
+		break;
+	default:
+		return true;
+	}
+	rtvk_spv_emit(writer, rtvk_rtslp_op(inst.op), operands);
+	return true;
+}
+
+static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32> *section, const rutile::backend_tools::RTInstruction &inst) {
+	using rutile::backend_tools::RTIROp;
+	std::vector<u32> operands;
+	switch (inst.op) {
+	case RTIROp::TypeVoid:
+	case RTIROp::TypeBool:
+		operands = {inst.result_id};
+		break;
+	case RTIROp::TypeInt:
+		operands = {inst.result_id, inst.literals[0], 1};
+		break;
+	case RTIROp::TypeUInt:
+		operands = {inst.result_id, inst.literals[0], 0};
+		break;
+	case RTIROp::TypeFloat:
+		operands = {inst.result_id, inst.literals[0]};
+		break;
+	case RTIROp::TypeVector:
+	case RTIROp::TypeMatrix:
+		operands = {inst.result_id, inst.operands[0], inst.literals[0]};
+		break;
+	case RTIROp::TypeStruct:
+	case RTIROp::TypeFunction:
+		operands = {inst.result_id};
+		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
+		break;
+	case RTIROp::TypePointer:
+		operands = {inst.result_id, inst.literals[0], inst.operands[0]};
+		break;
+	case RTIROp::ConstantInt:
+	case RTIROp::ConstantUInt:
+	case RTIROp::ConstantFloat:
+		operands = {inst.type_id, inst.result_id};
+		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
+		break;
+	case RTIROp::ConstantComposite:
+		operands = {inst.type_id, inst.result_id};
+		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
+		break;
+	default:
+		return true;
+	}
+	section->push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(rtvk_rtslp_op(inst.op)));
+	section->insert(section->end(), operands.begin(), operands.end());
+	return true;
+}
+
+static std::vector<u32> rtvk_rtslp_remap_operands(
+	const std::vector<u32> &operands,
+	const std::unordered_map<u32, u32> &remap
+) {
+	std::vector<u32> out;
+	out.reserve(operands.size());
+	for (u32 operand : operands) {
+		auto it = remap.find(operand);
+		out.push_back(it != remap.end() ? it->second : operand);
+	}
+	return out;
+}
+
+static bool rtvk_rtslp_is_type_op(rutile::backend_tools::RTIROp op) {
+	using rutile::backend_tools::RTIROp;
+	return op >= RTIROp::TypeVoid && op <= RTIROp::TypeSampledImage;
+}
+
+static std::string rtvk_rtslp_type_key(const rutile::backend_tools::RTInstruction &inst) {
+	std::ostringstream key;
+	key << static_cast<u32>(inst.op) << '|';
+	key << inst.type_id << '|';
+	for (u32 operand : inst.operands)
+		key << operand << ',';
+	key << '|';
+	for (u32 literal : inst.literals)
+		key << literal << ',';
+	return key.str();
+}
+
+static u32 rtvk_rtslp_canonical_id(u32 id, const std::unordered_map<u32, u32> &aliases) {
+	auto it = aliases.find(id);
+	while (it != aliases.end() && it->second != id) {
+		id = it->second;
+		it = aliases.find(id);
+	}
+	return id;
+}
+
+static std::unordered_set<u32> rtvk_rtslp_collect_used_value_ids(const rutile::backend_tools::RTFunction &fn) {
+	std::unordered_set<u32> used;
+	for (const auto &inst : fn.body) {
+		for (u32 operand : inst.operands) {
+			used.insert(operand);
+		}
+	}
+	return used;
+}
+
+static bool rtvk_rtslp_emit_stage_spirv(
+	const rutile::backend_tools::RTArtifactModule &module,
+	rutile::backend_tools::RTStageKind stage,
+	std::vector<u32> *spirv_out
+) {
+	const auto *fn = rtvk_rtslp_find_stage_function(module, stage);
+	if (!fn)
+		return false;
+
+	const auto struct_names = rtvk_rtslp_struct_names(module);
+	const u32 input_type = [&]() -> u32 {
+		if (fn->parameter_ids.size() < 2)
+			return 0;
+		for (const auto &inst : fn->body) {
+			if (inst.op == rutile::backend_tools::RTIROp::FunctionParameter && inst.result_id == fn->parameter_ids[1]) {
+				return inst.type_id;
+			}
+		}
+		return 0;
+	}();
+	const u32 output_type = fn->return_type_id;
+	const auto *input_inst = input_type ? rtvk_rtslp_find_inst(module.type_constant_pool, input_type) : NULL;
+	const auto *output_inst = output_type ? rtvk_rtslp_find_inst(module.type_constant_pool, output_type) : NULL;
+	const std::string input_name = (input_type && struct_names.contains(input_type)) ? struct_names.at(input_type) : std::string{};
+	const std::string output_name = (output_type && struct_names.contains(output_type)) ? struct_names.at(output_type) : std::string{};
+	const auto *input_interface =
+		input_name.empty() ? NULL : rtvk_rtslp_find_interface(module, input_name, stage == rutile::backend_tools::RTStageKind::Vertex ? rutile::backend_tools::RTStageRole::Input : rutile::backend_tools::RTStageRole::Varying);
+	const auto *output_interface =
+		output_name.empty() ? NULL : rtvk_rtslp_find_interface(module, output_name, stage == rutile::backend_tools::RTStageKind::Fragment ? rutile::backend_tools::RTStageRole::Output : rutile::backend_tools::RTStageRole::Varying);
+	const auto used_value_ids = rtvk_rtslp_collect_used_value_ids(*fn);
+
+	rtvk_spv_writer writer;
+	rtvk_spv_begin(&writer);
+	std::vector<u32> entry_ops;
+	std::vector<u32> execution_ops;
+	std::vector<u32> annotation_ops;
+	std::vector<u32> declaration_ops;
+	std::vector<u32> function_ops;
+	std::unordered_map<u32, u32> type_aliases;
+
+	auto emit_section = [](std::vector<u32> *section, SpvOp op, const std::vector<u32> &operands) {
+		section->push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(op));
+		section->insert(section->end(), operands.begin(), operands.end());
+	};
+	auto emit_section_list = [&](std::vector<u32> *section, SpvOp op, std::initializer_list<u32> operands) {
+		emit_section(section, op, std::vector<u32>(operands));
+	};
+
+	rtvk_spv_emit(&writer, SpvOpCapability, {SpvCapabilityShader});
+	rtvk_spv_emit(&writer, SpvOpMemoryModel, {SpvAddressingModelLogical, SpvMemoryModelGLSL450});
+
+	for (const auto &inst : module.type_constant_pool) {
+		if (inst.result_id)
+			rtvk_spv_reserve(&writer, inst.result_id);
+	}
+	for (const auto &function : module.functions) {
+		if (function.result_id)
+			rtvk_spv_reserve(&writer, function.result_id);
+		for (const auto &inst : function.body) {
+			if (inst.result_id)
+				rtvk_spv_reserve(&writer, inst.result_id);
+		}
+	}
+
+	{
+		std::unordered_map<std::string, u32> canonical_types;
+		for (const auto &inst : module.type_constant_pool) {
+			if (!rtvk_rtslp_is_type_op(inst.op) || !inst.result_id)
+				continue;
+			auto remapped_operands = rtvk_rtslp_remap_operands(inst.operands, type_aliases);
+			rutile::backend_tools::RTInstruction remapped = inst;
+			remapped.operands = std::move(remapped_operands);
+			const std::string key = rtvk_rtslp_type_key(remapped);
+			auto [it, inserted] = canonical_types.emplace(key, inst.result_id);
+			if (!inserted) {
+				type_aliases.emplace(inst.result_id, rtvk_rtslp_canonical_id(it->second, type_aliases));
+			}
+		}
+	}
+
+	u32 void_type = 0;
+	for (const auto &inst : module.type_constant_pool) {
+		if (inst.op == rutile::backend_tools::RTIROp::TypeVoid) {
+			void_type = rtvk_rtslp_canonical_id(inst.result_id, type_aliases);
+			break;
+		}
+	}
+	if (!void_type)
+		return false;
+	const u32 entry_fn_type = rtvk_spv_fresh(&writer);
+	std::unordered_set<u32> emitted_decl_ids;
+	for (const auto &inst : module.type_constant_pool) {
+		if (inst.result_id && rtvk_rtslp_canonical_id(inst.result_id, type_aliases) != inst.result_id)
+			continue;
+		if (inst.result_id && !emitted_decl_ids.insert(inst.result_id).second)
+			continue;
+		rutile::backend_tools::RTInstruction remapped = inst;
+		remapped.type_id = rtvk_rtslp_canonical_id(remapped.type_id, type_aliases);
+		remapped.operands = rtvk_rtslp_remap_operands(remapped.operands, type_aliases);
+		if (!rtvk_rtslp_emit_type_or_constant_section(&declaration_ops, remapped))
+			return false;
+	}
+	emit_section_list(&declaration_ops, SpvOpTypeFunction, {entry_fn_type, void_type});
+
+	std::vector<u32> entry_interfaces;
+	std::vector<u32> input_vars;
+	std::vector<u32> output_vars;
+
+	auto emit_interface_vars =
+		[&](const rutile::backend_tools::RTInstruction *struct_inst,
+			const rutile::backend_tools::RTStageInterface *interface,
+			SpvStorageClass storage,
+			std::vector<u32> *vars) {
+			if (!struct_inst || !interface)
+				return;
+			for (size_t i = 0; i < interface->fields.size() && i < struct_inst->operands.size(); ++i) {
+				const auto &field = interface->fields[i];
+				// BuiltIn Position is only valid as an output of vertex-class
+				// stages; a fragment shader cannot have it as an input. Skip
+				// declaring the variable here and let the struct reconstruction
+				// substitute OpUndef for this slot (the value carries no useful
+				// data into the fragment stage anyway).
+				const bool is_clip_position = field.builtin == "position" || field.interpolation == "clip";
+				if (storage == SpvStorageClassInput && is_clip_position) {
+					vars->push_back(0);
+					continue;
+				}
+				const u32 ptr_type = rtvk_spv_fresh(&writer);
+				emit_section_list(&declaration_ops, SpvOpTypePointer, {ptr_type, static_cast<u32>(storage), rtvk_rtslp_canonical_id(struct_inst->operands[i], type_aliases)});
+				const u32 var_id = rtvk_spv_fresh(&writer);
+				emit_section_list(&declaration_ops, SpvOpVariable, {ptr_type, var_id, static_cast<u32>(storage)});
+				if (field.has_location) {
+					emit_section_list(&annotation_ops, SpvOpDecorate, {var_id, SpvDecorationLocation, field.location});
+				} else if (!field.builtin.empty() || is_clip_position) {
+					emit_section_list(&annotation_ops, SpvOpDecorate, {var_id, SpvDecorationBuiltIn, static_cast<u32>(rtvk_rtslp_builtin(field))});
+				}
+				entry_interfaces.push_back(var_id);
+				vars->push_back(var_id);
+			}
+		};
+
+	emit_interface_vars(input_inst, input_interface, SpvStorageClassInput, &input_vars);
+	emit_interface_vars(output_inst, output_interface, SpvStorageClassOutput, &output_vars);
+
+	const u32 entry_id = rtvk_spv_fresh(&writer);
+	std::vector<u32> entry_words = {
+		static_cast<u32>(stage == rutile::backend_tools::RTStageKind::Vertex ? SpvExecutionModelVertex : SpvExecutionModelFragment),
+		entry_id,
+		0x6e69616d,
+		0
+	};
+	entry_words.insert(entry_words.end(), entry_interfaces.begin(), entry_interfaces.end());
+	emit_section(&entry_ops, SpvOpEntryPoint, entry_words);
+	if (stage == rutile::backend_tools::RTStageKind::Fragment) {
+		emit_section_list(&execution_ops, SpvOpExecutionMode, {entry_id, SpvExecutionModeOriginUpperLeft});
+	}
+
+	emit_section_list(&function_ops, SpvOpFunction, {void_type, entry_id, 0, entry_fn_type});
+	const u32 label_id = rtvk_spv_fresh(&writer);
+	emit_section_list(&function_ops, SpvOpLabel, {label_id});
+
+	std::unordered_map<u32, u32> remap;
+	if (input_inst && fn->parameter_ids.size() >= 2) {
+		std::vector<u32> field_values;
+		const bool parameter_used = used_value_ids.contains(fn->parameter_ids[1]);
+		if (parameter_used) {
+			for (size_t i = 0; i < input_vars.size() && i < input_inst->operands.size(); ++i) {
+				const u32 field_type = rtvk_rtslp_canonical_id(input_inst->operands[i], type_aliases);
+				const u32 value_id = rtvk_spv_fresh(&writer);
+				// input_vars[i] == 0 marks a field whose Input variable was
+				// skipped (e.g. fragment-input clip position). Substitute
+				// OpUndef so the reconstructed aggregate still type-checks.
+				if (input_vars[i] == 0) {
+					emit_section_list(&function_ops, SpvOpUndef, {field_type, value_id});
+				} else {
+					emit_section_list(&function_ops, SpvOpLoad, {field_type, value_id, input_vars[i]});
+				}
+				field_values.push_back(value_id);
+			}
+			const u32 param_value = rtvk_spv_fresh(&writer);
+			std::vector<u32> construct = {rtvk_rtslp_canonical_id(input_type, type_aliases), param_value};
+			construct.insert(construct.end(), field_values.begin(), field_values.end());
+			emit_section(&function_ops, SpvOpCompositeConstruct, construct);
+			remap.emplace(fn->parameter_ids[1], param_value);
+		} else {
+			for (size_t i = 0; i < input_vars.size() && i < input_inst->operands.size(); ++i) {
+				if (i + 1 >= fn->parameter_ids.size())
+					continue;
+				if (!used_value_ids.contains(fn->parameter_ids[i + 1]))
+					continue;
+				if (input_vars[i] == 0)
+					continue;
+				const u32 load_id = rtvk_spv_fresh(&writer);
+				emit_section_list(&function_ops, SpvOpLoad, {rtvk_rtslp_canonical_id(input_inst->operands[i], type_aliases), load_id, input_vars[i]});
+				remap.emplace(fn->parameter_ids[i + 1], load_id);
+			}
+		}
+	}
+
+	for (const auto &inst : fn->body) {
+		if (inst.op == rutile::backend_tools::RTIROp::Label || inst.op == rutile::backend_tools::RTIROp::FunctionParameter)
+			continue;
+		if (inst.op >= rutile::backend_tools::RTIROp::TypeVoid && inst.op <= rutile::backend_tools::RTIROp::ConstantComposite)
+			continue;
+		if (inst.op == rutile::backend_tools::RTIROp::Return) {
+			emit_section(&function_ops, SpvOpReturn, {});
+			continue;
+		}
+		if (inst.op == rutile::backend_tools::RTIROp::ReturnValue) {
+			const u32 value_id = remap.contains(inst.operands[0]) ? remap.at(inst.operands[0]) : inst.operands[0];
+			if (output_inst && output_interface) {
+				for (size_t i = 0; i < output_vars.size() && i < output_inst->operands.size(); ++i) {
+					const u32 field_id = rtvk_spv_fresh(&writer);
+					emit_section_list(&function_ops, SpvOpCompositeExtract, {rtvk_rtslp_canonical_id(output_inst->operands[i], type_aliases), field_id, value_id, static_cast<u32>(i)});
+					emit_section_list(&function_ops, SpvOpStore, {output_vars[i], field_id});
+				}
+			}
+			emit_section(&function_ops, SpvOpReturn, {});
+			continue;
+		}
+
+		rtvk_spv_reserve(&writer, inst.result_id);
+		std::vector<u32> words;
+		if (inst.result_id && inst.type_id) {
+			words.push_back(rtvk_rtslp_canonical_id(inst.type_id, type_aliases));
+			words.push_back(inst.result_id);
+		}
+		auto operands = rtvk_rtslp_remap_operands(inst.operands, remap);
+		for (u32 &operand : operands) {
+			operand = rtvk_rtslp_canonical_id(operand, type_aliases);
+		}
+		words.insert(words.end(), operands.begin(), operands.end());
+		words.insert(words.end(), inst.literals.begin(), inst.literals.end());
+		const SpvOp op = rtvk_rtslp_op(inst.op);
+		if (op == SpvOpNop)
+			return false;
+		emit_section(&function_ops, op, words);
+	}
+
+	emit_section(&function_ops, SpvOpFunctionEnd, {});
+	writer.words.insert(writer.words.end(), entry_ops.begin(), entry_ops.end());
+	writer.words.insert(writer.words.end(), execution_ops.begin(), execution_ops.end());
+	writer.words.insert(writer.words.end(), annotation_ops.begin(), annotation_ops.end());
+	writer.words.insert(writer.words.end(), declaration_ops.begin(), declaration_ops.end());
+	writer.words.insert(writer.words.end(), function_ops.begin(), function_ops.end());
+	writer.words[3] = writer.bound;
+	*spirv_out = std::move(writer.words);
+	return true;
+}
+
+static bool rtvk_fill_reflection_from_module(
+	const rutile::backend_tools::RTArtifactModule &module,
+	rtvk_shader_reflection *reflection
+) {
+	u32 uniform_block_count = 0;
+	u32 texture_count = 0;
+	for (const auto &uniform : module.uniforms) {
+		if (uniform.type == "Sampler2D")
+			++texture_count;
+		else
+			++uniform_block_count;
+	}
+
+	if (uniform_block_count) {
+		reflection->uniform_blocks = static_cast<rtvk_shader_uniform_block *>(std::calloc(uniform_block_count, sizeof(rtvk_shader_uniform_block)));
+		if (!reflection->uniform_blocks)
+			return false;
+	}
+	if (texture_count) {
+		reflection->textures = static_cast<rtvk_shader_texture *>(std::calloc(texture_count, sizeof(rtvk_shader_texture)));
+		if (!reflection->textures)
+			return false;
+	}
+
+	reflection->uniform_block_count = uniform_block_count;
+	reflection->texture_count = texture_count;
+	reflection->resource_count = 0;
+
+	u32 uniform_index = 0;
+	u32 texture_index = 0;
+	for (const auto &uniform : module.uniforms) {
+		if (uniform.type == "Sampler2D") {
+			auto &dst = reflection->textures[texture_index++];
+			std::snprintf(dst.name, sizeof(dst.name), "%s", uniform.name.c_str());
+			dst.binding = uniform.binding;
+		} else {
+			auto &dst = reflection->uniform_blocks[uniform_index++];
+			std::snprintf(dst.name, sizeof(dst.name), "%s", uniform.name.c_str());
+			dst.binding = uniform.binding;
+		}
+	}
+	return true;
+}
+
+rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics(
+	struct rtvk_context *ctx,
+	const rt_vertex_layout *vertex_layout,
+	u64 vertex_size,
+	const void *vertex_source,
+	u64 fragment_size,
+	const void *fragment_source
+) {
+	(void)ctx;
+	(void)vertex_layout;
+	(void)vertex_size;
+	(void)vertex_source;
+	(void)fragment_size;
+	(void)fragment_source;
+	rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, "GLSL graphics compilation is not available in this Vulkan build");
+	return {};
+}
+
+rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics_rtslp(struct rtvk_context *ctx, u64 program_size, const void *program_source) {
 	rtvk_graphics_shader_compile_result result = {};
 	try {
-		if (!rtvk_shader_source_valid(EShLangVertex, vertex_size, vertex_source) ||
-			!rtvk_shader_source_valid(EShLangFragment, fragment_size, fragment_source)) {
-			return result;
-		}
-
-		std::unordered_map<std::string, u32> linked_locations = rtvk_glsl_link_graphics_stages(vertex_size, vertex_source, fragment_size, fragment_source);
-		std::unordered_map<std::string, u32> resource_bindings = rtvk_glsl_link_resource_bindings(vertex_size, vertex_source, fragment_size, fragment_source);
-
+		rutile::backend_tools::RTArtifactModule module = rutile::backend_tools::read_rtslp_module(program_size, program_source);
 		std::vector<u32> vertex_spirv;
-		rtvk_shader_reflection new_vertex_reflection = {};
-		if (!rtvk_shader_source_to_spirv(VK_SHADER_STAGE_VERTEX_BIT, vertex_layout, &linked_locations, &resource_bindings, vertex_size, vertex_source, vertex_spirv, &new_vertex_reflection)) {
-			return result;
-		}
-
 		std::vector<u32> fragment_spirv;
-		rtvk_shader_reflection new_fragment_reflection = {};
-		if (!rtvk_shader_source_to_spirv(
-				VK_SHADER_STAGE_FRAGMENT_BIT,
-				NULL,
-				&linked_locations,
-				&resource_bindings,
-				fragment_size,
-				fragment_source,
-				fragment_spirv,
-				&new_fragment_reflection)) {
-			rtvk_shader_reflection_clear(&new_vertex_reflection);
-			return result;
+		if (!rtvk_rtslp_emit_stage_spirv(module, rutile::backend_tools::RTStageKind::Vertex, &vertex_spirv) ||
+			!rtvk_rtslp_emit_stage_spirv(module, rutile::backend_tools::RTStageKind::Fragment, &fragment_spirv)) {
+			rtvk_throwf(RT_SHADER_COMPILATION_FAILED, "failed to lower RTSLP to SPIR-V");
+			return {};
 		}
 
-		VkShaderModule new_vertex_shader = VK_NULL_HANDLE;
-		if (!rtvk_spirv_create_shader_module(ctx, vertex_spirv, &new_vertex_shader)) {
-			rtvk_shader_reflection_clear(&new_vertex_reflection);
-			rtvk_shader_reflection_clear(&new_fragment_reflection);
-			return result;
+		if (!rtvk_fill_reflection_from_module(module, &result.vertex_reflection)) {
+			rtvk_shader_reflection_clear(&result.vertex_reflection);
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate RTSLP reflection");
+			return {};
 		}
 
-		VkShaderModule new_fragment_shader = VK_NULL_HANDLE;
-		if (!rtvk_spirv_create_shader_module(ctx, fragment_spirv, &new_fragment_shader)) {
-			vkDestroyShaderModule(ctx->vk_device, new_vertex_shader, VK_ALLOCATOR);
-			rtvk_shader_reflection_clear(&new_vertex_reflection);
-			rtvk_shader_reflection_clear(&new_fragment_reflection);
-			return result;
+		if (!rtvk_spirv_create_shader_module(ctx, vertex_spirv, result.vertex_shader)) {
+			rtvk_shader_reflection_clear(&result.vertex_reflection);
+			return {};
 		}
-
-		result.vertex_shader = new_vertex_shader;
-		result.vertex_reflection = new_vertex_reflection;
-		result.fragment_shader = new_fragment_shader;
-		result.fragment_reflection = new_fragment_reflection;
+		if (!rtvk_spirv_create_shader_module(ctx, fragment_spirv, result.fragment_shader)) {
+			vkDestroyShaderModule(ctx->vk_device, result.vertex_shader, VK_ALLOCATOR);
+			result.vertex_shader = VK_NULL_HANDLE;
+			rtvk_shader_reflection_clear(&result.vertex_reflection);
+			return {};
+		}
 		return result;
-	} catch (const std::bad_alloc&) {
+	} catch (const std::bad_alloc &) {
 		rtvk_shader_compile_failed(RT_OUT_OF_HOST_MEMORY, "out of host memory");
-		return result;
-	} catch (const std::exception& error) {
+		return {};
+	} catch (const std::exception &error) {
 		rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, error.what());
-		return result;
+		return {};
 	} catch (...) {
 		rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, NULL);
-		return result;
+		return {};
 	}
 }

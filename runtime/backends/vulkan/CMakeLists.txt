@@ -3,8 +3,8 @@ cmake_minimum_required(VERSION 3.28.0)
 project(rt-vulkan C CXX)
 
 find_package(Vulkan REQUIRED)
-find_package(glslang CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 include(RutileTarget)
 
@@ -39,8 +39,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/atomic.h"
     "src/resource/buffer.c"
     "src/resource/buffer.h"
-    "src/resource/compute_program.c"
-    "src/resource/compute_program.h"
+    
+    
     "src/resource/command_buffer.c"
     "src/resource/command_buffer.h"
     "src/resource/framebuffer.c"
@@ -70,10 +70,9 @@ target_link_libraries(${PROJECT_NAME}
     PUBLIC
         ${RUTILE_VULKAN_LIBRARY}
     PRIVATE
-        glslang::glslang
-        glslang::SPIRV
-        glslang::glslang-default-resource-limits
+        Rutile::backend-tools
         GPUOpen::VulkanMemoryAllocator
+        glfw
         ${CMAKE_DL_LIBS}
         Threads::Threads
 )

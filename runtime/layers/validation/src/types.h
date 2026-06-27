@@ -6,5 +6,3 @@
 #include "rt_ext_swapchain.h"
 
 #endif
-
-

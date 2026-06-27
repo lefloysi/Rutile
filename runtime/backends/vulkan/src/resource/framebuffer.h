@@ -20,17 +20,17 @@ RTVK_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt
 
 struct rtvk_framebuffer {
 	struct rtvk_resource_base base;
-	struct rtvk_texture_view* color_views[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
-	struct rtvk_texture_view* depth_view;
-	struct rtvk_texture_view* stencil_view;
+	struct rtvk_texture_view *color_views[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	struct rtvk_texture_view *depth_view;
+	struct rtvk_texture_view *stencil_view;
 
 	u32 color_texture_count;
 };
 RTVK_DECLARE_NEW_RESOURCE(framebuffer)
 
-struct rtvk_texture_view* rtvk_framebuffer_color_view(struct rtvk_framebuffer* framebuffer, u32 slot);
-void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, u32 slot, struct rtvk_texture_view* view);
-void rtvk_framebuffer_set_depth_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, struct rtvk_texture_view* view);
-void rtvk_framebuffer_set_stencil_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, struct rtvk_texture_view* view);
+struct rtvk_texture_view *rtvk_framebuffer_color_view(struct rtvk_framebuffer *framebuffer, u32 slot);
+void rtvk_framebuffer_set_color_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, u32 slot, struct rtvk_texture_view *view);
+void rtvk_framebuffer_set_depth_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, struct rtvk_texture_view *view);
+void rtvk_framebuffer_set_stencil_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, struct rtvk_texture_view *view);
 
 #endif

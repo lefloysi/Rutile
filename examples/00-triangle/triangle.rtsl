@@ -1,0 +1,39 @@
+struct Point {
+    vec2 position;
+    vec3 color;
+};
+
+struct Vertex {
+    fn Vertex(Point p);
+
+    vec4 position;
+    vec3 color;
+}
+
+fn Vertex::Vertex(Point p) {
+    position = vec4(p.position, 0.0, 1.0);
+    color = p.color;
+}
+
+varying Vertex {
+    clip position;
+    smooth color;
+};
+
+struct Fragment {
+    fn Fragment(Vertex v);
+
+    vec4 color;
+}
+
+fn Fragment::Fragment(Vertex v) {
+    color = vec4(v.color, 1.0);
+}
+
+fn vert_main(vert_globals g, Point p) -> Vertex {
+    return Vertex(p);
+}
+
+fn frag_main(frag_globals g, Vertex v) -> Fragment {
+    return Fragment(v);
+}

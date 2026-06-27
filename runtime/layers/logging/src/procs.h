@@ -86,29 +86,29 @@ extern PFN_rtSwapchainAcquire next_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent next_rtSwapchainPresent;
 extern PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW;
 
-void rtlog_set_output(PFN_rtOutput output, void* user_data);
-void rtlog_call(const char* name);
-void rtlog_printf(const char* format, ...);
+void rtlog_set_output(PFN_rtOutput output, void *user_data);
+void rtlog_call(const char *name);
+void rtlog_printf(const char *format, ...);
 u64 rtlog_now_ns(void);
-const char* rtlog_elapsed(u64 start_ns);
-const char* rtlog_pointer(const void* pointer);
-const char* rtlog_timepoint(rt_timepoint timepoint);
-void rtlog_error(const char* name);
+const char *rtlog_elapsed(u64 start_ns);
+const char *rtlog_pointer(const void *pointer);
+const char *rtlog_timepoint(rt_timepoint timepoint);
+void rtlog_error(const char *name);
 
-void rtlog_rtInit(const char* const* features, u32 feature_count);
+void rtlog_rtInit(const char *const *features, u32 feature_count);
 void rtlog_rtExit(void);
-void rtlog_rtSetOutput(PFN_rtOutput output, void* user_data);
+void rtlog_rtSetOutput(PFN_rtOutput output, void *user_data);
 enum rt_error rtlog_rtError(void);
-const char* rtlog_rtErrorMessage(void);
+const char *rtlog_rtErrorMessage(void);
 void rtlog_rtClearError(void);
-const char* rtlog_rtGetName(void);
+const char *rtlog_rtGetName(void);
 enum rt_format_usage rtlog_rtQueryFormatCapabilities(enum rt_format format);
 
 rt_buffer rtlog_rtBufferCreate(void);
 void rtlog_rtBufferDestroy(rt_buffer buffer);
-rt_timepoint rtlog_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
-rt_timepoint rtlog_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data);
-void rtlog_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data);
+rt_timepoint rtlog_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data);
+rt_timepoint rtlog_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void *data);
+void rtlog_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void *data);
 
 rt_texture rtlog_rtTextureCreate(void);
 void rtlog_rtTextureDestroy(rt_texture texture);
@@ -119,9 +119,9 @@ void rtlog_rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mo
 void rtlog_rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy);
 void rtlog_rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 rt_timepoint rtlog_rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
-rt_timepoint rtlog_rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data);
+rt_timepoint rtlog_rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void *data);
 rt_timepoint rtlog_rtTextureSubcopy(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-rt_timepoint rtlog_rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
+rt_timepoint rtlog_rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void *data);
 rt_timepoint rtlog_rtTextureViewCopyToBuffer(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer);
 rt_extent_3d rtlog_rtTextureViewExtent(rt_texture_view texture_view);
 rt_framebuffer rtlog_rtFramebufferCreate(void);
@@ -132,16 +132,16 @@ void rtlog_rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view vi
 
 rt_graphics_program rtlog_rtGraphicsProgramCreate(void);
 void rtlog_rtGraphicsProgramDestroy(rt_graphics_program program);
-void rtlog_rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout);
-void rtlog_rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data);
-void rtlog_rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data);
+void rtlog_rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout *layout);
+void rtlog_rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void *data);
+void rtlog_rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void *data);
 void rtlog_rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 void rtlog_rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 void rtlog_rtGraphicsProgramLink(rt_graphics_program program);
-rt_uniform_location rtlog_rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
+rt_uniform_location rtlog_rtGraphicsProgramUniformLocation(rt_graphics_program program, const char *name);
 rt_compute_program rtlog_rtComputeProgramCreate(void);
 void rtlog_rtComputeProgramDestroy(rt_compute_program program);
-void rtlog_rtComputeProgramShader(rt_compute_program program, u64 size, const void* data);
+void rtlog_rtComputeProgramShader(rt_compute_program program, u64 size, const void *data);
 void rtlog_rtComputeProgramLink(rt_compute_program program);
 
 rt_command_buffer rtlog_rtCommandBufferCreate(void);
@@ -178,6 +178,6 @@ void rtlog_rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 void rtlog_rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled);
 rt_swapchain_acquire_result rtlog_rtSwapchainAcquire(rt_swapchain swapchain);
 void rtlog_rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
-void rtlog_rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window);
+void rtlog_rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window);
 
 #endif

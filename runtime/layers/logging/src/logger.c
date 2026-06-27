@@ -20,9 +20,9 @@
 /*===============================================================================================*/
 
 static PFN_rtOutput rtlog_output = NULL;
-static void* rtlog_output_user_data = NULL;
+static void *rtlog_output_user_data = NULL;
 
-static void rtlog_default_output(const char* message, void* user_data) {
+static void rtlog_default_output(const char *message, void *user_data) {
 	fputs(message, stdout);
 }
 
@@ -30,12 +30,12 @@ static void rtlog_default_output(const char* message, void* user_data) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtlog_set_output(PFN_rtOutput output, void* user_data) {
+void rtlog_set_output(PFN_rtOutput output, void *user_data) {
 	rtlog_output = output;
 	rtlog_output_user_data = user_data;
 }
 
-void rtlog_printf(const char* format, ...) {
+void rtlog_printf(const char *format, ...) {
 	char message[1024];
 	va_list args;
 	PFN_rtOutput output = rtlog_output ? rtlog_output : rtlog_default_output;
@@ -63,12 +63,12 @@ u64 rtlog_now_ns(void) {
 #endif
 }
 
-const char* rtlog_elapsed(u64 start_ns) {
+const char *rtlog_elapsed(u64 start_ns) {
 	enum { RTLOG_ELAPSED_BUFFER_COUNT = 16 };
 	enum { RTLOG_ELAPSED_BUFFER_SIZE = 64 };
 	static RTLOG_THREAD_LOCAL char buffers[RTLOG_ELAPSED_BUFFER_COUNT][RTLOG_ELAPSED_BUFFER_SIZE];
 	static RTLOG_THREAD_LOCAL u32 buffer_index = 0;
-	char* buffer = buffers[buffer_index++ % RTLOG_ELAPSED_BUFFER_COUNT];
+	char *buffer = buffers[buffer_index++ % RTLOG_ELAPSED_BUFFER_COUNT];
 	u64 elapsed_ns = rtlog_now_ns() - start_ns;
 
 	if (elapsed_ns >= 1000000ull) {
@@ -82,35 +82,35 @@ const char* rtlog_elapsed(u64 start_ns) {
 	return buffer;
 }
 
-void rtlog_call(const char* name) {
+void rtlog_call(const char *name) {
 	rtlog_printf("%s()\n", name);
 }
 
-const char* rtlog_pointer(const void* pointer) {
+const char *rtlog_pointer(const void *pointer) {
 	enum { RTLOG_POINTER_BUFFER_COUNT = 16 };
-	enum { RTLOG_POINTER_BUFFER_SIZE = 2 + sizeof(void*) * 2 + 1 };
+	enum { RTLOG_POINTER_BUFFER_SIZE = 2 + sizeof(void *) * 2 + 1 };
 	static RTLOG_THREAD_LOCAL char buffers[RTLOG_POINTER_BUFFER_COUNT][RTLOG_POINTER_BUFFER_SIZE];
 	static RTLOG_THREAD_LOCAL u32 buffer_index = 0;
-	char* buffer = buffers[buffer_index++ % RTLOG_POINTER_BUFFER_COUNT];
+	char *buffer = buffers[buffer_index++ % RTLOG_POINTER_BUFFER_COUNT];
 
-	snprintf(buffer, RTLOG_POINTER_BUFFER_SIZE, "0x%0*llX", (i32)(sizeof(void*) * 2), (u64)(uptr)pointer);
+	snprintf(buffer, RTLOG_POINTER_BUFFER_SIZE, "0x%0*llX", (i32)(sizeof(void *) * 2), (u64)(uptr)pointer);
 	buffer[RTLOG_POINTER_BUFFER_SIZE - 1] = '\0';
 	return buffer;
 }
 
-const char* rtlog_timepoint(rt_timepoint timepoint) {
+const char *rtlog_timepoint(rt_timepoint timepoint) {
 	enum { RTLOG_TIMEPOINT_BUFFER_COUNT = 16 };
 	enum { RTLOG_TIMEPOINT_BUFFER_SIZE = 128 };
 	static RTLOG_THREAD_LOCAL char buffers[RTLOG_TIMEPOINT_BUFFER_COUNT][RTLOG_TIMEPOINT_BUFFER_SIZE];
 	static RTLOG_THREAD_LOCAL u32 buffer_index = 0;
-	char* buffer = buffers[buffer_index++ % RTLOG_TIMEPOINT_BUFFER_COUNT];
+	char *buffer = buffers[buffer_index++ % RTLOG_TIMEPOINT_BUFFER_COUNT];
 
 	snprintf(buffer, RTLOG_TIMEPOINT_BUFFER_SIZE, "{queue=%s, value=%llu}", rtlog_pointer(timepoint.queue), (u64)timepoint.value);
 	buffer[RTLOG_TIMEPOINT_BUFFER_SIZE - 1] = '\0';
 	return buffer;
 }
 
-void rtlog_error(const char* name) {
+void rtlog_error(const char *name) {
 	enum rt_error error = next_rtError();
 
 	if (error != RT_SUCCESS) {
@@ -119,5 +119,3 @@ void rtlog_error(const char* name) {
 }
 
 #undef RTLOG_THREAD_LOCAL
-
-

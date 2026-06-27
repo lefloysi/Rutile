@@ -2,7 +2,6 @@
 #define RTVK_COMMAND_BUFFER_H
 
 #include "buffer.h"
-#include "compute_program.h"
 #include "config.h"
 #include "framebuffer.h"
 #include "graphics_program.h"
@@ -34,7 +33,6 @@ RTVK_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, 
 RTVK_API void rtCmdStorageTexture(rt_command_buffer command_buffer, u32 binding, rt_texture_view texture_view);
 RTVK_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTVK_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-RTVK_API void rtCmdUseComputeProgram(rt_command_buffer command_buffer, rt_compute_program program);
 RTVK_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program);
 
 RTVK_API void rtCmdDispatch(rt_command_buffer command_buffer, u32 group_count_x, u32 group_count_y, u32 group_count_z);
@@ -56,18 +54,18 @@ typedef struct rtvk_uniform_slot {
 	rtvk_uniform_slot_kind kind;
 	union {
 		struct {
-			struct rtvk_buffer* node;
+			struct rtvk_buffer *node;
 			u64 offset;
 			u64 size;
 		} buffer;
 		struct {
-			struct rtvk_texture_view* view;
+			struct rtvk_texture_view *view;
 		} texture;
 	};
 } rtvk_uniform_slot;
 
 typedef struct rtvk_descriptor_pool_node {
-	struct rtvk_descriptor_pool_node* next;
+	struct rtvk_descriptor_pool_node *next;
 	VkDescriptorPool vk_pool;
 	u32 max_sets;
 	u32 allocated_sets;
@@ -76,22 +74,21 @@ typedef struct rtvk_descriptor_pool_node {
 
 struct rtvk_command_buffer {
 	struct rtvk_resource_base base;
-	struct rtvk_command_buffer* active;
-	struct rtvk_command_buffer* next;
+	struct rtvk_command_buffer *active;
+	struct rtvk_command_buffer *next;
 
 	VkCommandPool vk_command_pool;
 	VkCommandBuffer vk_command_buffer;
 	VkDescriptorSet bound_descriptor_set;
-	rtvk_descriptor_pool_node* descriptor_pools;
-	rtvk_descriptor_pool_node* current_descriptor_pool;
+	rtvk_descriptor_pool_node *descriptor_pools;
+	rtvk_descriptor_pool_node *current_descriptor_pool;
 
-	struct rtvk_queue* queue;
-	struct rtvk_framebuffer* framebuffer;
-	struct rtvk_graphics_program* graphics_program;
-	struct rtvk_compute_program* compute_program;
-	struct rtvk_buffer* vertex_buffer;
-	struct rtvk_buffer* vertex_buffer_node;
-	rtvk_uniform_slot* uniform_slots;
+	struct rtvk_queue *queue;
+	struct rtvk_framebuffer *framebuffer;
+	struct rtvk_graphics_program *graphics_program;
+	struct rtvk_buffer *vertex_buffer;
+	struct rtvk_buffer *vertex_buffer_node;
+	rtvk_uniform_slot *uniform_slots;
 
 	struct rtvk_timepoint pending_timepoint;
 
@@ -102,44 +99,43 @@ struct rtvk_command_buffer {
 };
 RTVK_DECLARE_NEW_RESOURCE(command_buffer)
 
-struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context* ctx, u32 family_index);
-void rtvk_command_buffer_node_retain(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_node_release(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
+struct rtvk_command_buffer *rtvk_command_buffer_node_create(struct rtvk_context *ctx, u32 family_index);
+void rtvk_command_buffer_node_retain(struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_node_release(struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
 
-void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue);
-void rtvk_command_buffer_end(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
+void rtvk_command_buffer_begin(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_queue *queue);
+void rtvk_command_buffer_end(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
 
-void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_framebuffer* framebuffer);
-void rtvk_command_buffer_end_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
+void rtvk_command_buffer_begin_rendering(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_framebuffer *framebuffer);
+void rtvk_command_buffer_end_rendering(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
 
-void rtvk_command_buffer_suspend_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_resume_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_framebuffer* framebuffer);
+void rtvk_command_buffer_suspend_rendering(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_resume_rendering(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_framebuffer *framebuffer);
 
-void rtvk_command_buffer_bind_vertex_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, u64 offset);
-void rtvk_command_buffer_clear_color(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, f32 depth);
-void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 stencil);
-void rtvk_command_buffer_compute_barrier(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_set_scissor(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
-void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_buffer* buffer, u64 offset, u64 size);
-void rtvk_command_buffer_storage_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_texture_view* texture_view);
-void rtvk_command_buffer_uniform_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_buffer* buffer, u64 offset, u64 size);
-void rtvk_command_buffer_uniform_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_texture_view* texture_view);
-void rtvk_command_buffer_use_compute_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_compute_program* program);
-void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_graphics_program* program);
-void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
+void rtvk_command_buffer_bind_vertex_buffer(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_buffer *buffer, u64 offset);
+void rtvk_command_buffer_clear_color(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+void rtvk_command_buffer_clear_depth(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, f32 depth);
+void rtvk_command_buffer_clear_stencil(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 stencil);
+void rtvk_command_buffer_compute_barrier(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_set_scissor(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 x, u32 y, u32 width, u32 height);
+void rtvk_command_buffer_storage_texture(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 binding, struct rtvk_texture_view *texture_view);
+void rtvk_command_buffer_uniform_buffer(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_uniform_location *location, struct rtvk_buffer *buffer, u64 offset, u64 size);
+void rtvk_command_buffer_uniform_texture(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_uniform_location *location, struct rtvk_texture_view *texture_view);
+void rtvk_command_buffer_use_compute_program(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_compute_program *program);
+void rtvk_command_buffer_use_graphics_program(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_graphics_program *program);
+void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer *command_buffer, struct rtvk_texture_view *view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 
-void rtvk_command_buffer_dispatch(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 group_count_x, u32 group_count_y, u32 group_count_z);
-void rtvk_command_buffer_draw(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex);
-void rtvk_command_buffer_wait_pending(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
+void rtvk_command_buffer_dispatch(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 group_count_x, u32 group_count_y, u32 group_count_z);
+void rtvk_command_buffer_draw(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, u32 vertex_count, u32 first_vertex);
+void rtvk_command_buffer_wait_pending(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
 
-bool rtvk_command_buffer_has_queue(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot* slot);
-void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_prepare(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue);
-void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
-rtvk_uniform_slot* rtvk_command_buffer_uniform_slot(struct rtvk_command_buffer* command_buffer, u32 index);
+bool rtvk_command_buffer_has_queue(struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot *slot);
+void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_prepare(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer, struct rtvk_queue *queue);
+void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer *command_buffer);
+void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context *ctx, struct rtvk_command_buffer *command_buffer);
+rtvk_uniform_slot *rtvk_command_buffer_uniform_slot(struct rtvk_command_buffer *command_buffer, u32 index);
 
 #endif

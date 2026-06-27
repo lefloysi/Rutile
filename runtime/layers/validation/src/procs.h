@@ -87,13 +87,13 @@ extern PFN_rtSwapchainPresent rtval_next_rtSwapchainPresent;
 extern PFN_rtSwapchainBindWindowGLFW rtval_next_rtSwapchainBindWindowGLFW;
 extern PFN_rtSetOutput rtval_next_rtSetOutput;
 
-void rtval_rtInit(const char* const* features, u32 feature_count);
+void rtval_rtInit(const char *const *features, u32 feature_count);
 void rtval_rtExit(void);
 enum rt_error rtval_rtError(void);
-const char* rtval_rtErrorMessage(void);
+const char *rtval_rtErrorMessage(void);
 void rtval_rtClearError(void);
-const char* rtval_rtGetName(void);
+const char *rtval_rtGetName(void);
 enum rt_format_usage rtval_rtQueryFormatCapabilities(enum rt_format format);
-void rtval_rtSetOutput(PFN_rtOutput output, void* user_data);
+void rtval_rtSetOutput(PFN_rtOutput output, void *user_data);
 
 #endif

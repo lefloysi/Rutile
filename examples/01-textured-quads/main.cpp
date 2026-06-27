@@ -1,26 +1,28 @@
 #define RUTILE_IMPL
-#include "rutile.h"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
+#include "rutile.h"
 
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <stb_image.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <fstream>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <iterator>
 #include <mutex>
+#include <stb_image.h>
 #include <thread>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
-constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
+constexpr const char *kDefaultBackendName = "rt-vulkan";
+constexpr const char *kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
+constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
 
 struct Vertex {
 	f32 position[3];
@@ -38,6 +40,16 @@ struct CameraState {
 	f32 pitch = 0.0f;
 };
 
+static std::vector<char> read_binary_file(const char *path) {
+	std::ifstream file(path, std::ios::binary);
+	if (!file) {
+		std::fprintf(stderr, "failed to open %s\n", path);
+		return {};
+	}
+
+	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
 std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
 std::atomic<u32> FramebufferWidth = 1280;
 std::atomic<u32> FramebufferHeight = 720;
@@ -54,19 +66,19 @@ std::atomic_bool Running = true;
 std::atomic_bool RenderFailed = false;
 
 constexpr Vertex kVertices[] = {
-	{ { -0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
-	{ { 0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f } },
-	{ { 0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } },
-	{ { -0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
-	{ { 0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } },
-	{ { -0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f } },
+	{{-0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+	{{0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+	{{0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+	{{-0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+	{{0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+	{{-0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
 
-	{ { -0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 1.0f } },
-	{ { 0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 1.0f } },
-	{ { 0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 0.0f } },
-	{ { -0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 1.0f } },
-	{ { 0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 0.0f } },
-	{ { -0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 0.0f } },
+	{{-0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 1.0f}},
+	{{0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 1.0f}},
+	{{0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 0.0f}},
+	{{-0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 1.0f}},
+	{{0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 0.0f}},
+	{{-0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 0.0f}},
 };
 
 constexpr u32 kQuadVertexCount = 6;
@@ -74,49 +86,22 @@ constexpr u32 kMovingQuadFirstVertex = 0;
 constexpr u32 kStaticQuadFirstVertex = 6;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ 1, offsetof(Vertex, color), RT_RGB32_SFLOAT },
-	{ 2, offsetof(Vertex, uv), RT_RG32_SFLOAT },
+	{0, offsetof(Vertex, position), RT_RGB32_SFLOAT},
+	{1, offsetof(Vertex, color), RT_RGB32_SFLOAT},
+	{2, offsetof(Vertex, uv), RT_RG32_SFLOAT},
 };
 
-constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 3,
+constexpr rt_vertex_layout kVertexLayout = {
+	sizeof(Vertex),
+	kVertexAttributes,
+	3,
 };
 
-constexpr const char* kVertexShader = R"(
-#version 460
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_color;
-layout(location = 2) in vec2 in_uv;
-layout(location = 0) out vec3 color;
-layout(location = 1) out vec2 uv;
+constexpr const char *kShaderPath = "textured_quads.rtslp";
 
-layout(set = 0, binding = 0) uniform Transform {
-	mat4 transform;
-} u_transform;
+constexpr const char *kTexturePath = "rutile.png";
 
-void main() {
-	gl_Position = u_transform.transform * vec4(in_position, 1.0);
-	color = in_color;
-	uv = in_uv;
-}
-)";
-
-constexpr const char* kFragmentShader = R"(
-#version 460
-layout(location = 0) in vec3 color;
-layout(location = 1) in vec2 uv;
-layout(location = 0) out vec4 out_color;
-
-layout(set = 0, binding = 1) uniform sampler2D Image;
-
-void main() {
-	out_color = texture(Image, uv) * vec4(color, 1.0);
-}
-)";
-
-constexpr const char* kTexturePath = "rutile.png";
-
-void framebuffer_resized(GLFWwindow* window, int width, int height) {
+void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	if (width > 0 && height > 0) {
 		FramebufferWidth.store(static_cast<u32>(width), std::memory_order_release);
 		FramebufferHeight.store(static_cast<u32>(height), std::memory_order_release);
@@ -130,7 +115,7 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	rtSwapchainResize(swapchain, static_cast<u32>(width), static_cast<u32>(height));
 }
 
-void cursor_moved(GLFWwindow* window, double x, double y) {
+void cursor_moved(GLFWwindow *window, double x, double y) {
 	static double previous_x = x;
 	static double previous_y = y;
 	const f32 dx = static_cast<f32>(x - previous_x);
@@ -143,11 +128,11 @@ void cursor_moved(GLFWwindow* window, double x, double y) {
 	MouseDy += dy;
 }
 
-bool key_down(GLFWwindow* window, int key) {
+bool key_down(GLFWwindow *window, int key) {
 	return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-void update_camera_input(GLFWwindow* window) {
+void update_camera_input(GLFWwindow *window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
 	}
@@ -161,12 +146,12 @@ void update_camera_input(GLFWwindow* window) {
 	MoveDown = key_down(window, GLFW_KEY_Q) || key_down(window, GLFW_KEY_LEFT_CONTROL);
 }
 
-glm::vec3 camera_forward(const CameraState& camera) {
+glm::vec3 camera_forward(const CameraState &camera) {
 	const f32 cp = glm::cos(camera.pitch);
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
-void update_camera(CameraState* camera, f32 delta_seconds) {
+void update_camera(CameraState *camera, f32 delta_seconds) {
 	const f32 move_speed = 2.2f;
 	const f32 mouse_sensitivity = 0.0022f;
 
@@ -199,31 +184,43 @@ void update_camera(CameraState* camera, f32 delta_seconds) {
 	const glm::vec3 forward = camera_forward(*camera);
 	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
 	glm::vec3 motion = glm::vec3(0.0f);
-	if (move_forward) { motion += forward; }
-	if (move_backward) { motion -= forward; }
-	if (move_right) { motion += right; }
-	if (move_left) { motion -= right; }
-	if (move_up) { motion.y += 1.0f; }
-	if (move_down) { motion.y -= 1.0f; }
+	if (move_forward) {
+		motion += forward;
+	}
+	if (move_backward) {
+		motion -= forward;
+	}
+	if (move_right) {
+		motion += right;
+	}
+	if (move_left) {
+		motion -= right;
+	}
+	if (move_up) {
+		motion.y += 1.0f;
+	}
+	if (move_down) {
+		motion.y -= 1.0f;
+	}
 	if (glm::length(motion) > 0.0f) {
 		camera->position += glm::normalize(motion) * move_speed * delta_seconds;
 	}
 }
 
-glm::mat4 camera_view_projection(f32 aspect, const CameraState& camera) {
+glm::mat4 camera_view_projection(f32 aspect, const CameraState &camera) {
 	const glm::vec3 target = camera.position + camera_forward(camera);
 	const glm::mat4 view = glm::lookAt(camera.position, target, glm::vec3(0.0f, 1.0f, 0.0f));
 	const glm::mat4 projection = glm::perspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
 	return projection * view;
 }
 
-TransformUniform transform_from_matrix(const glm::mat4& matrix) {
+TransformUniform transform_from_matrix(const glm::mat4 &matrix) {
 	TransformUniform uniform = {};
 	std::memcpy(uniform.transform, glm::value_ptr(matrix), sizeof(uniform.transform));
 	return uniform;
 }
 
-TransformUniform moving_transform(double time_seconds, const glm::mat4& view_projection) {
+TransformUniform moving_transform(double time_seconds, const glm::mat4 &view_projection) {
 	const f32 t = static_cast<f32>(time_seconds);
 	const f32 angle = t * 1.35f;
 	glm::mat4 model = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -231,15 +228,19 @@ TransformUniform moving_transform(double time_seconds, const glm::mat4& view_pro
 	return transform_from_matrix(view_projection * model);
 }
 
-TransformUniform static_transform(const glm::mat4& view_projection) {
+TransformUniform static_transform(const glm::mat4 &view_projection) {
 	glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.24f, 0.0f, -0.35f));
 	model = glm::scale(model, glm::vec3(0.82f));
 	return transform_from_matrix(view_projection * model);
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
-	if (*depth_view) { rtTextureViewDestroy(*depth_view); }
-	if (*depth_texture) { rtTextureDestroy(*depth_texture); }
+void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture_view *depth_view, u32 width, u32 height) {
+	if (*depth_view) {
+		rtTextureViewDestroy(*depth_view);
+	}
+	if (*depth_texture) {
+		rtTextureDestroy(*depth_texture);
+	}
 	*depth_texture = rtTextureCreate();
 	rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
 	*depth_view = rtTextureViewCreate(*depth_texture);
@@ -266,7 +267,7 @@ void render_thread_main(void) {
 
 	int texture_width = 0;
 	int texture_height = 0;
-	stbi_uc* texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
+	stbi_uc *texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
 	if (!texture_pixels) {
 		std::cerr << "failed to load " << kTexturePath << "\n";
 		RenderFailed.store(true, std::memory_order_release);
@@ -288,8 +289,7 @@ void render_thread_main(void) {
 	rtBufferData(static_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, transform_size, &static_uniform);
 
 	rt_texture texture = rtTextureCreate();
-	rtTextureData(queue, texture, RT_TEXTURE_2D, 0, static_cast<u32>(texture_width),
-		static_cast<u32>(texture_height), 1, RT_RGBA8_UNORM, texture_pixels);
+	rtTextureData(queue, texture, RT_TEXTURE_2D, 0, static_cast<u32>(texture_width), static_cast<u32>(texture_height), 1, RT_RGBA8_UNORM, texture_pixels);
 	stbi_image_free(texture_pixels);
 
 	rt_texture_view texture_view = rtTextureViewCreate(texture);
@@ -299,8 +299,11 @@ void render_thread_main(void) {
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramVertexLayout(graphics_program, &kVertexLayout);
-	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
-	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
+	const std::vector<char> shader_program = read_binary_file(kShaderPath);
+	if (shader_program.empty()) {
+		return;
+	}
+	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());
 	rtGraphicsProgramLink(graphics_program);
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
 	rt_uniform_location image_location = rtGraphicsProgramUniformLocation(graphics_program, "Image");
@@ -313,7 +316,7 @@ void render_thread_main(void) {
 	recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
 	auto start_time = std::chrono::steady_clock::now();
 	auto previous_time = start_time;
-	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
+	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
 
 	while (Running.load(std::memory_order_acquire)) {
 		auto now = std::chrono::steady_clock::now();
@@ -342,11 +345,15 @@ void render_thread_main(void) {
 		}
 
 		rtQueueWait(queue, acquired.timepoint);
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, depth_view); }
+		if (depth_view) {
+			rtFramebufferDepthView(acquired.framebuffer, depth_view);
+		}
 		rtCmdBegin(cmd, queue);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.5f, 0.5f, 0.5f, 0.5f);
-		if (depth_view) { rtCmdClearDepth(cmd, 1.0f); }
+		if (depth_view) {
+			rtCmdClearDepth(cmd, 1.0f);
+		}
 
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdUniformTexture(cmd, image_location, texture_view);
@@ -361,9 +368,10 @@ void render_thread_main(void) {
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
 		last_rendered = rendered;
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE); }
+		if (depth_view) {
+			rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
+		}
 		rtSwapchainPresent(swapchain, rendered);
-	
 	}
 
 	Running.store(false, std::memory_order_release);
@@ -380,9 +388,8 @@ void render_thread_main(void) {
 	rtBufferDestroy(vertex_buffer);
 }
 
-
-int main(int argc, char** argv) {
-	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char **argv) {
+	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, kLayers, 1) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
@@ -408,7 +415,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 01 Textured Quads", nullptr, nullptr);
+	GLFWwindow *window = glfwCreateWindow(1280, 720, "Rutile 01 Textured Quads", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		rtExit();

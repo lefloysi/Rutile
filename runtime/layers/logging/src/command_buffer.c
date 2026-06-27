@@ -137,8 +137,7 @@ void rtlog_rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics
 
 void rtlog_rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdSetScissor(command_buffer=%s, x=%u, y=%u, width=%u, height=%u)\n",
-				 rtlog_pointer(command_buffer), x, y, width, height);
+	rtlog_printf("rtCmdSetScissor(command_buffer=%s, x=%u, y=%u, width=%u, height=%u)\n", rtlog_pointer(command_buffer), x, y, width, height);
 	next_rtCmdSetScissor(command_buffer, x, y, width, height);
 	rtlog_printf("rtCmdSetScissor completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdSetScissor");
@@ -160,7 +159,8 @@ void rtlog_rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_locat
 		rtlog_pointer(location),
 		rtlog_pointer(buffer),
 		(u64)offset,
-		(u64)size);
+		(u64)size
+	);
 	next_rtCmdUniformBuffer(command_buffer, location, buffer, offset, size);
 	rtlog_printf("rtCmdUniformBuffer completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdUniformBuffer");
@@ -172,7 +172,8 @@ void rtlog_rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_loca
 		"rtCmdUniformTexture(command_buffer=%s, location=%s, texture_view=%s)\n",
 		rtlog_pointer(command_buffer),
 		rtlog_pointer(location),
-		rtlog_pointer(texture_view));
+		rtlog_pointer(texture_view)
+	);
 	next_rtCmdUniformTexture(command_buffer, location, texture_view);
 	rtlog_printf("rtCmdUniformTexture completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdUniformTexture");
@@ -180,8 +181,7 @@ void rtlog_rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_loca
 
 void rtlog_rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdStorageBuffer(command_buffer=%s, binding=%u, buffer=%s, offset=%llu, size=%llu)\n",
-				 rtlog_pointer(command_buffer), binding, rtlog_pointer(buffer), (u64)offset, (u64)size);
+	rtlog_printf("rtCmdStorageBuffer(command_buffer=%s, binding=%u, buffer=%s, offset=%llu, size=%llu)\n", rtlog_pointer(command_buffer), binding, rtlog_pointer(buffer), (u64)offset, (u64)size);
 	next_rtCmdStorageBuffer(command_buffer, binding, buffer, offset, size);
 	rtlog_printf("rtCmdStorageBuffer completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdStorageBuffer");
@@ -189,8 +189,7 @@ void rtlog_rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_
 
 void rtlog_rtCmdStorageTexture(rt_command_buffer command_buffer, u32 binding, rt_texture_view texture_view) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdStorageTexture(command_buffer=%s, binding=%u, texture_view=%s)\n",
-				 rtlog_pointer(command_buffer), binding, rtlog_pointer(texture_view));
+	rtlog_printf("rtCmdStorageTexture(command_buffer=%s, binding=%u, texture_view=%s)\n", rtlog_pointer(command_buffer), binding, rtlog_pointer(texture_view));
 	next_rtCmdStorageTexture(command_buffer, binding, texture_view);
 	rtlog_printf("rtCmdStorageTexture completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdStorageTexture");

@@ -1,25 +1,25 @@
 #define RUTILE_IMPL
-#include "rutile.h"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
+#include "rutile.h"
 
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <random>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
+constexpr const char *kDefaultBackendName = "rt-vulkan";
+constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
 constexpr u32 kStarCount = 26000;
 constexpr u32 kPlanetCount = 520;
 constexpr f32 kGalaxyRadius = 880.0f;
@@ -52,16 +52,16 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ 1, offsetof(Vertex, color), RT_RGBA32_SFLOAT },
-	{ 2, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ 3, offsetof(Vertex, kind), RT_R32_SFLOAT },
-	{ 4, offsetof(Vertex, seed), RT_R32_SFLOAT },
+	{0, offsetof(Vertex, position), RT_RGB32_SFLOAT},
+	{1, offsetof(Vertex, color), RT_RGBA32_SFLOAT},
+	{2, offsetof(Vertex, normal), RT_RGB32_SFLOAT},
+	{3, offsetof(Vertex, kind), RT_R32_SFLOAT},
+	{4, offsetof(Vertex, seed), RT_R32_SFLOAT},
 };
 
-constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 5 };
+constexpr rt_vertex_layout kVertexLayout = {sizeof(Vertex), kVertexAttributes, 5};
 
-constexpr const char* kVertexShader = R"(
+constexpr const char *kVertexShader = R"(
 #version 460
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec4 in_color;
@@ -88,7 +88,7 @@ void main() {
 }
 )";
 
-constexpr const char* kFragmentShader = R"(
+constexpr const char *kFragmentShader = R"(
 #version 460
 layout(location = 0) in vec4 color;
 layout(location = 1) in vec3 normal;
@@ -123,29 +123,29 @@ void main() {
 }
 )";
 
-glm::vec3 camera_forward(const Camera& camera) {
+glm::vec3 camera_forward(const Camera &camera) {
 	const f32 cp = glm::cos(camera.pitch);
-	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch),
-		glm::sin(camera.yaw) * cp));
+	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
 void push_vertex(
-	std::vector<Vertex>* vertices,
-	const glm::vec3& position,
-	const glm::vec4& color,
-	const glm::vec3& normal,
+	std::vector<Vertex> *vertices,
+	const glm::vec3 &position,
+	const glm::vec4 &color,
+	const glm::vec3 &normal,
 	f32 kind,
-	f32 seed) {
+	f32 seed
+) {
 	vertices->push_back({
-		{ position.x, position.y, position.z },
-		{ color.r, color.g, color.b, color.a },
-		{ normal.x, normal.y, normal.z },
+		{position.x, position.y, position.z},
+		{color.r, color.g, color.b, color.a},
+		{normal.x, normal.y, normal.z},
 		kind,
 		seed,
 	});
 }
 
-void push_star(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radius, const glm::vec4& color, f32 seed) {
+void push_star(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radius, const glm::vec4 &color, f32 seed) {
 	const glm::vec3 p[] = {
 		glm::vec3(0.0f, radius, 0.0f),
 		glm::vec3(radius, 0.0f, 0.0f),
@@ -155,10 +155,16 @@ void push_star(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radiu
 		glm::vec3(0.0f, -radius, 0.0f),
 	};
 	const i32 faces[][3] = {
-		{ 0, 1, 2 }, { 0, 2, 3 }, { 0, 3, 4 }, { 0, 4, 1 },
-		{ 5, 2, 1 }, { 5, 3, 2 }, { 5, 4, 3 }, { 5, 1, 4 },
+		{0, 1, 2},
+		{0, 2, 3},
+		{0, 3, 4},
+		{0, 4, 1},
+		{5, 2, 1},
+		{5, 3, 2},
+		{5, 4, 3},
+		{5, 1, 4},
 	};
-	for (const auto& face : faces) {
+	for (const auto &face : faces) {
 		const glm::vec3 a = p[face[0]];
 		const glm::vec3 b = p[face[1]];
 		const glm::vec3 c = p[face[2]];
@@ -169,7 +175,7 @@ void push_star(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radiu
 	}
 }
 
-void push_planet(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radius, const glm::vec4& color, f32 seed) {
+void push_planet(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radius, const glm::vec4 &color, f32 seed) {
 	constexpr i32 stacks = 8;
 	constexpr i32 slices = 12;
 	for (i32 y = 0; y < stacks; y++) {
@@ -196,7 +202,7 @@ void push_planet(std::vector<Vertex>* vertices, const glm::vec3& center, f32 rad
 	}
 }
 
-f32 rand_range(std::mt19937& rng, f32 min_value, f32 max_value) {
+f32 rand_range(std::mt19937 &rng, f32 min_value, f32 max_value) {
 	std::uniform_real_distribution<f32> dist(min_value, max_value);
 	return dist(rng);
 }
@@ -205,11 +211,10 @@ glm::vec3 star_color(f32 heat) {
 	const glm::vec3 cool(0.58f, 0.73f, 1.0f);
 	const glm::vec3 white(1.0f, 0.98f, 0.88f);
 	const glm::vec3 warm(1.0f, 0.56f, 0.32f);
-	return heat < 0.58f ? glm::mix(cool, white, heat / 0.58f) :
-		glm::mix(white, warm, (heat - 0.58f) / 0.42f);
+	return heat < 0.58f ? glm::mix(cool, white, heat / 0.58f) : glm::mix(white, warm, (heat - 0.58f) / 0.42f);
 }
 
-glm::vec3 spiral_position(std::mt19937& rng, f32 radius_bias, f32 arm_jitter, f32 height) {
+glm::vec3 spiral_position(std::mt19937 &rng, f32 radius_bias, f32 arm_jitter, f32 height) {
 	const f32 radius = std::pow(rand_range(rng, 0.0f, 1.0f), radius_bias) * kGalaxyRadius;
 	const i32 arm = (i32)rand_range(rng, 0.0f, 4.0f);
 	const f32 arm_angle = (f32)arm * glm::half_pi<f32>();
@@ -226,8 +231,7 @@ std::vector<Vertex> build_galaxy() {
 
 	for (u32 i = 0; i < kStarCount; i++) {
 		const bool core_star = rand_range(rng, 0.0f, 1.0f) < 0.16f;
-		glm::vec3 center = core_star ? glm::vec3(rand_range(rng, -82.0f, 82.0f), rand_range(rng, -18.0f, 18.0f),
-			rand_range(rng, -82.0f, 82.0f)) : spiral_position(rng, 0.48f, 0.34f, 44.0f);
+		glm::vec3 center = core_star ? glm::vec3(rand_range(rng, -82.0f, 82.0f), rand_range(rng, -18.0f, 18.0f), rand_range(rng, -82.0f, 82.0f)) : spiral_position(rng, 0.48f, 0.34f, 44.0f);
 		if (core_star) {
 			const f32 pull = rand_range(rng, 0.0f, 1.0f);
 			center *= pull * pull;
@@ -235,8 +239,7 @@ std::vector<Vertex> build_galaxy() {
 		const f32 giant = rand_range(rng, 0.0f, 1.0f) < 0.02f ? rand_range(rng, 1.5f, 2.8f) : 1.0f;
 		const f32 radius = rand_range(rng, 0.10f, 0.42f) * giant;
 		const f32 alpha = core_star ? rand_range(rng, 0.66f, 1.0f) : rand_range(rng, 0.42f, 0.92f);
-		push_star(&vertices, center, radius, glm::vec4(star_color(rand_range(rng, 0.0f, 1.0f)), alpha),
-			rand_range(rng, 0.0f, 1.0f));
+		push_star(&vertices, center, radius, glm::vec4(star_color(rand_range(rng, 0.0f, 1.0f)), alpha), rand_range(rng, 0.0f, 1.0f));
 	}
 
 	for (u32 i = 0; i < kPlanetCount; i++) {
@@ -253,14 +256,14 @@ std::vector<Vertex> build_galaxy() {
 	return vertices;
 }
 
-glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
+glm::mat4 camera_matrix(const Camera &camera, f32 aspect) {
 	const glm::vec3 forward = camera_forward(camera);
 	const glm::mat4 view = glm::lookAt(camera.position, camera.position + forward, glm::vec3(0, 1, 0));
 	const glm::mat4 projection = glm::perspective(glm::radians(68.0f), aspect, 0.08f, 3600.0f);
 	return projection * view;
 }
 
-void write_scene_uniform(SceneUniform* uniform, const Camera& camera, f32 aspect, f32 time) {
+void write_scene_uniform(SceneUniform *uniform, const Camera &camera, f32 aspect, f32 time) {
 	const glm::mat4 transform = camera_matrix(camera, aspect);
 	const glm::vec3 light_dir = glm::normalize(glm::vec3(-0.42f, 0.58f, 0.70f));
 	std::memcpy(uniform->view_projection, glm::value_ptr(transform), sizeof(uniform->view_projection));
@@ -274,9 +277,13 @@ void write_scene_uniform(SceneUniform* uniform, const Camera& camera, f32 aspect
 	uniform->padding[2] = 0.0f;
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
-	if (*depth_view) { rtTextureViewDestroy(*depth_view); }
-	if (*depth_texture) { rtTextureDestroy(*depth_texture); }
+void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture_view *depth_view, u32 width, u32 height) {
+	if (*depth_view) {
+		rtTextureViewDestroy(*depth_view);
+	}
+	if (*depth_texture) {
+		rtTextureDestroy(*depth_texture);
+	}
 	*depth_texture = rtTextureCreate();
 	rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
 	*depth_view = rtTextureViewCreate(*depth_texture);
@@ -286,7 +293,7 @@ void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture
 	}
 }
 
-void framebuffer_resized(GLFWwindow* window, int width, int height) {
+void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	(void)window;
 	if (width > 0 && height > 0) {
 		FramebufferWidth.store((u32)width, std::memory_order_release);
@@ -298,7 +305,7 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	}
 }
 
-void cursor_moved(GLFWwindow* window, double x, double y) {
+void cursor_moved(GLFWwindow *window, double x, double y) {
 	(void)window;
 	static double previous_x = x;
 	static double previous_y = y;
@@ -308,7 +315,7 @@ void cursor_moved(GLFWwindow* window, double x, double y) {
 	previous_y = y;
 }
 
-void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
+void update_camera(GLFWwindow *window, Camera *camera, f32 dt) {
 	const f32 sensitivity = 0.0022f;
 	camera->yaw += MouseDx * sensitivity;
 	camera->pitch -= MouseDy * sensitivity;
@@ -320,10 +327,18 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
 	const f32 speed = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 260.0f : 82.0f;
 	glm::vec3 velocity(0.0f);
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { velocity += forward; }
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { velocity -= forward; }
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { velocity += right; }
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { velocity -= right; }
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+		velocity += forward;
+	}
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+		velocity -= forward;
+	}
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+		velocity += right;
+	}
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+		velocity -= right;
+	}
 	if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
 		velocity.y += 1.0f;
 	}
@@ -335,8 +350,8 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 	}
 }
 
-int main(int argc, char** argv) {
-	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char **argv) {
+	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, nullptr, 0) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
@@ -362,7 +377,7 @@ int main(int argc, char** argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
+	GLFWwindow *window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();
@@ -393,8 +408,7 @@ int main(int argc, char** argv) {
 
 	std::vector<Vertex> vertices = build_galaxy();
 	rt_buffer vertex_buffer = rtBufferCreate();
-	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX,
-		(u64)(vertices.size() * sizeof(vertices[0])), vertices.data());
+	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, (u64)(vertices.size() * sizeof(vertices[0])), vertices.data());
 
 	SceneUniform scene = {};
 	rt_buffer scene_buffer = rtBufferCreate();
@@ -420,7 +434,7 @@ int main(int argc, char** argv) {
 	auto previous_time = start_time;
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
+	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
@@ -449,14 +463,20 @@ int main(int argc, char** argv) {
 		rtBufferSubdata(scene_buffer, 0, sizeof(scene), &scene);
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
-		if (!acquired.framebuffer) { continue; }
+		if (!acquired.framebuffer) {
+			continue;
+		}
 
 		rtQueueWait(queue, acquired.timepoint);
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, depth_view); }
+		if (depth_view) {
+			rtFramebufferDepthView(acquired.framebuffer, depth_view);
+		}
 		rtCmdBegin(cmd, queue);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.004f, 0.006f, 0.014f, 1.0f);
-		if (depth_view) { rtCmdClearDepth(cmd, 1.0f); }
+		if (depth_view) {
+			rtCmdClearDepth(cmd, 1.0f);
+		}
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdBindVertexBuffer(cmd, vertex_buffer, 0);
 		rtCmdUniformBuffer(cmd, scene_location, scene_buffer, 0, sizeof(scene));
@@ -466,7 +486,9 @@ int main(int argc, char** argv) {
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
 		last_rendered = rendered;
-		if (depth_view) { rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE); }
+		if (depth_view) {
+			rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
+		}
 		rtSwapchainPresent(swapchain, rendered);
 
 		fps_frames++;
@@ -474,8 +496,7 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[128];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile 06 Galaxy - %.0f FPS - %u mesh stars, %u planets",
-				fps, kStarCount, kPlanetCount);
+			std::snprintf(title, sizeof(title), "Rutile 06 Galaxy - %.0f FPS - %u mesh stars, %u planets", fps, kStarCount, kPlanetCount);
 			glfwSetWindowTitle(window, title);
 			fps_time = std::chrono::steady_clock::now();
 			fps_frames = 0;
