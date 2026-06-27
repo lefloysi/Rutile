@@ -44,6 +44,6 @@
 	} while (0)
 
 #define RTGL_ALLOC(var, type, count, what)     \
-	type *var = calloc((count), sizeof(type)); \
+	type* var = calloc((count), sizeof(type)); \
 	RTGL_CHECK_ALLOC(var, sizeof(type) * (usize)(count), (what))
 #endif /* RTGL33_CONFIG_H */

@@ -29,7 +29,7 @@ f32 value_noise(f32 x, f32 z) {
 i32 terrain_height(i32 x, i32 z) {
 	static i32 cached_heights[kWorldX * kWorldZ] = {};
 	if (x >= 0 && x < kWorldX && z >= 0 && z < kWorldZ) {
-		i32 *cached = &cached_heights[z * kWorldX + x];
+		i32* cached = &cached_heights[z * kWorldX + x];
 		if (*cached == 0) {
 			*cached = 5 + (i32)(value_noise((f32)x * 0.12f, (f32)z * 0.12f) * 11.0f);
 		}
@@ -60,7 +60,7 @@ glm::vec3 block_color(i32 x, i32 y, i32 z) {
 	return base;
 }
 
-void push_vertex(std::vector<Vertex> *vertices, const glm::vec3 &position, const glm::vec3 &color, const glm::vec3 &normal, f32 ao, const glm::vec2 &pixel_uv, f32 edge_mask, f32 corner_mask) {
+void push_vertex(std::vector<Vertex>* vertices, const glm::vec3& position, const glm::vec3& color, const glm::vec3& normal, f32 ao, const glm::vec2& pixel_uv, f32 edge_mask, f32 corner_mask) {
 	vertices->push_back({
 		{position.x, position.y, position.z},
 		{color.r, color.g, color.b},
@@ -72,7 +72,7 @@ void push_vertex(std::vector<Vertex> *vertices, const glm::vec3 &position, const
 	});
 }
 
-f32 voxel_ao(i32 x, i32 y, i32 z, const glm::vec3 &normal, const glm::vec3 &corner) {
+f32 voxel_ao(i32 x, i32 y, i32 z, const glm::vec3& normal, const glm::vec3& corner) {
 	const glm::ivec3 face((i32)normal.x, (i32)normal.y, (i32)normal.z);
 	glm::ivec3 side_a(0);
 	glm::ivec3 side_b(0);
@@ -95,17 +95,17 @@ f32 voxel_ao(i32 x, i32 y, i32 z, const glm::vec3 &normal, const glm::vec3 &corn
 	return 0.55f + (f32)value * 0.15f;
 }
 
-void push_triangle(std::vector<Vertex> *vertices, const glm::vec3 &origin, const glm::vec3 &color, const glm::vec3 &normal, const glm::vec3 &a, f32 ao_a, const glm::vec2 &uv_a, const glm::vec3 &b, f32 ao_b, const glm::vec2 &uv_b, const glm::vec3 &c, f32 ao_c, const glm::vec2 &uv_c, f32 edge_mask, f32 corner_mask) {
+void push_triangle(std::vector<Vertex>* vertices, const glm::vec3& origin, const glm::vec3& color, const glm::vec3& normal, const glm::vec3& a, f32 ao_a, const glm::vec2& uv_a, const glm::vec3& b, f32 ao_b, const glm::vec2& uv_b, const glm::vec3& c, f32 ao_c, const glm::vec2& uv_c, f32 edge_mask, f32 corner_mask) {
 	push_vertex(vertices, origin + a, color, normal, ao_a, uv_a, edge_mask, corner_mask);
 	push_vertex(vertices, origin + b, color, normal, ao_b, uv_b, edge_mask, corner_mask);
 	push_vertex(vertices, origin + c, color, normal, ao_c, uv_c, edge_mask, corner_mask);
 }
 
-glm::ivec3 edge_direction(const glm::vec3 &direction) {
+glm::ivec3 edge_direction(const glm::vec3& direction) {
 	return glm::ivec3((i32)glm::round(direction.x), (i32)glm::round(direction.y), (i32)glm::round(direction.z));
 }
 
-void push_face(std::vector<Vertex> *vertices, i32 x, i32 y, i32 z, const glm::vec3 &normal, const glm::vec3 corners[4]) {
+void push_face(std::vector<Vertex>* vertices, i32 x, i32 y, i32 z, const glm::vec3& normal, const glm::vec3 corners[4]) {
 	const glm::vec3 origin = glm::vec3((f32)x - kWorldX * 0.5f, (f32)y, (f32)z - kWorldZ * 0.5f);
 	const glm::vec3 color = block_color(x, y, z);
 	const f32 ao[] = {

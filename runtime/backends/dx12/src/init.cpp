@@ -9,11 +9,11 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-static bool rtdx_feature_equals(const char *feature, const char *expected) {
+static bool rtdx_feature_equals(const char* feature, const char* expected) {
 	return feature && strcmp(feature, expected) == 0;
 }
 
-static bool rtdx_validate_init_features(const char *const *features, u32 feature_count, rtdx_context_flags *flags) {
+static bool rtdx_validate_init_features(const char* const* features, u32 feature_count, rtdx_context_flags* flags) {
 	if (feature_count && !features) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %u but features is NULL", feature_count);
 		return false;
@@ -21,7 +21,7 @@ static bool rtdx_validate_init_features(const char *const *features, u32 feature
 
 	*flags = {};
 	for (u32 i = 0; i < feature_count; i++) {
-		const char *feature = features[i];
+		const char* feature = features[i];
 		if (!feature) {
 			rtdx_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %u is NULL", i);
 			return false;
@@ -42,7 +42,7 @@ static bool rtdx_validate_init_features(const char *const *features, u32 feature
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtInit(const char *const *features, u32 feature_count) {
+void rtInit(const char* const* features, u32 feature_count) {
 	rtdx_context_flags flags;
 
 	rtClearError();

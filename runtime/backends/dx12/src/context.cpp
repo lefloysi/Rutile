@@ -9,9 +9,9 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtdx_context *current_context = NULL;
+struct rtdx_context* current_context = NULL;
 
-struct rtdx_context *rtdx_get_current_context(void) {
+struct rtdx_context* rtdx_get_current_context(void) {
 	return current_context;
 }
 
@@ -25,10 +25,10 @@ static void rtdx_log_startup_time(u64 start_ns) {
 	rtdx_printf("rt-dx12: initialized in %.3f ms\n", (double)elapsed_ns / 1000000.0);
 }
 
-static bool rtdx_context_create_factory(struct rtdx_context *ctx) {
+static bool rtdx_context_create_factory(struct rtdx_context* ctx) {
 	UINT flags = 0;
 #if defined(RTDX_ENABLE_D3D12_VALIDATION)
-	ID3D12Debug *debug = NULL;
+	ID3D12Debug* debug = NULL;
 	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
 		debug->EnableDebugLayer();
 		debug->Release();
@@ -44,8 +44,8 @@ static bool rtdx_context_create_factory(struct rtdx_context *ctx) {
 	return true;
 }
 
-static void rtdx_context_query_present_features(struct rtdx_context *ctx) {
-	IDXGIFactory5 *factory5 = NULL;
+static void rtdx_context_query_present_features(struct rtdx_context* ctx) {
+	IDXGIFactory5* factory5 = NULL;
 	if (FAILED(ctx->dxgi_factory->QueryInterface(IID_PPV_ARGS(&factory5)))) {
 		return;
 	}
@@ -54,9 +54,9 @@ static void rtdx_context_query_present_features(struct rtdx_context *ctx) {
 	factory5->Release();
 }
 
-static bool rtdx_context_pick_adapter(struct rtdx_context *ctx) {
+static bool rtdx_context_pick_adapter(struct rtdx_context* ctx) {
 	for (UINT i = 0;; i++) {
-		IDXGIAdapter1 *adapter = NULL;
+		IDXGIAdapter1* adapter = NULL;
 		DXGI_ADAPTER_DESC1 desc;
 		HRESULT result = ctx->dxgi_factory->EnumAdapterByGpuPreference(
 			i,
@@ -89,14 +89,14 @@ static bool rtdx_context_pick_adapter(struct rtdx_context *ctx) {
 	return false;
 }
 
-static bool rtdx_context_create_device(struct rtdx_context *ctx) {
+static bool rtdx_context_create_device(struct rtdx_context* ctx) {
 	HRESULT result = D3D12CreateDevice(ctx->dxgi_adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ctx->d3d_device));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "D3D12CreateDevice failed: 0x%08x", (u32)result);
 		return false;
 	}
 
-	ctx->queues = (struct rtdx_queue **)calloc(1, sizeof(*ctx->queues));
+	ctx->queues = (struct rtdx_queue**)calloc(1, sizeof(*ctx->queues));
 	if (!ctx->queues) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate D3D12 queue handles");
 		return false;
@@ -110,7 +110,7 @@ static bool rtdx_context_create_device(struct rtdx_context *ctx) {
 	return true;
 }
 
-static void rtdx_context_destroy_queues(struct rtdx_context *ctx) {
+static void rtdx_context_destroy_queues(struct rtdx_context* ctx) {
 	for (u32 i = 0; i < ctx->queue_count; i++) {
 		rtdx_queue_destroy(ctx, ctx->queues[i]);
 	}
@@ -119,8 +119,8 @@ static void rtdx_context_destroy_queues(struct rtdx_context *ctx) {
 	ctx->queue_count = 0;
 }
 
-struct rtdx_context *rtdx_create_context(rtdx_context_flags flags) {
-	struct rtdx_context *result = (struct rtdx_context *)calloc(1, sizeof(struct rtdx_context));
+struct rtdx_context* rtdx_create_context(rtdx_context_flags flags) {
+	struct rtdx_context* result = (struct rtdx_context*)calloc(1, sizeof(struct rtdx_context));
 	if (!result) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for DX12 context", sizeof(struct rtdx_context));
 		return NULL;
@@ -140,7 +140,7 @@ struct rtdx_context *rtdx_create_context(rtdx_context_flags flags) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtdx_context_init(struct rtdx_context *ctx) {
+void rtdx_context_init(struct rtdx_context* ctx) {
 	u64 start_ns = rtdx_now_ns();
 	if (!rtdx_context_create_factory(ctx)) {
 		return;
@@ -156,7 +156,7 @@ void rtdx_context_init(struct rtdx_context *ctx) {
 	rtdx_log_startup_time(start_ns);
 }
 
-void rtdx_context_finish(struct rtdx_context *ctx) {
+void rtdx_context_finish(struct rtdx_context* ctx) {
 	if (!ctx) {
 		return;
 	}
@@ -168,7 +168,7 @@ void rtdx_context_finish(struct rtdx_context *ctx) {
 	rtdx_release(&ctx->dxgi_factory);
 }
 
-void rtdx_context_destroy(struct rtdx_context *ctx) {
+void rtdx_context_destroy(struct rtdx_context* ctx) {
 	if (!ctx) {
 		return;
 	}

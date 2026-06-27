@@ -12,7 +12,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 typedef struct rt_swapchain_t rt_swapchain_t;
-typedef rt_swapchain_t *rt_swapchain;
+typedef rt_swapchain_t* rt_swapchain;
 
 typedef struct rt_swapchain_acquire_result {
 	rt_framebuffer framebuffer;

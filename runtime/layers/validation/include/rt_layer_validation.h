@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-RT_EXPORT const char *rtLayerGetName(void);
+RT_EXPORT const char* rtLayerGetName(void);
 RT_EXPORT void rtLayerSetNext(rt_proc_chain next);
 
 #ifdef __cplusplus

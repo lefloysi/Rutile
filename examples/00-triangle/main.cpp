@@ -27,7 +27,7 @@ static const rt_vertex_attribute kAttributes[] = {
 };
 static const rt_vertex_layout kLayout = {sizeof(Vertex), kAttributes, 2};
 
-static std::vector<char> read_binary_file(const char *path) {
+static std::vector<char> read_binary_file(const char* path) {
 	std::ifstream file(path, std::ios::binary);
 	if (!file) {
 		std::fprintf(stderr, "failed to open %s\n", path);
@@ -37,14 +37,14 @@ static std::vector<char> read_binary_file(const char *path) {
 	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
-static void rt_output(const char *message, void *) {
+static void rt_output(const char* message, void*) {
 	if (message) {
 		std::fputs(message, stdout);
 		std::fflush(stdout);
 	}
 }
 
-static bool check_rt(const char *step) {
+static bool check_rt(const char* step) {
 	const enum rt_error error = rtError();
 	if (error == RT_SUCCESS) {
 		return true;
@@ -55,14 +55,14 @@ static bool check_rt(const char *step) {
 	return false;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
 	if (rtLoadDevelopment("rt-dx12", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoadDevelopment failed\n");
 		return 1;
 	}
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
-	const char *features[] = {RT_FEATURE_PRESENTATION};
+	const char* features[] = {RT_FEATURE_PRESENTATION};
 	rtSetOutput(rt_output, nullptr);
 	rtInit(features, 1);
 	if (!check_rt("rtInit")) {
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow *window = glfwCreateWindow(960, 540, "Rutile 00 Triangle", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(960, 540, "Rutile 00 Triangle", nullptr, nullptr);
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);

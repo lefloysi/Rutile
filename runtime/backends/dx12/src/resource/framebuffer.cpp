@@ -17,7 +17,7 @@ void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 }
 
 rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
-	struct rtdx_texture_view *view = rtdx_framebuffer_color_view(rtdx_framebuffer_from_handle(framebuffer), slot);
+	struct rtdx_texture_view* view = rtdx_framebuffer_color_view(rtdx_framebuffer_from_handle(framebuffer), slot);
 	return rtdx_texture_view_to_handle(view);
 }
 
@@ -42,11 +42,11 @@ void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtdx_framebuffer_init(struct rtdx_context *ctx, struct rtdx_framebuffer *framebuffer) {
+void rtdx_framebuffer_init(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer), RT_RESOURCE_FRAMEBUFFER);
 }
 
-void rtdx_framebuffer_finish(struct rtdx_context *ctx, struct rtdx_framebuffer *framebuffer) {
+void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
 	for (u32 i = 0; i < framebuffer->color_texture_count; i++) {
 		framebuffer->color_views[i] = NULL;
 	}
@@ -56,11 +56,11 @@ void rtdx_framebuffer_finish(struct rtdx_context *ctx, struct rtdx_framebuffer *
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer));
 }
 
-bool rtdx_texture_view_valid(struct rtdx_texture_view *view) {
+bool rtdx_texture_view_valid(struct rtdx_texture_view* view) {
 	return view && view->base.type == RT_RESOURCE_TEXTURE_VIEW && view->d3d_resource;
 }
 
-void rtdx_framebuffer_set_color_view(struct rtdx_context *ctx, struct rtdx_framebuffer *framebuffer, u32 slot, struct rtdx_texture_view *view) {
+void rtdx_framebuffer_set_color_view(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer, u32 slot, struct rtdx_texture_view* view) {
 	if (slot >= RTDX_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
 		rtdx_throwf(RT_UNSUPPORTED_FEATURE, "framebuffer requested color attachment %u, max is %u", slot, RTDX_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS);
 		return;
@@ -88,7 +88,7 @@ void rtdx_framebuffer_set_color_view(struct rtdx_context *ctx, struct rtdx_frame
 	}
 }
 
-struct rtdx_texture_view *rtdx_framebuffer_color_view(struct rtdx_framebuffer *framebuffer, u32 slot) {
+struct rtdx_texture_view* rtdx_framebuffer_color_view(struct rtdx_framebuffer* framebuffer, u32 slot) {
 	if (!framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer is NULL");
 		return nullptr;
@@ -104,7 +104,7 @@ struct rtdx_texture_view *rtdx_framebuffer_color_view(struct rtdx_framebuffer *f
 	return framebuffer->color_views[slot];
 }
 
-void rtdx_framebuffer_set_depth_view(struct rtdx_context *ctx, struct rtdx_framebuffer *framebuffer, struct rtdx_texture_view *view) {
+void rtdx_framebuffer_set_depth_view(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer, struct rtdx_texture_view* view) {
 	if (!framebuffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer is NULL");
 		return;
@@ -124,7 +124,7 @@ void rtdx_framebuffer_set_depth_view(struct rtdx_context *ctx, struct rtdx_frame
 	framebuffer->depth_view = view;
 }
 
-bool rtdx_framebuffer_valid(struct rtdx_framebuffer *framebuffer) {
+bool rtdx_framebuffer_valid(struct rtdx_framebuffer* framebuffer) {
 	for (u32 i = 0; i < framebuffer->color_texture_count; i++) {
 		if (!rtdx_texture_view_valid(framebuffer->color_views[i])) {
 			return false;

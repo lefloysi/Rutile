@@ -18,9 +18,9 @@
 
 RTDX_EXTERN_C_ENTER
 
-RTDX_API void rtInit(const char *const *features, u32 feature_count);
+RTDX_API void rtInit(const char* const* features, u32 feature_count);
 RTDX_API void rtExit(void);
-RTDX_API const char *rtGetName(void);
+RTDX_API const char* rtGetName(void);
 RTDX_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 
 RTDX_EXTERN_C_EXIT

@@ -12,10 +12,10 @@ struct gl_context {
 	HGLRC hglrc;
 };
 
-typedef HGLRC(WINAPI *PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int *);
+typedef HGLRC(WINAPI* PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int*);
 
-static gl_context *rtgl_context_bootstrap(u08 major, u08 minor, bool core_profile, gl_context *share) {
-	gl_context *context = NULL;
+static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profile, gl_context* share) {
+	gl_context* context = NULL;
 	HWND hwnd = NULL;
 	HDC hdc = NULL;
 	HGLRC legacy = NULL;
@@ -119,11 +119,11 @@ fail:
 	return NULL;
 }
 
-gl_context *rtgl_create_glcontext(u08 major, u08 minor, bool core_profile, gl_context *share) {
+gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool core_profile, gl_context* share) {
 	return rtgl_context_bootstrap(major, minor, core_profile, share);
 }
 
-void rtgl_destroy_glcontext(gl_context *context) {
+void rtgl_destroy_glcontext(gl_context* context) {
 	if (!context) {
 		return;
 	}
@@ -142,7 +142,7 @@ void rtgl_destroy_glcontext(gl_context *context) {
 	free(context);
 }
 
-void rtgl_make_glcontext_current(gl_context *context) {
+void rtgl_make_glcontext_current(gl_context* context) {
 	if (!context) {
 		wglMakeCurrent(NULL, NULL);
 		return;
@@ -154,7 +154,7 @@ void rtgl_release_current_context(void) {
 	wglMakeCurrent(NULL, NULL);
 }
 
-rtgl_proc_t rtgl_load_proc(const char *name) {
+rtgl_proc_t rtgl_load_proc(const char* name) {
 	rtgl_proc_t proc = (rtgl_proc_t)wglGetProcAddress(name);
 	if (proc) {
 		return proc;

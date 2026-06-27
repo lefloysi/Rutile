@@ -13,7 +13,7 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
 constexpr u32 kTextureWidth = 8192;
 constexpr u32 kTextureHeight = 8192;
 constexpr u32 kWindowWidth = 1280;
@@ -50,7 +50,7 @@ struct Camera {
 	f32 zoom = 1.0f;
 };
 
-constexpr const char *kInitShader = R"(
+constexpr const char* kInitShader = R"(
 #version 460
 #extension GL_ARB_gpu_shader_int64 : require
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -77,7 +77,7 @@ void main() {
 }
 )";
 
-constexpr const char *kStepShader = R"(
+constexpr const char* kStepShader = R"(
 #version 460
 #extension GL_ARB_gpu_shader_int64 : require
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -153,7 +153,7 @@ void main() {
 }
 )";
 
-constexpr const char *kColorShader = R"(
+constexpr const char* kColorShader = R"(
 #version 460
 #extension GL_ARB_gpu_shader_int64 : require
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -203,7 +203,7 @@ void main() {
 }
 )";
 
-constexpr const char *kVertexShader = R"(
+constexpr const char* kVertexShader = R"(
 #version 460
 layout(location = 0) out vec2 uv;
 
@@ -219,7 +219,7 @@ void main() {
 }
 )";
 
-constexpr const char *kFragmentShader = R"(
+constexpr const char* kFragmentShader = R"(
 #version 460
 layout(location = 0) in vec2 uv;
 layout(location = 0) out vec4 out_color;
@@ -262,7 +262,7 @@ void main() {
 }
 )";
 
-bool check_rt_error(const char *step) {
+bool check_rt_error(const char* step) {
 	if (rtError() == RT_SUCCESS) {
 		return true;
 	}
@@ -275,7 +275,7 @@ u32 ceil_div_u32(u32 value, u32 divisor) {
 	return (value + divisor - 1u) / divisor;
 }
 
-void cursor_moved(GLFWwindow *window, double x, double y) {
+void cursor_moved(GLFWwindow* window, double x, double y) {
 	(void)window;
 	CursorX = (f32)x;
 	CursorY = (f32)y;
@@ -283,7 +283,7 @@ void cursor_moved(GLFWwindow *window, double x, double y) {
 	PreviousCursorY = CursorY;
 }
 
-void mouse_button(GLFWwindow *window, int button, int action, int) {
+void mouse_button(GLFWwindow* window, int button, int action, int) {
 	(void)window;
 	if (button == GLFW_MOUSE_BUTTON_LEFT) {
 		Drawing = action == GLFW_PRESS;
@@ -293,7 +293,7 @@ void mouse_button(GLFWwindow *window, int button, int action, int) {
 	}
 }
 
-void scroll_moved(GLFWwindow *window, double, double y) {
+void scroll_moved(GLFWwindow* window, double, double y) {
 	(void)window;
 	ScrollY += (f32)y;
 }
@@ -306,12 +306,12 @@ f32 camera_aspect(void) {
 	return (f32)width / (f32)height;
 }
 
-void clamp_camera(Camera *camera, f32 aspect) {
+void clamp_camera(Camera* camera, f32 aspect) {
 	(void)aspect;
 	camera->zoom = std::clamp(camera->zoom, 1.0f, 96.0f);
 }
 
-void screen_to_heat_pixel(const Camera &camera, f32 cursor_x, f32 cursor_y, f32 *out_x, f32 *out_y) {
+void screen_to_heat_pixel(const Camera& camera, f32 cursor_x, f32 cursor_y, f32* out_x, f32* out_y) {
 	const u32 loaded_width = FramebufferWidth.load(std::memory_order_acquire);
 	const u32 loaded_height = FramebufferHeight.load(std::memory_order_acquire);
 	const u32 width = loaded_width > 0u ? loaded_width : 1u;
@@ -323,7 +323,7 @@ void screen_to_heat_pixel(const Camera &camera, f32 cursor_x, f32 cursor_y, f32 
 	*out_y = camera.y + centered_y * (f32)kTextureHeight / camera.zoom;
 }
 
-void update_camera(GLFWwindow *window, Camera *camera, Camera *target_camera, f32 dt) {
+void update_camera(GLFWwindow* window, Camera* camera, Camera* target_camera, f32 dt) {
 	const f32 aspect = camera_aspect();
 	const u32 loaded_width = FramebufferWidth.load(std::memory_order_acquire);
 	const u32 loaded_height = FramebufferHeight.load(std::memory_order_acquire);
@@ -378,7 +378,7 @@ void update_camera(GLFWwindow *window, Camera *camera, Camera *target_camera, f3
 	clamp_camera(camera, aspect);
 }
 
-void write_params(SimParams *params, const Camera &camera, f32 time) {
+void write_params(SimParams* params, const Camera& camera, f32 time) {
 	params->texture[0] = (f32)kTextureWidth;
 	params->texture[1] = (f32)kTextureHeight;
 	params->texture[2] = time;
@@ -421,14 +421,14 @@ void write_params(SimParams *params, const Camera &camera, f32 time) {
 	params->camera[3] = camera_aspect();
 }
 
-rt_compute_program create_compute_program(const char *shader) {
+rt_compute_program create_compute_program(const char* shader) {
 	rt_compute_program program = rtComputeProgramCreate();
 	rtComputeProgramShader(program, std::strlen(shader), shader);
 	rtComputeProgramLink(program);
 	return program;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
 	rtLoad("rt-vulkan", nullptr, 0);
 	rtLoad_RT_EXT_COMPUTE();
 	rtLoad_RT_EXT_SWAPCHAIN();
@@ -449,7 +449,7 @@ int main(int argc, char *argv[]) {
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-	GLFWwindow *window = glfwCreateWindow(kWindowWidth, kWindowHeight, "Rutile 03 Heat Diffusion", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(kWindowWidth, kWindowHeight, "Rutile 03 Heat Diffusion", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();

@@ -173,7 +173,7 @@ struct RTArtifactModule {
 	u32 next_id = 1;
 };
 
-RTArtifactModule read_rtslp_module(u64 program_size, const void *program_source);
+RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source);
 
 } // namespace rutile::backend_tools
 

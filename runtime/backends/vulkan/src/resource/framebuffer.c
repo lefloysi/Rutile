@@ -48,10 +48,10 @@ void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 
 RTVK_DEFINE_RESOURCE_PRIVATE(framebuffer)
 
-void rtvk_framebuffer_init(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer) {
+void rtvk_framebuffer_init(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(framebuffer), RT_RESOURCE_FRAMEBUFFER);
 }
-void rtvk_framebuffer_finish(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer) {
+void rtvk_framebuffer_finish(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer) {
 	for (u32 i = 0; i < framebuffer->color_texture_count; i++) {
 		if (framebuffer->color_views[i]) {
 			rtvk_release_resource(framebuffer->color_views[i]);
@@ -70,7 +70,7 @@ void rtvk_framebuffer_finish(struct rtvk_context *ctx, struct rtvk_framebuffer *
 	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(framebuffer));
 }
 
-void rtvk_framebuffer_set_color_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, u32 slot, struct rtvk_texture_view *view) {
+void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, u32 slot, struct rtvk_texture_view* view) {
 	assert(framebuffer);
 	if (slot >= RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "framebuffer requested color attachment %u, max is %u", slot, RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS);
@@ -92,7 +92,7 @@ void rtvk_framebuffer_set_color_view(struct rtvk_context *ctx, struct rtvk_frame
 	}
 }
 
-struct rtvk_texture_view *rtvk_framebuffer_color_view(struct rtvk_framebuffer *framebuffer, u32 slot) {
+struct rtvk_texture_view* rtvk_framebuffer_color_view(struct rtvk_framebuffer* framebuffer, u32 slot) {
 	assert(framebuffer);
 	if (slot >= RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "framebuffer requested color attachment %u, max is %u", slot, RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS);
@@ -105,7 +105,7 @@ struct rtvk_texture_view *rtvk_framebuffer_color_view(struct rtvk_framebuffer *f
 	return framebuffer->color_views[slot];
 }
 
-void rtvk_framebuffer_set_depth_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, struct rtvk_texture_view *view) {
+void rtvk_framebuffer_set_depth_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, struct rtvk_texture_view* view) {
 	assert(framebuffer);
 	if (view) {
 		rtvk_retain_resource(view);
@@ -116,7 +116,7 @@ void rtvk_framebuffer_set_depth_view(struct rtvk_context *ctx, struct rtvk_frame
 	framebuffer->depth_view = view;
 }
 
-void rtvk_framebuffer_set_stencil_view(struct rtvk_context *ctx, struct rtvk_framebuffer *framebuffer, struct rtvk_texture_view *view) {
+void rtvk_framebuffer_set_stencil_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, struct rtvk_texture_view* view) {
 	assert(framebuffer);
 	if (view) {
 		rtvk_retain_resource(view);

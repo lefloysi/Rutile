@@ -6,10 +6,10 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char *kDefaultBackendName = "rt-vulkan";
-constexpr const char *kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
+constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
 
-constexpr const char *kComputeShader = R"(
+constexpr const char* kComputeShader = R"(
 #version 460
 layout(local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
 
@@ -23,7 +23,7 @@ void main() {
 }
 )";
 
-bool check_rt_error(const char *step) {
+bool check_rt_error(const char* step) {
 	if (rtError() == RT_SUCCESS) {
 		return true;
 	}
@@ -33,8 +33,8 @@ bool check_rt_error(const char *step) {
 	return false;
 }
 
-int main(int argc, char **argv) {
-	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char** argv) {
+	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, kLayers, 1) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed: " << rtErrorMessage() << "\n";
 		return 1;

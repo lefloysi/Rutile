@@ -28,7 +28,7 @@ RT_EXPORT void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered)
 	rtval_swapchain_present(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), rendered);
 }
 
-RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window) {
+RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	rtval_swapchain_bind_window_glfw(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), window);
 }
 
@@ -36,18 +36,18 @@ RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *win
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtval_swapchain *rtval_swapchain_create(void) {
+struct rtval_swapchain* rtval_swapchain_create(void) {
 	rt_swapchain backend = rtval_next_rtSwapchainCreate();
 	if (!backend) {
 		rtval_report_error("rtSwapchainCreate");
 		return NULL;
 	}
-	struct rtval_swapchain *handle = rtval_handle_create(RTVAL_HANDLE_TYPE_SWAPCHAIN);
+	struct rtval_swapchain* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_SWAPCHAIN);
 	if (!handle) {
 		rtval_next_rtSwapchainDestroy(backend);
 		return NULL;
 	}
-	struct rtval_swapchain *state = RTVAL_PAYLOAD(handle, struct rtval_swapchain);
+	struct rtval_swapchain* state = RTVAL_PAYLOAD(handle, struct rtval_swapchain);
 	state->backend = backend;
 	state->current_framebuffer = NULL;
 	state->has_current_framebuffer = false;
@@ -55,7 +55,7 @@ struct rtval_swapchain *rtval_swapchain_create(void) {
 	return handle;
 }
 
-void rtval_swapchain_destroy(struct rtval_swapchain *swapchain) {
+void rtval_swapchain_destroy(struct rtval_swapchain* swapchain) {
 	if (!swapchain) {
 		return;
 	}
@@ -69,7 +69,7 @@ void rtval_swapchain_destroy(struct rtval_swapchain *swapchain) {
 	rtval_next_rtSwapchainDestroy(backend);
 }
 
-void rtval_swapchain_resize(struct rtval_swapchain *swapchain, u32 width, u32 height) {
+void rtval_swapchain_resize(struct rtval_swapchain* swapchain, u32 width, u32 height) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainResize: NULL handle");
 		return;
@@ -83,7 +83,7 @@ void rtval_swapchain_resize(struct rtval_swapchain *swapchain, u32 width, u32 he
 	rtval_report_error("rtSwapchainResize");
 }
 
-rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain *swapchain) {
+rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain* swapchain) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainAcquire: NULL handle");
 		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {0}};
@@ -113,7 +113,7 @@ rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain *swap
 	};
 }
 
-void rtval_swapchain_present(struct rtval_swapchain *swapchain, rt_timepoint rendered) {
+void rtval_swapchain_present(struct rtval_swapchain* swapchain, rt_timepoint rendered) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainPresent: NULL handle");
 		return;
@@ -134,7 +134,7 @@ void rtval_swapchain_present(struct rtval_swapchain *swapchain, rt_timepoint ren
 	swapchain->has_current_framebuffer = false;
 }
 
-void rtval_swapchain_bind_window_glfw(struct rtval_swapchain *swapchain, GLFWwindow *window) {
+void rtval_swapchain_bind_window_glfw(struct rtval_swapchain* swapchain, GLFWwindow* window) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainBindWindowGLFW: NULL handle");
 		return;

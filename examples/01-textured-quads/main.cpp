@@ -20,9 +20,9 @@
 #include <thread>
 #include <vector>
 
-constexpr const char *kDefaultBackendName = "rt-vulkan";
-constexpr const char *kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
-constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
+constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
 
 struct Vertex {
 	f32 position[3];
@@ -40,7 +40,7 @@ struct CameraState {
 	f32 pitch = 0.0f;
 };
 
-static std::vector<char> read_binary_file(const char *path) {
+static std::vector<char> read_binary_file(const char* path) {
 	std::ifstream file(path, std::ios::binary);
 	if (!file) {
 		std::fprintf(stderr, "failed to open %s\n", path);
@@ -97,11 +97,11 @@ constexpr rt_vertex_layout kVertexLayout = {
 	3,
 };
 
-constexpr const char *kShaderPath = "textured_quads.rtslp";
+constexpr const char* kShaderPath = "textured_quads.rtslp";
 
-constexpr const char *kTexturePath = "rutile.png";
+constexpr const char* kTexturePath = "rutile.png";
 
-void framebuffer_resized(GLFWwindow *window, int width, int height) {
+void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	if (width > 0 && height > 0) {
 		FramebufferWidth.store(static_cast<u32>(width), std::memory_order_release);
 		FramebufferHeight.store(static_cast<u32>(height), std::memory_order_release);
@@ -115,7 +115,7 @@ void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	rtSwapchainResize(swapchain, static_cast<u32>(width), static_cast<u32>(height));
 }
 
-void cursor_moved(GLFWwindow *window, double x, double y) {
+void cursor_moved(GLFWwindow* window, double x, double y) {
 	static double previous_x = x;
 	static double previous_y = y;
 	const f32 dx = static_cast<f32>(x - previous_x);
@@ -128,11 +128,11 @@ void cursor_moved(GLFWwindow *window, double x, double y) {
 	MouseDy += dy;
 }
 
-bool key_down(GLFWwindow *window, int key) {
+bool key_down(GLFWwindow* window, int key) {
 	return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-void update_camera_input(GLFWwindow *window) {
+void update_camera_input(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
 	}
@@ -146,12 +146,12 @@ void update_camera_input(GLFWwindow *window) {
 	MoveDown = key_down(window, GLFW_KEY_Q) || key_down(window, GLFW_KEY_LEFT_CONTROL);
 }
 
-glm::vec3 camera_forward(const CameraState &camera) {
+glm::vec3 camera_forward(const CameraState& camera) {
 	const f32 cp = glm::cos(camera.pitch);
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
-void update_camera(CameraState *camera, f32 delta_seconds) {
+void update_camera(CameraState* camera, f32 delta_seconds) {
 	const f32 move_speed = 2.2f;
 	const f32 mouse_sensitivity = 0.0022f;
 
@@ -207,20 +207,20 @@ void update_camera(CameraState *camera, f32 delta_seconds) {
 	}
 }
 
-glm::mat4 camera_view_projection(f32 aspect, const CameraState &camera) {
+glm::mat4 camera_view_projection(f32 aspect, const CameraState& camera) {
 	const glm::vec3 target = camera.position + camera_forward(camera);
 	const glm::mat4 view = glm::lookAt(camera.position, target, glm::vec3(0.0f, 1.0f, 0.0f));
 	const glm::mat4 projection = glm::perspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
 	return projection * view;
 }
 
-TransformUniform transform_from_matrix(const glm::mat4 &matrix) {
+TransformUniform transform_from_matrix(const glm::mat4& matrix) {
 	TransformUniform uniform = {};
 	std::memcpy(uniform.transform, glm::value_ptr(matrix), sizeof(uniform.transform));
 	return uniform;
 }
 
-TransformUniform moving_transform(double time_seconds, const glm::mat4 &view_projection) {
+TransformUniform moving_transform(double time_seconds, const glm::mat4& view_projection) {
 	const f32 t = static_cast<f32>(time_seconds);
 	const f32 angle = t * 1.35f;
 	glm::mat4 model = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -228,13 +228,13 @@ TransformUniform moving_transform(double time_seconds, const glm::mat4 &view_pro
 	return transform_from_matrix(view_projection * model);
 }
 
-TransformUniform static_transform(const glm::mat4 &view_projection) {
+TransformUniform static_transform(const glm::mat4& view_projection) {
 	glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.24f, 0.0f, -0.35f));
 	model = glm::scale(model, glm::vec3(0.82f));
 	return transform_from_matrix(view_projection * model);
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture_view *depth_view, u32 width, u32 height) {
+void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
 	if (*depth_view) {
 		rtTextureViewDestroy(*depth_view);
 	}
@@ -267,7 +267,7 @@ void render_thread_main(void) {
 
 	int texture_width = 0;
 	int texture_height = 0;
-	stbi_uc *texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
+	stbi_uc* texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
 	if (!texture_pixels) {
 		std::cerr << "failed to load " << kTexturePath << "\n";
 		RenderFailed.store(true, std::memory_order_release);
@@ -388,8 +388,8 @@ void render_thread_main(void) {
 	rtBufferDestroy(vertex_buffer);
 }
 
-int main(int argc, char **argv) {
-	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char** argv) {
+	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, kLayers, 1) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
@@ -415,7 +415,7 @@ int main(int argc, char **argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow *window = glfwCreateWindow(1280, 720, "Rutile 01 Textured Quads", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 01 Textured Quads", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		rtExit();

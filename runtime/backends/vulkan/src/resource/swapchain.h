@@ -40,10 +40,10 @@ struct rtvk_swapchain {
 	VkSurfaceKHR vk_surface;
 	VkSwapchainKHR vk_swapchain;
 
-	struct rtvk_queue *present_queue;
-	struct rtvk_framebuffer **framebuffers;
-	struct rtvk_texture_view **color_views;
-	struct rtvk_swapchain_frame *frames;
+	struct rtvk_queue* present_queue;
+	struct rtvk_framebuffer** framebuffers;
+	struct rtvk_texture_view** color_views;
+	struct rtvk_swapchain_frame* frames;
 
 	VkExtent2D extent;
 	VkFormat vk_format;
@@ -78,10 +78,10 @@ struct rtvk_swapchain_frame {
 
 RTVK_DECLARE_NEW_RESOURCE(swapchain)
 
-void rtvk_swapchain_init_from_surface(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, VkSurfaceKHR surface, u32 width, u32 height);
-bool rtvk_swapchain_resize(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, u32 width, u32 height);
+void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height);
+bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height);
 
-rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain);
-void rtvk_swapchain_present(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, struct rtvk_timepoint rendered);
+rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain);
+void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered);
 
 #endif

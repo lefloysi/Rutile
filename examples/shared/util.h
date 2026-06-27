@@ -5,9 +5,9 @@
 #include <span>
 
 template <typename T>
-std::span<const std::byte> to_bytes(const T &value) {
+std::span<const std::byte> to_bytes(const T& value) {
 	return {
-		reinterpret_cast<const std::byte *>(&value),
+		reinterpret_cast<const std::byte*>(&value),
 		sizeof(T),
 	};
 }
@@ -15,7 +15,7 @@ std::span<const std::byte> to_bytes(const T &value) {
 template <typename T>
 std::span<const std::byte> to_bytes(std::span<const T> values) {
 	return {
-		reinterpret_cast<const std::byte *>(values.data()),
+		reinterpret_cast<const std::byte*>(values.data()),
 		values.size_bytes(),
 	};
 }
@@ -23,7 +23,7 @@ std::span<const std::byte> to_bytes(std::span<const T> values) {
 template <typename T>
 std::span<std::byte> to_bytes(std::span<T> values) {
 	return {
-		reinterpret_cast<std::byte *>(values.data()),
+		reinterpret_cast<std::byte*>(values.data()),
 		values.size_bytes(),
 	};
 }

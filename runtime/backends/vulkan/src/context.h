@@ -22,16 +22,16 @@ struct rtvk_context {
 	VkPhysicalDevice vk_physical_device;
 	VkDevice vk_device;
 	VmaAllocator vma_allocator;
-	struct rtvk_queue **queues;
+	struct rtvk_queue** queues;
 	u32 queue_count;
 	rtvk_context_flags flags;
 };
-extern struct rtvk_context *current_context;
+extern struct rtvk_context* current_context;
 
-struct rtvk_context *rtvk_get_current_context(void);
-struct rtvk_context *rtvk_create_context(rtvk_context_flags flags);
-void rtvk_context_init(struct rtvk_context *ctx);
-void rtvk_context_finish(struct rtvk_context *ctx);
-void rtvk_context_destroy(struct rtvk_context *ctx);
+struct rtvk_context* rtvk_get_current_context(void);
+struct rtvk_context* rtvk_create_context(rtvk_context_flags flags);
+void rtvk_context_init(struct rtvk_context* ctx);
+void rtvk_context_finish(struct rtvk_context* ctx);
+void rtvk_context_destroy(struct rtvk_context* ctx);
 
 #endif /* RTVK_CONTEXT_H */

@@ -7,7 +7,7 @@
 /*===============================================================================================*/
 
 rt_swapchain rtSwapchainCreate(void) {
-	struct rtdx_swapchain *swapchain = rtdx_swapchain_create(rtdx_get_current_context());
+	struct rtdx_swapchain* swapchain = rtdx_swapchain_create(rtdx_get_current_context());
 	return rtdx_swapchain_to_handle(swapchain);
 }
 
@@ -46,11 +46,11 @@ void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 
 RTDX_DEFINE_RESOURCE_PRIVATE(swapchain)
 
-static bool rtdx_swapchain_create_framebuffers(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain);
-static bool rtdx_swapchain_prepare_present_command(struct rtdx_context *ctx, struct rtdx_swapchain_frame *frame);
-static bool rtdx_swapchain_submit_present_transition(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, struct rtdx_timepoint rendered);
+static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
+static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame);
+static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
 
-void rtdx_swapchain_init(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain) {
+void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	swapchain->vsync = false;
@@ -58,33 +58,33 @@ void rtdx_swapchain_init(struct rtdx_context *ctx, struct rtdx_swapchain *swapch
 	InitializeConditionVariable(&swapchain->frame_condition);
 }
 
-static void rtdx_swapchain_lock(struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_lock(struct rtdx_swapchain* swapchain) {
 	EnterCriticalSection(&swapchain->frame_lock);
 }
 
-static void rtdx_swapchain_unlock(struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_unlock(struct rtdx_swapchain* swapchain) {
 	LeaveCriticalSection(&swapchain->frame_lock);
 }
 
-static void rtdx_swapchain_lock_unacquired(struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_lock_unacquired(struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	while (swapchain->frame_acquired) {
 		SleepConditionVariableCS(&swapchain->frame_condition, &swapchain->frame_lock, INFINITE);
 	}
 }
 
-static void rtdx_swapchain_mark_unacquired(struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_mark_unacquired(struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
 	WakeAllConditionVariable(&swapchain->frame_condition);
 	rtdx_swapchain_unlock(swapchain);
 }
 
-static void rtdx_swapchain_finish_sync(struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_finish_sync(struct rtdx_swapchain* swapchain) {
 	DeleteCriticalSection(&swapchain->frame_lock);
 }
 
-void rtdx_swapchain_wait_frame(struct rtdx_context *ctx, struct rtdx_swapchain_frame *frame) {
+void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame) {
 	if (!frame) {
 		return;
 	}
@@ -97,12 +97,12 @@ void rtdx_swapchain_wait_frame(struct rtdx_context *ctx, struct rtdx_swapchain_f
 	}
 }
 
-static void rtdx_swapchain_destroy_present_command(struct rtdx_swapchain_frame *frame) {
+static void rtdx_swapchain_destroy_present_command(struct rtdx_swapchain_frame* frame) {
 	rtdx_release(&frame->present_command_list);
 	rtdx_release(&frame->present_allocator);
 }
 
-static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain) {
+static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	for (u32 i = 0; i < RTDX_MAX_FRAMES_IN_FLIGHT; i++) {
 		rtdx_swapchain_destroy_present_command(&swapchain->frames[i]);
 		if (swapchain->framebuffers[i]) {
@@ -128,7 +128,7 @@ static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context *ctx, struct
 	}
 }
 
-bool rtdx_swapchain_resize(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, u32 width, u32 height) {
+bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, u32 width, u32 height) {
 	if (!swapchain || !swapchain->dxgi_swapchain) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain resize requires a valid swapchain");
 		return false;
@@ -174,7 +174,7 @@ bool rtdx_swapchain_resize(struct rtdx_context *ctx, struct rtdx_swapchain *swap
 	return ok;
 }
 
-void rtdx_swapchain_set_vsync(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, bool enabled) {
+void rtdx_swapchain_set_vsync(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, bool enabled) {
 	(void)ctx;
 	if (!swapchain) {
 		return;
@@ -182,7 +182,7 @@ void rtdx_swapchain_set_vsync(struct rtdx_context *ctx, struct rtdx_swapchain *s
 	swapchain->vsync = enabled;
 }
 
-void rtdx_swapchain_finish(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain) {
+void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
@@ -197,7 +197,7 @@ void rtdx_swapchain_finish(struct rtdx_context *ctx, struct rtdx_swapchain *swap
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain));
 }
 
-static bool rtdx_swapchain_create_framebuffers(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain) {
+static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	D3D12_DESCRIPTOR_HEAP_DESC heap_info = {};
 	heap_info.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	heap_info.NumDescriptors = RTDX_MAX_FRAMES_IN_FLIGHT;
@@ -214,7 +214,7 @@ static bool rtdx_swapchain_create_framebuffers(struct rtdx_context *ctx, struct 
 
 	D3D12_CPU_DESCRIPTOR_HANDLE rtv = swapchain->rtv_heap->GetCPUDescriptorHandleForHeapStart();
 	for (u32 i = 0; i < RTDX_MAX_FRAMES_IN_FLIGHT; i++) {
-		ID3D12Resource *image = NULL;
+		ID3D12Resource* image = NULL;
 		result = swapchain->dxgi_swapchain->GetBuffer(i, IID_PPV_ARGS(&image));
 		if (FAILED(result)) {
 			rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3::GetBuffer failed: 0x%08x", (u32)result);
@@ -259,7 +259,7 @@ static bool rtdx_swapchain_create_framebuffers(struct rtdx_context *ctx, struct 
 	return true;
 }
 
-bool rtdx_swapchain_create_for_hwnd(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, HWND hwnd, u32 width, u32 height) {
+bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height) {
 	swapchain->hwnd = hwnd;
 	swapchain->width = width;
 	swapchain->height = height;
@@ -278,8 +278,8 @@ bool rtdx_swapchain_create_for_hwnd(struct rtdx_context *ctx, struct rtdx_swapch
 	swapchain_info.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 	swapchain_info.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
 
-	struct rtdx_queue *queue = rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
-	IDXGISwapChain1 *swapchain1 = NULL;
+	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	IDXGISwapChain1* swapchain1 = NULL;
 	HRESULT result = ctx->dxgi_factory->CreateSwapChainForHwnd(
 		queue->d3d_queue,
 		hwnd,
@@ -315,7 +315,7 @@ bool rtdx_swapchain_create_for_hwnd(struct rtdx_context *ctx, struct rtdx_swapch
 	return true;
 }
 
-rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain) {
+rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rt_swapchain_acquire_result empty = {RT_NULL_HANDLE, {RT_NULL_HANDLE, 0}};
 	if (!swapchain || !swapchain->dxgi_swapchain) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
@@ -334,7 +334,7 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context *ctx, str
 	return acquire;
 }
 
-static bool rtdx_swapchain_prepare_present_command(struct rtdx_context *ctx, struct rtdx_swapchain_frame *frame) {
+static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame) {
 	if (frame->present_allocator && frame->present_command_list) {
 		return true;
 	}
@@ -355,9 +355,9 @@ static bool rtdx_swapchain_prepare_present_command(struct rtdx_context *ctx, str
 	return true;
 }
 
-static bool rtdx_swapchain_submit_present_transition(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, struct rtdx_timepoint rendered) {
-	struct rtdx_swapchain_frame *frame = &swapchain->frames[swapchain->current_image_index];
-	struct rtdx_texture_view *view = swapchain->texture_views[swapchain->current_image_index];
+static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered) {
+	struct rtdx_swapchain_frame* frame = &swapchain->frames[swapchain->current_image_index];
+	struct rtdx_texture_view* view = swapchain->texture_views[swapchain->current_image_index];
 	if (!rtdx_swapchain_prepare_present_command(ctx, frame)) {
 		return false;
 	}
@@ -398,13 +398,13 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context *ctx, s
 		return false;
 	}
 
-	ID3D12CommandList *lists[] = {frame->present_command_list};
+	ID3D12CommandList* lists[] = {frame->present_command_list};
 	rendered.queue->d3d_queue->ExecuteCommandLists(1, lists);
 	return true;
 }
 
-void rtdx_swapchain_present(struct rtdx_context *ctx, struct rtdx_swapchain *swapchain, struct rtdx_timepoint rendered) {
-	struct rtdx_swapchain_frame *frame = &swapchain->frames[swapchain->current_image_index];
+void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered) {
+	struct rtdx_swapchain_frame* frame = &swapchain->frames[swapchain->current_image_index];
 	if (!rendered.queue || rendered.value == 0) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtdx_swapchain_mark_unacquired(swapchain);

@@ -123,7 +123,7 @@ std::string rtsl_type_to_hlsl(std::string_view rtsl_type) {
 }
 
 // True if a scalar/component type id (TypeFloat/TypeInt/TypeUInt/TypeBool).
-bool is_scalar_type_id(const TypeRegistry &reg, u32 type_id) {
+bool is_scalar_type_id(const TypeRegistry& reg, u32 type_id) {
 	auto it = reg.type_names.find(type_id);
 	if (it == reg.type_names.end())
 		return false;
@@ -131,7 +131,7 @@ bool is_scalar_type_id(const TypeRegistry &reg, u32 type_id) {
 }
 
 // Look up the HLSL spelling of a type id; throws if missing.
-const std::string &hlsl_type(const TypeRegistry &reg, u32 type_id) {
+const std::string& hlsl_type(const TypeRegistry& reg, u32 type_id) {
 	auto it = reg.type_names.find(type_id);
 	if (it == reg.type_names.end()) {
 		throw std::runtime_error("rtslp HLSL emit: unknown type id " + std::to_string(type_id));
@@ -139,9 +139,9 @@ const std::string &hlsl_type(const TypeRegistry &reg, u32 type_id) {
 	return it->second;
 }
 
-void build_type_registry(const RTArtifactModule &module, TypeRegistry &reg) {
+void build_type_registry(const RTArtifactModule& module, TypeRegistry& reg) {
 	std::size_t struct_idx = 0;
-	for (const auto &inst : module.type_constant_pool) {
+	for (const auto& inst : module.type_constant_pool) {
 		switch (inst.op) {
 		case RTIROp::TypeVoid:
 			reg.type_names[inst.result_id] = "void";
@@ -266,33 +266,33 @@ void build_type_registry(const RTArtifactModule &module, TypeRegistry &reg) {
 	}
 }
 
-const RTFunction *find_stage_function(const RTArtifactModule &module, RTStageKind stage) {
-	for (const auto &fn : module.functions) {
+const RTFunction* find_stage_function(const RTArtifactModule& module, RTStageKind stage) {
+	for (const auto& fn : module.functions) {
 		if (fn.stage == stage)
 			return &fn;
 	}
 	return nullptr;
 }
 
-const RTStageInterface *find_interface(const RTArtifactModule &module, std::string_view type_name, RTStageRole role) {
-	for (const auto &iface : module.stage_interfaces) {
+const RTStageInterface* find_interface(const RTArtifactModule& module, std::string_view type_name, RTStageRole role) {
+	for (const auto& iface : module.stage_interfaces) {
 		if (iface.type_name == type_name && iface.role == role)
 			return &iface;
 	}
 	return nullptr;
 }
 
-bool is_clip_position(const RTStageField &field) {
+bool is_clip_position(const RTStageField& field) {
 	return field.builtin == "position" || field.interpolation == "clip";
 }
 
 // Look up the input payload struct type for a stage function. The convention
 // matches the rest of the toolchain: parameter 0 is the per-stage globals
 // carrier; parameter 1 is the input payload (a user struct).
-u32 stage_input_struct_type(const RTFunction &fn) {
+u32 stage_input_struct_type(const RTFunction& fn) {
 	if (fn.parameter_ids.size() < 2)
 		return 0;
-	for (const auto &inst : fn.body) {
+	for (const auto& inst : fn.body) {
 		if (inst.op == RTIROp::FunctionParameter && inst.result_id == fn.parameter_ids[1]) {
 			return inst.type_id;
 		}
@@ -301,7 +301,7 @@ u32 stage_input_struct_type(const RTFunction &fn) {
 }
 
 // Find the index of a struct field by name; -1 if not found.
-int find_field_index(const RTStructDecl &decl, std::string_view name) {
+int find_field_index(const RTStructDecl& decl, std::string_view name) {
 	for (std::size_t i = 0; i < decl.fields.size(); ++i) {
 		if (decl.fields[i].name == name)
 			return static_cast<int>(i);
@@ -313,7 +313,7 @@ int find_field_index(const RTStructDecl &decl, std::string_view name) {
 // depends on, seeded by the input and output payload types. Anything else
 // (e.g. the vertex stage's `Fragment` struct, or the fragment stage's
 // `Point`) is dead code in the emitted HLSL and is skipped.
-std::unordered_set<std::string> reachable_structs(const RTArtifactModule &module, std::string_view input_payload, std::string_view output_payload) {
+std::unordered_set<std::string> reachable_structs(const RTArtifactModule& module, std::string_view input_payload, std::string_view output_payload) {
 	std::unordered_set<std::string> reachable;
 	std::vector<std::string> queue;
 	auto enqueue = [&](std::string_view name) {
@@ -328,13 +328,13 @@ std::unordered_set<std::string> reachable_structs(const RTArtifactModule &module
 	while (!queue.empty()) {
 		const std::string current = std::move(queue.back());
 		queue.pop_back();
-		for (const auto &decl : module.structs) {
+		for (const auto& decl : module.structs) {
 			if (decl.name != current)
 				continue;
-			for (const auto &field : decl.fields) {
+			for (const auto& field : decl.fields) {
 				// Only user struct types (not vec*, mat*, scalars) are stored
 				// as their own decls and need pulling in transitively.
-				for (const auto &other : module.structs) {
+				for (const auto& other : module.structs) {
 					if (other.name == field.type) {
 						enqueue(field.type);
 						break;
@@ -350,20 +350,20 @@ std::unordered_set<std::string> reachable_structs(const RTArtifactModule &module
 // Emit only the user struct definitions a stage reaches, in pool order to
 // preserve the source-defined ordering (struct fields can reference earlier
 // structs in the same file).
-void emit_user_structs(std::ostringstream &out, const RTArtifactModule &module, const std::unordered_set<std::string> &reachable) {
-	for (const auto &decl : module.structs) {
+void emit_user_structs(std::ostringstream& out, const RTArtifactModule& module, const std::unordered_set<std::string>& reachable) {
+	for (const auto& decl : module.structs) {
 		if (!reachable.contains(decl.name))
 			continue;
 		out << "struct " << decl.name << " {\n";
-		for (const auto &field : decl.fields) {
+		for (const auto& field : decl.fields) {
 			out << "    " << rtsl_type_to_hlsl(field.type) << " " << field.name << ";\n";
 		}
 		out << "};\n\n";
 	}
 }
 
-void emit_uniforms(std::ostringstream &out, const RTArtifactModule &module) {
-	for (const auto &uniform : module.uniforms) {
+void emit_uniforms(std::ostringstream& out, const RTArtifactModule& module) {
+	for (const auto& uniform : module.uniforms) {
 		if (uniform.type == "Sampler2D") {
 			out << "Texture2D " << uniform.name << "_tex : register(t" << uniform.binding << ");\n";
 			out << "SamplerState " << uniform.name << "_smp : register(s" << uniform.binding << ");\n";
@@ -377,7 +377,7 @@ void emit_uniforms(std::ostringstream &out, const RTArtifactModule &module) {
 		out << "\n";
 }
 
-const char *hlsl_semantic_for(const RTStageField &field, RTStageKind stage, RTStageRole role, std::string &storage, u32 location) {
+const char* hlsl_semantic_for(const RTStageField& field, RTStageKind stage, RTStageRole role, std::string& storage, u32 location) {
 	if (stage == RTStageKind::Fragment && role == RTStageRole::Output) {
 		storage = "SV_Target" + std::to_string(location);
 		return storage.c_str();
@@ -395,22 +395,22 @@ const char *hlsl_semantic_for(const RTStageField &field, RTStageKind stage, RTSt
 	return storage.c_str();
 }
 
-void emit_stage_input_struct(std::ostringstream &out, const std::string &struct_name, const RTStageInterface *iface, const std::vector<RTStructDecl> &structs, const std::string &payload_type_name, RTStageKind stage) {
+void emit_stage_input_struct(std::ostringstream& out, const std::string& struct_name, const RTStageInterface* iface, const std::vector<RTStructDecl>& structs, const std::string& payload_type_name, RTStageKind stage) {
 	out << "struct " << struct_name << " {\n";
 	if (!iface) {
 		out << "};\n\n";
 		return;
 	}
 	// Look up the struct decl for field types.
-	const RTStructDecl *decl = nullptr;
-	for (const auto &s : structs) {
+	const RTStructDecl* decl = nullptr;
+	for (const auto& s : structs) {
 		if (s.name == payload_type_name) {
 			decl = &s;
 			break;
 		}
 	}
 	u32 next_location = 0;
-	for (const auto &field : iface->fields) {
+	for (const auto& field : iface->fields) {
 		if (stage == RTStageKind::Vertex && is_clip_position(field)) {
 			// A vertex input can't carry SV_Position; this should never happen
 			// for vertex stage inputs (clip is a vertex output, fragment input).
@@ -424,28 +424,28 @@ void emit_stage_input_struct(std::ostringstream &out, const std::string &struct_
 		}
 		const u32 location = field.has_location ? field.location : next_location;
 		std::string storage;
-		const char *semantic = hlsl_semantic_for(field, stage, iface->role, storage, location);
+		const char* semantic = hlsl_semantic_for(field, stage, iface->role, storage, location);
 		out << "    " << type_str << " " << field.name << " : " << semantic << ";\n";
 		++next_location;
 	}
 	out << "};\n\n";
 }
 
-void emit_stage_output_struct(std::ostringstream &out, const std::string &struct_name, const RTStageInterface *iface, const std::vector<RTStructDecl> &structs, const std::string &payload_type_name, RTStageKind stage) {
+void emit_stage_output_struct(std::ostringstream& out, const std::string& struct_name, const RTStageInterface* iface, const std::vector<RTStructDecl>& structs, const std::string& payload_type_name, RTStageKind stage) {
 	out << "struct " << struct_name << " {\n";
 	if (!iface) {
 		out << "};\n\n";
 		return;
 	}
-	const RTStructDecl *decl = nullptr;
-	for (const auto &s : structs) {
+	const RTStructDecl* decl = nullptr;
+	for (const auto& s : structs) {
 		if (s.name == payload_type_name) {
 			decl = &s;
 			break;
 		}
 	}
 	u32 next_location = 0;
-	for (const auto &field : iface->fields) {
+	for (const auto& field : iface->fields) {
 		std::string type_str = "float4";
 		if (decl) {
 			const int idx = find_field_index(*decl, field.name);
@@ -454,7 +454,7 @@ void emit_stage_output_struct(std::ostringstream &out, const std::string &struct
 		}
 		const u32 location = field.has_location ? field.location : next_location;
 		std::string storage;
-		const char *semantic = hlsl_semantic_for(field, stage, iface->role, storage, location);
+		const char* semantic = hlsl_semantic_for(field, stage, iface->role, storage, location);
 		out << "    " << type_str << " " << field.name << " : " << semantic << ";\n";
 		++next_location;
 	}
@@ -477,7 +477,7 @@ struct ExprCtx {
 
 std::string ssa_name(u32 id) { return "v_" + std::to_string(id); }
 
-void emit_function_body(std::ostringstream &out, const RTFunction &fn, const TypeRegistry &reg, const RTArtifactModule &module, const RTStageInterface *input_iface, const RTStageInterface *output_iface, const std::string &payload_input_type_name, const std::string &payload_output_type_name, const std::string &output_struct_name, RTStageKind stage) {
+void emit_function_body(std::ostringstream& out, const RTFunction& fn, const TypeRegistry& reg, const RTArtifactModule& module, const RTStageInterface* input_iface, const RTStageInterface* output_iface, const std::string& payload_input_type_name, const std::string& payload_output_type_name, const std::string& output_struct_name, RTStageKind stage) {
 	ExprCtx ctx;
 
 	// Reconstruct the input payload struct from the stage input parameter. The
@@ -485,7 +485,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 	// payload struct, so a flat copy is enough.
 	if (!payload_input_type_name.empty() && input_iface && fn.parameter_ids.size() >= 2) {
 		out << "    " << payload_input_type_name << " _in = (" << payload_input_type_name << ")0;\n";
-		for (const auto &field : input_iface->fields) {
+		for (const auto& field : input_iface->fields) {
 			if (stage == RTStageKind::Vertex && is_clip_position(field))
 				continue;
 			out << "    _in." << field.name << " = stage_input." << field.name << ";\n";
@@ -493,7 +493,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 		ctx.bind(fn.parameter_ids[1], "_in");
 	}
 
-	auto bind_inline = [&](const RTInstruction &inst, const std::string &expr) {
+	auto bind_inline = [&](const RTInstruction& inst, const std::string& expr) {
 		ctx.bind(inst.result_id, ssa_name(inst.result_id));
 		out << "    " << hlsl_type(reg, inst.type_id) << " " << ssa_name(inst.result_id) << " = " << expr << ";\n";
 	};
@@ -504,7 +504,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 		return ctx.get(id);
 	};
 
-	for (const auto &inst : fn.body) {
+	for (const auto& inst : fn.body) {
 		if (inst.op == RTIROp::Label || inst.op == RTIROp::FunctionParameter)
 			continue;
 		if (is_type_op(inst.op) || is_constant_op(inst.op))
@@ -522,7 +522,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 			const std::string value = operand_text(inst.operands[0]);
 			if (output_iface && !payload_output_type_name.empty()) {
 				out << "    " << output_struct_name << " stage_output = (" << output_struct_name << ")0;\n";
-				for (const auto &field : output_iface->fields) {
+				for (const auto& field : output_iface->fields) {
 					out << "    stage_output." << field.name << " = " << value << "." << field.name << ";\n";
 				}
 				out << "    return stage_output;\n";
@@ -541,14 +541,14 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 			const std::string base = operand_text(base_id);
 			// Decide accessor: struct? vector? matrix?
 			u32 base_type_id = 0;
-			for (const auto &earlier : fn.body) {
+			for (const auto& earlier : fn.body) {
 				if (earlier.result_id == base_id) {
 					base_type_id = earlier.type_id;
 					break;
 				}
 			}
 			if (base_type_id == 0) {
-				for (const auto &earlier : module.type_constant_pool) {
+				for (const auto& earlier : module.type_constant_pool) {
 					if (earlier.result_id == base_id) {
 						base_type_id = earlier.type_id;
 						break;
@@ -556,7 +556,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 				}
 			}
 			if (auto it = reg.struct_index_by_type_id.find(base_type_id); it != reg.struct_index_by_type_id.end()) {
-				const auto &decl = module.structs[it->second];
+				const auto& decl = module.structs[it->second];
 				if (index < decl.fields.size()) {
 					bind_inline(inst, base + "." + decl.fields[index].name);
 					break;
@@ -571,7 +571,7 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 			std::ostringstream value;
 			if (auto it = reg.struct_index_by_type_id.find(inst.type_id); it != reg.struct_index_by_type_id.end()) {
 				// Struct: build a temporary, field-assign positionally.
-				const auto &decl = module.structs[it->second];
+				const auto& decl = module.structs[it->second];
 				out << "    " << ty << " " << ssa_name(inst.result_id) << " = (" << ty << ")0;\n";
 				const std::size_t fields = std::min(decl.fields.size(), inst.operands.size());
 				for (std::size_t i = 0; i < fields; ++i) {
@@ -660,8 +660,8 @@ void emit_function_body(std::ostringstream &out, const RTFunction &fn, const Typ
 	}
 }
 
-std::string emit_stage(const RTArtifactModule &module, RTStageKind stage, const TypeRegistry &reg) {
-	const RTFunction *fn = find_stage_function(module, stage);
+std::string emit_stage(const RTArtifactModule& module, RTStageKind stage, const TypeRegistry& reg) {
+	const RTFunction* fn = find_stage_function(module, stage);
 	if (!fn) {
 		throw std::runtime_error(stage == RTStageKind::Vertex ? "rtslp is missing a vertex stage" : "rtslp is missing a fragment stage");
 	}
@@ -685,8 +685,8 @@ std::string emit_stage(const RTArtifactModule &module, RTStageKind stage, const 
 	emit_user_structs(out, module, reachable_structs(module, input_payload_name, output_payload_name));
 	emit_uniforms(out, module);
 
-	const RTStageInterface *input_iface = input_payload_name.empty() ? nullptr : find_interface(module, input_payload_name, stage == RTStageKind::Vertex ? RTStageRole::Input : RTStageRole::Varying);
-	const RTStageInterface *output_iface = output_payload_name.empty() ? nullptr : find_interface(module, output_payload_name, stage == RTStageKind::Fragment ? RTStageRole::Output : RTStageRole::Varying);
+	const RTStageInterface* input_iface = input_payload_name.empty() ? nullptr : find_interface(module, input_payload_name, stage == RTStageKind::Vertex ? RTStageRole::Input : RTStageRole::Varying);
+	const RTStageInterface* output_iface = output_payload_name.empty() ? nullptr : find_interface(module, output_payload_name, stage == RTStageKind::Fragment ? RTStageRole::Output : RTStageRole::Varying);
 
 	const std::string input_struct_name = (stage == RTStageKind::Vertex ? "VS_Input" : "PS_Input");
 	const std::string output_struct_name = (stage == RTStageKind::Vertex ? "VS_Output" : "PS_Output");
@@ -701,8 +701,8 @@ std::string emit_stage(const RTArtifactModule &module, RTStageKind stage, const 
 	return out.str();
 }
 
-char *dup_string(const std::string &s, u64 *size_out) {
-	char *buf = static_cast<char *>(std::malloc(s.size() + 1));
+char* dup_string(const std::string& s, u64* size_out) {
+	char* buf = static_cast<char*>(std::malloc(s.size() + 1));
 	if (!buf)
 		throw std::bad_alloc();
 	std::memcpy(buf, s.data(), s.size());
@@ -711,20 +711,20 @@ char *dup_string(const std::string &s, u64 *size_out) {
 	return buf;
 }
 
-void populate_uniform_locations(rtdx_graphics_program *program, const RTArtifactModule &module, rtdx_graphics_hlsl_compile_result &result) {
+void populate_uniform_locations(rtdx_graphics_program* program, const RTArtifactModule& module, rtdx_graphics_hlsl_compile_result& result) {
 	if (module.uniforms.empty())
 		return;
-	result.uniform_locations = static_cast<rtdx_uniform_location *>(
+	result.uniform_locations = static_cast<rtdx_uniform_location*>(
 		std::calloc(module.uniforms.size(), sizeof(rtdx_uniform_location))
 	);
 	if (!result.uniform_locations)
 		throw std::bad_alloc();
 	u32 count = 0;
-	for (const auto &uniform : module.uniforms) {
+	for (const auto& uniform : module.uniforms) {
 		if (uniform.binding >= RTDX_MAX_SHADER_BINDINGS) {
 			throw std::runtime_error("uniform binding " + std::to_string(uniform.binding) + " exceeds dx12 backend limit");
 		}
-		auto &loc = result.uniform_locations[count++];
+		auto& loc = result.uniform_locations[count++];
 		loc.program = program;
 		std::snprintf(loc.name, sizeof(loc.name), "%s", uniform.name.c_str());
 		loc.slot = uniform.binding;
@@ -743,7 +743,7 @@ void populate_uniform_locations(rtdx_graphics_program *program, const RTArtifact
 
 } // namespace
 
-extern "C" void rtdx_graphics_hlsl_result_clear(rtdx_graphics_hlsl_compile_result *result) {
+extern "C" void rtdx_graphics_hlsl_result_clear(rtdx_graphics_hlsl_compile_result* result) {
 	if (!result)
 		return;
 	std::free(result->vertex_hlsl);
@@ -753,9 +753,9 @@ extern "C" void rtdx_graphics_hlsl_result_clear(rtdx_graphics_hlsl_compile_resul
 }
 
 extern "C" rtdx_graphics_hlsl_compile_result rtdx_shader_compile_graphics_rtslp(
-	struct rtdx_graphics_program *program,
+	struct rtdx_graphics_program* program,
 	u64 program_size,
-	const void *program_source
+	const void* program_source
 ) {
 	rtdx_graphics_hlsl_compile_result result = {};
 	const RTArtifactModule module = rutile::backend_tools::read_rtslp_module(program_size, program_source);

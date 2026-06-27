@@ -9,11 +9,11 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtvk_atomic_bool_store(bool *value, bool next);
-bool rtvk_atomic_bool_load(const bool *value);
-void rtvk_atomic_store(u32 *value, u32 next);
-u32 rtvk_atomic_load(const u32 *value);
-u32 rtvk_atomic_inc(u32 *value);
-u32 rtvk_atomic_dec(u32 *value);
+void rtvk_atomic_bool_store(bool* value, bool next);
+bool rtvk_atomic_bool_load(const bool* value);
+void rtvk_atomic_store(u32* value, u32 next);
+u32 rtvk_atomic_load(const u32* value);
+u32 rtvk_atomic_inc(u32* value);
+u32 rtvk_atomic_dec(u32* value);
 
 #endif

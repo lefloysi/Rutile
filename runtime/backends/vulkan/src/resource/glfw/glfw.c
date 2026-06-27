@@ -4,7 +4,7 @@
 
 #include <GLFW/glfw3.h>
 
-void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window) {
+void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	rtvk_swapchain_bind_window_glfw(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
@@ -12,7 +12,7 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window) {
 	);
 }
 
-void rtvk_swapchain_bind_window_glfw(struct rtvk_context *ctx, struct rtvk_swapchain *swapchain, GLFWwindow *window) {
+void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, GLFWwindow* window) {
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
 	int width = 0;
 	int height = 0;

@@ -28,7 +28,7 @@ u64 read_u64(std::span<const std::uint8_t> data, size_t offset) {
 	return value;
 }
 
-std::string read_string(std::span<const std::uint8_t> data, size_t &cursor) {
+std::string read_string(std::span<const std::uint8_t> data, size_t& cursor) {
 	if (cursor + 4 > data.size()) {
 		throw std::runtime_error("truncated RTSLP string");
 	}
@@ -37,7 +37,7 @@ std::string read_string(std::span<const std::uint8_t> data, size_t &cursor) {
 	if (cursor + length > data.size()) {
 		throw std::runtime_error("truncated RTSLP string payload");
 	}
-	std::string value(reinterpret_cast<const char *>(data.data() + cursor), length);
+	std::string value(reinterpret_cast<const char*>(data.data() + cursor), length);
 	cursor += length;
 	return value;
 }
@@ -49,7 +49,7 @@ enum class SectionKind : u32 {
 	StageInterfaceTable = 6,
 };
 
-RTInstruction read_instruction(std::span<const std::uint8_t> data, size_t &cursor) {
+RTInstruction read_instruction(std::span<const std::uint8_t> data, size_t& cursor) {
 	if (cursor + 26 > data.size()) {
 		throw std::runtime_error("truncated RTIR instruction");
 	}
@@ -80,12 +80,12 @@ RTInstruction read_instruction(std::span<const std::uint8_t> data, size_t &curso
 
 } // namespace
 
-RTArtifactModule read_rtslp_module(u64 program_size, const void *program_source) {
+RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source) {
 	if (!program_source || program_size < 48) {
 		throw std::runtime_error("invalid RTSLP payload");
 	}
 
-	std::span<const std::uint8_t> data(static_cast<const std::uint8_t *>(program_source), static_cast<size_t>(program_size));
+	std::span<const std::uint8_t> data(static_cast<const std::uint8_t*>(program_source), static_cast<size_t>(program_size));
 	if (read_u32(data, 0) != kRtslMagic || read_u16(data, 4) != 2) {
 		throw std::runtime_error("unsupported RTSLP artifact");
 	}

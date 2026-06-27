@@ -25,13 +25,13 @@
 extern "C" {
 #endif
 
-typedef void *rt_proc_t;
+typedef void* rt_proc_t;
 
 typedef struct rt_proc_chain {
-	rt_proc_t (*get_proc)(const struct rt_proc_chain *chain, const char *name);
+	rt_proc_t (*get_proc)(const struct rt_proc_chain* chain, const char* name);
 } rt_proc_chain;
 
-typedef const char *(*PFN_rtLayerGetName)(void);
+typedef const char* (*PFN_rtLayerGetName)(void);
 typedef void (*PFN_rtLayerSetNext)(rt_proc_chain next);
 
 #ifndef RUTILE_LOADER_ONLY
@@ -223,18 +223,18 @@ typedef struct rt_vertex_attribute {
 
 typedef struct rt_vertex_layout {
 	u32 stride;
-	const rt_vertex_attribute *attributes;
+	const rt_vertex_attribute* attributes;
 	u32 attribute_count;
 } rt_vertex_layout;
 
-typedef struct rt_texture_t *rt_texture;
-typedef struct rt_texture_view_t *rt_texture_view;
-typedef struct rt_buffer_t *rt_buffer;
-typedef struct rt_graphics_program_t *rt_graphics_program;
-typedef struct rt_uniform_location_t *rt_uniform_location;
-typedef struct rt_command_buffer_t *rt_command_buffer;
-typedef struct rt_framebuffer_t *rt_framebuffer;
-typedef struct rt_queue_t *rt_queue;
+typedef struct rt_texture_t* rt_texture;
+typedef struct rt_texture_view_t* rt_texture_view;
+typedef struct rt_buffer_t* rt_buffer;
+typedef struct rt_graphics_program_t* rt_graphics_program;
+typedef struct rt_uniform_location_t* rt_uniform_location;
+typedef struct rt_command_buffer_t* rt_command_buffer;
+typedef struct rt_framebuffer_t* rt_framebuffer;
+typedef struct rt_queue_t* rt_queue;
 
 typedef struct rt_timepoint {
 	rt_queue queue;
@@ -259,7 +259,7 @@ typedef struct rt_extent_3d {
 ** @note Core API calls may be made after rtLoaded returns true.
 ** @note Optional modules are loaded by their own extension headers.
 */
-enum rt_error rtLoad(const char *backend_name, const char *const *layer_names, u32 layer_count);
+enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count);
 
 /*!
 ** @brief Load an implementation and optional layers for development.
@@ -267,7 +267,7 @@ enum rt_error rtLoad(const char *backend_name, const char *const *layer_names, u
 ** @note Missing backends or layers are skipped.
 ** @note The loader still fails for invalid arguments or if the selected backend cannot be initialized.
 */
-enum rt_error rtLoadDevelopment(const char *backend_name, const char *const *layer_names, u32 layer_count);
+enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
 
 /*!
 ** @brief Unload the current implementation and layers.
@@ -297,23 +297,23 @@ bool rtLoaded(void);
 ** @note Names are stable extension points.
 ** @note Optional functions may be absent.
 */
-rt_proc_t rtGetProc(const char *name);
+rt_proc_t rtGetProc(const char* name);
 
-typedef void (*PFN_rtInit)(const char *const *features, u32 feature_count);
+typedef void (*PFN_rtInit)(const char* const* features, u32 feature_count);
 typedef void (*PFN_rtExit)(void);
-typedef void (*PFN_rtOutput)(const char *message, void *user_data);
-typedef void (*PFN_rtSetOutput)(PFN_rtOutput output, void *user_data);
+typedef void (*PFN_rtOutput)(const char* message, void* user_data);
+typedef void (*PFN_rtSetOutput)(PFN_rtOutput output, void* user_data);
 typedef enum rt_error (*PFN_rtError)(void);
-typedef const char *(*PFN_rtErrorMessage)(void);
+typedef const char* (*PFN_rtErrorMessage)(void);
 typedef void (*PFN_rtClearError)(void);
-typedef const char *(*PFN_rtGetName)(void);
+typedef const char* (*PFN_rtGetName)(void);
 typedef enum rt_format_usage (*PFN_rtQueryFormatCapabilities)(enum rt_format format);
 
 typedef rt_buffer (*PFN_rtBufferCreate)(void);
 typedef void (*PFN_rtBufferDestroy)(rt_buffer buffer);
-typedef rt_timepoint (*PFN_rtBufferData)(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data);
-typedef rt_timepoint (*PFN_rtBufferSubdata)(rt_buffer buffer, u64 offset, u64 size, const void *data);
-typedef void (*PFN_rtBufferRead)(rt_buffer buffer, u64 offset, u64 size, void *data);
+typedef rt_timepoint (*PFN_rtBufferData)(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
+typedef rt_timepoint (*PFN_rtBufferSubdata)(rt_buffer buffer, u64 offset, u64 size, const void* data);
+typedef void (*PFN_rtBufferRead)(rt_buffer buffer, u64 offset, u64 size, void* data);
 
 typedef rt_texture (*PFN_rtTextureCreate)(void);
 typedef void (*PFN_rtTextureDestroy)(rt_texture texture);
@@ -325,9 +325,9 @@ typedef void (*PFN_rtTextureViewAnisotropy)(rt_texture_view texture_view, u32 ma
 typedef void (*PFN_rtTextureViewLod)(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 
 typedef rt_timepoint (*PFN_rtTextureCopy)(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
-typedef rt_timepoint (*PFN_rtTextureData)(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void *data);
+typedef rt_timepoint (*PFN_rtTextureData)(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data);
 typedef rt_timepoint (*PFN_rtTextureSubcopy)(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-typedef rt_timepoint (*PFN_rtTextureSubdata)(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void *data);
+typedef rt_timepoint (*PFN_rtTextureSubdata)(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
 typedef rt_timepoint (*PFN_rtTextureViewCopyToBuffer)(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer);
 typedef rt_extent_3d (*PFN_rtTextureViewExtent)(rt_texture_view texture_view);
 typedef rt_framebuffer (*PFN_rtFramebufferCreate)(void);
@@ -338,14 +338,14 @@ typedef void (*PFN_rtFramebufferDepthView)(rt_framebuffer framebuffer, rt_textur
 
 typedef rt_graphics_program (*PFN_rtGraphicsProgramCreate)(void);
 typedef void (*PFN_rtGraphicsProgramDestroy)(rt_graphics_program program);
-typedef void (*PFN_rtGraphicsProgramVertexLayout)(rt_graphics_program program, const rt_vertex_layout *layout);
-typedef void (*PFN_rtGraphicsProgramSource)(rt_graphics_program program, u64 size, const void *data);
-typedef void (*PFN_rtGraphicsProgramVertexShader)(rt_graphics_program program, u64 size, const void *data);
-typedef void (*PFN_rtGraphicsProgramFragmentShader)(rt_graphics_program program, u64 size, const void *data);
+typedef void (*PFN_rtGraphicsProgramVertexLayout)(rt_graphics_program program, const rt_vertex_layout* layout);
+typedef void (*PFN_rtGraphicsProgramSource)(rt_graphics_program program, u64 size, const void* data);
+typedef void (*PFN_rtGraphicsProgramVertexShader)(rt_graphics_program program, u64 size, const void* data);
+typedef void (*PFN_rtGraphicsProgramFragmentShader)(rt_graphics_program program, u64 size, const void* data);
 typedef void (*PFN_rtGraphicsProgramRasterState)(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 typedef void (*PFN_rtGraphicsProgramBlendState)(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 typedef void (*PFN_rtGraphicsProgramLink)(rt_graphics_program program);
-typedef rt_uniform_location (*PFN_rtGraphicsProgramUniformLocation)(rt_graphics_program program, const char *name);
+typedef rt_uniform_location (*PFN_rtGraphicsProgramUniformLocation)(rt_graphics_program program, const char* name);
 
 typedef rt_command_buffer (*PFN_rtCommandBufferCreate)(void);
 typedef void (*PFN_rtCommandBufferDestroy)(rt_command_buffer command_buffer);
@@ -450,7 +450,7 @@ extern PFN_rtTimepointReached rt_rtTimepointReached;
 ** @note rtLoad must succeed before this function is called.
 ** @note Resources may be created after successful initialization.
 */
-static inline void rtInit(const char *const *features, u32 feature_count) {
+static inline void rtInit(const char* const* features, u32 feature_count) {
 	rt_rtInit(features, feature_count);
 }
 
@@ -473,7 +473,7 @@ static inline void rtExit(void) {
 ** @note Passing NULL restores the default output behavior.
 ** @note Rutile never owns @p user_data.
 */
-static inline void rtSetOutput(PFN_rtOutput output, void *user_data) {
+static inline void rtSetOutput(PFN_rtOutput output, void* user_data) {
 	rt_rtSetOutput(output, user_data);
 }
 
@@ -498,7 +498,7 @@ static inline enum rt_error rtError(void) {
 ** @note The returned pointer remains owned by Rutile.
 ** @note The message may be empty when the error code is sufficient.
 */
-static inline const char *rtErrorMessage(void) {
+static inline const char* rtErrorMessage(void) {
 	return rt_rtErrorMessage();
 }
 
@@ -519,7 +519,7 @@ static inline void rtClearError(void) {
 **
 ** @note The returned pointer is valid until unload.
 */
-static inline const char *rtGetName(void) {
+static inline const char* rtGetName(void) {
 	return rt_rtGetName();
 }
 
@@ -573,7 +573,7 @@ static inline void rtBufferDestroy(rt_buffer buffer) {
 ** @note This call defines how the buffer memory is created.
 ** @note The backend selects any queue needed for GPU uploads.
 */
-static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data) {
+static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
 	return rt_rtBufferData(buffer, mode, usage, size, data);
 }
 
@@ -590,7 +590,7 @@ static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mo
 ** @note The upload range must fit within the buffer.
 ** @note The backend selects any queue needed for GPU uploads.
 */
-static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void *data) {
+static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
 	return rt_rtBufferSubdata(buffer, offset, size, data);
 }
 
@@ -602,7 +602,7 @@ static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 siz
 ** @param size Number of bytes to copy.
 ** @param data Destination memory.
 */
-static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void *data) {
+static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rt_rtBufferRead(buffer, offset, size, data);
 }
 
@@ -729,7 +729,7 @@ static inline rt_timepoint rtTextureCopy(rt_queue queue, rt_texture src_texture,
 **
 ** @note This configures an existing texture; it does not create one.
 */
-static inline rt_timepoint rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void *data) {
+static inline rt_timepoint rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data) {
 	return rt_rtTextureData(queue, texture, type, mip, offset_x, offset_y, offset_z, format, data);
 }
 
@@ -777,7 +777,7 @@ static inline rt_timepoint rtTextureSubcopy(rt_queue queue, rt_texture src_textu
 ** @note Texture storage must already exist.
 ** @note The upload region must fit within the texture.
 */
-static inline rt_timepoint rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void *data) {
+static inline rt_timepoint rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
 	return rt_rtTextureSubdata(queue, texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
 }
 
@@ -883,7 +883,7 @@ static inline void rtGraphicsProgramDestroy(rt_graphics_program program) {
 ** @note The layout is copied by the implementation.
 ** @note Changing the layout invalidates any cached backend pipeline.
 */
-static inline void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout *layout) {
+static inline void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rt_rtGraphicsProgramVertexLayout(program, layout);
 }
 
@@ -894,10 +894,10 @@ static inline void rtGraphicsProgramVertexLayout(rt_graphics_program program, co
 ** @param size Size in bytes of @p data.
 ** @param data RTSL Shader Program
 */
-static inline void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void *data) {
+static inline void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
 	rt_rtGraphicsProgramSource(program, size, data);
 }
-static inline void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void *data) {
+static inline void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data) {
 	rt_rtGraphicsProgramVertexShader(program, size, data);
 }
 
@@ -908,7 +908,7 @@ static inline void rtGraphicsProgramVertexShader(rt_graphics_program program, u6
 ** @param size Size in bytes of @p data.
 ** @param data GLSL shader source.
 */
-static inline void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void *data) {
+static inline void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data) {
 	rt_rtGraphicsProgramFragmentShader(program, size, data);
 }
 
@@ -952,7 +952,7 @@ static inline void rtGraphicsProgramLink(rt_graphics_program program) {
 ** @note Locations are owned by the graphics program.
 ** @note Locations become invalid when the program is relinked or destroyed.
 */
-static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char *name) {
+static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
 	return rt_rtGraphicsProgramUniformLocation(program, name);
 }
 
@@ -1238,22 +1238,22 @@ typedef HMODULE rt__dll_handle;
 #include <dlfcn.h>
 #include <limits.h>
 #include <unistd.h>
-typedef void *rt__dll_handle;
+typedef void* rt__dll_handle;
 #endif
 
-static rt__dll_handle rt__dll_open(const char *path);
-static void *rt__dll_symbol(rt__dll_handle dll, const char *symbol);
+static rt__dll_handle rt__dll_open(const char* path);
+static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol);
 static void rt__dll_close(rt__dll_handle dll);
 
 #if defined(_WIN32)
-static rt__dll_handle rt__dll_open(const char *path) {
+static rt__dll_handle rt__dll_open(const char* path) {
 	return LoadLibraryA(path);
 }
 
-static bool rt__exe_dir_path(char *out, usize out_size) {
+static bool rt__exe_dir_path(char* out, usize out_size) {
 	DWORD length;
-	char *slash;
-	char *backslash;
+	char* slash;
+	char* backslash;
 
 	if (!out || out_size == 0) {
 		return false;
@@ -1280,7 +1280,7 @@ static bool rt__exe_dir_path(char *out, usize out_size) {
 	return true;
 }
 
-static void rt__dll_last_error_message(char *out, usize out_size) {
+static void rt__dll_last_error_message(char* out, usize out_size) {
 	DWORD err;
 	DWORD written;
 
@@ -1309,8 +1309,8 @@ static void rt__dll_last_error_message(char *out, usize out_size) {
 	out[out_size - 1] = '\0';
 }
 
-static void *rt__dll_symbol(rt__dll_handle dll, const char *symbol) {
-	return (void *)GetProcAddress(dll, symbol);
+static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol) {
+	return (void*)GetProcAddress(dll, symbol);
 }
 
 static void rt__dll_close(rt__dll_handle dll) {
@@ -1319,11 +1319,11 @@ static void rt__dll_close(rt__dll_handle dll) {
 	}
 }
 #else
-static rt__dll_handle rt__dll_open(const char *path) {
+static rt__dll_handle rt__dll_open(const char* path) {
 	return dlopen(path, RTLD_NOW | RTLD_LOCAL);
 }
 
-static bool rt__exe_dir_path(char *out, usize out_size) {
+static bool rt__exe_dir_path(char* out, usize out_size) {
 	if (!out || out_size == 0) {
 		return false;
 	}
@@ -1337,7 +1337,7 @@ static bool rt__exe_dir_path(char *out, usize out_size) {
 	}
 	path[length] = '\0';
 
-	char *slash = strrchr(path, '/');
+	char* slash = strrchr(path, '/');
 	if (!slash) {
 		return false;
 	}
@@ -1351,8 +1351,8 @@ static bool rt__exe_dir_path(char *out, usize out_size) {
 #endif
 }
 
-static void rt__dll_last_error_message(char *out, usize out_size) {
-	const char *err;
+static void rt__dll_last_error_message(char* out, usize out_size) {
+	const char* err;
 
 	if (!out || out_size == 0) {
 		return;
@@ -1366,7 +1366,7 @@ static void rt__dll_last_error_message(char *out, usize out_size) {
 	}
 }
 
-static void *rt__dll_symbol(rt__dll_handle dll, const char *symbol) {
+static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol) {
 	return dlsym(dll, symbol);
 }
 
@@ -1391,7 +1391,7 @@ bool rt_loaded = false;
 static rt__dll_handle rt__dlls[RT__MAX_DLLS];
 static u32 rt__dll_count;
 
-static rt_proc_t rt__backend_proc(const rt_proc_chain *chain, const char *name) {
+static rt_proc_t rt__backend_proc(const rt_proc_chain* chain, const char* name) {
 
 	if (!rt__backend_dll || !name) {
 		return NULL;
@@ -1405,12 +1405,12 @@ static rt_proc_t rt__backend_proc(const rt_proc_chain *chain, const char *name) 
 	return NULL;
 }
 
-static rt_proc_t rt__layer_proc_at(u32 index, const char *name) {
+static rt_proc_t rt__layer_proc_at(u32 index, const char* name) {
 	if (index >= RT__MAX_LAYERS || !name) {
 		return NULL;
 	}
 
-	rt_layer_link *link = &rt__layer_links[index];
+	rt_layer_link* link = &rt__layer_links[index];
 	if (!link->next.get_proc) {
 		return NULL;
 	}
@@ -1447,7 +1447,7 @@ static rt_proc_t rt__layer_proc_at(u32 index, const char *name) {
 	X(15)
 
 #define RT__LAYER_PROC(index)                                                                \
-	static rt_proc_t rt__layer##index##_proc(const rt_proc_chain *chain, const char *name) { \
+	static rt_proc_t rt__layer##index##_proc(const rt_proc_chain* chain, const char* name) { \
 		return rt__layer_proc_at(index, name);                                               \
 	}
 
@@ -1457,7 +1457,7 @@ RT__LAYER_PROC_LIST(RT__LAYER_PROC)
 
 #define RT__LAYER_PROC_ENTRY(index) rt__layer##index##_proc,
 
-static rt_proc_t (*rt__layer_procs[RT__MAX_LAYERS])(const rt_proc_chain *chain, const char *name) = {
+static rt_proc_t (*rt__layer_procs[RT__MAX_LAYERS])(const rt_proc_chain* chain, const char* name) = {
 	RT__LAYER_PROC_LIST(RT__LAYER_PROC_ENTRY)
 };
 
@@ -1481,7 +1481,7 @@ static void rt__close_dlls(void) {
 	rt__dll_count = 0;
 }
 
-static void rt__backend_dll_name(const char *name, char *out, usize out_size) {
+static void rt__backend_dll_name(const char* name, char* out, usize out_size) {
 #if defined(_WIN32)
 	snprintf(out, out_size, "%s.dll", name);
 #elif defined(__APPLE__)
@@ -1491,8 +1491,8 @@ static void rt__backend_dll_name(const char *name, char *out, usize out_size) {
 #endif
 }
 
-static void rt__layer_dll_name(const char *name, char *out, usize out_size) {
-	const char *stem = name;
+static void rt__layer_dll_name(const char* name, char* out, usize out_size) {
+	const char* stem = name;
 	if (strncmp(stem, "RT_", 3) == 0) {
 		stem += 3;
 	}
@@ -1504,7 +1504,7 @@ static void rt__layer_dll_name(const char *name, char *out, usize out_size) {
 #else
 	snprintf(out, out_size, "librt-%s.so", stem);
 #endif
-	for (char *p = out; *p; p++) {
+	for (char* p = out; *p; p++) {
 		if (*p == '_') {
 			*p = '-';
 		}
@@ -1514,7 +1514,7 @@ static void rt__layer_dll_name(const char *name, char *out, usize out_size) {
 	}
 }
 
-static enum rt_error rt__load_backend_dll(const char *path, const char *requested_name, rt__dll_handle *out_dll, char *message, usize message_size) {
+static enum rt_error rt__load_backend_dll(const char* path, const char* requested_name, rt__dll_handle* out_dll, char* message, usize message_size) {
 	if (message && message_size) {
 		message[0] = '\0';
 	}
@@ -1568,7 +1568,7 @@ static enum rt_error rt__load_backend_dll(const char *path, const char *requeste
 	return RT_SUCCESS;
 }
 
-static enum rt_error rt__load_layer_dll(const char *path, const char *requested_name, rt_layer_link *out_link, char *message, usize message_size) {
+static enum rt_error rt__load_layer_dll(const char* path, const char* requested_name, rt_layer_link* out_link, char* message, usize message_size) {
 	if (message && message_size) {
 		message[0] = '\0';
 	}
@@ -1622,7 +1622,7 @@ static enum rt_error rt__load_layer_dll(const char *path, const char *requested_
 	return RT_SUCCESS;
 }
 
-static enum rt_error rt__load_backend_named(const char *name, rt__dll_handle *out_dll, char *message, usize message_size) {
+static enum rt_error rt__load_backend_named(const char* name, rt__dll_handle* out_dll, char* message, usize message_size) {
 	char dll[128];
 	rt__backend_dll_name(name, dll, sizeof(dll));
 	enum rt_error err = rt__load_backend_dll(dll, name, out_dll, message, message_size);
@@ -1642,7 +1642,7 @@ static enum rt_error rt__load_backend_named(const char *name, rt__dll_handle *ou
 	return err;
 }
 
-static enum rt_error rt__load_layer_named(const char *name, rt_layer_link *out_link, char *message, usize message_size) {
+static enum rt_error rt__load_layer_named(const char* name, rt_layer_link* out_link, char* message, usize message_size) {
 	char dll[128];
 	rt__layer_dll_name(name, dll, sizeof(dll));
 	enum rt_error err = rt__load_layer_dll(dll, name, out_link, message, message_size);
@@ -1667,7 +1667,7 @@ static void rt__layer_set_next(u32 index, rt_proc_chain next) {
 		return;
 	}
 
-	rt_layer_link *link = &rt__layer_links[index];
+	rt_layer_link* link = &rt__layer_links[index];
 	link->next = next;
 
 	PFN_rtLayerSetNext set_next = (PFN_rtLayerSetNext)rt__dll_symbol(link->dll, "rtLayerSetNext");
@@ -1751,7 +1751,7 @@ PFN_rtTimepointReached rt_rtTimepointReached = NULL;
 static RT__THREAD_LOCAL enum rt_error rt__loader_error = RT_SUCCESS;
 static RT__THREAD_LOCAL char rt__loader_error_message[1024] = "";
 
-static void rt__loader_set_error(enum rt_error error, const char *message) {
+static void rt__loader_set_error(enum rt_error error, const char* message) {
 	rt__loader_error = error;
 	if (!message) {
 		rt__loader_error_message[0] = '\0';
@@ -1761,7 +1761,7 @@ static void rt__loader_set_error(enum rt_error error, const char *message) {
 	rt__loader_error_message[sizeof(rt__loader_error_message) - 1] = '\0';
 }
 
-static void rt__loader_set_errorf(enum rt_error error, const char *format, ...) {
+static void rt__loader_set_errorf(enum rt_error error, const char* format, ...) {
 	va_list args;
 
 	rt__loader_error = error;
@@ -1791,7 +1791,7 @@ static enum rt_error rt__loader_error_code(void) {
 	return rt__loader_error;
 }
 
-static const char *rt__loader_error_message_text(void) {
+static const char* rt__loader_error_message_text(void) {
 	return rt__loader_error_message;
 }
 
@@ -1801,7 +1801,7 @@ static void rt__loader_clear_error(void) {
 
 #undef RT__THREAD_LOCAL
 
-static enum rt_error rt__resolve_required_proc(const char *name, rt_proc_t *out_proc, char *message, usize message_size) {
+static enum rt_error rt__resolve_required_proc(const char* name, rt_proc_t* out_proc, char* message, usize message_size) {
 	if (message && message_size) {
 		message[0] = '\0';
 	}
@@ -1833,7 +1833,7 @@ static enum rt_error rt__resolve_required_proc(const char *name, rt_proc_t *out_
 		rt_##name = (PFN_##name)_p;                                                        \
 	} while (0)
 
-static enum rt_error rt__load_core(char *message, usize message_size) {
+static enum rt_error rt__load_core(char* message, usize message_size) {
 	if (message && message_size) {
 		message[0] = '\0';
 	}
@@ -1992,7 +1992,7 @@ static void rt__load_core_development(void) {
 
 #undef RT__CORE_RESOLVE
 
-enum rt_error rtLoad(const char *backend_name, const char *const *layer_names, u32 layer_count) {
+enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count) {
 	rt__loader_clear_error_state();
 	if (!backend_name) {
 		rt__loader_set_errorf(RT_NO_BACKEND, "rtLoad backend_name is NULL");
@@ -2053,7 +2053,7 @@ enum rt_error rtLoad(const char *backend_name, const char *const *layer_names, u
 	return RT_SUCCESS;
 }
 
-enum rt_error rtLoadDevelopment(const char *backend_name, const char *const *layer_names, u32 layer_count) {
+enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count) {
 	rt__loader_clear_error_state();
 	if (layer_count > RT__MAX_LAYERS) {
 		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment requested too many layers: %u", layer_count);
@@ -2178,7 +2178,7 @@ void rtUnload(void) {
 	rt__close_dlls();
 }
 
-rt_proc_t rtGetProc(const char *name) {
+rt_proc_t rtGetProc(const char* name) {
 	if (!name || !rt__chain.get_proc) {
 		return NULL;
 	}
@@ -2208,7 +2208,7 @@ static inline enum rt_error rtError(void) {
 **
 ** @note This reports backend/runtime error text only.
 */
-static inline const char *rtErrorMessage(void) {
+static inline const char* rtErrorMessage(void) {
 	return rt_rtErrorMessage();
 }
 

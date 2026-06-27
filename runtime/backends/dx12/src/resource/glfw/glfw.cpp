@@ -4,8 +4,8 @@
 
 #include <windows.h>
 
-using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow *window, int *width, int *height);
-using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow *window);
+using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow* window, int* width, int* height);
+using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow* window);
 
 struct rtdx_glfw_procs {
 	PFN_rtdx_glfwGetFramebufferSize get_framebuffer_size = nullptr;
@@ -19,9 +19,9 @@ static rtdx_glfw_procs rtdx_glfw;
 /*                                                                                               */
 /*===============================================================================================*/
 
-static void *rtdx_glfw_symbol(const char *name) {
+static void* rtdx_glfw_symbol(const char* name) {
 	HMODULE module = GetModuleHandleA(NULL);
-	void *symbol = module ? reinterpret_cast<void *>(GetProcAddress(module, name)) : nullptr;
+	void* symbol = module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
 	if (symbol) {
 		return symbol;
 	}
@@ -30,7 +30,7 @@ static void *rtdx_glfw_symbol(const char *name) {
 	if (!module) {
 		module = LoadLibraryA("glfw3.dll");
 	}
-	return module ? reinterpret_cast<void *>(GetProcAddress(module, name)) : nullptr;
+	return module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
 }
 
 static bool rtdx_glfw_resolve() {
@@ -52,7 +52,7 @@ static bool rtdx_glfw_resolve() {
 	return true;
 }
 
-void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow *window) {
+void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	int width = 0;
 	int height = 0;
 	HWND hwnd;

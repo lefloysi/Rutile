@@ -15,9 +15,9 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTVK_API void rtInit(const char *const *features, u32 feature_count);
+RTVK_API void rtInit(const char* const* features, u32 feature_count);
 RTVK_API void rtExit(void);
-RTVK_API const char *rtGetName(void);
+RTVK_API const char* rtGetName(void);
 RTVK_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 
 #endif /* RTVK_CORE_H */

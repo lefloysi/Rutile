@@ -1,13 +1,13 @@
 #include "core.h"
 #include "context.h"
 
-static bool rtvk_validate_init_features(const char *const *features, u32 feature_count, rtvk_context_flags *flags);
+static bool rtvk_validate_init_features(const char* const* features, u32 feature_count, rtvk_context_flags* flags);
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtInit(const char *const *features, u32 feature_count) {
+void rtInit(const char* const* features, u32 feature_count) {
 	rtvk_context_flags flags;
 
 	rtClearError();
@@ -26,9 +26,9 @@ void rtExit(void) {
 	rtvk_context_destroy(current_context);
 	current_context = NULL;
 }
-const char *rtGetName(void) { return "rt-vulkan"; }
+const char* rtGetName(void) { return "rt-vulkan"; }
 enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
-	struct rtvk_context *ctx = rtvk_get_current_context();
+	struct rtvk_context* ctx = rtvk_get_current_context();
 	if (!ctx || !ctx->vk_physical_device) {
 		return RT_FORMAT_USAGE_NONE;
 	}
@@ -165,10 +165,10 @@ static enum rt_format_usage rtvk_usage_from_vk_features(VkFormatFeatureFlags fea
 	}
 	return usage;
 }
-static bool rtvk_feature_equals(const char *feature, const char *expected) {
+static bool rtvk_feature_equals(const char* feature, const char* expected) {
 	return feature && strcmp(feature, expected) == 0;
 }
-static bool rtvk_validate_init_features(const char *const *features, u32 feature_count, rtvk_context_flags *flags) {
+static bool rtvk_validate_init_features(const char* const* features, u32 feature_count, rtvk_context_flags* flags) {
 	if (feature_count && !features) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %u but features is NULL", feature_count);
 		return false;
@@ -176,7 +176,7 @@ static bool rtvk_validate_init_features(const char *const *features, u32 feature
 
 	*flags = (rtvk_context_flags){0};
 	for (u32 i = 0; i < feature_count; i++) {
-		const char *feature = features[i];
+		const char* feature = features[i];
 		if (!feature) {
 			rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %u is NULL", i);
 			return false;

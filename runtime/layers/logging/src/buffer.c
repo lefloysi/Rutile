@@ -6,9 +6,9 @@
 
 RT_EXPORT rt_buffer rtBufferCreate(void) { return rtlog_rtBufferCreate(); }
 RT_EXPORT void rtBufferDestroy(rt_buffer buffer) { rtlog_rtBufferDestroy(buffer); }
-RT_EXPORT rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data) { return rtlog_rtBufferData(buffer, mode, usage, size, data); }
-RT_EXPORT rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void *data) { return rtlog_rtBufferSubdata(buffer, offset, size, data); }
-RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void *data) { rtlog_rtBufferRead(buffer, offset, size, data); }
+RT_EXPORT rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) { return rtlog_rtBufferData(buffer, mode, usage, size, data); }
+RT_EXPORT rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) { return rtlog_rtBufferSubdata(buffer, offset, size, data); }
+RT_EXPORT void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) { rtlog_rtBufferRead(buffer, offset, size, data); }
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -32,7 +32,7 @@ void rtlog_rtBufferDestroy(rt_buffer buffer) {
 	rtlog_error("rtBufferDestroy");
 }
 
-rt_timepoint rtlog_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void *data) {
+rt_timepoint rtlog_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
 	u64 start_ns = rtlog_now_ns();
 
 	rtlog_printf("rtBufferData(buffer=%s, mode=%d, usage=%d, size=%llu, data=%s)\n", rtlog_pointer(buffer), (i32)mode, (i32)usage, (u64)size, rtlog_pointer(data));
@@ -42,7 +42,7 @@ rt_timepoint rtlog_rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum
 	return result;
 }
 
-rt_timepoint rtlog_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void *data) {
+rt_timepoint rtlog_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
 	u64 start_ns = rtlog_now_ns();
 
 	rtlog_printf("rtBufferSubdata(buffer=%s, offset=%llu, size=%llu, data=%s)\n", rtlog_pointer(buffer), (u64)offset, (u64)size, rtlog_pointer(data));
@@ -52,7 +52,7 @@ rt_timepoint rtlog_rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const
 	return result;
 }
 
-void rtlog_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void *data) {
+void rtlog_rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	u64 start_ns = rtlog_now_ns();
 	rtlog_printf("rtBufferRead(buffer=%s, offset=%llu, size=%llu, data=%s)\n", rtlog_pointer(buffer), (u64)offset, (u64)size, rtlog_pointer(data));
 	next_rtBufferRead(buffer, offset, size, data);

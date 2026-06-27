@@ -16,9 +16,9 @@
 #include <iostream>
 #include <vector>
 
-constexpr const char *kDefaultBackendName = "rt-vulkan";
-constexpr const char *kLayers[] = {"RT_VALIDATION"};
-constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kLayers[] = {"RT_VALIDATION"};
+constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
 
 struct TransformUniform {
 	f32 transform[16];
@@ -54,7 +54,7 @@ constexpr rt_vertex_attribute kVertexAttributes[] = {
 
 constexpr rt_vertex_layout kVertexLayout = {sizeof(Vertex), kVertexAttributes, 7};
 
-constexpr const char *kVertexShader = R"(
+constexpr const char* kVertexShader = R"(
 #version 460
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
@@ -85,7 +85,7 @@ void main() {
 }
 )";
 
-constexpr const char *kFragmentShader = R"(
+constexpr const char* kFragmentShader = R"(
 #version 460
 layout(location = 0) flat in vec3 color;
 layout(location = 1) flat in vec3 normal;
@@ -135,7 +135,7 @@ void main() {
 }
 )";
 
-constexpr const char *kWaterVertexShader = R"(
+constexpr const char* kWaterVertexShader = R"(
 #version 460
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
@@ -165,7 +165,7 @@ void main() {
 }
 )";
 
-constexpr const char *kWaterFragmentShader = R"(
+constexpr const char* kWaterFragmentShader = R"(
 #version 460
 layout(location = 0) in vec3 color;
 layout(location = 1) in vec3 normal;
@@ -189,19 +189,19 @@ void main() {
 }
 )";
 
-glm::vec3 camera_forward(const Camera &camera) {
+glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
-glm::mat4 camera_matrix(const Camera &camera, f32 aspect) {
+glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
 	const glm::vec3 forward = camera_forward(camera);
 	const glm::mat4 view = glm::lookAt(camera.position, camera.position + forward, glm::vec3(0, 1, 0));
 	const glm::mat4 projection = glm::perspective(glm::radians(70.0f), aspect, 0.05f, 180.0f);
 	return projection * view;
 }
 
-void write_transform(TransformUniform *uniform, const glm::mat4 &transform) {
+void write_transform(TransformUniform* uniform, const glm::mat4& transform) {
 	std::memcpy(uniform->transform, glm::value_ptr(transform), sizeof(uniform->transform));
 	uniform->time = 0.0f;
 	uniform->padding[0] = 0.0f;
@@ -209,7 +209,7 @@ void write_transform(TransformUniform *uniform, const glm::mat4 &transform) {
 	uniform->padding[2] = 0.0f;
 }
 
-void write_water_transform(WaterUniform *uniform, const glm::mat4 &transform, f32 time) {
+void write_water_transform(WaterUniform* uniform, const glm::mat4& transform, f32 time) {
 	std::memcpy(uniform->transform, glm::value_ptr(transform), sizeof(uniform->transform));
 	uniform->time = time;
 	uniform->padding[0] = 0.0f;
@@ -217,7 +217,7 @@ void write_water_transform(WaterUniform *uniform, const glm::mat4 &transform, f3
 	uniform->padding[2] = 0.0f;
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture_view *depth_view, u32 width, u32 height) {
+void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
 	if (*depth_view) {
 		rtTextureViewDestroy(*depth_view);
 	}
@@ -233,7 +233,7 @@ void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture
 	}
 }
 
-void framebuffer_resized(GLFWwindow *window, int width, int height) {
+void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	(void)window;
 	if (ResizeInProgress.load(std::memory_order_acquire)) {
 		return;
@@ -245,7 +245,7 @@ void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	}
 }
 
-void cursor_moved(GLFWwindow *window, double x, double y) {
+void cursor_moved(GLFWwindow* window, double x, double y) {
 	(void)window;
 
 	static double previous_x = x;
@@ -256,7 +256,7 @@ void cursor_moved(GLFWwindow *window, double x, double y) {
 	previous_y = y;
 }
 
-void update_camera(GLFWwindow *window, Camera *camera, f32 dt) {
+void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 	const f32 sensitivity = 0.0024f;
 	camera->yaw += MouseDx * sensitivity;
 	camera->pitch -= MouseDy * sensitivity;
@@ -293,8 +293,8 @@ void update_camera(GLFWwindow *window, Camera *camera, f32 dt) {
 	}
 }
 
-int main(int argc, char **argv) {
-	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char** argv) {
+	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	rtLoad(backend_name, kLayers, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow *window = glfwCreateWindow(1280, 720, "Rutile 05 Voxel Engine", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 05 Voxel Engine", nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);

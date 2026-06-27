@@ -4,6 +4,6 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT const char *rtLayerGetName(void) {
+RT_EXPORT const char* rtLayerGetName(void) {
 	return "RT_LOGGING_LAYER";
 }

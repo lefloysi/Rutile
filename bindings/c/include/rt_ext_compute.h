@@ -11,11 +11,11 @@
 extern "C" {
 #endif /* __cplusplus */
 
-typedef struct rt_compute_program_t *rt_compute_program;
+typedef struct rt_compute_program_t* rt_compute_program;
 
 typedef rt_compute_program (*PFN_rtComputeProgramCreate)(void);
 typedef void (*PFN_rtComputeProgramDestroy)(rt_compute_program program);
-typedef void (*PFN_rtComputeProgramShader)(rt_compute_program program, u64 size, const void *data);
+typedef void (*PFN_rtComputeProgramShader)(rt_compute_program program, u64 size, const void* data);
 typedef void (*PFN_rtComputeProgramLink)(rt_compute_program program);
 typedef void (*PFN_rtCmdUseComputeProgram)(rt_command_buffer command_buffer, rt_compute_program program);
 typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
@@ -41,7 +41,7 @@ static inline rt_compute_program rtComputeProgramCreate(void) {
 static inline void rtComputeProgramDestroy(rt_compute_program program) {
 	rt_rtComputeProgramDestroy(program);
 }
-static inline void rtComputeProgramShader(rt_compute_program program, u64 size, const void *data) {
+static inline void rtComputeProgramShader(rt_compute_program program, u64 size, const void* data) {
 	rt_rtComputeProgramShader(program, size, data);
 }
 static inline void rtComputeProgramLink(rt_compute_program program) {

@@ -18,9 +18,9 @@ static thread_local enum rt_error rtvk_error_status = RT_SUCCESS;
 static thread_local char rtvk_error_text[1024] = "";
 
 static thread_local PFN_rtOutput rtvk_output = NULL;
-static thread_local void *rtvk_output_user_data = NULL;
+static thread_local void* rtvk_output_user_data = NULL;
 
-static void rtvk_default_output(const char *message, void *user_data) {
+static void rtvk_default_output(const char* message, void* user_data) {
 	fputs(message, stdout);
 }
 
@@ -28,12 +28,12 @@ static void rtvk_default_output(const char *message, void *user_data) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtSetOutput(PFN_rtOutput output, void *user_data) {
+void rtSetOutput(PFN_rtOutput output, void* user_data) {
 	rtvk_output = output;
 	rtvk_output_user_data = user_data;
 }
 
-void rtvk_vprintf(const char *format, va_list args) {
+void rtvk_vprintf(const char* format, va_list args) {
 	char message[1024];
 	PFN_rtOutput output = rtvk_output ? rtvk_output : rtvk_default_output;
 
@@ -46,14 +46,14 @@ void rtvk_vprintf(const char *format, va_list args) {
 	output(message, rtvk_output_user_data);
 }
 
-void rtvk_printf(const char *format, ...) {
+void rtvk_printf(const char* format, ...) {
 	va_list args;
 	va_start(args, format);
 	rtvk_vprintf(format, args);
 	va_end(args);
 }
 
-void rtvk_throwf(enum rt_error error, const char *format, ...) {
+void rtvk_throwf(enum rt_error error, const char* format, ...) {
 	va_list args;
 
 	rtvk_error_status = error;
@@ -95,7 +95,7 @@ enum rt_error rtvk_error(void) {
 	return rtvk_error_status;
 }
 
-const char *rtErrorMessage(void) {
+const char* rtErrorMessage(void) {
 	return rtvk_error_text;
 }
 

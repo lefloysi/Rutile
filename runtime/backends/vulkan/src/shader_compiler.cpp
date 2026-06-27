@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-void rtvk_shader_reflection_clear(rtvk_shader_reflection *reflection) {
+void rtvk_shader_reflection_clear(rtvk_shader_reflection* reflection) {
 	if (!reflection)
 		return;
 	std::free(reflection->uniform_blocks);
@@ -31,12 +31,12 @@ void rtvk_shader_reflection_clear(rtvk_shader_reflection *reflection) {
 	*reflection = {};
 }
 
-static VkShaderModule rtvk_shader_compile_failed(enum rt_error error, const char *detail) {
+static VkShaderModule rtvk_shader_compile_failed(enum rt_error error, const char* detail) {
 	rtvk_throwf(error, detail);
 	return VK_NULL_HANDLE;
 }
 
-static bool rtvk_spirv_create_shader_module(struct rtvk_context *ctx, std::span<u32> spirv, VkShaderModule &shader_out) {
+static bool rtvk_spirv_create_shader_module(struct rtvk_context* ctx, std::span<u32> spirv, VkShaderModule& shader_out) {
 	VkShaderModuleCreateInfo create_info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 	create_info.codeSize = spirv.size() * sizeof(u32);
 	create_info.pCode = spirv.data();
@@ -53,7 +53,7 @@ typedef struct rtvk_spv_writer {
 	u32 bound;
 } rtvk_spv_writer;
 
-static void rtvk_spv_begin(rtvk_spv_writer *writer) {
+static void rtvk_spv_begin(rtvk_spv_writer* writer) {
 	writer->words = {
 		SpvMagicNumber,
 		SpvVersion,
@@ -64,49 +64,49 @@ static void rtvk_spv_begin(rtvk_spv_writer *writer) {
 	writer->bound = 1;
 }
 
-static void rtvk_spv_reserve(rtvk_spv_writer *writer, u32 id) {
+static void rtvk_spv_reserve(rtvk_spv_writer* writer, u32 id) {
 	writer->bound = std::max(writer->bound, id + 1);
 }
 
-static u32 rtvk_spv_fresh(rtvk_spv_writer *writer) {
+static u32 rtvk_spv_fresh(rtvk_spv_writer* writer) {
 	return writer->bound++;
 }
 
-static void rtvk_spv_emit(rtvk_spv_writer *writer, SpvOp op, const std::vector<u32> &operands) {
+static void rtvk_spv_emit(rtvk_spv_writer* writer, SpvOp op, const std::vector<u32>& operands) {
 	writer->words.push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(op));
 	writer->words.insert(writer->words.end(), operands.begin(), operands.end());
 }
 
-static void rtvk_spv_emit(rtvk_spv_writer *writer, SpvOp op, std::initializer_list<u32> operands) {
+static void rtvk_spv_emit(rtvk_spv_writer* writer, SpvOp op, std::initializer_list<u32> operands) {
 	rtvk_spv_emit(writer, op, std::vector<u32>(operands));
 }
 
-static const rutile::backend_tools::RTInstruction *rtvk_rtslp_find_inst(
-	const std::vector<rutile::backend_tools::RTInstruction> &insts,
+static const rutile::backend_tools::RTInstruction* rtvk_rtslp_find_inst(
+	const std::vector<rutile::backend_tools::RTInstruction>& insts,
 	u32 result_id
 ) {
-	for (const auto &inst : insts) {
+	for (const auto& inst : insts) {
 		if (inst.result_id == result_id)
 			return &inst;
 	}
 	return NULL;
 }
 
-static const rutile::backend_tools::RTFunction *rtvk_rtslp_find_stage_function(
-	const rutile::backend_tools::RTArtifactModule &module,
+static const rutile::backend_tools::RTFunction* rtvk_rtslp_find_stage_function(
+	const rutile::backend_tools::RTArtifactModule& module,
 	rutile::backend_tools::RTStageKind stage
 ) {
-	for (const auto &fn : module.functions) {
+	for (const auto& fn : module.functions) {
 		if (fn.stage == stage)
 			return &fn;
 	}
 	return NULL;
 }
 
-static std::unordered_map<u32, std::string> rtvk_rtslp_struct_names(const rutile::backend_tools::RTArtifactModule &module) {
+static std::unordered_map<u32, std::string> rtvk_rtslp_struct_names(const rutile::backend_tools::RTArtifactModule& module) {
 	std::unordered_map<u32, std::string> names;
 	size_t struct_index = 0;
-	for (const auto &inst : module.type_constant_pool) {
+	for (const auto& inst : module.type_constant_pool) {
 		if (inst.op == rutile::backend_tools::RTIROp::TypeStruct && struct_index < module.structs.size()) {
 			names.emplace(inst.result_id, module.structs[struct_index].name);
 			++struct_index;
@@ -115,19 +115,19 @@ static std::unordered_map<u32, std::string> rtvk_rtslp_struct_names(const rutile
 	return names;
 }
 
-static const rutile::backend_tools::RTStageInterface *rtvk_rtslp_find_interface(
-	const rutile::backend_tools::RTArtifactModule &module,
+static const rutile::backend_tools::RTStageInterface* rtvk_rtslp_find_interface(
+	const rutile::backend_tools::RTArtifactModule& module,
 	std::string_view type_name,
 	rutile::backend_tools::RTStageRole role
 ) {
-	for (const auto &interface : module.stage_interfaces) {
+	for (const auto& interface : module.stage_interfaces) {
 		if (interface.type_name == type_name && interface.role == role)
 			return &interface;
 	}
 	return NULL;
 }
 
-static SpvBuiltIn rtvk_rtslp_builtin(const rutile::backend_tools::RTStageField &field) {
+static SpvBuiltIn rtvk_rtslp_builtin(const rutile::backend_tools::RTStageField& field) {
 	if (field.builtin == "position" || field.interpolation == "clip")
 		return SpvBuiltInPosition;
 	if (field.builtin == "frag_coord")
@@ -186,7 +186,7 @@ static SpvOp rtvk_rtslp_op(rutile::backend_tools::RTIROp op) {
 	}
 }
 
-static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer *writer, const rutile::backend_tools::RTInstruction &inst) {
+static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer* writer, const rutile::backend_tools::RTInstruction& inst) {
 	using rutile::backend_tools::RTIROp;
 	rtvk_spv_reserve(writer, inst.result_id);
 	std::vector<u32> operands;
@@ -233,7 +233,7 @@ static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer *writer, const ruti
 	return true;
 }
 
-static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32> *section, const rutile::backend_tools::RTInstruction &inst) {
+static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32>* section, const rutile::backend_tools::RTInstruction& inst) {
 	using rutile::backend_tools::RTIROp;
 	std::vector<u32> operands;
 	switch (inst.op) {
@@ -281,8 +281,8 @@ static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32> *section, 
 }
 
 static std::vector<u32> rtvk_rtslp_remap_operands(
-	const std::vector<u32> &operands,
-	const std::unordered_map<u32, u32> &remap
+	const std::vector<u32>& operands,
+	const std::unordered_map<u32, u32>& remap
 ) {
 	std::vector<u32> out;
 	out.reserve(operands.size());
@@ -298,7 +298,7 @@ static bool rtvk_rtslp_is_type_op(rutile::backend_tools::RTIROp op) {
 	return op >= RTIROp::TypeVoid && op <= RTIROp::TypeSampledImage;
 }
 
-static std::string rtvk_rtslp_type_key(const rutile::backend_tools::RTInstruction &inst) {
+static std::string rtvk_rtslp_type_key(const rutile::backend_tools::RTInstruction& inst) {
 	std::ostringstream key;
 	key << static_cast<u32>(inst.op) << '|';
 	key << inst.type_id << '|';
@@ -310,7 +310,7 @@ static std::string rtvk_rtslp_type_key(const rutile::backend_tools::RTInstructio
 	return key.str();
 }
 
-static u32 rtvk_rtslp_canonical_id(u32 id, const std::unordered_map<u32, u32> &aliases) {
+static u32 rtvk_rtslp_canonical_id(u32 id, const std::unordered_map<u32, u32>& aliases) {
 	auto it = aliases.find(id);
 	while (it != aliases.end() && it->second != id) {
 		id = it->second;
@@ -319,9 +319,9 @@ static u32 rtvk_rtslp_canonical_id(u32 id, const std::unordered_map<u32, u32> &a
 	return id;
 }
 
-static std::unordered_set<u32> rtvk_rtslp_collect_used_value_ids(const rutile::backend_tools::RTFunction &fn) {
+static std::unordered_set<u32> rtvk_rtslp_collect_used_value_ids(const rutile::backend_tools::RTFunction& fn) {
 	std::unordered_set<u32> used;
-	for (const auto &inst : fn.body) {
+	for (const auto& inst : fn.body) {
 		for (u32 operand : inst.operands) {
 			used.insert(operand);
 		}
@@ -330,11 +330,11 @@ static std::unordered_set<u32> rtvk_rtslp_collect_used_value_ids(const rutile::b
 }
 
 static bool rtvk_rtslp_emit_stage_spirv(
-	const rutile::backend_tools::RTArtifactModule &module,
+	const rutile::backend_tools::RTArtifactModule& module,
 	rutile::backend_tools::RTStageKind stage,
-	std::vector<u32> *spirv_out
+	std::vector<u32>* spirv_out
 ) {
-	const auto *fn = rtvk_rtslp_find_stage_function(module, stage);
+	const auto* fn = rtvk_rtslp_find_stage_function(module, stage);
 	if (!fn)
 		return false;
 
@@ -342,7 +342,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 	const u32 input_type = [&]() -> u32 {
 		if (fn->parameter_ids.size() < 2)
 			return 0;
-		for (const auto &inst : fn->body) {
+		for (const auto& inst : fn->body) {
 			if (inst.op == rutile::backend_tools::RTIROp::FunctionParameter && inst.result_id == fn->parameter_ids[1]) {
 				return inst.type_id;
 			}
@@ -350,13 +350,13 @@ static bool rtvk_rtslp_emit_stage_spirv(
 		return 0;
 	}();
 	const u32 output_type = fn->return_type_id;
-	const auto *input_inst = input_type ? rtvk_rtslp_find_inst(module.type_constant_pool, input_type) : NULL;
-	const auto *output_inst = output_type ? rtvk_rtslp_find_inst(module.type_constant_pool, output_type) : NULL;
+	const auto* input_inst = input_type ? rtvk_rtslp_find_inst(module.type_constant_pool, input_type) : NULL;
+	const auto* output_inst = output_type ? rtvk_rtslp_find_inst(module.type_constant_pool, output_type) : NULL;
 	const std::string input_name = (input_type && struct_names.contains(input_type)) ? struct_names.at(input_type) : std::string{};
 	const std::string output_name = (output_type && struct_names.contains(output_type)) ? struct_names.at(output_type) : std::string{};
-	const auto *input_interface =
+	const auto* input_interface =
 		input_name.empty() ? NULL : rtvk_rtslp_find_interface(module, input_name, stage == rutile::backend_tools::RTStageKind::Vertex ? rutile::backend_tools::RTStageRole::Input : rutile::backend_tools::RTStageRole::Varying);
-	const auto *output_interface =
+	const auto* output_interface =
 		output_name.empty() ? NULL : rtvk_rtslp_find_interface(module, output_name, stage == rutile::backend_tools::RTStageKind::Fragment ? rutile::backend_tools::RTStageRole::Output : rutile::backend_tools::RTStageRole::Varying);
 	const auto used_value_ids = rtvk_rtslp_collect_used_value_ids(*fn);
 
@@ -369,25 +369,25 @@ static bool rtvk_rtslp_emit_stage_spirv(
 	std::vector<u32> function_ops;
 	std::unordered_map<u32, u32> type_aliases;
 
-	auto emit_section = [](std::vector<u32> *section, SpvOp op, const std::vector<u32> &operands) {
+	auto emit_section = [](std::vector<u32>* section, SpvOp op, const std::vector<u32>& operands) {
 		section->push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(op));
 		section->insert(section->end(), operands.begin(), operands.end());
 	};
-	auto emit_section_list = [&](std::vector<u32> *section, SpvOp op, std::initializer_list<u32> operands) {
+	auto emit_section_list = [&](std::vector<u32>* section, SpvOp op, std::initializer_list<u32> operands) {
 		emit_section(section, op, std::vector<u32>(operands));
 	};
 
 	rtvk_spv_emit(&writer, SpvOpCapability, {SpvCapabilityShader});
 	rtvk_spv_emit(&writer, SpvOpMemoryModel, {SpvAddressingModelLogical, SpvMemoryModelGLSL450});
 
-	for (const auto &inst : module.type_constant_pool) {
+	for (const auto& inst : module.type_constant_pool) {
 		if (inst.result_id)
 			rtvk_spv_reserve(&writer, inst.result_id);
 	}
-	for (const auto &function : module.functions) {
+	for (const auto& function : module.functions) {
 		if (function.result_id)
 			rtvk_spv_reserve(&writer, function.result_id);
-		for (const auto &inst : function.body) {
+		for (const auto& inst : function.body) {
 			if (inst.result_id)
 				rtvk_spv_reserve(&writer, inst.result_id);
 		}
@@ -395,7 +395,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 
 	{
 		std::unordered_map<std::string, u32> canonical_types;
-		for (const auto &inst : module.type_constant_pool) {
+		for (const auto& inst : module.type_constant_pool) {
 			if (!rtvk_rtslp_is_type_op(inst.op) || !inst.result_id)
 				continue;
 			auto remapped_operands = rtvk_rtslp_remap_operands(inst.operands, type_aliases);
@@ -410,7 +410,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 	}
 
 	u32 void_type = 0;
-	for (const auto &inst : module.type_constant_pool) {
+	for (const auto& inst : module.type_constant_pool) {
 		if (inst.op == rutile::backend_tools::RTIROp::TypeVoid) {
 			void_type = rtvk_rtslp_canonical_id(inst.result_id, type_aliases);
 			break;
@@ -420,7 +420,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 		return false;
 	const u32 entry_fn_type = rtvk_spv_fresh(&writer);
 	std::unordered_set<u32> emitted_decl_ids;
-	for (const auto &inst : module.type_constant_pool) {
+	for (const auto& inst : module.type_constant_pool) {
 		if (inst.result_id && rtvk_rtslp_canonical_id(inst.result_id, type_aliases) != inst.result_id)
 			continue;
 		if (inst.result_id && !emitted_decl_ids.insert(inst.result_id).second)
@@ -438,14 +438,14 @@ static bool rtvk_rtslp_emit_stage_spirv(
 	std::vector<u32> output_vars;
 
 	auto emit_interface_vars =
-		[&](const rutile::backend_tools::RTInstruction *struct_inst,
-			const rutile::backend_tools::RTStageInterface *interface,
+		[&](const rutile::backend_tools::RTInstruction* struct_inst,
+			const rutile::backend_tools::RTStageInterface* interface,
 			SpvStorageClass storage,
-			std::vector<u32> *vars) {
+			std::vector<u32>* vars) {
 			if (!struct_inst || !interface)
 				return;
 			for (size_t i = 0; i < interface->fields.size() && i < struct_inst->operands.size(); ++i) {
-				const auto &field = interface->fields[i];
+				const auto& field = interface->fields[i];
 				// BuiltIn Position is only valid as an output of vertex-class
 				// stages; a fragment shader cannot have it as an input. Skip
 				// declaring the variable here and let the struct reconstruction
@@ -528,7 +528,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 		}
 	}
 
-	for (const auto &inst : fn->body) {
+	for (const auto& inst : fn->body) {
 		if (inst.op == rutile::backend_tools::RTIROp::Label || inst.op == rutile::backend_tools::RTIROp::FunctionParameter)
 			continue;
 		if (inst.op >= rutile::backend_tools::RTIROp::TypeVoid && inst.op <= rutile::backend_tools::RTIROp::ConstantComposite)
@@ -557,7 +557,7 @@ static bool rtvk_rtslp_emit_stage_spirv(
 			words.push_back(inst.result_id);
 		}
 		auto operands = rtvk_rtslp_remap_operands(inst.operands, remap);
-		for (u32 &operand : operands) {
+		for (u32& operand : operands) {
 			operand = rtvk_rtslp_canonical_id(operand, type_aliases);
 		}
 		words.insert(words.end(), operands.begin(), operands.end());
@@ -580,12 +580,12 @@ static bool rtvk_rtslp_emit_stage_spirv(
 }
 
 static bool rtvk_fill_reflection_from_module(
-	const rutile::backend_tools::RTArtifactModule &module,
-	rtvk_shader_reflection *reflection
+	const rutile::backend_tools::RTArtifactModule& module,
+	rtvk_shader_reflection* reflection
 ) {
 	u32 uniform_block_count = 0;
 	u32 texture_count = 0;
-	for (const auto &uniform : module.uniforms) {
+	for (const auto& uniform : module.uniforms) {
 		if (uniform.type == "Sampler2D")
 			++texture_count;
 		else
@@ -593,12 +593,12 @@ static bool rtvk_fill_reflection_from_module(
 	}
 
 	if (uniform_block_count) {
-		reflection->uniform_blocks = static_cast<rtvk_shader_uniform_block *>(std::calloc(uniform_block_count, sizeof(rtvk_shader_uniform_block)));
+		reflection->uniform_blocks = static_cast<rtvk_shader_uniform_block*>(std::calloc(uniform_block_count, sizeof(rtvk_shader_uniform_block)));
 		if (!reflection->uniform_blocks)
 			return false;
 	}
 	if (texture_count) {
-		reflection->textures = static_cast<rtvk_shader_texture *>(std::calloc(texture_count, sizeof(rtvk_shader_texture)));
+		reflection->textures = static_cast<rtvk_shader_texture*>(std::calloc(texture_count, sizeof(rtvk_shader_texture)));
 		if (!reflection->textures)
 			return false;
 	}
@@ -609,13 +609,13 @@ static bool rtvk_fill_reflection_from_module(
 
 	u32 uniform_index = 0;
 	u32 texture_index = 0;
-	for (const auto &uniform : module.uniforms) {
+	for (const auto& uniform : module.uniforms) {
 		if (uniform.type == "Sampler2D") {
-			auto &dst = reflection->textures[texture_index++];
+			auto& dst = reflection->textures[texture_index++];
 			std::snprintf(dst.name, sizeof(dst.name), "%s", uniform.name.c_str());
 			dst.binding = uniform.binding;
 		} else {
-			auto &dst = reflection->uniform_blocks[uniform_index++];
+			auto& dst = reflection->uniform_blocks[uniform_index++];
 			std::snprintf(dst.name, sizeof(dst.name), "%s", uniform.name.c_str());
 			dst.binding = uniform.binding;
 		}
@@ -624,12 +624,12 @@ static bool rtvk_fill_reflection_from_module(
 }
 
 rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics(
-	struct rtvk_context *ctx,
-	const rt_vertex_layout *vertex_layout,
+	struct rtvk_context* ctx,
+	const rt_vertex_layout* vertex_layout,
 	u64 vertex_size,
-	const void *vertex_source,
+	const void* vertex_source,
 	u64 fragment_size,
-	const void *fragment_source
+	const void* fragment_source
 ) {
 	(void)ctx;
 	(void)vertex_layout;
@@ -641,7 +641,7 @@ rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics(
 	return {};
 }
 
-rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics_rtslp(struct rtvk_context *ctx, u64 program_size, const void *program_source) {
+rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics_rtslp(struct rtvk_context* ctx, u64 program_size, const void* program_source) {
 	rtvk_graphics_shader_compile_result result = {};
 	try {
 		rutile::backend_tools::RTArtifactModule module = rutile::backend_tools::read_rtslp_module(program_size, program_source);
@@ -670,10 +670,10 @@ rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics_rtslp(struct rt
 			return {};
 		}
 		return result;
-	} catch (const std::bad_alloc &) {
+	} catch (const std::bad_alloc&) {
 		rtvk_shader_compile_failed(RT_OUT_OF_HOST_MEMORY, "out of host memory");
 		return {};
-	} catch (const std::exception &error) {
+	} catch (const std::exception& error) {
 		rtvk_shader_compile_failed(RT_SHADER_COMPILATION_FAILED, error.what());
 		return {};
 	} catch (...) {

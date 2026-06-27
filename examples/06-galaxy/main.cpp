@@ -18,8 +18,8 @@
 #include <random>
 #include <vector>
 
-constexpr const char *kDefaultBackendName = "rt-vulkan";
-constexpr const char *kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
 constexpr u32 kStarCount = 26000;
 constexpr u32 kPlanetCount = 520;
 constexpr f32 kGalaxyRadius = 880.0f;
@@ -61,7 +61,7 @@ constexpr rt_vertex_attribute kVertexAttributes[] = {
 
 constexpr rt_vertex_layout kVertexLayout = {sizeof(Vertex), kVertexAttributes, 5};
 
-constexpr const char *kVertexShader = R"(
+constexpr const char* kVertexShader = R"(
 #version 460
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec4 in_color;
@@ -88,7 +88,7 @@ void main() {
 }
 )";
 
-constexpr const char *kFragmentShader = R"(
+constexpr const char* kFragmentShader = R"(
 #version 460
 layout(location = 0) in vec4 color;
 layout(location = 1) in vec3 normal;
@@ -123,16 +123,16 @@ void main() {
 }
 )";
 
-glm::vec3 camera_forward(const Camera &camera) {
+glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
 }
 
 void push_vertex(
-	std::vector<Vertex> *vertices,
-	const glm::vec3 &position,
-	const glm::vec4 &color,
-	const glm::vec3 &normal,
+	std::vector<Vertex>* vertices,
+	const glm::vec3& position,
+	const glm::vec4& color,
+	const glm::vec3& normal,
 	f32 kind,
 	f32 seed
 ) {
@@ -145,7 +145,7 @@ void push_vertex(
 	});
 }
 
-void push_star(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radius, const glm::vec4 &color, f32 seed) {
+void push_star(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radius, const glm::vec4& color, f32 seed) {
 	const glm::vec3 p[] = {
 		glm::vec3(0.0f, radius, 0.0f),
 		glm::vec3(radius, 0.0f, 0.0f),
@@ -164,7 +164,7 @@ void push_star(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radiu
 		{5, 4, 3},
 		{5, 1, 4},
 	};
-	for (const auto &face : faces) {
+	for (const auto& face : faces) {
 		const glm::vec3 a = p[face[0]];
 		const glm::vec3 b = p[face[1]];
 		const glm::vec3 c = p[face[2]];
@@ -175,7 +175,7 @@ void push_star(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radiu
 	}
 }
 
-void push_planet(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 radius, const glm::vec4 &color, f32 seed) {
+void push_planet(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radius, const glm::vec4& color, f32 seed) {
 	constexpr i32 stacks = 8;
 	constexpr i32 slices = 12;
 	for (i32 y = 0; y < stacks; y++) {
@@ -202,7 +202,7 @@ void push_planet(std::vector<Vertex> *vertices, const glm::vec3 &center, f32 rad
 	}
 }
 
-f32 rand_range(std::mt19937 &rng, f32 min_value, f32 max_value) {
+f32 rand_range(std::mt19937& rng, f32 min_value, f32 max_value) {
 	std::uniform_real_distribution<f32> dist(min_value, max_value);
 	return dist(rng);
 }
@@ -214,7 +214,7 @@ glm::vec3 star_color(f32 heat) {
 	return heat < 0.58f ? glm::mix(cool, white, heat / 0.58f) : glm::mix(white, warm, (heat - 0.58f) / 0.42f);
 }
 
-glm::vec3 spiral_position(std::mt19937 &rng, f32 radius_bias, f32 arm_jitter, f32 height) {
+glm::vec3 spiral_position(std::mt19937& rng, f32 radius_bias, f32 arm_jitter, f32 height) {
 	const f32 radius = std::pow(rand_range(rng, 0.0f, 1.0f), radius_bias) * kGalaxyRadius;
 	const i32 arm = (i32)rand_range(rng, 0.0f, 4.0f);
 	const f32 arm_angle = (f32)arm * glm::half_pi<f32>();
@@ -256,14 +256,14 @@ std::vector<Vertex> build_galaxy() {
 	return vertices;
 }
 
-glm::mat4 camera_matrix(const Camera &camera, f32 aspect) {
+glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
 	const glm::vec3 forward = camera_forward(camera);
 	const glm::mat4 view = glm::lookAt(camera.position, camera.position + forward, glm::vec3(0, 1, 0));
 	const glm::mat4 projection = glm::perspective(glm::radians(68.0f), aspect, 0.08f, 3600.0f);
 	return projection * view;
 }
 
-void write_scene_uniform(SceneUniform *uniform, const Camera &camera, f32 aspect, f32 time) {
+void write_scene_uniform(SceneUniform* uniform, const Camera& camera, f32 aspect, f32 time) {
 	const glm::mat4 transform = camera_matrix(camera, aspect);
 	const glm::vec3 light_dir = glm::normalize(glm::vec3(-0.42f, 0.58f, 0.70f));
 	std::memcpy(uniform->view_projection, glm::value_ptr(transform), sizeof(uniform->view_projection));
@@ -277,7 +277,7 @@ void write_scene_uniform(SceneUniform *uniform, const Camera &camera, f32 aspect
 	uniform->padding[2] = 0.0f;
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture_view *depth_view, u32 width, u32 height) {
+void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
 	if (*depth_view) {
 		rtTextureViewDestroy(*depth_view);
 	}
@@ -293,7 +293,7 @@ void recreate_depth_buffer(rt_queue queue, rt_texture *depth_texture, rt_texture
 	}
 }
 
-void framebuffer_resized(GLFWwindow *window, int width, int height) {
+void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	(void)window;
 	if (width > 0 && height > 0) {
 		FramebufferWidth.store((u32)width, std::memory_order_release);
@@ -305,7 +305,7 @@ void framebuffer_resized(GLFWwindow *window, int width, int height) {
 	}
 }
 
-void cursor_moved(GLFWwindow *window, double x, double y) {
+void cursor_moved(GLFWwindow* window, double x, double y) {
 	(void)window;
 	static double previous_x = x;
 	static double previous_y = y;
@@ -315,7 +315,7 @@ void cursor_moved(GLFWwindow *window, double x, double y) {
 	previous_y = y;
 }
 
-void update_camera(GLFWwindow *window, Camera *camera, f32 dt) {
+void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 	const f32 sensitivity = 0.0022f;
 	camera->yaw += MouseDx * sensitivity;
 	camera->pitch -= MouseDy * sensitivity;
@@ -350,8 +350,8 @@ void update_camera(GLFWwindow *window, Camera *camera, f32 dt) {
 	}
 }
 
-int main(int argc, char **argv) {
-	const char *backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
+int main(int argc, char** argv) {
+	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, nullptr, 0) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
@@ -377,7 +377,7 @@ int main(int argc, char **argv) {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow *window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
 	if (!window) {
 		std::cerr << "glfwCreateWindow failed\n";
 		glfwTerminate();
