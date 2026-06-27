@@ -19,21 +19,16 @@ set(RUTILE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/Rutile" CACHE STRING 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(RutileTarget)
 
-add_library(rutile INTERFACE)
-add_library(Rutile::rutile ALIAS rutile)
-target_include_directories(rutile
-    INTERFACE
-        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
-)
+# The Rutile::rutile interface target lives in the C binding so that
+# downstream C/C++ consumers can also pull it in directly with
+# add_subdirectory(bindings/c) if they want headers without the runtime.
+add_subdirectory("bindings/c")
 
-add_subdirectory("backend-tools")
-add_subdirectory("backends")
-add_subdirectory("layers")
+add_subdirectory("runtime")
 
 
 if(RUTILE_BUILD_EXAMPLES)
-    add_subdirectory("example")
+    add_subdirectory("examples")
 endif()
 
 rutile_get_runtime_targets(RUTILE_REGISTERED_RUNTIME_TARGETS)
@@ -53,9 +48,7 @@ if(RUTILE_INSTALL)
             ".*[Ww][Ii][Nn][Dd][Oo][Ww][Ss][\\\\/][Ss][Yy][Ss][Tt][Ee][Mm]32[\\\\/].*"
     )
 
-    install(DIRECTORY include/ DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-
-    install(TARGETS rutile EXPORT RutileTargets)
+    # Headers and the rutile interface target are installed by bindings/c.
 
     install(EXPORT RutileTargets
         NAMESPACE Rutile::

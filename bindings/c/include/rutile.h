@@ -127,7 +127,6 @@ enum rt_format_usage { RT_FORMAT_USAGE__RESERVED = 0x7fffffff };
 #define RT_FORMAT_USAGE_TRANSFER_DST ((enum rt_format_usage)0x20)
 
 #define RT_FEATURE_PRESENTATION "RT_FEATURE_PRESENTATION"
-#define RT_FEATURE_SWAPCHAIN_DEPTH_VIEW "RT_FEATURE_SWAPCHAIN_DEPTH_VIEW"
 
 enum rt_buffer_mode { RT_BUFFER_MODE__RESERVED = 0x7fffffff };
 #define RT_BUFFER_STATIC ((enum rt_buffer_mode)1)

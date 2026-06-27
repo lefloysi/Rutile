@@ -50,7 +50,7 @@ function(rutile_configure_shared_library target_name)
     target_compile_definitions(${target_name} PRIVATE RT_BUILD_DLL)
     target_include_directories(${target_name}
         PUBLIC
-            "$<BUILD_INTERFACE:${RUTILE_SOURCE_DIR}/include>"
+            "$<BUILD_INTERFACE:${RUTILE_SOURCE_DIR}/bindings/c/include>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
         PRIVATE
             src
