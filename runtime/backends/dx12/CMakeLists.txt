@@ -48,6 +48,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 
 target_include_directories(${PROJECT_NAME} PRIVATE "src")
 target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/runtime/backend-tools/include")
+target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/RTSL/src")
 
 rutile_configure_shared_library(${PROJECT_NAME})
 

@@ -28,7 +28,7 @@ Rutile is a graphics stack split along three axes that stay decoupled:
                  ^
                  |  rtsl produces rtslp packages that backends consume
 +----------------+----------------------------------------------+
-|                   RTSL (separate repo)                         |
+|                    RTSL (in-tree)                              |
 +----------------------------------------------------------------+
 ```
 
@@ -100,7 +100,7 @@ runtime/* depending on RTSL or any compiler
 
 The last rule is the load-bearing one: a Rutile backend is a runtime
 component, not a compiler. It consumes RTIR; it never depends on the RTSL
-frontend, parser, or linker. The compiler stays in the [RTSL repo](https://www.github.com/lefloys/RTSL).
+frontend, parser, or linker. RTSL now lives in-tree under `Rutile/RTSL/`.
 
 ## RTIR and the Rutile/RTSL split
 

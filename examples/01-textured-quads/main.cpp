@@ -8,21 +8,22 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
-#include <iterator>
 #include <mutex>
 #include <stb_image.h>
 #include <thread>
 #include <vector>
 #include <windows.h>
 
-constexpr const char* kDefaultBackendName = "rt-dx12";
+#include "rtsl_embed.hpp"
+
+constexpr const char* kDefaultBackendName = "rt-vulkan";
 constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
@@ -41,16 +42,6 @@ struct CameraState {
 	f32 yaw = -glm::radians(90.0f);
 	f32 pitch = 0.0f;
 };
-
-static std::vector<char> read_binary_file(const char* path) {
-	std::ifstream file(path, std::ios::binary);
-	if (!file) {
-		std::fprintf(stderr, "failed to open %s\n", path);
-		return {};
-	}
-
-	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
 
 static std::filesystem::path executable_dir(const char* argv0) {
 	std::wstring buffer;
@@ -112,7 +103,6 @@ constexpr rt_vertex_layout kVertexLayout = {
 	3,
 };
 
-constexpr const char* kShaderPath = "textured_quads.rtslp";
 constexpr const char* kTexturePath = "rutile.png";
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
@@ -297,14 +287,9 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 	rtTextureViewAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 	rtTextureViewAnisotropy(texture_view, 1);
 
-	const std::filesystem::path shader_path = asset_dir / kShaderPath;
-	const std::vector<char> shader_program = read_binary_file(shader_path.string().c_str());
-	if (shader_program.empty()) {
-		std::cerr << "failed to load " << shader_path.string() << "\n";
-		RenderFailed.store(true, std::memory_order_release);
-		Running.store(false, std::memory_order_release);
-		return;
-	}
+	const std::vector<char> shader_program(
+		reinterpret_cast<const char*>(rutile_01_textured_quads::textured_quads_rtslp),
+		reinterpret_cast<const char*>(rutile_01_textured_quads::textured_quads_rtslp) + rutile_01_textured_quads::textured_quads_rtslp_size);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());

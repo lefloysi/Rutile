@@ -25,6 +25,12 @@ set(RUTILE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/Rutile" CACHE STRING 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(RutileTarget)
 
+if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET AND NOT VCPKG_TARGET_TRIPLET STREQUAL "")
+    list(PREPEND CMAKE_PREFIX_PATH "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+endif()
+
+add_subdirectory("RTSL")
+
 # The Rutile::rutile interface target lives in the C binding so that
 # downstream C/C++ consumers can also pull it in directly with
 # add_subdirectory(bindings/c) if they want headers without the runtime.

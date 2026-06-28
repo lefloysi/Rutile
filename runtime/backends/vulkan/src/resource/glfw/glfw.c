@@ -30,5 +30,5 @@ void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapc
 	}
 
 	glfwGetFramebufferSize(window, &width, &height);
-	rtvk_swapchain_create_for_surface(ctx, swapchain, surface, (u32)width, (u32)height);
+	rtvk_swapchain_init_from_surface(ctx, swapchain, surface, (u32)width, (u32)height);
 }

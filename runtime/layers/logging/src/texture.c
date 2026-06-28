@@ -14,7 +14,7 @@ RT_EXPORT void rtTextureViewAddress(rt_texture_view texture_view, enum rt_addres
 RT_EXPORT void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) { rtlog_rtTextureViewAnisotropy(texture_view, max_anisotropy); }
 RT_EXPORT void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) { rtlog_rtTextureViewLod(texture_view, min_lod, max_lod, lod_bias); }
 
-RT_EXPORT rt_timepoint rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) { return rtlog_rtTextureCopy(queue, src_texture, src_mip, dst_texture, dst_mip); }
+RT_EXPORT rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) { return rtlog_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip); }
 RT_EXPORT rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) { return rtlog_rtTextureData(texture, type, mip, width, height, depth, format, data); }
 RT_EXPORT rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) { return rtlog_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth); }
 RT_EXPORT rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) { return rtlog_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data); }

@@ -47,7 +47,7 @@ enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-static VkFormat rtvk_format_to_vk(enum rt_format format) {
+VkFormat rtvk_format_to_vk(enum rt_format format) {
 	switch (format) {
 	case RT_R8_UNORM:
 		return VK_FORMAT_R8_UNORM;
@@ -143,7 +143,7 @@ static VkFormat rtvk_format_to_vk(enum rt_format format) {
 		return VK_FORMAT_UNDEFINED;
 	}
 }
-static enum rt_format_usage rtvk_usage_from_vk_features(VkFormatFeatureFlags features) {
+enum rt_format_usage rtvk_usage_from_vk_features(VkFormatFeatureFlags features) {
 	enum rt_format_usage usage = RT_FORMAT_USAGE_NONE;
 	if (features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
 		usage |= RT_FORMAT_USAGE_SAMPLED;

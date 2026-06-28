@@ -5,12 +5,11 @@
 
 #include <GLFW/glfw3.h>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <vector>
-#include <windows.h>
+
+#include "rtsl_embed.hpp"
 
 struct Vertex {
 	f32 position[2];
@@ -28,29 +27,6 @@ static const rt_vertex_attribute kAttributes[] = {
 	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 };
 static const rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 2 };
-
-static std::vector<char> read_binary_file(const char* path) {
-	std::ifstream file(path, std::ios::binary);
-	if (!file) {
-		std::fprintf(stderr, "failed to open %s\n", path);
-		return {};
-	}
-
-	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
-
-static std::filesystem::path executable_dir(const char* argv0) {
-	std::wstring buffer;
-	buffer.resize(32768);
-	const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-	if (length > 0 && length < buffer.size()) {
-		buffer.resize(length);
-		return std::filesystem::path(buffer).parent_path();
-	}
-
-	std::filesystem::path path = argv0 ? std::filesystem::path(argv0) : std::filesystem::path();
-	return path.has_parent_path() ? path.parent_path() : std::filesystem::current_path();
-}
 
 static void rt_output(const char* message, void*) {
 	if (message) {
@@ -70,7 +46,7 @@ static bool check_rt(const char* step) {
 	return false;
 }
 
-int main(int argc, char** argv) {
+int main() {
 	if (rtLoadDevelopment("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoadDevelopment failed\n");
 		return 1;
@@ -85,13 +61,9 @@ int main(int argc, char** argv) {
 	}
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	const std::filesystem::path asset_dir = executable_dir(argc > 0 ? argv[0] : nullptr);
-	const std::filesystem::path triangle_path = asset_dir / "triangle.rtslp";
-	const std::vector<char> triangle_program = read_binary_file(triangle_path.string().c_str());
-	if (triangle_program.empty()) {
-		std::fprintf(stderr, "failed to load %s\n", triangle_path.string().c_str());
-		return 1;
-	}
+	const std::vector<char> triangle_program(
+		reinterpret_cast<const char*>(rutile_00_triangle::triangle_rtslp),
+		reinterpret_cast<const char*>(rutile_00_triangle::triangle_rtslp) + rutile_00_triangle::triangle_rtslp_size);
 	rtGraphicsProgramSource(program, triangle_program.size(), triangle_program.data());
 	rtGraphicsProgramLayout(program, &kLayout);
 	rtGraphicsProgramFinalize(program);

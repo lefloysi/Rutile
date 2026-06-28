@@ -81,6 +81,7 @@ void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue);
 struct rtvk_queue* rtvk_queue_query(struct rtvk_context* ctx, enum rt_queue_capability capability);
 struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceKHR surface);
 VkPipelineStageFlags rtvk_queue_wait_stage(struct rtvk_queue* queue);
+u64 rtvk_queue_completed_value(struct rtvk_context* ctx, struct rtvk_queue* queue);
 void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* queue, u64 completed_value);
 void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_timepoint timepoint);
 struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_command_buffer* command_buffer);

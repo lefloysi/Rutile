@@ -478,7 +478,7 @@ static VkExtent2D rtvk_swapchain_choose_extent(VkSurfaceCapabilitiesKHR capabili
 	return extent;
 }
 
-void rtvk_swapchain_create_for_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
+void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
 	swapchain->vk_surface = surface;
 	swapchain->present_queue = rtvk_queue_query_present(ctx, surface);
 	if (!swapchain->present_queue) {
@@ -787,7 +787,7 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 		swapchain->present_queue = NULL;
 	}
 
-	rtvk_swapchain_create_for_surface(ctx, swapchain, surface, width, height);
+	rtvk_swapchain_init_from_surface(ctx, swapchain, surface, width, height);
 	ok = rtvk_error() == RT_SUCCESS;
 	if (present_queue) {
 		rtvk_release_resource(present_queue);

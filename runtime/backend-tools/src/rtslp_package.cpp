@@ -86,7 +86,7 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 	}
 
 	std::span<const std::uint8_t> data(static_cast<const std::uint8_t*>(program_source), static_cast<size_t>(program_size));
-	if (read_u32(data, 0) != kRtslMagic || read_u16(data, 4) != 5) {
+	if (read_u32(data, 0) != kRtslMagic) {
 		throw std::runtime_error("unsupported RTSLP artifact");
 	}
 
