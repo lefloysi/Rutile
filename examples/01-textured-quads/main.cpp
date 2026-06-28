@@ -13,9 +13,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <mutex>
+#include <windows.h>
 #include <stb_image.h>
 #include <thread>
 #include <vector>
@@ -50,6 +52,19 @@ static std::vector<char> read_binary_file(const char* path) {
 	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
+static std::filesystem::path executable_dir(const char* argv0) {
+	std::wstring buffer;
+	buffer.resize(32768);
+	const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+	if (length > 0 && length < buffer.size()) {
+		buffer.resize(length);
+		return std::filesystem::path(buffer).parent_path();
+	}
+
+	std::filesystem::path path = argv0 ? std::filesystem::path(argv0) : std::filesystem::path();
+	return path.has_parent_path() ? path.parent_path() : std::filesystem::current_path();
+}
+
 std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
 std::atomic<u32> FramebufferWidth = 1280;
 std::atomic<u32> FramebufferHeight = 720;
@@ -62,8 +77,8 @@ bool MoveUp = false;
 bool MoveDown = false;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
-std::atomic_bool Running = true;
-std::atomic_bool RenderFailed = false;
+std::atomic<bool> Running = true;
+std::atomic<bool> RenderFailed = false;
 
 constexpr Vertex kVertices[] = {
 	{{-0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
@@ -86,9 +101,9 @@ constexpr u32 kMovingQuadFirstVertex = 0;
 constexpr u32 kStaticQuadFirstVertex = 6;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{0, offsetof(Vertex, position), RT_RGB32_SFLOAT},
-	{1, offsetof(Vertex, color), RT_RGB32_SFLOAT},
-	{2, offsetof(Vertex, uv), RT_RG32_SFLOAT},
+	{"position", offsetof(Vertex, position), RT_RGB32_SFLOAT},
+	{"color", offsetof(Vertex, color), RT_RGB32_SFLOAT},
+	{"uv", offsetof(Vertex, uv), RT_RG32_SFLOAT},
 };
 
 constexpr rt_vertex_layout kVertexLayout = {
@@ -98,7 +113,6 @@ constexpr rt_vertex_layout kVertexLayout = {
 };
 
 constexpr const char* kShaderPath = "textured_quads.rtslp";
-
 constexpr const char* kTexturePath = "rutile.png";
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
@@ -242,8 +256,9 @@ void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture
 		rtTextureDestroy(*depth_texture);
 	}
 	*depth_texture = rtTextureCreate();
-	rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
-	*depth_view = rtTextureViewCreate(*depth_texture);
+	rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
+	*depth_view = rtTextureViewCreate();
+	rtTextureViewBind(*depth_view, *depth_texture);
 	if (!*depth_view) {
 		rtTextureDestroy(*depth_texture);
 		*depth_texture = RT_NULL_HANDLE;
@@ -261,15 +276,16 @@ double render_time_seconds(std::chrono::steady_clock::time_point start_time) {
 	return seconds(std::chrono::steady_clock::now() - start_time).count();
 }
 
-void render_thread_main(void) {
+void render_thread_main(const std::filesystem::path& asset_dir) {
 	rt_swapchain swapchain = Swapchain.load(std::memory_order_acquire);
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	int texture_width = 0;
 	int texture_height = 0;
-	stbi_uc* texture_pixels = stbi_load(kTexturePath, &texture_width, &texture_height, nullptr, 4);
+	const std::filesystem::path texture_path = asset_dir / kTexturePath;
+	stbi_uc* texture_pixels = stbi_load(texture_path.string().c_str(), &texture_width, &texture_height, nullptr, 4);
 	if (!texture_pixels) {
-		std::cerr << "failed to load " << kTexturePath << "\n";
+		std::cerr << "failed to load " << texture_path.string() << "\n";
 		RenderFailed.store(true, std::memory_order_release);
 		Running.store(false, std::memory_order_release);
 		return;
@@ -289,24 +305,42 @@ void render_thread_main(void) {
 	rtBufferData(static_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, transform_size, &static_uniform);
 
 	rt_texture texture = rtTextureCreate();
-	rtTextureData(queue, texture, RT_TEXTURE_2D, 0, static_cast<u32>(texture_width), static_cast<u32>(texture_height), 1, RT_RGBA8_UNORM, texture_pixels);
+	rtTextureData(texture, RT_TEXTURE_2D, 0, static_cast<u32>(texture_width), static_cast<u32>(texture_height), 1, RT_RGBA8_UNORM, texture_pixels);
 	stbi_image_free(texture_pixels);
 
-	rt_texture_view texture_view = rtTextureViewCreate(texture);
+	rt_texture_view texture_view = rtTextureViewCreate();
+	rtTextureViewBind(texture_view, texture);
 	rtTextureViewFilter(texture_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
 	rtTextureViewAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 	rtTextureViewAnisotropy(texture_view, 1);
 
-	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(graphics_program, &kVertexLayout);
-	const std::vector<char> shader_program = read_binary_file(kShaderPath);
+	const std::filesystem::path shader_path = asset_dir / kShaderPath;
+	const std::vector<char> shader_program = read_binary_file(shader_path.string().c_str());
 	if (shader_program.empty()) {
+		std::cerr << "failed to load " << shader_path.string() << "\n";
+		RenderFailed.store(true, std::memory_order_release);
+		Running.store(false, std::memory_order_release);
 		return;
 	}
+
+	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());
+	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
+	std::cerr << "trace: link begin\n";
 	rtGraphicsProgramLink(graphics_program);
-	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
-	rt_uniform_location image_location = rtGraphicsProgramUniformLocation(graphics_program, "Image");
+	if (rtError() != RT_SUCCESS) {
+		std::cerr << "rtGraphicsProgramLink failed: " << rtErrorMessage() << "\n";
+		rtClearError();
+		RenderFailed.store(true, std::memory_order_release);
+		Running.store(false, std::memory_order_release);
+		rtGraphicsProgramDestroy(graphics_program);
+		return;
+	}
+	std::cerr << "trace: link ok\n";
+	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "transform");
+	std::cerr << "trace: transform location " << (transform_location ? "ok" : "null") << "\n";
+	rt_uniform_location image_location = rtGraphicsProgramUniformLocation(graphics_program, "texture");
+	std::cerr << "trace: image location " << (image_location ? "ok" : "null") << "\n";
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
@@ -318,7 +352,11 @@ void render_thread_main(void) {
 	auto previous_time = start_time;
 	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
 
+	u32 trace_frame = 0;
 	while (Running.load(std::memory_order_acquire)) {
+		if (trace_frame < 3) {
+			std::cerr << "trace: frame " << trace_frame << " begin\n";
+		}
 		auto now = std::chrono::steady_clock::now();
 		const std::chrono::duration<f32> delta = now - previous_time;
 		previous_time = now;
@@ -340,20 +378,26 @@ void render_thread_main(void) {
 		}
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
+		if (trace_frame < 3) {
+			std::cerr << "trace: acquire " << (acquired.framebuffer ? "ok" : "empty") << "\n";
+		}
 		if (!acquired.framebuffer) {
+			++trace_frame;
 			continue;
 		}
 
 		rtQueueWait(queue, acquired.timepoint);
-		if (depth_view) {
-			rtFramebufferDepthView(acquired.framebuffer, depth_view);
+		if (trace_frame < 3) {
+			std::cerr << "trace: queue wait ok\n";
+		}
+		rtFramebufferDepthView(acquired.framebuffer, depth_view);
+		if (trace_frame < 3) {
+			std::cerr << "trace: depth attach ok\n";
 		}
 		rtCmdBegin(cmd, queue);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.5f, 0.5f, 0.5f, 0.5f);
-		if (depth_view) {
-			rtCmdClearDepth(cmd, 1.0f);
-		}
+		rtCmdClearDepth(cmd, 1.0f);
 
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdUniformTexture(cmd, image_location, texture_view);
@@ -367,11 +411,16 @@ void render_thread_main(void) {
 		rtCmdEnd(cmd);
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
-		last_rendered = rendered;
-		if (depth_view) {
-			rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
+		if (trace_frame < 3) {
+			std::cerr << "trace: submit ok\n";
 		}
+		last_rendered = rendered;
+		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
+		if (trace_frame < 3) {
+			std::cerr << "trace: present ok\n";
+		}
+		++trace_frame;
 	}
 
 	Running.store(false, std::memory_order_release);
@@ -389,6 +438,7 @@ void render_thread_main(void) {
 }
 
 int main(int argc, char** argv) {
+	const std::filesystem::path asset_dir = executable_dir(argc > 0 ? argv[0] : nullptr);
 	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
 	if (rtLoad(backend_name, kLayers, 1) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
@@ -434,6 +484,16 @@ int main(int argc, char** argv) {
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
+	if (rtError() != RT_SUCCESS) {
+		std::cerr << "rtSwapchainBindWindowGLFW failed: " << rtErrorMessage() << "\n";
+		Running.store(false, std::memory_order_release);
+		rtSwapchainDestroy(swapchain);
+		rtExit();
+		rtUnload();
+		glfwDestroyWindow(window);
+		glfwTerminate();
+		return 1;
+	}
 	Swapchain.store(swapchain, std::memory_order_release);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
@@ -442,7 +502,7 @@ int main(int argc, char** argv) {
 		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 	}
 
-	std::thread render_thread(render_thread_main);
+	std::thread render_thread(render_thread_main, asset_dir);
 	while (!glfwWindowShouldClose(window) && Running.load(std::memory_order_acquire)) {
 		update_camera_input(window);
 		glfwWaitEventsTimeout(1.0 / 120.0);

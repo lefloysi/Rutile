@@ -8,7 +8,8 @@
 #include "error.h"
 #include "resource/graphics_program.h"
 
-#include <rutile/backend_tools/rtslp_package.hpp>
+#include <rtslp_package.hpp>
+#include "../../../backend-tools/src/rtslp_package.cpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -26,16 +27,16 @@
 
 namespace {
 
-using rutile::backend_tools::RTArtifactModule;
-using rutile::backend_tools::RTFunction;
-using rutile::backend_tools::RTInstruction;
-using rutile::backend_tools::RTIROp;
-using rutile::backend_tools::RTStageField;
-using rutile::backend_tools::RTStageInterface;
-using rutile::backend_tools::RTStageKind;
-using rutile::backend_tools::RTStageRole;
-using rutile::backend_tools::RTStructDecl;
-using rutile::backend_tools::RTUniform;
+using rt::RTArtifactModule;
+using rt::RTFunction;
+using rt::RTInstruction;
+using rt::RTIROp;
+using rt::RTStageField;
+using rt::RTStageInterface;
+using rt::RTStageKind;
+using rt::RTStageRole;
+using rt::RTStructDecl;
+using rt::RTUniform;
 
 struct TypeRegistry {
 	std::unordered_map<u32, std::string> type_names;
@@ -391,8 +392,7 @@ const char* hlsl_semantic_for(const RTStageField& field, RTStageKind stage, RTSt
 		return "SV_IsFrontFace";
 	if (field.builtin == "frag_depth")
 		return "SV_Depth";
-	storage = "TEXCOORD" + std::to_string(location);
-	return storage.c_str();
+	return field.name.c_str();
 }
 
 void emit_stage_input_struct(std::ostringstream& out, const std::string& struct_name, const RTStageInterface* iface, const std::vector<RTStructDecl>& structs, const std::string& payload_type_name, RTStageKind stage) {
@@ -479,6 +479,14 @@ std::string ssa_name(u32 id) { return "v_" + std::to_string(id); }
 
 void emit_function_body(std::ostringstream& out, const RTFunction& fn, const TypeRegistry& reg, const RTArtifactModule& module, const RTStageInterface* input_iface, const RTStageInterface* output_iface, const std::string& payload_input_type_name, const std::string& payload_output_type_name, const std::string& output_struct_name, RTStageKind stage) {
 	ExprCtx ctx;
+
+	// Bind each uniform's global-variable id to its HLSL name. Pairing is by
+	// index: module.global_variables[i] is the OpVariable for module.uniforms[i].
+	// Subsequent OpLoads from these ids then resolve to the cbuffer / texture
+	// identifier emitted by emit_uniforms.
+	for (size_t i = 0; i < module.uniforms.size() && i < module.global_variables.size(); ++i) {
+		ctx.bind(module.global_variables[i].result_id, module.uniforms[i].name);
+	}
 
 	// Reconstruct the input payload struct from the stage input parameter. The
 	// stage-input struct is named "_in" with HLSL field names matching the
@@ -573,7 +581,7 @@ void emit_function_body(std::ostringstream& out, const RTFunction& fn, const Typ
 				// Struct: build a temporary, field-assign positionally.
 				const auto& decl = module.structs[it->second];
 				out << "    " << ty << " " << ssa_name(inst.result_id) << " = (" << ty << ")0;\n";
-				const std::size_t fields = std::min(decl.fields.size(), inst.operands.size());
+				const std::size_t fields = (std::min)(decl.fields.size(), inst.operands.size());
 				for (std::size_t i = 0; i < fields; ++i) {
 					out << "    " << ssa_name(inst.result_id) << "." << decl.fields[i].name << " = " << operand_text(inst.operands[i]) << ";\n";
 				}
@@ -593,10 +601,14 @@ void emit_function_body(std::ostringstream& out, const RTFunction& fn, const Typ
 		}
 		case RTIROp::Load: {
 			if (inst.operands.empty()) {
-				bind_inline(inst, "(0)");
+				ctx.bind(inst.result_id, "(0)");
 				break;
 			}
-			bind_inline(inst, operand_text(inst.operands[0]));
+			// Forward the source's HLSL name without a typed temporary. HLSL can
+			// read cbuffer scalars/matrices directly by name, and opaque
+			// resources (Texture2D, SamplerState) cannot be copied into locals
+			// at all - they must flow into Sample()/etc. by their register name.
+			ctx.bind(inst.result_id, operand_text(inst.operands[0]));
 			break;
 		}
 		case RTIROp::Store: {
@@ -758,7 +770,7 @@ extern "C" rtdx_graphics_hlsl_compile_result rtdx_shader_compile_graphics_rtslp(
 	const void* program_source
 ) {
 	rtdx_graphics_hlsl_compile_result result = {};
-	const RTArtifactModule module = rutile::backend_tools::read_rtslp_module(program_size, program_source);
+	const RTArtifactModule module = rt::read_rtslp_module(program_size, program_source);
 	TypeRegistry reg;
 	build_type_registry(module, reg);
 	const std::string vs = emit_stage(module, RTStageKind::Vertex, reg);

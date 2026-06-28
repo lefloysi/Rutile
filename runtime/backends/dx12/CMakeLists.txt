@@ -47,12 +47,12 @@ target_sources(${PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE "src")
+target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/runtime/backend-tools/include")
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
-        Rutile::backend-tools
         d3d12
         dxgi
         dxguid

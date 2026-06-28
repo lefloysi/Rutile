@@ -198,6 +198,7 @@ void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 }
 
 static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
+	rtClearError();
 	D3D12_DESCRIPTOR_HEAP_DESC heap_info = {};
 	heap_info.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	heap_info.NumDescriptors = RTDX_MAX_FRAMES_IN_FLIGHT;
@@ -260,6 +261,7 @@ static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct 
 }
 
 bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height) {
+	rtClearError();
 	swapchain->hwnd = hwnd;
 	swapchain->width = width;
 	swapchain->height = height;
@@ -325,6 +327,11 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, str
 	rtdx_swapchain_lock_unacquired(swapchain);
 	swapchain->current_image_index = swapchain->dxgi_swapchain->GetCurrentBackBufferIndex();
 	rtdx_swapchain_wait_frame(ctx, &swapchain->frames[swapchain->current_image_index]);
+	if (!swapchain->framebuffers[swapchain->current_image_index]) {
+		rtdx_throwf(RT_INITIALIZATION_FAILED, "swapchain framebuffer %u is unavailable", swapchain->current_image_index);
+		rtdx_swapchain_unlock(swapchain);
+		return empty;
+	}
 	rt_swapchain_acquire_result acquire = {
 		rtdx_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]),
 		{RT_NULL_HANDLE, 0},

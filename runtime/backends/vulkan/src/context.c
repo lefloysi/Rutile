@@ -74,7 +74,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL rtvk_debug_callback(VkDebugUtilsMessageSev
 
 	return VK_FALSE;
 }
-
 static bool rtvk_instance_layer_available(const char* name) {
 	u32 layer_count = 0;
 	VkResult result = vkEnumerateInstanceLayerProperties(&layer_count, NULL);
@@ -107,7 +106,6 @@ static bool rtvk_instance_layer_available(const char* name) {
 	free(layers);
 	return found;
 }
-
 static void rtvk_context_create_debug_messenger(struct rtvk_context* ctx) {
 	PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT_proc = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(ctx->vk_instance, "vkCreateDebugUtilsMessengerEXT");
 	if (!vkCreateDebugUtilsMessengerEXT_proc) {
@@ -125,7 +123,6 @@ static void rtvk_context_create_debug_messenger(struct rtvk_context* ctx) {
 		ctx->vk_debug_messenger = VK_NULL_HANDLE;
 	}
 }
-
 static void rtvk_context_destroy_debug_messenger(struct rtvk_context* ctx) {
 	if (!ctx->vk_debug_messenger) {
 		return;
@@ -634,29 +631,20 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 		return;
 	}
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
-	if (validation_enabled) {
-		rtvk_context_create_debug_messenger(ctx);
-	}
+	if (validation_enabled) { rtvk_context_create_debug_messenger(ctx); }
 #endif
 
 	rtvk_context_pick_physical_device(ctx);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	rtvk_context_create_device(ctx);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	rtvk_context_create_allocator(ctx);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
+	if (rtvk_error() != RT_SUCCESS) { return; }
 
 	rtvk_log_startup_time(start_ns);
 }
-
 void rtvk_context_finish(struct rtvk_context* ctx) {
 	if (!ctx) {
 		return;
@@ -692,7 +680,6 @@ void rtvk_context_finish(struct rtvk_context* ctx) {
 		ctx->vk_instance = VK_NULL_HANDLE;
 	}
 }
-
 void rtvk_context_destroy(struct rtvk_context* ctx) {
 	if (!ctx) {
 		return;

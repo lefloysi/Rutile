@@ -481,8 +481,9 @@ int main(int argc, char* argv[]) {
 	rtBufferData(heat_buffers[1], RT_BUFFER_STATIC, RT_BUFFER_USAGE_STORAGE, heat_byte_size, nullptr);
 
 	rt_texture color_texture = rtTextureCreate();
-	rtTextureData(queue, color_texture, RT_TEXTURE_2D, 0, kTextureWidth, kTextureHeight, 1, RT_RGBA8_UNORM, nullptr);
-	rt_texture_view color_view = rtTextureViewCreate(color_texture);
+	rtTextureData(color_texture, RT_TEXTURE_2D, 0, kTextureWidth, kTextureHeight, 1, RT_RGBA8_UNORM, nullptr);
+	rt_texture_view color_view = rtTextureViewCreate();
+	rtTextureViewBind(color_view, color_texture);
 	rtTextureViewFilter(color_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
 	rtTextureViewAddress(color_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 
@@ -495,7 +496,7 @@ int main(int argc, char* argv[]) {
 	rt_compute_program color_program = create_compute_program(kColorShader);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(graphics_program, nullptr);
+	rtGraphicsProgramLayout(graphics_program, nullptr);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramLink(graphics_program);

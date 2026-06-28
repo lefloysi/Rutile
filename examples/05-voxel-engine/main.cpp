@@ -225,8 +225,9 @@ void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture
 		rtTextureDestroy(*depth_texture);
 	}
 	*depth_texture = rtTextureCreate();
-	rtTimepointWait(rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
-	*depth_view = rtTextureViewCreate(*depth_texture);
+	rtTimepointWait(rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
+	*depth_view = rtTextureViewCreate();
+	rtTextureViewBind(*depth_view, *depth_texture);
 	if (!*depth_view) {
 		rtTextureDestroy(*depth_texture);
 		*depth_texture = RT_NULL_HANDLE;
@@ -345,7 +346,7 @@ int main(int argc, char** argv) {
 	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(water_transform), &water_transform);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(graphics_program, &kVertexLayout);
+	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
@@ -353,7 +354,7 @@ int main(int argc, char** argv) {
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(water_program, &kVertexLayout);
+	rtGraphicsProgramLayout(water_program, &kVertexLayout);
 	rtGraphicsProgramVertexShader(water_program, std::strlen(kWaterVertexShader), kWaterVertexShader);
 	rtGraphicsProgramFragmentShader(water_program, std::strlen(kWaterFragmentShader), kWaterFragmentShader);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);

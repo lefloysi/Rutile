@@ -18,10 +18,8 @@
 RTDX_EXTERN_C_ENTER
 RTDX_API rt_graphics_program rtGraphicsProgramCreate(void);
 RTDX_API void rtGraphicsProgramDestroy(rt_graphics_program program);
-RTDX_API void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout);
+RTDX_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout);
 RTDX_API void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data);
-RTDX_API void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data);
-RTDX_API void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data);
 RTDX_API void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 RTDX_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 RTDX_API void rtGraphicsProgramLink(rt_graphics_program program);
@@ -47,21 +45,8 @@ struct rtdx_uniform_location {
 	u32 sampler_root_parameter;
 };
 
-typedef struct rtdx_retired_graphics_pipeline {
-	struct rtdx_retired_graphics_pipeline* next;
-	ID3D12PipelineState* d3d_pipeline;
-} rtdx_retired_graphics_pipeline;
-
-typedef struct rtdx_retired_root_signature {
-	struct rtdx_retired_root_signature* next;
-	ID3D12RootSignature* d3d_root_signature;
-} rtdx_retired_root_signature;
-
 struct rtdx_graphics_program {
 	struct rtdx_resource_base base;
-	rtdx_retired_graphics_pipeline* retired_pipelines;
-	rtdx_retired_root_signature* retired_root_signatures;
-
 	ID3D12RootSignature* d3d_root_signature;
 	ID3D12PipelineState* d3d_pipeline;
 
@@ -83,12 +68,6 @@ struct rtdx_graphics_program {
 	rtdx_uniform_location* uniform_locations;
 	u32 uniform_location_count;
 
-	bool vertex_shader_set;
-	bool fragment_shader_set;
-	char* vertex_shader_source;
-	u64 vertex_shader_size;
-	char* fragment_shader_source;
-	u64 fragment_shader_size;
 	char* program_source;
 	u64 program_source_size;
 	char* vertex_hlsl;
@@ -99,10 +78,8 @@ struct rtdx_graphics_program {
 RTDX_DECLARE_NEW_RESOURCE(graphics_program)
 
 bool rtdx_graphics_program_prepare(struct rtdx_context* ctx, struct rtdx_graphics_program* program, DXGI_FORMAT color_format, DXGI_FORMAT depth_format);
-void rtdx_graphics_program_vertex_layout(struct rtdx_context* ctx, struct rtdx_graphics_program* program, const rt_vertex_layout* layout);
+void rtdx_graphics_program_layout(struct rtdx_context* ctx, struct rtdx_graphics_program* program, const rt_vertex_layout* layout);
 void rtdx_graphics_program_source(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data);
-void rtdx_graphics_program_vertex_shader(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data);
-void rtdx_graphics_program_fragment_shader(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data);
 void rtdx_graphics_program_raster_state(struct rtdx_context* ctx, struct rtdx_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 void rtdx_graphics_program_blend_state(struct rtdx_context* ctx, struct rtdx_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 void rtdx_graphics_program_link(struct rtdx_context* ctx, struct rtdx_graphics_program* program);

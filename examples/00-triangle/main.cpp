@@ -7,7 +7,9 @@
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
+#include <filesystem>
 #include <iterator>
+#include <windows.h>
 #include <vector>
 
 struct Vertex {
@@ -22,8 +24,8 @@ static const Vertex kVertices[] = {
 };
 
 static const rt_vertex_attribute kAttributes[] = {
-	{0, offsetof(Vertex, position), RT_RG32_SFLOAT},
-	{1, offsetof(Vertex, color), RT_RGB32_SFLOAT},
+	{"position", offsetof(Vertex, position), RT_RG32_SFLOAT},
+	{"color", offsetof(Vertex, color), RT_RGB32_SFLOAT},
 };
 static const rt_vertex_layout kLayout = {sizeof(Vertex), kAttributes, 2};
 
@@ -35,6 +37,19 @@ static std::vector<char> read_binary_file(const char* path) {
 	}
 
 	return std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+static std::filesystem::path executable_dir(const char* argv0) {
+	std::wstring buffer;
+	buffer.resize(32768);
+	const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+	if (length > 0 && length < buffer.size()) {
+		buffer.resize(length);
+		return std::filesystem::path(buffer).parent_path();
+	}
+
+	std::filesystem::path path = argv0 ? std::filesystem::path(argv0) : std::filesystem::path();
+	return path.has_parent_path() ? path.parent_path() : std::filesystem::current_path();
 }
 
 static void rt_output(const char* message, void*) {
@@ -56,7 +71,7 @@ static bool check_rt(const char* step) {
 }
 
 int main(int argc, char** argv) {
-	if (rtLoadDevelopment("rt-dx12", nullptr, 0) != RT_SUCCESS) {
+	if (rtLoadDevelopment("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoadDevelopment failed\n");
 		return 1;
 	}
@@ -66,6 +81,21 @@ int main(int argc, char** argv) {
 	rtSetOutput(rt_output, nullptr);
 	rtInit(features, 1);
 	if (!check_rt("rtInit")) {
+		return 1;
+	}
+
+	rt_graphics_program program = rtGraphicsProgramCreate();
+	const std::filesystem::path asset_dir = executable_dir(argc > 0 ? argv[0] : nullptr);
+	const std::filesystem::path triangle_path = asset_dir / "triangle.rtslp";
+	const std::vector<char> triangle_program = read_binary_file(triangle_path.string().c_str());
+	if (triangle_program.empty()) {
+		std::fprintf(stderr, "failed to load %s\n", triangle_path.string().c_str());
+		return 1;
+	}
+	rtGraphicsProgramSource(program, triangle_program.size(), triangle_program.data());
+	rtGraphicsProgramLayout(program, &kLayout);
+	rtGraphicsProgramLink(program);
+	if (!check_rt("rtGraphicsProgramLink")) {
 		return 1;
 	}
 
@@ -87,18 +117,6 @@ int main(int argc, char** argv) {
 	rt_buffer vbo = rtBufferCreate();
 	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(kVertices), kVertices);
 	if (!check_rt("rtBufferData")) {
-		return 1;
-	}
-
-	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(program, &kLayout);
-	const std::vector<char> triangle_program = read_binary_file("triangle.rtslp");
-	if (triangle_program.empty()) {
-		return 1;
-	}
-	rtGraphicsProgramSource(program, triangle_program.size(), triangle_program.data());
-	rtGraphicsProgramLink(program);
-	if (!check_rt("rtGraphicsProgramLink")) {
 		return 1;
 	}
 

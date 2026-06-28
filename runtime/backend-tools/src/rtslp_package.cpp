@@ -1,10 +1,10 @@
-#include "rutile/backend_tools/rtslp_package.hpp"
+#include "rtslp_package.hpp"
 
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 
-namespace rutile::backend_tools {
+namespace rt {
 namespace {
 
 constexpr u32 kRtslMagic = 0x4c535452;
@@ -86,7 +86,7 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 	}
 
 	std::span<const std::uint8_t> data(static_cast<const std::uint8_t*>(program_source), static_cast<size_t>(program_size));
-	if (read_u32(data, 0) != kRtslMagic || read_u16(data, 4) != 2) {
+	if (read_u32(data, 0) != kRtslMagic || read_u16(data, 4) != 5) {
 		throw std::runtime_error("unsupported RTSLP artifact");
 	}
 
@@ -117,8 +117,9 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			}
 			const u32 global_count = read_u32(section, cursor);
 			cursor += 4;
+			module.global_variables.reserve(global_count);
 			for (u32 i = 0; i < global_count; ++i) {
-				(void)read_instruction(section, cursor);
+				module.global_variables.push_back(read_instruction(section, cursor));
 			}
 			const u32 function_count = read_u32(section, cursor);
 			cursor += 4;
@@ -131,8 +132,19 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 				fn.return_type_id = read_u32(section, cursor);
 				cursor += 4;
 				fn.stage = static_cast<RTStageKind>(section[cursor++]);
-				cursor += 1;
-				cursor += 8;
+				cursor += 1; // generated
+				cursor += 1; // exported
+				cursor += 8; // display_name, mangled_name (StringIds)
+				// Skip source_name (string) and parameter_type_names
+				// (string[]). The runtime never resolves user functions -
+				// the linker has already inlined them - so these fields
+				// are pure linker metadata as far as Rutile is concerned.
+				(void)read_string(section, cursor);
+				const u32 type_name_count = read_u32(section, cursor);
+				cursor += 4;
+				for (u32 t = 0; t < type_name_count; ++t) {
+					(void)read_string(section, cursor);
+				}
 				const u32 parameter_count = read_u32(section, cursor);
 				cursor += 4;
 				fn.parameter_ids.reserve(parameter_count);
@@ -147,6 +159,14 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 					fn.body.push_back(read_instruction(section, cursor));
 				}
 				module.functions.push_back(std::move(fn));
+			}
+			// call_target_names tail. A well-formed rtslp has no unresolved
+			// user-function calls (the inliner cleared them), so this count
+			// is typically zero - but we have to advance past it either way.
+			const u32 call_target_count = read_u32(section, cursor);
+			cursor += 4;
+			for (u32 t = 0; t < call_target_count; ++t) {
+				(void)read_string(section, cursor);
 			}
 			break;
 		}
@@ -184,6 +204,11 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 				cursor += 4;
 				uniform.binding = read_u32(section, cursor);
 				cursor += 4;
+				// Skip is_anonymous (u8) and anonymous_block_id (u32). The
+				// runtime only needs the resolved set/binding; the anonymity
+				// metadata exists for Sema/lowering during compilation.
+				cursor += 1;
+				cursor += 4;
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				for (u32 f = 0; f < field_count; ++f) {
@@ -199,12 +224,12 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			cursor += 4;
 			module.stage_interfaces.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-				RTStageInterface interface;
-				interface.role = static_cast<RTStageRole>(section[cursor++]);
-				interface.type_name = read_string(section, cursor);
+				RTStageInterface stage_interface;
+				stage_interface.role = static_cast<RTStageRole>(section[cursor++]);
+				stage_interface.type_name = read_string(section, cursor);
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
-				interface.fields.reserve(field_count);
+				stage_interface.fields.reserve(field_count);
 				for (u32 f = 0; f < field_count; ++f) {
 					RTStageField field;
 					field.name = read_string(section, cursor);
@@ -213,9 +238,9 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 					field.has_location = section[cursor++] != 0;
 					field.location = read_u32(section, cursor);
 					cursor += 4;
-					interface.fields.push_back(std::move(field));
+					stage_interface.fields.push_back(std::move(field));
 				}
-				module.stage_interfaces.push_back(std::move(interface));
+				module.stage_interfaces.push_back(std::move(stage_interface));
 			}
 			break;
 		}
@@ -225,4 +250,4 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 	return module;
 }
 
-} // namespace rutile::backend_tools
+} // namespace rt

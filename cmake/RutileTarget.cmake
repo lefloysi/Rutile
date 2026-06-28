@@ -24,6 +24,12 @@ function(rutile_register_runtime_target target_name)
         message(FATAL_ERROR "Rutile runtime target '${target_name}' does not exist")
     endif()
 
+    if(MSVC)
+        set_target_properties("${target_name}" PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+    endif()
+
     set_property(GLOBAL APPEND PROPERTY RUTILE_RUNTIME_TARGETS "${target_name}")
 
     if(NOT TARGET "Rutile::${target_name}")

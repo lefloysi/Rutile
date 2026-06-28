@@ -216,7 +216,7 @@ enum rt_blend_op { RT_BLEND_OP__RESERVED = 0x7fffffff };
 #define RT_BLEND_OP_MAX ((enum rt_blend_op)4)
 
 typedef struct rt_vertex_attribute {
-	u32 location;
+	const char* name;
 	u32 offset;
 	enum rt_format format;
 } rt_vertex_attribute;
@@ -273,7 +273,6 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 ** @brief Unload the current implementation and layers.
 **
 ** @note Core API calls are unavailable after unload.
-** @note Handles created before unload become invalid.
 ** @note It is valid to call rtUnload when nothing is loaded.
 */
 void rtUnload(void);
@@ -317,18 +316,19 @@ typedef void (*PFN_rtBufferRead)(rt_buffer buffer, u64 offset, u64 size, void* d
 
 typedef rt_texture (*PFN_rtTextureCreate)(void);
 typedef void (*PFN_rtTextureDestroy)(rt_texture texture);
-typedef rt_texture_view (*PFN_rtTextureViewCreate)(rt_texture texture);
+typedef rt_texture_view (*PFN_rtTextureViewCreate)(void);
+typedef void (*PFN_rtTextureViewBind)(rt_texture_view texture_view, rt_texture texture);
 typedef void (*PFN_rtTextureViewDestroy)(rt_texture_view texture_view);
 typedef void (*PFN_rtTextureViewFilter)(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
 typedef void (*PFN_rtTextureViewAddress)(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
 typedef void (*PFN_rtTextureViewAnisotropy)(rt_texture_view texture_view, u32 max_anisotropy);
 typedef void (*PFN_rtTextureViewLod)(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 
-typedef rt_timepoint (*PFN_rtTextureCopy)(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
-typedef rt_timepoint (*PFN_rtTextureData)(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data);
-typedef rt_timepoint (*PFN_rtTextureSubcopy)(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-typedef rt_timepoint (*PFN_rtTextureSubdata)(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
-typedef rt_timepoint (*PFN_rtTextureViewCopyToBuffer)(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer);
+typedef rt_timepoint (*PFN_rtTextureCopy)(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
+typedef rt_timepoint (*PFN_rtTextureData)(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);
+typedef rt_timepoint (*PFN_rtTextureSubcopy)(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
+typedef rt_timepoint (*PFN_rtTextureSubdata)(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
+typedef rt_timepoint (*PFN_rtTextureViewCopyToBuffer)(rt_texture_view texture_view, rt_buffer buffer);
 typedef rt_extent_3d (*PFN_rtTextureViewExtent)(rt_texture_view texture_view);
 typedef rt_framebuffer (*PFN_rtFramebufferCreate)(void);
 typedef void (*PFN_rtFramebufferDestroy)(rt_framebuffer framebuffer);
@@ -338,10 +338,8 @@ typedef void (*PFN_rtFramebufferDepthView)(rt_framebuffer framebuffer, rt_textur
 
 typedef rt_graphics_program (*PFN_rtGraphicsProgramCreate)(void);
 typedef void (*PFN_rtGraphicsProgramDestroy)(rt_graphics_program program);
-typedef void (*PFN_rtGraphicsProgramVertexLayout)(rt_graphics_program program, const rt_vertex_layout* layout);
+typedef void (*PFN_rtGraphicsProgramLayout)(rt_graphics_program program, const rt_vertex_layout* layout);
 typedef void (*PFN_rtGraphicsProgramSource)(rt_graphics_program program, u64 size, const void* data);
-typedef void (*PFN_rtGraphicsProgramVertexShader)(rt_graphics_program program, u64 size, const void* data);
-typedef void (*PFN_rtGraphicsProgramFragmentShader)(rt_graphics_program program, u64 size, const void* data);
 typedef void (*PFN_rtGraphicsProgramRasterState)(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 typedef void (*PFN_rtGraphicsProgramBlendState)(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 typedef void (*PFN_rtGraphicsProgramLink)(rt_graphics_program program);
@@ -388,6 +386,7 @@ extern PFN_rtBufferRead rt_rtBufferRead;
 extern PFN_rtTextureCreate rt_rtTextureCreate;
 extern PFN_rtTextureDestroy rt_rtTextureDestroy;
 extern PFN_rtTextureViewCreate rt_rtTextureViewCreate;
+extern PFN_rtTextureViewBind rt_rtTextureViewBind;
 extern PFN_rtTextureViewDestroy rt_rtTextureViewDestroy;
 extern PFN_rtTextureViewFilter rt_rtTextureViewFilter;
 extern PFN_rtTextureViewAddress rt_rtTextureViewAddress;
@@ -408,10 +407,8 @@ extern PFN_rtFramebufferDepthView rt_rtFramebufferDepthView;
 
 extern PFN_rtGraphicsProgramCreate rt_rtGraphicsProgramCreate;
 extern PFN_rtGraphicsProgramDestroy rt_rtGraphicsProgramDestroy;
-extern PFN_rtGraphicsProgramVertexLayout rt_rtGraphicsProgramVertexLayout;
+extern PFN_rtGraphicsProgramLayout rt_rtGraphicsProgramLayout;
 extern PFN_rtGraphicsProgramSource rt_rtGraphicsProgramSource;
-extern PFN_rtGraphicsProgramVertexShader rt_rtGraphicsProgramVertexShader;
-extern PFN_rtGraphicsProgramFragmentShader rt_rtGraphicsProgramFragmentShader;
 extern PFN_rtGraphicsProgramRasterState rt_rtGraphicsProgramRasterState;
 extern PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState;
 extern PFN_rtGraphicsProgramLink rt_rtGraphicsProgramLink;
@@ -446,9 +443,6 @@ extern PFN_rtTimepointReached rt_rtTimepointReached;
 **
 ** @param features Optional array of feature name strings.
 ** @param feature_count Number of entries in @p features.
-**
-** @note rtLoad must succeed before this function is called.
-** @note Resources may be created after successful initialization.
 */
 static inline void rtInit(const char* const* features, u32 feature_count) {
 	rt_rtInit(features, feature_count);
@@ -484,7 +478,6 @@ static inline void rtSetOutput(PFN_rtOutput output, void* user_data) {
 ** @return Current error code.
 **
 ** @note RT_SUCCESS means no error is currently recorded.
-** @note Reading the error does not clear it.
 */
 static inline enum rt_error rtError(void) {
 	return rt_rtError();
@@ -536,24 +529,20 @@ static inline enum rt_format_usage rtQueryFormatCapabilities(enum rt_format form
 }
 
 /*!
-** @brief Create an unconfigured buffer handle.
+** @brief Create an unconfigured buffer.
 **
-** @return New buffer handle.
+** @return Valid buffer handle or NULL if an error occured.
 **
 ** @note Storage is defined later by rtBufferData.
-** @note The handle remains valid until rtBufferDestroy is called.
 */
 static inline rt_buffer rtBufferCreate(void) {
 	return rt_rtBufferCreate();
 }
 
 /*!
-** @brief Retire a buffer handle.
+** @brief Retire a buffer.
 **
 ** @param buffer Buffer to destroy.
-**
-** @note Destruction ends the public lifetime of the buffer immediately.
-** @note Work already submitted may continue to reference the zombie buffer.
 */
 static inline void rtBufferDestroy(rt_buffer buffer) {
 	rt_rtBufferDestroy(buffer);
@@ -566,12 +555,8 @@ static inline void rtBufferDestroy(rt_buffer buffer) {
 ** @param mode Storage/update mode for this buffer definition.
 ** @param usage Bitset of RT_BUFFER_USAGE_* flags for this buffer definition.
 ** @param size Size in bytes of the buffer storage.
-** @param data Optional source data copied into the buffer.
-** @return Queue timepoint for GPU upload work, or a completed/null timepoint for CPU copies.
-**
-** @note This configures an existing buffer; it does not create one.
-** @note This call defines how the buffer memory is created.
-** @note The backend selects any queue needed for GPU uploads.
+** @param data source data copied into the buffer, may be NULL to initialize the buffer with 0.
+** @return Timepoint that signals when this work is complete.
 */
 static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
 	return rt_rtBufferData(buffer, mode, usage, size, data);
@@ -584,18 +569,17 @@ static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mo
 ** @param offset Byte offset into @p buffer.
 ** @param size Number of bytes to upload.
 ** @param data Source data copied into the buffer range.
-** @return Queue timepoint for GPU upload work, or a completed/null timepoint for CPU copies.
+** @return A timepoint that signals on completion of this operation.
 **
 ** @note The buffer storage must already exist.
 ** @note The upload range must fit within the buffer.
-** @note The backend selects any queue needed for GPU uploads.
 */
 static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
 	return rt_rtBufferSubdata(buffer, offset, size, data);
 }
 
 /*!
-** @brief Copy bytes out of a CPU-visible buffer.
+** @brief Copy bytes out of a buffer.
 **
 ** @param buffer Source buffer.
 ** @param offset Byte offset into @p buffer.
@@ -607,12 +591,9 @@ static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* da
 }
 
 /*!
-** @brief Create an unconfigured texture handle.
+** @brief Create an unconfigured texture.
 **
-** @return New texture handle.
-**
-** @note Creation takes no configuration.
-** @note The handle remains valid until rtTextureDestroy is called.
+** @return Valid texture handle or NULL if an error occured.
 */
 static inline rt_texture rtTextureCreate(void) {
 	return rt_rtTextureCreate();
@@ -622,28 +603,37 @@ static inline rt_texture rtTextureCreate(void) {
 ** @brief Retire a texture handle.
 **
 ** @param texture Texture to destroy.
-**
-** @note Destruction ends the public lifetime of the texture immediately.
-** @note Work already submitted may continue to reference the zombie texture.
+** @note Storage is defined later by rtTextureData
 */
 static inline void rtTextureDestroy(rt_texture texture) {
 	rt_rtTextureDestroy(texture);
 }
 
 /*!
-** @brief Create a default view of a texture.
+** @brief Create a texture view.
 **
 ** @param texture Texture to view.
-** @return Texture view handle, or NULL on failure.
+** @return Texture view handle or NULL on error.
 **
-** @note The view keeps the texture alive for the duration of the view.
+** @note The view inherits settings for sampling.
+** @note Destroying the texture invalidates the view.
 */
-static inline rt_texture_view rtTextureViewCreate(rt_texture texture) {
-	return rt_rtTextureViewCreate(texture);
+static inline rt_texture_view rtTextureViewCreate(void) {
+	return rt_rtTextureViewCreate();
 }
 
 /*!
-** @brief Retire a texture view handle.
+** @brief Bind a texture to an existing texture view.
+**
+** @param texture_view Texture view to update.
+** @param texture Texture to bind.
+*/
+static inline void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
+	rt_rtTextureViewBind(texture_view, texture);
+}
+
+/*!
+** @brief Retire a texture view.
 **
 ** @param texture_view Texture view to destroy.
 */
@@ -700,43 +690,39 @@ static inline void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f
 /*!
 ** @brief Copy one complete texture mip into another texture mip.
 **
-** @param queue Queue used for the copy operation.
 ** @param src_texture Source texture.
 ** @param src_mip Source mip level.
 ** @param dst_texture Destination texture.
 ** @param dst_mip Destination mip level.
-** @return Timepoint for the copy operation.
+** @return Timepoint that signals when this work is complete.
 **
 ** @note Source and destination storage must already exist.
 */
-static inline rt_timepoint rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	return rt_rtTextureCopy(queue, src_texture, src_mip, dst_texture, dst_mip);
+static inline rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
+	return rt_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip);
 }
 
 /*!
 ** @brief Define texture storage and upload initial texture data.
 **
-** @param queue Queue used for the upload operation.
 ** @param texture Texture to configure.
 ** @param type Texture dimensionality.
 ** @param mip Mip level receiving data.
-** @param offset_x X offset of the uploaded region.
-** @param offset_y Y offset of the uploaded region.
-** @param offset_z Z offset of the uploaded region.
+** @param width Storage width in texels.
+** @param height Storage height in texels.
+** @param depth Storage depth in texels.
 ** @param format Texture format.
 ** @param data Optional source texel data.
 ** @return Timepoint for the upload operation.
 **
 ** @note This configures an existing texture; it does not create one.
 */
-static inline rt_timepoint rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data) {
-	return rt_rtTextureData(queue, texture, type, mip, offset_x, offset_y, offset_z, format, data);
+static inline rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
+	return rt_rtTextureData(texture, type, mip, width, height, depth, format, data);
 }
-
 /*!
 ** @brief Copy a texture region into another texture region.
 **
-** @param queue Queue used for the copy operation.
 ** @param src_texture Source texture.
 ** @param src_mip Source mip level.
 ** @param src_x Source X offset.
@@ -755,14 +741,13 @@ static inline rt_timepoint rtTextureData(rt_queue queue, rt_texture texture, enu
 ** @note Source and destination storage must already exist.
 ** @note Source and destination regions must fit within their textures.
 */
-static inline rt_timepoint rtTextureSubcopy(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	return rt_rtTextureSubcopy(queue, src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
+static inline rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+	return rt_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
 }
 
 /*!
 ** @brief Upload data into an existing texture region.
 **
-** @param queue Queue used for the upload operation.
 ** @param texture Destination texture.
 ** @param mip Destination mip level.
 ** @param offset_x Destination X offset.
@@ -777,20 +762,18 @@ static inline rt_timepoint rtTextureSubcopy(rt_queue queue, rt_texture src_textu
 ** @note Texture storage must already exist.
 ** @note The upload region must fit within the texture.
 */
-static inline rt_timepoint rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	return rt_rtTextureSubdata(queue, texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
+static inline rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+	return rt_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
 }
-
 /*!
-** @brief Copy a texture view into a CPU-visible buffer.
+** @brief Copy a texture view into a buffer.
 **
-** @param queue Queue used for the copy operation.
 ** @param texture_view Source texture view.
 ** @param buffer Destination buffer that will receive tightly packed pixels.
 ** @return Timepoint for the copy operation.
 */
-static inline rt_timepoint rtTextureViewCopyToBuffer(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer) {
-	return rt_rtTextureViewCopyToBuffer(queue, texture_view, buffer);
+static inline rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
+	return rt_rtTextureViewCopyToBuffer(texture_view, buffer);
 }
 
 /*!
@@ -798,6 +781,7 @@ static inline rt_timepoint rtTextureViewCopyToBuffer(rt_queue queue, rt_texture_
 **
 ** @param texture_view Texture view to query.
 ** @return Texture view extent, or zeros on failure.
+** @error Returns a zero extent if the texture view is invalid or no longer backed by live storage.
 */
 static inline rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	return rt_rtTextureViewExtent(texture_view);
@@ -881,35 +865,13 @@ static inline void rtGraphicsProgramDestroy(rt_graphics_program program) {
 ** @param layout Vertex buffer stride and attributes, or NULL for no vertex input.
 **
 ** @note The layout is copied by the implementation.
-** @note Changing the layout invalidates any cached backend pipeline.
 */
-static inline void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
-	rt_rtGraphicsProgramVertexLayout(program, layout);
+static inline void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+	rt_rtGraphicsProgramLayout(program, layout);
 }
 
-/*!
-** @brief Upload the vertex shader for a graphics program.
-**
-** @param program Graphics program to configure.
-** @param size Size in bytes of @p data.
-** @param data RTSL Shader Program
-*/
 static inline void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
 	rt_rtGraphicsProgramSource(program, size, data);
-}
-static inline void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data) {
-	rt_rtGraphicsProgramVertexShader(program, size, data);
-}
-
-/*!
-** @brief Upload the fragment shader for a graphics program.
-**
-** @param program Graphics program to configure.
-** @param size Size in bytes of @p data.
-** @param data GLSL shader source.
-*/
-static inline void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data) {
-	rt_rtGraphicsProgramFragmentShader(program, size, data);
 }
 
 /*!
@@ -930,18 +892,9 @@ static inline void rtGraphicsProgramBlendState(rt_graphics_program program, bool
 	rt_rtGraphicsProgramBlendState(program, enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
-/*!
-** @brief Link a graphics program after setting shader and layout state.
-**
-** @param program Graphics program to link.
-**
-** @note A graphics program must be linked before it can be used for drawing.
-** @note Changing shaders or vertex layout invalidates the link.
-*/
 static inline void rtGraphicsProgramLink(rt_graphics_program program) {
 	rt_rtGraphicsProgramLink(program);
 }
-
 /*!
 ** @brief Return the shader uniform location with the requested name.
 **
@@ -1048,7 +1001,6 @@ static inline void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stenc
 static inline void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
 	rt_rtCmdUseGraphicsProgram(command_buffer, program);
 }
-
 /*!
 ** @brief Set the scissor rectangle used by following draw commands.
 **
@@ -1104,7 +1056,6 @@ static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_unif
 static inline void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
 	rt_rtCmdBindVertexBuffer(command_buffer, buffer, offset);
 }
-
 /*!
 ** @brief Record a non-indexed draw.
 **
@@ -1181,14 +1132,14 @@ static inline rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer comma
 ** @brief Flush queued work to the GPU.
 **
 ** @param queue Queue whose recorded submissions should be sent.
-** @return Last flushed queue timepoint, or a completed/null timepoint when no work was pending.
+** @return Timepoint that signals when the flushed work is complete.
 */
 static inline rt_timepoint rtQueueFlush(rt_queue queue) {
 	return rt_rtQueueFlush(queue);
 }
 
 /*!
-** @brief Wait until a timepoint is reached.
+** @brief CPU wait until a timepoint is reached.
 **
 ** @param timepoint Timepoint to wait for.
 **
@@ -1696,6 +1647,7 @@ PFN_rtBufferRead rt_rtBufferRead = NULL;
 PFN_rtTextureCreate rt_rtTextureCreate = NULL;
 PFN_rtTextureDestroy rt_rtTextureDestroy = NULL;
 PFN_rtTextureViewCreate rt_rtTextureViewCreate = NULL;
+PFN_rtTextureViewBind rt_rtTextureViewBind = NULL;
 PFN_rtTextureViewDestroy rt_rtTextureViewDestroy = NULL;
 PFN_rtTextureViewFilter rt_rtTextureViewFilter = NULL;
 PFN_rtTextureViewAddress rt_rtTextureViewAddress = NULL;
@@ -1716,10 +1668,8 @@ PFN_rtFramebufferDepthView rt_rtFramebufferDepthView = NULL;
 
 PFN_rtGraphicsProgramCreate rt_rtGraphicsProgramCreate = NULL;
 PFN_rtGraphicsProgramDestroy rt_rtGraphicsProgramDestroy = NULL;
-PFN_rtGraphicsProgramVertexLayout rt_rtGraphicsProgramVertexLayout = NULL;
+PFN_rtGraphicsProgramLayout rt_rtGraphicsProgramLayout = NULL;
 PFN_rtGraphicsProgramSource rt_rtGraphicsProgramSource = NULL;
-PFN_rtGraphicsProgramVertexShader rt_rtGraphicsProgramVertexShader = NULL;
-PFN_rtGraphicsProgramFragmentShader rt_rtGraphicsProgramFragmentShader = NULL;
 PFN_rtGraphicsProgramRasterState rt_rtGraphicsProgramRasterState = NULL;
 PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState = NULL;
 PFN_rtGraphicsProgramLink rt_rtGraphicsProgramLink = NULL;
@@ -1855,6 +1805,7 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	RT__CORE_RESOLVE(rtTextureCreate);
 	RT__CORE_RESOLVE(rtTextureDestroy);
 	RT__CORE_RESOLVE(rtTextureViewCreate);
+	RT__CORE_RESOLVE(rtTextureViewBind);
 	RT__CORE_RESOLVE(rtTextureViewDestroy);
 	RT__CORE_RESOLVE(rtTextureViewFilter);
 	RT__CORE_RESOLVE(rtTextureViewAddress);
@@ -1875,10 +1826,8 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 
 	RT__CORE_RESOLVE(rtGraphicsProgramCreate);
 	RT__CORE_RESOLVE(rtGraphicsProgramDestroy);
-	RT__CORE_RESOLVE(rtGraphicsProgramVertexLayout);
+	RT__CORE_RESOLVE(rtGraphicsProgramLayout);
 	RT__CORE_RESOLVE(rtGraphicsProgramSource);
-	RT__CORE_RESOLVE(rtGraphicsProgramVertexShader);
-	RT__CORE_RESOLVE(rtGraphicsProgramFragmentShader);
 	RT__CORE_RESOLVE(rtGraphicsProgramRasterState);
 	RT__CORE_RESOLVE(rtGraphicsProgramBlendState);
 	RT__CORE_RESOLVE(rtGraphicsProgramLink);
@@ -1937,6 +1886,7 @@ static void rt__load_core_development(void) {
 	RT__CORE_TRY_RESOLVE(rtTextureCreate);
 	RT__CORE_TRY_RESOLVE(rtTextureDestroy);
 	RT__CORE_TRY_RESOLVE(rtTextureViewCreate);
+	RT__CORE_TRY_RESOLVE(rtTextureViewBind);
 	RT__CORE_TRY_RESOLVE(rtTextureViewDestroy);
 	RT__CORE_TRY_RESOLVE(rtTextureViewFilter);
 	RT__CORE_TRY_RESOLVE(rtTextureViewAddress);
@@ -1957,10 +1907,8 @@ static void rt__load_core_development(void) {
 
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramCreate);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramDestroy);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramVertexLayout);
+	RT__CORE_TRY_RESOLVE(rtGraphicsProgramLayout);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramSource);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramVertexShader);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramFragmentShader);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramRasterState);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramBlendState);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramLink);
@@ -2146,10 +2094,8 @@ void rtUnload(void) {
 	rt_rtFramebufferDepthView = NULL;
 	rt_rtGraphicsProgramCreate = NULL;
 	rt_rtGraphicsProgramDestroy = NULL;
-	rt_rtGraphicsProgramVertexLayout = NULL;
+	rt_rtGraphicsProgramLayout = NULL;
 	rt_rtGraphicsProgramSource = NULL;
-	rt_rtGraphicsProgramVertexShader = NULL;
-	rt_rtGraphicsProgramFragmentShader = NULL;
 	rt_rtGraphicsProgramRasterState = NULL;
 	rt_rtGraphicsProgramBlendState = NULL;
 	rt_rtGraphicsProgramLink = NULL;

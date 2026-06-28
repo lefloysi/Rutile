@@ -65,6 +65,7 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 		return;
 	}
 
+	rtClearError();
 	rtdx_glfw.get_framebuffer_size(window, &width, &height);
 	hwnd = rtdx_glfw.get_win32_window(window);
 	if (!hwnd) {
@@ -72,11 +73,13 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 		return;
 	}
 
-	rtdx_swapchain_create_for_hwnd(
+	if (!rtdx_swapchain_create_for_hwnd(
 		rtdx_get_current_context(),
 		rtdx_swapchain_from_handle(swapchain),
 		hwnd,
 		(u32)width,
 		(u32)height
-	);
+	)) {
+		return;
+	}
 }

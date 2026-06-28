@@ -14,10 +14,8 @@
 RTVK_API rt_graphics_program rtGraphicsProgramCreate(void);
 RTVK_API void rtGraphicsProgramDestroy(rt_graphics_program program);
 
-RTVK_API void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout);
+RTVK_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout);
 RTVK_API void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data);
-RTVK_API void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data);
-RTVK_API void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data);
 RTVK_API void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 RTVK_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 RTVK_API void rtGraphicsProgramLink(rt_graphics_program program);
@@ -42,23 +40,14 @@ struct rtvk_uniform_location {
 	u32 index;
 };
 
-typedef struct rtvk_retired_graphics_pipeline {
-	struct rtvk_retired_graphics_pipeline* next;
-	VkPipeline vk_pipeline;
-} rtvk_retired_graphics_pipeline;
-
 struct rtvk_graphics_program {
 	struct rtvk_resource_base base;
-	rtvk_retired_graphics_pipeline* retired_pipelines;
-
 	VkShaderModule vk_vertex_shader;
 	VkShaderModule vk_fragment_shader;
 	VkDescriptorSetLayout vk_descriptor_set_layout;
 	VkPipelineLayout vk_pipeline_layout;
 	VkPipeline vk_pipeline;
 
-	char* vertex_shader_source;
-	char* fragment_shader_source;
 	char* program_source;
 	rtvk_shader_reflection vertex_reflection;
 	rtvk_shader_reflection fragment_reflection;
@@ -77,8 +66,6 @@ struct rtvk_graphics_program {
 	enum rt_blend_factor dst_alpha_blend;
 	enum rt_blend_op alpha_blend_op;
 
-	u64 vertex_shader_size;
-	u64 fragment_shader_size;
 	u64 program_source_size;
 	VkFormat vk_pipeline_format;
 	VkFormat vk_pipeline_depth_format;
@@ -91,16 +78,13 @@ static inline struct rtvk_uniform_location* rtvk_uniform_location_from_handle(rt
 static inline rt_uniform_location rtvk_uniform_location_to_handle(struct rtvk_uniform_location* location) { return (rt_uniform_location)location; }
 
 void rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format);
-void rtvk_graphics_program_vertex_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout);
+void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout);
 void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
-void rtvk_graphics_program_vertex_shader(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
-void rtvk_graphics_program_fragment_shader(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
 void rtvk_graphics_program_raster_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 void rtvk_graphics_program_blend_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name);
 void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program* program);
-void rtvk_graphics_program_retire_pipeline(struct rtvk_graphics_program* program, VkPipeline pipeline);
 void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 

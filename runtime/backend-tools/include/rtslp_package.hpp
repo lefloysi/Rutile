@@ -1,13 +1,13 @@
 #ifndef RUTILE_BACKEND_TOOLS_RTSLP_PACKAGE_HPP
 #define RUTILE_BACKEND_TOOLS_RTSLP_PACKAGE_HPP
 
-#include <rutile.h>
+#include "rutile.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace rutile::backend_tools {
+namespace rt {
 
 enum class RTIROp : u16 {
 	Nop = 0,
@@ -166,6 +166,7 @@ struct RTStageInterface {
 
 struct RTArtifactModule {
 	std::vector<RTInstruction> type_constant_pool;
+	std::vector<RTInstruction> global_variables;
 	std::vector<RTFunction> functions;
 	std::vector<RTStructDecl> structs;
 	std::vector<RTUniform> uniforms;
@@ -175,6 +176,6 @@ struct RTArtifactModule {
 
 RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source);
 
-} // namespace rutile::backend_tools
+} // namespace rt
 
 #endif

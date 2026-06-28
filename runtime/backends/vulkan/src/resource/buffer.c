@@ -9,17 +9,11 @@
 #include <string.h>
 
 /*===============================================================================================*/
-/*                                                                                               */ >
-	/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
-	/*
-	** SPEC.html §9.3 Buffer
-	** Implements rtBufferCreate/Destroy, rtBufferData, and rtBufferSubdata.
-	** Buffer-node versioning keeps in-flight command lists on the old node while
-	** a new upload node is allocated, then recycles the old node after submit.
-	*/
 
-	rt_buffer rtBufferCreate(void) {
+rt_buffer rtBufferCreate(void) {
 	return rtvk_buffer_to_handle(rtvk_buffer_create(rtvk_get_current_context()));
 }
 void rtBufferDestroy(rt_buffer buffer) {

@@ -6,7 +6,8 @@
 
 RT_EXPORT rt_texture rtTextureCreate(void) { return rtlog_rtTextureCreate(); }
 RT_EXPORT void rtTextureDestroy(rt_texture texture) { rtlog_rtTextureDestroy(texture); }
-RT_EXPORT rt_texture_view rtTextureViewCreate(rt_texture texture) { return rtlog_rtTextureViewCreate(texture); }
+RT_EXPORT rt_texture_view rtTextureViewCreate(void) { return rtlog_rtTextureViewCreate(); }
+RT_EXPORT void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) { rtlog_rtTextureViewBind(texture_view, texture); }
 RT_EXPORT void rtTextureViewDestroy(rt_texture_view texture_view) { rtlog_rtTextureViewDestroy(texture_view); }
 RT_EXPORT void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) { rtlog_rtTextureViewFilter(texture_view, mag_filter, min_filter, mip_filter); }
 RT_EXPORT void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) { rtlog_rtTextureViewAddress(texture_view, address_u, address_v, address_w); }
@@ -14,10 +15,10 @@ RT_EXPORT void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_ani
 RT_EXPORT void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) { rtlog_rtTextureViewLod(texture_view, min_lod, max_lod, lod_bias); }
 
 RT_EXPORT rt_timepoint rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) { return rtlog_rtTextureCopy(queue, src_texture, src_mip, dst_texture, dst_mip); }
-RT_EXPORT rt_timepoint rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data) { return rtlog_rtTextureData(queue, texture, type, mip, offset_x, offset_y, offset_z, format, data); }
-RT_EXPORT rt_timepoint rtTextureSubcopy(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) { return rtlog_rtTextureSubcopy(queue, src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth); }
-RT_EXPORT rt_timepoint rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) { return rtlog_rtTextureSubdata(queue, texture, mip, offset_x, offset_y, offset_z, width, height, depth, data); }
-RT_EXPORT rt_timepoint rtTextureViewCopyToBuffer(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer) { return rtlog_rtTextureViewCopyToBuffer(queue, texture_view, buffer); }
+RT_EXPORT rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) { return rtlog_rtTextureData(texture, type, mip, width, height, depth, format, data); }
+RT_EXPORT rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) { return rtlog_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth); }
+RT_EXPORT rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) { return rtlog_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data); }
+RT_EXPORT rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) { return rtlog_rtTextureViewCopyToBuffer(texture_view, buffer); }
 RT_EXPORT rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) { return rtlog_rtTextureViewExtent(texture_view); }
 
 /*===============================================================================================*/
@@ -42,14 +43,22 @@ void rtlog_rtTextureDestroy(rt_texture texture) {
 	rtlog_error("rtTextureDestroy");
 }
 
-rt_texture_view rtlog_rtTextureViewCreate(rt_texture texture) {
+rt_texture_view rtlog_rtTextureViewCreate(void) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureViewCreate(texture=%s)\n", rtlog_pointer(texture));
-	rt_texture_view result = next_rtTextureViewCreate(texture);
+	rtlog_printf("rtTextureViewCreate()\n");
+	rt_texture_view result = next_rtTextureViewCreate();
 	rtlog_printf("rtTextureViewCreate -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureViewCreate");
 	return result;
+}
+
+void rtlog_rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
+	u64 start_ns = rtlog_now_ns();
+	rtlog_printf("rtTextureViewBind(texture_view=%s, texture=%s)\n", rtlog_pointer(texture_view), rtlog_pointer(texture));
+	next_rtTextureViewBind(texture_view, texture);
+	rtlog_printf("rtTextureViewBind completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtTextureViewBind");
 }
 
 void rtlog_rtTextureViewDestroy(rt_texture_view texture_view) {
@@ -92,51 +101,51 @@ void rtlog_rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_l
 	rtlog_error("rtTextureViewLod");
 }
 
-rt_timepoint rtlog_rtTextureCopy(rt_queue queue, rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
+rt_timepoint rtlog_rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureCopy(queue=%s, src_texture=%s, src_mip=%u, dst_texture=%s, dst_mip=%u)\n", rtlog_pointer(queue), rtlog_pointer(src_texture), src_mip, rtlog_pointer(dst_texture), dst_mip);
-	rt_timepoint result = next_rtTextureCopy(queue, src_texture, src_mip, dst_texture, dst_mip);
+	rtlog_printf("rtTextureCopy(src_texture=%s, src_mip=%u, dst_texture=%s, dst_mip=%u)\n", rtlog_pointer(src_texture), src_mip, rtlog_pointer(dst_texture), dst_mip);
+	rt_timepoint result = next_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip);
 	rtlog_printf("rtTextureCopy -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureCopy");
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureData(rt_queue queue, rt_texture texture, enum rt_texture_type type, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, enum rt_format format, const void* data) {
+rt_timepoint rtlog_rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureData(queue=%s, texture=%s, type=%d, mip=%u, offset_x=%u, offset_y=%u, offset_z=%u, format=%d, data=%s)\n", rtlog_pointer(queue), rtlog_pointer(texture), (i32)type, mip, offset_x, offset_y, offset_z, (i32)format, rtlog_pointer(data));
-	rt_timepoint result = next_rtTextureData(queue, texture, type, mip, offset_x, offset_y, offset_z, format, data);
+	rtlog_printf("rtTextureData(texture=%s, type=%d, mip=%u, size=(%u,%u,%u), format=%d, data=%s)\n", rtlog_pointer(texture), (i32)type, mip, width, height, depth, (i32)format, rtlog_pointer(data));
+	rt_timepoint result = next_rtTextureData(texture, type, mip, width, height, depth, format, data);
 	rtlog_printf("rtTextureData -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureData");
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureSubcopy(rt_queue queue, rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+rt_timepoint rtlog_rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureSubcopy(queue=%s, src_texture=%s, src_mip=%u, src=(%u,%u,%u), dst_texture=%s, dst_mip=%u, dst=(%u,%u,%u), size=(%u,%u,%u))\n", rtlog_pointer(queue), rtlog_pointer(src_texture), src_mip, src_x, src_y, src_z, rtlog_pointer(dst_texture), dst_mip, dst_x, dst_y, dst_z, width, height, depth);
-	rt_timepoint result = next_rtTextureSubcopy(queue, src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
+	rtlog_printf("rtTextureSubcopy(src_texture=%s, src_mip=%u, src=(%u,%u,%u), dst_texture=%s, dst_mip=%u, dst=(%u,%u,%u), size=(%u,%u,%u))\n", rtlog_pointer(src_texture), src_mip, src_x, src_y, src_z, rtlog_pointer(dst_texture), dst_mip, dst_x, dst_y, dst_z, width, height, depth);
+	rt_timepoint result = next_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
 	rtlog_printf("rtTextureSubcopy -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureSubcopy");
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureSubdata(rt_queue queue, rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+rt_timepoint rtlog_rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureSubdata(queue=%s, texture=%s, mip=%u, offset=(%u,%u,%u), size=(%u,%u,%u), data=%s)\n", rtlog_pointer(queue), rtlog_pointer(texture), mip, offset_x, offset_y, offset_z, width, height, depth, rtlog_pointer(data));
-	rt_timepoint result = next_rtTextureSubdata(queue, texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
+	rtlog_printf("rtTextureSubdata(texture=%s, mip=%u, offset=(%u,%u,%u), size=(%u,%u,%u), data=%s)\n", rtlog_pointer(texture), mip, offset_x, offset_y, offset_z, width, height, depth, rtlog_pointer(data));
+	rt_timepoint result = next_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
 	rtlog_printf("rtTextureSubdata -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureSubdata");
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureViewCopyToBuffer(rt_queue queue, rt_texture_view texture_view, rt_buffer buffer) {
+rt_timepoint rtlog_rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureViewCopyToBuffer(queue=%s, texture_view=%s, buffer=%s)\n", rtlog_pointer(queue), rtlog_pointer(texture_view), rtlog_pointer(buffer));
-	rt_timepoint result = next_rtTextureViewCopyToBuffer(queue, texture_view, buffer);
+	rtlog_printf("rtTextureViewCopyToBuffer(texture_view=%s, buffer=%s)\n", rtlog_pointer(texture_view), rtlog_pointer(buffer));
+	rt_timepoint result = next_rtTextureViewCopyToBuffer(texture_view, buffer);
 	rtlog_printf("rtTextureViewCopyToBuffer -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureViewCopyToBuffer");
 	return result;

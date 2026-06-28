@@ -252,8 +252,9 @@ int main(int argc, char** argv) {
 	}
 
 	rt_texture plasma_texture = rtTextureCreate();
-	rtTextureData(queue, plasma_texture, RT_TEXTURE_2D, 0, kTextureWidth, kTextureHeight, 1, RT_RGBA8_UNORM, nullptr);
-	rt_texture_view plasma_view = rtTextureViewCreate(plasma_texture);
+	rtTextureData(plasma_texture, RT_TEXTURE_2D, 0, kTextureWidth, kTextureHeight, 1, RT_RGBA8_UNORM, nullptr);
+	rt_texture_view plasma_view = rtTextureViewCreate();
+	rtTextureViewBind(plasma_view, plasma_texture);
 	rtTextureViewFilter(plasma_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
 	rtTextureViewAddress(plasma_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 
@@ -279,7 +280,7 @@ int main(int argc, char** argv) {
 	}
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(graphics_program, nullptr);
+	rtGraphicsProgramLayout(graphics_program, nullptr);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramLink(graphics_program);

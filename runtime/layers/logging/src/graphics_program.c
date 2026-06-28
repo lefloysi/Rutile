@@ -10,14 +10,11 @@ RT_EXPORT rt_graphics_program rtGraphicsProgramCreate(void) {
 RT_EXPORT void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtlog_rtGraphicsProgramDestroy(program);
 }
-RT_EXPORT void rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
-	rtlog_rtGraphicsProgramVertexLayout(program, layout);
+RT_EXPORT void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+	rtlog_rtGraphicsProgramLayout(program, layout);
 }
-RT_EXPORT void rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data) {
-	rtlog_rtGraphicsProgramVertexShader(program, size, data);
-}
-RT_EXPORT void rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data) {
-	rtlog_rtGraphicsProgramFragmentShader(program, size, data);
+RT_EXPORT void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
+	rtlog_rtGraphicsProgramSource(program, size, data);
 }
 RT_EXPORT void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtlog_rtGraphicsProgramRasterState(program, cull_mode, front_face, fill_mode);
@@ -65,29 +62,23 @@ void rtlog_rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtlog_error("rtGraphicsProgramDestroy");
 }
 
-void rtlog_rtGraphicsProgramVertexLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+void rtlog_rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtGraphicsProgramVertexLayout(program=%s, layout=%s)\n", rtlog_pointer(program), rtlog_pointer(layout));
-	next_rtGraphicsProgramVertexLayout(program, layout);
-	rtlog_printf("rtGraphicsProgramVertexLayout completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtGraphicsProgramVertexLayout");
+	rtlog_printf("rtGraphicsProgramLayout(program=%s, layout=%s)\n", rtlog_pointer(program), rtlog_pointer(layout));
+	next_rtGraphicsProgramLayout(program, layout);
+	rtlog_printf("rtGraphicsProgramLayout completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtGraphicsProgramLayout");
 }
 
-void rtlog_rtGraphicsProgramVertexShader(rt_graphics_program program, u64 size, const void* data) {
+void rtlog_rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtGraphicsProgramVertexShader(program=%s, size=%llu, data=%s)\n", rtlog_pointer(program), (u64)size, rtlog_pointer(data));
-	next_rtGraphicsProgramVertexShader(program, size, data);
-	rtlog_printf("rtGraphicsProgramVertexShader completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtGraphicsProgramVertexShader");
+	rtlog_printf("rtGraphicsProgramSource(program=%s, size=%llu, data=%s)\n", rtlog_pointer(program), (u64)size, rtlog_pointer(data));
+	next_rtGraphicsProgramSource(program, size, data);
+	rtlog_printf("rtGraphicsProgramSource completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtGraphicsProgramSource");
 }
 
-void rtlog_rtGraphicsProgramFragmentShader(rt_graphics_program program, u64 size, const void* data) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtGraphicsProgramFragmentShader(program=%s, size=%llu, data=%s)\n", rtlog_pointer(program), (u64)size, rtlog_pointer(data));
-	next_rtGraphicsProgramFragmentShader(program, size, data);
-	rtlog_printf("rtGraphicsProgramFragmentShader completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtGraphicsProgramFragmentShader");
-}
+
 
 void rtlog_rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	u64 start_ns = rtlog_now_ns();

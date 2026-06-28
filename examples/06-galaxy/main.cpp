@@ -285,8 +285,9 @@ void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture
 		rtTextureDestroy(*depth_texture);
 	}
 	*depth_texture = rtTextureCreate();
-	rtTextureData(queue, *depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
-	*depth_view = rtTextureViewCreate(*depth_texture);
+	rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
+	*depth_view = rtTextureViewCreate();
+	rtTextureViewBind(*depth_view, *depth_texture);
 	if (!*depth_view) {
 		rtTextureDestroy(*depth_texture);
 		*depth_texture = RT_NULL_HANDLE;
@@ -415,7 +416,7 @@ int main(int argc, char** argv) {
 	rtBufferData(scene_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(scene), &scene);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramVertexLayout(graphics_program, &kVertexLayout);
+	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);

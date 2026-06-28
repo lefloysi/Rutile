@@ -75,6 +75,7 @@ void rtvk_queue_destroy(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 }
 
 void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index) {
+	memset(queue, 0, sizeof(*queue));
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(queue), RT_RESOURCE_QUEUE);
 	queue->vk_queue = vk_queue;
 	queue->capability = capability;

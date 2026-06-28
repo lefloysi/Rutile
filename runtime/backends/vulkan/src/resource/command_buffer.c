@@ -14,12 +14,6 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-/*
-** SPEC.html §12 Command buffers
-** Implements lifecycle, recording, binding, rendering, and draw/dispatch.
-** Recording uses per-submit nodes so submitted command pools stay alive
-** until the queue timeline passes the recorded batch.
-*/
 
 rt_command_buffer rtCommandBufferCreate(void) {
 	struct rtvk_command_buffer* command_buffer = rtvk_command_buffer_create(rtvk_get_current_context());
@@ -145,11 +139,13 @@ void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_ver
 RTVK_DEFINE_RESOURCE_PRIVATE(command_buffer)
 
 void rtvk_command_buffer_init(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
 	command_buffer->queue = NULL;
 	command_buffer->family_index = (u32)-1;
 }
 void rtvk_command_buffer_finish(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
 	struct rtvk_command_buffer* node = command_buffer->next;
 	rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
 	rtvk_command_buffer_node_release(command_buffer->active);
@@ -222,6 +218,7 @@ rtvk_uniform_slot* rtvk_command_buffer_uniform_slot(struct rtvk_command_buffer* 
 }
 
 void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
 	assert(command_buffer);
 	command_buffer->current_descriptor_pool = command_buffer->descriptor_pools;
 	for (rtvk_descriptor_pool_node* pool = command_buffer->descriptor_pools; pool; pool = pool->next) {
@@ -238,6 +235,7 @@ void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct
 }
 
 void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
 	assert(command_buffer);
 	rtvk_descriptor_pool_node* pool = command_buffer->descriptor_pools;
 	while (pool) {
@@ -253,20 +251,19 @@ void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, stru
 }
 
 void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
 	assert(command_buffer);
-	if (command_buffer->vk_command_buffer) {
-		vkFreeCommandBuffers(ctx->vk_device, command_buffer->vk_command_pool, 1, &command_buffer->vk_command_buffer);
-		command_buffer->vk_command_buffer = VK_NULL_HANDLE;
-	}
-	if (command_buffer->vk_command_pool) {
-		vkDestroyCommandPool(ctx->vk_device, command_buffer->vk_command_pool, VK_ALLOCATOR);
-		command_buffer->vk_command_pool = VK_NULL_HANDLE;
-	}
+	vkFreeCommandBuffers(ctx->vk_device, command_buffer->vk_command_pool, 1, &command_buffer->vk_command_buffer);
+	command_buffer->vk_command_buffer = VK_NULL_HANDLE;
+	vkDestroyCommandPool(ctx->vk_device, command_buffer->vk_command_pool, VK_ALLOCATOR);
+	command_buffer->vk_command_pool = VK_NULL_HANDLE;
 	command_buffer->bound_descriptor_set = VK_NULL_HANDLE;
 	command_buffer->uniforms_dirty = true;
 	command_buffer->family_index = (u32)-1;
 }
 void rtvk_command_buffer_wait_pending(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	assert(ctx);
+	assert(command_buffer);
 	if (!command_buffer->pending_timepoint.queue || command_buffer->pending_timepoint.value == 0) {
 		return;
 	}

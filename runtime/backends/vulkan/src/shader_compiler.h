@@ -55,14 +55,6 @@ typedef struct rtvk_graphics_shader_compile_result {
 } rtvk_graphics_shader_compile_result;
 
 VkShaderModule rtvk_shader_compile(struct rtvk_context* ctx, VkShaderStageFlagBits stage, u64 size, const void* source, rtvk_shader_reflection* reflection, u32** spirv_source, u64* spirv_size);
-rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics(
-	struct rtvk_context* ctx,
-	const rt_vertex_layout* vertex_layout,
-	u64 vertex_size,
-	const void* vertex_source,
-	u64 fragment_size,
-	const void* fragment_source
-);
 rtvk_graphics_shader_compile_result rtvk_shader_compile_graphics_rtslp(
 	struct rtvk_context* ctx,
 	u64 program_size,

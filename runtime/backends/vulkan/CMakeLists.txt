@@ -31,7 +31,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_sources(${PROJECT_NAME} PRIVATE
     "src/core.c"
     "src/error.c"
-    "src/init.c"
+    
     "src/atomic.cpp"
     "src/shader_compiler.cpp"
     "src/shader_compiler.h"
@@ -63,6 +63,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/context.h"
     "src/context.c"
 )
+target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/runtime/backend-tools/include")
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
@@ -70,7 +71,6 @@ target_link_libraries(${PROJECT_NAME}
     PUBLIC
         ${RUTILE_VULKAN_LIBRARY}
     PRIVATE
-        Rutile::backend-tools
         GPUOpen::VulkanMemoryAllocator
         glfw
         ${CMAKE_DL_LIBS}
