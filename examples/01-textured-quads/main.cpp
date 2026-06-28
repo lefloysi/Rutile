@@ -248,23 +248,6 @@ TransformUniform static_transform(const glm::mat4& view_projection) {
 	return transform_from_matrix(view_projection * model);
 }
 
-void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
-	if (*depth_view) {
-		rtTextureViewDestroy(*depth_view);
-	}
-	if (*depth_texture) {
-		rtTextureDestroy(*depth_texture);
-	}
-	*depth_texture = rtTextureCreate();
-	rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
-	*depth_view = rtTextureViewCreate();
-	rtTextureViewBind(*depth_view, *depth_texture);
-	if (!*depth_view) {
-		rtTextureDestroy(*depth_texture);
-		*depth_texture = RT_NULL_HANDLE;
-	}
-}
-
 f32 camera_aspect(void) {
 	const u32 width = FramebufferWidth.load(std::memory_order_acquire);
 	const u32 height = FramebufferHeight.load(std::memory_order_acquire);
@@ -326,37 +309,29 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());
 	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
-	std::cerr << "trace: link begin\n";
 	rtGraphicsProgramLink(graphics_program);
 	if (rtError() != RT_SUCCESS) {
 		std::cerr << "rtGraphicsProgramLink failed: " << rtErrorMessage() << "\n";
-		rtClearError();
 		RenderFailed.store(true, std::memory_order_release);
 		Running.store(false, std::memory_order_release);
 		rtGraphicsProgramDestroy(graphics_program);
 		return;
 	}
-	std::cerr << "trace: link ok\n";
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "transform");
-	std::cerr << "trace: transform location " << (transform_location ? "ok" : "null") << "\n";
 	rt_uniform_location image_location = rtGraphicsProgramUniformLocation(graphics_program, "texture");
-	std::cerr << "trace: image location " << (image_location ? "ok" : "null") << "\n";
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
-	rt_texture depth_texture = RT_NULL_HANDLE;
-	rt_texture_view depth_view = RT_NULL_HANDLE;
+	rt_texture depth_texture = rtTextureCreate();
+	rtTextureData(depth_texture, RT_TEXTURE_2D, 0, FramebufferWidth.load(std::memory_order_acquire), FramebufferHeight.load(std::memory_order_acquire), 1, RT_D32_SFLOAT, NULL);
+	rt_texture_view depth_view = rtTextureViewCreate();
+	rtTextureViewBind(depth_view, depth_texture);
 	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
 	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
-	recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
 	auto start_time = std::chrono::steady_clock::now();
 	auto previous_time = start_time;
 	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
 
-	u32 trace_frame = 0;
 	while (Running.load(std::memory_order_acquire)) {
-		if (trace_frame < 3) {
-			std::cerr << "trace: frame " << trace_frame << " begin\n";
-		}
 		auto now = std::chrono::steady_clock::now();
 		const std::chrono::duration<f32> delta = now - previous_time;
 		previous_time = now;
@@ -374,26 +349,16 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 			rtTimepointWait(last_rendered);
 			depth_width = current_width;
 			depth_height = current_height;
-			recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
+			rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
 		}
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
-		if (trace_frame < 3) {
-			std::cerr << "trace: acquire " << (acquired.framebuffer ? "ok" : "empty") << "\n";
-		}
 		if (!acquired.framebuffer) {
-			++trace_frame;
 			continue;
 		}
 
 		rtQueueWait(queue, acquired.timepoint);
-		if (trace_frame < 3) {
-			std::cerr << "trace: queue wait ok\n";
-		}
 		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		if (trace_frame < 3) {
-			std::cerr << "trace: depth attach ok\n";
-		}
 		rtCmdBegin(cmd, queue);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.5f, 0.5f, 0.5f, 0.5f);
@@ -411,16 +376,9 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 		rtCmdEnd(cmd);
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
-		if (trace_frame < 3) {
-			std::cerr << "trace: submit ok\n";
-		}
 		last_rendered = rendered;
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
-		if (trace_frame < 3) {
-			std::cerr << "trace: present ok\n";
-		}
-		++trace_frame;
 	}
 
 	Running.store(false, std::memory_order_release);

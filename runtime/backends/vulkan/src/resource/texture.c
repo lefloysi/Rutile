@@ -522,10 +522,10 @@ struct rtvk_texture* rtvk_texture_create_for_swapchain_image(struct rtvk_context
 	return texture;
 }
 
-static struct rtvk_texture_view* rtvk_texture_view_create_for_image(struct rtvk_context* ctx, struct rtvk_texture* texture) {
+static struct rtvk_texture_view* rtvk_texture_view_from_texture(struct rtvk_context* ctx, struct rtvk_texture* texture) {
 	assert(texture);
-	struct rtvk_texture* node = texture->active;
-	assert(node);
+	assert(texture->active);
+	assert(texture->active->vk_image);
 	struct rtvk_texture_view* view = rtvk_texture_view_create(ctx);
 	if (!view) {
 		return NULL;
@@ -533,22 +533,22 @@ static struct rtvk_texture_view* rtvk_texture_view_create_for_image(struct rtvk_
 
 	VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	u32 layer_count = 1;
-	if ((node->type == RT_TEXTURE_1D_ARRAY || node->type == RT_TEXTURE_2D_ARRAY) && node->depth) {
-		layer_count = node->depth;
+	if ((texture->active->type == RT_TEXTURE_1D_ARRAY || texture->active->type == RT_TEXTURE_2D_ARRAY) && texture->active->depth) {
+		layer_count = texture->active->depth;
 	}
 
 	view_info.pNext = NULL;
 	view_info.flags = 0;
-	view_info.image = node->vk_image;
-	view_info.viewType = rtvk_texture_view_type(node->type);
-	view_info.format = node->vk_format;
+	view_info.image = texture->active->vk_image;
+	view_info.viewType = rtvk_texture_view_type(texture->active->type);
+	view_info.format = texture->active->vk_format;
 	view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(node->vk_format);
+	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(texture->active->vk_format);
 	view_info.subresourceRange.baseMipLevel = 0;
-	view_info.subresourceRange.levelCount = node->mip_levels ? node->mip_levels : 1;
+	view_info.subresourceRange.levelCount = texture->active->mip_levels ? texture->active->mip_levels : 1;
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = layer_count;
 
@@ -559,42 +559,42 @@ static struct rtvk_texture_view* rtvk_texture_view_create_for_image(struct rtvk_
 		return NULL;
 	}
 
-	view->texture = node;
-	view->texture_next = node->views;
-	node->views = view;
-	view->vk_image = node->vk_image;
-	view->vk_layout = node->vk_layout;
-	view->vk_format = node->vk_format;
-	view->width = node->width;
-	view->height = node->height;
-	view->depth = node->depth;
+	view->texture = texture->active;
+	view->texture_next = texture->active->views;
+	texture->active->views = view;
+	view->vk_image = texture->active->vk_image;
+	view->vk_layout = texture->active->vk_layout;
+	view->vk_format = texture->active->vk_format;
+	view->width = texture->active->width;
+	view->height = texture->active->height;
+	view->depth = texture->active->depth;
 	return view;
 }
 
 void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_texture* texture) {
 	assert(view);
 	assert(texture);
-	struct rtvk_texture* node = texture->active;
-	assert(node);
+	assert(texture->active);
+	assert(texture->active->vk_image);
 	if (view->vk_image_view || view->texture) {
 		rtvk_texture_view_finish(ctx, view);
 		rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(view), RT_RESOURCE_TEXTURE_VIEW);
 	}
 	VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	u32 layer_count = 1;
-	if ((node->type == RT_TEXTURE_1D_ARRAY || node->type == RT_TEXTURE_2D_ARRAY) && node->depth) {
-		layer_count = node->depth;
+	if ((texture->active->type == RT_TEXTURE_1D_ARRAY || texture->active->type == RT_TEXTURE_2D_ARRAY) && texture->active->depth) {
+		layer_count = texture->active->depth;
 	}
-	view_info.image = node->vk_image;
-	view_info.viewType = rtvk_texture_view_type(node->type);
-	view_info.format = node->vk_format;
+	view_info.image = texture->active->vk_image;
+	view_info.viewType = rtvk_texture_view_type(texture->active->type);
+	view_info.format = texture->active->vk_format;
 	view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(node->vk_format);
+	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(texture->active->vk_format);
 	view_info.subresourceRange.baseMipLevel = 0;
-	view_info.subresourceRange.levelCount = node->mip_levels ? node->mip_levels : 1;
+	view_info.subresourceRange.levelCount = texture->active->mip_levels ? texture->active->mip_levels : 1;
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = layer_count;
 	VkResult result = vkCreateImageView(ctx->vk_device, &view_info, VK_ALLOCATOR, &view->vk_image_view);
@@ -602,39 +602,47 @@ void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* 
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
 		return;
 	}
-	view->texture = node;
-	view->texture_next = node->views;
-	node->views = view;
-	view->vk_image = node->vk_image;
-	view->vk_layout = node->vk_layout;
-	view->vk_format = node->vk_format;
-	view->width = node->width;
-	view->height = node->height;
-	view->depth = node->depth;
+	view->texture = texture->active;
+	view->texture_next = texture->active->views;
+	texture->active->views = view;
+	view->vk_image = texture->active->vk_image;
+	view->vk_layout = texture->active->vk_layout;
+	view->vk_format = texture->active->vk_format;
+	view->width = texture->active->width;
+	view->height = texture->active->height;
+	view->depth = texture->active->depth;
 }
 
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture) {
-	if (!texture || !texture->active || !texture->active->vk_image) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture view source texture is NULL");
-		return NULL;
-	}
-	return rtvk_texture_view_create_for_image(ctx, texture);
+	return rtvk_texture_view_from_texture(ctx, texture);
 }
 
-struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain(struct rtvk_context* ctx, struct rtvk_texture* texture) {
-	if (!texture || !texture->active || !texture->active->vk_image) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain texture view source texture is NULL");
-		return NULL;
-	}
-	return rtvk_texture_view_create_for_image(ctx, texture);
-}
-
-struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rtvk_context* ctx, VkImage image, VkFormat format, u32 width, u32 height) {
+struct rtvk_texture_view* rtvk_texture_view_bind_swapchain(struct rtvk_context* ctx, struct rtvk_texture* texture) {
+	assert(texture);
+	assert(texture->active);
+	assert(texture->active->vk_image);
 	struct rtvk_texture_view* view = rtvk_texture_view_create(ctx);
 	if (!view) {
 		return NULL;
 	}
+	rtvk_texture_view_bind_swapchain_image(
+		ctx,
+		view,
+		texture->active->vk_image,
+		texture->active->vk_format,
+		texture->active->width,
+		texture->active->height
+	);
+	if (rtvk_error() != RT_SUCCESS) {
+		rtvk_texture_view_destroy(ctx, view);
+		return NULL;
+	}
+	return view;
+}
 
+void rtvk_texture_view_bind_swapchain_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, VkImage image, VkFormat format, u32 width, u32 height) {
+	assert(ctx);
+	assert(view);
 	VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	view_info.pNext = NULL;
 	view_info.flags = 0;
@@ -651,11 +659,12 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rt
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = 1;
 
+	assert(image);
+
 	VkResult result = vkCreateImageView(ctx->vk_device, &view_info, VK_ALLOCATOR, &view->vk_image_view);
 	if (result != VK_SUCCESS) {
-		rtvk_texture_view_destroy(ctx, view);
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return NULL;
+		return;
 	}
 
 	view->texture = NULL;
@@ -665,7 +674,6 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_swapchain_image(struct rt
 	view->width = width;
 	view->height = height;
 	view->depth = 1;
-	return view;
 }
 
 static void rtvk_texture_view_retire_sampler(struct rtvk_texture_view* texture_view, VkSampler sampler) {

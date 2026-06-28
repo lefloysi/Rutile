@@ -336,7 +336,11 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 			goto cleanup;
 		}
 
-		swapchain->color_views[i] = rtvk_texture_view_create_for_swapchain_image(ctx, images[i], swapchain->vk_format, swapchain->extent.width, swapchain->extent.height);
+		swapchain->color_views[i] = rtvk_texture_view_create(ctx);
+		if (!swapchain->color_views[i]) {
+			goto cleanup;
+		}
+		rtvk_texture_view_bind_swapchain_image(ctx, swapchain->color_views[i], images[i], swapchain->vk_format, swapchain->extent.width, swapchain->extent.height);
 		rtvk_framebuffer_set_color_view(ctx, swapchain->framebuffers[i], 0, swapchain->color_views[i]);
 		if (rtvk_error() != RT_SUCCESS) {
 			goto cleanup;
