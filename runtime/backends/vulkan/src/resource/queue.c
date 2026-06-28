@@ -33,16 +33,16 @@ rt_timepoint rtQueueFlush(rt_queue queue) {
 }
 
 void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
-	rtvk_queue_wait(rtvk_get_current_context(), rtvk_queue_from_handle(queue), (struct rtvk_timepoint){rtvk_queue_from_handle(timepoint.queue), timepoint.value});
+	rtvk_queue_wait(rtvk_get_current_context(), rtvk_queue_from_handle(queue), (struct rtvk_timepoint){ rtvk_queue_from_handle(timepoint.queue), timepoint.value });
 }
 
 void rtTimepointWait(rt_timepoint timepoint) {
-	struct rtvk_timepoint internal = {rtvk_queue_from_handle(timepoint.queue), timepoint.value};
+	struct rtvk_timepoint internal = { rtvk_queue_from_handle(timepoint.queue), timepoint.value };
 	rtvk_timepoint_wait(rtvk_get_current_context(), internal);
 }
 
 bool rtTimepointReached(rt_timepoint timepoint) {
-	struct rtvk_timepoint internal = {rtvk_queue_from_handle(timepoint.queue), timepoint.value};
+	struct rtvk_timepoint internal = { rtvk_queue_from_handle(timepoint.queue), timepoint.value };
 	return rtvk_timepoint_reached(rtvk_get_current_context(), internal);
 }
 
@@ -82,12 +82,12 @@ void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue
 	queue->family_index = family_index;
 	queue->queue_index = queue_index;
 
-	VkSemaphoreTypeCreateInfo timeline_info = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+	VkSemaphoreTypeCreateInfo timeline_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
 	timeline_info.pNext = NULL;
 	timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
 	timeline_info.initialValue = 0;
 
-	VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+	VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	semaphore_info.pNext = &timeline_info;
 	semaphore_info.flags = 0;
 
@@ -101,7 +101,7 @@ void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	assert(queue);
 	rtvk_queue_flush(ctx, queue);
 	if (queue->timeline_value) {
-		struct rtvk_timepoint last = {queue, queue->timeline_value};
+		struct rtvk_timepoint last = { queue, queue->timeline_value };
 		rtvk_timepoint_wait(ctx, last);
 	}
 	rtvk_queue_retire_upload_resources(ctx, queue, true, true);
@@ -308,20 +308,20 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 
 	if (command_buffer && !command_buffer->active) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer has not been recorded");
-		return (struct rtvk_timepoint){queue, queue->timeline_value};
+		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
 	u64 value = queue->timeline_value + 1;
 	struct rtvk_submitted_batch* batch = rtvk_queue_create_batch(ctx, command_buffer, value);
 	if (!batch) {
-		return (struct rtvk_timepoint){queue, queue->timeline_value};
+		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
 	queue->timeline_value = value;
 	rtvk_queue_push_pending_batch(queue, batch);
 	if (command_buffer) {
 		struct rtvk_command_buffer* node = command_buffer->active;
-		node->pending_timepoint = (struct rtvk_timepoint){queue, value};
+		node->pending_timepoint = (struct rtvk_timepoint){ queue, value };
 	}
 	return (struct rtvk_timepoint){
 		queue,
@@ -332,7 +332,7 @@ struct rtvk_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_qu
 struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	assert(queue);
 	if (!queue->pending_head) {
-		return (struct rtvk_timepoint){queue, queue->submitted_value};
+		return (struct rtvk_timepoint){ queue, queue->submitted_value };
 	}
 
 	u32 command_buffer_count = 0;
@@ -348,7 +348,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 		command_buffers = calloc(command_buffer_count, sizeof(*command_buffers));
 		if (!command_buffers) {
 			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate queue flush command buffer list");
-			return (struct rtvk_timepoint){queue, queue->submitted_value};
+			return (struct rtvk_timepoint){ queue, queue->submitted_value };
 		}
 	}
 
@@ -388,14 +388,14 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 		signal_values[i + 1] = 0;
 	}
 
-	VkTimelineSemaphoreSubmitInfo timeline_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
 	timeline_info.pNext = NULL;
 	timeline_info.waitSemaphoreValueCount = wait_count;
 	timeline_info.pWaitSemaphoreValues = wait_count ? wait_values : NULL;
 	timeline_info.signalSemaphoreValueCount = 1 + binary_signal_count;
 	timeline_info.pSignalSemaphoreValues = signal_values;
 
-	VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.pNext = &timeline_info;
 	submit_info.waitSemaphoreCount = wait_count;
 	submit_info.pWaitSemaphores = wait_count ? wait_semaphores : NULL;
@@ -411,7 +411,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 			free(command_buffers);
 		}
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return (struct rtvk_timepoint){queue, queue->submitted_value};
+		return (struct rtvk_timepoint){ queue, queue->submitted_value };
 	}
 	if (command_buffers != stack_command_buffers) {
 		free(command_buffers);
@@ -426,7 +426,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 	queue->pending_tail = NULL;
 	rtvk_queue_push_submitted_list(queue, head, tail);
 	queue->submitted_value = value;
-	return (struct rtvk_timepoint){queue, value};
+	return (struct rtvk_timepoint){ queue, value };
 }
 struct rtvk_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	return rtvk_queue_submit(ctx, queue, NULL);
@@ -448,11 +448,11 @@ bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphor
 struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore) {
 	assert(queue);
 	if (!semaphore) {
-		return (struct rtvk_timepoint){NULL, 0};
+		return (struct rtvk_timepoint){ NULL, 0 };
 	}
 	if (queue->binary_wait_count >= sizeof(queue->binary_waits) / sizeof(queue->binary_waits[0])) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "queue has too many binary wait semaphores");
-		return (struct rtvk_timepoint){queue, queue->timeline_value};
+		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
 	u64 value = queue->timeline_value + 1;
@@ -461,10 +461,10 @@ struct rtvk_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rt
 	queue->binary_waits[queue->binary_wait_count++] = semaphore;
 	struct rtvk_submitted_batch* batch = rtvk_queue_create_batch(ctx, NULL, value);
 	if (!batch) {
-		return (struct rtvk_timepoint){queue, queue->submitted_value};
+		return (struct rtvk_timepoint){ queue, queue->submitted_value };
 	}
 	rtvk_queue_push_pending_batch(queue, batch);
-	return (struct rtvk_timepoint){queue, value};
+	return (struct rtvk_timepoint){ queue, value };
 }
 
 void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_timepoint timepoint) {
@@ -488,18 +488,18 @@ void rtvk_queue_wait(struct rtvk_context* ctx, struct rtvk_queue* queue, struct 
 struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue* queue, u64 wait_value, VkSemaphore semaphore) {
 	assert(queue);
 	if (!semaphore || wait_value == 0) {
-		return (struct rtvk_timepoint){NULL, 0};
+		return (struct rtvk_timepoint){ NULL, 0 };
 	}
 
 	rtvk_queue_collect_to_value(queue->base.ctx, queue, rtvk_queue_completed_value(queue->base.ctx, queue));
 
 	u64 signal_value = queue->timeline_value + 1;
-	u64 signal_values[2] = {0, signal_value};
+	u64 signal_values[2] = { 0, signal_value };
 	VkSemaphore signal_semaphores[2];
 	signal_semaphores[0] = semaphore;
 	signal_semaphores[1] = queue->vk_timeline;
 
-	VkTimelineSemaphoreSubmitInfo timeline_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
 	timeline_info.pNext = NULL;
 	timeline_info.waitSemaphoreValueCount = 1;
 	timeline_info.pWaitSemaphoreValues = &wait_value;
@@ -507,7 +507,7 @@ struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue
 	timeline_info.pSignalSemaphoreValues = signal_values;
 
 	VkPipelineStageFlags wait_stage = rtvk_queue_wait_stage(queue);
-	VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.pNext = &timeline_info;
 	submit_info.waitSemaphoreCount = 1;
 	submit_info.pWaitSemaphores = &queue->vk_timeline;
@@ -520,13 +520,13 @@ struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue
 	VkResult result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), NULL);
-		return (struct rtvk_timepoint){queue, queue->timeline_value};
+		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
 	queue->timeline_value = signal_value;
 	queue->submitted_value = signal_value;
 	rtvk_queue_collect_to_value(queue->base.ctx, queue, rtvk_queue_completed_value(queue->base.ctx, queue));
-	return (struct rtvk_timepoint){queue, signal_value};
+	return (struct rtvk_timepoint){ queue, signal_value };
 }
 
 struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceKHR surface) {
@@ -555,7 +555,7 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoi
 		rtvk_queue_flush(ctx, timepoint.queue);
 	}
 
-	VkSemaphoreWaitInfo wait_info = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+	VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
 	wait_info.pNext = NULL;
 	wait_info.flags = 0;
 	wait_info.semaphoreCount = 1;

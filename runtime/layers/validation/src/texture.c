@@ -227,7 +227,7 @@ void rtval_texture_view_lod(struct rtval_texture_view* view, f32 min_lod, f32 ma
 }
 
 rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {
-	rt_extent_3d empty = {0, 0, 0};
+	rt_extent_3d empty = { 0, 0, 0 };
 	struct rtval_texture_view* state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 	if (!state) {
 		RTVAL_DROP("rtTextureViewExtent: invalid handle");
@@ -239,7 +239,7 @@ rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {
 }
 
 rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct rtval_texture* dst, u32 dst_mip) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
 	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
 	if (!s || !d) {
@@ -258,7 +258,7 @@ rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct r
 }
 
 rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!t) {
 		RTVAL_DROP("rtTextureData: invalid texture");
@@ -270,7 +270,7 @@ rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_t
 }
 
 rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtval_texture* dst, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
 	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
 	if (!s || !d) {
@@ -293,7 +293,7 @@ rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, u32 s
 }
 
 rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!t) {
 		RTVAL_DROP("rtTextureSubdata: invalid texture");
@@ -319,7 +319,7 @@ rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, u32 o
 }
 
 rt_timepoint rtval_texture_view_copy_to_buffer(struct rtval_texture_view* view, struct rtval_buffer* buffer) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	struct rtval_texture_view* v = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 	struct rtval_buffer* b = RTVAL_PAYLOAD(buffer, struct rtval_buffer);
 	if (!v || !b) {

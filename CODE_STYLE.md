@@ -42,7 +42,7 @@ the same change. Do not leave tribal knowledge living only in chat.
 - Do not expose framebuffer internals through public getters. Framebuffers are render targets used by
   command buffers; users should not pull texture views back out of them through core API calls.
 - Public object configuration that must be finalized before use gets an explicit finalize operation.
-  Graphics programs must call `rtGraphicsProgramLink` after shader/layout setup and before binding.
+  Graphics programs must call `rtGraphicsProgramFinalize` after shader/layout setup and before binding.
 - If changing configuration invalidates a finalized object, mark it unfinalized and require the user to
   finalize again. Do not silently keep using stale backend objects.
 

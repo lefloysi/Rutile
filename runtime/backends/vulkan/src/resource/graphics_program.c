@@ -14,8 +14,8 @@
 
 /*
 ** SPEC.html §9.6 Graphics program
-** Implements create, destroy, shader setters, state setters, and link.
-** Linked programs are re-prepared against the active framebuffer format.
+** Implements create, destroy, shader setters, state setters, finalize, and reset.
+** Finalized programs are re-prepared against the active framebuffer format.
 */
 
 rt_graphics_program rtGraphicsProgramCreate(void) {
@@ -52,8 +52,12 @@ void rtGraphicsProgramBlendState(
 	rtvk_graphics_program_blend_state(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
-void rtGraphicsProgramLink(rt_graphics_program program) {
-	rtvk_graphics_program_link(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
+void rtGraphicsProgramFinalize(rt_graphics_program program) {
+	rtvk_graphics_program_finalize(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
+}
+
+void rtGraphicsProgramReset(rt_graphics_program program) {
+	rtvk_graphics_program_reset(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
 }
 
 rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
@@ -201,7 +205,7 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 		bindings[i].pImmutableSamplers = NULL;
 	}
 
-	VkDescriptorSetLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+	VkDescriptorSetLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	layout_info.pNext = NULL;
 	layout_info.flags = 0;
 	layout_info.bindingCount = program->uniform_location_count;
@@ -216,7 +220,7 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 }
 
 static void rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
-	VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 
 	if (!program->vk_descriptor_set_layout) {
 		rtvk_graphics_program_create_descriptor_set_layout(ctx, program);
@@ -240,12 +244,12 @@ static void rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ct
 }
 
 static void rtvk_graphics_program_shader_stages(struct rtvk_graphics_program* program, VkPipelineShaderStageCreateInfo stages[2]) {
-	stages[0] = (VkPipelineShaderStageCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+	stages[0] = (VkPipelineShaderStageCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
 	stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
 	stages[0].module = program->vk_vertex_shader;
 	stages[0].pName = "main";
 
-	stages[1] = (VkPipelineShaderStageCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+	stages[1] = (VkPipelineShaderStageCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
 	stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	stages[1].module = program->vk_fragment_shader;
 	stages[1].pName = "main";
@@ -264,7 +268,7 @@ static void rtvk_graphics_program_viewport_state(VkViewport* viewport, VkRect2D*
 	scissor->extent.width = 1;
 	scissor->extent.height = 1;
 
-	*viewport_info = (VkPipelineViewportStateCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+	*viewport_info = (VkPipelineViewportStateCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 	viewport_info->viewportCount = 1;
 	viewport_info->pViewports = viewport;
 	viewport_info->scissorCount = 1;
@@ -289,7 +293,7 @@ static void rtvk_graphics_program_color_blend_state(
 		VK_COLOR_COMPONENT_B_BIT |
 		VK_COLOR_COMPONENT_A_BIT;
 
-	*color_blend_info = (VkPipelineColorBlendStateCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+	*color_blend_info = (VkPipelineColorBlendStateCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 	color_blend_info->logicOpEnable = VK_FALSE;
 	color_blend_info->logicOp = VK_LOGIC_OP_COPY;
 	color_blend_info->attachmentCount = 1;
@@ -305,9 +309,9 @@ static void rtvk_graphics_program_create_pipeline(
 	VkPipelineShaderStageCreateInfo stages[2];
 	rtvk_graphics_program_shader_stages(program, stages);
 
-	VkVertexInputBindingDescription binding = {0};
-	VkVertexInputAttributeDescription attributes[RTVK_MAX_VERTEX_ATTRIBUTES] = {0};
-	VkPipelineVertexInputStateCreateInfo vertex_input_info = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+	VkVertexInputBindingDescription binding = { 0 };
+	VkVertexInputAttributeDescription attributes[RTVK_MAX_VERTEX_ATTRIBUTES] = { 0 };
+	VkPipelineVertexInputStateCreateInfo vertex_input_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 	if (program->vertex_layout.attribute_count) {
 		binding.binding = 0;
 		binding.stride = program->vertex_layout.stride;
@@ -335,16 +339,16 @@ static void rtvk_graphics_program_create_pipeline(
 		vertex_input_info.pVertexAttributeDescriptions = NULL;
 	}
 
-	VkPipelineInputAssemblyStateCreateInfo input_assembly_info = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+	VkPipelineInputAssemblyStateCreateInfo input_assembly_info = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
 	input_assembly_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	input_assembly_info.primitiveRestartEnable = VK_FALSE;
 
-	VkViewport viewport = {0};
-	VkRect2D scissor = {0};
+	VkViewport viewport = { 0 };
+	VkRect2D scissor = { 0 };
 	VkPipelineViewportStateCreateInfo viewport_info;
 	rtvk_graphics_program_viewport_state(&viewport, &scissor, &viewport_info);
 
-	VkPipelineRasterizationStateCreateInfo raster_info = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+	VkPipelineRasterizationStateCreateInfo raster_info = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
 	raster_info.pNext = NULL;
 	raster_info.flags = 0;
 	raster_info.depthClampEnable = VK_FALSE;
@@ -358,7 +362,7 @@ static void rtvk_graphics_program_create_pipeline(
 	raster_info.depthBiasSlopeFactor = 0.0f;
 	raster_info.lineWidth = 1.0f;
 
-	VkPipelineMultisampleStateCreateInfo multisample_info = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+	VkPipelineMultisampleStateCreateInfo multisample_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 	multisample_info.pNext = NULL;
 	multisample_info.flags = 0;
 	multisample_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -368,11 +372,11 @@ static void rtvk_graphics_program_create_pipeline(
 	multisample_info.alphaToCoverageEnable = VK_FALSE;
 	multisample_info.alphaToOneEnable = VK_FALSE;
 
-	VkPipelineColorBlendAttachmentState color_blend_attachment = {0};
+	VkPipelineColorBlendAttachmentState color_blend_attachment = { 0 };
 	VkPipelineColorBlendStateCreateInfo color_blend_info;
 	rtvk_graphics_program_color_blend_state(program, &color_blend_attachment, &color_blend_info);
 
-	VkPipelineDepthStencilStateCreateInfo depth_info = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+	VkPipelineDepthStencilStateCreateInfo depth_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
 	depth_info.pNext = NULL;
 	depth_info.flags = 0;
 	depth_info.depthTestEnable = depth_format != VK_FORMAT_UNDEFINED;
@@ -380,8 +384,8 @@ static void rtvk_graphics_program_create_pipeline(
 	depth_info.depthCompareOp = VK_COMPARE_OP_LESS;
 	depth_info.depthBoundsTestEnable = VK_FALSE;
 	depth_info.stencilTestEnable = VK_FALSE;
-	depth_info.front = (VkStencilOpState){0};
-	depth_info.back = (VkStencilOpState){0};
+	depth_info.front = (VkStencilOpState){ 0 };
+	depth_info.back = (VkStencilOpState){ 0 };
 	depth_info.minDepthBounds = 0.0f;
 	depth_info.maxDepthBounds = 1.0f;
 
@@ -389,13 +393,13 @@ static void rtvk_graphics_program_create_pipeline(
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
 	};
-	VkPipelineDynamicStateCreateInfo dynamic_info = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+	VkPipelineDynamicStateCreateInfo dynamic_info = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
 	dynamic_info.pNext = NULL;
 	dynamic_info.flags = 0;
 	dynamic_info.dynamicStateCount = (u32)(sizeof(dynamic_states) / sizeof(dynamic_states[0]));
 	dynamic_info.pDynamicStates = dynamic_states;
 
-	VkPipelineRenderingCreateInfo rendering_info = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+	VkPipelineRenderingCreateInfo rendering_info = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 	rendering_info.pNext = NULL;
 	rendering_info.viewMask = 0;
 	rendering_info.colorAttachmentCount = 1;
@@ -403,7 +407,7 @@ static void rtvk_graphics_program_create_pipeline(
 	rendering_info.depthAttachmentFormat = depth_format;
 	rendering_info.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
-	VkGraphicsPipelineCreateInfo pipeline_info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+	VkGraphicsPipelineCreateInfo pipeline_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
 	pipeline_info.pNext = &rendering_info;
 	pipeline_info.flags = 0;
 	pipeline_info.stageCount = 2;
@@ -435,7 +439,7 @@ static void rtvk_graphics_program_create_pipeline(
 
 void rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format) {
 	if (!program || !program->vk_pipeline_layout) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before use");
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before use");
 		return;
 	}
 
@@ -454,7 +458,7 @@ void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics
 		return;
 	}
 	if (!layout || !layout->attributes || layout->attribute_count == 0) {
-		program->vertex_layout = (rt_vertex_layout){0};
+		program->vertex_layout = (rt_vertex_layout){ 0 };
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
@@ -734,7 +738,20 @@ static void rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_p
 	}
 }
 
-void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+	if (!program) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
+		return;
+	}
+	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
+	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
+	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
+	rtvk_shader_reflection_clear(&program->vertex_reflection);
+	rtvk_shader_reflection_clear(&program->fragment_reflection);
+	rtvk_graphics_program_clear_uniform_locations(program);
+}
+
+void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	if (!program) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
@@ -855,7 +872,7 @@ struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk
 		return NULL;
 	}
 	if (!program->vk_pipeline_layout) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before querying uniforms");
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying uniforms");
 		return NULL;
 	}
 

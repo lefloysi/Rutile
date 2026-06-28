@@ -8,8 +8,8 @@
 #include "error.h"
 #include "resource/graphics_program.h"
 
-#include <rtslp_package.hpp>
 #include "../../../backend-tools/src/rtslp_package.cpp"
+#include <rtslp_package.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -164,16 +164,16 @@ void build_type_registry(const RTArtifactModule& module, TypeRegistry& reg) {
 		case RTIROp::TypeVector: {
 			const u32 comp_type = inst.operands.empty() ? 0u : inst.operands[0];
 			const u32 count = inst.literals.empty() ? 0u : inst.literals[0];
-			reg.vector_component_and_count[inst.result_id] = {comp_type, count};
+			reg.vector_component_and_count[inst.result_id] = { comp_type, count };
 			const auto it = reg.type_names.find(comp_type);
-			const std::string base = it != reg.type_names.end() ? it->second : std::string{"float"};
+			const std::string base = it != reg.type_names.end() ? it->second : std::string{ "float" };
 			reg.type_names[inst.result_id] = base + std::to_string(count);
 			break;
 		}
 		case RTIROp::TypeMatrix: {
 			const u32 col_type = inst.operands.empty() ? 0u : inst.operands[0];
 			const u32 cols = inst.literals.empty() ? 0u : inst.literals[0];
-			reg.matrix_column_and_count[inst.result_id] = {col_type, cols};
+			reg.matrix_column_and_count[inst.result_id] = { col_type, cols };
 			u32 component = 0;
 			u32 rows = 0;
 			if (auto it = reg.vector_component_and_count.find(col_type); it != reg.vector_component_and_count.end()) {
@@ -181,7 +181,7 @@ void build_type_registry(const RTArtifactModule& module, TypeRegistry& reg) {
 				rows = it->second.second;
 			}
 			const auto cit = reg.type_names.find(component);
-			const std::string base = cit != reg.type_names.end() ? cit->second : std::string{"float"};
+			const std::string base = cit != reg.type_names.end() ? cit->second : std::string{ "float" };
 			reg.type_names[inst.result_id] = base + std::to_string(rows) + "x" + std::to_string(cols);
 			break;
 		}

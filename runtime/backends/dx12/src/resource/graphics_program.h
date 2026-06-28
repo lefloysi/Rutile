@@ -22,7 +22,8 @@ RTDX_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vert
 RTDX_API void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data);
 RTDX_API void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 RTDX_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
-RTDX_API void rtGraphicsProgramLink(rt_graphics_program program);
+RTDX_API void rtGraphicsProgramFinalize(rt_graphics_program program);
+RTDX_API void rtGraphicsProgramReset(rt_graphics_program program);
 RTDX_API rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
 RTDX_EXTERN_C_EXIT
 
@@ -82,7 +83,8 @@ void rtdx_graphics_program_layout(struct rtdx_context* ctx, struct rtdx_graphics
 void rtdx_graphics_program_source(struct rtdx_context* ctx, struct rtdx_graphics_program* program, u64 size, const void* data);
 void rtdx_graphics_program_raster_state(struct rtdx_context* ctx, struct rtdx_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 void rtdx_graphics_program_blend_state(struct rtdx_context* ctx, struct rtdx_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
-void rtdx_graphics_program_link(struct rtdx_context* ctx, struct rtdx_graphics_program* program);
+void rtdx_graphics_program_finalize(struct rtdx_context* ctx, struct rtdx_graphics_program* program);
+void rtdx_graphics_program_reset(struct rtdx_context* ctx, struct rtdx_graphics_program* program);
 rt_uniform_location rtdx_graphics_program_uniform_location(struct rtdx_context* ctx, struct rtdx_graphics_program* program, const char* name);
 
 #endif /* RTDX_GRAPHICS_PROGRAM_H */

@@ -35,22 +35,46 @@ RTVK_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtvk_texture {
-	struct rtvk_resource_base base;
-	struct rtvk_texture* active;
-	struct rtvk_texture* next;
-	struct rtvk_texture_view* views;
+/*
+** rtvk_image_source — a uniform, refcounted handle to a VkImage with split lifetime.
+** Texture nodes and swapchain images both publish themselves through one.
+** Views hold a source* and never know which owner is behind it.
+**
+** Two-phase destruction:
+**   1) retire() — owner has destroyed (or is about to destroy) the underlying VkImage:
+**      walks dependent views, destroys their VkImageView handles, marks zombie,
+**      and nulls vk_image. Existing source* references stay valid but observe death.
+**   2) release() — drops a refcount. When the last ref is gone, the struct itself is freed.
+*/
+struct rtvk_image_source {
+	struct rtvk_context* ctx;
+	u32 ref_count;
+	bool zombie;
 
 	VkImage vk_image;
-	VmaAllocation vma_allocation;
-
+	VkFormat vk_format;
+	VkImageLayout vk_layout;
+	enum rt_texture_type type;
 	u32 width;
 	u32 height;
 	u32 depth;
 	u32 mip_levels;
-	VkFormat vk_format;
-	VkImageLayout vk_layout;
-	enum rt_texture_type type;
+
+	struct rtvk_texture_view* views;
+};
+
+struct rtvk_image_source* rtvk_image_source_create(struct rtvk_context* ctx);
+void rtvk_image_source_retain(struct rtvk_image_source* source);
+void rtvk_image_source_release(struct rtvk_image_source* source);
+void rtvk_image_source_retire(struct rtvk_image_source* source);
+
+struct rtvk_texture {
+	struct rtvk_resource_base base;
+	struct rtvk_texture* active;
+	struct rtvk_texture* next;
+
+	struct rtvk_image_source* source;
+	VmaAllocation vma_allocation;
 };
 
 RTVK_DECLARE_NEW_RESOURCE(texture)
@@ -62,17 +86,12 @@ typedef struct rtvk_retired_sampler {
 
 struct rtvk_texture_view {
 	struct rtvk_resource_base base;
-	struct rtvk_texture* texture;
-	struct rtvk_texture_view* texture_next;
+	struct rtvk_image_source* source;
+	struct rtvk_texture_view* source_next;
 	rtvk_retired_sampler* retired_samplers;
-	VkImageLayout vk_layout;
 	VkImageView vk_image_view;
 	VkSampler vk_sampler;
 
-	u32 width;
-	u32 height;
-	u32 depth;
-	VkFormat vk_format;
 	enum rt_filter mag_filter;
 	enum rt_filter min_filter;
 	enum rt_mip_filter mip_filter;
@@ -87,11 +106,9 @@ struct rtvk_texture_view {
 
 RTVK_DECLARE_NEW_RESOURCE(texture_view)
 
-struct rtvk_texture* rtvk_texture_create_for_swapchain_image(struct rtvk_context* ctx, VkImage image, VkFormat format, u32 width, u32 height);
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture);
 void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_texture* texture);
-struct rtvk_texture_view* rtvk_texture_view_bind_swapchain(struct rtvk_context* ctx, struct rtvk_texture* texture);
-void rtvk_texture_view_bind_swapchain_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, VkImage image, VkFormat format, u32 width, u32 height);
+void rtvk_texture_view_bind_source(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_source* source);
 void rtvk_texture_node_retain(struct rtvk_texture* texture);
 void rtvk_texture_node_release(struct rtvk_texture* texture);
 void rtvk_texture_view_filter(struct rtvk_texture_view* texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);

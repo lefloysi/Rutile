@@ -21,7 +21,7 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 	HGLRC legacy = NULL;
 	HGLRC hglrc = NULL;
 	PFN_wglCreateContextAttribsARB wglCreateContextAttribsARB = NULL;
-	WNDCLASSA wc = {0};
+	WNDCLASSA wc = { 0 };
 	ATOM atom;
 
 	wc.lpfnWndProc = DefWindowProcA;
@@ -45,7 +45,7 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 		goto fail;
 	}
 
-	PIXELFORMATDESCRIPTOR pfd = {0};
+	PIXELFORMATDESCRIPTOR pfd = { 0 };
 	pfd.nSize = sizeof(pfd);
 	pfd.nVersion = 1;
 	pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;

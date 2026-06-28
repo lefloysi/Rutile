@@ -127,6 +127,6 @@ bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base) {
 }
 
 rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint) {
-	rt_timepoint result = {(rt_queue)timepoint.queue, timepoint.value};
+	rt_timepoint result = { (rt_queue)timepoint.queue, timepoint.value };
 	return result;
 }

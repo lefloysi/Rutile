@@ -4,9 +4,9 @@
 #include "resource/buffer.h"
 #include "resource/queue.h"
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <vector>
 
 /*===============================================================================================*/
@@ -184,7 +184,7 @@ rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer b
 }
 
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
-	rt_extent_3d extent = {0, 0, 0};
+	rt_extent_3d extent = { 0, 0, 0 };
 	struct rtdx_texture_view* view = rtdx_texture_view_from_handle(texture_view);
 	if (!view || !view->d3d_resource) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture view extent query source is invalid");
@@ -215,7 +215,6 @@ static u32 rtdx_texture_view_bytes_per_pixel(DXGI_FORMAT format) {
 	}
 }
 
-static bool rtdx_texture_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue);
 static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size);
 
 static DXGI_FORMAT rtdx_texture_format(enum rt_format format) {
@@ -312,7 +311,7 @@ static bool rtdx_texture_copy_region(
 	}
 
 	rtdx_queue_collect(ctx, queue);
-	if (!rtdx_texture_upload_command(ctx, queue)) {
+	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return false;
 	}
 	ID3D12GraphicsCommandList* command_list = queue->upload_command_list;
@@ -374,7 +373,7 @@ static bool rtdx_texture_copy_region(
 		return false;
 	}
 
-	ID3D12CommandList* lists[] = {command_list};
+	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 	u64 fence_value = queue->fence_value + 1;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
@@ -744,7 +743,7 @@ void rtdx_texture_view_lod(
 
 struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, struct rtdx_texture* dst_texture, u32 dst_mip) {
 	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	if (!queue) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy requires a valid queue");
 		return timepoint;
@@ -766,46 +765,14 @@ struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_te
 	return timepoint;
 }
 
-static bool rtdx_texture_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue) {
-	if (queue->upload_allocator && queue->upload_command_list) {
-		rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
-		queue->upload_fence_value = 0;
-		HRESULT result = queue->upload_allocator->Reset();
-		if (FAILED(result)) {
-			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandAllocator::Reset failed: 0x%08x", (u32)result);
-			return false;
-		}
-		result = queue->upload_command_list->Reset(queue->upload_allocator, NULL);
-		if (FAILED(result)) {
-			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Reset failed: 0x%08x", (u32)result);
-			return false;
-		}
-		return true;
-	}
-
-	HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&queue->upload_allocator));
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
-		return false;
-	}
-
-	result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, queue->upload_allocator, NULL, IID_PPV_ARGS(&queue->upload_command_list));
-	if (FAILED(result)) {
-		rtdx_release(&queue->upload_allocator);
-		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
-		return false;
-	}
-	return true;
-}
-
 static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size) {
 	if (queue->upload_buffer && queue->upload_buffer_size >= size) {
-		rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
+		rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
 		queue->upload_fence_value = 0;
 		return true;
 	}
 
-	rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
+	rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
 	queue->upload_fence_value = 0;
 	rtdx_release(&queue->upload_buffer);
 	queue->upload_buffer_size = 0;
@@ -842,7 +809,7 @@ static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_qu
 
 struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_texture* texture, enum rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, enum rt_format format, const void* data) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	assert(texture);
 	assert(type == RT_TEXTURE_2D);
@@ -953,7 +920,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 		queue->upload_buffer->Unmap(0, NULL);
 	}
 
-	if (!rtdx_texture_upload_command(ctx, queue)) {
+	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		rtdx_texture_node_release(node);
 		return timepoint;
 	}
@@ -987,7 +954,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 		return timepoint;
 	}
 
-	ID3D12CommandList* lists[] = {command_list};
+	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 	u64 fence_value = queue->fence_value + 1;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
@@ -1009,7 +976,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 
 struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	struct rtdx_texture* src_node = src_texture ? src_texture->active : NULL;
 	struct rtdx_texture* dst_node = dst_texture ? dst_texture->active : NULL;
@@ -1029,7 +996,7 @@ struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx
 
 struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
 	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	struct rtdx_texture* node = texture ? texture->active : NULL;
 	assert(node && node->d3d_resource);
@@ -1083,7 +1050,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 	}
 	queue->upload_buffer->Unmap(0, NULL);
 
-	if (!rtdx_texture_upload_command(ctx, queue)) {
+	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return timepoint;
 	}
 	ID3D12GraphicsCommandList* command_list = queue->upload_command_list;
@@ -1125,7 +1092,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 		return timepoint;
 	}
 
-	ID3D12CommandList* lists[] = {command_list};
+	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 	u64 fence_value = queue->fence_value + 1;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
@@ -1143,7 +1110,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 
 struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct rtdx_texture_view* texture_view, struct rtdx_buffer* buffer) {
 	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	assert(texture_view && texture_view->d3d_resource);
 	assert(buffer);
@@ -1256,7 +1223,7 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 		return timepoint;
 	}
 
-	ID3D12CommandList* lists[] = {command_list};
+	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 	u64 fence_value = queue->fence_value + 1;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
@@ -1268,9 +1235,9 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 		return timepoint;
 	}
 	queue->fence_value = fence_value;
-	rtdx_timepoint_wait(ctx, {queue, fence_value});
+	rtdx_timepoint_wait(ctx, { queue, fence_value });
 
-	D3D12_RANGE read_range = {0, (SIZE_T)total_size};
+	D3D12_RANGE read_range = { 0, (SIZE_T)total_size };
 	void* mapped = NULL;
 	result = readback->Map(0, &read_range, &mapped);
 	if (FAILED(result)) {
@@ -1288,7 +1255,7 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 		u08* dst_row = packed.data() + (usize)y * texture_view->width * bytes_per_pixel;
 		memcpy(dst_row, src_row, (usize)texture_view->width * bytes_per_pixel);
 	}
-	D3D12_RANGE write_range = {0, 0};
+	D3D12_RANGE write_range = { 0, 0 };
 	readback->Unmap(0, &write_range);
 
 	if (rtdx_texture_view_needs_bgra_swizzle(texture_view->dxgi_format)) {

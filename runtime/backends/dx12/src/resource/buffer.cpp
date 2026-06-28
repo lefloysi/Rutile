@@ -218,7 +218,7 @@ static bool rtdx_buffer_storage_write_host(struct rtdx_buffer_storage* storage, 
 		return true;
 	}
 
-	D3D12_RANGE read_range = {0, 0};
+	D3D12_RANGE read_range = { 0, 0 };
 	void* mapped_data = NULL;
 	HRESULT result = storage->d3d_resource->Map(0, &read_range, &mapped_data);
 	if (FAILED(result)) {
@@ -259,7 +259,7 @@ static void rtdx_buffer_storage_copy(struct rtdx_buffer_storage* dst, struct rtd
 		return;
 	}
 
-	D3D12_RANGE read_range = {0, (SIZE_T)copy_size};
+	D3D12_RANGE read_range = { 0, (SIZE_T)copy_size };
 	void* src_data = NULL;
 	if (FAILED(src->d3d_resource->Map(0, &read_range, &src_data))) {
 		return;
@@ -275,46 +275,14 @@ static void rtdx_buffer_storage_copy(struct rtdx_buffer_storage* dst, struct rtd
 	src->d3d_resource->Unmap(0, NULL);
 }
 
-static bool rtdx_buffer_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue) {
-	if (queue->upload_allocator && queue->upload_command_list) {
-		rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
-		queue->upload_fence_value = 0;
-		HRESULT result = queue->upload_allocator->Reset();
-		if (FAILED(result)) {
-			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandAllocator::Reset failed: 0x%08x", (u32)result);
-			return false;
-		}
-		result = queue->upload_command_list->Reset(queue->upload_allocator, NULL);
-		if (FAILED(result)) {
-			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Reset failed: 0x%08x", (u32)result);
-			return false;
-		}
-		return true;
-	}
-
-	HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&queue->upload_allocator));
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
-		return false;
-	}
-
-	result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, queue->upload_allocator, NULL, IID_PPV_ARGS(&queue->upload_command_list));
-	if (FAILED(result)) {
-		rtdx_release(&queue->upload_allocator);
-		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
-		return false;
-	}
-	return true;
-}
-
 static bool rtdx_buffer_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size) {
 	if (queue->upload_buffer && queue->upload_buffer_size >= size) {
-		rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
+		rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
 		queue->upload_fence_value = 0;
 		return true;
 	}
 
-	rtdx_timepoint_wait(ctx, {queue, queue->upload_fence_value});
+	rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
 	queue->upload_fence_value = 0;
 	rtdx_release(&queue->upload_buffer);
 	queue->upload_buffer_size = 0;
@@ -357,7 +325,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	u64 size,
 	const void* data
 ) {
-	struct rtdx_timepoint timepoint = {queue, 0};
+	struct rtdx_timepoint timepoint = { queue, 0 };
 	if (!size) {
 		return timepoint;
 	}
@@ -381,7 +349,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	memcpy(mapped_data, data, (usize)size);
 	queue->upload_buffer->Unmap(0, NULL);
 
-	if (!rtdx_buffer_upload_command(ctx, queue)) {
+	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return timepoint;
 	}
 
@@ -416,7 +384,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 		return timepoint;
 	}
 
-	ID3D12CommandList* lists[] = {command_list};
+	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 
 	u64 signal_value = queue->fence_value + 1;
@@ -480,7 +448,7 @@ void rtdx_buffer_finish(struct rtdx_context* ctx, struct rtdx_buffer* buffer) {
 }
 
 struct rtdx_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = {NULL, 0};
+	struct rtdx_timepoint timepoint = { NULL, 0 };
 	if (!buffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "buffer is NULL");
 		return timepoint;
@@ -537,7 +505,7 @@ struct rtdx_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buf
 }
 
 struct rtdx_timepoint rtdx_buffer_subdata(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = {NULL, 0};
+	struct rtdx_timepoint timepoint = { NULL, 0 };
 	if (!buffer || !buffer->storage) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
 		return timepoint;
@@ -613,7 +581,7 @@ void rtdx_buffer_read(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 
 		return;
 	}
 
-	D3D12_RANGE read_range = {(SIZE_T)offset, (SIZE_T)(offset + size)};
+	D3D12_RANGE read_range = { (SIZE_T)offset, (SIZE_T)(offset + size) };
 	void* mapped_data = NULL;
 	HRESULT result = buffer->storage->d3d_resource->Map(0, &read_range, &mapped_data);
 	if (FAILED(result)) {
@@ -621,6 +589,6 @@ void rtdx_buffer_read(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 
 		return;
 	}
 	memcpy(data, (char*)mapped_data + offset, (usize)size);
-	D3D12_RANGE write_range = {0, 0};
+	D3D12_RANGE write_range = { 0, 0 };
 	buffer->storage->d3d_resource->Unmap(0, &write_range);
 }

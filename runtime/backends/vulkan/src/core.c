@@ -174,7 +174,7 @@ static bool rtvk_validate_init_features(const char* const* features, u32 feature
 		return false;
 	}
 
-	*flags = (rtvk_context_flags){0};
+	*flags = (rtvk_context_flags){ 0 };
 	for (u32 i = 0; i < feature_count; i++) {
 		const char* feature = features[i];
 		if (!feature) {

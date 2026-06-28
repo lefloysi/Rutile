@@ -68,7 +68,7 @@ void rtval_buffer_destroy(struct rtval_buffer* buffer) {
 }
 
 rt_timepoint rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	RTVAL_RESOLVE(buffer, "rtBufferData", timepoint);
 	if (mode != RT_BUFFER_STATIC && mode != RT_BUFFER_DYNAMIC) {
 		RTVAL_DROP("rtBufferData: unsupported buffer mode");
@@ -85,7 +85,7 @@ rt_timepoint rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode 
 }
 
 rt_timepoint rtval_buffer_subdata(struct rtval_buffer* buffer, u64 offset, u64 size, const void* data) {
-	rt_timepoint timepoint = {RT_NULL_HANDLE, 0};
+	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
 	RTVAL_RESOLVE(buffer, "rtBufferSubdata", timepoint);
 	if (size && !data) {
 		RTVAL_DROP("rtBufferSubdata: NULL data");

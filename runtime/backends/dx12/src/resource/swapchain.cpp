@@ -32,7 +32,7 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
-	struct rtdx_timepoint timepoint = {rtdx_queue_from_handle(rendered.queue), rendered.value};
+	struct rtdx_timepoint timepoint = { rtdx_queue_from_handle(rendered.queue), rendered.value };
 	rtdx_swapchain_present(
 		rtdx_get_current_context(),
 		rtdx_swapchain_from_handle(swapchain),
@@ -89,7 +89,7 @@ void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_f
 		return;
 	}
 	if (frame->has_present_timepoint) {
-		struct rtdx_timepoint timepoint = {frame->present_queue, frame->present_value};
+		struct rtdx_timepoint timepoint = { frame->present_queue, frame->present_value };
 		rtdx_timepoint_wait(ctx, timepoint);
 		frame->present_queue = NULL;
 		frame->present_value = 0;
@@ -318,7 +318,7 @@ bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapch
 }
 
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
-	rt_swapchain_acquire_result empty = {RT_NULL_HANDLE, {RT_NULL_HANDLE, 0}};
+	rt_swapchain_acquire_result empty = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
 	if (!swapchain || !swapchain->dxgi_swapchain) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return empty;
@@ -334,7 +334,7 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, str
 	}
 	rt_swapchain_acquire_result acquire = {
 		rtdx_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]),
-		{RT_NULL_HANDLE, 0},
+		{ RT_NULL_HANDLE, 0 },
 	};
 	swapchain->frame_acquired = true;
 	rtdx_swapchain_unlock(swapchain);
@@ -405,7 +405,7 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 		return false;
 	}
 
-	ID3D12CommandList* lists[] = {frame->present_command_list};
+	ID3D12CommandList* lists[] = { frame->present_command_list };
 	rendered.queue->d3d_queue->ExecuteCommandLists(1, lists);
 	return true;
 }

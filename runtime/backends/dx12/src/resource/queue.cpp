@@ -26,17 +26,17 @@ rt_timepoint rtQueueFlush(rt_queue queue) {
 }
 
 void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
-	struct rtdx_timepoint internal = {rtdx_queue_from_handle(timepoint.queue), timepoint.value};
+	struct rtdx_timepoint internal = { rtdx_queue_from_handle(timepoint.queue), timepoint.value };
 	rtdx_queue_wait(rtdx_get_current_context(), rtdx_queue_from_handle(queue), internal);
 }
 
 void rtTimepointWait(rt_timepoint timepoint) {
-	struct rtdx_timepoint internal = {rtdx_queue_from_handle(timepoint.queue), timepoint.value};
+	struct rtdx_timepoint internal = { rtdx_queue_from_handle(timepoint.queue), timepoint.value };
 	rtdx_timepoint_wait(rtdx_get_current_context(), internal);
 }
 
 bool rtTimepointReached(rt_timepoint timepoint) {
-	struct rtdx_timepoint internal = {rtdx_queue_from_handle(timepoint.queue), timepoint.value};
+	struct rtdx_timepoint internal = { rtdx_queue_from_handle(timepoint.queue), timepoint.value };
 	return rtdx_timepoint_reached(rtdx_get_current_context(), internal);
 }
 
@@ -190,14 +190,46 @@ void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	}
 }
 
+bool rtdx_queue_acquire_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue) {
+	if (queue->upload_allocator && queue->upload_command_list) {
+		rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
+		queue->upload_fence_value = 0;
+		HRESULT result = queue->upload_allocator->Reset();
+		if (FAILED(result)) {
+			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandAllocator::Reset failed: 0x%08x", (u32)result);
+			return false;
+		}
+		result = queue->upload_command_list->Reset(queue->upload_allocator, NULL);
+		if (FAILED(result)) {
+			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Reset failed: 0x%08x", (u32)result);
+			return false;
+		}
+		return true;
+	}
+
+	HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&queue->upload_allocator));
+	if (FAILED(result)) {
+		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
+		return false;
+	}
+
+	result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, queue->upload_allocator, NULL, IID_PPV_ARGS(&queue->upload_command_list));
+	if (FAILED(result)) {
+		rtdx_release(&queue->upload_allocator);
+		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
+		return false;
+	}
+	return true;
+}
+
 struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_command_buffer* command_buffer) {
 	if (!queue) {
-		return {NULL, 0};
+		return { NULL, 0 };
 	}
 
 	if (command_buffer && !rtdx_command_buffer_active_node(command_buffer)) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "command buffer has not been recorded");
-		return {queue, queue->fence_value};
+		return { queue, queue->fence_value };
 	}
 
 	rtdx_queue_collect(ctx, queue);
@@ -205,7 +237,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 	u64 value = queue->fence_value + 1;
 	struct rtdx_submitted_batch* batch = rtdx_queue_create_batch(ctx, command_buffer, value);
 	if (command_buffer && !batch) {
-		return {queue, queue->fence_value};
+		return { queue, queue->fence_value };
 	}
 
 	for (u32 i = 0; i < queue->wait_count; i++) {
@@ -217,13 +249,13 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 				free(batch);
 			}
 			rtdx_throwf(rtdx_error_from_hresult(wait_result), "ID3D12CommandQueue::Wait failed: 0x%08x", (u32)wait_result);
-			return {queue, queue->fence_value};
+			return { queue, queue->fence_value };
 		}
 	}
 
 	if (command_buffer) {
 		struct rtdx_command_buffer* node = rtdx_command_buffer_active_node(command_buffer);
-		ID3D12CommandList* lists[] = {node->d3d_command_list};
+		ID3D12CommandList* lists[] = { node->d3d_command_list };
 		queue->d3d_queue->ExecuteCommandLists(1, lists);
 	}
 
@@ -234,20 +266,20 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 			free(batch);
 		}
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
-		return {queue, queue->fence_value};
+		return { queue, queue->fence_value };
 	}
 
 	queue->wait_count = 0;
 	queue->fence_value = value;
 	rtdx_queue_push_batch(queue, batch);
-	return {queue, value};
+	return { queue, value };
 }
 
 struct rtdx_timepoint rtdx_queue_flush(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	if (!queue) {
-		return {NULL, 0};
+		return { NULL, 0 };
 	}
-	return {queue, queue->fence_value};
+	return { queue, queue->fence_value };
 }
 
 void rtdx_queue_wait(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_timepoint timepoint) {
@@ -269,7 +301,7 @@ void rtdx_queue_wait_idle(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	if (!queue) {
 		return;
 	}
-	rtdx_timepoint_wait(ctx, {queue, queue->fence_value});
+	rtdx_timepoint_wait(ctx, { queue, queue->fence_value });
 	rtdx_queue_collect(ctx, queue);
 }
 

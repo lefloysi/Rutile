@@ -460,7 +460,7 @@ void rtdx_command_buffer_clear_color(struct rtdx_context* ctx, struct rtdx_comma
 		return;
 	}
 
-	f32 clear_color[] = {r, g, b, a};
+	f32 clear_color[] = { r, g, b, a };
 	node->d3d_command_list->ClearRenderTargetView(color_view->rtv, clear_color, 0, NULL);
 }
 
@@ -671,7 +671,7 @@ void rtdx_command_buffer_uniform_texture(
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, texture_view->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-	ID3D12DescriptorHeap* heaps[] = {node->d3d_srv_heap, node->d3d_sampler_heap};
+	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap, node->d3d_sampler_heap };
 	node->d3d_command_list->SetDescriptorHeaps(2, heaps);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		internal_location->root_parameter,
@@ -755,7 +755,7 @@ void rtdx_command_buffer_storage_buffer(
 	srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
 	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
 	ctx->d3d_device->CreateShaderResourceView(buffer->storage->d3d_resource, &srv_desc, srv_cpu);
-	ID3D12DescriptorHeap* heaps[] = {node->d3d_srv_heap};
+	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap };
 	node->d3d_command_list->SetDescriptorHeaps(1, heaps);
 	node->d3d_command_list->SetGraphicsRootDescriptorTable(
 		location->root_parameter,

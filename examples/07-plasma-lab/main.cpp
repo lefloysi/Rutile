@@ -14,7 +14,7 @@
 #include <iostream>
 
 constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kTextureWidth = 1024;
 constexpr u32 kTextureHeight = 1024;
 
@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramLayout(graphics_program, nullptr);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 	rt_uniform_location plasma_location = rtGraphicsProgramUniformLocation(graphics_program, "Plasma");
 	if (!check_rt_error("link graphics program")) {
 		rtGraphicsProgramDestroy(graphics_program);
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
 	auto start_time = std::chrono::steady_clock::now();
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();

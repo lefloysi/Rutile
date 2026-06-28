@@ -21,7 +21,7 @@ RTGL_API void rtInit(const char* const* features, u32 feature_count) {
 		return;
 	}
 
-	flags = (rtgl_context_flags){0};
+	flags = (rtgl_context_flags){ 0 };
 	for (u32 i = 0; i < feature_count; i++) {
 		const char* feature = features[i];
 		if (!feature) {

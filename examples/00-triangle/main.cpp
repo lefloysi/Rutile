@@ -6,11 +6,11 @@
 #include <GLFW/glfw3.h>
 #include <cstddef>
 #include <cstdio>
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <iterator>
-#include <windows.h>
 #include <vector>
+#include <windows.h>
 
 struct Vertex {
 	f32 position[2];
@@ -18,16 +18,16 @@ struct Vertex {
 };
 
 static const Vertex kVertices[] = {
-	{{0.0f, -0.6f}, {1.0f, 0.2f, 0.2f}},
-	{{0.6f, 0.5f}, {0.2f, 1.0f, 0.3f}},
-	{{-0.6f, 0.5f}, {0.3f, 0.4f, 1.0f}},
+	{ { 0.0f, -0.6f }, { 1.0f, 0.2f, 0.2f } },
+	{ { 0.6f, 0.5f }, { 0.2f, 1.0f, 0.3f } },
+	{ { -0.6f, 0.5f }, { 0.3f, 0.4f, 1.0f } },
 };
 
 static const rt_vertex_attribute kAttributes[] = {
-	{"position", offsetof(Vertex, position), RT_RG32_SFLOAT},
-	{"color", offsetof(Vertex, color), RT_RGB32_SFLOAT},
+	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 };
-static const rt_vertex_layout kLayout = {sizeof(Vertex), kAttributes, 2};
+static const rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 2 };
 
 static std::vector<char> read_binary_file(const char* path) {
 	std::ifstream file(path, std::ios::binary);
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
 	}
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
-	const char* features[] = {RT_FEATURE_PRESENTATION};
+	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtSetOutput(rt_output, nullptr);
 	rtInit(features, 1);
 	if (!check_rt("rtInit")) {
@@ -94,8 +94,8 @@ int main(int argc, char** argv) {
 	}
 	rtGraphicsProgramSource(program, triangle_program.size(), triangle_program.data());
 	rtGraphicsProgramLayout(program, &kLayout);
-	rtGraphicsProgramLink(program);
-	if (!check_rt("rtGraphicsProgramLink")) {
+	rtGraphicsProgramFinalize(program);
+	if (!check_rt("rtGraphicsProgramFinalize")) {
 		return 1;
 	}
 

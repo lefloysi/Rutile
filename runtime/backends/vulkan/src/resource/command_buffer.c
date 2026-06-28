@@ -14,7 +14,6 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-
 rt_command_buffer rtCommandBufferCreate(void) {
 	struct rtvk_command_buffer* command_buffer = rtvk_command_buffer_create(rtvk_get_current_context());
 	return rtvk_command_buffer_to_handle(command_buffer);
@@ -193,7 +192,7 @@ void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot* slot) {
 			rtvk_release_resource(slot->texture.view);
 		}
 	}
-	*slot = (rtvk_uniform_slot){0};
+	*slot = (rtvk_uniform_slot){ 0 };
 }
 
 rtvk_uniform_slot* rtvk_command_buffer_uniform_slot(struct rtvk_command_buffer* command_buffer, u32 index) {
@@ -280,7 +279,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 		return NULL;
 	}
 
-	VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 	pool_info.pNext = NULL;
 	pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	pool_info.queueFamilyIndex = family_index;
@@ -292,7 +291,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 		return NULL;
 	}
 
-	VkCommandBufferAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+	VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	allocate_info.pNext = NULL;
 	allocate_info.commandPool = node->vk_command_pool;
 	allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -362,7 +361,7 @@ void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buf
 	struct rtvk_command_buffer* node = command_buffer->active;
 	vkResetCommandBuffer(node->vk_command_buffer, 0);
 
-	VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin_info.pNext = NULL;
 	begin_info.flags = 0;
 	begin_info.pInheritanceInfo = NULL;
@@ -392,7 +391,7 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_c
 	}
 	struct rtvk_texture_view* color_view = framebuffer->color_views[0];
 	struct rtvk_texture_view* depth_view = framebuffer->depth_view;
-	VkRenderingAttachmentInfo color_attachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+	VkRenderingAttachmentInfo color_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 	color_attachment.pNext = NULL;
 	color_attachment.imageView = color_view ? color_view->vk_image_view : VK_NULL_HANDLE;
 	color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -411,7 +410,7 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_c
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 	);
 
-	VkRenderingAttachmentInfo depth_attachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+	VkRenderingAttachmentInfo depth_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 	depth_attachment.pNext = NULL;
 	depth_attachment.imageView = depth_view ? depth_view->vk_image_view : VK_NULL_HANDLE;
 	depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -431,13 +430,13 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_c
 		);
 	}
 
-	VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+	VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
 	rendering_info.pNext = NULL;
 	rendering_info.flags = 0;
 	rendering_info.renderArea.offset.x = 0;
 	rendering_info.renderArea.offset.y = 0;
-	rendering_info.renderArea.extent.width = color_view ? color_view->width : 0;
-	rendering_info.renderArea.extent.height = color_view ? color_view->height : 0;
+	rendering_info.renderArea.extent.width = (color_view && color_view->source) ? color_view->source->width : 0;
+	rendering_info.renderArea.extent.height = (color_view && color_view->source) ? color_view->source->height : 0;
 	rendering_info.layerCount = 1;
 	rendering_info.viewMask = 0;
 	rendering_info.colorAttachmentCount = 1;
@@ -467,7 +466,7 @@ void rtvk_command_buffer_clear_color(struct rtvk_context* ctx, struct rtvk_comma
 		return;
 	}
 
-	VkClearAttachment attachment = {0};
+	VkClearAttachment attachment = { 0 };
 	attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	attachment.colorAttachment = color_index;
 	attachment.clearValue.color.float32[0] = r;
@@ -475,11 +474,11 @@ void rtvk_command_buffer_clear_color(struct rtvk_context* ctx, struct rtvk_comma
 	attachment.clearValue.color.float32[2] = b;
 	attachment.clearValue.color.float32[3] = a;
 
-	VkClearRect rect = {0};
+	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = color_view->width;
-	rect.rect.extent.height = color_view->height;
+	rect.rect.extent.width = color_view->source ? color_view->source->width : 0;
+	rect.rect.extent.height = color_view->source ? color_view->source->height : 0;
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -498,15 +497,15 @@ void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_comma
 		return;
 	}
 
-	VkClearAttachment attachment = {0};
+	VkClearAttachment attachment = { 0 };
 	attachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 	attachment.clearValue.depthStencil.depth = depth;
 
-	VkClearRect rect = {0};
+	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = depth_view->width;
-	rect.rect.extent.height = depth_view->height;
+	rect.rect.extent.width = depth_view->source ? depth_view->source->width : 0;
+	rect.rect.extent.height = depth_view->source ? depth_view->source->height : 0;
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -525,15 +524,15 @@ void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_com
 		return;
 	}
 
-	VkClearAttachment attachment = {0};
+	VkClearAttachment attachment = { 0 };
 	attachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
 	attachment.clearValue.depthStencil.stencil = stencil;
 
-	VkClearRect rect = {0};
+	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = depth_view->width;
-	rect.rect.extent.height = depth_view->height;
+	rect.rect.extent.width = depth_view->source ? depth_view->source->width : 0;
+	rect.rect.extent.height = depth_view->source ? depth_view->source->height : 0;
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -607,16 +606,17 @@ static VkPipelineStageFlags rtvk_command_buffer_layout_stage(VkImageLayout layou
 void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
 	assert(command_buffer);
 	assert(view);
-	assert(view->vk_image);
-	struct rtvk_texture* texture = view->texture;
+	assert(view->source);
+	assert(view->source->vk_image);
+	struct rtvk_image_source* source = view->source;
 
-	if (view->vk_layout == layout) {
+	if (source->vk_layout == layout) {
 		return;
 	}
 
-	VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.pNext = NULL;
-	VkImageLayout old_layout = view->vk_layout;
+	VkImageLayout old_layout = source->vk_layout;
 	barrier.srcAccessMask = rtvk_command_buffer_layout_access(old_layout);
 	VkPipelineStageFlags actual_src_stage = rtvk_command_buffer_layout_stage(old_layout);
 	if (actual_src_stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
@@ -628,18 +628,15 @@ void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_
 	barrier.newLayout = layout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = view->vk_image;
-	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(view->vk_format);
+	barrier.image = source->vk_image;
+	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(source->vk_format);
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = texture && texture->active ? texture->active->mip_levels : 1;
+	barrier.subresourceRange.levelCount = source->mip_levels ? source->mip_levels : 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
 	vkCmdPipelineBarrier(command_buffer->vk_command_buffer, actual_src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
-	view->vk_layout = layout;
-	if (texture) {
-		texture->vk_layout = layout;
-	}
+	source->vk_layout = layout;
 }
 
 void rtvk_command_buffer_suspend_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
@@ -670,28 +667,31 @@ void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	VkFormat depth_format = depth_view ? depth_view->vk_format : VK_FORMAT_UNDEFINED;
-	rtvk_graphics_program_prepare(ctx, program, color_view->vk_format, depth_format);
+	VkFormat depth_format = (depth_view && depth_view->source) ? depth_view->source->vk_format : VK_FORMAT_UNDEFINED;
+	VkFormat color_format = color_view->source ? color_view->source->vk_format : VK_FORMAT_UNDEFINED;
+	rtvk_graphics_program_prepare(ctx, program, color_format, depth_format);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;
 	}
 
 	vkCmdBindPipeline(node->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program->vk_pipeline);
 
-	VkViewport viewport = {0};
+	u32 color_w = color_view->source ? color_view->source->width : 0;
+	u32 color_h = color_view->source ? color_view->source->height : 0;
+	VkViewport viewport = { 0 };
 	viewport.x = 0.0f;
-	viewport.y = (f32)color_view->height;
-	viewport.width = (f32)color_view->width;
-	viewport.height = -(f32)color_view->height;
+	viewport.y = (f32)color_h;
+	viewport.width = (f32)color_w;
+	viewport.height = -(f32)color_h;
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 	vkCmdSetViewport(node->vk_command_buffer, 0, 1, &viewport);
 
-	VkRect2D scissor = {0};
+	VkRect2D scissor = { 0 };
 	scissor.offset.x = 0;
 	scissor.offset.y = 0;
-	scissor.extent.width = color_view->width;
-	scissor.extent.height = color_view->height;
+	scissor.extent.width = color_w;
+	scissor.extent.height = color_h;
 	vkCmdSetScissor(node->vk_command_buffer, 0, 1, &scissor);
 
 	if (command_buffer->graphics_program != program) {
@@ -714,7 +714,7 @@ void rtvk_command_buffer_set_scissor(struct rtvk_context* ctx, struct rtvk_comma
 		return;
 	}
 
-	VkRect2D scissor = {0};
+	VkRect2D scissor = { 0 };
 	scissor.offset.x = (int32_t)x;
 	scissor.offset.y = (int32_t)y;
 	scissor.extent.width = width;
@@ -809,12 +809,12 @@ void rtvk_command_buffer_uniform_texture(
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform location does not belong to the active graphics program");
 		return;
 	}
-	if (!texture_view || !texture_view->vk_image || !texture_view->vk_image_view) {
+	if (!texture_view || !texture_view->source || !texture_view->source->vk_image || !texture_view->vk_image_view) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture view is NULL");
 		return;
 	}
 	struct rtvk_framebuffer* active_framebuffer = command_buffer->framebuffer;
-	bool resume_rendering = texture_view->texture && texture_view->texture->vk_layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	bool resume_rendering = texture_view->source->vk_layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	if (resume_rendering) {
 		rtvk_command_buffer_suspend_rendering(ctx, command_buffer);
 	}
@@ -882,13 +882,13 @@ static rtvk_descriptor_pool_node* rtvk_command_buffer_create_descriptor_pool(
 	}
 
 	VkDescriptorPoolSize pool_sizes[4] = {
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, max_sets * descriptors_per_type},
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, max_sets * descriptors_per_type},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_sets * descriptors_per_type},
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, max_sets * descriptors_per_type},
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, max_sets * descriptors_per_type },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, max_sets * descriptors_per_type },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_sets * descriptors_per_type },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, max_sets * descriptors_per_type },
 	};
 
-	VkDescriptorPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+	VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 	pool_info.pNext = NULL;
 	pool_info.flags = 0;
 	pool_info.maxSets = max_sets;
@@ -932,7 +932,7 @@ static void rtvk_command_buffer_allocate_descriptor_set(
 		}
 	}
 
-	VkDescriptorSetAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+	VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
 	allocate_info.pNext = NULL;
 	allocate_info.descriptorPool = pool->vk_pool;
 	allocate_info.descriptorSetCount = 1;
@@ -1002,7 +1002,7 @@ static void rtvk_command_buffer_bind_uniform_buffers(struct rtvk_context* ctx, s
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		struct rtvk_uniform_location* location = &program->uniform_locations[i];
-		writes[i] = (VkWriteDescriptorSet){VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+		writes[i] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 		writes[i].pNext = NULL;
 		writes[i].dstSet = descriptor_set;
 		writes[i].dstBinding = location->binding;

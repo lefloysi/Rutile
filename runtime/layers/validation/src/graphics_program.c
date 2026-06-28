@@ -30,8 +30,12 @@ RT_EXPORT void rtGraphicsProgramBlendState(rt_graphics_program program, bool ena
 	rtval_graphics_program_blend_state(rtval_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
-RT_EXPORT void rtGraphicsProgramLink(rt_graphics_program program) {
-	rtval_graphics_program_link(rtval_graphics_program_from_handle(program));
+RT_EXPORT void rtGraphicsProgramFinalize(rt_graphics_program program) {
+	rtval_graphics_program_finalize(rtval_graphics_program_from_handle(program));
+}
+
+RT_EXPORT void rtGraphicsProgramReset(rt_graphics_program program) {
+	rtval_graphics_program_reset(rtval_graphics_program_from_handle(program));
 }
 
 RT_EXPORT rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
@@ -101,7 +105,6 @@ void rtval_graphics_program_source(struct rtval_graphics_program* program, u64 s
 	rtval_report_error("rtGraphicsProgramSource");
 }
 
-
 void rtval_graphics_program_raster_state(struct rtval_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
 	if (!state) {
@@ -133,15 +136,26 @@ void rtval_graphics_program_blend_state(
 	rtval_report_error("rtGraphicsProgramBlendState");
 }
 
-void rtval_graphics_program_link(struct rtval_graphics_program* program) {
+void rtval_graphics_program_finalize(struct rtval_graphics_program* program) {
 	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
 	if (!state) {
-		RTVAL_DROP("rtGraphicsProgramLink: null handle");
+		RTVAL_DROP("rtGraphicsProgramFinalize: null handle");
 		return;
 	}
 
-	rtval_next_rtGraphicsProgramLink(state->backend);
-	rtval_report_error("rtGraphicsProgramLink");
+	rtval_next_rtGraphicsProgramFinalize(state->backend);
+	rtval_report_error("rtGraphicsProgramFinalize");
+}
+
+void rtval_graphics_program_reset(struct rtval_graphics_program* program) {
+	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
+	if (!state) {
+		RTVAL_DROP("rtGraphicsProgramReset: null handle");
+		return;
+	}
+
+	rtval_next_rtGraphicsProgramReset(state->backend);
+	rtval_report_error("rtGraphicsProgramReset");
 }
 
 rt_uniform_location rtval_graphics_program_uniform_location(struct rtval_graphics_program* program, const char* name) {

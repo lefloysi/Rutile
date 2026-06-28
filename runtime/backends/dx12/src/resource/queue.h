@@ -67,6 +67,7 @@ struct rtdx_timepoint rtdx_queue_flush(struct rtdx_context* ctx, struct rtdx_que
 struct rtdx_timepoint rtdx_queue_signal(struct rtdx_context* ctx, struct rtdx_queue* queue);
 void rtdx_queue_wait_idle(struct rtdx_context* ctx, struct rtdx_queue* queue);
 void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue);
+bool rtdx_queue_acquire_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue);
 void rtdx_timepoint_wait(struct rtdx_context* ctx, struct rtdx_timepoint timepoint);
 bool rtdx_timepoint_reached(struct rtdx_context* ctx, struct rtdx_timepoint timepoint);
 

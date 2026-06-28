@@ -48,7 +48,7 @@ void rtlog_rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 
 rt_swapchain_acquire_result rtlog_rtSwapchainAcquire(rt_swapchain swapchain) {
 	u64 start_ns = rtlog_now_ns();
-	rt_swapchain_acquire_result result = {RT_NULL_HANDLE, {RT_NULL_HANDLE, 0}};
+	rt_swapchain_acquire_result result = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
 
 	rtlog_printf("rtSwapchainAcquire(swapchain=%s)\n", rtlog_pointer(swapchain));
 	if (!next_rtSwapchainAcquire) {

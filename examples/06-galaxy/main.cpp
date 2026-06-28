@@ -19,7 +19,7 @@
 #include <vector>
 
 constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kStarCount = 26000;
 constexpr u32 kPlanetCount = 520;
 constexpr f32 kGalaxyRadius = 880.0f;
@@ -52,14 +52,14 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{0, offsetof(Vertex, position), RT_RGB32_SFLOAT},
-	{1, offsetof(Vertex, color), RT_RGBA32_SFLOAT},
-	{2, offsetof(Vertex, normal), RT_RGB32_SFLOAT},
-	{3, offsetof(Vertex, kind), RT_R32_SFLOAT},
-	{4, offsetof(Vertex, seed), RT_R32_SFLOAT},
+	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ 1, offsetof(Vertex, color), RT_RGBA32_SFLOAT },
+	{ 2, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ 3, offsetof(Vertex, kind), RT_R32_SFLOAT },
+	{ 4, offsetof(Vertex, seed), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_layout kVertexLayout = {sizeof(Vertex), kVertexAttributes, 5};
+constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 5 };
 
 constexpr const char* kVertexShader = R"(
 #version 460
@@ -137,9 +137,9 @@ void push_vertex(
 	f32 seed
 ) {
 	vertices->push_back({
-		{position.x, position.y, position.z},
-		{color.r, color.g, color.b, color.a},
-		{normal.x, normal.y, normal.z},
+		{ position.x, position.y, position.z },
+		{ color.r, color.g, color.b, color.a },
+		{ normal.x, normal.y, normal.z },
 		kind,
 		seed,
 	});
@@ -155,14 +155,14 @@ void push_star(std::vector<Vertex>* vertices, const glm::vec3& center, f32 radiu
 		glm::vec3(0.0f, -radius, 0.0f),
 	};
 	const i32 faces[][3] = {
-		{0, 1, 2},
-		{0, 2, 3},
-		{0, 3, 4},
-		{0, 4, 1},
-		{5, 2, 1},
-		{5, 3, 2},
-		{5, 4, 3},
-		{5, 1, 4},
+		{ 0, 1, 2 },
+		{ 0, 2, 3 },
+		{ 0, 3, 4 },
+		{ 0, 4, 1 },
+		{ 5, 2, 1 },
+		{ 5, 3, 2 },
+		{ 5, 4, 3 },
+		{ 5, 1, 4 },
 	};
 	for (const auto& face : faces) {
 		const glm::vec3 a = p[face[0]];
@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "Scene");
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
@@ -435,7 +435,7 @@ int main(int argc, char** argv) {
 	auto previous_time = start_time;
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();

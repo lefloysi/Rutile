@@ -17,8 +17,8 @@
 #include <vector>
 
 constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kLayers[] = {"RT_VALIDATION"};
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kLayers[] = { "RT_VALIDATION" };
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
 struct TransformUniform {
 	f32 transform[16];
@@ -43,16 +43,16 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{0, offsetof(Vertex, position), RT_RGB32_SFLOAT},
-	{1, offsetof(Vertex, color), RT_RGB32_SFLOAT},
-	{2, offsetof(Vertex, normal), RT_RGB32_SFLOAT},
-	{3, offsetof(Vertex, ao), RT_R32_SFLOAT},
-	{4, offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT},
-	{5, offsetof(Vertex, edge_mask), RT_R32_SFLOAT},
-	{6, offsetof(Vertex, corner_mask), RT_R32_SFLOAT},
+	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ 1, offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ 2, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ 3, offsetof(Vertex, ao), RT_R32_SFLOAT },
+	{ 4, offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
+	{ 5, offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
+	{ 6, offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_layout kVertexLayout = {sizeof(Vertex), kVertexAttributes, 7};
+constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 7 };
 
 constexpr const char* kVertexShader = R"(
 #version 460
@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
@@ -359,7 +359,7 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramFragmentShader(water_program, std::strlen(kWaterFragmentShader), kWaterFragmentShader);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
-	rtGraphicsProgramLink(water_program);
+	rtGraphicsProgramFinalize(water_program);
 	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "Transform");
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
@@ -374,7 +374,7 @@ int main(int argc, char** argv) {
 	auto previous_time = start_time;
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();

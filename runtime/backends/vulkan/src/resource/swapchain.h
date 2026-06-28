@@ -43,6 +43,7 @@ struct rtvk_swapchain {
 	struct rtvk_queue* present_queue;
 	struct rtvk_framebuffer** framebuffers;
 	struct rtvk_texture_view** color_views;
+	struct rtvk_image_source** image_sources;
 	struct rtvk_swapchain_frame* frames;
 
 	VkExtent2D extent;

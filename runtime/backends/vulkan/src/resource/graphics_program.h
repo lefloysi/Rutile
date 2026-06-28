@@ -18,7 +18,8 @@ RTVK_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vert
 RTVK_API void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data);
 RTVK_API void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 RTVK_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
-RTVK_API void rtGraphicsProgramLink(rt_graphics_program program);
+RTVK_API void rtGraphicsProgramFinalize(rt_graphics_program program);
+RTVK_API void rtGraphicsProgramReset(rt_graphics_program program);
 RTVK_API rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
 
 /*===============================================================================================*/
@@ -82,7 +83,8 @@ void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics
 void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data);
 void rtvk_graphics_program_raster_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 void rtvk_graphics_program_blend_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
-void rtvk_graphics_program_link(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
+void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
+void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_program* program);
 struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name);
 void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program* program);
 void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program);

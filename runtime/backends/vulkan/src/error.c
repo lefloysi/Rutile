@@ -8,7 +8,6 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-
 static thread_local enum rt_error rtvk_error_status = RT_SUCCESS;
 static thread_local char rtvk_error_text[1024] = "";
 
@@ -32,7 +31,9 @@ void rtvk_vprintf(const char* format, va_list args) {
 	char message[1024];
 	PFN_rtOutput output = rtvk_output ? rtvk_output : rtvk_default_output;
 
-	if (!format) { return; }
+	if (!format) {
+		return;
+	}
 
 	vsnprintf(message, sizeof(message), format, args);
 	message[sizeof(message) - 1] = '\0';
@@ -63,7 +64,8 @@ void rtvk_throwf(enum rt_error error, const char* format, ...) {
 
 enum rt_error rtvk_error_from_vk(VkResult result) {
 	switch (result) {
-	case VK_ERROR_OUT_OF_HOST_MEMORY: return RT_OUT_OF_HOST_MEMORY;
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+		return RT_OUT_OF_HOST_MEMORY;
 	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
 		return RT_OUT_OF_DEVICE_MEMORY;
 	case VK_ERROR_INITIALIZATION_FAILED:

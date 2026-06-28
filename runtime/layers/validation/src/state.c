@@ -45,7 +45,8 @@ PFN_rtGraphicsProgramLayout rtval_next_rtGraphicsProgramLayout = NULL;
 PFN_rtGraphicsProgramSource rtval_next_rtGraphicsProgramSource = NULL;
 PFN_rtGraphicsProgramRasterState rtval_next_rtGraphicsProgramRasterState = NULL;
 PFN_rtGraphicsProgramBlendState rtval_next_rtGraphicsProgramBlendState = NULL;
-PFN_rtGraphicsProgramLink rtval_next_rtGraphicsProgramLink = NULL;
+PFN_rtGraphicsProgramFinalize rtval_next_rtGraphicsProgramFinalize = NULL;
+PFN_rtGraphicsProgramReset rtval_next_rtGraphicsProgramReset = NULL;
 PFN_rtGraphicsProgramUniformLocation rtval_next_rtGraphicsProgramUniformLocation = NULL;
 PFN_rtComputeProgramCreate rtval_next_rtComputeProgramCreate = NULL;
 PFN_rtComputeProgramDestroy rtval_next_rtComputeProgramDestroy = NULL;
@@ -234,7 +235,7 @@ static rtval_handle_slot* rtval_find_handle_slot_by_payload(void* payload, rtval
 }
 
 void rtval_handle_report_leaks(void) {
-	u32 counts[RTVAL_HANDLE_TYPE_COUNT] = {0};
+	u32 counts[RTVAL_HANDLE_TYPE_COUNT] = { 0 };
 	for (usize i = 0; i < rtval_handle_capacity; i++) {
 		void* k = rtval_handle_slots[i].key;
 		if (k == RTVAL_HANDLE_EMPTY || k == RTVAL_HANDLE_TOMBSTONE) {
@@ -358,7 +359,7 @@ struct rtval_queue* rtval_queue_wrap(rt_queue backend) {
 	}
 	struct rtval_queue* state = RTVAL_PAYLOAD(handle, struct rtval_queue);
 	state->backend = backend;
-	rtval_queue_slots[rtval_queue_slot_count++] = (rtval_queue_slot){backend, handle};
+	rtval_queue_slots[rtval_queue_slot_count++] = (rtval_queue_slot){ backend, handle };
 	return handle;
 }
 
@@ -427,7 +428,8 @@ RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
 	rtval_next_rtGraphicsProgramSource = (PFN_rtGraphicsProgramSource)next.get_proc(&next, "rtGraphicsProgramSource");
 	rtval_next_rtGraphicsProgramRasterState = (PFN_rtGraphicsProgramRasterState)next.get_proc(&next, "rtGraphicsProgramRasterState");
 	rtval_next_rtGraphicsProgramBlendState = (PFN_rtGraphicsProgramBlendState)next.get_proc(&next, "rtGraphicsProgramBlendState");
-	rtval_next_rtGraphicsProgramLink = (PFN_rtGraphicsProgramLink)next.get_proc(&next, "rtGraphicsProgramLink");
+	rtval_next_rtGraphicsProgramFinalize = (PFN_rtGraphicsProgramFinalize)next.get_proc(&next, "rtGraphicsProgramFinalize");
+	rtval_next_rtGraphicsProgramReset = (PFN_rtGraphicsProgramReset)next.get_proc(&next, "rtGraphicsProgramReset");
 	rtval_next_rtGraphicsProgramUniformLocation = (PFN_rtGraphicsProgramUniformLocation)next.get_proc(&next, "rtGraphicsProgramUniformLocation");
 	rtval_next_rtComputeProgramCreate = (PFN_rtComputeProgramCreate)next.get_proc(&next, "rtComputeProgramCreate");
 	rtval_next_rtComputeProgramDestroy = (PFN_rtComputeProgramDestroy)next.get_proc(&next, "rtComputeProgramDestroy");

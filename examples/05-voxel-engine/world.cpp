@@ -62,11 +62,11 @@ glm::vec3 block_color(i32 x, i32 y, i32 z) {
 
 void push_vertex(std::vector<Vertex>* vertices, const glm::vec3& position, const glm::vec3& color, const glm::vec3& normal, f32 ao, const glm::vec2& pixel_uv, f32 edge_mask, f32 corner_mask) {
 	vertices->push_back({
-		{position.x, position.y, position.z},
-		{color.r, color.g, color.b},
-		{normal.x, normal.y, normal.z},
+		{ position.x, position.y, position.z },
+		{ color.r, color.g, color.b },
+		{ normal.x, normal.y, normal.z },
 		ao,
-		{pixel_uv.x, pixel_uv.y},
+		{ pixel_uv.x, pixel_uv.y },
 		edge_mask,
 		corner_mask,
 	});
@@ -149,12 +149,12 @@ std::vector<Vertex> build_world_mesh() {
 	std::vector<Vertex> vertices;
 	vertices.reserve(kWorldX * kWorldZ * 24);
 
-	const glm::vec3 px[] = {glm::vec3(1, 0, 1), glm::vec3(1, 0, 0), glm::vec3(1, 1, 0), glm::vec3(1, 1, 1)};
-	const glm::vec3 nx[] = {glm::vec3(0, 0, 0), glm::vec3(0, 0, 1), glm::vec3(0, 1, 1), glm::vec3(0, 1, 0)};
-	const glm::vec3 py[] = {glm::vec3(0, 1, 1), glm::vec3(1, 1, 1), glm::vec3(1, 1, 0), glm::vec3(0, 1, 0)};
-	const glm::vec3 ny[] = {glm::vec3(0, 0, 0), glm::vec3(1, 0, 0), glm::vec3(1, 0, 1), glm::vec3(0, 0, 1)};
-	const glm::vec3 pz[] = {glm::vec3(0, 0, 1), glm::vec3(1, 0, 1), glm::vec3(1, 1, 1), glm::vec3(0, 1, 1)};
-	const glm::vec3 nz[] = {glm::vec3(1, 0, 0), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0), glm::vec3(1, 1, 0)};
+	const glm::vec3 px[] = { glm::vec3(1, 0, 1), glm::vec3(1, 0, 0), glm::vec3(1, 1, 0), glm::vec3(1, 1, 1) };
+	const glm::vec3 nx[] = { glm::vec3(0, 0, 0), glm::vec3(0, 0, 1), glm::vec3(0, 1, 1), glm::vec3(0, 1, 0) };
+	const glm::vec3 py[] = { glm::vec3(0, 1, 1), glm::vec3(1, 1, 1), glm::vec3(1, 1, 0), glm::vec3(0, 1, 0) };
+	const glm::vec3 ny[] = { glm::vec3(0, 0, 0), glm::vec3(1, 0, 0), glm::vec3(1, 0, 1), glm::vec3(0, 0, 1) };
+	const glm::vec3 pz[] = { glm::vec3(0, 0, 1), glm::vec3(1, 0, 1), glm::vec3(1, 1, 1), glm::vec3(0, 1, 1) };
+	const glm::vec3 nz[] = { glm::vec3(1, 0, 0), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0), glm::vec3(1, 1, 0) };
 
 	for (i32 z = 0; z < kWorldZ; z++) {
 		for (i32 y = 0; y < kWorldY; y++) {

@@ -13,7 +13,7 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kTextureWidth = 8192;
 constexpr u32 kTextureHeight = 8192;
 constexpr u32 kWindowWidth = 1280;
@@ -560,7 +560,7 @@ int main(int argc, char* argv[]) {
 	rtGraphicsProgramLayout(graphics_program, nullptr);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 
 	rt_uniform_location color_location = rtGraphicsProgramUniformLocation(graphics_program, "ColorTexture");
 	rt_uniform_location render_params_location = rtGraphicsProgramUniformLocation(graphics_program, "RenderParams");
@@ -584,7 +584,7 @@ int main(int argc, char* argv[]) {
 	auto previous_time = start_time;
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();

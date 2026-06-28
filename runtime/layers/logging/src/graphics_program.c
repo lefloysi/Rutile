@@ -22,8 +22,11 @@ RT_EXPORT void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt
 RT_EXPORT void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtlog_rtGraphicsProgramBlendState(program, enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
-RT_EXPORT void rtGraphicsProgramLink(rt_graphics_program program) {
-	rtlog_rtGraphicsProgramLink(program);
+RT_EXPORT void rtGraphicsProgramFinalize(rt_graphics_program program) {
+	rtlog_rtGraphicsProgramFinalize(program);
+}
+RT_EXPORT void rtGraphicsProgramReset(rt_graphics_program program) {
+	rtlog_rtGraphicsProgramReset(program);
 }
 RT_EXPORT rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
 	return rtlog_rtGraphicsProgramUniformLocation(program, name);
@@ -78,8 +81,6 @@ void rtlog_rtGraphicsProgramSource(rt_graphics_program program, u64 size, const 
 	rtlog_error("rtGraphicsProgramSource");
 }
 
-
-
 void rtlog_rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	u64 start_ns = rtlog_now_ns();
 	rtlog_printf("rtGraphicsProgramRasterState(program=%s, cull=%d, front=%d, fill=%d)\n", rtlog_pointer(program), (int)cull_mode, (int)front_face, (int)fill_mode);
@@ -105,12 +106,20 @@ void rtlog_rtGraphicsProgramBlendState(
 	rtlog_error("rtGraphicsProgramBlendState");
 }
 
-void rtlog_rtGraphicsProgramLink(rt_graphics_program program) {
+void rtlog_rtGraphicsProgramFinalize(rt_graphics_program program) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtGraphicsProgramLink(program=%s)\n", rtlog_pointer(program));
-	next_rtGraphicsProgramLink(program);
-	rtlog_printf("rtGraphicsProgramLink completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtGraphicsProgramLink");
+	rtlog_printf("rtGraphicsProgramFinalize(program=%s)\n", rtlog_pointer(program));
+	next_rtGraphicsProgramFinalize(program);
+	rtlog_printf("rtGraphicsProgramFinalize completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtGraphicsProgramFinalize");
+}
+
+void rtlog_rtGraphicsProgramReset(rt_graphics_program program) {
+	u64 start_ns = rtlog_now_ns();
+	rtlog_printf("rtGraphicsProgramReset(program=%s)\n", rtlog_pointer(program));
+	next_rtGraphicsProgramReset(program);
+	rtlog_printf("rtGraphicsProgramReset completed in %s\n", rtlog_elapsed(start_ns));
+	rtlog_error("rtGraphicsProgramReset");
 }
 
 rt_uniform_location rtlog_rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {

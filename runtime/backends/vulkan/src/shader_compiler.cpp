@@ -2,8 +2,8 @@
 #include "context.h"
 #include "error.h"
 
-#include <rtslp_package.hpp>
 #include "../../../backend-tools/src/rtslp_package.cpp"
+#include <rtslp_package.hpp>
 
 #include <spirv/unified1/spirv.h>
 
@@ -38,7 +38,7 @@ static VkShaderModule rtvk_shader_compile_failed(enum rt_error error, const char
 }
 
 static bool rtvk_spirv_create_shader_module(struct rtvk_context* ctx, std::span<u32> spirv, VkShaderModule& shader_out) {
-	VkShaderModuleCreateInfo create_info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+	VkShaderModuleCreateInfo create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 	create_info.codeSize = spirv.size() * sizeof(u32);
 	create_info.pCode = spirv.data();
 	const VkResult result = vkCreateShaderModule(ctx->vk_device, &create_info, VK_ALLOCATOR, &shader_out);
@@ -93,15 +93,24 @@ static const rt::RTInstruction* rtvk_rtslp_find_inst(std::span<const rt::RTInstr
 
 static u32 rtvk_rtslp_storage_class(u32 storage) {
 	switch (storage) {
-	case 0: return SpvStorageClassFunction;
-	case 1: return SpvStorageClassInput;
-	case 2: return SpvStorageClassOutput;
-	case 3: return SpvStorageClassUniform;
-	case 4: return SpvStorageClassUniformConstant;
-	case 5: return SpvStorageClassStorageBuffer;
-	case 6: return SpvStorageClassPushConstant;
-	case 7: return SpvStorageClassPrivate;
-	default: return storage;
+	case 0:
+		return SpvStorageClassFunction;
+	case 1:
+		return SpvStorageClassInput;
+	case 2:
+		return SpvStorageClassOutput;
+	case 3:
+		return SpvStorageClassUniform;
+	case 4:
+		return SpvStorageClassUniformConstant;
+	case 5:
+		return SpvStorageClassStorageBuffer;
+	case 6:
+		return SpvStorageClassPushConstant;
+	case 7:
+		return SpvStorageClassPrivate;
+	default:
+		return storage;
 	}
 }
 
@@ -210,97 +219,188 @@ static SpvOp rtvk_rtslp_op(rt::RTIROp op) {
 
 static const char* rtvk_rtslp_op_name(rt::RTIROp op) {
 	switch (op) {
-	case rt::RTIROp::Nop: return "Nop";
-	case rt::RTIROp::TypeVoid: return "TypeVoid";
-	case rt::RTIROp::TypeBool: return "TypeBool";
-	case rt::RTIROp::TypeInt: return "TypeInt";
-	case rt::RTIROp::TypeUInt: return "TypeUInt";
-	case rt::RTIROp::TypeFloat: return "TypeFloat";
-	case rt::RTIROp::TypeVector: return "TypeVector";
-	case rt::RTIROp::TypeMatrix: return "TypeMatrix";
-	case rt::RTIROp::TypeStruct: return "TypeStruct";
-	case rt::RTIROp::TypePointer: return "TypePointer";
-	case rt::RTIROp::TypeArray: return "TypeArray";
-	case rt::RTIROp::TypeFunction: return "TypeFunction";
-	case rt::RTIROp::TypeImage: return "TypeImage";
-	case rt::RTIROp::TypeSampler: return "TypeSampler";
-	case rt::RTIROp::TypeSampledImage: return "TypeSampledImage";
-	case rt::RTIROp::ConstantBool: return "ConstantBool";
-	case rt::RTIROp::ConstantInt: return "ConstantInt";
-	case rt::RTIROp::ConstantUInt: return "ConstantUInt";
-	case rt::RTIROp::ConstantFloat: return "ConstantFloat";
-	case rt::RTIROp::ConstantComposite: return "ConstantComposite";
-	case rt::RTIROp::Variable: return "Variable";
-	case rt::RTIROp::Load: return "Load";
-	case rt::RTIROp::Store: return "Store";
-	case rt::RTIROp::AccessChain: return "AccessChain";
-	case rt::RTIROp::CompositeConstruct: return "CompositeConstruct";
-	case rt::RTIROp::CompositeExtract: return "CompositeExtract";
-	case rt::RTIROp::CompositeInsert: return "CompositeInsert";
-	case rt::RTIROp::VectorShuffle: return "VectorShuffle";
-	case rt::RTIROp::FAdd: return "FAdd";
-	case rt::RTIROp::FSub: return "FSub";
-	case rt::RTIROp::FMul: return "FMul";
-	case rt::RTIROp::FDiv: return "FDiv";
-	case rt::RTIROp::FMod: return "FMod";
-	case rt::RTIROp::FNegate: return "FNegate";
-	case rt::RTIROp::IAdd: return "IAdd";
-	case rt::RTIROp::ISub: return "ISub";
-	case rt::RTIROp::IMul: return "IMul";
-	case rt::RTIROp::SDiv: return "SDiv";
-	case rt::RTIROp::UDiv: return "UDiv";
-	case rt::RTIROp::SMod: return "SMod";
-	case rt::RTIROp::UMod: return "UMod";
-	case rt::RTIROp::VectorTimesScalar: return "VectorTimesScalar";
-	case rt::RTIROp::MatrixTimesScalar: return "MatrixTimesScalar";
-	case rt::RTIROp::MatrixTimesVector: return "MatrixTimesVector";
-	case rt::RTIROp::MatrixTimesMatrix: return "MatrixTimesMatrix";
-	case rt::RTIROp::Dot: return "Dot";
-	case rt::RTIROp::Cross: return "Cross";
-	case rt::RTIROp::FOrdEqual: return "FOrdEqual";
-	case rt::RTIROp::FOrdNotEqual: return "FOrdNotEqual";
-	case rt::RTIROp::FOrdLess: return "FOrdLess";
-	case rt::RTIROp::FOrdLessEqual: return "FOrdLessEqual";
-	case rt::RTIROp::FOrdGreater: return "FOrdGreater";
-	case rt::RTIROp::FOrdGreaterEqual: return "FOrdGreaterEqual";
-	case rt::RTIROp::IEqual: return "IEqual";
-	case rt::RTIROp::INotEqual: return "INotEqual";
-	case rt::RTIROp::SLess: return "SLess";
-	case rt::RTIROp::SLessEqual: return "SLessEqual";
-	case rt::RTIROp::SGreater: return "SGreater";
-	case rt::RTIROp::SGreaterEqual: return "SGreaterEqual";
-	case rt::RTIROp::ULess: return "ULess";
-	case rt::RTIROp::ULessEqual: return "ULessEqual";
-	case rt::RTIROp::UGreater: return "UGreater";
-	case rt::RTIROp::UGreaterEqual: return "UGreaterEqual";
-	case rt::RTIROp::LogicalAnd: return "LogicalAnd";
-	case rt::RTIROp::LogicalOr: return "LogicalOr";
-	case rt::RTIROp::LogicalNot: return "LogicalNot";
-	case rt::RTIROp::ConvertFToU: return "ConvertFToU";
-	case rt::RTIROp::ConvertFToS: return "ConvertFToS";
-	case rt::RTIROp::ConvertSToF: return "ConvertSToF";
-	case rt::RTIROp::ConvertUToF: return "ConvertUToF";
-	case rt::RTIROp::Bitcast: return "Bitcast";
-	case rt::RTIROp::Label: return "Label";
-	case rt::RTIROp::Branch: return "Branch";
-	case rt::RTIROp::BranchConditional: return "BranchConditional";
-	case rt::RTIROp::SelectionMerge: return "SelectionMerge";
-	case rt::RTIROp::LoopMerge: return "LoopMerge";
-	case rt::RTIROp::Return: return "Return";
-	case rt::RTIROp::ReturnValue: return "ReturnValue";
-	case rt::RTIROp::FunctionParameter: return "FunctionParameter";
-	case rt::RTIROp::FunctionCall: return "FunctionCall";
-	case rt::RTIROp::SampledImage: return "SampledImage";
-	case rt::RTIROp::ImageSampleImplicitLod: return "ImageSampleImplicitLod";
-	case rt::RTIROp::ImageSampleExplicitLod: return "ImageSampleExplicitLod";
-	case rt::RTIROp::ImageRead: return "ImageRead";
-	case rt::RTIROp::ImageWrite: return "ImageWrite";
-	case rt::RTIROp::ReadInput: return "ReadInput";
-	case rt::RTIROp::WriteOutput: return "WriteOutput";
-	case rt::RTIROp::ReadBuiltin: return "ReadBuiltin";
-	case rt::RTIROp::WriteBuiltin: return "WriteBuiltin";
-	case rt::RTIROp::ExtInst: return "ExtInst";
-	default: return "Unknown";
+	case rt::RTIROp::Nop:
+		return "Nop";
+	case rt::RTIROp::TypeVoid:
+		return "TypeVoid";
+	case rt::RTIROp::TypeBool:
+		return "TypeBool";
+	case rt::RTIROp::TypeInt:
+		return "TypeInt";
+	case rt::RTIROp::TypeUInt:
+		return "TypeUInt";
+	case rt::RTIROp::TypeFloat:
+		return "TypeFloat";
+	case rt::RTIROp::TypeVector:
+		return "TypeVector";
+	case rt::RTIROp::TypeMatrix:
+		return "TypeMatrix";
+	case rt::RTIROp::TypeStruct:
+		return "TypeStruct";
+	case rt::RTIROp::TypePointer:
+		return "TypePointer";
+	case rt::RTIROp::TypeArray:
+		return "TypeArray";
+	case rt::RTIROp::TypeFunction:
+		return "TypeFunction";
+	case rt::RTIROp::TypeImage:
+		return "TypeImage";
+	case rt::RTIROp::TypeSampler:
+		return "TypeSampler";
+	case rt::RTIROp::TypeSampledImage:
+		return "TypeSampledImage";
+	case rt::RTIROp::ConstantBool:
+		return "ConstantBool";
+	case rt::RTIROp::ConstantInt:
+		return "ConstantInt";
+	case rt::RTIROp::ConstantUInt:
+		return "ConstantUInt";
+	case rt::RTIROp::ConstantFloat:
+		return "ConstantFloat";
+	case rt::RTIROp::ConstantComposite:
+		return "ConstantComposite";
+	case rt::RTIROp::Variable:
+		return "Variable";
+	case rt::RTIROp::Load:
+		return "Load";
+	case rt::RTIROp::Store:
+		return "Store";
+	case rt::RTIROp::AccessChain:
+		return "AccessChain";
+	case rt::RTIROp::CompositeConstruct:
+		return "CompositeConstruct";
+	case rt::RTIROp::CompositeExtract:
+		return "CompositeExtract";
+	case rt::RTIROp::CompositeInsert:
+		return "CompositeInsert";
+	case rt::RTIROp::VectorShuffle:
+		return "VectorShuffle";
+	case rt::RTIROp::FAdd:
+		return "FAdd";
+	case rt::RTIROp::FSub:
+		return "FSub";
+	case rt::RTIROp::FMul:
+		return "FMul";
+	case rt::RTIROp::FDiv:
+		return "FDiv";
+	case rt::RTIROp::FMod:
+		return "FMod";
+	case rt::RTIROp::FNegate:
+		return "FNegate";
+	case rt::RTIROp::IAdd:
+		return "IAdd";
+	case rt::RTIROp::ISub:
+		return "ISub";
+	case rt::RTIROp::IMul:
+		return "IMul";
+	case rt::RTIROp::SDiv:
+		return "SDiv";
+	case rt::RTIROp::UDiv:
+		return "UDiv";
+	case rt::RTIROp::SMod:
+		return "SMod";
+	case rt::RTIROp::UMod:
+		return "UMod";
+	case rt::RTIROp::VectorTimesScalar:
+		return "VectorTimesScalar";
+	case rt::RTIROp::MatrixTimesScalar:
+		return "MatrixTimesScalar";
+	case rt::RTIROp::MatrixTimesVector:
+		return "MatrixTimesVector";
+	case rt::RTIROp::MatrixTimesMatrix:
+		return "MatrixTimesMatrix";
+	case rt::RTIROp::Dot:
+		return "Dot";
+	case rt::RTIROp::Cross:
+		return "Cross";
+	case rt::RTIROp::FOrdEqual:
+		return "FOrdEqual";
+	case rt::RTIROp::FOrdNotEqual:
+		return "FOrdNotEqual";
+	case rt::RTIROp::FOrdLess:
+		return "FOrdLess";
+	case rt::RTIROp::FOrdLessEqual:
+		return "FOrdLessEqual";
+	case rt::RTIROp::FOrdGreater:
+		return "FOrdGreater";
+	case rt::RTIROp::FOrdGreaterEqual:
+		return "FOrdGreaterEqual";
+	case rt::RTIROp::IEqual:
+		return "IEqual";
+	case rt::RTIROp::INotEqual:
+		return "INotEqual";
+	case rt::RTIROp::SLess:
+		return "SLess";
+	case rt::RTIROp::SLessEqual:
+		return "SLessEqual";
+	case rt::RTIROp::SGreater:
+		return "SGreater";
+	case rt::RTIROp::SGreaterEqual:
+		return "SGreaterEqual";
+	case rt::RTIROp::ULess:
+		return "ULess";
+	case rt::RTIROp::ULessEqual:
+		return "ULessEqual";
+	case rt::RTIROp::UGreater:
+		return "UGreater";
+	case rt::RTIROp::UGreaterEqual:
+		return "UGreaterEqual";
+	case rt::RTIROp::LogicalAnd:
+		return "LogicalAnd";
+	case rt::RTIROp::LogicalOr:
+		return "LogicalOr";
+	case rt::RTIROp::LogicalNot:
+		return "LogicalNot";
+	case rt::RTIROp::ConvertFToU:
+		return "ConvertFToU";
+	case rt::RTIROp::ConvertFToS:
+		return "ConvertFToS";
+	case rt::RTIROp::ConvertSToF:
+		return "ConvertSToF";
+	case rt::RTIROp::ConvertUToF:
+		return "ConvertUToF";
+	case rt::RTIROp::Bitcast:
+		return "Bitcast";
+	case rt::RTIROp::Label:
+		return "Label";
+	case rt::RTIROp::Branch:
+		return "Branch";
+	case rt::RTIROp::BranchConditional:
+		return "BranchConditional";
+	case rt::RTIROp::SelectionMerge:
+		return "SelectionMerge";
+	case rt::RTIROp::LoopMerge:
+		return "LoopMerge";
+	case rt::RTIROp::Return:
+		return "Return";
+	case rt::RTIROp::ReturnValue:
+		return "ReturnValue";
+	case rt::RTIROp::FunctionParameter:
+		return "FunctionParameter";
+	case rt::RTIROp::FunctionCall:
+		return "FunctionCall";
+	case rt::RTIROp::SampledImage:
+		return "SampledImage";
+	case rt::RTIROp::ImageSampleImplicitLod:
+		return "ImageSampleImplicitLod";
+	case rt::RTIROp::ImageSampleExplicitLod:
+		return "ImageSampleExplicitLod";
+	case rt::RTIROp::ImageRead:
+		return "ImageRead";
+	case rt::RTIROp::ImageWrite:
+		return "ImageWrite";
+	case rt::RTIROp::ReadInput:
+		return "ReadInput";
+	case rt::RTIROp::WriteOutput:
+		return "WriteOutput";
+	case rt::RTIROp::ReadBuiltin:
+		return "ReadBuiltin";
+	case rt::RTIROp::WriteBuiltin:
+		return "WriteBuiltin";
+	case rt::RTIROp::ExtInst:
+		return "ExtInst";
+	default:
+		return "Unknown";
 	}
 }
 
@@ -311,28 +411,28 @@ static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer* writer, const rt::
 	switch (inst.op) {
 	case RTIROp::TypeVoid:
 	case RTIROp::TypeBool:
-		operands = {inst.result_id};
+		operands = { inst.result_id };
 		break;
 	case RTIROp::TypeInt:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0], 1};
+		operands = { inst.result_id, inst.literals[0], 1 };
 		break;
 	case RTIROp::TypeUInt:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0], 0};
+		operands = { inst.result_id, inst.literals[0], 0 };
 		break;
 	case RTIROp::TypeFloat:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0]};
+		operands = { inst.result_id, inst.literals[0] };
 		break;
 	case RTIROp::TypeVector:
 	case RTIROp::TypeMatrix:
 		if (inst.operands.empty() || inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.operands[0], inst.literals[0]};
+		operands = { inst.result_id, inst.operands[0], inst.literals[0] };
 		break;
 	case RTIROp::TypeStruct:
 	case RTIROp::TypeFunction:
@@ -340,23 +440,23 @@ static bool rtvk_rtslp_emit_type_or_constant(rtvk_spv_writer* writer, const rt::
 	case RTIROp::TypeImage:
 	case RTIROp::TypeSampler:
 	case RTIROp::TypeSampledImage:
-		operands = {inst.result_id};
+		operands = { inst.result_id };
 		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
 		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
 		break;
 	case RTIROp::TypePointer:
 		if (inst.literals.empty() || inst.operands.empty())
 			return false;
-		operands = {inst.result_id, rtvk_rtslp_storage_class(inst.literals[0]), inst.operands[0]};
+		operands = { inst.result_id, rtvk_rtslp_storage_class(inst.literals[0]), inst.operands[0] };
 		break;
 	case RTIROp::ConstantInt:
 	case RTIROp::ConstantUInt:
 	case RTIROp::ConstantFloat:
-		operands = {inst.type_id, inst.result_id};
+		operands = { inst.type_id, inst.result_id };
 		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
 		break;
 	case RTIROp::ConstantComposite:
-		operands = {inst.type_id, inst.result_id};
+		operands = { inst.type_id, inst.result_id };
 		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
 		break;
 	default:
@@ -372,28 +472,28 @@ static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32>* section, 
 	switch (inst.op) {
 	case RTIROp::TypeVoid:
 	case RTIROp::TypeBool:
-		operands = {inst.result_id};
+		operands = { inst.result_id };
 		break;
 	case RTIROp::TypeInt:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0], 1};
+		operands = { inst.result_id, inst.literals[0], 1 };
 		break;
 	case RTIROp::TypeUInt:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0], 0};
+		operands = { inst.result_id, inst.literals[0], 0 };
 		break;
 	case RTIROp::TypeFloat:
 		if (inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.literals[0]};
+		operands = { inst.result_id, inst.literals[0] };
 		break;
 	case RTIROp::TypeVector:
 	case RTIROp::TypeMatrix:
 		if (inst.operands.empty() || inst.literals.empty())
 			return false;
-		operands = {inst.result_id, inst.operands[0], inst.literals[0]};
+		operands = { inst.result_id, inst.operands[0], inst.literals[0] };
 		break;
 	case RTIROp::TypeStruct:
 	case RTIROp::TypeFunction:
@@ -401,23 +501,23 @@ static bool rtvk_rtslp_emit_type_or_constant_section(std::vector<u32>* section, 
 	case RTIROp::TypeImage:
 	case RTIROp::TypeSampler:
 	case RTIROp::TypeSampledImage:
-		operands = {inst.result_id};
+		operands = { inst.result_id };
 		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
 		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
 		break;
 	case RTIROp::TypePointer:
 		if (inst.literals.empty() || inst.operands.empty())
 			return false;
-		operands = {inst.result_id, rtvk_rtslp_storage_class(inst.literals[0]), inst.operands[0]};
+		operands = { inst.result_id, rtvk_rtslp_storage_class(inst.literals[0]), inst.operands[0] };
 		break;
 	case RTIROp::ConstantInt:
 	case RTIROp::ConstantUInt:
 	case RTIROp::ConstantFloat:
-		operands = {inst.type_id, inst.result_id};
+		operands = { inst.type_id, inst.result_id };
 		operands.insert(operands.end(), inst.literals.begin(), inst.literals.end());
 		break;
 	case RTIROp::ConstantComposite:
-		operands = {inst.type_id, inst.result_id};
+		operands = { inst.type_id, inst.result_id };
 		operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
 		break;
 	default:
@@ -563,7 +663,7 @@ static bool rtvk_rtslp_emit_global_variable_section(std::vector<u32>* section, c
 		return false;
 	}
 
-	std::vector<u32> operands = {inst.type_id, inst.result_id, rtvk_rtslp_storage_class(inst.literals[0])};
+	std::vector<u32> operands = { inst.type_id, inst.result_id, rtvk_rtslp_storage_class(inst.literals[0]) };
 	operands.insert(operands.end(), inst.operands.begin(), inst.operands.end());
 	section->push_back(((1u + static_cast<u32>(operands.size())) << SpvWordCountShift) | static_cast<u32>(SpvOpVariable));
 	section->insert(section->end(), operands.begin(), operands.end());
@@ -591,11 +691,11 @@ static rt::RTArtifactModule rtvk_rtslp_normalize_vulkan_types(const rt::RTArtifa
 
 	for (auto& inst : normalized.type_constant_pool) {
 		if (inst.op == rt::RTIROp::TypeImage && inst.operands.empty() && inst.literals.empty() && float_type) {
-			inst.operands = {float_type};
-			inst.literals = {SpvDim2D, 0, 0, 0, 1, SpvImageFormatUnknown};
+			inst.operands = { float_type };
+			inst.literals = { SpvDim2D, 0, 0, 0, 1, SpvImageFormatUnknown };
 		}
 		if (inst.op == rt::RTIROp::TypeSampledImage && inst.operands.empty() && image_type) {
-			inst.operands = {image_type};
+			inst.operands = { image_type };
 		}
 	}
 	return normalized;
@@ -603,10 +703,14 @@ static rt::RTArtifactModule rtvk_rtslp_normalize_vulkan_types(const rt::RTArtifa
 
 static const char* rtvk_rtslp_stage_name(rt::RTStageKind stage) {
 	switch (stage) {
-	case rt::RTStageKind::Vertex: return "vertex";
-	case rt::RTStageKind::Fragment: return "fragment";
-	case rt::RTStageKind::Compute: return "compute";
-	default: return "unknown";
+	case rt::RTStageKind::Vertex:
+		return "vertex";
+	case rt::RTStageKind::Fragment:
+		return "fragment";
+	case rt::RTStageKind::Compute:
+		return "compute";
+	default:
+		return "unknown";
 	}
 }
 
@@ -659,8 +763,8 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 		emit_section(section, op, std::vector<u32>(operands));
 	};
 
-	rtvk_spv_emit(&writer, SpvOpCapability, {SpvCapabilityShader});
-	rtvk_spv_emit(&writer, SpvOpMemoryModel, {SpvAddressingModelLogical, SpvMemoryModelGLSL450});
+	rtvk_spv_emit(&writer, SpvOpCapability, { SpvCapabilityShader });
+	rtvk_spv_emit(&writer, SpvOpMemoryModel, { SpvAddressingModelLogical, SpvMemoryModelGLSL450 });
 
 	for (const auto& inst : vulkan_module.type_constant_pool) {
 		if (rtvk_rtslp_op(inst.op) == SpvOpNop) {
@@ -729,19 +833,19 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 		return false;
 	}
 	const u32 entry_fn_type = rtvk_spv_fresh(&writer);
- 	std::unordered_set<u32> emitted_decl_ids;
- 	while (true) {
- 		bool progress = false;
- 		for (const auto& inst : vulkan_module.type_constant_pool) {
- 			if (!inst.result_id || emitted_decl_ids.contains(inst.result_id))
- 				continue;
+	std::unordered_set<u32> emitted_decl_ids;
+	while (true) {
+		bool progress = false;
+		for (const auto& inst : vulkan_module.type_constant_pool) {
+			if (!inst.result_id || emitted_decl_ids.contains(inst.result_id))
+				continue;
 			if (auto it = canonical_type_ids.find(inst.result_id); it != canonical_type_ids.end() && it->second != inst.result_id) {
 				emitted_decl_ids.insert(inst.result_id);
 				continue;
 			}
- 			if (!rtvk_rtslp_type_ready(vulkan_module, inst, emitted_decl_ids))
- 				continue;
- 			rt::RTInstruction remapped = inst;
+			if (!rtvk_rtslp_type_ready(vulkan_module, inst, emitted_decl_ids))
+				continue;
+			rt::RTInstruction remapped = inst;
 			if (!rtvk_rtslp_emit_type_or_constant_section(&declaration_ops, remapped)) {
 				rtvk_throwf(
 					RT_SHADER_COMPILATION_FAILED,
@@ -752,14 +856,14 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 				);
 				return false;
 			}
- 			emitted_decl_ids.insert(inst.result_id);
- 			progress = true;
- 		}
- 		if (!progress)
- 			break;
- 	}
- 	for (const auto& inst : vulkan_module.type_constant_pool) {
- 		if (inst.result_id && !emitted_decl_ids.contains(inst.result_id)) {
+			emitted_decl_ids.insert(inst.result_id);
+			progress = true;
+		}
+		if (!progress)
+			break;
+	}
+	for (const auto& inst : vulkan_module.type_constant_pool) {
+		if (inst.result_id && !emitted_decl_ids.contains(inst.result_id)) {
 			rtvk_throwf(
 				RT_SHADER_COMPILATION_FAILED,
 				"RTSLP %s stage cannot order type/constant %u (%s)",
@@ -767,10 +871,10 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 				inst.result_id,
 				rtvk_rtslp_op_name(inst.op)
 			);
- 			return false;
- 		}
- 	}
-	emit_section_list(&declaration_ops, SpvOpTypeFunction, {entry_fn_type, void_type});
+			return false;
+		}
+	}
+	emit_section_list(&declaration_ops, SpvOpTypeFunction, { entry_fn_type, void_type });
 	std::vector<u32> entry_interfaces;
 	std::unordered_map<u32, rtvk_wrapped_uniform> wrapped_uniforms;
 	for (size_t i = 0; i < vulkan_module.global_variables.size(); ++i) {
@@ -783,20 +887,20 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 		if (!inst.literals.empty() && rtvk_rtslp_storage_class(inst.literals[0]) == SpvStorageClassUniform) {
 			const auto* pointer_type = rtvk_rtslp_find_inst(vulkan_module.type_constant_pool, inst.type_id);
 			const auto* pointee_type = pointer_type && !pointer_type->operands.empty()
-				? rtvk_rtslp_find_inst(vulkan_module.type_constant_pool, pointer_type->operands[0])
-				: NULL;
+										   ? rtvk_rtslp_find_inst(vulkan_module.type_constant_pool, pointer_type->operands[0])
+										   : NULL;
 			if (pointer_type && pointee_type && pointee_type->op != rt::RTIROp::TypeStruct) {
 				rtvk_wrapped_uniform wrapped = {};
 				wrapped.value_type = pointer_type->operands[0];
 				wrapped.struct_type = rtvk_spv_fresh(&writer);
 				wrapped.pointer_type = rtvk_spv_fresh(&writer);
-				emit_section_list(&declaration_ops, SpvOpTypeStruct, {wrapped.struct_type, wrapped.value_type});
-				emit_section_list(&declaration_ops, SpvOpTypePointer, {wrapped.pointer_type, SpvStorageClassUniform, wrapped.struct_type});
-				emit_section_list(&annotation_ops, SpvOpDecorate, {wrapped.struct_type, SpvDecorationBlock});
-				emit_section_list(&annotation_ops, SpvOpMemberDecorate, {wrapped.struct_type, 0, SpvDecorationOffset, 0});
+				emit_section_list(&declaration_ops, SpvOpTypeStruct, { wrapped.struct_type, wrapped.value_type });
+				emit_section_list(&declaration_ops, SpvOpTypePointer, { wrapped.pointer_type, SpvStorageClassUniform, wrapped.struct_type });
+				emit_section_list(&annotation_ops, SpvOpDecorate, { wrapped.struct_type, SpvDecorationBlock });
+				emit_section_list(&annotation_ops, SpvOpMemberDecorate, { wrapped.struct_type, 0, SpvDecorationOffset, 0 });
 				if (pointee_type->op == rt::RTIROp::TypeMatrix) {
-					emit_section_list(&annotation_ops, SpvOpMemberDecorate, {wrapped.struct_type, 0, SpvDecorationColMajor});
-					emit_section_list(&annotation_ops, SpvOpMemberDecorate, {wrapped.struct_type, 0, SpvDecorationMatrixStride, 16});
+					emit_section_list(&annotation_ops, SpvOpMemberDecorate, { wrapped.struct_type, 0, SpvDecorationColMajor });
+					emit_section_list(&annotation_ops, SpvOpMemberDecorate, { wrapped.struct_type, 0, SpvDecorationMatrixStride, 16 });
 				}
 				wrapped_uniforms.emplace(inst.result_id, wrapped);
 				global_inst.type_id = wrapped.pointer_type;
@@ -812,8 +916,8 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 			return false;
 		}
 		if (i < vulkan_module.uniforms.size()) {
-			emit_section_list(&annotation_ops, SpvOpDecorate, {inst.result_id, SpvDecorationDescriptorSet, vulkan_module.uniforms[i].set});
-			emit_section_list(&annotation_ops, SpvOpDecorate, {inst.result_id, SpvDecorationBinding, vulkan_module.uniforms[i].binding});
+			emit_section_list(&annotation_ops, SpvOpDecorate, { inst.result_id, SpvDecorationDescriptorSet, vulkan_module.uniforms[i].set });
+			emit_section_list(&annotation_ops, SpvOpDecorate, { inst.result_id, SpvDecorationBinding, vulkan_module.uniforms[i].binding });
 		}
 		// SPIR-V 1.4+ requires every non-Function global referenced by the
 		// entry point to be listed in OpEntryPoint's interface. spirv-val on
@@ -852,13 +956,13 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 					continue;
 				}
 				const u32 ptr_type = rtvk_spv_fresh(&writer);
-				emit_section_list(&declaration_ops, SpvOpTypePointer, {ptr_type, static_cast<u32>(storage), struct_inst->operands[i]});
+				emit_section_list(&declaration_ops, SpvOpTypePointer, { ptr_type, static_cast<u32>(storage), struct_inst->operands[i] });
 				const u32 var_id = rtvk_spv_fresh(&writer);
-				emit_section_list(&declaration_ops, SpvOpVariable, {ptr_type, var_id, static_cast<u32>(storage)});
+				emit_section_list(&declaration_ops, SpvOpVariable, { ptr_type, var_id, static_cast<u32>(storage) });
 				if (field.has_location) {
-					emit_section_list(&annotation_ops, SpvOpDecorate, {var_id, SpvDecorationLocation, field.location});
+					emit_section_list(&annotation_ops, SpvOpDecorate, { var_id, SpvDecorationLocation, field.location });
 				} else if (!field.builtin.empty() || is_clip_position) {
-					emit_section_list(&annotation_ops, SpvOpDecorate, {var_id, SpvDecorationBuiltIn, static_cast<u32>(rtvk_rtslp_builtin(field))});
+					emit_section_list(&annotation_ops, SpvOpDecorate, { var_id, SpvDecorationBuiltIn, static_cast<u32>(rtvk_rtslp_builtin(field)) });
 				}
 				entry_interfaces.push_back(var_id);
 				vars->push_back(var_id);
@@ -878,12 +982,12 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 	entry_words.insert(entry_words.end(), entry_interfaces.begin(), entry_interfaces.end());
 	emit_section(&entry_ops, SpvOpEntryPoint, entry_words);
 	if (stage == rt::RTStageKind::Fragment) {
-		emit_section_list(&execution_ops, SpvOpExecutionMode, {entry_id, SpvExecutionModeOriginUpperLeft});
+		emit_section_list(&execution_ops, SpvOpExecutionMode, { entry_id, SpvExecutionModeOriginUpperLeft });
 	}
 
-	emit_section_list(&function_ops, SpvOpFunction, {void_type, entry_id, 0, entry_fn_type});
+	emit_section_list(&function_ops, SpvOpFunction, { void_type, entry_id, 0, entry_fn_type });
 	const u32 label_id = rtvk_spv_fresh(&writer);
-	emit_section_list(&function_ops, SpvOpLabel, {label_id});
+	emit_section_list(&function_ops, SpvOpLabel, { label_id });
 
 	std::unordered_map<u32, u32> remap;
 	if (input_inst && fn->parameter_ids.size() >= 2) {
@@ -897,14 +1001,14 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 				// skipped (e.g. fragment-input clip position). Substitute
 				// OpUndef so the reconstructed aggregate still type-checks.
 				if (input_vars[i] == 0) {
-					emit_section_list(&function_ops, SpvOpUndef, {field_type, value_id});
+					emit_section_list(&function_ops, SpvOpUndef, { field_type, value_id });
 				} else {
-					emit_section_list(&function_ops, SpvOpLoad, {field_type, value_id, input_vars[i]});
+					emit_section_list(&function_ops, SpvOpLoad, { field_type, value_id, input_vars[i] });
 				}
 				field_values.push_back(value_id);
 			}
 			const u32 param_value = rtvk_spv_fresh(&writer);
-			std::vector<u32> construct = {input_type, param_value};
+			std::vector<u32> construct = { input_type, param_value };
 			construct.insert(construct.end(), field_values.begin(), field_values.end());
 			emit_section(&function_ops, SpvOpCompositeConstruct, construct);
 			remap.emplace(fn->parameter_ids[1], param_value);
@@ -917,7 +1021,7 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 				if (input_vars[i] == 0)
 					continue;
 				const u32 load_id = rtvk_spv_fresh(&writer);
-				emit_section_list(&function_ops, SpvOpLoad, {input_inst->operands[i], load_id, input_vars[i]});
+				emit_section_list(&function_ops, SpvOpLoad, { input_inst->operands[i], load_id, input_vars[i] });
 				remap.emplace(fn->parameter_ids[i + 1], load_id);
 			}
 		}
@@ -937,8 +1041,8 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 			if (output_inst && output_interface) {
 				for (size_t i = 0; i < output_vars.size() && i < output_inst->operands.size(); ++i) {
 					const u32 field_id = rtvk_spv_fresh(&writer);
-					emit_section_list(&function_ops, SpvOpCompositeExtract, {output_inst->operands[i], field_id, value_id, static_cast<u32>(i)});
-					emit_section_list(&function_ops, SpvOpStore, {output_vars[i], field_id});
+					emit_section_list(&function_ops, SpvOpCompositeExtract, { output_inst->operands[i], field_id, value_id, static_cast<u32>(i) });
+					emit_section_list(&function_ops, SpvOpStore, { output_vars[i], field_id });
 				}
 			}
 			emit_section(&function_ops, SpvOpReturn, {});
@@ -948,8 +1052,8 @@ static bool rtvk_rtslp_emit_stage_spirv(const rt::RTArtifactModule& module, rt::
 			const u32 source_id = remap.contains(inst.operands[0]) ? remap.at(inst.operands[0]) : inst.operands[0];
 			if (auto it = wrapped_uniforms.find(source_id); it != wrapped_uniforms.end()) {
 				const u32 wrapper_value = rtvk_spv_fresh(&writer);
-				emit_section_list(&function_ops, SpvOpLoad, {it->second.struct_type, wrapper_value, source_id});
-				emit_section_list(&function_ops, SpvOpCompositeExtract, {it->second.value_type, inst.result_id, wrapper_value, 0});
+				emit_section_list(&function_ops, SpvOpLoad, { it->second.struct_type, wrapper_value, source_id });
+				emit_section_list(&function_ops, SpvOpCompositeExtract, { it->second.value_type, inst.result_id, wrapper_value, 0 });
 				continue;
 			}
 		}

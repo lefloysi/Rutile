@@ -113,7 +113,7 @@ static void rtvk_context_create_debug_messenger(struct rtvk_context* ctx) {
 		return;
 	}
 
-	VkDebugUtilsMessengerCreateInfoEXT debug_info = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+	VkDebugUtilsMessengerCreateInfoEXT debug_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 	debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 	debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	debug_info.pfnUserCallback = rtvk_debug_callback;
@@ -371,7 +371,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	for (u32 i = 0; i < queue_family_count; i++) {
 		priorities[i] = 1.0f;
 
-		queue_infos[i] = (VkDeviceQueueCreateInfo){VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+		queue_infos[i] = (VkDeviceQueueCreateInfo){ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 		queue_infos[i].pNext = NULL;
 		queue_infos[i].flags = 0;
 		queue_infos[i].queueFamilyIndex = i;
@@ -379,7 +379,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 		queue_infos[i].pQueuePriorities = &priorities[i];
 	}
 
-	VkPhysicalDeviceVulkan13Features features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+	VkPhysicalDeviceVulkan13Features features13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 	features13.pNext = NULL;
 	features13.robustImageAccess = VK_FALSE;
 	features13.inlineUniformBlock = VK_FALSE;
@@ -397,7 +397,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	features13.shaderIntegerDotProduct = VK_FALSE;
 	features13.maintenance4 = VK_FALSE;
 
-	VkPhysicalDeviceVulkan12Features features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 	features12.pNext = &features13;
 	features12.samplerMirrorClampToEdge = VK_FALSE;
 	features12.drawIndirectCount = VK_FALSE;
@@ -447,12 +447,12 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	features12.shaderOutputLayer = VK_FALSE;
 	features12.subgroupBroadcastDynamicId = VK_FALSE;
 
-	VkPhysicalDeviceFeatures supported_features = {0};
+	VkPhysicalDeviceFeatures supported_features = { 0 };
 	vkGetPhysicalDeviceFeatures(ctx->vk_physical_device, &supported_features);
-	VkPhysicalDeviceFeatures features = {0};
+	VkPhysicalDeviceFeatures features = { 0 };
 	features.shaderInt64 = supported_features.shaderInt64;
 
-	VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+	VkDeviceCreateInfo device_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	device_info.pNext = &features12;
 	device_info.flags = 0;
 	device_info.queueCreateInfoCount = queue_family_count;
@@ -505,7 +505,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 }
 
 static void rtvk_context_create_allocator(struct rtvk_context* ctx) {
-	VmaAllocatorCreateInfo allocator_info = {0};
+	VmaAllocatorCreateInfo allocator_info = { 0 };
 	allocator_info.flags = 0;
 	allocator_info.physicalDevice = ctx->vk_physical_device;
 	allocator_info.device = ctx->vk_device;
@@ -590,7 +590,7 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 			return;
 		}
 
-		debug_info = (VkDebugUtilsMessengerCreateInfoEXT){VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+		debug_info = (VkDebugUtilsMessengerCreateInfoEXT){ VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 		debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 		debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 		debug_info.pfnUserCallback = rtvk_debug_callback;
@@ -599,7 +599,7 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 
 	free(available_instance_extensions);
 
-	VkApplicationInfo app_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
+	VkApplicationInfo app_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
 	app_info.pNext = NULL;
 	app_info.pApplicationName = "Rutile Application";
 	app_info.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
@@ -607,7 +607,7 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 	app_info.engineVersion = VK_MAKE_VERSION(0, 1, 0);
 	app_info.apiVersion = RTVK_VULKAN_API_VERSION;
 
-	VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+	VkInstanceCreateInfo instance_info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
 	instance_info.pNext = validation_enabled ? &debug_info : NULL;
 #else
@@ -631,17 +631,25 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 		return;
 	}
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
-	if (validation_enabled) { rtvk_context_create_debug_messenger(ctx); }
+	if (validation_enabled) {
+		rtvk_context_create_debug_messenger(ctx);
+	}
 #endif
 
 	rtvk_context_pick_physical_device(ctx);
-	if (rtvk_error() != RT_SUCCESS) { return; }
+	if (rtvk_error() != RT_SUCCESS) {
+		return;
+	}
 
 	rtvk_context_create_device(ctx);
-	if (rtvk_error() != RT_SUCCESS) { return; }
+	if (rtvk_error() != RT_SUCCESS) {
+		return;
+	}
 
 	rtvk_context_create_allocator(ctx);
-	if (rtvk_error() != RT_SUCCESS) { return; }
+	if (rtvk_error() != RT_SUCCESS) {
+		return;
+	}
 
 	rtvk_log_startup_time(start_ns);
 }
@@ -653,7 +661,7 @@ void rtvk_context_finish(struct rtvk_context* ctx) {
 	rtvk_context_destroy_queues(ctx);
 	if (ctx->vma_allocator) {
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
-		VmaTotalStatistics stats = {0};
+		VmaTotalStatistics stats = { 0 };
 		vmaCalculateStatistics(ctx->vma_allocator, &stats);
 		if (stats.total.statistics.allocationCount) {
 			char* leak_dump = NULL;

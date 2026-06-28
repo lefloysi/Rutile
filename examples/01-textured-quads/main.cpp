@@ -9,22 +9,22 @@
 #include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <mutex>
-#include <windows.h>
 #include <stb_image.h>
 #include <thread>
 #include <vector>
+#include <windows.h>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
-constexpr const char* kLayers[] = {"RT_VALIDATION", "RT_LOGGING_LAYER"};
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kDefaultBackendName = "rt-dx12";
+constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
 struct Vertex {
 	f32 position[3];
@@ -81,19 +81,19 @@ std::atomic<bool> Running = true;
 std::atomic<bool> RenderFailed = false;
 
 constexpr Vertex kVertices[] = {
-	{{-0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-	{{0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-	{{0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-	{{-0.65f, -0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-	{{0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-	{{-0.65f, 0.65f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+	{ { -0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
+	{ { 0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f } },
+	{ { 0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } },
+	{ { -0.65f, -0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
+	{ { 0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } },
+	{ { -0.65f, 0.65f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f } },
 
-	{{-0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 1.0f}},
-	{{0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 1.0f}},
-	{{0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 0.0f}},
-	{{-0.65f, -0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 1.0f}},
-	{{0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {1.0f, 0.0f}},
-	{{-0.65f, 0.65f, 0.0f}, {0.55f, 0.9f, 1.0f}, {0.0f, 0.0f}},
+	{ { -0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 1.0f } },
+	{ { 0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 1.0f } },
+	{ { 0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 0.0f } },
+	{ { -0.65f, -0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 1.0f } },
+	{ { 0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 1.0f, 0.0f } },
+	{ { -0.65f, 0.65f, 0.0f }, { 0.55f, 0.9f, 1.0f }, { 0.0f, 0.0f } },
 };
 
 constexpr u32 kQuadVertexCount = 6;
@@ -101,9 +101,9 @@ constexpr u32 kMovingQuadFirstVertex = 0;
 constexpr u32 kStaticQuadFirstVertex = 6;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{"position", offsetof(Vertex, position), RT_RGB32_SFLOAT},
-	{"color", offsetof(Vertex, color), RT_RGB32_SFLOAT},
-	{"uv", offsetof(Vertex, uv), RT_RG32_SFLOAT},
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "uv", offsetof(Vertex, uv), RT_RG32_SFLOAT },
 };
 
 constexpr rt_vertex_layout kVertexLayout = {
@@ -309,9 +309,9 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());
 	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 	if (rtError() != RT_SUCCESS) {
-		std::cerr << "rtGraphicsProgramLink failed: " << rtErrorMessage() << "\n";
+		std::cerr << "rtGraphicsProgramFinalize failed: " << rtErrorMessage() << "\n";
 		RenderFailed.store(true, std::memory_order_release);
 		Running.store(false, std::memory_order_release);
 		rtGraphicsProgramDestroy(graphics_program);
@@ -329,7 +329,7 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
 	auto start_time = std::chrono::steady_clock::now();
 	auto previous_time = start_time;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (Running.load(std::memory_order_acquire)) {
 		auto now = std::chrono::steady_clock::now();

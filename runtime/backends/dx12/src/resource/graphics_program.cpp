@@ -51,14 +51,17 @@ void rtGraphicsProgramBlendState(
 	rtdx_graphics_program_blend_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
-void rtGraphicsProgramLink(rt_graphics_program program) {
-	rtdx_graphics_program_link(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
+void rtGraphicsProgramFinalize(rt_graphics_program program) {
+	rtdx_graphics_program_finalize(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
+}
+
+void rtGraphicsProgramReset(rt_graphics_program program) {
+	rtdx_graphics_program_reset(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
 rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
 	return rtdx_graphics_program_uniform_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
 }
-
 }
 
 /*===============================================================================================*/
@@ -303,8 +306,8 @@ static bool rtdx_graphics_program_create_pipeline(
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_info = {};
 	pipeline_info.pRootSignature = program->d3d_root_signature;
-	pipeline_info.VS = {vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize()};
-	pipeline_info.PS = {pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize()};
+	pipeline_info.VS = { vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize() };
+	pipeline_info.PS = { pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize() };
 	pipeline_info.BlendState.RenderTarget[0].BlendEnable = program->blend_enabled;
 	pipeline_info.BlendState.RenderTarget[0].SrcBlend = rtdx_blend_factor(program->src_color_blend);
 	pipeline_info.BlendState.RenderTarget[0].DestBlend = rtdx_blend_factor(program->dst_color_blend);
@@ -343,9 +346,9 @@ static bool rtdx_graphics_program_create_pipeline(
 	pipeline_info.SampleDesc.Count = 1;
 	pipeline_info.SampleDesc.Quality = 0;
 	if (program->vertex_layout.attribute_count > 0) {
-		pipeline_info.InputLayout = {elements, program->vertex_layout.attribute_count};
+		pipeline_info.InputLayout = { elements, program->vertex_layout.attribute_count };
 	} else {
-		pipeline_info.InputLayout = {NULL, 0};
+		pipeline_info.InputLayout = { NULL, 0 };
 	}
 
 	HRESULT result = ctx->d3d_device->CreateGraphicsPipelineState(&pipeline_info, IID_PPV_ARGS(&program->d3d_pipeline));
@@ -368,7 +371,7 @@ bool rtdx_graphics_program_prepare(
 	DXGI_FORMAT depth_format
 ) {
 	if (!program || !program->d3d_root_signature) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before use");
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before use");
 		return false;
 	}
 
@@ -401,8 +404,8 @@ void rtdx_graphics_program_layout(struct rtdx_context* ctx, struct rtdx_graphics
 		return;
 	}
 
-		memcpy(program->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-		program->vertex_layout.stride = layout->stride;
+	memcpy(program->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
+	program->vertex_layout.stride = layout->stride;
 	program->vertex_layout.attributes = program->vertex_attributes;
 	program->vertex_layout.attribute_count = layout->attribute_count;
 	rtdx_graphics_program_destroy_pipeline(program);
@@ -515,13 +518,23 @@ static bool rtdx_graphics_program_translate_rtslp(struct rtdx_graphics_program* 
 	}
 }
 
-void rtdx_graphics_program_link(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+void rtdx_graphics_program_reset(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
+	(void)ctx;
+	if (!program) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
+		return;
+	}
+	rtdx_graphics_program_destroy_root_signature(program);
+	rtdx_graphics_program_clear_translation(program);
+}
+
+void rtdx_graphics_program_finalize(struct rtdx_context* ctx, struct rtdx_graphics_program* program) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
 	}
 	if (!program->program_source || program->program_source_size == 0) {
-		rtdx_throwf(RT_SHADER_LINK_FAILED, "graphics program link requires an RTSLP source set via rtGraphicsProgramSource");
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "graphics program finalize requires an RTSLP source set via rtGraphicsProgramSource");
 		return;
 	}
 	if (!rtdx_graphics_program_translate_rtslp(program)) {
@@ -610,7 +623,7 @@ rt_uniform_location rtdx_graphics_program_uniform_location(struct rtdx_context* 
 		return RT_NULL_HANDLE;
 	}
 	if (!program->d3d_root_signature) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be linked before querying uniforms");
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying uniforms");
 		return RT_NULL_HANDLE;
 	}
 	for (u32 i = 0; i < program->uniform_location_count; i++) {

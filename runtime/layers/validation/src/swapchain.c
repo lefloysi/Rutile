@@ -86,11 +86,11 @@ void rtval_swapchain_resize(struct rtval_swapchain* swapchain, u32 width, u32 he
 rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain* swapchain) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainAcquire: NULL handle");
-		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {0}};
+		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { 0 } };
 	}
 	if (swapchain->has_current_framebuffer) {
 		RTVAL_DROP("rtSwapchainAcquire: framebuffer already acquired");
-		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {0}};
+		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { 0 } };
 	}
 
 	rt_swapchain_acquire_result result = rtval_next_rtSwapchainAcquire(swapchain->backend);
@@ -98,13 +98,13 @@ rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain* swap
 	if (!result.framebuffer) {
 		rtval_printf("[validation] rtSwapchainAcquire: backend returned NULL framebuffer, current_framebuffer=%p has_current_framebuffer=%d\n", swapchain->current_framebuffer, swapchain->has_current_framebuffer ? 1 : 0);
 		RTVAL_DROP("rtSwapchainAcquire: backend returned NULL framebuffer");
-		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {0}};
+		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { 0 } };
 	}
 	swapchain->current_framebuffer = rtval_framebuffer_wrap(result.framebuffer);
 	if (!swapchain->current_framebuffer) {
 		rtval_printf("[validation] rtSwapchainAcquire: wrap failed for backend framebuffer=%p\n", result.framebuffer);
 		RTVAL_DROP("rtSwapchainAcquire: failed to wrap framebuffer");
-		return (rt_swapchain_acquire_result){RT_NULL_HANDLE, {0}};
+		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { 0 } };
 	}
 	swapchain->has_current_framebuffer = true;
 	return (rt_swapchain_acquire_result){

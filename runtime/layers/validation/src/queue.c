@@ -53,7 +53,7 @@ void rtval_queue_wait(struct rtval_queue* queue, rt_timepoint timepoint) {
 }
 
 rt_timepoint rtval_queue_submit(struct rtval_queue* queue, struct rtval_command_buffer* cb) {
-	rt_timepoint timepoint = {rtval_queue_to_handle(queue), 0};
+	rt_timepoint timepoint = { rtval_queue_to_handle(queue), 0 };
 	if (!rtval_command_buffer_ready_for_submit(cb, queue)) {
 		return timepoint;
 	}
@@ -66,7 +66,7 @@ rt_timepoint rtval_queue_submit(struct rtval_queue* queue, struct rtval_command_
 }
 
 rt_timepoint rtval_queue_flush(struct rtval_queue* queue) {
-	rt_timepoint timepoint = {rtval_queue_to_handle(queue), 0};
+	rt_timepoint timepoint = { rtval_queue_to_handle(queue), 0 };
 	struct rtval_queue* state = RTVAL_PAYLOAD(queue, struct rtval_queue);
 	if (!state) {
 		RTVAL_DROP("rtQueueFlush: invalid queue");

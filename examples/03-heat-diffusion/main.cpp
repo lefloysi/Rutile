@@ -13,7 +13,7 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char* kFeatures[] = {RT_FEATURE_PRESENTATION};
+constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kTextureWidth = 8192;
 constexpr u32 kTextureHeight = 8192;
 constexpr u32 kWindowWidth = 1280;
@@ -476,7 +476,7 @@ int main(int argc, char* argv[]) {
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	const u64 heat_byte_size = (u64)kTextureWidth * kTextureHeight * sizeof(u64);
-	rt_buffer heat_buffers[2] = {rtBufferCreate(), rtBufferCreate()};
+	rt_buffer heat_buffers[2] = { rtBufferCreate(), rtBufferCreate() };
 	rtBufferData(heat_buffers[0], RT_BUFFER_STATIC, RT_BUFFER_USAGE_STORAGE, heat_byte_size, nullptr);
 	rtBufferData(heat_buffers[1], RT_BUFFER_STATIC, RT_BUFFER_USAGE_STORAGE, heat_byte_size, nullptr);
 
@@ -499,7 +499,7 @@ int main(int argc, char* argv[]) {
 	rtGraphicsProgramLayout(graphics_program, nullptr);
 	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
 	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
-	rtGraphicsProgramLink(graphics_program);
+	rtGraphicsProgramFinalize(graphics_program);
 
 	rt_uniform_location color_location = rtGraphicsProgramUniformLocation(graphics_program, "ColorTexture");
 	rt_uniform_location render_params_location = rtGraphicsProgramUniformLocation(graphics_program, "RenderParams");
@@ -525,7 +525,7 @@ int main(int argc, char* argv[]) {
 	u32 fps_frames = 0;
 	u32 read_index = 0;
 	u32 write_index = 1;
-	rt_timepoint last_rendered = {RT_NULL_HANDLE, 0};
+	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
