@@ -4,7 +4,6 @@ project(rt-vulkan C CXX)
 
 find_package(Vulkan REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
-find_package(glfw3 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 include(RutileTarget)
 
@@ -73,7 +72,11 @@ target_link_libraries(${PROJECT_NAME}
         ${RUTILE_VULKAN_LIBRARY}
     PRIVATE
         GPUOpen::VulkanMemoryAllocator
-        glfw
         ${CMAKE_DL_LIBS}
         Threads::Threads
+        rtsl-backend-spirv
+        Rutile::backend-tools
 )
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE psapi)
+endif()

@@ -214,7 +214,7 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 	VkResult result = vkCreateDescriptorSetLayout(ctx->vk_device, &layout_info, VK_ALLOCATOR, &program->vk_descriptor_set_layout);
 	free(bindings);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 }
@@ -238,7 +238,7 @@ static void rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ct
 
 	VkResult result = vkCreatePipelineLayout(ctx->vk_device, &layout_info, VK_ALLOCATOR, &program->vk_pipeline_layout);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 }
@@ -429,7 +429,7 @@ static void rtvk_graphics_program_create_pipeline(
 
 	VkResult result = vkCreateGraphicsPipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, VK_ALLOCATOR, &program->vk_pipeline);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 

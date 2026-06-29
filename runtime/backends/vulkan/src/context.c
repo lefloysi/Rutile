@@ -78,7 +78,7 @@ static bool rtvk_instance_layer_available(const char* name) {
 	u32 layer_count = 0;
 	VkResult result = vkEnumerateInstanceLayerProperties(&layer_count, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return false;
 	}
 
@@ -91,7 +91,7 @@ static bool rtvk_instance_layer_available(const char* name) {
 	result = vkEnumerateInstanceLayerProperties(&layer_count, layers);
 	if (result != VK_SUCCESS) {
 		free(layers);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return false;
 	}
 
@@ -142,7 +142,7 @@ static void rtvk_enumerate_instance_extensions(VkExtensionProperties** out_exten
 
 	VkResult result = vkEnumerateInstanceExtensionProperties(NULL, out_count, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	if (*out_count == 0) {
@@ -158,7 +158,7 @@ static void rtvk_enumerate_instance_extensions(VkExtensionProperties** out_exten
 	result = vkEnumerateInstanceExtensionProperties(NULL, out_count, extensions);
 	if (result != VK_SUCCESS) {
 		free(extensions);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -314,7 +314,7 @@ static void rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
 	u32 physical_device_count = 0;
 	VkResult result = vkEnumeratePhysicalDevices(ctx->vk_instance, &physical_device_count, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	if (physical_device_count == 0) {
@@ -331,7 +331,7 @@ static void rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
 	result = vkEnumeratePhysicalDevices(ctx->vk_instance, &physical_device_count, physical_devices);
 	if (result != VK_SUCCESS) {
 		free(physical_devices);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -477,7 +477,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 
 	if (result != VK_SUCCESS) {
 		free(queue_families);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -514,7 +514,7 @@ static void rtvk_context_create_allocator(struct rtvk_context* ctx) {
 
 	VkResult result = vmaCreateAllocator(&allocator_info, &ctx->vma_allocator);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 	}
 }
 
@@ -627,7 +627,7 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 
 	VkResult result = vkCreateInstance(&instance_info, VK_ALLOCATOR, &ctx->vk_instance);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)

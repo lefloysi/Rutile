@@ -18,7 +18,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/core.cpp"
     "src/error.cpp"
     "src/init.cpp"
-    "src/shader_compiler.cpp"
     "src/resource/buffer.cpp"
     "src/resource/command_buffer.cpp"
     "src/resource/framebuffer.cpp"
@@ -34,7 +33,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/types.h"
     "src/context.h"
     "src/context.cpp"
-    "src/shader_compiler.h"
     "src/resource/buffer.h"
     "src/resource/command_buffer.h"
     "src/resource/framebuffer.h"
@@ -54,6 +52,7 @@ rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
+        rtsl-backend-hlsl
         d3d12
         dxgi
         dxguid

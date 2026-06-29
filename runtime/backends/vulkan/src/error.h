@@ -27,6 +27,18 @@ RTVK_API void rtvk_vprintf(const char* format, va_list args);
 RTVK_API void rtvk_throwf(enum rt_error error, const char* format, ...);
 RTVK_API enum rt_error rtvk_error_from_vk(VkResult result);
 RTVK_API enum rt_error rtvk_error(void);
+RTVK_API const char* rtvk_vk_result_name(VkResult result);
+RTVK_API const char* rtvk_rt_error_name(enum rt_error error);
+
+/* Convenience: record an rt_error mapped from a VkResult, with a message
+ * that names both the failing call and the underlying VkResult string. */
+#define RTVK_THROW_VK(call_name, vk_result)                       \
+	rtvk_throwf(                                                  \
+		rtvk_error_from_vk(vk_result),                            \
+		"%s failed: %s",                                          \
+		(call_name),                                              \
+		rtvk_vk_result_name(vk_result)                            \
+	)
 
 #define RTVK_CHECK_ALLOC(ptr, bytes, what)             \
 	do {                                               \

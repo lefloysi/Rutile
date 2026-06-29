@@ -9,6 +9,7 @@
 #include <d3dcompiler.h>
 #include <exception>
 #include <new>
+#include <stdexcept>
 #include <string.h>
 
 /*===============================================================================================*/
@@ -490,20 +491,46 @@ static bool rtdx_graphics_program_translate_rtslp(struct rtdx_graphics_program* 
 	try {
 		rtdx_graphics_program_clear_translation(program);
 		rtdx_graphics_hlsl_compile_result translated =
-			rtdx_shader_compile_graphics_rtslp(program, program->program_source_size, program->program_source);
+			rtdx_shader_compile_graphics_rtslp(program->program_source_size, program->program_source);
 
 		program->vertex_hlsl = translated.vertex_hlsl;
 		program->vertex_hlsl_size = translated.vertex_hlsl_size;
 		program->fragment_hlsl = translated.fragment_hlsl;
 		program->fragment_hlsl_size = translated.fragment_hlsl_size;
-		std::fprintf(stderr, "=== RTSLP -> VERTEX HLSL ===\n%s\n=== RTSLP -> FRAGMENT HLSL ===\n%s\n", program->vertex_hlsl ? program->vertex_hlsl : "", program->fragment_hlsl ? program->fragment_hlsl : "");
-		std::fflush(stderr);
-		program->uniform_locations = translated.uniform_locations;
-		program->uniform_location_count = translated.uniform_location_count;
-		// Ownership transferred; do not let the result destructor free them.
+		// Ownership transferred; the destructor will free anything still set.
 		translated.vertex_hlsl = NULL;
 		translated.fragment_hlsl = NULL;
-		translated.uniform_locations = NULL;
+
+		if (translated.uniform_count > 0) {
+			program->uniform_locations = static_cast<rtdx_uniform_location*>(
+				std::calloc(translated.uniform_count, sizeof(rtdx_uniform_location))
+			);
+			if (!program->uniform_locations) {
+				rtdx_graphics_hlsl_result_clear(&translated);
+				throw std::bad_alloc();
+			}
+			for (u32 i = 0; i < translated.uniform_count; ++i) {
+				const auto& info = translated.uniforms[i];
+				if (info.binding >= RTDX_MAX_SHADER_BINDINGS) {
+					rtdx_graphics_hlsl_result_clear(&translated);
+					throw std::runtime_error("uniform binding exceeds dx12 backend limit");
+				}
+				auto& loc = program->uniform_locations[i];
+				loc.program = program;
+				std::snprintf(loc.name, sizeof(loc.name), "%s", info.name);
+				loc.slot = info.binding;
+				if (info.kind == RTSL_HLSL_UNIFORM_TEXTURE_SAMPLED) {
+					loc.kind = RTDX_UNIFORM_LOCATION_TEXTURE;
+					loc.root_parameter = RTDX_MAX_SHADER_BINDINGS + info.binding;
+					loc.sampler_root_parameter = RTDX_MAX_SHADER_BINDINGS * 2 + info.binding;
+				} else {
+					loc.kind = RTDX_UNIFORM_LOCATION_BUFFER;
+					loc.root_parameter = info.binding;
+					loc.sampler_root_parameter = 0;
+				}
+			}
+			program->uniform_location_count = translated.uniform_count;
+		}
 		rtdx_graphics_hlsl_result_clear(&translated);
 		return true;
 	} catch (const std::bad_alloc&) {

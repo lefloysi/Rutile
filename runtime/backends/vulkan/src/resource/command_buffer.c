@@ -226,7 +226,7 @@ void rtvk_command_buffer_reset_descriptor_pools(struct rtvk_context* ctx, struct
 		}
 		VkResult result = vkResetDescriptorPool(ctx->vk_device, pool->vk_pool, 0);
 		if (result != VK_SUCCESS) {
-			rtvk_throwf(rtvk_error_from_vk(result), NULL);
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			continue;
 		}
 		pool->allocated_sets = 0;
@@ -287,7 +287,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &node->vk_command_pool);
 	if (result != VK_SUCCESS) {
 		free(node);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return NULL;
 	}
 
@@ -301,7 +301,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 	if (result != VK_SUCCESS) {
 		vkDestroyCommandPool(ctx->vk_device, node->vk_command_pool, VK_ALLOCATOR);
 		free(node);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return NULL;
 	}
 
@@ -368,7 +368,7 @@ void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buf
 
 	VkResult result = vkBeginCommandBuffer(node->vk_command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -555,7 +555,7 @@ void rtvk_command_buffer_end(struct rtvk_context* ctx, struct rtvk_command_buffe
 	}
 	VkResult result = vkEndCommandBuffer(node->vk_command_buffer);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	command_buffer->recording = false;
@@ -904,7 +904,7 @@ static rtvk_descriptor_pool_node* rtvk_command_buffer_create_descriptor_pool(
 	VkResult result = vkCreateDescriptorPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &pool->vk_pool);
 	if (result != VK_SUCCESS) {
 		free(pool);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return NULL;
 	}
 
@@ -948,7 +948,7 @@ static void rtvk_command_buffer_allocate_descriptor_set(
 		result = vkAllocateDescriptorSets(ctx->vk_device, &allocate_info, descriptor_set);
 	}
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 

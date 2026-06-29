@@ -93,7 +93,7 @@ void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue
 
 	VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &queue->vk_timeline);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 }
@@ -155,7 +155,7 @@ u64 rtvk_queue_completed_value(struct rtvk_context* ctx, struct rtvk_queue* queu
 	u64 value = 0;
 	VkResult result = vkGetSemaphoreCounterValue(ctx->vk_device, queue->vk_timeline, &value);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return 0;
 	}
 	if (value > queue->completed_value) {
@@ -410,7 +410,7 @@ struct rtvk_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_que
 		if (command_buffers != stack_command_buffers) {
 			free(command_buffers);
 		}
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return (struct rtvk_timepoint){ queue, queue->submitted_value };
 	}
 	if (command_buffers != stack_command_buffers) {
@@ -519,7 +519,7 @@ struct rtvk_timepoint rtvk_queue_signal_binary_after_timepoint(struct rtvk_queue
 
 	VkResult result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return (struct rtvk_timepoint){ queue, queue->timeline_value };
 	}
 
@@ -534,7 +534,7 @@ struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceK
 		VkBool32 supported = VK_FALSE;
 		VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(ctx->vk_physical_device, ctx->queues[i]->family_index, surface, &supported);
 		if (result != VK_SUCCESS) {
-			rtvk_throwf(rtvk_error_from_vk(result), NULL);
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return NULL;
 		}
 		if (supported) {
@@ -564,7 +564,7 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, struct rtvk_timepoint timepoi
 
 	VkResult result = vkWaitSemaphores(ctx->vk_device, &wait_info, UINT64_MAX);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 	}
 	if (timepoint.value > timepoint.queue->completed_value) {
 		timepoint.queue->completed_value = timepoint.value;
@@ -582,7 +582,7 @@ bool rtvk_timepoint_reached(struct rtvk_context* ctx, struct rtvk_timepoint time
 	u64 value = 0;
 	VkResult result = vkGetSemaphoreCounterValue(ctx->vk_device, timepoint.queue->vk_timeline, &value);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return false;
 	}
 	if (value > timepoint.queue->completed_value) {

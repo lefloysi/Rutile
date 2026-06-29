@@ -47,7 +47,7 @@ static bool check_rt(const char* step) {
 }
 
 int main() {
-	if (rtLoadDevelopment("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
+	if (rtLoadDevelopment("rt-dx12", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoadDevelopment failed\n");
 		return 1;
 	}

@@ -137,58 +137,6 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 #endif
 }
 
-static const char* rtvk_vk_result_name(VkResult result) {
-	switch (result) {
-	case VK_SUCCESS:
-		return "VK_SUCCESS";
-	case VK_NOT_READY:
-		return "VK_NOT_READY";
-	case VK_TIMEOUT:
-		return "VK_TIMEOUT";
-	case VK_EVENT_SET:
-		return "VK_EVENT_SET";
-	case VK_EVENT_RESET:
-		return "VK_EVENT_RESET";
-	case VK_INCOMPLETE:
-		return "VK_INCOMPLETE";
-	case VK_ERROR_OUT_OF_HOST_MEMORY:
-		return "VK_ERROR_OUT_OF_HOST_MEMORY";
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-		return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-	case VK_ERROR_INITIALIZATION_FAILED:
-		return "VK_ERROR_INITIALIZATION_FAILED";
-	case VK_ERROR_DEVICE_LOST:
-		return "VK_ERROR_DEVICE_LOST";
-	case VK_ERROR_MEMORY_MAP_FAILED:
-		return "VK_ERROR_MEMORY_MAP_FAILED";
-	case VK_ERROR_LAYER_NOT_PRESENT:
-		return "VK_ERROR_LAYER_NOT_PRESENT";
-	case VK_ERROR_EXTENSION_NOT_PRESENT:
-		return "VK_ERROR_EXTENSION_NOT_PRESENT";
-	case VK_ERROR_FEATURE_NOT_PRESENT:
-		return "VK_ERROR_FEATURE_NOT_PRESENT";
-	case VK_ERROR_INCOMPATIBLE_DRIVER:
-		return "VK_ERROR_INCOMPATIBLE_DRIVER";
-	case VK_ERROR_TOO_MANY_OBJECTS:
-		return "VK_ERROR_TOO_MANY_OBJECTS";
-	case VK_ERROR_FORMAT_NOT_SUPPORTED:
-		return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-	case VK_ERROR_SURFACE_LOST_KHR:
-		return "VK_ERROR_SURFACE_LOST_KHR";
-	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
-		return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-	case VK_SUBOPTIMAL_KHR:
-		return "VK_SUBOPTIMAL_KHR";
-	case VK_ERROR_OUT_OF_DATE_KHR:
-		return "VK_ERROR_OUT_OF_DATE_KHR";
-	case VK_ERROR_FRAGMENTED_POOL:
-		return "VK_ERROR_FRAGMENTED_POOL";
-	case VK_ERROR_UNKNOWN:
-		return "VK_ERROR_UNKNOWN";
-	default:
-		return "VK_UNKNOWN_RESULT";
-	}
-}
 
 static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
 	if (frame->present_command_pool) {
@@ -419,14 +367,14 @@ void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swap
 		VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &swapchain->frames[i].image_available);
 		if (result != VK_SUCCESS) {
 			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
-			rtvk_throwf(rtvk_error_from_vk(result), NULL);
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
 		}
 
 		result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &swapchain->frames[i].present_ready);
 		if (result != VK_SUCCESS) {
 			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
-			rtvk_throwf(rtvk_error_from_vk(result), NULL);
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
 		}
 	}
@@ -492,14 +440,14 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 	VkSurfaceCapabilitiesKHR capabilities;
 	VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx->vk_physical_device, surface, &capabilities);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
 	u32 format_count = 0;
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->vk_physical_device, surface, &format_count, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -511,7 +459,7 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->vk_physical_device, surface, &format_count, formats);
 	if (result != VK_SUCCESS) {
 		free(formats);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -519,7 +467,7 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 	result = vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->vk_physical_device, surface, &present_mode_count, NULL);
 	if (result != VK_SUCCESS) {
 		free(formats);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	if (present_mode_count == 0) {
@@ -538,7 +486,7 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 	if (result != VK_SUCCESS) {
 		free(formats);
 		free(present_modes);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -593,7 +541,7 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 
 	result = vkCreateSwapchainKHR(ctx->vk_device, &swapchain_info, VK_ALLOCATOR, &swapchain->vk_swapchain);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -626,7 +574,7 @@ void rtvk_swapchain_prepare_present_command(
 
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &frame->present_command_pool);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -639,7 +587,7 @@ void rtvk_swapchain_prepare_present_command(
 	result = vkAllocateCommandBuffers(ctx->vk_device, &allocate_info, &frame->present_command_buffer);
 	if (result != VK_SUCCESS) {
 		rtvk_swapchain_destroy_present_command(ctx, frame);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -658,7 +606,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	VkResult result = vkResetCommandPool(ctx->vk_device, frame->present_command_pool, 0);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -669,7 +617,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	result = vkBeginCommandBuffer(frame->present_command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -692,7 +640,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	result = vkEndCommandBuffer(frame->present_command_buffer);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -724,7 +672,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	result = vkQueueSubmit(rendered.queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -888,7 +836,7 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		return;
 	}
 	if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
 	}

@@ -121,7 +121,7 @@ static VkSampler rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_textu
 	VkSampler sampler = VK_NULL_HANDLE;
 	VkResult result = vkCreateSampler(ctx->vk_device, &sampler_info, VK_ALLOCATOR, &sampler);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return VK_NULL_HANDLE;
 	}
 	return sampler;
@@ -588,7 +588,7 @@ void rtvk_texture_view_bind_source(struct rtvk_context* ctx, struct rtvk_texture
 
 	VkResult result = vkCreateImageView(ctx->vk_device, &view_info, VK_ALLOCATOR, &view->vk_image_view);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -735,7 +735,7 @@ static void rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 	pool_info.queueFamilyIndex = queue->family_index;
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &queue->upload_command_pool);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -747,7 +747,7 @@ static void rtvk_texture_upload_command(struct rtvk_context* ctx, struct rtvk_qu
 	if (result != VK_SUCCESS) {
 		vkDestroyCommandPool(ctx->vk_device, queue->upload_command_pool, VK_ALLOCATOR);
 		queue->upload_command_pool = VK_NULL_HANDLE;
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	return;
@@ -793,7 +793,7 @@ static void rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_qu
 		NULL
 	);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 	queue->upload_staging_size = size;
@@ -821,7 +821,7 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -892,7 +892,7 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 
 	result = vkEndCommandBuffer(command_buffer);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -908,7 +908,7 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	submit_info.pSignalSemaphores = &queue->vk_timeline;
 	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -990,7 +990,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &node->source->vk_image, &node->vma_allocation, NULL);
 	if (result != VK_SUCCESS) {
 		rtvk_texture_node_release(node);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1035,7 +1035,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_texture_node_release(node);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1182,7 +1182,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 
 	if (result != VK_SUCCESS) {
 		rtvk_texture_node_release(node);
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1272,7 +1272,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1352,7 +1352,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	}
 
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1373,7 +1373,7 @@ static void rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rt
 
 	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &queue->copy_command_pool);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 
@@ -1385,7 +1385,7 @@ static void rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rt
 	if (result != VK_SUCCESS) {
 		vkDestroyCommandPool(ctx->vk_device, queue->copy_command_pool, VK_ALLOCATOR);
 		queue->copy_command_pool = VK_NULL_HANDLE;
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
 }
@@ -1440,7 +1440,7 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
@@ -1514,7 +1514,7 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 
 	rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), NULL);
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
