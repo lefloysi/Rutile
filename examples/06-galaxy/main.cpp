@@ -18,7 +18,7 @@
 #include <random>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kDefaultBackendName = "rt-vk13";
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kStarCount = 26000;
 constexpr u32 kPlanetCount = 520;

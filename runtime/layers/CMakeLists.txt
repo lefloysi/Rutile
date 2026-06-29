@@ -1,6 +1,6 @@
 if(RUTILE_BUILD_VALIDATION_LAYER)
-    add_subdirectory("validation")
+    add_subdirectory("rt-validation-layer")
 endif()
 if(RUTILE_BUILD_LOGGING_LAYER)
-    add_subdirectory("logging")
+    add_subdirectory("rt-logging-layer")
 endif()

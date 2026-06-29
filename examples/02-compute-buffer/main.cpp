@@ -6,7 +6,7 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kDefaultBackendName = "rt-vk13";
 constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
 
 constexpr const char* kComputeShader = R"(

@@ -23,7 +23,7 @@
 
 #include "rtsl_embed.hpp"
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kDefaultBackendName = "rt-vk13";
 constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 

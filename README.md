@@ -20,7 +20,7 @@ building the graphics API your project needs.
 
 - `include/rutile.h` is the public loader and core API.
 - `include/rt_ext_*.h` files are optional extension packages.
-- `rt-vulkan` is the Vulkan backend.
+- `rt-vk13` is the Vulkan backend.
 - `rt-validation` is a validation layer.
 - `rt-logging-layer` is a logging layer.
 - `example` is a small program that loads the backend, layers, and extensions.
@@ -35,7 +35,7 @@ const char* layers[] = {
     "RT_LOGGING_LAYER",
 };
 
-rtLoad("rt-vulkan", layers, 2);
+rtLoad("rt-vk13", layers, 2);
 if (rtError() != RT_SUCCESS) {
     /* handle load failure */
 }
@@ -88,7 +88,7 @@ The application includes the extension header and loads it after the backend:
 ```c
 #include "rt_ext_my_feature.h"
 
-rtLoad("rt-vulkan", layers, layer_count);
+rtLoad("rt-vk13", layers, layer_count);
 
 if (rtLoad_RT_EXT_MY_FEATURE()) {
     rtMyFeatureDoThing(...);
@@ -195,7 +195,7 @@ The build tree can also be run directly:
 .\out\build\bin\Debug\rutile-example.exe
 ```
 
-The current build produces `rt-vulkan.dll`, `rt-validation.dll`,
+The current build produces `rt-vk13.dll`, `rt-validation.dll`,
 `rt-logging-layer.dll`, and `rutile-example.exe`.
 
 ## Status

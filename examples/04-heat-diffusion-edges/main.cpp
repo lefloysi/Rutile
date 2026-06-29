@@ -484,7 +484,7 @@ rt_compute_program create_compute_program(const char* shader) {
 }
 
 int main(int argc, char* argv[]) {
-	rtLoad("rt-vulkan", nullptr, 0);
+	rtLoad("rt-vk13", nullptr, 0);
 	rtLoad_RT_EXT_COMPUTE();
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();

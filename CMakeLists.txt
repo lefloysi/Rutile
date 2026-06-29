@@ -13,7 +13,7 @@ include(GNUInstallDirs)
 
 option(RUTILE_BUILD_EXAMPLES "Build Rutile examples" ${PROJECT_IS_TOP_LEVEL})
 option(RUTILE_INSTALL "Generate Rutile install rules" ${PROJECT_IS_TOP_LEVEL})
-option(RUTILE_BUILD_VULKAN "Build the Vulkan Rutile runtime." ON)
+option(RUTILE_BUILD_VK13 "Build the Vulkan 1.3 Rutile runtime." ON)
 option(RUTILE_BUILD_DX12 "Build the DirectX 12 Rutile runtime on Windows." ON)
 option(RUTILE_BUILD_GL33 "Build the OpenGL 3.3 Rutile runtime on Windows." ON)
 option(RUTILE_BUILD_VALIDATION_LAYER "Build the Rutile validation layer." ON)

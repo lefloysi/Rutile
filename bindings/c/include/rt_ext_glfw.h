@@ -31,7 +31,7 @@ bool rtLoad_RT_EXT_GLFW(void) {
 	return rt_rtSwapchainBindWindowGLFW != NULL;
 }
 
-/* Neither rt-vulkan nor rt-dx12 link GLFW themselves; they resolve the GLFW
+/* Neither rt-vk13 nor rt-dx12 link GLFW themselves; they resolve the GLFW
  * entry points they need at runtime from whatever module the host process
  * loaded. When the host statically links GLFW into its executable, the linker
  * has to be told to actually export those symbols, otherwise GetProcAddress on
@@ -39,7 +39,7 @@ bool rtLoad_RT_EXT_GLFW(void) {
  * ...) so the user only needs to include this header with RUTILE_IMPL defined.
  *
  * The Vulkan-flavored entries (CreateWindowSurface, VulkanSupported) are
- * required by rt-vulkan; glfwGetWin32Window is required by rt-dx12. The rest
+ * required by rt-vk13; glfwGetWin32Window is required by rt-dx12. The rest
  * are shared. */
 #if defined(_WIN32) && defined(_MSC_VER)
 #pragma comment(linker, "/EXPORT:glfwCreateWindowSurface")

@@ -47,7 +47,7 @@ rutile/
   runtime/              # C/C++ implementation
     backend-tools/      # shared shader translation (glslang + spirv-cross)
     backends/
-      vulkan/           # target: rt-vulkan -> Rutile::rt-vulkan
+      vk13/             # target: rt-vk13 -> Rutile::rt-vk13
       dx12/             # target: rt-dx12   -> Rutile::rt-dx12
       gl33/             # target: rt-gl33   -> Rutile::rt-gl33
     layers/

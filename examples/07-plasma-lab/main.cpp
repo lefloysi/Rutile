@@ -13,7 +13,7 @@
 #include <cstring>
 #include <iostream>
 
-constexpr const char* kDefaultBackendName = "rt-vulkan";
+constexpr const char* kDefaultBackendName = "rt-vk13";
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kTextureWidth = 1024;
 constexpr u32 kTextureHeight = 1024;
