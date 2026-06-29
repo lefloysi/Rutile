@@ -38,22 +38,22 @@ function(_rtsl_configure_lib target)
 endfunction()
 
 add_library(rtsl-core STATIC
-    ${_rtsl_src}/Basic/Diagnostics.cpp
-    ${_rtsl_src}/Basic/SourceManager.cpp
-    ${_rtsl_src}/Lex/Lexer.cpp
-    ${_rtsl_src}/Parse/Parser.cpp
-    ${_rtsl_src}/Sema/Sema.cpp
-    ${_rtsl_src}/IR/IR.cpp
-    ${_rtsl_src}/IR/UniformLowering.cpp
-    ${_rtsl_src}/IR/StageBuiltins.cpp
-    ${_rtsl_src}/Mangle/Mangler.cpp
-    ${_rtsl_src}/Serialization/Artifact.cpp
-    ${_rtsl_src}/Serialization/TextRTIR.cpp
+    ${_rtsl_src}/basic_diagnostics.cpp
+    ${_rtsl_src}/basic_source_manager.cpp
+    ${_rtsl_src}/lexer.cpp
+    ${_rtsl_src}/parser.cpp
+    ${_rtsl_src}/sema.cpp
+    ${_rtsl_src}/ir.cpp
+    ${_rtsl_src}/uniform_lowering.cpp
+    ${_rtsl_src}/stage_builtins.cpp
+    ${_rtsl_src}/mangler.cpp
+    ${_rtsl_src}/artifact.cpp
+    ${_rtsl_src}/text_rtir.cpp
 )
 _rtsl_configure_lib(rtsl-core)
 
 # Linker: combines compiled objects/libraries into rtsll or rtslp.
-add_library(rtsl-linker STATIC ${_rtsl_src}/Link/Linker.cpp)
+add_library(rtsl-linker STATIC ${_rtsl_src}/linker.cpp)
 _rtsl_configure_lib(rtsl-linker)
 target_link_libraries(rtsl-linker PUBLIC rtsl-core)
 
@@ -66,7 +66,7 @@ add_subdirectory(package)
 add_subdirectory(backends)
 
 # Compiler orchestrator: drives source -> rtslo / rtslm.
-add_library(rtsl-compiler STATIC ${_rtsl_src}/Compiler/Compiler.cpp)
+add_library(rtsl-compiler STATIC ${_rtsl_src}/compiler.cpp)
 _rtsl_configure_lib(rtsl-compiler)
 target_link_libraries(rtsl-compiler PUBLIC rtsl-core)
 
@@ -80,7 +80,7 @@ target_link_libraries(rtsl
         rtsl-core
 )
 
-add_executable(rtslc ${_rtsl_src}/Driver/rtslc.cpp)
+add_executable(rtslc ${_rtsl_src}/rtslc.cpp)
 find_package(CLI11 CONFIG QUIET)
 if(CLI11_FOUND)
     target_link_libraries(rtslc PRIVATE rtsl)

@@ -1,13 +1,13 @@
-#include "Basic/Diagnostics.hpp"
-#include "Basic/SourceManager.hpp"
-#include "Compiler/Compiler.hpp"
-#include "Lex/Lexer.hpp"
-#include "Link/Linker.hpp"
-#include "Mangle/Mangler.hpp"
-#include "Parse/Parser.hpp"
-#include "Serialization/Artifact.hpp"
-#include "Serialization/TextRTIR.hpp"
-#include "rtsl.hpp"
+#include "basic_diagnostics.hpp"
+#include "basic_source_manager.hpp"
+#include "compiler.hpp"
+#include "lexer.hpp"
+#include "linker.hpp"
+#include "mangler.hpp"
+#include "parser.hpp"
+#include "artifact.hpp"
+#include "text_rtir.hpp"
+#include "rtsl.h"
 
 #include <cassert>
 #include <cstring>

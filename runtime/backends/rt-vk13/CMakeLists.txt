@@ -32,8 +32,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/error.c"
     
     "src/atomic.cpp"
-    "src/shader_compiler.c"
-    "src/shader_compiler.h"
+    
+    
     "src/vma.cpp"
     "src/atomic.h"
     "src/resource/buffer.c"

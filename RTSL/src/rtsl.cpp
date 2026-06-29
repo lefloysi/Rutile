@@ -1,9 +1,9 @@
-#include "rtsl.hpp"
+#include "rtsl.h"
 
-#include "Compiler/Compiler.hpp"
-#include "IR/UniformLowering.hpp"
-#include "Link/Linker.hpp"
-#include "Serialization/Artifact.hpp"
+#include "compiler.hpp"
+#include "uniform_lowering.hpp"
+#include "linker.hpp"
+#include "artifact.hpp"
 
 #include <cstring>
 #include <exception>
