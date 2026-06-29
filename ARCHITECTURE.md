@@ -51,7 +51,7 @@ rutile/
       dx12/             # target: rt-dx12   -> Rutile::rt-dx12
       gl33/             # target: rt-gl33   -> Rutile::rt-gl33
     layers/
-      validation/       # target: rt-validation
+      rt-validation-layer/  # target: rt-validation-layer
       logging/          # target: rt-logging-layer
 
   examples/             # sample apps that link the C binding + runtime
