@@ -78,11 +78,13 @@ std::vector<Token> Lexer::lex() {
         }
 
         const char c = peek();
-        if (is_identifier_start(c)) {
-            tokens.push_back(lex_identifier_or_keyword());
-        } else if (std::isdigit(static_cast<unsigned char>(c))) {
-            tokens.push_back(lex_number());
-        } else {
+    if (is_identifier_start(c)) {
+        tokens.push_back(lex_identifier_or_keyword());
+    } else if (c == '"') {
+        tokens.push_back(lex_string());
+    } else if (std::isdigit(static_cast<unsigned char>(c))) {
+        tokens.push_back(lex_number());
+    } else {
             tokens.push_back(lex_punctuation());
         }
     }
@@ -155,6 +157,22 @@ Token Lexer::lex_number() {
     }
 
     return make_token(is_float ? TokenKind::float_literal : TokenKind::integer_literal, begin, cursor_);
+}
+
+Token Lexer::lex_string() {
+    const auto begin = cursor_;
+    ++cursor_;
+    while (!at_end() && peek() != '"') {
+        if (peek() == '\\' && !at_end(1)) {
+            cursor_ += 2;
+            continue;
+        }
+        ++cursor_;
+    }
+    if (!at_end()) {
+        ++cursor_;
+    }
+    return make_token(TokenKind::string_literal, begin, cursor_);
 }
 
 Token Lexer::lex_punctuation() {

@@ -19,6 +19,9 @@ struct SemanticSymbol {
 
 struct SemanticModule {
     std::string source_name;
+    std::vector<std::string> imports;
+    std::vector<ExportSymbol> imported_exports;
+    std::vector<ExportSymbol> exports;
     std::vector<SemanticSymbol> symbols;
     std::vector<StructDecl> structs;
     std::vector<UniformBinding> uniforms;

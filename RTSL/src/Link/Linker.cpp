@@ -23,6 +23,9 @@ void shift_instruction(IRInstruction &inst, IRId offset) {
 void merge_module(IRModule &dst, IRModule src) {
     const IRId offset = dst.next_id - 1;
     dst.next_id += src.next_id - 1;
+    dst.imports.insert(dst.imports.end(), src.imports.begin(), src.imports.end());
+    dst.imported_exports.insert(dst.imported_exports.end(), src.imported_exports.begin(), src.imported_exports.end());
+    dst.exports.insert(dst.exports.end(), src.exports.begin(), src.exports.end());
 
     for (auto inst : src.type_constant_pool) {
         shift_instruction(inst, offset);
@@ -263,6 +266,8 @@ Artifact extract_module_interface(const Artifact &source) {
     // Carry over the source name so importer-side diagnostics can point
     // back to the .rtsl this interface came from.
     module_artifact.module.source_name = source.module.source_name;
+    module_artifact.module.imports = source.module.imports;
+    module_artifact.module.exports = source.module.exports;
     for (const auto &fn : source.module.functions) {
         if (!fn.exported) continue;
         // Public interface entry: signature only, no body. Importers see
@@ -289,6 +294,7 @@ Artifact extract_module_interface(const Artifact &source) {
     // are actually transitively referenced is a later optimization.
     module_artifact.module.structs = source.module.structs;
     module_artifact.structs = source.structs;
+    module_artifact.exports = source.exports;
     module_artifact.bytes = write_artifact(ArtifactKind::module, module_artifact.module);
     return module_artifact;
 }

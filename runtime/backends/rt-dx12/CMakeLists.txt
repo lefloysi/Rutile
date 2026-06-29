@@ -42,16 +42,21 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/texture.h"
     "src/resource/swapchain.h"
     "src/resource/glfw/glfw.h"
+    "${RUTILE_SOURCE_DIR}/RTSL/backends/hlsl/src/rtsl_hlsl_backend.cpp"
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE "src")
-target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/RTSL/src")
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "${RUTILE_SOURCE_DIR}/RTSL/src"
+    "${RUTILE_SOURCE_DIR}/RTSL/backends/hlsl/include"
+    "${RUTILE_SOURCE_DIR}/RTSL/package/include"
+)
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
-        rtsl-backend-hlsl
+        rtsl-package
         d3d12
         dxgi
         dxguid

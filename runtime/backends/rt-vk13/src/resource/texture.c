@@ -13,13 +13,6 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-/*
-** SPEC.html §9.2 Texture
-** Implements rtTextureCreate/Destroy and the texture upload/copy paths.
-** Texture state lives on rtvk_texture; rtvk_texture_view stores image-view
-** and sampler metadata only, and swapchain-backed views never own the image.
-*/
-
 rt_texture rtTextureCreate(void) {
 	struct rtvk_texture* texture = rtvk_texture_create(rtvk_get_current_context());
 	return rtvk_texture_to_handle(texture);
@@ -975,11 +968,14 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	image_info.arrayLayers = 1;
 	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
 	image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	if (rtvk_format_has_depth(vk_format) || rtvk_format_has_stencil(vk_format)) {
+		// Depth-only / depth-stencil formats almost never advertise
+		// STORAGE_IMAGE support; asking for it makes vkCreateImage fail on
+		// most desktop GPUs.
 		image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	} else {
-		image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	}
 	image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;

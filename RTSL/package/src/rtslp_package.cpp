@@ -4,7 +4,7 @@
 #include <span>
 #include <stdexcept>
 
-namespace rt {
+namespace rtsl {
 namespace {
 
 constexpr u32 kRtslMagic = 0x4c535452;
@@ -42,19 +42,20 @@ std::string read_string(std::span<const std::uint8_t> data, size_t& cursor) {
 	return value;
 }
 
+// Keep in sync with rtsl::SectionKind in src/Serialization/Artifact.cpp.
 enum class SectionKind : u32 {
 	IrModule = 2,
-	StructTable = 4,
-	ResourceTable = 5,
-	StageInterfaceTable = 6,
+	StructTable = 6,
+	ResourceTable = 7,
+	StageInterfaceTable = 8,
 };
 
-RTInstruction read_instruction(std::span<const std::uint8_t> data, size_t& cursor) {
+instruction read_instruction(std::span<const std::uint8_t> data, size_t& cursor) {
 	if (cursor + 26 > data.size()) {
 		throw std::runtime_error("truncated RTIR instruction");
 	}
-	RTInstruction inst;
-	inst.op = static_cast<RTIROp>(read_u16(data, cursor));
+    instruction inst;
+    inst.op = static_cast<ir_op>(read_u16(data, cursor));
 	cursor += 2;
 	inst.result_id = read_u32(data, cursor);
 	cursor += 4;
@@ -80,7 +81,7 @@ RTInstruction read_instruction(std::span<const std::uint8_t> data, size_t& curso
 
 } // namespace
 
-RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source) {
+artifact_module read_rtslp_module(u64 program_size, const void* program_source) {
 	if (!program_source || program_size < 48) {
 		throw std::runtime_error("invalid RTSLP payload");
 	}
@@ -92,7 +93,7 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 
 	const u32 section_count = read_u32(data, 20);
 	const u64 section_table_offset = read_u64(data, 24);
-	RTArtifactModule module;
+    artifact_module module;
 
 	for (u32 section_index = 0; section_index < section_count; ++section_index) {
 		const size_t entry = static_cast<size_t>(section_table_offset + section_index * 32);
@@ -125,13 +126,13 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			cursor += 4;
 			module.functions.reserve(function_count);
 			for (u32 i = 0; i < function_count; ++i) {
-				RTFunction fn;
+                function fn;
 				fn.result_id = read_u32(section, cursor);
 				cursor += 4;
 				cursor += 4;
 				fn.return_type_id = read_u32(section, cursor);
 				cursor += 4;
-				fn.stage = static_cast<RTStageKind>(section[cursor++]);
+                fn.stage = static_cast<stage_kind>(section[cursor++]);
 				cursor += 1; // generated
 				cursor += 1; // exported
 				cursor += 8; // display_name, mangled_name (StringIds)
@@ -175,13 +176,13 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			cursor += 4;
 			module.structs.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-				RTStructDecl decl;
+                struct_decl decl;
 				decl.name = read_string(section, cursor);
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				decl.fields.reserve(field_count);
 				for (u32 f = 0; f < field_count; ++f) {
-					RTStructField field;
+                    struct_field field;
 					field.type = read_string(section, cursor);
 					field.name = read_string(section, cursor);
 					decl.fields.push_back(std::move(field));
@@ -195,7 +196,7 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			cursor += 4;
 			module.uniforms.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-				RTUniform uniform;
+                uniform uniform;
 				uniform.scope_name = read_string(section, cursor);
 				uniform.name = read_string(section, cursor);
 				uniform.type = read_string(section, cursor);
@@ -224,14 +225,14 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 			cursor += 4;
 			module.stage_interfaces.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-				RTStageInterface stage_interface;
-				stage_interface.role = static_cast<RTStageRole>(section[cursor++]);
+                stage_interface stage_interface;
+                stage_interface.role = static_cast<stage_role>(section[cursor++]);
 				stage_interface.type_name = read_string(section, cursor);
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				stage_interface.fields.reserve(field_count);
 				for (u32 f = 0; f < field_count; ++f) {
-					RTStageField field;
+                    stage_field field;
 					field.name = read_string(section, cursor);
 					field.interpolation = read_string(section, cursor);
 					field.builtin = read_string(section, cursor);
@@ -250,4 +251,4 @@ RTArtifactModule read_rtslp_module(u64 program_size, const void* program_source)
 	return module;
 }
 
-} // namespace rt
+} // namespace rtsl

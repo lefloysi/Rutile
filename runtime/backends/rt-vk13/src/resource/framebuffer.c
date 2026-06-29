@@ -7,18 +7,15 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-/*
-** SPEC.html §9.5 Framebuffer
-** Implements create, destroy, and attachment setters.
-** The framebuffer retains view references, not the underlying textures.
-*/
-
 rt_framebuffer rtFramebufferCreate(void) {
 	return rtvk_framebuffer_to_handle(rtvk_framebuffer_create(rtvk_get_current_context()));
 }
 
 void rtFramebufferDestroy(rt_framebuffer framebuffer) {
-	rtvk_framebuffer_destroy(rtvk_get_current_context(), rtvk_framebuffer_from_handle(framebuffer));
+	rtvk_framebuffer_destroy(
+		rtvk_get_current_context(), 
+		rtvk_framebuffer_from_handle(framebuffer)
+	);
 }
 
 rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {

@@ -18,8 +18,9 @@ private:
 	[[nodiscard]] bool at_end(std::size_t lookahead = 0) const;
 
 	void skip_whitespace_and_comments();
-	Token lex_identifier_or_keyword();
-	Token lex_number();
+    Token lex_identifier_or_keyword();
+    Token lex_string();
+    Token lex_number();
 	Token lex_punctuation();
 	Token make_token(TokenKind kind, std::size_t begin, std::size_t end) const;
 	void diagnose(std::size_t offset, std::string message);

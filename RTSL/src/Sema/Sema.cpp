@@ -9,6 +9,7 @@ Sema::Sema(SourceManager &sources, DiagnosticEngine &diagnostics)
 
 SemanticModule Sema::analyze(const TranslationUnit &unit) {
     SemanticModule module{.source_name = std::string(sources_.name(unit.file_id))};
+    module.imports = unit.imports;
     module.structs = unit.structs;
     module.uniforms = unit.uniforms;
     module.stage_interfaces = unit.stage_interfaces;
@@ -66,6 +67,13 @@ SemanticModule Sema::analyze(const TranslationUnit &unit) {
             .body_statements = decl.body_statements,
             .exported = decl.exported,
         });
+        if (decl.exported) {
+            module.exports.push_back(ExportSymbol{
+                .name = decl.name,
+                .kind = decl.kind == DeclKind::function ? "function" : "symbol",
+                .type = decl.return_type,
+            });
+        }
     }
 
     return module;

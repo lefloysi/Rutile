@@ -6,67 +6,65 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <string.h>
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-/*
-** SPEC.html §9.6 Graphics program
-** Implements create, destroy, shader setters, state setters, finalize, and reset.
-** Finalized programs are re-prepared against the active framebuffer format.
-*/
-
 rt_graphics_program rtGraphicsProgramCreate(void) {
-	struct rtvk_graphics_program* program = rtvk_graphics_program_create(rtvk_get_current_context());
-	return rtvk_graphics_program_to_handle(program);
+	return rtvk_graphics_program_to_handle(rtvk_graphics_program_create(rtvk_get_current_context()));
 }
 
 void rtGraphicsProgramDestroy(rt_graphics_program program) {
-	rtvk_graphics_program_destroy(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
+	rtvk_graphics_program_destroy(
+		rtvk_get_current_context(), 
+		rtvk_graphics_program_from_handle(program)
+	);
 }
 
 void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
-	rtvk_graphics_program_layout(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), layout);
+	rtvk_graphics_program_layout(
+		rtvk_get_current_context(), 
+		rtvk_graphics_program_from_handle(program), 
+		layout);
 }
 
 void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
-	rtvk_graphics_program_source(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), size, data);
+	rtvk_graphics_program_source(
+		rtvk_get_current_context(), 
+		rtvk_graphics_program_from_handle(program), size, data
+	);
 }
 
 void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtvk_graphics_program_raster_state(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-void rtGraphicsProgramBlendState(
-	rt_graphics_program program,
-	bool enabled,
-	enum rt_blend_factor src_color,
-	enum rt_blend_factor dst_color,
-	enum rt_blend_op color_op,
-	enum rt_blend_factor src_alpha,
-	enum rt_blend_factor dst_alpha,
-	enum rt_blend_op alpha_op
-) {
-	rtvk_graphics_program_blend_state(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
+void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled,enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+	rtvk_graphics_program_blend_state(
+		rtvk_get_current_context(), 
+		rtvk_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op
+	);
 }
 
 void rtGraphicsProgramFinalize(rt_graphics_program program) {
-	rtvk_graphics_program_finalize(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
+	rtvk_graphics_program_finalize(
+		rtvk_get_current_context(), 
+		rtvk_graphics_program_from_handle(program)
+	);
 }
 
 void rtGraphicsProgramReset(rt_graphics_program program) {
-	rtvk_graphics_program_reset(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program));
+	rtvk_graphics_program_reset(
+		rtvk_get_current_context(),
+		rtvk_graphics_program_from_handle(program)
+	);
 }
 
 rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	struct rtvk_uniform_location* location = rtvk_graphics_program_uniform_location(
-		rtvk_get_current_context(),
-		rtvk_graphics_program_from_handle(program),
-		name
-	);
-	return rtvk_uniform_location_to_handle(location);
+	return rtvk_uniform_location_to_handle(rtvk_graphics_program_uniform_location(rtvk_get_current_context(),rtvk_graphics_program_from_handle(program), name));
 }
 
 /*===============================================================================================*/
@@ -275,11 +273,7 @@ static void rtvk_graphics_program_viewport_state(VkViewport* viewport, VkRect2D*
 	viewport_info->pScissors = scissor;
 }
 
-static void rtvk_graphics_program_color_blend_state(
-	struct rtvk_graphics_program* program,
-	VkPipelineColorBlendAttachmentState* attachment,
-	VkPipelineColorBlendStateCreateInfo* color_blend_info
-) {
+static void rtvk_graphics_program_color_blend_state(struct rtvk_graphics_program* program, VkPipelineColorBlendAttachmentState* attachment, VkPipelineColorBlendStateCreateInfo* color_blend_info) {
 	attachment->blendEnable = program->blend_enabled ? VK_TRUE : VK_FALSE;
 	attachment->srcColorBlendFactor = rtvk_blend_factor(program->src_color_blend);
 	attachment->dstColorBlendFactor = rtvk_blend_factor(program->dst_color_blend);
@@ -287,11 +281,7 @@ static void rtvk_graphics_program_color_blend_state(
 	attachment->srcAlphaBlendFactor = rtvk_blend_factor(program->src_alpha_blend);
 	attachment->dstAlphaBlendFactor = rtvk_blend_factor(program->dst_alpha_blend);
 	attachment->alphaBlendOp = rtvk_blend_op(program->alpha_blend_op);
-	attachment->colorWriteMask =
-		VK_COLOR_COMPONENT_R_BIT |
-		VK_COLOR_COMPONENT_G_BIT |
-		VK_COLOR_COMPONENT_B_BIT |
-		VK_COLOR_COMPONENT_A_BIT;
+	attachment->colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
 	*color_blend_info = (VkPipelineColorBlendStateCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 	color_blend_info->logicOpEnable = VK_FALSE;
@@ -300,12 +290,7 @@ static void rtvk_graphics_program_color_blend_state(
 	color_blend_info->pAttachments = attachment;
 }
 
-static void rtvk_graphics_program_create_pipeline(
-	struct rtvk_context* ctx,
-	struct rtvk_graphics_program* program,
-	VkFormat color_format,
-	VkFormat depth_format
-) {
+static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format) {
 	VkPipelineShaderStageCreateInfo stages[2];
 	rtvk_graphics_program_shader_stages(program, stages);
 
@@ -453,10 +438,9 @@ void rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphic
 }
 
 void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout) {
-	if (!program) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return;
-	}
+	assert(ctx);
+	assert(program);
+	assert(layout);
 	if (!layout || !layout->attributes || layout->attribute_count == 0) {
 		program->vertex_layout = (rt_vertex_layout){ 0 };
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
@@ -483,10 +467,7 @@ void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics
 }
 
 void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics_program* program, u64 size, const void* data) {
-	if (!program) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return;
-	}
+	assert(program);
 	if (!data || size == 0) {
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
@@ -494,11 +475,6 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 		rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
 		rtvk_shader_reflection_clear(&program->vertex_reflection);
 		rtvk_shader_reflection_clear(&program->fragment_reflection);
-		return;
-	}
-
-	if (size > SIZE_MAX) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "shader source is too large");
 		return;
 	}
 
@@ -519,13 +495,9 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 	program->program_source_size = size;
 }
 
-void rtvk_graphics_program_raster_state(
-	struct rtvk_context* ctx,
-	struct rtvk_graphics_program* program,
-	enum rt_cull_mode cull_mode,
-	enum rt_front_face front_face,
-	enum rt_fill_mode fill_mode
-) {
+void rtvk_graphics_program_raster_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+	assert(ctx);
+	assert(program);
 
 	program->cull_mode = cull_mode;
 	program->front_face = front_face;
@@ -534,6 +506,8 @@ void rtvk_graphics_program_raster_state(
 }
 
 void rtvk_graphics_program_blend_state(struct rtvk_context* ctx, struct rtvk_graphics_program* program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+	assert(ctx);
+	assert(program);
 
 	program->blend_enabled = enabled;
 	program->src_color_blend = src_color;
@@ -546,6 +520,8 @@ void rtvk_graphics_program_blend_state(struct rtvk_context* ctx, struct rtvk_gra
 }
 
 static struct rtvk_uniform_location* rtvk_graphics_program_find_uniform_location(struct rtvk_graphics_program* program, const char* name) {
+	assert(program);
+	assert(name);
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		if (strcmp(program->uniform_locations[i].name, name) == 0) {
 			return &program->uniform_locations[i];
@@ -555,6 +531,8 @@ static struct rtvk_uniform_location* rtvk_graphics_program_find_uniform_location
 }
 
 static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics_program* program, u32 count) {
+	assert(program);
+
 	if (program->uniform_location_capacity >= count) {
 		return;
 	}
@@ -573,11 +551,7 @@ static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics
 	program->uniform_location_capacity = capacity;
 }
 
-static void rtvk_graphics_program_add_uniform_block(
-	struct rtvk_graphics_program* program,
-	const rtvk_shader_uniform_block* block,
-	VkShaderStageFlags stages
-) {
+static void rtvk_graphics_program_add_uniform_block(struct rtvk_graphics_program* program, const rtvk_shader_uniform_block* block, VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, block->name);
 	if (existing) {
 		if (existing->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && existing->binding == block->binding) {
@@ -617,11 +591,7 @@ static void rtvk_graphics_program_add_uniform_block(
 	program->uniform_location_count++;
 }
 
-static void rtvk_graphics_program_add_texture(
-	struct rtvk_graphics_program* program,
-	const rtvk_shader_texture* texture,
-	VkShaderStageFlags stages
-) {
+static void rtvk_graphics_program_add_texture(struct rtvk_graphics_program* program, const rtvk_shader_texture* texture, VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, texture->name);
 	if (existing) {
 		if (existing->kind != RTVK_UNIFORM_LOCATION_TEXTURE || existing->binding != texture->binding) {
@@ -654,11 +624,9 @@ static void rtvk_graphics_program_add_texture(
 	program->uniform_location_count++;
 }
 
-static void rtvk_graphics_program_add_storage_buffer(
-	struct rtvk_graphics_program* program,
-	const rtvk_shader_resource* resource,
-	VkShaderStageFlags stages
-) {
+static void rtvk_graphics_program_add_storage_buffer(struct rtvk_graphics_program* program,	const rtvk_shader_resource* resource, VkShaderStageFlags stages) {
+	assert(program);
+
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, resource->name);
 	if (existing) {
 		if (existing->kind != RTVK_UNIFORM_LOCATION_STORAGE_BUFFER || existing->binding != resource->binding) {
@@ -739,10 +707,8 @@ static void rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_p
 }
 
 void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
-	if (!program) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return;
-	}
+	assert(ctx);
+	assert(program);
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
@@ -752,10 +718,9 @@ void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_
 }
 
 void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
-	if (!program) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return;
-	}
+	assert(ctx);
+	assert(program);
+
 	rtvk_graphics_shader_compile_result shaders = {};
 	if (program->program_source && program->program_source_size) {
 		shaders = rtvk_shader_compile_graphics_rtslp(ctx, program->program_source_size, program->program_source);
@@ -785,14 +750,10 @@ void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphi
 
 static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode) {
 	switch (mode) {
-	case RT_CULL_NONE:
-		return VK_CULL_MODE_NONE;
-	case RT_CULL_FRONT:
-		return VK_CULL_MODE_FRONT_BIT;
-	case RT_CULL_BACK:
-		return VK_CULL_MODE_BACK_BIT;
-	default:
-		return VK_CULL_MODE_NONE;
+	case RT_CULL_NONE: return VK_CULL_MODE_NONE;
+	case RT_CULL_FRONT: return VK_CULL_MODE_FRONT_BIT;
+	case RT_CULL_BACK: return VK_CULL_MODE_BACK_BIT;
+	default: return VK_CULL_MODE_NONE;
 	}
 }
 
@@ -863,18 +824,5 @@ static VkBlendOp rtvk_blend_op(enum rt_blend_op op) {
 }
 
 struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name) {
-	if (!program) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return NULL;
-	}
-	if (!name) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "uniform location name is NULL");
-		return NULL;
-	}
-	if (!program->vk_pipeline_layout) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying uniforms");
-		return NULL;
-	}
-
 	return rtvk_graphics_program_find_uniform_location(program, name);
 }

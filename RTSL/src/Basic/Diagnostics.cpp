@@ -23,12 +23,12 @@ void DiagnosticEngine::render(std::ostream &out, const SourceManager *sources) c
     for (const auto &diagnostic : diagnostics_) {
         const char *severity = diagnostic.severity == DiagnosticSeverity::warning ? "warning"
                                 : diagnostic.severity == DiagnosticSeverity::note   ? "note"
-                                : diagnostic.severity == DiagnosticSeverity::fatal  ? "fatal error"
+                                : diagnostic.severity == DiagnosticSeverity::fatal  ? "error"
                                                                                      : "error";
         out << diagnostic.source_name << '(' << diagnostic.location.line << ',' << diagnostic.location.column
             << "): " << severity;
         if (diagnostic.code != 0) {
-            out << " C" << diagnostic.code;
+            out << " RTSL" << diagnostic.code;
         }
         out << ": " << diagnostic.message << '\n';
         if (!sources || diagnostic.location.file_id >= sources->file_count()) {

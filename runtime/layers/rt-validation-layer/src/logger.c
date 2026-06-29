@@ -51,5 +51,5 @@ void rtval_report_error(const char* call_name) {
 
 	const char* message = rtval_next_rtErrorMessage();
 	rtval_printf("[validation] %s failed: error=%d message=\"%s\"\n", call_name ? call_name : "<unknown>", (i32)error, message ? message : "");
-	rtval_next_rtClearError();
+	// Leave the error set so the application's rtError() check still trips.
 }

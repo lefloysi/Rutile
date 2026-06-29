@@ -7,7 +7,7 @@
 #include <iostream>
 
 constexpr const char* kDefaultBackendName = "rt-vk13";
-constexpr const char* kLayers[] = { "RT_VALIDATION", "RT_LOGGING_LAYER" };
+constexpr const char* kLayers[] = { "RT_VALIDATION_LAYER", "RT_LOGGING_LAYER" };
 
 constexpr const char* kComputeShader = R"(
 #version 460

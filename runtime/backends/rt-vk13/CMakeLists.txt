@@ -32,7 +32,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/error.c"
     
     "src/atomic.cpp"
-    "src/shader_compiler.cpp"
+    "src/shader_compiler.c"
     "src/shader_compiler.h"
     "src/vma.cpp"
     "src/atomic.h"
@@ -61,8 +61,13 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/types.h"
     "src/context.h"
     "src/context.c"
+    "${RUTILE_SOURCE_DIR}/RTSL/backends/spirv/src/rtsl_spirv_backend.cpp"
 )
-target_include_directories(${PROJECT_NAME} PRIVATE "${RUTILE_SOURCE_DIR}/RTSL/src")
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "${RUTILE_SOURCE_DIR}/RTSL/src"
+    "${RUTILE_SOURCE_DIR}/RTSL/backends/spirv/include"
+    "${RUTILE_SOURCE_DIR}/RTSL/package/include"
+)
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
@@ -73,7 +78,6 @@ target_link_libraries(${PROJECT_NAME}
         GPUOpen::VulkanMemoryAllocator
         ${CMAKE_DL_LIBS}
         Threads::Threads
-        rtsl-backend-spirv
         rtsl-package
 )
 if(WIN32)

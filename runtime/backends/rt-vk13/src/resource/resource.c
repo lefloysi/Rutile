@@ -22,11 +22,6 @@ void* rtvk_alloc_resource(usize size) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-/*
-** SPEC.html §7 Resources
-** Implements the shared resource base and lifecycle helpers.
-** Refcount and job count gate final destruction until in-flight work is done.
-*/
 
 void rtvk_free_resource(void* resource) {
 	free(resource);

@@ -1,11 +1,11 @@
-#pragma once
+#ifndef RTSL_HLSL_BACKEND_H
+#define RTSL_HLSL_BACKEND_H
 
-#include "rutile.h"
+#include <stddef.h>
+#include <stdint.h>
 
-#include <cstdint>
-
-using u32 = std::uint32_t;
-using u64 = std::uint64_t;
+typedef uint32_t u32;
+typedef uint64_t u64;
 
 #ifndef RTSL_HLSL_MAX_UNIFORM_NAME
 #define RTSL_HLSL_MAX_UNIFORM_NAME 64
@@ -26,21 +26,20 @@ typedef struct rtsl_hlsl_uniform_info {
 	rtsl_hlsl_uniform_kind kind;
 } rtsl_hlsl_uniform_info;
 
-typedef struct rtdx_graphics_hlsl_compile_result {
+typedef struct rtsl_graphics_hlsl_compile_result {
 	char* vertex_hlsl;
 	u64 vertex_hlsl_size;
 	char* fragment_hlsl;
 	u64 fragment_hlsl_size;
 	rtsl_hlsl_uniform_info* uniforms;
 	u32 uniform_count;
-} rtdx_graphics_hlsl_compile_result;
+} rtsl_graphics_hlsl_compile_result;
 
-void rtdx_graphics_hlsl_result_clear(rtdx_graphics_hlsl_compile_result* result);
-rtdx_graphics_hlsl_compile_result rtdx_shader_compile_graphics_rtslp(
-	u64 program_size,
-	const void* program_source
-);
+void rtsl_graphics_hlsl_result_clear(rtsl_graphics_hlsl_compile_result* result);
+rtsl_graphics_hlsl_compile_result rtsl_compile_graphics_rtslp_hlsl(u64 program_size, const void* program_source);
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* RTSL_HLSL_BACKEND_H */

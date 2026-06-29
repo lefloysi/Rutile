@@ -31,7 +31,7 @@ Applications load a backend by name, optionally with layers:
 
 ```c
 const char* layers[] = {
-    "RT_VALIDATION",
+    "RT_VALIDATION_LAYER",
     "RT_LOGGING_LAYER",
 };
 
@@ -108,8 +108,7 @@ downstream chain once, then exposes wrapper symbols by name:
 static PFN_rtMyFeatureDoThing next_rtMyFeatureDoThing;
 
 RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
-    next_rtMyFeatureDoThing =
-        (PFN_rtMyFeatureDoThing)next.get_proc(&next, "rtMyFeatureDoThing");
+    next_rtMyFeatureDoThing = (PFN_rtMyFeatureDoThing)next.get_proc(&next, "rtMyFeatureDoThing");
 }
 
 RT_EXPORT void rtMyFeatureDoThing(...) {
@@ -125,7 +124,7 @@ in the call; otherwise the call passes through.
 Layers do not need a proc table. Unknown names pass through to the next
 resolver automatically.
 
-Layers can log calls, validate usage, capture traces, emulate features, profile
+Layers can log calls, validate usage, capture traces, profile
 performance, or experiment with new behavior.
 
 Layer order is bottom-up:

@@ -1483,6 +1483,9 @@ void inline_resolved_calls(IRModule &ir, IRBuilder &builder) {
 IRModule lower_to_ir(const SemanticModule &module, DiagnosticEngine *diagnostics) {
     IRModule ir;
     ir.source_name = module.source_name;
+    ir.imports = module.imports;
+    ir.imported_exports = module.imported_exports;
+    ir.exports = module.exports;
     ir.structs = module.structs;
     ir.uniforms = module.uniforms;
     ir.stage_interfaces = module.stage_interfaces;

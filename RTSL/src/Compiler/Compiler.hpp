@@ -6,11 +6,14 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace rtsl {
 
 struct CompilerInvocation {
     std::string source_name = "<memory>";
+    std::vector<std::string> defines;
+    std::vector<std::string> import_paths;
 };
 
 class CompilerInstance {

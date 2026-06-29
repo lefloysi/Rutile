@@ -238,6 +238,9 @@ struct IRFunctionDebugInfo {
 
 struct IRModule {
     std::string source_name;
+    std::vector<std::string> imports;
+    std::vector<ExportSymbol> imported_exports;
+    std::vector<ExportSymbol> exports;
 
     // Forward-only ordered pool: an entry may only reference earlier entries.
     std::vector<IRInstruction> type_constant_pool;

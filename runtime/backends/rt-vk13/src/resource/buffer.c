@@ -30,14 +30,13 @@ rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_bu
 	));
 }
 rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = rtvk_buffer_subdata(
+	return rtvk_timepoint_to_public(rtvk_buffer_subdata(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		offset,
 		size,
 		data
-	);
-	return rtvk_timepoint_to_public(timepoint);
+	));
 }
 void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rtvk_buffer_read(
@@ -259,9 +258,7 @@ void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
 		return;
 	}
 
-	if (buffer->vk_buffer) {
-		vmaDestroyBuffer(buffer->base.ctx->vma_allocator, buffer->vk_buffer, buffer->vma_allocation);
-	}
+	vmaDestroyBuffer(buffer->base.ctx->vma_allocator, buffer->vk_buffer, buffer->vma_allocation);
 	free(buffer);
 }
 

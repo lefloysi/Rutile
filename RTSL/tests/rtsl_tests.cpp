@@ -83,6 +83,54 @@ void parser_reports_invalid_function_syntax() {
     assert(out.str().find("error") != std::string::npos);
 }
 
+void diagnostics_render_visual_studio_format() {
+    SourceManager sources;
+    DiagnosticEngine diagnostics;
+    const auto file = sources.add_buffer("bad.rtsl", "x");
+    diagnostics.report(42, DiagnosticSeverity::error, sources.location_at(file, 0), "bad.rtsl", "boom");
+    std::ostringstream out;
+    diagnostics.render(out, &sources);
+    const auto text = out.str();
+    assert(text.find("bad.rtsl(") != std::string::npos);
+    assert(text.find(": error RTSL42: boom") != std::string::npos);
+}
+
+void compiler_honors_basic_preprocessor_blocks() {
+    CompilerInstance compiler;
+    const char *source = R"(
+#define ENABLED
+#ifdef ENABLED
+export fn main() {}
+#endif
+)";
+    auto artifact = compiler.compile_source(source, CompilerInvocation{.source_name = "pp.rtsl"});
+    assert(!compiler.diagnostics().has_error());
+    assert(artifact.kind == ArtifactKind::object);
+    assert(!artifact.bytes.empty());
+}
+
+void lexer_recognizes_string_imports() {
+    SourceManager sources;
+    DiagnosticEngine diagnostics;
+    const auto file = sources.add_buffer("import.rtsl", "import \"foo\";");
+    Lexer lexer(sources, diagnostics, file);
+    const auto tokens = lexer.lex();
+    assert(!diagnostics.has_error());
+    assert(tokens[0].kind == TokenKind::kw_Import);
+    assert(tokens[1].kind == TokenKind::string_literal);
+}
+
+void compiler_reports_missing_imports() {
+    CompilerInstance compiler;
+    const char *source = R"(
+import "missing_module";
+export fn main() {}
+)";
+    auto artifact = compiler.compile_source(source, CompilerInvocation{.source_name = "missing.rtsl"});
+    (void)artifact;
+    assert(compiler.diagnostics().has_error());
+}
+
 void artifact_round_trips() {
     IRModule module{.source_name = "test.rtsl"};
     auto bytes = write_artifact(ArtifactKind::program, module);
@@ -101,6 +149,22 @@ void text_rtir_round_trips_minimal_artifact() {
 
     const auto text = disassemble_artifact(artifact);
     assert(text.find("strings") == std::string::npos);
+}
+
+void artifact_round_trips_imports() {
+    IRModule module{.source_name = "test.rtsl"};
+    module.imports = {"shared/math", "core/types"};
+    module.imported_exports = {ExportSymbol{.name = "dot", .kind = "function", .type = "float"}};
+    module.exports = {ExportSymbol{.name = "main", .kind = "function", .type = "void"}};
+    Artifact artifact;
+    assert(read_artifact(write_artifact(ArtifactKind::module, module), artifact));
+    assert(artifact.module.imports.size() == 2);
+    assert(artifact.module.imports[0] == "shared/math");
+    assert(artifact.module.imports[1] == "core/types");
+    assert(artifact.module.exports.size() == 1);
+    assert(artifact.module.exports[0].name == "main");
+    assert(artifact.module.imported_exports.size() == 1);
+    assert(artifact.module.imported_exports[0].name == "dot");
 }
 
 void mangler_keeps_readable_and_glsl_modes_separate() {
@@ -221,7 +285,12 @@ int main() {
     lexer_tokenizes_keywords_and_punctuation();
     parser_builds_translation_unit();
     parser_reports_invalid_function_syntax();
+    diagnostics_render_visual_studio_format();
+    compiler_honors_basic_preprocessor_blocks();
+    lexer_recognizes_string_imports();
+    compiler_reports_missing_imports();
     artifact_round_trips();
+    artifact_round_trips_imports();
     text_rtir_round_trips_minimal_artifact();
     mangler_keeps_readable_and_glsl_modes_separate();
     compiler_emits_object();

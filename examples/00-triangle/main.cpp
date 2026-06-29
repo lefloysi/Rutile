@@ -46,9 +46,10 @@ static bool check_rt(const char* step) {
 	return false;
 }
 
-int main() {
-	if (rtLoadDevelopment("rt-dx12", nullptr, 0) != RT_SUCCESS) {
-		std::fprintf(stderr, "rtLoadDevelopment failed\n");
+int main(int argc, char** argv) {
+	const char* backend_name = argc > 1 ? argv[1] : "rt-vk13";
+	if (rtLoadDevelopment(backend_name, nullptr, 0) != RT_SUCCESS) {
+		std::fprintf(stderr, "rtLoadDevelopment failed for backend %s\n", backend_name);
 		return 1;
 	}
 	rtLoad_RT_EXT_SWAPCHAIN();

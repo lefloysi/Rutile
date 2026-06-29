@@ -22,6 +22,9 @@ struct Artifact {
     ArtifactKind kind = ArtifactKind::object;
     std::vector<std::string> strings;
     IRModule module;
+    std::vector<std::string> imports;
+    std::vector<ExportSymbol> imported_exports;
+    std::vector<ExportSymbol> exports;
     std::vector<StructDecl> structs;
     std::vector<UniformBinding> uniforms;
     std::vector<StageInterface> stage_interfaces;

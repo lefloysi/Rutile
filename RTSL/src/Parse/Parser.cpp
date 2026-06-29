@@ -194,8 +194,11 @@ Decl Parser::parse_import(bool exported) {
         if (!consume(TokenKind::greater)) {
             diagnose(peek(), "unterminated import path");
         }
+    } else if (at(TokenKind::string_literal)) {
+        name = std::string(peek().text.substr(1, peek().text.size() >= 2 ? peek().text.size() - 2 : 0));
+        ++cursor_;
     } else {
-        diagnose(peek(), "expected '<' after import");
+        diagnose(peek(), "expected '<...>' or \"...\" after import");
     }
 
     if (!consume(TokenKind::semicolon)) {
@@ -203,6 +206,9 @@ Decl Parser::parse_import(bool exported) {
         skip_to_declaration_boundary();
     }
 
+    if (unit_) {
+        unit_->imports.push_back(name);
+    }
     return Decl{.kind = DeclKind::import, .name = std::move(name), .span = start.span, .exported = exported};
 }
 

@@ -16,5 +16,6 @@ endif()
 target_include_directories(rtsl-package
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../bindings/c/include>"
 )
 target_link_libraries(rtsl-package PUBLIC rutile)

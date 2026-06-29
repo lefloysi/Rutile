@@ -67,6 +67,7 @@ enum class TokenKind : u16 {
     invalid,
     end_of_file,
     identifier,
+    string_literal,
     integer_literal,
     float_literal,
 

@@ -131,6 +131,12 @@ struct StructField {
     std::string name;
 };
 
+struct ExportSymbol {
+    std::string name;
+    std::string kind;
+    std::string type;
+};
+
 struct StructDecl {
     std::string name;
     std::vector<StructField> fields;
@@ -157,6 +163,8 @@ struct UniformBinding {
 struct TranslationUnit {
     u32 file_id = 0;
     std::vector<Decl> declarations;
+    std::vector<std::string> imports;
+    std::vector<ExportSymbol> exports;
     std::vector<StructDecl> structs;
     std::vector<UniformBinding> uniforms;
     std::vector<StageInterface> stage_interfaces;

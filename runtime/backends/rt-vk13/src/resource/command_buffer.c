@@ -15,11 +15,13 @@
 /*===============================================================================================*/
 
 rt_command_buffer rtCommandBufferCreate(void) {
-	struct rtvk_command_buffer* command_buffer = rtvk_command_buffer_create(rtvk_get_current_context());
-	return rtvk_command_buffer_to_handle(command_buffer);
+	return rtvk_command_buffer_to_handle(rtvk_command_buffer_create(rtvk_get_current_context()));
 }
 void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rtvk_command_buffer_destroy(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer));
+	rtvk_command_buffer_destroy(
+		rtvk_get_current_context(), 
+		rtvk_command_buffer_from_handle(command_buffer)
+	);
 }
 
 void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {

@@ -19,12 +19,15 @@ constexpr u32 SectionEntrySize = 32;
 enum class SectionKind : u32 {
     string_table = 1,
     ir_module = 2,
-    decoration_table = 3,
-    struct_table = 4,
-    resource_table = 5,
-    stage_interface_table = 6,
-    entry_table = 7,
-    debug_table = 8,
+    import_table = 3,
+    export_table = 4,
+    decoration_table = 5,
+    struct_table = 6,
+    resource_table = 7,
+    stage_interface_table = 8,
+    entry_table = 9,
+    debug_table = 10,
+    imported_export_table = 11,
 };
 
 struct Section {
@@ -213,6 +216,37 @@ Section make_ir_module_section(const IRModule &module) {
     return section;
 }
 
+Section make_import_section(const IRModule &module) {
+    Section section{.kind = SectionKind::import_table};
+    append_u32(section.bytes, static_cast<u32>(module.imports.size()));
+    for (const auto &name : module.imports) {
+        append_string(section.bytes, name);
+    }
+    return section;
+}
+
+Section make_export_section(const IRModule &module) {
+    Section section{.kind = SectionKind::export_table};
+    append_u32(section.bytes, static_cast<u32>(module.exports.size()));
+    for (const auto &symbol : module.exports) {
+        append_string(section.bytes, symbol.name);
+        append_string(section.bytes, symbol.kind);
+        append_string(section.bytes, symbol.type);
+    }
+    return section;
+}
+
+Section make_imported_export_section(const IRModule &module) {
+    Section section{.kind = SectionKind::imported_export_table};
+    append_u32(section.bytes, static_cast<u32>(module.imported_exports.size()));
+    for (const auto &symbol : module.imported_exports) {
+        append_string(section.bytes, symbol.name);
+        append_string(section.bytes, symbol.kind);
+        append_string(section.bytes, symbol.type);
+    }
+    return section;
+}
+
 Section make_decoration_section(const IRModule &module) {
     Section section{.kind = SectionKind::decoration_table};
     append_u32(section.bytes, static_cast<u32>(module.decorations.size()));
@@ -354,6 +388,9 @@ std::vector<u8> write_artifact(ArtifactKind kind, const IRModule &module) {
     std::vector<Section> sections;
     sections.push_back(make_string_table(strings));
     sections.push_back(make_ir_module_section(module));
+    sections.push_back(make_import_section(module));
+    sections.push_back(make_export_section(module));
+    sections.push_back(make_imported_export_section(module));
     sections.push_back(make_decoration_section(module));
     sections.push_back(make_struct_section(module));
     sections.push_back(make_resource_section(module));
@@ -499,6 +536,43 @@ bool read_artifact(std::span<const u8> data, Artifact &artifact, DiagnosticEngin
             }
             break;
         }
+        case SectionKind::import_table: {
+            const u32 count = read_u32(section, cursor); cursor += 4;
+            artifact.module.imports.reserve(count);
+            for (u32 i = 0; i < count; ++i) {
+                auto name = read_string(section, cursor);
+                if (!name) return false;
+                artifact.module.imports.push_back(std::move(*name));
+            }
+            artifact.imports = artifact.module.imports;
+            break;
+        }
+        case SectionKind::export_table: {
+            const u32 count = read_u32(section, cursor); cursor += 4;
+            artifact.module.exports.reserve(count);
+            for (u32 i = 0; i < count; ++i) {
+                auto name = read_string(section, cursor);
+                auto kind = read_string(section, cursor);
+                auto type = read_string(section, cursor);
+                if (!name || !kind || !type) return false;
+                artifact.module.exports.push_back(ExportSymbol{.name = std::move(*name), .kind = std::move(*kind), .type = std::move(*type)});
+            }
+            artifact.exports = artifact.module.exports;
+            break;
+        }
+        case SectionKind::imported_export_table: {
+            const u32 count = read_u32(section, cursor); cursor += 4;
+            artifact.module.imported_exports.reserve(count);
+            for (u32 i = 0; i < count; ++i) {
+                auto name = read_string(section, cursor);
+                auto kind = read_string(section, cursor);
+                auto type = read_string(section, cursor);
+                if (!name || !kind || !type) return false;
+                artifact.module.imported_exports.push_back(ExportSymbol{.name = std::move(*name), .kind = std::move(*kind), .type = std::move(*type)});
+            }
+            artifact.imported_exports = artifact.module.imported_exports;
+            break;
+        }
         case SectionKind::decoration_table: {
             const u32 count = read_u32(section, cursor); cursor += 4;
             artifact.module.decorations.reserve(count);
@@ -620,6 +694,9 @@ bool read_artifact(std::span<const u8> data, Artifact &artifact, DiagnosticEngin
     artifact.structs = artifact.module.structs;
     artifact.uniforms = artifact.module.uniforms;
     artifact.stage_interfaces = artifact.module.stage_interfaces;
+    artifact.imports = artifact.module.imports;
+    artifact.imported_exports = artifact.module.imported_exports;
+    artifact.exports = artifact.module.exports;
     return true;
 }
 

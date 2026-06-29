@@ -129,6 +129,13 @@ std::string disassemble_artifact(const Artifact &artifact) {
     std::ostringstream out;
     out << "artifact " << kind_name(artifact.kind) << " 2.0\n";
     out << "source \"" << artifact.module.source_name << "\"\n\n";
+    if (!artifact.module.imports.empty()) {
+        out << "; imports\n";
+        for (const auto &name : artifact.module.imports) {
+            out << "import \"" << name << "\";\n";
+        }
+        out << "\n";
+    }
     out << "; type_constant_pool\n";
     for (const auto &inst : artifact.module.type_constant_pool) append_instruction(out, inst);
     out << "\n; global_variables\n";
