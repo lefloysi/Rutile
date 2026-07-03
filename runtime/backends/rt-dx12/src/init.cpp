@@ -1,7 +1,7 @@
-#include "core.h"
+#include "core.hpp"
 
-#include "context.h"
-#include "error.h"
+#include "context.hpp"
+#include "error.hpp"
 
 #include <string.h>
 

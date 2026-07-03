@@ -1,6 +1,6 @@
-#include "framebuffer.h"
-#include "context.h"
-#include "error.h"
+#include "framebuffer.hpp"
+#include "context.hpp"
+#include "error.hpp"
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -43,7 +43,7 @@ void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 /*===============================================================================================*/
 
 void rtdx_framebuffer_init(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer), RT_RESOURCE_FRAMEBUFFER);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer), rtdx_resource_type::framebuffer);
 }
 
 void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
@@ -57,7 +57,7 @@ void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* 
 }
 
 bool rtdx_texture_view_valid(struct rtdx_texture_view* view) {
-	return view && view->base.type == RT_RESOURCE_TEXTURE_VIEW && view->d3d_resource;
+	return view && view->base.type == rtdx_resource_type::texture_view && view->d3d_resource;
 }
 
 void rtdx_framebuffer_set_color_view(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer, u32 slot, struct rtdx_texture_view* view) {

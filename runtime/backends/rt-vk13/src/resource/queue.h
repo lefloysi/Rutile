@@ -77,7 +77,7 @@ static inline rt_queue rtvk_queue_to_handle(struct rtvk_queue* queue) { return (
 struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index);
 void rtvk_queue_destroy(struct rtvk_context* ctx, struct rtvk_queue* queue);
 void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue vk_queue, enum rt_queue_capability capability, u32 family_index, u32 queue_index);
-void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue);
+void rtvk_queue_finish(struct rtvk_queue* queue);
 struct rtvk_queue* rtvk_queue_query(struct rtvk_context* ctx, enum rt_queue_capability capability);
 struct rtvk_queue* rtvk_queue_query_present(struct rtvk_context* ctx, VkSurfaceKHR surface);
 VkPipelineStageFlags rtvk_queue_wait_stage(struct rtvk_queue* queue);

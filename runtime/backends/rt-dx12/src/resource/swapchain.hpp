@@ -1,33 +1,22 @@
-#ifndef RTDX_SWAPCHAIN_H
-#define RTDX_SWAPCHAIN_H
+#pragma once
 
-#include "config.h"
-#include "resource/framebuffer.h"
-#include "resource/queue.h"
-#include "resource/texture.h"
+#include "config.hpp"
+#include "resource/framebuffer.hpp"
+#include "resource/queue.hpp"
+#include "resource/texture.hpp"
 
 #include <dxgi1_6.h>
 #include <windows.h>
 
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
-
-RTDX_EXTERN_C_ENTER
-RTDX_API rt_swapchain rtSwapchainCreate(void);
+RTDX_API rt_swapchain rtSwapchainCreate();
 RTDX_API void rtSwapchainDestroy(rt_swapchain swapchain);
 RTDX_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 RTDX_API void rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled);
 RTDX_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTDX_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
-RTDX_EXTERN_C_EXIT
-
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
 
 struct rtdx_swapchain_frame {
-	struct rtdx_queue* present_queue;
+	rtdx_queue* present_queue;
 
 	ID3D12CommandAllocator* present_allocator;
 	ID3D12GraphicsCommandList* present_command_list;
@@ -37,16 +26,16 @@ struct rtdx_swapchain_frame {
 };
 
 struct rtdx_swapchain {
-	struct rtdx_resource_base base;
+	rtdx_resource_base base;
 
 	IDXGISwapChain3* dxgi_swapchain;
 	ID3D12DescriptorHeap* rtv_heap;
 	HANDLE frame_latency_object;
 
-	struct rtdx_texture* textures[RTDX_MAX_FRAMES_IN_FLIGHT];
-	struct rtdx_texture_view* texture_views[RTDX_MAX_FRAMES_IN_FLIGHT];
-	struct rtdx_framebuffer* framebuffers[RTDX_MAX_FRAMES_IN_FLIGHT];
-	struct rtdx_swapchain_frame frames[RTDX_MAX_FRAMES_IN_FLIGHT];
+	rtdx_texture* textures[RTDX_MAX_FRAMES_IN_FLIGHT];
+	rtdx_texture_view* texture_views[RTDX_MAX_FRAMES_IN_FLIGHT];
+	rtdx_framebuffer* framebuffers[RTDX_MAX_FRAMES_IN_FLIGHT];
+	rtdx_swapchain_frame frames[RTDX_MAX_FRAMES_IN_FLIGHT];
 
 	HWND hwnd;
 	UINT rtv_descriptor_size;
@@ -60,17 +49,15 @@ struct rtdx_swapchain {
 	CONDITION_VARIABLE frame_condition;
 };
 
-static inline struct rtdx_swapchain* rtdx_swapchain_from_handle(rt_swapchain swapchain) { return (struct rtdx_swapchain*)swapchain; }
-static inline rt_swapchain rtdx_swapchain_to_handle(struct rtdx_swapchain* swapchain) { return (rt_swapchain)swapchain; }
+inline rtdx_swapchain* rtdx_swapchain_from_handle(rt_swapchain swapchain) { return reinterpret_cast<rtdx_swapchain*>(swapchain); }
+inline rt_swapchain rtdx_swapchain_to_handle(rtdx_swapchain* swapchain) { return reinterpret_cast<rt_swapchain>(swapchain); }
 
-struct rtdx_swapchain* rtdx_swapchain_create(struct rtdx_context* ctx);
-void rtdx_swapchain_destroy(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
-void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
-void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
-bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height);
-bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, u32 width, u32 height);
-rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
-void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
-void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame);
-
-#endif /* RTDX_SWAPCHAIN_H */
+rtdx_swapchain* rtdx_swapchain_create(rtdx_context* ctx);
+void rtdx_swapchain_destroy(rtdx_context* ctx, rtdx_swapchain* swapchain);
+void rtdx_swapchain_init(rtdx_context* ctx, rtdx_swapchain* swapchain);
+void rtdx_swapchain_finish(rtdx_context* ctx, rtdx_swapchain* swapchain);
+bool rtdx_swapchain_create_for_hwnd(rtdx_context* ctx, rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height);
+bool rtdx_swapchain_resize(rtdx_context* ctx, rtdx_swapchain* swapchain, u32 width, u32 height);
+rt_swapchain_acquire_result rtdx_swapchain_acquire(rtdx_context* ctx, rtdx_swapchain* swapchain);
+void rtdx_swapchain_present(rtdx_context* ctx, rtdx_swapchain* swapchain, rtdx_timepoint rendered);
+void rtdx_swapchain_wait_frame(rtdx_context* ctx, rtdx_swapchain_frame* frame);

@@ -3,7 +3,7 @@
 
 #include "config.h"
 #include "resource.h"
-#include "shader_compiler.h"
+#include "rtsl_spirv.h"
 
 #include <vulkan/vulkan.h>
 
@@ -50,8 +50,8 @@ struct rtvk_graphics_program {
 	VkPipeline vk_pipeline;
 
 	char* program_source;
-	rtvk_shader_reflection vertex_reflection;
-	rtvk_shader_reflection fragment_reflection;
+	rtsl_spirv_reflection vertex_reflection;
+	rtsl_spirv_reflection fragment_reflection;
 
 	rt_vertex_layout vertex_layout;
 	rt_vertex_attribute vertex_attributes[RTVK_MAX_VERTEX_ATTRIBUTES];

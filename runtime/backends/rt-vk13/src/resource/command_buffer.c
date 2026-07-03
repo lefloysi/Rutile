@@ -145,7 +145,8 @@ void rtvk_command_buffer_init(struct rtvk_context* ctx, struct rtvk_command_buff
 	command_buffer->queue = NULL;
 	command_buffer->family_index = (u32)-1;
 }
-void rtvk_command_buffer_finish(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
+	struct rtvk_context* ctx = command_buffer->base.ctx;
 	assert(ctx);
 	struct rtvk_command_buffer* node = command_buffer->next;
 	rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
@@ -160,7 +161,7 @@ void rtvk_command_buffer_finish(struct rtvk_context* ctx, struct rtvk_command_bu
 	}
 	command_buffer->next = NULL;
 	rtvk_command_buffer_destroy_descriptor_pools(ctx, command_buffer);
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(command_buffer));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(command_buffer));
 }
 
 void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* command_buffer) {
@@ -437,8 +438,8 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_c
 	rendering_info.flags = 0;
 	rendering_info.renderArea.offset.x = 0;
 	rendering_info.renderArea.offset.y = 0;
-	rendering_info.renderArea.extent.width = (color_view && color_view->source) ? color_view->source->width : 0;
-	rendering_info.renderArea.extent.height = (color_view && color_view->source) ? color_view->source->height : 0;
+	rendering_info.renderArea.extent.width = rtvk_view_width(color_view);
+	rendering_info.renderArea.extent.height = rtvk_view_height(color_view);
 	rendering_info.layerCount = 1;
 	rendering_info.viewMask = 0;
 	rendering_info.colorAttachmentCount = 1;
@@ -479,8 +480,8 @@ void rtvk_command_buffer_clear_color(struct rtvk_context* ctx, struct rtvk_comma
 	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = color_view->source ? color_view->source->width : 0;
-	rect.rect.extent.height = color_view->source ? color_view->source->height : 0;
+	rect.rect.extent.width = rtvk_view_width(color_view);
+	rect.rect.extent.height = rtvk_view_height(color_view);
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -506,8 +507,8 @@ void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_comma
 	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = depth_view->source ? depth_view->source->width : 0;
-	rect.rect.extent.height = depth_view->source ? depth_view->source->height : 0;
+	rect.rect.extent.width = rtvk_view_width(depth_view);
+	rect.rect.extent.height = rtvk_view_height(depth_view);
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -533,8 +534,8 @@ void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_com
 	VkClearRect rect = { 0 };
 	rect.rect.offset.x = 0;
 	rect.rect.offset.y = 0;
-	rect.rect.extent.width = depth_view->source ? depth_view->source->width : 0;
-	rect.rect.extent.height = depth_view->source ? depth_view->source->height : 0;
+	rect.rect.extent.width = rtvk_view_width(depth_view);
+	rect.rect.extent.height = rtvk_view_height(depth_view);
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -608,17 +609,20 @@ static VkPipelineStageFlags rtvk_command_buffer_layout_stage(VkImageLayout layou
 void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
 	assert(command_buffer);
 	assert(view);
-	assert(view->source);
-	assert(view->source->vk_image);
-	struct rtvk_image_source* source = view->source;
+	assert(view->backing);
 
-	if (source->vk_layout == layout) {
+	VkImage vk_image; VkFormat vk_format; VkImageLayout* vk_layout; enum rt_texture_type type;
+	u32 width, height, depth, mips;
+	rtvk_image_backing_read(view->backing, &vk_image, &vk_format, &vk_layout, &type, &width, &height, &depth, &mips);
+	assert(vk_image);
+
+	if (*vk_layout == layout) {
 		return;
 	}
 
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.pNext = NULL;
-	VkImageLayout old_layout = source->vk_layout;
+	VkImageLayout old_layout = *vk_layout;
 	barrier.srcAccessMask = rtvk_command_buffer_layout_access(old_layout);
 	VkPipelineStageFlags actual_src_stage = rtvk_command_buffer_layout_stage(old_layout);
 	if (actual_src_stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
@@ -630,15 +634,15 @@ void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_
 	barrier.newLayout = layout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = source->vk_image;
-	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(source->vk_format);
+	barrier.image = vk_image;
+	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(vk_format);
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = source->mip_levels ? source->mip_levels : 1;
+	barrier.subresourceRange.levelCount = mips;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
 	vkCmdPipelineBarrier(command_buffer->vk_command_buffer, actual_src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
-	source->vk_layout = layout;
+	*vk_layout = layout;
 }
 
 void rtvk_command_buffer_suspend_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
@@ -669,8 +673,8 @@ void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	VkFormat depth_format = (depth_view && depth_view->source) ? depth_view->source->vk_format : VK_FORMAT_UNDEFINED;
-	VkFormat color_format = color_view->source ? color_view->source->vk_format : VK_FORMAT_UNDEFINED;
+	VkFormat depth_format = rtvk_view_format(depth_view);
+	VkFormat color_format = rtvk_view_format(color_view);
 	rtvk_graphics_program_prepare(ctx, program, color_format, depth_format);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;
@@ -678,8 +682,8 @@ void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct r
 
 	vkCmdBindPipeline(node->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program->vk_pipeline);
 
-	u32 color_w = color_view->source ? color_view->source->width : 0;
-	u32 color_h = color_view->source ? color_view->source->height : 0;
+	u32 color_w = rtvk_view_width(color_view);
+	u32 color_h = rtvk_view_height(color_view);
 	VkViewport viewport = { 0 };
 	viewport.x = 0.0f;
 	viewport.y = (f32)color_h;
@@ -811,12 +815,12 @@ void rtvk_command_buffer_uniform_texture(
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform location does not belong to the active graphics program");
 		return;
 	}
-	if (!texture_view || !texture_view->source || !texture_view->source->vk_image || !texture_view->vk_image_view) {
+	if (!texture_view || !texture_view->backing || !texture_view->vk_image_view) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture view is NULL");
 		return;
 	}
 	struct rtvk_framebuffer* active_framebuffer = command_buffer->framebuffer;
-	bool resume_rendering = texture_view->source->vk_layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	bool resume_rendering = rtvk_view_layout(texture_view) != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	if (resume_rendering) {
 		rtvk_command_buffer_suspend_rendering(ctx, command_buffer);
 	}
@@ -1098,6 +1102,6 @@ void rtvk_command_buffer_node_release(struct rtvk_command_buffer* command_buffer
 	rtvk_command_buffer_release_recorded_resources(command_buffer);
 	rtvk_command_buffer_destroy_descriptor_pools(command_buffer->base.ctx, command_buffer);
 	rtvk_command_buffer_destroy_vk_handles(command_buffer->base.ctx, command_buffer);
-	rtvk_finish_resource_base(command_buffer->base.ctx, RTVK_RESOURCE_BASE(command_buffer));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(command_buffer));
 	free(command_buffer);
 }

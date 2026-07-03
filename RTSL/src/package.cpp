@@ -1,11 +1,10 @@
-#include "rtslp_package.hpp"
+#include "package.hpp"
 
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 
 namespace rtsl {
-namespace {
 
 constexpr u32 kRtslMagic = 0x4c535452;
 
@@ -54,8 +53,8 @@ instruction read_instruction(std::span<const std::uint8_t> data, size_t& cursor)
 	if (cursor + 26 > data.size()) {
 		throw std::runtime_error("truncated RTIR instruction");
 	}
-    instruction inst;
-    inst.op = static_cast<ir_op>(read_u16(data, cursor));
+	instruction inst;
+	inst.op = static_cast<ir_op>(read_u16(data, cursor));
 	cursor += 2;
 	inst.result_id = read_u32(data, cursor);
 	cursor += 4;
@@ -79,8 +78,6 @@ instruction read_instruction(std::span<const std::uint8_t> data, size_t& cursor)
 	return inst;
 }
 
-} // namespace
-
 artifact_module read_rtslp_module(u64 program_size, const void* program_source) {
 	if (!program_source || program_size < 48) {
 		throw std::runtime_error("invalid RTSLP payload");
@@ -93,7 +90,7 @@ artifact_module read_rtslp_module(u64 program_size, const void* program_source) 
 
 	const u32 section_count = read_u32(data, 20);
 	const u64 section_table_offset = read_u64(data, 24);
-    artifact_module module;
+	artifact_module module;
 
 	for (u32 section_index = 0; section_index < section_count; ++section_index) {
 		const size_t entry = static_cast<size_t>(section_table_offset + section_index * 32);
@@ -126,26 +123,20 @@ artifact_module read_rtslp_module(u64 program_size, const void* program_source) 
 			cursor += 4;
 			module.functions.reserve(function_count);
 			for (u32 i = 0; i < function_count; ++i) {
-                function fn;
+				function fn;
 				fn.result_id = read_u32(section, cursor);
 				cursor += 4;
 				cursor += 4;
 				fn.return_type_id = read_u32(section, cursor);
 				cursor += 4;
-                fn.stage = static_cast<stage_kind>(section[cursor++]);
+				fn.stage = static_cast<stage_kind>(section[cursor++]);
 				cursor += 1; // generated
 				cursor += 1; // exported
 				cursor += 8; // display_name, mangled_name (StringIds)
-				// Skip source_name (string) and parameter_type_names
-				// (string[]). The runtime never resolves user functions -
-				// the linker has already inlined them - so these fields
-				// are pure linker metadata as far as Rutile is concerned.
+				// Skip source_name (string). The runtime never resolves user
+				// functions — the linker has already inlined them — so this
+				// is pure linker metadata as far as Rutile is concerned.
 				(void)read_string(section, cursor);
-				const u32 type_name_count = read_u32(section, cursor);
-				cursor += 4;
-				for (u32 t = 0; t < type_name_count; ++t) {
-					(void)read_string(section, cursor);
-				}
 				const u32 parameter_count = read_u32(section, cursor);
 				cursor += 4;
 				fn.parameter_ids.reserve(parameter_count);
@@ -176,13 +167,13 @@ artifact_module read_rtslp_module(u64 program_size, const void* program_source) 
 			cursor += 4;
 			module.structs.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-                struct_decl decl;
+				struct_decl decl;
 				decl.name = read_string(section, cursor);
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				decl.fields.reserve(field_count);
 				for (u32 f = 0; f < field_count; ++f) {
-                    struct_field field;
+					struct_field field;
 					field.type = read_string(section, cursor);
 					field.name = read_string(section, cursor);
 					decl.fields.push_back(std::move(field));
@@ -196,24 +187,21 @@ artifact_module read_rtslp_module(u64 program_size, const void* program_source) 
 			cursor += 4;
 			module.uniforms.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-                uniform uniform;
+				uniform uniform;
 				uniform.scope_name = read_string(section, cursor);
 				uniform.name = read_string(section, cursor);
-				uniform.type = read_string(section, cursor);
-				uniform.access = read_string(section, cursor);
+				uniform.type_id = read_u32(section, cursor);
+				cursor += 4;
+				uniform.access_qualifier = section[cursor++];
 				uniform.set = read_u32(section, cursor);
 				cursor += 4;
-				uniform.binding = read_u32(section, cursor);
+				uniform.member = read_u32(section, cursor);
 				cursor += 4;
-				// Skip is_anonymous (u8) and anonymous_block_id (u32). The
-				// runtime only needs the resolved set/binding; the anonymity
-				// metadata exists for Sema/lowering during compilation.
 				cursor += 1;
 				cursor += 4;
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				for (u32 f = 0; f < field_count; ++f) {
-					(void)read_string(section, cursor);
 					(void)read_string(section, cursor);
 				}
 				module.uniforms.push_back(std::move(uniform));
@@ -225,18 +213,16 @@ artifact_module read_rtslp_module(u64 program_size, const void* program_source) 
 			cursor += 4;
 			module.stage_interfaces.reserve(count);
 			for (u32 i = 0; i < count; ++i) {
-                stage_interface stage_interface;
-                stage_interface.role = static_cast<stage_role>(section[cursor++]);
-				stage_interface.type_name = read_string(section, cursor);
+				stage_interface stage_interface;
+				stage_interface.role = static_cast<stage_role>(section[cursor++]);
 				const u32 field_count = read_u32(section, cursor);
 				cursor += 4;
 				stage_interface.fields.reserve(field_count);
 				for (u32 f = 0; f < field_count; ++f) {
-                    stage_field field;
+					stage_field field;
 					field.name = read_string(section, cursor);
-					field.interpolation = read_string(section, cursor);
-					field.builtin = read_string(section, cursor);
-					field.has_location = section[cursor++] != 0;
+					field.interpolation = section[cursor++];
+					field.builtin = section[cursor++];
 					field.location = read_u32(section, cursor);
 					cursor += 4;
 					stage_interface.fields.push_back(std::move(field));

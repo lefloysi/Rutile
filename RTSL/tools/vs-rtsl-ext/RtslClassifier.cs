@@ -21,7 +21,7 @@ namespace vs_rtsl_ext
                 GetClassificationType(RtslClassificationNames.ControlFlowKeyword, "keyword"),
                 GetClassificationType(RtslClassificationNames.ResourceAccess, "keyword"),
                 GetClassificationType(RtslClassificationNames.TypeName, "class name", "identifier"),
-                GetClassificationType(RtslClassificationNames.VaryingQualifier, "keyword"),
+                GetClassificationType(RtslClassificationNames.PipelineIntrinsic, "keyword"),
                 GetClassificationType("comment"),
                 GetClassificationType("string"),
                 GetClassificationType("number"));
@@ -51,7 +51,7 @@ namespace vs_rtsl_ext
             IClassificationType controlFlow,
             IClassificationType resourceAccess,
             IClassificationType typeName,
-            IClassificationType varyingQualifier,
+            IClassificationType pipelineIntrinsic,
             IClassificationType comment,
             IClassificationType stringLiteral,
             IClassificationType number)
@@ -60,7 +60,7 @@ namespace vs_rtsl_ext
             ControlFlow = controlFlow;
             ResourceAccess = resourceAccess;
             TypeName = typeName;
-            VaryingQualifier = varyingQualifier;
+            PipelineIntrinsic = pipelineIntrinsic;
             Comment = comment;
             StringLiteral = stringLiteral;
             Number = number;
@@ -70,7 +70,7 @@ namespace vs_rtsl_ext
         public IClassificationType ControlFlow { get; }
         public IClassificationType ResourceAccess { get; }
         public IClassificationType TypeName { get; }
-        public IClassificationType VaryingQualifier { get; }
+        public IClassificationType PipelineIntrinsic { get; }
         public IClassificationType Comment { get; }
         public IClassificationType StringLiteral { get; }
         public IClassificationType Number { get; }
@@ -81,7 +81,6 @@ namespace vs_rtsl_ext
         private static readonly HashSet<string> Keywords = new HashSet<string>(StringComparer.Ordinal)
         {
             "uniform",
-            "varying",
             "struct",
             "namespace",
             "using",
@@ -143,7 +142,7 @@ namespace vs_rtsl_ext
             "writeonly",
         };
 
-        private static readonly HashSet<string> VaryingQualifiers = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly HashSet<string> PipelineIntrinsics = new HashSet<string>(StringComparer.Ordinal)
         {
             "clip",
             "smooth",
@@ -246,11 +245,11 @@ namespace vs_rtsl_ext
                 {
                     AddSpan(spans, span, start, token.Length, classificationTypes.ResourceAccess);
                 }
-                else if (Types.Contains(token) || VaryingQualifiers.Contains(token))
+                else if (Types.Contains(token) || PipelineIntrinsics.Contains(token))
                 {
                     IClassificationType type = Types.Contains(token)
                         ? classificationTypes.TypeName
-                        : classificationTypes.VaryingQualifier;
+                        : classificationTypes.PipelineIntrinsic;
 
                     AddSpan(spans, span, start, token.Length, type);
                 }

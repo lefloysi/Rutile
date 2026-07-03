@@ -1,6 +1,6 @@
-#include "resource/glfw/glfw.h"
-#include "context.h"
-#include "error.h"
+#include "resource/glfw/glfw.hpp"
+#include "context.hpp"
+#include "error.hpp"
 
 #include <windows.h>
 

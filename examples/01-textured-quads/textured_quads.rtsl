@@ -1,7 +1,15 @@
+// Anonymous uniform group gets put into global namespace
 uniform {
-	mat4 transform;
+	UniformBuffer transform;
 	Sampler2D texture;
 }
+// uniform Foo {} accessible as Foo::bar
+
+// Declares the layout of a specific uniform member. another might be layout Foo::bar with named uniform group.
+layout transform : mat4;
+
+// uniform Foo {} reopening this group can add more members. anonymous cant be reopened
+// All members of a uniform group end up in the same set with unique bindings per member
 
 struct Point {
 	vec3 position;
@@ -22,12 +30,6 @@ fn Vertex::Vertex(Point p) {
 	uv = p.uv;
 }
 
-varying Vertex {
-	clip position;
-	smooth color;
-	smooth uv;
-};
-
 struct Fragment {
 	fn Fragment(Vertex v);
 
@@ -38,7 +40,7 @@ fn Fragment::Fragment(Vertex v) {
 	color = sample(texture, v.uv) * vec4(v.color, 1.0);
 }
 
-fn vert_main(vert_globals g, Point p) -> Vertex {
+fn vert_main(vert_globals g, Point p) -> Vertex : clip position, smooth color, smooth uv {
 	return Vertex(p);
 }
 fn frag_main(frag_globals g, Vertex v) -> Fragment {

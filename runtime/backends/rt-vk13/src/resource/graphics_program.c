@@ -1,7 +1,7 @@
 #include "graphics_program.h"
 #include "context.h"
 #include "error.h"
-#include "shader_compiler.h"
+#include "rtsl_spirv.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -166,21 +166,22 @@ static VkFormat rtvk_vertex_format(enum rt_format format) {
 	}
 }
 
-void rtvk_graphics_program_finish(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
+void rtvk_graphics_program_finish(struct rtvk_graphics_program* program) {
+	struct rtvk_context* ctx = program->base.ctx;
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 	vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
 	vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
 
 	free(program->program_source);
-	rtvk_shader_reflection_clear(&program->vertex_reflection);
-	rtvk_shader_reflection_clear(&program->fragment_reflection);
+	rtsl_spirv_reflection_clear(&program->vertex_reflection);
+	rtsl_spirv_reflection_clear(&program->fragment_reflection);
 
 	free(program->uniform_locations);
 	program->uniform_locations = NULL;
 	program->uniform_location_count = 0;
 	program->uniform_location_capacity = 0;
 
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(program));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(program));
 }
 
 static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
@@ -446,8 +447,8 @@ void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-		rtvk_shader_reflection_clear(&program->vertex_reflection);
-		rtvk_shader_reflection_clear(&program->fragment_reflection);
+		rtsl_spirv_reflection_clear(&program->vertex_reflection);
+		rtsl_spirv_reflection_clear(&program->fragment_reflection);
 		return;
 	}
 	if (layout->attribute_count > RTVK_MAX_VERTEX_ATTRIBUTES) {
@@ -473,8 +474,8 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
 		rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
-		rtvk_shader_reflection_clear(&program->vertex_reflection);
-		rtvk_shader_reflection_clear(&program->fragment_reflection);
+		rtsl_spirv_reflection_clear(&program->vertex_reflection);
+		rtsl_spirv_reflection_clear(&program->fragment_reflection);
 		return;
 	}
 
@@ -489,8 +490,8 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
 	rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
-	rtvk_shader_reflection_clear(&program->vertex_reflection);
-	rtvk_shader_reflection_clear(&program->fragment_reflection);
+	rtsl_spirv_reflection_clear(&program->vertex_reflection);
+	rtsl_spirv_reflection_clear(&program->fragment_reflection);
 	program->program_source = new_source;
 	program->program_source_size = size;
 }
@@ -551,7 +552,7 @@ static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics
 	program->uniform_location_capacity = capacity;
 }
 
-static void rtvk_graphics_program_add_uniform_block(struct rtvk_graphics_program* program, const rtvk_shader_uniform_block* block, VkShaderStageFlags stages) {
+static void rtvk_graphics_program_add_uniform_block(struct rtvk_graphics_program* program, const struct rtsl_spirv_uniform_block* block, VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, block->name);
 	if (existing) {
 		if (existing->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && existing->binding == block->binding) {
@@ -591,7 +592,7 @@ static void rtvk_graphics_program_add_uniform_block(struct rtvk_graphics_program
 	program->uniform_location_count++;
 }
 
-static void rtvk_graphics_program_add_texture(struct rtvk_graphics_program* program, const rtvk_shader_texture* texture, VkShaderStageFlags stages) {
+static void rtvk_graphics_program_add_texture(struct rtvk_graphics_program* program, const struct rtsl_spirv_texture* texture, VkShaderStageFlags stages) {
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, texture->name);
 	if (existing) {
 		if (existing->kind != RTVK_UNIFORM_LOCATION_TEXTURE || existing->binding != texture->binding) {
@@ -624,7 +625,7 @@ static void rtvk_graphics_program_add_texture(struct rtvk_graphics_program* prog
 	program->uniform_location_count++;
 }
 
-static void rtvk_graphics_program_add_storage_buffer(struct rtvk_graphics_program* program,	const rtvk_shader_resource* resource, VkShaderStageFlags stages) {
+static void rtvk_graphics_program_add_storage_buffer(struct rtvk_graphics_program* program,	const struct rtsl_spirv_resource* resource, VkShaderStageFlags stages) {
 	assert(program);
 
 	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, resource->name);
@@ -663,22 +664,20 @@ static void rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_p
 	program->uniform_location_count = 0;
 
 	for (u32 i = 0; i < program->vertex_reflection.resource_count; i++) {
-		const rtvk_shader_resource* resource = &program->vertex_reflection.resources[i];
-		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER) {
-			rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT);
+		const struct rtsl_spirv_resource* resource = &program->vertex_reflection.resources[i];
+		rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT);
 			if (rtvk_error() != RT_SUCCESS) {
 				return;
 			}
-		}
+		
 	}
 	for (u32 i = 0; i < program->fragment_reflection.resource_count; i++) {
-		const rtvk_shader_resource* resource = &program->fragment_reflection.resources[i];
-		if (resource->kind == RTVK_SHADER_RESOURCE_STORAGE_BUFFER) {
-			rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT);
+		const struct rtsl_spirv_resource* resource = &program->fragment_reflection.resources[i];
+		rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT);
 			if (rtvk_error() != RT_SUCCESS) {
 				return;
 			}
-		}
+		
 	}
 	for (u32 i = 0; i < program->vertex_reflection.uniform_block_count; i++) {
 		rtvk_graphics_program_add_uniform_block(program, &program->vertex_reflection.uniform_blocks[i], VK_SHADER_STAGE_VERTEX_BIT);
@@ -712,8 +711,8 @@ void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-	rtvk_shader_reflection_clear(&program->vertex_reflection);
-	rtvk_shader_reflection_clear(&program->fragment_reflection);
+	rtsl_spirv_reflection_clear(&program->vertex_reflection);
+	rtsl_spirv_reflection_clear(&program->fragment_reflection);
 	rtvk_graphics_program_clear_uniform_locations(program);
 }
 
@@ -721,31 +720,7 @@ void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphi
 	assert(ctx);
 	assert(program);
 
-	rtvk_graphics_shader_compile_result shaders = {};
-	if (program->program_source && program->program_source_size) {
-		shaders = rtvk_shader_compile_graphics_rtslp(ctx, program->program_source_size, program->program_source);
-	}
-	if (!shaders.vertex_shader || !shaders.fragment_shader) {
-		return;
-	}
-
-	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-	rtvk_shader_reflection_clear(&program->vertex_reflection);
-	rtvk_shader_reflection_clear(&program->fragment_reflection);
-	program->vk_vertex_shader = shaders.vertex_shader;
-	program->vk_fragment_shader = shaders.fragment_shader;
-	program->vertex_reflection = shaders.vertex_reflection;
-	program->fragment_reflection = shaders.fragment_reflection;
-
-	rtvk_graphics_program_build_uniform_locations(program);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
-	if (!program->vk_pipeline_layout) {
-		rtvk_graphics_program_create_pipeline_layout(ctx, program);
-	}
+	// Compile the source to spir-v and create the shader program
 }
 
 static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode) {

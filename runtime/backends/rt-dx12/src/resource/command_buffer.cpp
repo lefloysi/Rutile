@@ -1,7 +1,7 @@
-#include "command_buffer.h"
-#include "context.h"
-#include "error.h"
-#include "resource/texture.h"
+#include "command_buffer.hpp"
+#include "context.hpp"
+#include "error.hpp"
+#include "resource/texture.hpp"
 
 #include <chrono>
 #include <stdlib.h>
@@ -164,7 +164,7 @@ static u64 rtdx_command_buffer_shutdown_now_ns(void) {
 }
 
 void rtdx_command_buffer_init(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), rtdx_resource_type::command_buffer);
 	command_buffer->queue = NULL;
 }
 
@@ -215,10 +215,10 @@ static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot) {
 	if (!slot) {
 		return;
 	}
-	if (slot->kind == RTDX_UNIFORM_SLOT_BUFFER || slot->kind == RTDX_UNIFORM_SLOT_STORAGE_BUFFER) {
+	if (slot->kind == rtdx_uniform_slot_kind::buffer || slot->kind == rtdx_uniform_slot_kind::storage_buffer) {
 		rtdx_buffer_storage_release(slot->buffer.storage);
 	}
-	if (slot->kind == RTDX_UNIFORM_SLOT_TEXTURE) {
+	if (slot->kind == rtdx_uniform_slot_kind::texture) {
 		rtdx_release_resource(slot->texture.view);
 	}
 	*slot = {};
@@ -301,7 +301,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE rtdx_heap_gpu_handle(struct rtdx_context* ctx
 }
 
 static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx) {
-	struct rtdx_command_buffer* node = (struct rtdx_command_buffer*)calloc(1, sizeof(*node));
+	struct rtdx_command_buffer* node = RTDX_ALLOC_RESOURCE(struct rtdx_command_buffer);
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer node");
 		return NULL;
@@ -309,7 +309,7 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 
 	HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&node->d3d_allocator));
 	if (FAILED(result)) {
-		free(node);
+		RTDX_FREE_RESOURCE(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
 		return NULL;
 	}
@@ -323,13 +323,13 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 	);
 	if (FAILED(result)) {
 		rtdx_release(&node->d3d_allocator);
-		free(node);
+		RTDX_FREE_RESOURCE(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
 		return NULL;
 	}
 	node->d3d_command_list->Close();
 
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), RT_RESOURCE_COMMAND_BUFFER);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::command_buffer);
 	return node;
 }
 
@@ -573,7 +573,7 @@ void rtdx_command_buffer_uniform_buffer(
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform location is NULL");
 		return;
 	}
-	if (internal_location->kind != RTDX_UNIFORM_LOCATION_BUFFER) {
+	if (internal_location->kind != rtdx_uniform_location_kind::buffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform location does not accept a buffer");
 		return;
 	}
@@ -603,7 +603,7 @@ void rtdx_command_buffer_uniform_buffer(
 	if (!slot) {
 		return;
 	}
-	if (slot->kind == RTDX_UNIFORM_SLOT_BUFFER &&
+	if (slot->kind == rtdx_uniform_slot_kind::buffer &&
 		slot->buffer.storage == buffer->storage &&
 		slot->buffer.offset == offset &&
 		slot->buffer.size == size) {
@@ -611,7 +611,7 @@ void rtdx_command_buffer_uniform_buffer(
 	}
 	rtdx_command_buffer_clear_uniform_slot(slot);
 	rtdx_buffer_storage_retain(buffer->storage);
-	slot->kind = RTDX_UNIFORM_SLOT_BUFFER;
+	slot->kind = rtdx_uniform_slot_kind::buffer;
 	slot->buffer.storage = buffer->storage;
 	slot->buffer.offset = offset;
 	slot->buffer.size = size;
@@ -634,7 +634,7 @@ void rtdx_command_buffer_uniform_texture(
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform location is NULL");
 		return;
 	}
-	if (internal_location->kind != RTDX_UNIFORM_LOCATION_TEXTURE) {
+	if (internal_location->kind != rtdx_uniform_location_kind::texture) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform location does not accept a texture");
 		return;
 	}
@@ -691,7 +691,7 @@ void rtdx_command_buffer_uniform_texture(
 	}
 	rtdx_command_buffer_clear_uniform_slot(slot);
 	rtdx_retain_resource(texture_view);
-	slot->kind = RTDX_UNIFORM_SLOT_TEXTURE;
+	slot->kind = rtdx_uniform_slot_kind::texture;
 	slot->texture.view = texture_view;
 }
 
@@ -712,11 +712,10 @@ void rtdx_command_buffer_storage_buffer(
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
 		return;
 	}
-	rtdx_uniform_location* location = NULL;
-	for (u32 i = 0; i < command_buffer->graphics_program->uniform_location_count; ++i) {
-		rtdx_uniform_location* candidate = &command_buffer->graphics_program->uniform_locations[i];
-		if (candidate->kind == RTDX_UNIFORM_LOCATION_STORAGE_BUFFER && candidate->slot == binding) {
-			location = candidate;
+	rtdx_uniform_location* location = nullptr;
+	for (rtdx_uniform_location& candidate : command_buffer->graphics_program->uniform_locations) {
+		if (candidate.kind == rtdx_uniform_location_kind::storage_buffer && candidate.slot == binding) {
+			location = &candidate;
 			break;
 		}
 	}
@@ -766,7 +765,7 @@ void rtdx_command_buffer_storage_buffer(
 	if (!slot) {
 		return;
 	}
-	if (slot->kind == RTDX_UNIFORM_SLOT_STORAGE_BUFFER &&
+	if (slot->kind == rtdx_uniform_slot_kind::storage_buffer &&
 		slot->buffer.storage == buffer->storage &&
 		slot->buffer.offset == offset &&
 		slot->buffer.size == size) {
@@ -774,7 +773,7 @@ void rtdx_command_buffer_storage_buffer(
 	}
 	rtdx_command_buffer_clear_uniform_slot(slot);
 	rtdx_buffer_storage_retain(buffer->storage);
-	slot->kind = RTDX_UNIFORM_SLOT_STORAGE_BUFFER;
+	slot->kind = rtdx_uniform_slot_kind::storage_buffer;
 	slot->buffer.storage = buffer->storage;
 	slot->buffer.offset = offset;
 	slot->buffer.size = size;
@@ -847,7 +846,7 @@ void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer
 		rtdx_atomic_bool_finish(&command_buffer->base.zombie);
 		rtdx_atomic_u32_finish(&command_buffer->base.job_count);
 		rtdx_atomic_u32_finish(&command_buffer->base.ref_count);
-		free(command_buffer);
+		RTDX_FREE_RESOURCE(command_buffer);
 		return;
 	}
 
@@ -858,7 +857,7 @@ void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer
 	rtdx_atomic_bool_finish(&command_buffer->base.zombie);
 	rtdx_atomic_u32_finish(&command_buffer->base.job_count);
 	rtdx_atomic_u32_finish(&command_buffer->base.ref_count);
-	free(command_buffer);
+	RTDX_FREE_RESOURCE(command_buffer);
 }
 
 struct rtdx_command_buffer* rtdx_command_buffer_active_node(struct rtdx_command_buffer* command_buffer) {

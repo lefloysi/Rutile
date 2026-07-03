@@ -1,7 +1,7 @@
-#include "buffer.h"
-#include "context.h"
-#include "error.h"
-#include "resource/queue.h"
+#include "buffer.hpp"
+#include "context.hpp"
+#include "error.hpp"
+#include "resource/queue.hpp"
 
 #include <stdlib.h>
 #include <string.h>
@@ -120,7 +120,7 @@ void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 RTDX_DEFINE_RESOURCE_PRIVATE(buffer)
 
 void rtdx_buffer_init(struct rtdx_context* ctx, struct rtdx_buffer* buffer) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(buffer), RT_RESOURCE_BUFFER);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(buffer), rtdx_resource_type::buffer);
 	buffer->mode = RT_BUFFER_DYNAMIC;
 	buffer->usage = rtdx_default_buffer_usage();
 }
@@ -131,7 +131,7 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 	enum rt_buffer_mode mode,
 	enum rt_buffer_usage usage
 ) {
-	struct rtdx_buffer_storage* storage = (struct rtdx_buffer_storage*)calloc(1, sizeof(*storage));
+	struct rtdx_buffer_storage* storage = RTDX_ALLOC_RESOURCE(struct rtdx_buffer_storage);
 	if (!storage) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate buffer storage metadata");
 		return NULL;
@@ -173,16 +173,16 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 		IID_PPV_ARGS(&storage->d3d_resource)
 	);
 	if (FAILED(result)) {
-		free(storage);
+		RTDX_FREE_RESOURCE(storage);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(buffer) failed: 0x%08x", (u32)result);
 		return NULL;
 	}
 
 	if (!rtdx_buffer_uses_host_storage(mode, usage) && size) {
-		storage->shadow_data = calloc(1, (usize)size);
+		storage->shadow_data = new (std::nothrow) u08[(usize)size]{};
 		if (!storage->shadow_data) {
 			rtdx_release(&storage->d3d_resource);
-			free(storage);
+			RTDX_FREE_RESOURCE(storage);
 			rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate static buffer shadow copy");
 			return NULL;
 		}
@@ -208,9 +208,9 @@ void rtdx_buffer_storage_release(struct rtdx_buffer_storage* storage) {
 	if (--storage->ref_count != 0) {
 		return;
 	}
-	free(storage->shadow_data);
+	delete[] static_cast<u08*>(storage->shadow_data);
 	rtdx_release(&storage->d3d_resource);
-	free(storage);
+	RTDX_FREE_RESOURCE(storage);
 }
 
 static bool rtdx_buffer_storage_write_host(struct rtdx_buffer_storage* storage, u64 offset, u64 size, const void* data) {

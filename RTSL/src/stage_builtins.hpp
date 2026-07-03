@@ -10,10 +10,10 @@ namespace rtsl {
 // carrier is passed by reference into a stage entry; the generated runtime
 // copies inputs in before the call and outputs out after it.
 struct StageBuiltin {
-    std::string member;  // member name as written in RTSL source (e.g. "position")
-    std::string type;    // member type
-    std::string gl_name; // GLSL built-in variable it maps to (e.g. "gl_Position")
-    bool is_output;      // true: written by the shader (mutable); false: read-only input
+	std::string member;	 // member name as written in RTSL source (e.g. "position")
+	std::string type;	 // member type
+	std::string gl_name; // GLSL built-in variable it maps to (e.g. "gl_Position")
+	bool is_output;		 // true: written by the shader (mutable); false: read-only input
 };
 
 // Members of a builtin carrier type, or empty if `carrier_type` is not a carrier.

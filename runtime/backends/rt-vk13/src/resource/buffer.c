@@ -190,7 +190,7 @@ void rtvk_buffer_init(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
 	buffer->usage = rtvk_default_buffer_usage();
 }
 
-void rtvk_buffer_finish(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
+void rtvk_buffer_finish(struct rtvk_buffer* buffer) {
 	rtvk_buffer_node_release(buffer->active);
 	buffer->active = NULL;
 
@@ -202,7 +202,7 @@ void rtvk_buffer_finish(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
 		node = next;
 	}
 	buffer->next = NULL;
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(buffer));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(buffer));
 }
 
 struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, enum rt_buffer_mode mode, enum rt_buffer_usage usage) {

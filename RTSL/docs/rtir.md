@@ -91,18 +91,20 @@ directly.
 Required reflection content per `rtslp`:
 
 - **`resource_table`** — one record per declared uniform / resource. Carries
-  the enclosing uniform scope name, the source-level name, the source type
-  spelling, the resolved descriptor `set`, the resolved `binding`, the access
-  qualifier (`readonly` / `writeonly` / default), whether it is an opaque
-  resource (sampler/image/buffer) vs a value uniform, and the *mangled
-  binding name* the SSA stream actually references. The mangled name is what
-  links the resource entry to the `Variable` instruction's `result_id` via
-  the symbol table.
+  the enclosing uniform scope name, the source-level name, the resolved
+  descriptor `set` and `binding`, an access qualifier (`read_write` /
+  `read_only` / `write_only` as u8), and a `type_id` into the IR type pool.
+  The type pool entry (plus the decoration table's `Offset` / `ArrayStride`
+  / `MatrixStride` entries on that struct) describes the binding's full byte
+  layout; opaqueness (sampler / image vs value uniform) is read off the
+  type pool node's opcode rather than carried as a separate flag.
 - **`stage_interface_table`** — one record per `input` / `varying` / `output`
-  field across every payload type. Carries role, payload type name, field
-  name, interpolation (`smooth` / `flat` / `clip` / default), builtin slot
-  (or empty), assigned `location`, and `has_location` (false for builtin
-  slots that consume no location).
+  field across every payload type. Carries role, interpolation (u8 enum),
+  builtin slot (u8 enum; `none` for user-located fields), and `location`
+  (`0xffffffff` means "no location"; the builtin drives placement instead).
+  Payload type name and field name are present only for `input` (host-visible
+  vertex layout); varying and output records carry empty strings since the
+  linker matches those by location.
 - **`entry_table`** — one record per backend entry point. Carries the
   4-letter stage entry name (`vert`, `frag`), the canonical mangled
   symbol id, the SSA function id, the stage family, the parameter and return

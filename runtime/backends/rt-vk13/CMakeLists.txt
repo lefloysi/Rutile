@@ -46,6 +46,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/framebuffer.h"
     "src/resource/graphics_program.c"
     "src/resource/graphics_program.h"
+    "src/rtsl_spirv.c"
+    "src/rtsl_spirv.h"
     "src/resource/queue.c"
     "src/resource/queue.h"
     "src/resource/resource.c"
@@ -61,12 +63,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/types.h"
     "src/context.h"
     "src/context.c"
-    "${RUTILE_SOURCE_DIR}/RTSL/backends/spirv/src/rtsl_spirv_backend.cpp"
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
-    "${RUTILE_SOURCE_DIR}/RTSL/src"
-    "${RUTILE_SOURCE_DIR}/RTSL/backends/spirv/include"
-    "${RUTILE_SOURCE_DIR}/RTSL/package/include"
+    "src"
 )
 
 rutile_configure_shared_library(${PROJECT_NAME})
@@ -78,7 +77,7 @@ target_link_libraries(${PROJECT_NAME}
         GPUOpen::VulkanMemoryAllocator
         ${CMAKE_DL_LIBS}
         Threads::Threads
-        rtsl-package
+        rtsl
 )
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE psapi)

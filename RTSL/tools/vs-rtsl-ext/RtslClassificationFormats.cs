@@ -28,9 +28,9 @@ namespace vs_rtsl_ext
         internal static ClassificationTypeDefinition ResourceAccess;
 
         [Export(typeof(ClassificationTypeDefinition))]
-        [Name(RtslClassificationNames.VaryingQualifier)]
+        [Name(RtslClassificationNames.PipelineIntrinsic)]
         [BaseDefinition("keyword")]
-        internal static ClassificationTypeDefinition VaryingQualifier;
+        internal static ClassificationTypeDefinition PipelineIntrinsic;
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -90,15 +90,15 @@ namespace vs_rtsl_ext
     }
 
     [Export(typeof(EditorFormatDefinition))]
-    [ClassificationType(ClassificationTypeNames = RtslClassificationNames.VaryingQualifier)]
-    [Name(RtslClassificationNames.VaryingQualifier)]
+    [ClassificationType(ClassificationTypeNames = RtslClassificationNames.PipelineIntrinsic)]
+    [Name(RtslClassificationNames.PipelineIntrinsic)]
     [UserVisible(true)]
     [Order(Before = Priority.Default)]
-    internal sealed class RtslVaryingQualifierFormat : ClassificationFormatDefinition
+    internal sealed class RtslPipelineIntrinsicFormat : ClassificationFormatDefinition
     {
-        public RtslVaryingQualifierFormat()
+        public RtslPipelineIntrinsicFormat()
         {
-            DisplayName = "RTSL Varying Qualifier";
+            DisplayName = "RTSL Pipeline Intrinsic";
             ForegroundColor = Color.FromRgb(220, 220, 170);
         }
     }

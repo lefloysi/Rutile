@@ -23,10 +23,6 @@ void* rtvk_alloc_resource(usize size) {
 /*===============================================================================================*/
 
 
-void rtvk_free_resource(void* resource) {
-	free(resource);
-}
-
 void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base, rtvk_resource_type type) {
 	assert(base);
 	base->type = type;
@@ -36,17 +32,16 @@ void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base
 	base->zombie = false;
 }
 
-void rtvk_finish_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base) {
+void rtvk_finish_resource_base(struct rtvk_resource_base* base) {
 	assert(base);
 	base->ctx = NULL;
 	base->zombie = true;
 }
 
 void rtvk_resource_try_free(struct rtvk_resource_base* base) {
-	assert(base);
 	if (rtvk_resource_ready_to_destroy(base)) {
 		rtvk_resource_finalize(base);
-		rtvk_free_resource(base);
+		free(base);
 	}
 }
 
@@ -87,28 +82,30 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 		return;
 	}
 
-	struct rtvk_context* ctx = base->ctx;
 	switch (base->type) {
 	case RT_RESOURCE_BUFFER:
-		rtvk_buffer_finish(ctx, (struct rtvk_buffer*)base);
+		rtvk_buffer_finish((struct rtvk_buffer*)base);
 		break;
 	case RT_RESOURCE_COMMAND_BUFFER:
-		rtvk_command_buffer_finish(ctx, (struct rtvk_command_buffer*)base);
+		rtvk_command_buffer_finish((struct rtvk_command_buffer*)base);
 		break;
 	case RT_RESOURCE_FRAMEBUFFER:
-		rtvk_framebuffer_finish(ctx, (struct rtvk_framebuffer*)base);
+		rtvk_framebuffer_finish((struct rtvk_framebuffer*)base);
 		break;
 	case RT_RESOURCE_GRAPHICS_PROGRAM:
-		rtvk_graphics_program_finish(ctx, (struct rtvk_graphics_program*)base);
+		rtvk_graphics_program_finish((struct rtvk_graphics_program*)base);
 		break;
 	case RT_RESOURCE_SWAPCHAIN:
-		rtvk_swapchain_finish(ctx, (struct rtvk_swapchain*)base);
+		rtvk_swapchain_finish((struct rtvk_swapchain*)base);
+		break;
+	case RT_RESOURCE_SWAPCHAIN_FRAME:
+		rtvk_swapchain_frame_finish((struct rtvk_swapchain_frame*)base);
 		break;
 	case RT_RESOURCE_TEXTURE:
-		rtvk_texture_finish(ctx, (struct rtvk_texture*)base);
+		rtvk_texture_finish((struct rtvk_texture*)base);
 		break;
 	case RT_RESOURCE_TEXTURE_VIEW:
-		rtvk_texture_view_finish(ctx, (struct rtvk_texture_view*)base);
+		rtvk_texture_view_finish((struct rtvk_texture_view*)base);
 		break;
 	case RT_RESOURCE_QUEUE:
 	case RT_RESOURCE_UNKNOWN:

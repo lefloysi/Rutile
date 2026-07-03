@@ -55,16 +55,17 @@ struct rtvk_queue* rtvk_queue_create(struct rtvk_context* ctx, VkQueue vk_queue,
 
 	rtvk_queue_init(ctx, queue, vk_queue, capability, family_index, queue_index);
 	if (rtvk_error() != RT_SUCCESS) {
-		rtvk_queue_finish(ctx, queue);
-		RTVK_FREE_RESOURCE(queue);
+		rtvk_queue_finish(queue);
+		free(queue);
 		return NULL;
 	}
 
 	return queue;
 }
 void rtvk_queue_destroy(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+	(void)ctx;
 	assert(queue);
-	rtvk_queue_finish(ctx, queue);
+	rtvk_queue_finish(queue);
 	rtvk_resource_retire(RTVK_RESOURCE_BASE(queue));
 }
 
@@ -91,8 +92,9 @@ void rtvk_queue_init(struct rtvk_context* ctx, struct rtvk_queue* queue, VkQueue
 		return;
 	}
 }
-void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+void rtvk_queue_finish(struct rtvk_queue* queue) {
 	assert(queue);
+	struct rtvk_context* ctx = queue->base.ctx;
 	rtvk_queue_flush(ctx, queue);
 	if (queue->timeline_value) {
 		struct rtvk_timepoint last = { queue, queue->timeline_value };
@@ -117,7 +119,7 @@ void rtvk_queue_finish(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	queue->upload_staging_allocation = NULL;
 	queue->upload_staging_size = 0;
 
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(queue));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(queue));
 }
 
 struct rtvk_queue* rtvk_queue_query(struct rtvk_context* ctx, enum rt_queue_capability capability) {

@@ -1,8 +1,8 @@
-#include "texture.h"
-#include "context.h"
-#include "error.h"
-#include "resource/buffer.h"
-#include "resource/queue.h"
+#include "texture.hpp"
+#include "context.hpp"
+#include "error.hpp"
+#include "resource/buffer.hpp"
+#include "resource/queue.hpp"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -388,11 +388,11 @@ static bool rtdx_texture_copy_region(
 }
 
 void rtdx_texture_init(struct rtdx_context* ctx, struct rtdx_texture* texture) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(texture), RT_RESOURCE_TEXTURE);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(texture), rtdx_resource_type::texture);
 }
 
 void rtdx_texture_view_init(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(view), RT_RESOURCE_TEXTURE_VIEW);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(view), rtdx_resource_type::texture_view);
 	rtdx_texture_view_normalize_sampler(view);
 }
 
@@ -434,7 +434,7 @@ static struct rtdx_texture* rtdx_texture_node_create(struct rtdx_context* ctx) {
 		return NULL;
 	}
 
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), RT_RESOURCE_TEXTURE);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::texture);
 	node->state = D3D12_RESOURCE_STATE_COMMON;
 	return node;
 }

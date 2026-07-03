@@ -3,6 +3,8 @@
 #include "error.h"
 #include "resource/queue.h"
 
+#include <assert.h>
+#include <stddef.h>
 #include <stdlib.h>
 
 const VkSurfaceFormatKHR rtvk_swapchain_format_preferences[] = {
@@ -161,24 +163,17 @@ static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swap
 	}
 }
 
-static void rtvk_swapchain_destroy_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+// Wait until all in-flight work touching any frame has settled. Called from
+// the swapchain destroy path before we tear down frame semaphores/pools.
+static void rtvk_swapchain_wait_all_frames(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	if (!swapchain->frames) {
 		return;
 	}
-
 	for (u32 i = 0; i < swapchain->image_count; i++) {
-		rtvk_swapchain_wait_frame(ctx, &swapchain->frames[i]);
-		rtvk_swapchain_destroy_present_command(ctx, &swapchain->frames[i]);
-		if (swapchain->frames[i].image_available) {
-			vkDestroySemaphore(ctx->vk_device, swapchain->frames[i].image_available, VK_ALLOCATOR);
-		}
-		if (swapchain->frames[i].present_ready) {
-			vkDestroySemaphore(ctx->vk_device, swapchain->frames[i].present_ready, VK_ALLOCATOR);
+		if (swapchain->frames[i]) {
+			rtvk_swapchain_wait_frame(ctx, swapchain->frames[i]);
 		}
 	}
-
-	free(swapchain->frames);
-	swapchain->frames = NULL;
 }
 
 static void rtvk_swapchain_destroy_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
@@ -205,38 +200,73 @@ static void rtvk_swapchain_destroy_color_views(struct rtvk_context* ctx, struct 
 	swapchain->color_views = NULL;
 }
 
-/*
-** Retire and release the image sources we published for each swapchain image.
-** Retire kills dependent VkImageViews and marks each source zombie.
-** Anyone still holding one of these sources (e.g. a texture_view we didn't own)
-** observes zombie/vk_image=NULL after this point. Must run BEFORE vkDestroySwapchainKHR
-** so the dependent VkImageViews are destroyed while the parent VkImages are still valid.
-*/
-static void rtvk_swapchain_destroy_image_sources(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+void rtvk_swapchain_frame_init(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
+	rtvk_init_resource_base(ctx, &frame->base, RT_RESOURCE_SWAPCHAIN_FRAME);
+	frame->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	frame->vk_format = VK_FORMAT_UNDEFINED;
+	frame->type = RT_TEXTURE_2D;
+	frame->depth = 1;
+	frame->mip_levels = 1;
+}
+
+// Idempotent teardown of a frame's swapchain-scoped Vulkan objects. Called
+// eagerly by rtvk_swapchain_destroy_frames while ctx is guaranteed valid,
+// and again as the generic finalize hook when the frame's refcount hits zero
+// — the second call is a no-op because every handle is already NULL.
+// VkImage itself belongs to VkSwapchainKHR and is destroyed by that API.
+void rtvk_swapchain_frame_finish(struct rtvk_swapchain_frame* frame) {
+	struct rtvk_context* ctx = frame->base.ctx;
+	// If ctx was already nulled by a prior rtvk_finish_resource_base call,
+	// no Vulkan objects remain either — nothing to do.
+	if (ctx) {
+		if (frame->image_available) {
+			vkDestroySemaphore(ctx->vk_device, frame->image_available, VK_ALLOCATOR);
+			frame->image_available = VK_NULL_HANDLE;
+		}
+		if (frame->present_ready) {
+			vkDestroySemaphore(ctx->vk_device, frame->present_ready, VK_ALLOCATOR);
+			frame->present_ready = VK_NULL_HANDLE;
+		}
+		if (frame->present_command_pool) {
+			vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
+			frame->present_command_pool = VK_NULL_HANDLE;
+			frame->present_command_buffer = VK_NULL_HANDLE;
+		}
+	}
+	frame->vk_image = VK_NULL_HANDLE;
+	rtvk_finish_resource_base(&frame->base);
+}
+
+static void rtvk_swapchain_destroy_frames(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	(void)ctx;
-	if (!swapchain->image_sources) {
+	if (!swapchain->frames) {
 		return;
 	}
 	for (u32 i = 0; i < swapchain->image_count; i++) {
-		if (swapchain->image_sources[i]) {
-			rtvk_image_source_retire(swapchain->image_sources[i]);
-			rtvk_image_source_release(swapchain->image_sources[i]);
-			swapchain->image_sources[i] = NULL;
+		if (swapchain->frames[i]) {
+			// Eagerly kill Vulkan objects while ctx is still alive — a stray
+			// view holding a ref would otherwise leave them dangling past the
+			// swapchain's own destruction. Then retire drops the swapchain's
+			// ref; the generic path free()s the struct once no view holds it.
+			rtvk_swapchain_frame_finish(swapchain->frames[i]);
+			rtvk_resource_retire(&swapchain->frames[i]->base);
+			swapchain->frames[i] = NULL;
 		}
 	}
-	free(swapchain->image_sources);
-	swapchain->image_sources = NULL;
+	free(swapchain->frames);
+	swapchain->frames = NULL;
 }
 
-void rtvk_swapchain_finish(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+void rtvk_swapchain_finish(struct rtvk_swapchain* swapchain) {
+	struct rtvk_context* ctx = swapchain->base.ctx;
 	rtvk_swapchain_force_unacquired(swapchain);
 	if (ctx && ctx->vk_device) {
 		vkDeviceWaitIdle(ctx->vk_device);
 	}
-	rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
+	rtvk_swapchain_wait_all_frames(ctx, swapchain);
 	rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 	rtvk_swapchain_destroy_color_views(ctx, swapchain);
-	rtvk_swapchain_destroy_image_sources(ctx, swapchain);
+	rtvk_swapchain_destroy_frames(ctx, swapchain);
 
 	if (swapchain->vk_swapchain) {
 		vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
@@ -253,7 +283,7 @@ void rtvk_swapchain_finish(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	swapchain->image_count = 0;
 	rtvk_swapchain_unlock(swapchain);
 	rtvk_swapchain_finish_sync(swapchain);
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(swapchain));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(swapchain));
 }
 
 void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
@@ -273,7 +303,7 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 	}
 
 	swapchain->frames = calloc(image_count, sizeof(*swapchain->frames));
-	RTVK_CHECK_ALLOC(swapchain->frames, (usize)image_count * sizeof(*swapchain->frames), "swapchain frame sync list");
+	RTVK_CHECK_ALLOC(swapchain->frames, (usize)image_count * sizeof(*swapchain->frames), "swapchain frame list");
 	if (rtvk_error() != RT_SUCCESS) {
 		goto cleanup;
 	}
@@ -296,41 +326,29 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 	if (rtvk_error() != RT_SUCCESS) {
 		goto cleanup;
 	}
-	swapchain->image_sources = calloc(image_count, sizeof(*swapchain->image_sources));
-	RTVK_CHECK_ALLOC(swapchain->image_sources, (usize)image_count * sizeof(*swapchain->image_sources), "swapchain image source list");
-	if (rtvk_error() != RT_SUCCESS) {
-		goto cleanup;
-	}
 	for (u32 i = 0; i < image_count; i++) {
-		struct rtvk_swapchain_frame* frame = &swapchain->frames[i];
+		struct rtvk_swapchain_frame* frame = calloc(1, sizeof(*frame));
+		if (!frame) {
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate swapchain frame");
+			goto cleanup;
+		}
+		rtvk_swapchain_frame_init(ctx, frame);
 		frame->vk_image = images[i];
 		frame->vk_format = swapchain->vk_format;
 		frame->width = swapchain->extent.width;
 		frame->height = swapchain->extent.height;
+		swapchain->frames[i] = frame;
 
 		swapchain->framebuffers[i] = rtvk_framebuffer_create(ctx);
 		if (!swapchain->framebuffers[i]) {
 			goto cleanup;
 		}
 
-		swapchain->image_sources[i] = rtvk_image_source_create(ctx);
-		if (!swapchain->image_sources[i]) {
-			goto cleanup;
-		}
-		swapchain->image_sources[i]->vk_image = images[i];
-		swapchain->image_sources[i]->vk_format = swapchain->vk_format;
-		swapchain->image_sources[i]->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-		swapchain->image_sources[i]->type = RT_TEXTURE_2D;
-		swapchain->image_sources[i]->width = swapchain->extent.width;
-		swapchain->image_sources[i]->height = swapchain->extent.height;
-		swapchain->image_sources[i]->depth = 1;
-		swapchain->image_sources[i]->mip_levels = 1;
-
 		swapchain->color_views[i] = rtvk_texture_view_create(ctx);
 		if (!swapchain->color_views[i]) {
 			goto cleanup;
 		}
-		rtvk_texture_view_bind_source(ctx, swapchain->color_views[i], swapchain->image_sources[i]);
+		rtvk_texture_view_bind_backing(ctx, swapchain->color_views[i], &frame->base);
 		rtvk_framebuffer_set_color_view(ctx, swapchain->framebuffers[i], 0, swapchain->color_views[i]);
 		if (rtvk_error() != RT_SUCCESS) {
 			goto cleanup;
@@ -340,40 +358,32 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 cleanup:
 	free(images);
 	if (rtvk_error() != RT_SUCCESS) {
-		rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 		rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 		rtvk_swapchain_destroy_color_views(ctx, swapchain);
-		rtvk_swapchain_destroy_image_sources(ctx, swapchain);
+		rtvk_swapchain_destroy_frames(ctx, swapchain);
 	}
 }
 
 void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+	// Frames must already be allocated by rtvk_swapchain_create_framebuffers.
+	assert(swapchain->frames);
+
 	VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-
-	if (!swapchain->frames) {
-		swapchain->frames = calloc(swapchain->image_count, sizeof(*swapchain->frames));
-		if (!swapchain->frames) {
-			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %u swapchain sync frames", swapchain->image_count);
-			return;
-		}
-	}
-
 	semaphore_info.pNext = NULL;
 	semaphore_info.flags = 0;
 
 	for (u32 i = 0; i < swapchain->image_count; i++) {
-		swapchain->frames[i].present_command_family_index = (u32)-1;
+		struct rtvk_swapchain_frame* frame = swapchain->frames[i];
+		frame->present_command_family_index = (u32)-1;
 
-		VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &swapchain->frames[i].image_available);
+		VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &frame->image_available);
 		if (result != VK_SUCCESS) {
-			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
 		}
 
-		result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &swapchain->frames[i].present_ready);
+		result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &frame->present_ready);
 		if (result != VK_SUCCESS) {
-			rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
 			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
 		}
@@ -595,7 +605,7 @@ void rtvk_swapchain_prepare_present_command(
 }
 
 void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, struct rtvk_timepoint rendered) {
-	struct rtvk_swapchain_frame* current = &swapchain->frames[swapchain->current_image_index];
+	struct rtvk_swapchain_frame* current = swapchain->frames[swapchain->current_image_index];
 	if (!current || !rendered.queue) {
 		return;
 	}
@@ -678,8 +688,14 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	struct rtvk_framebuffer* framebuffer = swapchain->framebuffers ? swapchain->framebuffers[swapchain->current_image_index] : NULL;
 	struct rtvk_texture_view* color_view = framebuffer ? framebuffer->color_views[0] : NULL;
-	if (color_view && color_view->source) {
-		color_view->source->vk_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	if (color_view && color_view->backing) {
+		// Post-present, the swapchain image is in PRESENT_SRC_KHR. Sync the
+		// backing frame's layout so the next transition uses the correct
+		// oldLayout.
+		VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
+		u32 w, h, d, m;
+		rtvk_image_backing_read(color_view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
+		*lay = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	}
 	rendered.queue->timeline_value = signal_value;
 	rendered.queue->submitted_value = signal_value;
@@ -722,10 +738,10 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 		rtvk_retain_resource(present_queue);
 	}
 
-	rtvk_swapchain_destroy_frame_sync(ctx, swapchain);
+	rtvk_swapchain_wait_all_frames(ctx, swapchain);
 	rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 	rtvk_swapchain_destroy_color_views(ctx, swapchain);
-	rtvk_swapchain_destroy_image_sources(ctx, swapchain);
+	rtvk_swapchain_destroy_frames(ctx, swapchain);
 	if (swapchain->vk_swapchain) {
 		vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
 		swapchain->vk_swapchain = VK_NULL_HANDLE;
@@ -756,7 +772,7 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain has no sync frames");
 		return acquire;
 	}
-	struct rtvk_swapchain_frame* acquire_frame = &swapchain->frames[swapchain->current_frame_index];
+	struct rtvk_swapchain_frame* acquire_frame = swapchain->frames[swapchain->current_frame_index];
 	rtvk_swapchain_wait_frame(ctx, acquire_frame);
 
 	/* Comment ** finite timeout: the spec forbids UINT64_MAX when forward progress
@@ -809,7 +825,7 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires an acquired frame");
 		return;
 	}
-	struct rtvk_swapchain_frame* frame = &swapchain->frames[swapchain->current_frame_index];
+	struct rtvk_swapchain_frame* frame = swapchain->frames[swapchain->current_frame_index];
 	if (!rendered.queue || rendered.value == 0) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtvk_swapchain_mark_unacquired(swapchain);

@@ -67,16 +67,35 @@ typedef struct rtsl_diagnostic {
     const char* text;
 } rtsl_diagnostic;
 
-/* Reflection metadata describing a uniform binding exposed by a module. The
- * string pointers are owned by the module and stay valid until it is destroyed. */
+typedef enum rtsl_access {
+    RTSL_ACCESS_READ_WRITE = 0,
+    RTSL_ACCESS_READ_ONLY = 1,
+    RTSL_ACCESS_WRITE_ONLY = 2
+} rtsl_access;
+
+
+typedef enum rtsl_uniform_kind {
+    RTSL_UNIFORM_KIND_UNIFORM_BUFFER = 0,
+    RTSL_UNIFORM_KIND_STORAGE_BUFFER = 1,
+    RTSL_UNIFORM_KIND_SAMPLER = 2,
+    RTSL_UNIFORM_KIND_IMAGE = 3,
+    RTSL_UNIFORM_KIND_SAMPLED_IMAGE = 4,
+} rtsl_uniform_kind;
+
+/* Reflection metadata describing a uniform binding exposed by a module.
+ *
+ * `qualified_name` points at memory owned by the module and remains valid
+ * until `rtslDestroyModule`.
+ *
+ * Uniforms are identified by their qualified name plus numeric group/member
+ * pair. The kind tells the backend whether this is a UBO, SSBO, sampler, or
+ * image-style resource. */
 typedef struct rtsl_uniform_info {
-    const char* scope_name;   /* enclosing uniform scope, or "" for the global scope */
-    const char* name;         /* uniform name */
-    const char* type;         /* source-level type spelling */
-    const char* binding_name; /* mangled binding identifier used by backends */
-    uint32_t set;
-    uint32_t binding;
-    int is_resource;          /* 1 for opaque resources (samplers/buffers), else 0 */
+    const char* qualified_name; /* scope_name + "." + name, or name for the global scope */
+    uint32_t group;
+    uint32_t member;
+    rtsl_access access;
+    rtsl_uniform_kind kind;
 } rtsl_uniform_info;
 
 typedef enum rtsl_stage {
@@ -92,16 +111,46 @@ typedef enum rtsl_stage_role {
     RTSL_STAGE_ROLE_OUTPUT = 2
 } rtsl_stage_role;
 
-/* Reflection metadata describing one field of a stage interface (in/varying/out).
- * String pointers are owned by the module and valid until it is destroyed. */
+typedef enum rtsl_interpolation {
+    RTSL_INTERP_NONE = 0,
+    RTSL_INTERP_SMOOTH = 1,
+    RTSL_INTERP_FLAT = 2,
+    RTSL_INTERP_CLIP = 3
+} rtsl_interpolation;
+
+typedef enum rtsl_builtin {
+    RTSL_BUILTIN_NONE = 0,
+    RTSL_BUILTIN_POSITION = 1,
+    RTSL_BUILTIN_POINT_SIZE = 2,
+    RTSL_BUILTIN_VERTEX_INDEX = 3,
+    RTSL_BUILTIN_INSTANCE_INDEX = 4,
+    RTSL_BUILTIN_FRAG_COORD = 5,
+    RTSL_BUILTIN_FRONT_FACING = 6,
+    RTSL_BUILTIN_FRAG_DEPTH = 7,
+    RTSL_BUILTIN_GLOBAL_INVOCATION_ID = 8,
+    RTSL_BUILTIN_LOCAL_INVOCATION_ID = 9,
+    RTSL_BUILTIN_WORK_GROUP_ID = 10,
+    RTSL_BUILTIN_LOCAL_INVOCATION_INDEX = 11,
+    RTSL_BUILTIN_NUM_WORK_GROUPS = 12
+} rtsl_builtin;
+
+#define RTSL_NO_LOCATION 0xffffffffu
+
+/* Reflection metadata describing one field of a stage interface.
+ *
+ * The reflection model exposes only the program's host boundaries:
+ * `input` (vertex buffer attributes) and `output` (framebuffer attachments).
+ * Varyings are pipeline-internal — they never appear here.
+ *
+ * Each stage has at most one input payload and one output payload, so the
+ * payload's struct name is implicit. The host queries fields by `name`
+ * alone (e.g. "position", "color"). */
 typedef struct rtsl_stage_variable {
     rtsl_stage_role role;
-    const char* payload_type;   /* interface payload struct name */
-    const char* name;           /* field name */
-    const char* interpolation;  /* "smooth"/"flat"/"clip" or "" */
-    const char* builtin;        /* builtin slot name or "" */
-    uint32_t location;
-    int has_location;           /* 1 if an explicit location was assigned */
+    const char* name;             /* field name */
+    rtsl_interpolation interpolation;
+    rtsl_builtin builtin;
+    uint32_t location;            /* RTSL_NO_LOCATION when a builtin drives placement */
 } rtsl_stage_variable;
 
 /* Reflection metadata describing a backend entry point. */
@@ -125,6 +174,7 @@ RTSL_API void rtslDestroyModule(rtsl_module module);
 /* Load a previously emitted artifact (rtslo/rtslm/rtsll/rtslp) for reflection or
  * linking. Returns NULL on failure (see rtslCtxGetResult). */
 RTSL_API rtsl_module rtslLoadModule(rtsl_context ctx, const uint8_t* data, size_t size);
+RTSL_API rtsl_module rtslLoadModuleFromBytes(const uint8_t* data, size_t size);
 
 /* Uniform reflection. The query works on any loaded module that carries a
  * uniform table (objects, modules, and linked programs). */
@@ -136,11 +186,12 @@ RTSL_API int rtslModuleGetUniform(rtsl_module module, size_t index, rtsl_uniform
 RTSL_API size_t rtslModuleGetStageVariableCount(rtsl_module module);
 RTSL_API int rtslModuleGetStageVariable(rtsl_module module, size_t index, rtsl_stage_variable* out_var);
 
-/* Look up the assigned location of a named stage interface field, e.g.
- * ("Point", "position") -> 0. Returns 1 and writes *out_location when the field
- * exists and has a location; returns 0 otherwise (unknown field or a built-in
- * slot that consumes no location). */
-RTSL_API int rtslModuleGetStageLocation(rtsl_module module, const char* payload_type,
+/* Look up the assigned location of a named field on a stage role's payload.
+ * `role` selects input (vertex buffer) or output (framebuffer attachment);
+ * varying is not reflected. Returns 1 and writes *out_location when the
+ * field exists; returns 0 otherwise (unknown field, or a builtin-slot field
+ * that consumes no location). */
+RTSL_API int rtslModuleGetStageLocation(rtsl_module module, rtsl_stage_role role,
                                          const char* field_name, uint32_t* out_location);
 
 /* Backend entry point reflection. */

@@ -48,7 +48,7 @@ RTVK_DEFINE_RESOURCE_PRIVATE(framebuffer)
 void rtvk_framebuffer_init(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(framebuffer), RT_RESOURCE_FRAMEBUFFER);
 }
-void rtvk_framebuffer_finish(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer) {
+void rtvk_framebuffer_finish(struct rtvk_framebuffer* framebuffer) {
 	for (u32 i = 0; i < framebuffer->color_texture_count; i++) {
 		if (framebuffer->color_views[i]) {
 			rtvk_release_resource(framebuffer->color_views[i]);
@@ -64,7 +64,7 @@ void rtvk_framebuffer_finish(struct rtvk_context* ctx, struct rtvk_framebuffer* 
 		rtvk_release_resource(framebuffer->stencil_view);
 	}
 	framebuffer->stencil_view = NULL;
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(framebuffer));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(framebuffer));
 }
 
 void rtvk_framebuffer_set_color_view(struct rtvk_context* ctx, struct rtvk_framebuffer* framebuffer, u32 slot, struct rtvk_texture_view* view) {

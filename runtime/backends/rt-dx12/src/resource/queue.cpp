@@ -1,8 +1,8 @@
-#include "queue.h"
-#include "context.h"
-#include "error.h"
-#include "resource/command_buffer.h"
-#include "resource/swapchain.h"
+#include "queue.hpp"
+#include "context.hpp"
+#include "error.hpp"
+#include "resource/command_buffer.hpp"
+#include "resource/swapchain.hpp"
 
 #include <stdlib.h>
 
@@ -68,7 +68,7 @@ void rtdx_queue_destroy(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 }
 
 bool rtdx_queue_init(struct rtdx_context* ctx, struct rtdx_queue* queue, enum rt_queue_capability capability) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(queue), RT_RESOURCE_QUEUE);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(queue), rtdx_resource_type::queue);
 	queue->capability = capability;
 
 	D3D12_COMMAND_QUEUE_DESC queue_info = {};
@@ -145,7 +145,7 @@ static struct rtdx_submitted_batch* rtdx_queue_create_batch(struct rtdx_context*
 		return NULL;
 	}
 
-	struct rtdx_submitted_batch* batch = (struct rtdx_submitted_batch*)calloc(1, sizeof(*batch));
+	struct rtdx_submitted_batch* batch = RTDX_ALLOC_RESOURCE(struct rtdx_submitted_batch);
 	if (!batch) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate submitted batch metadata");
 		return NULL;
@@ -182,11 +182,11 @@ void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 			queue->submitted_tail = NULL;
 		}
 		if (ctx && ctx->shutting_down) {
-			free(batch);
+			RTDX_FREE_RESOURCE(batch);
 			continue;
 		}
 		rtdx_command_buffer_node_release(batch->command_buffer_node);
-		free(batch);
+		RTDX_FREE_RESOURCE(batch);
 	}
 }
 
@@ -246,7 +246,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 		if (FAILED(wait_result)) {
 			if (batch) {
 				rtdx_command_buffer_node_release(batch->command_buffer_node);
-				free(batch);
+				RTDX_FREE_RESOURCE(batch);
 			}
 			rtdx_throwf(rtdx_error_from_hresult(wait_result), "ID3D12CommandQueue::Wait failed: 0x%08x", (u32)wait_result);
 			return { queue, queue->fence_value };
@@ -263,7 +263,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 	if (FAILED(result)) {
 		if (batch) {
 			rtdx_command_buffer_node_release(batch->command_buffer_node);
-			free(batch);
+			RTDX_FREE_RESOURCE(batch);
 		}
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
 		return { queue, queue->fence_value };

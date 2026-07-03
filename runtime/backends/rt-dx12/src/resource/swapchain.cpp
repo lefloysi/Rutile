@@ -1,6 +1,6 @@
-#include "resource/swapchain.h"
-#include "context.h"
-#include "error.h"
+#include "resource/swapchain.hpp"
+#include "context.hpp"
+#include "error.hpp"
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -51,7 +51,7 @@ static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, str
 static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
 
 void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), RT_RESOURCE_SWAPCHAIN);
+	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), rtdx_resource_type::swapchain);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	swapchain->vsync = false;
 	InitializeCriticalSection(&swapchain->frame_lock);

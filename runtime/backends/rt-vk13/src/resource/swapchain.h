@@ -43,8 +43,7 @@ struct rtvk_swapchain {
 	struct rtvk_queue* present_queue;
 	struct rtvk_framebuffer** framebuffers;
 	struct rtvk_texture_view** color_views;
-	struct rtvk_image_source** image_sources;
-	struct rtvk_swapchain_frame* frames;
+	struct rtvk_swapchain_frame** frames;
 
 	VkExtent2D extent;
 	VkFormat vk_format;
@@ -63,19 +62,28 @@ struct rtvk_swapchain {
 };
 
 struct rtvk_swapchain_frame {
+	struct rtvk_resource_base base;
+
 	VkImage vk_image;
+	VkFormat vk_format;
+	VkImageLayout vk_layout;
+	enum rt_texture_type type;
+	u32 width;
+	u32 height;
+	u32 depth;
+	u32 mip_levels;
+
 	VkSemaphore image_available;
 	VkSemaphore present_ready;
 	VkCommandPool present_command_pool;
 	VkCommandBuffer present_command_buffer;
-
 	struct rtvk_timepoint acquire_wait;
 	struct rtvk_timepoint present_done;
-	VkFormat vk_format;
-	u32 width;
-	u32 height;
 	u32 present_command_family_index;
 };
+
+void rtvk_swapchain_frame_init(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame);
+void rtvk_swapchain_frame_finish(struct rtvk_swapchain_frame* frame);
 
 RTVK_DECLARE_NEW_RESOURCE(swapchain)
 

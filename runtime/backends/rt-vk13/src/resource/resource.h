@@ -22,6 +22,7 @@ typedef enum rtvk_resource_type {
 	RT_RESOURCE_GRAPHICS_PROGRAM,
 	RT_RESOURCE_QUEUE,
 	RT_RESOURCE_SWAPCHAIN,
+	RT_RESOURCE_SWAPCHAIN_FRAME,
 	RT_RESOURCE_TEXTURE,
 	RT_RESOURCE_TEXTURE_VIEW,
 } rtvk_resource_type;
@@ -40,9 +41,8 @@ struct rtvk_timepoint {
 };
 
 void* rtvk_alloc_resource(usize size);
-void rtvk_free_resource(void* resource);
 void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base, rtvk_resource_type type);
-void rtvk_finish_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base);
+void rtvk_finish_resource_base(struct rtvk_resource_base* base);
 void rtvk_resource_retain(struct rtvk_resource_base* base);
 void rtvk_resource_release(struct rtvk_resource_base* base);
 void rtvk_retain_resource_impl(void* resource);
@@ -55,9 +55,8 @@ bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base);
 rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint);
 
 #define RTVK_ALLOC_RESOURCE(type) (type*)rtvk_alloc_resource(sizeof(type))
-#define RTVK_FREE_RESOURCE(resource) rtvk_free_resource(resource)
 #define RTVK_RESOURCE_BASE(resource) (&(resource)->base)
-#define rtvk_retain_resource(resource) rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)));
+#define rtvk_retain_resource(resource) rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)))
 #define rtvk_release_resource(resource)                            \
 	do {                                                           \
 		if (resource) {                                            \
@@ -72,7 +71,7 @@ rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint);
 	struct rtvk_##type* rtvk_##type##_create(struct rtvk_context* ctx);                                               \
 	void rtvk_##type##_destroy(struct rtvk_context* ctx, struct rtvk_##type* type);                                   \
 	void rtvk_##type##_init(struct rtvk_context* ctx, struct rtvk_##type* type);                                      \
-	void rtvk_##type##_finish(struct rtvk_context* ctx, struct rtvk_##type* type);
+	void rtvk_##type##_finish(struct rtvk_##type* type);
 
 #define RTVK_DEFINE_RESOURCE_PRIVATE(type)                                           \
 	struct rtvk_##type* rtvk_##type##_create(struct rtvk_context* ctx) {             \

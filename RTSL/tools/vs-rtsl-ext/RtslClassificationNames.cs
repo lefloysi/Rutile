@@ -6,6 +6,6 @@ namespace vs_rtsl_ext
         public const string ControlFlowKeyword = "rtsl.control-flow-keyword";
         public const string TypeName = "rtsl.type-name";
         public const string ResourceAccess = "rtsl.resource-access";
-        public const string VaryingQualifier = "rtsl.varying-qualifier";
+        public const string PipelineIntrinsic = "rtsl.pipeline-intrinsic";
     }
 }

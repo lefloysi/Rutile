@@ -191,13 +191,13 @@ rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer b
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	rt_extent_3d extent = { 0, 0, 0 };
 	struct rtvk_texture_view* view = rtvk_texture_view_from_handle(texture_view);
-	if (!view || !view->vk_image_view || !view->source) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture view extent query source is NULL");
+	if (!view || !view->vk_image_view || !view->backing) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture view extent query backing is NULL");
 		return extent;
 	}
-	extent.width = view->source->width;
-	extent.height = view->source->height;
-	extent.depth = view->source->depth;
+	VkImage image; VkFormat format; VkImageLayout* layout; enum rt_texture_type type;
+	u32 mips;
+	rtvk_image_backing_read(view->backing, &image, &format, &layout, &type, &extent.width, &extent.height, &extent.depth, &mips);
 	return extent;
 }
 
@@ -205,64 +205,66 @@ rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtvk_image_source* rtvk_image_source_create(struct rtvk_context* ctx) {
-	struct rtvk_image_source* source = (struct rtvk_image_source*)malloc(sizeof(*source));
-	if (!source) {
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate image source");
-		return NULL;
-	}
-	memset(source, 0, sizeof(*source));
-	source->ctx = ctx;
-	source->ref_count = 1;
-	source->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	source->vk_format = VK_FORMAT_UNDEFINED;
-	source->mip_levels = 1;
-	return source;
-}
-
-void rtvk_image_source_retain(struct rtvk_image_source* source) {
-	assert(source);
-	assert(source->ref_count > 0);
-	source->ref_count++;
-}
-
-void rtvk_image_source_release(struct rtvk_image_source* source) {
-	if (!source) {
+// Resolve an image-owning resource's descriptor fields live. Discriminates
+// by base->type and container_of's back to the concrete struct. `out_layout`
+// is a pointer INTO the backing so callers can update the layout in place
+// after a transition — there is no cached copy anywhere else.
+void rtvk_image_backing_read(struct rtvk_resource_base* base, VkImage* out_image, VkFormat* out_format, VkImageLayout** out_layout, enum rt_texture_type* out_type, u32* out_w, u32* out_h, u32* out_d, u32* out_mips) {
+	assert(base);
+	if (base->type == RT_RESOURCE_TEXTURE) {
+		struct rtvk_texture* texture = (struct rtvk_texture*)((char*)base - offsetof(struct rtvk_texture, base));
+		*out_image = texture->vk_image;
+		*out_format = texture->vk_format;
+		*out_layout = &texture->vk_layout;
+		*out_type = texture->type;
+		*out_w = texture->width;
+		*out_h = texture->height;
+		*out_d = texture->depth;
+		*out_mips = texture->mip_levels ? texture->mip_levels : 1;
 		return;
 	}
-	assert(source->ref_count > 0);
-	if (--source->ref_count != 0) {
+	if (base->type == RT_RESOURCE_SWAPCHAIN_FRAME) {
+		struct rtvk_swapchain_frame* frame = (struct rtvk_swapchain_frame*)((char*)base - offsetof(struct rtvk_swapchain_frame, base));
+		*out_image = frame->vk_image;
+		*out_format = frame->vk_format;
+		*out_layout = &frame->vk_layout;
+		*out_type = frame->type;
+		*out_w = frame->width;
+		*out_h = frame->height;
+		*out_d = frame->depth ? frame->depth : 1;
+		*out_mips = frame->mip_levels ? frame->mip_levels : 1;
 		return;
 	}
-	free(source);
+	assert(!"rtvk_texture_view bound to a resource that isn't image-owning");
 }
 
-/*
-** Logical death. After retire():
-**   - dependent views have had their VkImageView destroyed and been unlinked
-**   - source->vk_image is NULL and source->zombie is true
-**   - the source struct still exists; any holder can call this to ask "is the image gone"
-** The caller (owner) is responsible for destroying the underlying VkImage itself
-** BEFORE calling retire — retire only tears down what views built on top of it.
-*/
-void rtvk_image_source_retire(struct rtvk_image_source* source) {
-	if (!source || source->zombie) {
-		return;
-	}
-	struct rtvk_context* ctx = source->ctx;
-	struct rtvk_texture_view* view = source->views;
-	while (view) {
-		struct rtvk_texture_view* next = view->source_next;
-		view->source_next = NULL;
-		if (view->vk_image_view) {
-			vkDestroyImageView(ctx->vk_device, view->vk_image_view, VK_ALLOCATOR);
-			view->vk_image_view = VK_NULL_HANDLE;
-		}
-		view = next;
-	}
-	source->views = NULL;
-	source->vk_image = VK_NULL_HANDLE;
-	source->zombie = true;
+u32 rtvk_view_width(const struct rtvk_texture_view* view) {
+	if (!view || !view->backing) return 0;
+	VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
+	u32 w, h, d, m;
+	rtvk_image_backing_read(view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
+	return w;
+}
+u32 rtvk_view_height(const struct rtvk_texture_view* view) {
+	if (!view || !view->backing) return 0;
+	VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
+	u32 w, h, d, m;
+	rtvk_image_backing_read(view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
+	return h;
+}
+VkFormat rtvk_view_format(const struct rtvk_texture_view* view) {
+	if (!view || !view->backing) return VK_FORMAT_UNDEFINED;
+	VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
+	u32 w, h, d, m;
+	rtvk_image_backing_read(view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
+	return fmt;
+}
+VkImageLayout rtvk_view_layout(const struct rtvk_texture_view* view) {
+	if (!view || !view->backing) return VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
+	u32 w, h, d, m;
+	rtvk_image_backing_read(view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
+	return *lay;
 }
 
 /*===============================================================================================*/
@@ -434,65 +436,43 @@ void rtvk_texture_view_init(struct rtvk_context* ctx, struct rtvk_texture_view* 
 	view->vk_sampler = rtvk_sampler_create(ctx, view);
 }
 
-void rtvk_texture_finish(struct rtvk_context* ctx, struct rtvk_texture* texture) {
-	rtvk_texture_node_release(texture->active);
-	texture->active = NULL;
-
+// Runs from rtvk_resource_finalize when a texture's refcount+jobcount hit
+// zero. Works uniformly for parent textures (which own an active+next node
+// list) and for leaf nodes (which own a VkImage). Releases child refs; the
+// generic path then finalizes each child recursively when its refcount drops.
+void rtvk_texture_finish(struct rtvk_texture* texture) {
+	struct rtvk_context* ctx = texture->base.ctx;
+	if (texture->active) {
+		rtvk_resource_release(&texture->active->base);
+		texture->active = NULL;
+	}
 	struct rtvk_texture* node = texture->next;
 	while (node) {
 		struct rtvk_texture* next = node->next;
 		node->next = NULL;
-		rtvk_texture_node_release(node);
+		rtvk_resource_release(&node->base);
 		node = next;
 	}
 	texture->next = NULL;
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(texture));
+	if (texture->vk_image && texture->vma_allocation) {
+		vmaDestroyImage(ctx->vma_allocator, texture->vk_image, texture->vma_allocation);
+	}
+	texture->vk_image = VK_NULL_HANDLE;
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(texture));
 }
 
 static struct rtvk_texture* rtvk_texture_node_create(struct rtvk_context* ctx) {
-	struct rtvk_texture* node = RTVK_ALLOC_RESOURCE(struct rtvk_texture);
+	struct rtvk_texture* node = calloc(1, sizeof(*node));
 	if (!node) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture metadata");
 		return NULL;
 	}
 
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(node), RT_RESOURCE_TEXTURE);
-	node->source = rtvk_image_source_create(ctx);
-	if (!node->source) {
-		rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(node));
-		RTVK_FREE_RESOURCE(node);
-		return NULL;
-	}
+	node->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	node->vk_format = VK_FORMAT_UNDEFINED;
+	node->mip_levels = 1;
 	return node;
-}
-
-void rtvk_texture_node_retain(struct rtvk_texture* texture) {
-	assert(texture);
-	rtvk_retain_resource(texture);
-	rtvk_resource_retain(RTVK_RESOURCE_BASE(texture));
-}
-
-void rtvk_texture_node_release(struct rtvk_texture* texture) {
-	assert(texture);
-	assert(texture->base.ref_count > 0);
-	if (--texture->base.ref_count != 0) {
-		return;
-	}
-
-	struct rtvk_context* ctx = texture->base.ctx;
-	VkImage vk_image = texture->source ? texture->source->vk_image : VK_NULL_HANDLE;
-	if (texture->source) {
-		rtvk_image_source_retire(texture->source);
-	}
-	if (vk_image && texture->vma_allocation) {
-		vmaDestroyImage(ctx->vma_allocator, vk_image, texture->vma_allocation);
-	}
-	if (texture->source) {
-		rtvk_image_source_release(texture->source);
-		texture->source = NULL;
-	}
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(texture));
-	RTVK_FREE_RESOURCE(texture);
 }
 
 void rtvk_texture_recycle_node(struct rtvk_texture* texture, struct rtvk_texture* node) {
@@ -512,70 +492,65 @@ void rtvk_texture_collect_nodes(struct rtvk_texture* texture) {
 		if (node->base.ref_count == 1) {
 			*link = node->next;
 			node->next = NULL;
-			rtvk_texture_node_release(node);
+			rtvk_resource_release(&node->base);
 			continue;
 		}
 		link = &node->next;
 	}
 }
 
-void rtvk_texture_view_finish(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
+void rtvk_texture_view_finish(struct rtvk_texture_view* view) {
+	struct rtvk_context* ctx = view->base.ctx;
 	if (view->vk_sampler) {
 		vkDestroySampler(ctx->vk_device, view->vk_sampler, VK_ALLOCATOR);
 		view->vk_sampler = VK_NULL_HANDLE;
-	}
-	while (view->retired_samplers) {
-		rtvk_retired_sampler* retired = view->retired_samplers;
-		view->retired_samplers = retired->next;
-		vkDestroySampler(ctx->vk_device, retired->vk_sampler, VK_ALLOCATOR);
-		free(retired);
 	}
 	if (view->vk_image_view) {
 		vkDestroyImageView(ctx->vk_device, view->vk_image_view, VK_ALLOCATOR);
 		view->vk_image_view = VK_NULL_HANDLE;
 	}
-	if (view->source) {
-		struct rtvk_texture_view** link = &view->source->views;
-		while (*link) {
-			if (*link == view) {
-				*link = view->source_next;
-				break;
-			}
-			link = &(*link)->source_next;
-		}
-		view->source_next = NULL;
-		rtvk_image_source_release(view->source);
-		view->source = NULL;
+	if (view->backing) {
+		// Drop our ref; backing will free its VkImage when the last view lets go.
+		rtvk_resource_release(view->backing);
+		view->backing = NULL;
 	}
-	rtvk_finish_resource_base(ctx, RTVK_RESOURCE_BASE(view));
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(view));
 }
 
-void rtvk_texture_view_bind_source(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_source* source) {
+void rtvk_texture_view_bind_backing(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_resource_base* backing) {
 	assert(view);
-	assert(source);
-	assert(source->vk_image);
-	if (view->vk_image_view || view->source) {
-		rtvk_texture_view_finish(ctx, view);
+	assert(backing);
+
+	VkImage vk_image = VK_NULL_HANDLE;
+	VkFormat vk_format = VK_FORMAT_UNDEFINED;
+	VkImageLayout* vk_layout_ptr = NULL;
+	enum rt_texture_type type = RT_TEXTURE_2D;
+	u32 width = 0, height = 0, depth = 1, mip_levels = 1;
+	rtvk_image_backing_read(backing, &vk_image, &vk_format, &vk_layout_ptr, &type, &width, &height, &depth, &mip_levels);
+	assert(vk_image);
+
+	if (view->vk_image_view || view->backing) {
+		rtvk_texture_view_finish(view);
 		rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(view), RT_RESOURCE_TEXTURE_VIEW);
 	}
 
 	VkImageViewCreateInfo view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	u32 layer_count = 1;
-	if ((source->type == RT_TEXTURE_1D_ARRAY || source->type == RT_TEXTURE_2D_ARRAY) && source->depth) {
-		layer_count = source->depth;
+	if ((type == RT_TEXTURE_1D_ARRAY || type == RT_TEXTURE_2D_ARRAY) && depth) {
+		layer_count = depth;
 	}
 	view_info.pNext = NULL;
 	view_info.flags = 0;
-	view_info.image = source->vk_image;
-	view_info.viewType = rtvk_texture_view_type(source->type);
-	view_info.format = source->vk_format;
+	view_info.image = vk_image;
+	view_info.viewType = rtvk_texture_view_type(type);
+	view_info.format = vk_format;
 	view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(source->vk_format);
+	view_info.subresourceRange.aspectMask = rtvk_texture_format_aspect(vk_format);
 	view_info.subresourceRange.baseMipLevel = 0;
-	view_info.subresourceRange.levelCount = source->mip_levels ? source->mip_levels : 1;
+	view_info.subresourceRange.levelCount = mip_levels;
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = layer_count;
 
@@ -585,31 +560,27 @@ void rtvk_texture_view_bind_source(struct rtvk_context* ctx, struct rtvk_texture
 		return;
 	}
 
-	rtvk_image_source_retain(source);
-	view->source = source;
-	view->source_next = source->views;
-	source->views = view;
+	rtvk_resource_retain(backing);
+	view->backing = backing;
 }
 
 void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_texture* texture) {
 	assert(view);
 	assert(texture);
 	assert(texture->active);
-	assert(texture->active->source);
-	assert(texture->active->source->vk_image);
-	rtvk_texture_view_bind_source(ctx, view, texture->active->source);
+	assert(texture->active->vk_image);
+	rtvk_texture_view_bind_backing(ctx, view, RTVK_RESOURCE_BASE(texture->active));
 }
 
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture) {
 	assert(texture);
 	assert(texture->active);
-	assert(texture->active->source);
-	assert(texture->active->source->vk_image);
+	assert(texture->active->vk_image);
 	struct rtvk_texture_view* view = rtvk_texture_view_create(ctx);
 	if (!view) {
 		return NULL;
 	}
-	rtvk_texture_view_bind_source(ctx, view, texture->active->source);
+	rtvk_texture_view_bind_backing(ctx, view, RTVK_RESOURCE_BASE(texture->active));
 	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_texture_view_destroy(ctx, view);
 		return NULL;
@@ -617,27 +588,14 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_conte
 	return view;
 }
 
-static void rtvk_texture_view_retire_sampler(struct rtvk_texture_view* texture_view, VkSampler sampler) {
-	if (!sampler) {
-		return;
-	}
-
-	rtvk_retired_sampler* retired = malloc(sizeof(*retired));
-	if (!retired) {
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retire sampler");
-		return;
-	}
-	retired->vk_sampler = sampler;
-	retired->next = texture_view->retired_samplers;
-	texture_view->retired_samplers = retired;
-}
-
 static void rtvk_texture_view_recreate_sampler(struct rtvk_texture_view* texture_view) {
 	VkSampler vk_sampler = rtvk_sampler_create(texture_view->base.ctx, texture_view);
 	if (!vk_sampler) {
 		return;
 	}
-	rtvk_texture_view_retire_sampler(texture_view, texture_view->vk_sampler);
+	if (texture_view->vk_sampler) {
+		vkDestroySampler(texture_view->base.ctx->vk_device, texture_view->vk_sampler, VK_ALLOCATOR);
+	}
 	texture_view->vk_sampler = vk_sampler;
 }
 
@@ -696,12 +654,12 @@ struct rtvk_timepoint rtvk_texture_copy(struct rtvk_context* ctx, struct rtvk_te
 		return timepoint;
 	}
 	if (!src_texture || !dst_texture || !src_texture->active || !dst_texture->active ||
-		!src_texture->active->source->vk_image || !dst_texture->active->source->vk_image) {
+		!src_texture->active->vk_image || !dst_texture->active->vk_image) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture copy source or destination is NULL");
 		return timepoint;
 	}
-	const u32 mip_width = src_texture->active->source->width >> src_mip;
-	const u32 mip_height = src_texture->active->source->height >> src_mip;
+	const u32 mip_width = src_texture->active->width >> src_mip;
+	const u32 mip_height = src_texture->active->height >> src_mip;
 	rtvk_texture_copy_region(ctx, queue, src_texture, 0, 0, 0, src_mip, dst_texture, 0, 0, 0, dst_mip, mip_width ? mip_width : 1, mip_height ? mip_height : 1, 1);
 	if (rtvk_error() != RT_SUCCESS) {
 		return timepoint;
@@ -794,13 +752,13 @@ static void rtvk_texture_upload_staging(struct rtvk_context* ctx, struct rtvk_qu
 
 static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth) {
 	queue = rtvk_texture_graphics_queue(ctx, queue);
-	const u32 src_w = src_texture->active->source->width >> src_mip;
+	const u32 src_w = src_texture->active->width >> src_mip;
 	const u32 src_mip_w = src_w ? src_w : 1;
-	const u32 src_h = src_texture->active->source->height >> src_mip;
+	const u32 src_h = src_texture->active->height >> src_mip;
 	const u32 src_mip_h = src_h ? src_h : 1;
-	const u32 dst_w = dst_texture->active->source->width >> dst_mip;
+	const u32 dst_w = dst_texture->active->width >> dst_mip;
 	const u32 dst_mip_w = dst_w ? dst_w : 1;
-	const u32 dst_h = dst_texture->active->source->height >> dst_mip;
+	const u32 dst_h = dst_texture->active->height >> dst_mip;
 	const u32 dst_mip_h = dst_h ? dst_h : 1;
 
 	rtvk_queue_flush(ctx, queue);
@@ -820,30 +778,30 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 
 	struct rtvk_texture* src_node = src_texture->active;
 	struct rtvk_texture* dst_node = dst_texture->active;
-	VkImageLayout src_restore_layout = src_node->source->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : src_node->source->vk_layout;
-	VkImageLayout dst_restore_layout = dst_node->source->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : dst_node->source->vk_layout;
-	VkImageAspectFlags aspect = rtvk_texture_format_aspect(src_node->source->vk_format);
+	VkImageLayout src_restore_layout = src_node->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : src_node->vk_layout;
+	VkImageLayout dst_restore_layout = dst_node->vk_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : dst_node->vk_layout;
+	VkImageAspectFlags aspect = rtvk_texture_format_aspect(src_node->vk_format);
 
 	VkImageMemoryBarrier barriers[2] = { { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER }, { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER } };
-	barriers[0].srcAccessMask = rtvk_texture_layout_access(src_node->source->vk_layout);
+	barriers[0].srcAccessMask = rtvk_texture_layout_access(src_node->vk_layout);
 	barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	barriers[0].oldLayout = src_node->source->vk_layout;
+	barriers[0].oldLayout = src_node->vk_layout;
 	barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barriers[0].image = src_node->source->vk_image;
+	barriers[0].image = src_node->vk_image;
 	barriers[0].subresourceRange.aspectMask = aspect;
 	barriers[0].subresourceRange.baseMipLevel = src_mip;
 	barriers[0].subresourceRange.levelCount = 1;
 	barriers[0].subresourceRange.baseArrayLayer = 0;
 	barriers[0].subresourceRange.layerCount = 1;
-	barriers[1].srcAccessMask = rtvk_texture_layout_access(dst_node->source->vk_layout);
+	barriers[1].srcAccessMask = rtvk_texture_layout_access(dst_node->vk_layout);
 	barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	barriers[1].oldLayout = dst_node->source->vk_layout;
+	barriers[1].oldLayout = dst_node->vk_layout;
 	barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barriers[1].image = dst_node->source->vk_image;
+	barriers[1].image = dst_node->vk_image;
 	barriers[1].subresourceRange.aspectMask = aspect;
 	barriers[1].subresourceRange.baseMipLevel = dst_mip;
 	barriers[1].subresourceRange.levelCount = 1;
@@ -869,7 +827,7 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	copy.extent.width = width;
 	copy.extent.height = height;
 	copy.extent.depth = depth;
-	vkCmdCopyImage(command_buffer, src_node->source->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_node->source->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+	vkCmdCopyImage(command_buffer, src_node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
 	barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	barriers[0].dstAccessMask = rtvk_texture_layout_access(src_restore_layout);
@@ -908,8 +866,8 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	queue->timeline_value = value;
 	queue->submitted_value = value;
 	queue->copy_command_timepoint = (struct rtvk_timepoint){ queue, value };
-	src_node->source->vk_layout = src_restore_layout;
-	dst_node->source->vk_layout = dst_restore_layout;
+	src_node->vk_layout = src_restore_layout;
+	dst_node->vk_layout = dst_restore_layout;
 }
 
 struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
@@ -983,20 +941,20 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	VmaAllocationCreateInfo allocation_info = { 0 };
 	allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &node->source->vk_image, &node->vma_allocation, NULL);
+	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &node->vk_image, &node->vma_allocation, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_texture_node_release(node);
+		rtvk_resource_release(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
-	node->source->vk_format = vk_format;
-	node->source->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	node->source->type = type;
-	node->source->width = width;
-	node->source->height = height;
-	node->source->depth = 1;
-	node->source->mip_levels = image_info.mipLevels;
+	node->vk_format = vk_format;
+	node->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	node->type = type;
+	node->width = width;
+	node->height = height;
+	node->depth = 1;
+	node->mip_levels = image_info.mipLevels;
 	const VkImageAspectFlags aspect = rtvk_texture_format_aspect(vk_format);
 	if ((rtvk_format_has_depth(vk_format) || rtvk_format_has_stencil(vk_format)) && !data) {
 		texture->active = node;
@@ -1007,7 +965,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	if (data && upload_size) {
 		rtvk_texture_upload_staging(ctx, queue, upload_size);
 		if (rtvk_error() != RT_SUCCESS) {
-			rtvk_texture_node_release(node);
+			rtvk_resource_release(&node->base);
 			return timepoint;
 		}
 	}
@@ -1021,7 +979,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 
 	rtvk_texture_upload_command(ctx, queue);
 	if (rtvk_error() != RT_SUCCESS) {
-		rtvk_texture_node_release(node);
+		rtvk_resource_release(&node->base);
 		return timepoint;
 	}
 	VkCommandBuffer command_buffer = queue->upload_command_buffer;
@@ -1030,7 +988,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_texture_node_release(node);
+		rtvk_resource_release(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
@@ -1042,10 +1000,10 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	barrier.newLayout = data ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = node->source->vk_image;
+	barrier.image = node->vk_image;
 	barrier.subresourceRange.aspectMask = aspect;
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = data ? node->source->mip_levels : 1;
+	barrier.subresourceRange.levelCount = data ? node->mip_levels : 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
@@ -1063,16 +1021,16 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 		vkCmdCopyBufferToImage(
 			command_buffer,
 			queue->upload_staging_buffer,
-			node->source->vk_image,
+			node->vk_image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&copy
 		);
 
-		if (node->source->mip_levels > 1) {
+		if (node->mip_levels > 1) {
 			u32 mip_width = width;
 			u32 mip_height = height;
-			for (u32 mip_level = 1; mip_level < node->source->mip_levels; ++mip_level) {
+			for (u32 mip_level = 1; mip_level < node->mip_levels; ++mip_level) {
 				VkImageMemoryBarrier src_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 				src_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 				src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -1080,7 +1038,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 				src_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 				src_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				src_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				src_barrier.image = node->source->vk_image;
+				src_barrier.image = node->vk_image;
 				src_barrier.subresourceRange.aspectMask = aspect;
 				src_barrier.subresourceRange.baseMipLevel = mip_level - 1;
 				src_barrier.subresourceRange.levelCount = 1;
@@ -1109,7 +1067,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 				blit.dstOffsets[1].x = (i32)((mip_width >> 1) > 1u ? (mip_width >> 1) : 1u);
 				blit.dstOffsets[1].y = (i32)((mip_height >> 1) > 1u ? (mip_height >> 1) : 1u);
 				blit.dstOffsets[1].z = 1;
-				vkCmdBlitImage(command_buffer, node->source->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, node->source->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+				vkCmdBlitImage(command_buffer, node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, node->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
 				VkImageMemoryBarrier dst_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 				dst_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -1118,7 +1076,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 				dst_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				dst_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				dst_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				dst_barrier.image = node->source->vk_image;
+				dst_barrier.image = node->vk_image;
 				dst_barrier.subresourceRange.aspectMask = aspect;
 				dst_barrier.subresourceRange.baseMipLevel = mip_level - 1;
 				dst_barrier.subresourceRange.levelCount = 1;
@@ -1137,9 +1095,9 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 			final_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			final_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			final_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			final_barrier.image = node->source->vk_image;
+			final_barrier.image = node->vk_image;
 			final_barrier.subresourceRange.aspectMask = aspect;
-			final_barrier.subresourceRange.baseMipLevel = node->source->mip_levels - 1;
+			final_barrier.subresourceRange.baseMipLevel = node->mip_levels - 1;
 			final_barrier.subresourceRange.levelCount = 1;
 			final_barrier.subresourceRange.baseArrayLayer = 0;
 			final_barrier.subresourceRange.layerCount = 1;
@@ -1177,12 +1135,12 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	}
 
 	if (result != VK_SUCCESS) {
-		rtvk_texture_node_release(node);
+		rtvk_resource_release(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
 
-	node->source->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	node->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	rtvk_texture_recycle_node(texture, texture->active);
 	texture->active = node;
 	return timepoint;
@@ -1216,7 +1174,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture subdata upload requires a graphics or transfer queue");
 		return timepoint;
 	}
-	if (!texture || !texture->active || !texture->active->source->vk_image) {
+	if (!texture || !texture->active || !texture->active->vk_image) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture subdata target is NULL");
 		return timepoint;
 	}
@@ -1229,17 +1187,17 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	}
 
 	struct rtvk_texture* node = texture->active;
-	if (node->source->type != RT_TEXTURE_2D || mip != 0 || offset_z != 0 || depth != 1) {
+	if (node->type != RT_TEXTURE_2D || mip != 0 || offset_z != 0 || depth != 1) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture subdata currently supports only 2D mip 0 textures");
 		return timepoint;
 	}
-	if (offset_x > node->source->width || offset_y > node->source->height ||
-		width > node->source->width - offset_x || height > node->source->height - offset_y) {
+	if (offset_x > node->width || offset_y > node->height ||
+		width > node->width - offset_x || height > node->height - offset_y) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture subdata region is out of bounds");
 		return timepoint;
 	}
 
-	u32 bytes_per_pixel = rtvk_texture_view_bytes_per_pixel(node->source->vk_format);
+	u32 bytes_per_pixel = rtvk_texture_view_bytes_per_pixel(node->vk_format);
 	if (bytes_per_pixel == 0) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture subdata does not support this Vulkan format");
 		return timepoint;
@@ -1272,9 +1230,9 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 		return timepoint;
 	}
 
-	VkImageLayout original_layout = node->source->vk_layout;
+	VkImageLayout original_layout = node->vk_layout;
 	VkImageLayout restore_layout = original_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original_layout;
-	const VkImageAspectFlags aspect = rtvk_texture_format_aspect(node->source->vk_format);
+	const VkImageAspectFlags aspect = rtvk_texture_format_aspect(node->vk_format);
 
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.srcAccessMask = rtvk_texture_layout_access(original_layout);
@@ -1283,7 +1241,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = node->source->vk_image;
+	barrier.image = node->vk_image;
 	barrier.subresourceRange.aspectMask = aspect;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
@@ -1308,7 +1266,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 	vkCmdCopyBufferToImage(
 		command_buffer,
 		queue->upload_staging_buffer,
-		node->source->vk_image,
+		node->vk_image,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
 		&copy
@@ -1343,7 +1301,7 @@ struct rtvk_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk
 			queue->submitted_value = value;
 			timepoint = (struct rtvk_timepoint){ queue, value };
 			queue->upload_command_timepoint = timepoint;
-			node->source->vk_layout = restore_layout;
+			node->vk_layout = restore_layout;
 		}
 	}
 
@@ -1393,11 +1351,13 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy requires a transfer queue");
 		return timepoint;
 	}
-	if (!texture_view || !texture_view->source || !texture_view->source->vk_image || !texture_view->vk_image_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy source is NULL");
+	if (!texture_view || !texture_view->backing || !texture_view->vk_image_view) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy backing is NULL");
 		return timepoint;
 	}
-	struct rtvk_image_source* source = texture_view->source;
+	VkImage src_vk_image; VkFormat src_vk_format; VkImageLayout* src_layout_ptr; enum rt_texture_type src_type;
+	u32 src_width, src_height, src_depth, src_mips;
+	rtvk_image_backing_read(texture_view->backing, &src_vk_image, &src_vk_format, &src_layout_ptr, &src_type, &src_width, &src_height, &src_depth, &src_mips);
 	if (!buffer) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy requires a valid destination buffer");
 		return timepoint;
@@ -1411,13 +1371,13 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 		return timepoint;
 	}
 
-	u32 bytes_per_pixel = rtvk_texture_view_bytes_per_pixel(source->vk_format);
+	u32 bytes_per_pixel = rtvk_texture_view_bytes_per_pixel(src_vk_format);
 	if (bytes_per_pixel == 0) {
 		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture view copy does not support this Vulkan format");
 		return timepoint;
 	}
 
-	u64 total_size = (u64)source->width * source->height * bytes_per_pixel;
+	u64 total_size = (u64)src_width * src_height * bytes_per_pixel;
 	if (!buffer->active || buffer->active->size < total_size) {
 		rtvk_buffer_data(ctx, buffer, buffer->mode, buffer->usage, total_size, NULL);
 	}
@@ -1440,7 +1400,7 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 		return timepoint;
 	}
 
-	VkImageLayout original_layout = source->vk_layout;
+	VkImageLayout original_layout = *src_layout_ptr;
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.srcAccessMask = rtvk_texture_layout_access(original_layout);
 	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -1448,7 +1408,7 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = source->vk_image;
+	barrier.image = src_vk_image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
@@ -1464,12 +1424,12 @@ struct rtvk_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx,
 	copy.imageSubresource.mipLevel = 0;
 	copy.imageSubresource.baseArrayLayer = 0;
 	copy.imageSubresource.layerCount = 1;
-	copy.imageExtent.width = source->width;
-	copy.imageExtent.height = source->height;
+	copy.imageExtent.width = src_width;
+	copy.imageExtent.height = src_height;
 	copy.imageExtent.depth = 1;
 	vkCmdCopyImageToBuffer(
 		command_buffer,
-		source->vk_image,
+		src_vk_image,
 		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		buffer->active->vk_buffer,
 		1,

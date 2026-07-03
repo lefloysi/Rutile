@@ -1,39 +1,28 @@
-#ifndef RTDX_QUEUE_H
-#define RTDX_QUEUE_H
+#pragma once
 
-#include "config.h"
-#include "resource.h"
+#include "config.hpp"
+#include "resource.hpp"
 
 #include <d3d12.h>
 #include <windows.h>
 
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
-
-RTDX_EXTERN_C_ENTER
-RTDX_API rt_queue rtQueueQuery(enum rt_queue_capability capability);
+RTDX_API rt_queue rtQueueQuery(rt_queue_capability capability);
 RTDX_API void rtQueueWait(rt_queue queue, rt_timepoint timepoint);
 RTDX_API rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer);
 RTDX_API rt_timepoint rtQueueFlush(rt_queue queue);
 RTDX_API void rtTimepointWait(rt_timepoint timepoint);
 RTDX_API bool rtTimepointReached(rt_timepoint timepoint);
-RTDX_EXTERN_C_EXIT
-
-/*===============================================================================================*/
-/*                                                                                               */
-/*===============================================================================================*/
 
 struct rtdx_command_buffer;
 
 struct rtdx_submitted_batch {
-	struct rtdx_command_buffer* command_buffer_node;
-	struct rtdx_submitted_batch* next;
+	rtdx_command_buffer* command_buffer_node;
+	rtdx_submitted_batch* next;
 	u64 value;
 };
 
 struct rtdx_queue {
-	struct rtdx_resource_base base;
+	rtdx_resource_base base;
 
 	ID3D12CommandQueue* d3d_queue;
 	ID3D12Fence* d3d_fence;
@@ -42,33 +31,31 @@ struct rtdx_queue {
 	ID3D12Resource* upload_buffer;
 	HANDLE fence_event;
 
-	struct rtdx_timepoint wait_timepoints[8];
-	struct rtdx_submitted_batch* submitted_head;
-	struct rtdx_submitted_batch* submitted_tail;
+	rtdx_timepoint wait_timepoints[8];
+	rtdx_submitted_batch* submitted_head;
+	rtdx_submitted_batch* submitted_tail;
 
 	u64 fence_value;
 	u64 upload_fence_value;
 	u64 upload_buffer_size;
-	enum rt_queue_capability capability;
+	rt_queue_capability capability;
 	u32 wait_count;
 };
 
-static inline struct rtdx_queue* rtdx_queue_from_handle(rt_queue queue) { return (struct rtdx_queue*)queue; }
-static inline rt_queue rtdx_queue_to_handle(struct rtdx_queue* queue) { return (rt_queue)queue; }
+inline rtdx_queue* rtdx_queue_from_handle(rt_queue queue) { return reinterpret_cast<rtdx_queue*>(queue); }
+inline rt_queue rtdx_queue_to_handle(rtdx_queue* queue) { return reinterpret_cast<rt_queue>(queue); }
 
-struct rtdx_queue* rtdx_queue_create(struct rtdx_context* ctx, enum rt_queue_capability capability);
-void rtdx_queue_destroy(struct rtdx_context* ctx, struct rtdx_queue* queue);
-bool rtdx_queue_init(struct rtdx_context* ctx, struct rtdx_queue* queue, enum rt_queue_capability capability);
-void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue);
-struct rtdx_queue* rtdx_queue_query(struct rtdx_context* ctx, enum rt_queue_capability capability);
-void rtdx_queue_wait(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_timepoint timepoint);
-struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_queue* queue, struct rtdx_command_buffer* command_buffer);
-struct rtdx_timepoint rtdx_queue_flush(struct rtdx_context* ctx, struct rtdx_queue* queue);
-struct rtdx_timepoint rtdx_queue_signal(struct rtdx_context* ctx, struct rtdx_queue* queue);
-void rtdx_queue_wait_idle(struct rtdx_context* ctx, struct rtdx_queue* queue);
-void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue);
-bool rtdx_queue_acquire_upload_command(struct rtdx_context* ctx, struct rtdx_queue* queue);
-void rtdx_timepoint_wait(struct rtdx_context* ctx, struct rtdx_timepoint timepoint);
-bool rtdx_timepoint_reached(struct rtdx_context* ctx, struct rtdx_timepoint timepoint);
-
-#endif /* RTDX_QUEUE_H */
+rtdx_queue* rtdx_queue_create(rtdx_context* ctx, rt_queue_capability capability);
+void rtdx_queue_destroy(rtdx_context* ctx, rtdx_queue* queue);
+bool rtdx_queue_init(rtdx_context* ctx, rtdx_queue* queue, rt_queue_capability capability);
+void rtdx_queue_finish(rtdx_context* ctx, rtdx_queue* queue);
+rtdx_queue* rtdx_queue_query(rtdx_context* ctx, rt_queue_capability capability);
+void rtdx_queue_wait(rtdx_context* ctx, rtdx_queue* queue, rtdx_timepoint timepoint);
+rtdx_timepoint rtdx_queue_submit(rtdx_context* ctx, rtdx_queue* queue, rtdx_command_buffer* command_buffer);
+rtdx_timepoint rtdx_queue_flush(rtdx_context* ctx, rtdx_queue* queue);
+rtdx_timepoint rtdx_queue_signal(rtdx_context* ctx, rtdx_queue* queue);
+void rtdx_queue_wait_idle(rtdx_context* ctx, rtdx_queue* queue);
+void rtdx_queue_collect(rtdx_context* ctx, rtdx_queue* queue);
+bool rtdx_queue_acquire_upload_command(rtdx_context* ctx, rtdx_queue* queue);
+void rtdx_timepoint_wait(rtdx_context* ctx, rtdx_timepoint timepoint);
+bool rtdx_timepoint_reached(rtdx_context* ctx, rtdx_timepoint timepoint);
