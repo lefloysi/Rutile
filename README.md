@@ -1,29 +1,25 @@
 # Rutile
 
-Rutile is a user-space graphics API built around one idea:
+Rutile is a user-space graphics API built around portability and ease of use.
+Backends are explicitly loaded DLLs to support various features such as layers and extensions.
+The core Rutile API is quite small, supporting only things that *every* api is expected to support.
 
-If a backend can do it, Rutile can expose it.
+At this point only C bindings exist. Other languages are theoretically supported by the architecture,
+just not implemented at this point.
 
-The core API is intentionally small. Backends, layers, and extensions communicate
-through named procedure lookup, so new features do not need a central registry,
-driver support, or official approval. A project can fork a backend, add a proc,
-write a matching extension header, and load that feature from application code.
-
-Rutile is not trying to be a sealed graphics standard. It is a workbench for
-building the graphics API your project needs.
-
+Here is a screenshot from the voxel renderer.
 <p align="center">
-  <img src="example/minecraft/image.png" alt="Rutile Minecraft example" width="720">
+  <img src="examples/05-voxel-engine/image.png" alt="Rutile Minecraft example" width="720">
 </p>
 
 ## Project Shape
 
-- `include/rutile.h` is the public loader and core API.
-- `include/rt_ext_*.h` files are optional extension packages.
+- `bindings/c/include/rutile.h` is the public loader and core API.
+- `bindings/c/include/rt_ext_*.h` files are optional extension packages.
 - `rt-vk13` is the Vulkan backend.
 - `rt-validation-layer` is a validation layer.
 - `rt-logging-layer` is a logging layer.
-- `example` is a small program that loads the backend, layers, and extensions.
+- `examples` is a collection of small projects that show how to use Rutile. Because of ongoing development moving to the new custom RTSL examples do NOT work at this point.
 
 ## Loading
 
@@ -34,9 +30,7 @@ const char* layers[] = {
     "RT_VALIDATION_LAYER",
     "RT_LOGGING_LAYER",
 };
-
-rtLoad("rt-vk13", layers, 2);
-if (rtError() != RT_SUCCESS) {
+if (rtLoad("rt-vk13", layers, 2) != RT_SUCCESS) {
     /* handle load failure */
 }
 ```
@@ -63,25 +57,17 @@ if (rtGetProc("rtMyFeatureDoThing")) {
 
 ## Extensions
 
-Rutile extensions are self-contained headers. An extension header usually owns:
+Rutile extensions are functions exported by a backend that are not part of the core.
+These features should come with headers declaring what functions are exposed and what
+to load.
 
+These headers contain things like:
 - public extension types
 - proc typedefs
 - private proc slots
 - inline API wrappers
-- a `rtLoad_RT_EXT_*` function that resolves names through `rtGetProc`
+- a function (like `rtLoad_EXT_SWAPCHAIN`) that resolves names through `rtGetProc`
 
-The backend exposes extension functions by exporting C symbols with the same
-names that the extension loader resolves:
-
-```c
-RTVK_API void rtMyFeatureDoThing(...) {
-    ...
-}
-```
-
-Features do not need to be registered in a table. The symbol name is the proc
-name.
 
 The application includes the extension header and loads it after the backend:
 
@@ -95,139 +81,10 @@ if (rtLoad_RT_EXT_MY_FEATURE()) {
 }
 ```
 
-This is one of Rutile's core philosophies: features can be screwed onto the
-API from user space. If a backend fork can implement a feature, an extension
-header can expose it.
+This is one of Rutile's core philosophies: features should be able to be screwed onto forked backends 
+with ease.
 
 ## Layers
-
-Layers sit between the application and backend. A tableless layer gets the
-downstream chain once, then exposes wrapper symbols by name:
-
-```c
-static PFN_rtMyFeatureDoThing next_rtMyFeatureDoThing;
-
-RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
-    next_rtMyFeatureDoThing = (PFN_rtMyFeatureDoThing)next.get_proc(&next, "rtMyFeatureDoThing");
-}
-
-RT_EXPORT void rtMyFeatureDoThing(...) {
-    next_rtMyFeatureDoThing(...);
-}
-```
-
-When resolving `rtMyFeatureDoThing`, the loader asks the downstream chain
-whether the proc exists. If it does, the loader asks the layer DLL for a wrapper
-symbol named `rtMyFeatureDoThing`. If the wrapper exists, the layer participates
-in the call; otherwise the call passes through.
-
-Layers do not need a proc table. Unknown names pass through to the next
-resolver automatically.
-
-Layers can log calls, validate usage, capture traces, profile
-performance, or experiment with new behavior.
-
-Layer order is bottom-up:
-
-```text
-backend -> layers[0] -> layers[1] -> ... -> layers[N - 1] -> application
-```
-
-The last layer in the `rtLoad` list is the outermost layer and sees calls first.
-
-Layers should only return wrappers for procs that exist downstream. Optional
-and custom extension procs are normal in Rutile, so a missing downstream proc
-means the layer should return `NULL` for that name rather than installing a
-wrapper that cannot call anything.
-
-## Error Model
-
-Rutile calls report failure by writing thread-local error state. Calls that can
-throw should be followed by an `rtError()` check:
-
-```c
-rtInit(features, feature_count);
-if (rtError() != RT_SUCCESS) {
-    const char* message = rtErrorMessage();
-    rtClearError();
-}
-```
-
-Destroy calls do not throw. Destroying `RT_NULL_HANDLE` is defined behavior.
-
-## Installing
-
-Rutile uses vcpkg manifest mode for third-party packages. Install vcpkg once,
-then configure CMake with the vcpkg toolchain file:
-
-```powershell
-git clone https://github.com/microsoft/vcpkg C:\vcpkg
-C:\vcpkg\bootstrap-vcpkg.bat
-cmake -S . -B out\build -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
-cmake --build out\build --config Debug
-cmake --install out\build --config Debug --prefix out\install
-```
-
-If vcpkg already lives somewhere else, point `CMAKE_TOOLCHAIN_FILE` at that
-checkout instead. For example:
-
-```powershell
-cmake -S . -B out\build -DCMAKE_TOOLCHAIN_FILE=C:\Users\lefloysi\Desktop\GameDev\vcpkg\scripts\buildsystems\vcpkg.cmake
-```
-
-The manifest in `vcpkg.json` installs:
-
-- GLFW
-- glslang
-- Vulkan headers and loader
-- Vulkan Memory Allocator
-
-After install, the runnable files are placed in the install prefix:
-
-```powershell
-.\out\install\rutile-example.exe
-```
-
-The build tree can also be run directly:
-
-```powershell
-.\out\build\bin\Debug\rutile-example.exe
-```
-
-The current build produces `rt-vk13.dll`, `rt-validation-layer.dll`,
-`rt-logging-layer.dll`, and `rutile-example.exe`.
-
-## Status
-
-Rutile is early. The loader, layer chain, extension model, and Vulkan context
-scaffold exist and build, but large parts of the backend are still incomplete.
-The project is currently best understood as an extensible graphics API
-foundation rather than a finished renderer.
-
-## OpenGL 3.3 Parity Gaps
-
-Rutile is deliberately smaller than OpenGL 3.3, but if the goal is to cover the
-common GL 3.3 surface, the current spec is still missing a few important pieces:
-
-- indexed drawing and index-buffer binding
-- instanced drawing and per-instance vertex stepping
-- viewport state
-- depth/stencil test state and stencil ops
-- depth bias / polygon offset
-- color write masks
-- primitive topology selection
-- geometry-shader support
-- sampler compare mode and broader sampler state
-- framebuffer completeness/status queries
-
-The existing surface already covers the core object model:
-
-- buffers
-- textures and texture views
-- framebuffer attachments
-- graphics programs
-- command buffers
-- queues and sync points
-
-So the next additions should mostly fill in pipeline state and draw-call
-variants, not introduce a whole new resource model.
+Layers are a feature that enable easy cross platform validation, logging, profiling or other features
+enabled by intercepting calls. For example the official validation layer tracks object lifetimes and
+errors when things remain alive at termination.
