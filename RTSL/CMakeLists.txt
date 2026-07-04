@@ -29,6 +29,7 @@ set(RTSL_SOURCES
     ${_rtsl_src}/text_rtir.cpp
     ${_rtsl_src}/package.cpp
     ${_rtsl_src}/compiler.cpp
+    ${_rtsl_src}/language_service.cpp
     ${_rtsl_src}/linker.cpp
     ${_rtsl_src}/rtsl.cpp
 )

@@ -273,13 +273,17 @@ enum class LayoutRule : u8 {
 // UniformBuffer/StorageBuffer binding. PATH is a `::`-separated path resolved
 // against declared uniforms (e.g. `mat::camera`). RULE is an optional layout
 // rule (std140/std430/scalar); when omitted the binding kind's default is
-// used. TYPE is either a named type spelling or an inline `struct { ... }`
-// body captured in inline_fields.
+// used.
+//
+// TYPE is either a named type spelling (`type_spelling` populated, e.g.
+// `mat4`) or an inline `struct { ... }` body (`is_inline_struct` true,
+// members in `inline_fields`).
 struct LayoutDecl {
 	std::vector<std::string> path;
 	LayoutRule rule = LayoutRule::unset;
-	std::string type_spelling;				// "struct" when inline
-	std::vector<StructField> inline_fields; // only when type_spelling == "struct"
+	bool is_inline_struct = false;
+	std::string type_spelling;              // only when !is_inline_struct
+	std::vector<StructField> inline_fields; // only when is_inline_struct
 	SourceSpan span{};
 };
 

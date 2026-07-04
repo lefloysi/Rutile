@@ -66,6 +66,19 @@ namespace rtsl {
 	X(dot, '.')                    \
 	X(colon, ':')
 
+// Two-character punctuation. `first` and `second` are the raw chars; `name`
+// is a TokenKind enumerator (declared inline below). Lexer walks this table
+// to decide whether the current char pair is a two-char token.
+#define RTSL_TWO_CHAR_PUNCTUATION_TOKENS(X) \
+	X(equal_equal, '=', '=')                \
+	X(bang_equal, '!', '=')                 \
+	X(less_equal, '<', '=')                 \
+	X(greater_equal, '>', '=')              \
+	X(amp_amp, '&', '&')                    \
+	X(pipe_pipe, '|', '|')                  \
+	X(arrow, '-', '>')                      \
+	X(colon_colon, ':', ':')
+
 enum class TokenKind : u16 {
 	invalid,
 	end_of_file,

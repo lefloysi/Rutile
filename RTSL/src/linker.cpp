@@ -189,14 +189,6 @@ bool inline_one_module_pass(IRModule& ir) {
 	return progress;
 }
 
-void inline_cross_module_calls(IRModule& ir) {
-	for (int iteration = 0; iteration < 64; ++iteration) {
-		if (!inline_one_module_pass(ir))
-			break;
-	}
-}
-
-
 Linker::Linker(DiagnosticEngine& diagnostics) : diagnostics_(diagnostics) {}
 
 bool Linker::add_artifact_bytes(std::span<const u8> bytes) {
@@ -250,7 +242,7 @@ Artifact Linker::link_program() {
 		for (const auto& entry : inputs_[i].entries)
 			program.entries.push_back(entry);
 	}
-	inline_cross_module_calls(program.module);
+	for (int iteration = 0; iteration < 64 && inline_one_module_pass(program.module); ++iteration) {}
 
 	program.bytes = write_artifact(ArtifactKind::program, program.module);
 	validate_program_stages(program);
@@ -281,7 +273,7 @@ Artifact Linker::link_library() {
 	// symbols this library doesn't define survive as unresolved
 	// FunctionCalls - that's fine for a library; the program linker will
 	// resolve them later when more inputs are available.
-	inline_cross_module_calls(library.module);
+	for (int iteration = 0; iteration < 64 && inline_one_module_pass(library.module); ++iteration) {}
 
 	library.bytes = write_artifact(ArtifactKind::library, library.module);
 	return library;
@@ -300,14 +292,14 @@ Artifact extract_module_interface(const Artifact& source) {
 		// Public interface entry: signature only, no body. Importers see
 		// these as forward declarations and the linker resolves them
 		// against an actual definition in an .rtslo / .rtsll input.
-		IRFunction declaration;
-		declaration.result_id = fn.result_id;
-		declaration.return_type_id = fn.return_type_id;
-		declaration.stage = fn.stage;
-		declaration.exported = true;
-		declaration.source_name = fn.source_name;
-		declaration.parameter_ids = fn.parameter_ids;
-		module_artifact.module.functions.push_back(std::move(declaration));
+		module_artifact.module.functions.emplace_back(IRFunction{
+			.result_id = fn.result_id,
+			.return_type_id = fn.return_type_id,
+			.parameter_ids = fn.parameter_ids,
+			.stage = fn.stage,
+			.exported = true,
+			.source_name = fn.source_name,
+		});
 	}
 	// No exports means there's nothing to publish through .rtslm. Skip
 	// sidecar emission entirely so users don't get phantom module files
@@ -325,38 +317,44 @@ Artifact extract_module_interface(const Artifact& source) {
 	return module_artifact;
 }
 
-void Linker::validate_program_stages(const Artifact& program) {
-	bool has_vertex = false;
-	bool has_fragment = false;
+// Classification of a linked program based on which stages it declares.
+// Different program kinds have different completeness requirements — only
+// graphics programs need both vert + frag; a compute-only program is fine.
+enum class ProgramKind : u8 {
+	none,     // no entry points at all
+	graphics, // any of vertex/fragment/tess/geometry stages
+	// compute / raygen / mesh — to be added as the language grows
+};
+
+static ProgramKind classify_program(const Artifact& program) {
 	for (const auto& entry : program.entries) {
-		if (entry.stage == StageKind::none) {
-			continue;
-		}
 		switch (entry.stage) {
 		case StageKind::vertex:
-			has_vertex = true;
-			break;
 		case StageKind::fragment:
-			has_fragment = true;
-			break;
+			return ProgramKind::graphics;
 		case StageKind::none:
 			break;
 		}
 	}
+	return ProgramKind::none;
+}
 
-	const auto error = [&](std::string message) {
-		diagnostics_.report(6003, DiagnosticSeverity::error, {}, "<link>", std::move(message));
-	};
+void Linker::validate_program_stages(const Artifact& program) {
+	if (classify_program(program) != ProgramKind::graphics) return;
 
-	// A program that declares any graphics stage is a graphics program and must
-	// provide at least a vertex and a fragment stage.
-	if (has_vertex || has_fragment) {
-		if (!has_vertex) {
-			error("graphics program is missing a vertex stage (vert)");
-		}
-		if (!has_fragment) {
-			error("graphics program is missing a fragment stage (frag)");
-		}
+	bool has_vertex = false;
+	bool has_fragment = false;
+	for (const auto& entry : program.entries) {
+		has_vertex = has_vertex || entry.stage == StageKind::vertex;
+		has_fragment = has_fragment || entry.stage == StageKind::fragment;
+	}
+	if (!has_vertex) {
+		diagnostics_.report(6003, DiagnosticSeverity::error, {}, "<link>",
+							"graphics program is missing a vertex stage (vert)");
+	}
+	if (!has_fragment) {
+		diagnostics_.report(6003, DiagnosticSeverity::error, {}, "<link>",
+							"graphics program is missing a fragment stage (frag)");
 	}
 }
 

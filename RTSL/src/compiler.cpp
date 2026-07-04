@@ -7,6 +7,7 @@
 
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <span>
 #include <unordered_set>
@@ -21,77 +22,93 @@ std::string read_text_file(const std::filesystem::path& path) {
 	return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
+static void skip_ws(std::string_view& text) {
+	while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
+}
+
+// Consume the leading `[A-Za-z0-9_]+` run — a preprocessor identifier.
+// Empty result means the head wasn't an identifier character.
+static std::string_view take_identifier(std::string_view& text) {
+	std::size_t n = 0;
+	while (n < text.size() && (std::isalnum(static_cast<unsigned char>(text[n])) || text[n] == '_')) ++n;
+	const auto out = text.substr(0, n);
+	text.remove_prefix(n);
+	return out;
+}
+
 std::string preprocess_source(std::string_view source, std::span<const std::string> defines) {
 	std::unordered_set<std::string> defined(defines.begin(), defines.end());
+	// active_stack.back() is the "should we emit lines right now" flag; each
+	// #if{def,ndef} pushes and #endif pops. #else toggles under its parent's
+	// active state so nested-and-both-inactive branches stay inactive.
+	std::vector<bool> active_stack{ true };
+
+	// Directive handlers keyed by the identifier that follows `#`. Each is
+	// given the rest of the trimmed line (after the identifier) plus a
+	// reference to `defined` and `active_stack`.
+	struct DirectiveContext {
+		std::string_view args;
+		std::unordered_set<std::string>& defined;
+		std::vector<bool>& active_stack;
+		bool parent_active;
+	};
+	using Handler = void (*)(DirectiveContext&);
+	static constexpr std::pair<std::string_view, Handler> directives[] = {
+		{ "define", [](DirectiveContext& c) {
+			 if (!c.parent_active) return;
+			 skip_ws(c.args);
+			 const auto name = take_identifier(c.args);
+			 if (!name.empty()) c.defined.emplace(name);
+		 } },
+		{ "ifdef", [](DirectiveContext& c) {
+			 skip_ws(c.args);
+			 const auto name = take_identifier(c.args);
+			 c.active_stack.push_back(c.parent_active && c.defined.contains(std::string(name)));
+		 } },
+		{ "ifndef", [](DirectiveContext& c) {
+			 skip_ws(c.args);
+			 const auto name = take_identifier(c.args);
+			 c.active_stack.push_back(c.parent_active && !c.defined.contains(std::string(name)));
+		 } },
+		{ "else", [](DirectiveContext& c) {
+			 if (c.active_stack.size() > 1) {
+				 const bool parent = c.active_stack[c.active_stack.size() - 2];
+				 c.active_stack.back() = parent && !c.active_stack.back();
+			 }
+		 } },
+		{ "endif", [](DirectiveContext& c) {
+			 if (c.active_stack.size() > 1) c.active_stack.pop_back();
+		 } },
+	};
+
 	std::string out;
 	out.reserve(source.size());
-	std::vector<bool> active_stack{ true };
 	std::size_t cursor = 0;
 	while (cursor < source.size()) {
 		const auto line_end = source.find('\n', cursor);
 		const auto line_len = line_end == std::string_view::npos ? source.size() - cursor : line_end - cursor;
-		std::string_view line = source.substr(cursor, line_len);
+		const std::string_view line = source.substr(cursor, line_len);
 		std::string_view trimmed = line;
-		while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
-			trimmed.remove_prefix(1);
-		while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
-			trimmed.remove_suffix(1);
+		skip_ws(trimmed);
+		while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) trimmed.remove_suffix(1);
+
 		const bool active = active_stack.back();
 		if (trimmed.starts_with('#')) {
 			trimmed.remove_prefix(1);
-			while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
-				trimmed.remove_prefix(1);
-			if (trimmed.starts_with("define")) {
-				if (active) {
-					trimmed.remove_prefix(6);
-					while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
-						trimmed.remove_prefix(1);
-					std::string name;
-					while (!trimmed.empty() && (std::isalnum(static_cast<unsigned char>(trimmed.front())) || trimmed.front() == '_')) {
-						name.push_back(trimmed.front());
-						trimmed.remove_prefix(1);
-					}
-					if (!name.empty()) {
-						defined.insert(std::move(name));
-					}
-				}
-			} else if (trimmed.starts_with("ifdef")) {
-				trimmed.remove_prefix(5);
-				while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
-					trimmed.remove_prefix(1);
-				std::string name;
-				while (!trimmed.empty() && (std::isalnum(static_cast<unsigned char>(trimmed.front())) || trimmed.front() == '_')) {
-					name.push_back(trimmed.front());
-					trimmed.remove_prefix(1);
-				}
-				active_stack.push_back(active && defined.contains(name));
-			} else if (trimmed.starts_with("ifndef")) {
-				trimmed.remove_prefix(6);
-				while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
-					trimmed.remove_prefix(1);
-				std::string name;
-				while (!trimmed.empty() && (std::isalnum(static_cast<unsigned char>(trimmed.front())) || trimmed.front() == '_')) {
-					name.push_back(trimmed.front());
-					trimmed.remove_prefix(1);
-				}
-				active_stack.push_back(active && !defined.contains(name));
-			} else if (trimmed.starts_with("else")) {
-				if (active_stack.size() > 1) {
-					const bool parent = active_stack[active_stack.size() - 2];
-					active_stack.back() = parent && !active_stack.back();
-				}
-			} else if (trimmed.starts_with("endif")) {
-				if (active_stack.size() > 1) {
-					active_stack.pop_back();
+			skip_ws(trimmed);
+			const auto name = take_identifier(trimmed);
+			for (const auto& [directive, handler] : directives) {
+				if (name == directive) {
+					DirectiveContext ctx{ trimmed, defined, active_stack, active };
+					handler(ctx);
+					break;
 				}
 			}
 		} else if (active) {
 			out.append(line.begin(), line.end());
-			if (line_end != std::string_view::npos)
-				out.push_back('\n');
+			if (line_end != std::string_view::npos) out.push_back('\n');
 		}
-		if (line_end == std::string_view::npos)
-			break;
+		if (line_end == std::string_view::npos) break;
 		cursor = line_end + 1;
 	}
 	return out;
@@ -141,14 +158,16 @@ void CompilerInstance::compile_source_to(Artifact& artifact, std::string_view so
 	for (const auto& import_name : ast.imports) {
 		const auto import_path = resolve_import(invocation, import_name);
 		if (import_path.empty()) {
-			diagnostics_.report(2002, DiagnosticSeverity::error, sources_.location_at(file_id, 0), invocation.source_name, "failed to resolve import '" + import_name + "'");
+			diagnostics_.report(2002, DiagnosticSeverity::error, sources_.location_at(file_id, 0), invocation.source_name,
+								std::format("failed to resolve import '{}'", import_name));
 			continue;
 		}
 		Artifact imported;
 		std::ifstream input(import_path, std::ios::binary);
 		std::vector<u8> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 		if (!read_artifact(bytes, imported, &diagnostics_)) {
-			diagnostics_.report(2003, DiagnosticSeverity::error, sources_.location_at(file_id, 0), invocation.source_name, "failed to load import '" + import_name + "'");
+			diagnostics_.report(2003, DiagnosticSeverity::error, sources_.location_at(file_id, 0), invocation.source_name,
+								std::format("failed to load import '{}'", import_name));
 			continue;
 		}
 		imported_modules.push_back(std::move(imported));

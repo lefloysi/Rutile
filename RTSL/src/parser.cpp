@@ -245,99 +245,110 @@ Decl Parser::parse_import(bool exported) {
 	return Decl{ .kind = DeclKind::import, .name = std::move(name), .span = start.span, .exported = exported };
 }
 
+// `A[::B[::C[::~D]]]`. Each segment is an identifier; `~` may appear before
+// the final identifier to name a destructor. Empty result means the cursor
+// wasn't on an identifier.
+std::string Parser::parse_scoped_name() {
+	if (!at(TokenKind::identifier)) return {};
+	std::string name(peek().text);
+	++cursor_;
+	while (consume(TokenKind::colon_colon)) {
+		const bool destructor = consume(TokenKind::tilde);
+		if (!at(TokenKind::identifier)) {
+			diagnose(peek(), destructor ? "expected destructor name after '~'"
+										: "expected identifier after '::'");
+			return name;
+		}
+		name += destructor ? "::~" : "::";
+		name.append(peek().text);
+		++cursor_;
+		if (destructor) return name;
+	}
+	return name;
+}
+
+void Parser::parse_function_decl(Decl& decl) {
+	parse_function_signature(decl);
+	// Detect `Foo::Foo(...)`-shape constructors: owner segment equals member
+	// segment. Constructors can't declare a return type.
+	if (const auto scope = decl.name.find("::"); scope != std::string::npos) {
+		const auto owner = std::string_view(decl.name).substr(0, scope);
+		const auto member = std::string_view(decl.name).substr(scope + 2);
+		if (owner == member && decl.return_type != "void") {
+			diagnose(peek(), "constructors must not specify a return type");
+		}
+	}
+	parse_function_body(decl);
+}
+
+void Parser::parse_struct_decl(Decl& decl) {
+	StructDecl struct_decl{ .name = decl.name };
+	if (!consume(TokenKind::left_brace)) {
+		if (unit_) unit_->structs.emplace_back(std::move(struct_decl));
+		return;
+	}
+	while (!at_end() && !at(TokenKind::right_brace)) {
+		// Inline `fn Foo(args);` constructor declaration.
+		if (at(TokenKind::kw_Function)) {
+			++cursor_;
+			if (!at(TokenKind::identifier)) {
+				diagnose(peek(), "expected constructor name");
+				skip_to_declaration_boundary();
+				continue;
+			}
+			const auto ctor_name = std::string_view(peek().text);
+			++cursor_;
+			if (ctor_name != decl.name) {
+				diagnose(peek(), "expected constructor declaration");
+				skip_to_declaration_boundary();
+				continue;
+			}
+			Decl ctor{
+				.kind = DeclKind::function,
+				.name = decl.name + "::" + decl.name,
+				.span = decl.span,
+				.exported = decl.exported,
+			};
+			parse_function_signature(ctor);
+			if (ctor.return_type != "void") {
+				diagnose(peek(), "constructor declarations must not specify a return type");
+			}
+			if (!consume(TokenKind::semicolon)) {
+				diagnose(peek(), "expected ';' after constructor declaration");
+			}
+			struct_decl.constructor_parameters = std::move(ctor.parameters);
+			continue;
+		}
+		auto field = parse_field_declaration();
+		if (!field.type.empty() && !field.name.empty()) {
+			struct_decl.fields.emplace_back(std::move(field));
+			continue;
+		}
+		skip_to_declaration_boundary();
+	}
+	(void)consume(TokenKind::right_brace);
+	if (unit_) unit_->structs.emplace_back(std::move(struct_decl));
+}
+
 Decl Parser::parse_named_declaration(DeclKind kind, bool exported) {
 	const Token start = peek();
 	++cursor_;
 
-	std::string name;
-	if (at(TokenKind::identifier)) {
-		name = std::string(peek().text);
-		++cursor_;
-		while (consume(TokenKind::colon_colon)) {
-			if (consume(TokenKind::tilde)) {
-				name += "::~";
-				if (!at(TokenKind::identifier)) {
-					diagnose(peek(), "expected destructor name after '~'");
-					break;
-				}
-				name += std::string(peek().text);
-				++cursor_;
-				break;
-			}
-			if (!at(TokenKind::identifier)) {
-				diagnose(peek(), "expected identifier after '::'");
-				break;
-			}
-			name += "::";
-			name += std::string(peek().text);
-			++cursor_;
-		}
-	} else if (kind != DeclKind::uniform) {
+	auto name = parse_scoped_name();
+	if (name.empty() && kind != DeclKind::uniform) {
 		diagnose(peek(), "expected declaration name");
 	}
 
 	Decl decl{ .kind = kind, .name = std::move(name), .span = start.span, .exported = exported };
-	if (kind == DeclKind::function) {
-		parse_function_signature(decl);
-		if (const auto owner_end = decl.name.find("::");
-			owner_end != std::string::npos && decl.name.substr(owner_end + 2) == decl.name.substr(0, owner_end) &&
-			decl.return_type != "void") {
-			diagnose(peek(), "constructors must not specify a return type");
-		}
-		parse_function_body(decl);
-	} else if (kind == DeclKind::struct_decl) {
-		StructDecl struct_decl{ .name = decl.name };
-		if (consume(TokenKind::left_brace)) {
-			while (!at_end() && !at(TokenKind::right_brace)) {
-				if (at(TokenKind::kw_Function)) {
-					++cursor_;
-					if (!at(TokenKind::identifier)) {
-						diagnose(peek(), "expected constructor name");
-						skip_to_declaration_boundary();
-						continue;
-					}
-					const std::string ctor_name = std::string(peek().text);
-					++cursor_;
-					if (ctor_name != decl.name) {
-						diagnose(peek(), "expected constructor declaration");
-						skip_to_declaration_boundary();
-						continue;
-					}
-					Decl ctor{ .kind = DeclKind::function, .name = decl.name + "::" + decl.name, .span = start.span, .exported = exported };
-					parse_function_signature(ctor);
-					if (ctor.return_type != "void") {
-						diagnose(peek(), "constructor declarations must not specify a return type");
-					}
-					if (!consume(TokenKind::semicolon)) {
-						diagnose(peek(), "expected ';' after constructor declaration");
-					}
-					struct_decl.constructor_parameters = ctor.parameters;
-					continue;
-				}
-				auto field = parse_field_declaration();
-				if (!field.type.empty() && !field.name.empty()) {
-					struct_decl.fields.push_back(std::move(field));
-					continue;
-				}
-				skip_to_declaration_boundary();
-			}
-			const bool consumed_right_brace = consume(TokenKind::right_brace);
-			(void)consumed_right_brace;
-		}
-		if (unit_) {
-			unit_->structs.push_back(std::move(struct_decl));
-		}
-	} else if (kind == DeclKind::uniform) {
-		parse_uniform_scope(decl);
-	} else if (kind == DeclKind::input || kind == DeclKind::output) {
-		parse_stage_interface(decl);
-	} else {
-		skip_balanced_block();
+	switch (kind) {
+	case DeclKind::function:    parse_function_decl(decl); break;
+	case DeclKind::struct_decl: parse_struct_decl(decl); break;
+	case DeclKind::uniform:     parse_uniform_scope(decl); break;
+	case DeclKind::input:
+	case DeclKind::output:      parse_stage_interface(decl); break;
+	default:                    skip_balanced_block(); break;
 	}
-	if (at(TokenKind::semicolon)) {
-		++cursor_;
-	}
-
+	(void)consume(TokenKind::semicolon);
 	return decl;
 }
 
@@ -460,7 +471,7 @@ void Parser::parse_layout() {
 
 	// TYPE: either an inline `struct { ... }` body or a named type spelling.
 	if (consume(TokenKind::kw_Struct)) {
-		layout.type_spelling = "struct";
+		layout.is_inline_struct = true;
 		if (!consume(TokenKind::left_brace)) {
 			diagnose(peek(), "expected '{' after 'struct' in layout type");
 			skip_to_declaration_boundary();

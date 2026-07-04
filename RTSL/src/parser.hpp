@@ -34,6 +34,14 @@ class Parser {
 	Decl::BodyStatement parse_for_statement(const std::vector<Token>& tokens) const;
 	std::string tokens_to_text(std::span<const Token> tokens) const;
 	void parse_uniform_scope(const Decl& decl);
+	// Read `A[::B[::C[::~D]]]` at the current cursor. Returns empty when the
+	// cursor isn't on an identifier. Diagnoses mid-name failures against the
+	// offending token.
+	std::string parse_scoped_name();
+	// Body-specific handlers for parse_named_declaration's post-name dispatch.
+	// Each expects `decl` to have its name populated and drives the rest.
+	void parse_function_decl(Decl& decl);
+	void parse_struct_decl(Decl& decl);
 	void parse_stage_interface(const Decl& decl);
 	void parse_layout();
 	void parse_using_alias();

@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <format>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -1842,15 +1843,12 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 		return qn;
 	};
 	const auto layouts_match = [](const LayoutDecl& a, const LayoutDecl& b) {
-		if (a.type_spelling != b.type_spelling)
-			return false;
-		if (a.inline_fields.size() != b.inline_fields.size())
-			return false;
+		if (a.is_inline_struct != b.is_inline_struct) return false;
+		if (!a.is_inline_struct) return a.type_spelling == b.type_spelling;
+		if (a.inline_fields.size() != b.inline_fields.size()) return false;
 		for (std::size_t i = 0; i < a.inline_fields.size(); ++i) {
-			if (a.inline_fields[i].type != b.inline_fields[i].type)
-				return false;
-			if (a.inline_fields[i].name != b.inline_fields[i].name)
-				return false;
+			if (a.inline_fields[i].type != b.inline_fields[i].type) return false;
+			if (a.inline_fields[i].name != b.inline_fields[i].name) return false;
 		}
 		return true;
 	};
@@ -1866,14 +1864,16 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 		const auto it = uniform_by_qualified.find(qn);
 		if (it == uniform_by_qualified.end()) {
 			if (diagnostics) {
-				diagnostics->report(3104, DiagnosticSeverity::error, layout.span.begin, module.source_name, "layout refers to unknown uniform '" + qn + "'");
+				diagnostics->report(3104, DiagnosticSeverity::error, layout.span.begin, module.source_name,
+									std::format("layout refers to unknown uniform '{}'", qn));
 			}
 			continue;
 		}
 		const auto& target = ir.uniforms[it->second];
 		if (!is_uniform_buffer_type(target.type) && !is_storage_buffer_type(target.type)) {
 			if (diagnostics) {
-				diagnostics->report(3105, DiagnosticSeverity::error, layout.span.begin, module.source_name, "uniform '" + qn + "' has type " + target.type + " and does not accept a layout");
+				diagnostics->report(3105, DiagnosticSeverity::error, layout.span.begin, module.source_name,
+									std::format("uniform '{}' has type {} and does not accept a layout", qn, target.type));
 			}
 			continue;
 		}
@@ -1881,7 +1881,8 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 		if (!inserted) {
 			const auto& existing = module.layouts[existing_it->second];
 			if (!layouts_match(existing, layout) && diagnostics) {
-				diagnostics->report(3101, DiagnosticSeverity::error, layout.span.begin, module.source_name, "conflicting layout for '" + qn + "'");
+				diagnostics->report(3101, DiagnosticSeverity::error, layout.span.begin, module.source_name,
+									std::format("conflicting layout for '{}'", qn));
 			}
 		}
 	}
@@ -1915,20 +1916,22 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 			const auto layout_it = first_layout_for_uniform.find(uidx);
 			if (layout_it == first_layout_for_uniform.end()) {
 				if (diagnostics) {
-					diagnostics->report(3102, DiagnosticSeverity::error, {}, module.source_name, std::string(is_ubo ? "UniformBuffer '" : "StorageBuffer '") + qn + "' has no layout");
+					diagnostics->report(3102, DiagnosticSeverity::error, {}, module.source_name,
+										std::format("{} '{}' has no layout", is_ubo ? "UniformBuffer" : "StorageBuffer", qn));
 				}
 				value_ty = types.find("void");
 			} else {
 				const auto& layout = module.layouts[layout_it->second];
 				const LayoutRule rule = resolve_layout_rule(layout.rule, is_ssbo);
-				if (layout.type_spelling == "struct") {
+				if (layout.is_inline_struct) {
 					value_ty = types.register_anon_struct(qn, layout.inline_fields);
 					payload_layout = compute_buffer_layout(layout.inline_fields, rule);
 					payload_field_count = layout.inline_fields.size();
 				} else {
 					value_ty = types.find(layout.type_spelling);
 					if (value_ty == IRId_None && diagnostics) {
-						diagnostics->report(3103, DiagnosticSeverity::error, layout.span.begin, module.source_name, "unknown type '" + layout.type_spelling + "' in layout for '" + qn + "'");
+						diagnostics->report(3103, DiagnosticSeverity::error, layout.span.begin, module.source_name,
+											std::format("unknown type '{}' in layout for '{}'", layout.type_spelling, qn));
 						value_ty = types.find("void");
 					}
 					// Non-struct payload (e.g. `layout foo : mat4;`). Wrap the
@@ -2110,7 +2113,7 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 	// Synthesize stage interfaces from struct fields when the source didn't
 	// declare them. A varying must be declared explicitly because its
 	// interpolation qualifiers are not derivable.
-	const auto synth_from_struct = [&](const std::string& type, StageRole role) {
+	const auto synth_from_struct = [&](std::string_view type, StageRole role) {
 		if (type.empty() || type == "void")
 			return;
 		if (find_interface(ir.stage_interfaces, type))
@@ -2132,15 +2135,14 @@ IRModule lower_to_ir(const SemanticModule& module, DiagnosticEngine* diagnostics
 			return;
 		}
 	};
-	const auto require_varying = [&](const std::string& type, std::string_view context) {
-		if (type.empty() || type == "void")
-			return;
+	const auto require_varying = [&](std::string_view type, std::string_view context) {
+		if (type.empty() || type == "void") return;
 		for (const auto& interface : ir.stage_interfaces) {
-			if (interface.type_name == type && interface.role == StageRole::varying)
-				return;
+			if (interface.type_name == type && interface.role == StageRole::varying) return;
 		}
 		if (diagnostics) {
-			diagnostics->report(3100, DiagnosticSeverity::error, {}, module.source_name, "stage payload '" + type + "' is " + std::string(context) + " and requires a 'varying' declaration to define interpolation");
+			diagnostics->report(3100, DiagnosticSeverity::error, {}, module.source_name,
+								std::format("stage payload '{}' is {} and requires a 'varying' declaration to define interpolation", type, context));
 		}
 	};
 	for (const auto& pending : pending_stages) {

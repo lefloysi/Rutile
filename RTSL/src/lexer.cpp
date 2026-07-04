@@ -16,76 +16,29 @@ bool is_identifier_continue(char c) {
 
 
 std::string_view token_spelling(TokenKind kind) {
+	// Spelling table generated from the same X-macros the enum came from.
+	// static_cast<u16>(kind) gives us a small enum index into a stack-local
+	// switch — the compiler collapses this to a jump table.
 	switch (kind) {
 #define RTSL_KEYWORD_SPELLING(name, spelling) \
-	case TokenKind::kw_##name:                \
-		return spelling;
+	case TokenKind::kw_##name: return spelling;
 		RTSL_KEYWORD_TOKENS(RTSL_KEYWORD_SPELLING)
 #undef RTSL_KEYWORD_SPELLING
-	case TokenKind::plus:
-		return "+";
-	case TokenKind::minus:
-		return "-";
-	case TokenKind::star:
-		return "*";
-	case TokenKind::slash:
-		return "/";
-	case TokenKind::percent:
-		return "%";
-	case TokenKind::equal:
-		return "=";
-	case TokenKind::equal_equal:
-		return "==";
-	case TokenKind::bang_equal:
-		return "!=";
-	case TokenKind::less:
-		return "<";
-	case TokenKind::less_equal:
-		return "<=";
-	case TokenKind::greater:
-		return ">";
-	case TokenKind::greater_equal:
-		return ">=";
-	case TokenKind::bang:
-		return "!";
-	case TokenKind::amp_amp:
-		return "&&";
-	case TokenKind::pipe_pipe:
-		return "||";
-	case TokenKind::amp:
-		return "&";
-	case TokenKind::pipe:
-		return "|";
-	case TokenKind::caret:
-		return "^";
-	case TokenKind::tilde:
-		return "~";
-	case TokenKind::arrow:
-		return "->";
-	case TokenKind::colon_colon:
-		return "::";
-	case TokenKind::colon:
-		return ":";
-	case TokenKind::left_paren:
-		return "(";
-	case TokenKind::right_paren:
-		return ")";
-	case TokenKind::left_brace:
-		return "{";
-	case TokenKind::right_brace:
-		return "}";
-	case TokenKind::left_bracket:
-		return "[";
-	case TokenKind::right_bracket:
-		return "]";
-	case TokenKind::comma:
-		return ",";
-	case TokenKind::semicolon:
-		return ";";
-	case TokenKind::dot:
-		return ".";
-	default:
-		return "";
+#define RTSL_ONE_CHAR_SPELLING(name, spelling) \
+	case TokenKind::name: {                    \
+		static constexpr char text[] = { spelling, '\0' }; \
+		return text;                           \
+	}
+		RTSL_PUNCTUATION_TOKENS(RTSL_ONE_CHAR_SPELLING)
+#undef RTSL_ONE_CHAR_SPELLING
+#define RTSL_TWO_CHAR_SPELLING(name, a, b) \
+	case TokenKind::name: {                \
+		static constexpr char text[] = { a, b, '\0' }; \
+		return text;                       \
+	}
+		RTSL_TWO_CHAR_PUNCTUATION_TOKENS(RTSL_TWO_CHAR_SPELLING)
+#undef RTSL_TWO_CHAR_SPELLING
+	default: return "";
 	}
 }
 
@@ -223,22 +176,12 @@ Token Lexer::lex_punctuation() {
 		return make_token(kind, begin, cursor_);
 	};
 
-	if (c == '=' && n == '=')
-		return two(TokenKind::equal_equal);
-	if (c == '!' && n == '=')
-		return two(TokenKind::bang_equal);
-	if (c == '<' && n == '=')
-		return two(TokenKind::less_equal);
-	if (c == '>' && n == '=')
-		return two(TokenKind::greater_equal);
-	if (c == '&' && n == '&')
-		return two(TokenKind::amp_amp);
-	if (c == '|' && n == '|')
-		return two(TokenKind::pipe_pipe);
-	if (c == '-' && n == '>')
-		return two(TokenKind::arrow);
-	if (c == ':' && n == ':')
-		return two(TokenKind::colon_colon);
+	// Two-char punctuation table lookup. Anything not matched falls through
+	// to the single-char table below.
+#define RTSL_TWO_CHAR_MATCH(kind_name, first, second) \
+	if (c == first && n == second) return two(TokenKind::kind_name);
+	RTSL_TWO_CHAR_PUNCTUATION_TOKENS(RTSL_TWO_CHAR_MATCH)
+#undef RTSL_TWO_CHAR_MATCH
 
 #define RTSL_PUNCTUATION_MATCH(name, spelling) \
 	if (c == spelling)                         \
