@@ -287,12 +287,8 @@ void render_thread_main(const std::filesystem::path& asset_dir) {
 	rtTextureViewAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 	rtTextureViewAnisotropy(texture_view, 1);
 
-	const std::vector<char> shader_program(
-		reinterpret_cast<const char*>(rutile_01_textured_quads::textured_quads_rtslp),
-		reinterpret_cast<const char*>(rutile_01_textured_quads::textured_quads_rtslp) + rutile_01_textured_quads::textured_quads_rtslp_size);
-
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(graphics_program, shader_program.size(), shader_program.data());
+	rtGraphicsProgramSource(graphics_program, textured_quads_rtslp.size, textured_quads_rtslp.data);
 	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
 	rtGraphicsProgramFinalize(graphics_program);
 	if (rtError() != RT_SUCCESS) {

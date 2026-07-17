@@ -173,8 +173,6 @@ void rtvk_graphics_program_finish(struct rtvk_graphics_program* program) {
 	vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
 
 	free(program->program_source);
-	rtsl_spirv_reflection_clear(&program->vertex_reflection);
-	rtsl_spirv_reflection_clear(&program->fragment_reflection);
 
 	free(program->uniform_locations);
 	program->uniform_locations = NULL;
@@ -189,7 +187,6 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 		return;
 	}
 
-	size_t binding_bytes = sizeof(VkDescriptorSetLayoutBinding) * program->uniform_location_count;
 	VkDescriptorSetLayoutBinding* bindings = calloc(program->uniform_location_count, sizeof(*bindings));
 	if (!bindings) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate descriptor set layout bindings");
@@ -223,7 +220,7 @@ static void rtvk_graphics_program_create_pipeline_layout(struct rtvk_context* ct
 
 	if (!program->vk_descriptor_set_layout) {
 		rtvk_graphics_program_create_descriptor_set_layout(ctx, program);
-		if (rtvk_error() != RT_SUCCESS) {
+		if (program->uniform_location_count && !program->vk_descriptor_set_layout) {
 			return;
 		}
 	}
@@ -447,8 +444,7 @@ void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-		rtsl_spirv_reflection_clear(&program->vertex_reflection);
-		rtsl_spirv_reflection_clear(&program->fragment_reflection);
+		rtvk_graphics_program_clear_uniform_locations(program);
 		return;
 	}
 	if (layout->attribute_count > RTVK_MAX_VERTEX_ATTRIBUTES) {
@@ -474,8 +470,7 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
 		rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
-		rtsl_spirv_reflection_clear(&program->vertex_reflection);
-		rtsl_spirv_reflection_clear(&program->fragment_reflection);
+		rtvk_graphics_program_clear_uniform_locations(program);
 		return;
 	}
 
@@ -490,8 +485,7 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
 	rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
-	rtsl_spirv_reflection_clear(&program->vertex_reflection);
-	rtsl_spirv_reflection_clear(&program->fragment_reflection);
+	rtvk_graphics_program_clear_uniform_locations(program);
 	program->program_source = new_source;
 	program->program_source_size = size;
 }
@@ -531,11 +525,11 @@ static struct rtvk_uniform_location* rtvk_graphics_program_find_uniform_location
 	return NULL;
 }
 
-static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics_program* program, u32 count) {
+static bool rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics_program* program, u32 count) {
 	assert(program);
 
 	if (program->uniform_location_capacity >= count) {
-		return;
+		return true;
 	}
 	u32 capacity = program->uniform_location_capacity ? program->uniform_location_capacity : 8;
 	while (capacity < count) {
@@ -545,164 +539,81 @@ static void rtvk_graphics_program_reserve_uniform_locations(struct rtvk_graphics
 	void* locations = realloc(program->uniform_locations, sizeof(program->uniform_locations[0]) * capacity);
 	if (!locations) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate uniform locations");
-		return;
+		return false;
 	}
 
 	program->uniform_locations = locations;
 	program->uniform_location_capacity = capacity;
+	return true;
 }
 
-static void rtvk_graphics_program_add_uniform_block(struct rtvk_graphics_program* program, const struct rtsl_spirv_uniform_block* block, VkShaderStageFlags stages) {
-	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, block->name);
-	if (existing) {
-		if (existing->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && existing->binding == block->binding) {
-			return;
-		}
-		if (existing->kind != RTVK_UNIFORM_LOCATION_BUFFER || existing->binding != block->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniform block %s uses different bindings across shader stages", block->name);
-			return;
-		}
-		existing->stages |= stages;
-		return;
-	}
-
-	for (u32 i = 0; i < program->uniform_location_count; i++) {
-		if (program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER &&
-			program->uniform_locations[i].binding == block->binding) {
-			return;
-		}
-		if (program->uniform_locations[i].binding == block->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, block->name);
-			return;
-		}
-	}
-	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
-
-	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
-	location->program = program;
-	snprintf(location->name, sizeof(location->name), "%s", block->name);
-	location->name[sizeof(location->name) - 1] = '\0';
-	location->stages = stages;
-	location->kind = RTVK_UNIFORM_LOCATION_BUFFER;
-	location->binding = block->binding;
-	location->index = program->uniform_location_count;
-	program->uniform_location_count++;
-}
-
-static void rtvk_graphics_program_add_texture(struct rtvk_graphics_program* program, const struct rtsl_spirv_texture* texture, VkShaderStageFlags stages) {
-	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, texture->name);
-	if (existing) {
-		if (existing->kind != RTVK_UNIFORM_LOCATION_TEXTURE || existing->binding != texture->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "texture uniform %s uses different bindings across shader stages", texture->name);
-			return;
-		}
-		existing->stages |= stages;
-		return;
-	}
-
-	for (u32 i = 0; i < program->uniform_location_count; i++) {
-		if (program->uniform_locations[i].binding == texture->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, texture->name);
-			return;
-		}
-	}
-	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
-
-	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
-	location->program = program;
-	snprintf(location->name, sizeof(location->name), "%s", texture->name);
-	location->name[sizeof(location->name) - 1] = '\0';
-	location->stages = stages;
-	location->kind = RTVK_UNIFORM_LOCATION_TEXTURE;
-	location->binding = texture->binding;
-	location->index = program->uniform_location_count;
-	program->uniform_location_count++;
-}
-
-static void rtvk_graphics_program_add_storage_buffer(struct rtvk_graphics_program* program,	const struct rtsl_spirv_resource* resource, VkShaderStageFlags stages) {
+static bool rtvk_graphics_program_build_uniform_locations(
+	struct rtvk_graphics_program* program,
+	const rtsl_spirv_translation* translation
+) {
 	assert(program);
+	assert(translation);
 
-	struct rtvk_uniform_location* existing = rtvk_graphics_program_find_uniform_location(program, resource->name);
-	if (existing) {
-		if (existing->kind != RTVK_UNIFORM_LOCATION_STORAGE_BUFFER || existing->binding != resource->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "storage buffer %s uses different bindings across shader stages", resource->name);
-			return;
-		}
-		existing->stages |= stages;
-		return;
+	rtvk_graphics_program_clear_uniform_locations(program);
+	const u32 resource_count = rtsl_spirv_resource_count(translation);
+	if (!rtvk_graphics_program_reserve_uniform_locations(program, resource_count)) {
+		return false;
 	}
 
-	for (u32 i = 0; i < program->uniform_location_count; i++) {
-		if (program->uniform_locations[i].binding == resource->binding) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "uniforms %s and %s use the same binding", program->uniform_locations[i].name, resource->name);
-			return;
+	for (u32 i = 0; i < resource_count; i++) {
+		rtsl_spirv_resource_info resource;
+		if (!rtsl_spirv_resource(translation, i, &resource)) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resource reflection failed at index %u", i);
+			return false;
 		}
-	}
-	rtvk_graphics_program_reserve_uniform_locations(program, program->uniform_location_count + 1);
-	if (rtvk_error() != RT_SUCCESS) {
-		return;
-	}
+		if (resource.descriptor_set != 0) {
+			rtvk_throwf(RT_UNSUPPORTED_FEATURE, "RTSL resource %s uses unsupported descriptor set %u", resource.name, resource.descriptor_set);
+			return false;
+		}
+		if (!resource.name || strlen(resource.name) >= RTVK_MAX_SHADER_UNIFORM_NAME) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resource name is missing or exceeds the Vulkan backend limit");
+			return false;
+		}
 
-	struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
-	location->program = program;
-	snprintf(location->name, sizeof(location->name), "%s", resource->name);
-	location->name[sizeof(location->name) - 1] = '\0';
-	location->stages = stages;
-	location->kind = RTVK_UNIFORM_LOCATION_STORAGE_BUFFER;
-	location->binding = resource->binding;
-	location->index = program->uniform_location_count;
-	program->uniform_location_count++;
-}
+		VkShaderStageFlags stages = 0;
+		if (resource.stages & RTSL_SPIRV_STAGE_VERTEX) {
+			stages |= VK_SHADER_STAGE_VERTEX_BIT;
+		}
+		if (resource.stages & RTSL_SPIRV_STAGE_FRAGMENT) {
+			stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+		if (!stages) {
+			continue;
+		}
 
-static void rtvk_graphics_program_build_uniform_locations(struct rtvk_graphics_program* program) {
-	program->uniform_location_count = 0;
+		rtvk_uniform_location_kind kind;
+		switch (resource.kind) {
+		case RTSL_SPIRV_UNIFORM_BUFFER:
+			kind = RTVK_UNIFORM_LOCATION_BUFFER;
+			break;
+		case RTSL_SPIRV_STORAGE_BUFFER:
+			kind = RTVK_UNIFORM_LOCATION_STORAGE_BUFFER;
+			break;
+		case RTSL_SPIRV_SAMPLED_TEXTURE:
+			kind = RTVK_UNIFORM_LOCATION_TEXTURE;
+			break;
+		case RTSL_SPIRV_SAMPLER:
+		case RTSL_SPIRV_STORAGE_IMAGE:
+		default:
+			rtvk_throwf(RT_UNSUPPORTED_FEATURE, "RTSL resource %s has an unsupported graphics resource kind", resource.name);
+			return false;
+		}
 
-	for (u32 i = 0; i < program->vertex_reflection.resource_count; i++) {
-		const struct rtsl_spirv_resource* resource = &program->vertex_reflection.resources[i];
-		rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_VERTEX_BIT);
-			if (rtvk_error() != RT_SUCCESS) {
-				return;
-			}
-		
+		struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
+		location->program = program;
+		memcpy(location->name, resource.name, strlen(resource.name) + 1);
+		location->stages = stages;
+		location->kind = kind;
+		location->binding = resource.binding;
+		location->index = program->uniform_location_count;
+		program->uniform_location_count++;
 	}
-	for (u32 i = 0; i < program->fragment_reflection.resource_count; i++) {
-		const struct rtsl_spirv_resource* resource = &program->fragment_reflection.resources[i];
-		rtvk_graphics_program_add_storage_buffer(program, resource, VK_SHADER_STAGE_FRAGMENT_BIT);
-			if (rtvk_error() != RT_SUCCESS) {
-				return;
-			}
-		
-	}
-	for (u32 i = 0; i < program->vertex_reflection.uniform_block_count; i++) {
-		rtvk_graphics_program_add_uniform_block(program, &program->vertex_reflection.uniform_blocks[i], VK_SHADER_STAGE_VERTEX_BIT);
-		if (rtvk_error() != RT_SUCCESS) {
-			return;
-		}
-	}
-	for (u32 i = 0; i < program->fragment_reflection.uniform_block_count; i++) {
-		rtvk_graphics_program_add_uniform_block(program, &program->fragment_reflection.uniform_blocks[i], VK_SHADER_STAGE_FRAGMENT_BIT);
-		if (rtvk_error() != RT_SUCCESS) {
-			return;
-		}
-	}
-	for (u32 i = 0; i < program->vertex_reflection.texture_count; i++) {
-		rtvk_graphics_program_add_texture(program, &program->vertex_reflection.textures[i], VK_SHADER_STAGE_VERTEX_BIT);
-		if (rtvk_error() != RT_SUCCESS) {
-			return;
-		}
-	}
-	for (u32 i = 0; i < program->fragment_reflection.texture_count; i++) {
-		rtvk_graphics_program_add_texture(program, &program->fragment_reflection.textures[i], VK_SHADER_STAGE_FRAGMENT_BIT);
-		if (rtvk_error() != RT_SUCCESS) {
-			return;
-		}
-	}
+	return true;
 }
 
 void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
@@ -711,16 +622,93 @@ void rtvk_graphics_program_reset(struct rtvk_context* ctx, struct rtvk_graphics_
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
 	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-	rtsl_spirv_reflection_clear(&program->vertex_reflection);
-	rtsl_spirv_reflection_clear(&program->fragment_reflection);
 	rtvk_graphics_program_clear_uniform_locations(program);
+}
+
+static bool rtvk_graphics_program_create_shader(
+	struct rtvk_context* ctx,
+	const u32* words,
+	u64 word_count,
+	VkShaderModule* shader
+) {
+	if (!words || word_count == 0) {
+		rtvk_throwf(RT_SHADER_COMPILATION_FAILED, "RTSL transpiler returned an empty SPIR-V module");
+		return false;
+	}
+
+	VkShaderModuleCreateInfo shader_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+	shader_info.codeSize = (size_t)word_count * sizeof(*words);
+	shader_info.pCode = words;
+	const VkResult result = vkCreateShaderModule(ctx->vk_device, &shader_info, VK_ALLOCATOR, shader);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "vkCreateShaderModule failed: %s", rtvk_vk_result_name(result));
+		return false;
+	}
+	return true;
 }
 
 void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	assert(ctx);
 	assert(program);
 
-	// Compile the source to spir-v and create the shader program
+	if (!program->program_source || program->program_source_size == 0) {
+		rtvk_throwf(RT_SHADER_LINK_FAILED, "graphics program finalize requires an RTSLP source set via rtGraphicsProgramSource");
+		return;
+	}
+	if (program->vk_pipeline_layout || program->vk_vertex_shader || program->vk_fragment_shader) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program is already finalized; reset it before finalizing again");
+		return;
+	}
+
+	char translation_message[1024] = { 0 };
+	rtsl_spirv_translation* translation = NULL;
+	const rtsl_spirv_status status = rtsl_spirv_translate(
+		program->program_source_size,
+		program->program_source,
+		&translation,
+		translation_message,
+		sizeof(translation_message)
+	);
+	if (status != RTSL_SPIRV_SUCCESS) {
+		const enum rt_error error = status == RTSL_SPIRV_OUT_OF_MEMORY
+			? RT_OUT_OF_HOST_MEMORY
+			: status == RTSL_SPIRV_INVALID_PROGRAM
+				? RT_SHADER_LINK_FAILED
+				: RT_SHADER_COMPILATION_FAILED;
+		rtvk_throwf(error, "RTSL translation failed: %s", translation_message);
+		return;
+	}
+
+	bool complete = false;
+	u64 vertex_word_count = 0;
+	const u32* vertex_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_VERTEX, &vertex_word_count);
+	if (!rtvk_graphics_program_create_shader(ctx, vertex_words, vertex_word_count, &program->vk_vertex_shader)) {
+		goto cleanup;
+	}
+
+	u64 fragment_word_count = 0;
+	const u32* fragment_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_FRAGMENT, &fragment_word_count);
+	if (!rtvk_graphics_program_create_shader(ctx, fragment_words, fragment_word_count, &program->vk_fragment_shader)) {
+		goto cleanup;
+	}
+
+	if (!rtvk_graphics_program_build_uniform_locations(program, translation)) {
+		goto cleanup;
+	}
+	rtvk_graphics_program_create_pipeline_layout(ctx, program);
+	if (!program->vk_pipeline_layout) {
+		goto cleanup;
+	}
+	complete = true;
+
+cleanup:
+	rtsl_spirv_translation_destroy(translation);
+	if (!complete) {
+		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
+		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
+		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
+		rtvk_graphics_program_clear_uniform_locations(program);
+	}
 }
 
 static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode) {
@@ -799,5 +787,14 @@ static VkBlendOp rtvk_blend_op(enum rt_blend_op op) {
 }
 
 struct rtvk_uniform_location* rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name) {
+	(void)ctx;
+	if (!program || !name) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program and uniform name must be valid");
+		return NULL;
+	}
+	if (!program->vk_pipeline_layout) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying uniforms");
+		return NULL;
+	}
 	return rtvk_graphics_program_find_uniform_location(program, name);
 }

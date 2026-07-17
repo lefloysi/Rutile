@@ -46,7 +46,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/framebuffer.h"
     "src/resource/graphics_program.c"
     "src/resource/graphics_program.h"
-    "src/rtsl_spirv.c"
+    "src/rtsl_spirv.cpp"
     "src/rtsl_spirv.h"
     "src/resource/queue.c"
     "src/resource/queue.h"
@@ -77,7 +77,7 @@ target_link_libraries(${PROJECT_NAME}
         GPUOpen::VulkanMemoryAllocator
         ${CMAKE_DL_LIBS}
         Threads::Threads
-        rtsl
+        RTSL::spirv
 )
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE psapi)

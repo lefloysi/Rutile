@@ -8,7 +8,6 @@ set(_triangle_rtsl_dir "${CMAKE_CURRENT_BINARY_DIR}/rtsl")
 rtsl_add_program(rutile-00-triangle
     RTSLC rtslc
     OUTPUT_DIR "${_triangle_rtsl_dir}"
-    NAMESPACE rutile_00_triangle
     EMBED
     SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/triangle.rtsl"
 )

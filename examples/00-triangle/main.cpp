@@ -62,10 +62,7 @@ int main(int argc, char** argv) {
 	}
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	const std::vector<char> triangle_program(
-		reinterpret_cast<const char*>(rutile_00_triangle::triangle_rtslp),
-		reinterpret_cast<const char*>(rutile_00_triangle::triangle_rtslp) + rutile_00_triangle::triangle_rtslp_size);
-	rtGraphicsProgramSource(program, triangle_program.size(), triangle_program.data());
+	rtGraphicsProgramSource(program, triangle_rtslp.size, triangle_rtslp.data);
 	rtGraphicsProgramLayout(program, &kLayout);
 	rtGraphicsProgramFinalize(program);
 	if (!check_rt("rtGraphicsProgramFinalize")) {

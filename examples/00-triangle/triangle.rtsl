@@ -1,36 +1,19 @@
 struct Point {
-    vec2 position;
-    vec3 color;
+	vec2 position;
+	vec3 color;
 };
 
 struct Vertex {
-    fn Vertex(Point p);
+	vec4 position;
+	vec3 color;
+};
 
-    vec4 position;
-    vec3 color;
+@stage : vertex
+fn vertex_entry(Point point) -> Vertex : position(clip), color(smooth) {
+	return Vertex(vec4(point.position, 0.0, 1.0), point.color);
 }
 
-fn Vertex::Vertex(Point p) {
-    position = vec4(p.position, 0.0, 1.0);
-    color = p.color;
-}
-
-using RasterVertex = Vertex : clip position, smooth color;
-
-struct Fragment {
-    fn Fragment(Vertex v);
-
-    vec4 color;
-}
-
-fn Fragment::Fragment(Vertex v) {
-    color = vec4(v.color, 1.0);
-}
-
-fn vert_main(vert_globals g, Point p) -> RasterVertex {
-    return Vertex(p);
-}
-
-fn frag_main(frag_globals g, Vertex v) -> Fragment {
-    return Fragment(v);
+@stage : fragment
+fn fragment_entry(Vertex vertex) -> vec4 {
+	return vec4(vertex.color, 1.0);
 }

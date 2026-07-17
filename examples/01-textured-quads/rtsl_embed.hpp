@@ -1,9 +1,5 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include <rtsl/sdk/program.hpp>
 
-namespace rutile_01_textured_quads {
-extern const std::uint8_t textured_quads_rtslp[];
-extern const std::size_t textured_quads_rtslp_size;
-}
+extern "C" const rtsl::ProgramBytes textured_quads_rtslp;

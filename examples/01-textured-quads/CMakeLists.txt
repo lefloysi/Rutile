@@ -12,7 +12,6 @@ set(_textured_quads_rtsl_dir "${CMAKE_CURRENT_BINARY_DIR}/rtsl")
 rtsl_add_program(rutile-01-textured-quads
     RTSLC rtslc
     OUTPUT_DIR "${_textured_quads_rtsl_dir}"
-    NAMESPACE rutile_01_textured_quads
     EMBED
     SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/textured_quads.rtsl"
 )
