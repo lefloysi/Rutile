@@ -203,8 +203,9 @@ int main(int argc, char** argv) {
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
 	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
+	u32 rendered_frames = 0;
 
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 			glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -267,6 +268,7 @@ int main(int argc, char** argv) {
 		last_rendered = rendered;
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
+		rendered_frames++;
 
 		fps_frames++;
 		const auto fps_now = std::chrono::steady_clock::now();

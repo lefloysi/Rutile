@@ -145,8 +145,9 @@ int main(int argc, char** argv) {
 	rt_command_buffer command_buffer = rtCommandBufferCreate();
 	rt_timepoint last_rendered = {};
 	const auto start = std::chrono::steady_clock::now();
+	u32 rendered_frames = 0;
 
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
 		glfwPollEvents();
 		const f32 time = std::chrono::duration<f32>(std::chrono::steady_clock::now() - start).count();
 		update_plasma(pixels, time);
@@ -167,6 +168,7 @@ int main(int argc, char** argv) {
 		rtCmdEnd(command_buffer);
 		last_rendered = rtQueueSubmit(queue, command_buffer);
 		rtSwapchainPresent(swapchain, last_rendered);
+		rendered_frames++;
 	}
 
 	rtTimepointWait(last_rendered);

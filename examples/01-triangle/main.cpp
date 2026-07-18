@@ -54,8 +54,9 @@ int main(int argc, char** argv) {
 	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(kVertices), kVertices);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
+	u32 rendered_frames = 0;
 
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
 		glfwPollEvents();
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
 		rtCmdEnd(cmd);
 
 		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, cmd));
+		rendered_frames++;
 	}
 
 	rtCommandBufferDestroy(cmd);
