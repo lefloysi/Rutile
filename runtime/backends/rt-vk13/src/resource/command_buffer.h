@@ -120,9 +120,9 @@ void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_com
 void rtvk_command_buffer_compute_barrier(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_set_scissor(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtvk_command_buffer_storage_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_texture_view* texture_view);
+void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_buffer* buffer, u64 offset, u64 size);
 void rtvk_command_buffer_uniform_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_buffer* buffer, u64 offset, u64 size);
 void rtvk_command_buffer_uniform_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_texture_view* texture_view);
-void rtvk_command_buffer_use_compute_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_compute_program* program);
 void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_graphics_program* program);
 void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 

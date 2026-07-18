@@ -131,7 +131,7 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 	enum rt_buffer_mode mode,
 	enum rt_buffer_usage usage
 ) {
-	struct rtdx_buffer_storage* storage = RTDX_ALLOC_RESOURCE(struct rtdx_buffer_storage);
+	struct rtdx_buffer_storage* storage = RTDX_ALLOC_RESOURCE(rtdx_buffer_storage);
 	if (!storage) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate buffer storage metadata");
 		return NULL;

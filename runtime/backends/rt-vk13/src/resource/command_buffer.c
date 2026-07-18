@@ -115,6 +115,10 @@ void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location l
 	);
 }
 
+void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
+	rtvk_command_buffer_storage_buffer(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer), binding, rtvk_buffer_from_handle(buffer), offset, size);
+}
+
 void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
 	rtvk_command_buffer_bind_vertex_buffer(
 		rtvk_get_current_context(),
@@ -149,8 +153,10 @@ void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
 	struct rtvk_context* ctx = command_buffer->base.ctx;
 	assert(ctx);
 	struct rtvk_command_buffer* node = command_buffer->next;
-	rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
-	rtvk_command_buffer_node_release(command_buffer->active);
+	if (command_buffer->active) {
+		rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
+		rtvk_command_buffer_node_release(command_buffer->active);
+	}
 	command_buffer->active = NULL;
 	while (node) {
 		struct rtvk_command_buffer* next = node->next;
@@ -785,6 +791,59 @@ void rtvk_command_buffer_uniform_buffer(
 	rtvk_command_buffer_clear_uniform_slot(slot);
 	rtvk_buffer_node_retain(buffer_node);
 	slot->kind = RTVK_UNIFORM_SLOT_BUFFER;
+	slot->buffer.node = buffer_node;
+	slot->buffer.offset = offset;
+	slot->buffer.size = size;
+	node->bound_descriptor_set = VK_NULL_HANDLE;
+	node->uniforms_dirty = true;
+}
+
+void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_buffer* buffer, u64 offset, u64 size) {
+	(void)ctx;
+	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	struct rtvk_buffer* buffer_node = buffer ? buffer->active : NULL;
+	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires active rendering");
+		return;
+	}
+	if (!command_buffer->graphics_program) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
+		return;
+	}
+	struct rtvk_uniform_location* location = NULL;
+	for (u32 i = 0; i < command_buffer->graphics_program->uniform_location_count; i++) {
+		struct rtvk_uniform_location* candidate = &command_buffer->graphics_program->uniform_locations[i];
+		if (candidate->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && candidate->binding == binding) {
+			location = candidate;
+			break;
+		}
+	}
+	if (!location) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "storage buffer binding is not declared by the active graphics program");
+		return;
+	}
+	if (!buffer_node || !buffer_node->vk_buffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "storage buffer has no storage");
+		return;
+	}
+	if (!(buffer_node->usage & RT_BUFFER_USAGE_STORAGE) || (buffer_node->usage & RT_BUFFER_USAGE_STAGING)) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "buffer usage is not compatible with storage binding");
+		return;
+	}
+	if (size == 0 || offset > buffer_node->size || size > buffer_node->size - offset) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "storage buffer range is invalid");
+		return;
+	}
+	rtvk_uniform_slot* slot = rtvk_command_buffer_uniform_slot(node, location->index);
+	if (!slot) {
+		return;
+	}
+	if (slot->kind == RTVK_UNIFORM_SLOT_STORAGE_BUFFER && slot->buffer.node == buffer_node && slot->buffer.offset == offset && slot->buffer.size == size) {
+		return;
+	}
+	rtvk_command_buffer_clear_uniform_slot(slot);
+	rtvk_buffer_node_retain(buffer_node);
+	slot->kind = RTVK_UNIFORM_SLOT_STORAGE_BUFFER;
 	slot->buffer.node = buffer_node;
 	slot->buffer.offset = offset;
 	slot->buffer.size = size;

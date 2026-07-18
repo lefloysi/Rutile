@@ -456,6 +456,7 @@ typedef void (*PFN_rtCmdUseGraphicsProgram)(rt_command_buffer command_buffer, rt
 typedef void (*PFN_rtCmdSetScissor)(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 typedef void (*PFN_rtCmdUniformBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdUniformTexture)(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
+typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdBindVertexBuffer)(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 typedef void (*PFN_rtCmdDraw)(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 typedef void (*PFN_rtCmdEndRendering)(rt_command_buffer command_buffer);
@@ -526,6 +527,7 @@ extern PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram;
 extern PFN_rtCmdSetScissor rt_rtCmdSetScissor;
 extern PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer;
 extern PFN_rtCmdUniformTexture rt_rtCmdUniformTexture;
+extern PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer;
 extern PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer;
 extern PFN_rtCmdDraw rt_rtCmdDraw;
 extern PFN_rtCmdEndRendering rt_rtCmdEndRendering;
@@ -1406,6 +1408,9 @@ static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_unifo
 static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
 	rt_rtCmdUniformTexture(command_buffer, location, texture_view);
 }
+static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
+	rt_rtCmdStorageBuffer(command_buffer, binding, buffer, offset, size);
+}
 
 /*!
 ** @brief Bind a vertex buffer for subsequent draw commands.
@@ -2097,6 +2102,7 @@ PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram = NULL;
 PFN_rtCmdSetScissor rt_rtCmdSetScissor = NULL;
 PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer = NULL;
 PFN_rtCmdUniformTexture rt_rtCmdUniformTexture = NULL;
+PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer = NULL;
 PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer = NULL;
 PFN_rtCmdDraw rt_rtCmdDraw = NULL;
 PFN_rtCmdEndRendering rt_rtCmdEndRendering = NULL;
@@ -2256,6 +2262,7 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	RT__CORE_RESOLVE(rtCmdSetScissor);
 	RT__CORE_RESOLVE(rtCmdUniformBuffer);
 	RT__CORE_RESOLVE(rtCmdUniformTexture);
+	RT__CORE_RESOLVE(rtCmdStorageBuffer);
 	RT__CORE_RESOLVE(rtCmdBindVertexBuffer);
 	RT__CORE_RESOLVE(rtCmdDraw);
 	RT__CORE_RESOLVE(rtCmdEndRendering);
@@ -2338,6 +2345,7 @@ static void rt__load_core_development(void) {
 	RT__CORE_TRY_RESOLVE(rtCmdSetScissor);
 	RT__CORE_TRY_RESOLVE(rtCmdUniformBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdUniformTexture);
+	RT__CORE_TRY_RESOLVE(rtCmdStorageBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdBindVertexBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdDraw);
 	RT__CORE_TRY_RESOLVE(rtCmdEndRendering);
@@ -2525,6 +2533,7 @@ void rtUnload(void) {
 	rt_rtCmdSetScissor = NULL;
 	rt_rtCmdUniformBuffer = NULL;
 	rt_rtCmdUniformTexture = NULL;
+	rt_rtCmdStorageBuffer = NULL;
 	rt_rtCmdBindVertexBuffer = NULL;
 	rt_rtCmdDraw = NULL;
 	rt_rtCmdEndRendering = NULL;

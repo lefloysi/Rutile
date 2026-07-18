@@ -428,7 +428,7 @@ void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view
 }
 
 static struct rtdx_texture* rtdx_texture_node_create(struct rtdx_context* ctx) {
-	struct rtdx_texture* node = RTDX_ALLOC_RESOURCE(struct rtdx_texture);
+	struct rtdx_texture* node = RTDX_ALLOC_RESOURCE(rtdx_texture);
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture metadata");
 		return NULL;

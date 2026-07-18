@@ -45,7 +45,7 @@ bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 
 struct rtdx_queue* rtdx_queue_create(struct rtdx_context* ctx, enum rt_queue_capability capability) {
-	struct rtdx_queue* queue = RTDX_ALLOC_RESOURCE(struct rtdx_queue);
+	struct rtdx_queue* queue = RTDX_ALLOC_RESOURCE(rtdx_queue);
 	if (!queue) {
 		return NULL;
 	}
@@ -145,7 +145,7 @@ static struct rtdx_submitted_batch* rtdx_queue_create_batch(struct rtdx_context*
 		return NULL;
 	}
 
-	struct rtdx_submitted_batch* batch = RTDX_ALLOC_RESOURCE(struct rtdx_submitted_batch);
+	struct rtdx_submitted_batch* batch = RTDX_ALLOC_RESOURCE(rtdx_submitted_batch);
 	if (!batch) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate submitted batch metadata");
 		return NULL;

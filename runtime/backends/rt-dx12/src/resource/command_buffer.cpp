@@ -301,7 +301,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE rtdx_heap_gpu_handle(struct rtdx_context* ctx
 }
 
 static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx) {
-	struct rtdx_command_buffer* node = RTDX_ALLOC_RESOURCE(struct rtdx_command_buffer);
+	struct rtdx_command_buffer* node = RTDX_ALLOC_RESOURCE(rtdx_command_buffer);
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer node");
 		return NULL;
