@@ -185,6 +185,9 @@ void rtdx_swapchain_set_vsync(struct rtdx_context* ctx, struct rtdx_swapchain* s
 void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
+	for (u32 i = 0; i < RTDX_MAX_FRAMES_IN_FLIGHT; ++i) {
+		rtdx_swapchain_wait_frame(ctx, &swapchain->frames[i]);
+	}
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
 	if (swapchain->frame_latency_object) {
 		CloseHandle(swapchain->frame_latency_object);

@@ -257,6 +257,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 		struct rtdx_command_buffer* node = rtdx_command_buffer_active_node(command_buffer);
 		ID3D12CommandList* lists[] = { node->d3d_command_list };
 		queue->d3d_queue->ExecuteCommandLists(1, lists);
+		rtdx_context_report_validation(ctx);
 	}
 
 	HRESULT result = queue->d3d_queue->Signal(queue->d3d_fence, value);

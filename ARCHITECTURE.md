@@ -7,9 +7,9 @@ Rutile is a graphics stack split along three axes that stay decoupled:
 2. **Runtime** — the C/C++ implementation of that API: loader-like dispatch,
    the backends (Vulkan, DX12, GL33), and optional layers (validation,
    logging).
-3. **Shader IR (RTIR)** — the portable shader representation backends
-   consume. RTIR is part of the Rutile contract; RTSL is one frontend that
-   produces it.
+3. **Shader programs** — RTSL compiles source into linked `.rtslp` artifacts.
+   Runtime backends load the normalized IR through `RTSL::sdk` and lower it
+   through a target transpiler such as `RTSL::spirv`.
 
 ```
 +---------------------------------------------------------------+
@@ -21,9 +21,8 @@ Rutile is a graphics stack split along three axes that stay decoupled:
 +----------------v-----------------------------------------------+
 |                     runtime/ (C/C++)                            |
 |                                                                 |
-|  layers/      backend-tools/      backends/                     |
-|  validation,  shader translation  vulkan, dx12, gl33            |
-|  logging      (glslang + spirv-cross)                           |
+|  layers/                         backends/                       |
+|  validation, logging            vulkan, dx12, gl33              |
 +-----------------------------------------------------------------+
                  ^
                  |  rtsl produces rtslp packages that backends consume
@@ -45,11 +44,10 @@ rutile/
     rust/               # planned
 
   runtime/              # C/C++ implementation
-    backend-tools/      # shared shader translation (glslang + spirv-cross)
     backends/
-      vk13/             # target: rt-vk13 -> Rutile::rt-vk13
-      dx12/             # target: rt-dx12   -> Rutile::rt-dx12
-      gl33/             # target: rt-gl33   -> Rutile::rt-gl33
+      rt-vk13/          # target: rt-vk13 -> Rutile::rt-vk13
+      rt-dx12/          # target: rt-dx12 -> Rutile::rt-dx12
+      rt-gl33/          # target: rt-gl33 -> Rutile::rt-gl33
     layers/
       rt-validation-layer/  # target: rt-validation-layer
       logging/          # target: rt-logging-layer
@@ -85,41 +83,33 @@ These are the only allowed dependencies. Anything else is a layering bug.
 ```
 Allowed
 -------
-runtime/backends/*      ->  Rutile::rutile, Rutile::backend-tools
+runtime/backends/*      ->  Rutile::rutile, runtime-facing RTSL SDK/transpiler
 runtime/layers/*        ->  Rutile::rutile
-runtime/backend-tools   ->  Rutile::rutile
 bindings/c              ->  (none — header-only interface target)
 examples/*              ->  Rutile::rutile, Rutile::rt-*
 
 Forbidden
 ---------
 bindings/* depending on runtime/*
-runtime/* depending on each other (except via backend-tools)
-runtime/* depending on RTSL or any compiler
+runtime/* depending on each other
+runtime/* depending on the RTSL compiler/frontend
 ```
 
-The last rule is the load-bearing one: a Rutile backend is a runtime
-component, not a compiler. It consumes RTIR; it never depends on the RTSL
-frontend, parser, or linker. RTSL now lives in-tree under `Rutile/RTSL/`.
+The last rule is the load-bearing one: a Rutile backend is a runtime component,
+not a compiler. It may depend on the immutable artifact SDK and a target
+transpiler, but never on the RTSL frontend, parser, semantic analysis, linker,
+or driver. RTSL lives in-tree under `Rutile/RTSL/`.
 
 ## RTIR and the Rutile/RTSL split
 
-RTIR is the portable shader representation. Long-term, the IR data model,
-reader/writer, and verifier should live in Rutile (likely under
-`runtime/ir/`) because it is part of the Rutile contract — RTSL produces
-it; backends consume it. Today, `runtime/backend-tools/` is a stopgap that
-performs GLSL → HLSL / SPIR-V translation via glslang and SPIRV-Cross.
-
-When the RTIR library lands, the migration path is:
-
-1. Add `runtime/ir/` defining the IR model, package reader/writer,
-   verifier, and reflection.
-2. Backends gain an RTIR lowering pass alongside the existing glslang path.
-3. `backend-tools/` shrinks to whatever shared utilities remain (or
-   disappears).
-
-Until then, treat `backend-tools/` as the placeholder for shared shader
-infrastructure.
+RTIR is the normalized representation stored in linked RTSL program artifacts.
+`RTSL::sdk` owns artifact loading, validation, immutable IR access, and
+reflection. Target transpilers live under `RTSL/transpilers/`; the Vulkan
+backend links `RTSL::spirv`, which lowers vertex and fragment stages directly
+to SPIR-V words. The DX12 backend links `RTSL::hlsl`, compiles the generated
+HLSL to DXIL with DXC, and derives its root signature and input layout from
+RTSL reflection. Neither runtime backend links the source-language compiler;
+Vulkan has no intermediate GLSL path.
 
 ## Future bindings
 

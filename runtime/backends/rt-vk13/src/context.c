@@ -3,7 +3,6 @@
 #include "resource/buffer.h"
 #include "resource/queue.h"
 #include "resource/texture.h"
-#include "rtsl_spirv.h"
 
 #include <stdio.h>
 #include <stdlib.h>

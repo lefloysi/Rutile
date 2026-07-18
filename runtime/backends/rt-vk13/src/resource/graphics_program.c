@@ -3,10 +3,10 @@
 #include "error.h"
 #include "rtsl_spirv.h"
 
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <string.h>
 
 /*===============================================================================================*/
@@ -42,7 +42,7 @@ void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode
 	rtvk_graphics_program_raster_state(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled,enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtvk_graphics_program_blend_state(
 		rtvk_get_current_context(), 
 		rtvk_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op
@@ -108,7 +108,6 @@ void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program*
 }
 
 void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
-	(void)ctx;
 	if (program->vk_pipeline) {
 		vkDestroyPipeline(ctx->vk_device, program->vk_pipeline, VK_ALLOCATOR);
 		program->vk_pipeline = VK_NULL_HANDLE;
@@ -169,17 +168,24 @@ static VkFormat rtvk_vertex_format(enum rt_format format) {
 void rtvk_graphics_program_finish(struct rtvk_graphics_program* program) {
 	struct rtvk_context* ctx = program->base.ctx;
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-	vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
-	vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
-
-	free(program->program_source);
-
-	free(program->uniform_locations);
-	program->uniform_locations = NULL;
-	program->uniform_location_count = 0;
-	program->uniform_location_capacity = 0;
+	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
+	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
+	rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
+	rtvk_graphics_program_clear_uniform_locations(program);
 
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(program));
+}
+
+static VkDescriptorType rtvk_graphics_program_descriptor_type(rtvk_uniform_location_kind kind) {
+	switch (kind) {
+	case RTVK_UNIFORM_LOCATION_BUFFER:
+		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	case RTVK_UNIFORM_LOCATION_STORAGE_BUFFER:
+		return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	case RTVK_UNIFORM_LOCATION_TEXTURE:
+		return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	}
+	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
 static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
@@ -195,7 +201,7 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 
 	for (u32 i = 0; i < program->uniform_location_count; i++) {
 		bindings[i].binding = program->uniform_locations[i].binding;
-		bindings[i].descriptorType = program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_TEXTURE ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : (program->uniform_locations[i].kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		bindings[i].descriptorType = rtvk_graphics_program_descriptor_type(program->uniform_locations[i].kind);
 		bindings[i].descriptorCount = 1;
 		bindings[i].stageFlags = program->uniform_locations[i].stages;
 		bindings[i].pImmutableSamplers = NULL;

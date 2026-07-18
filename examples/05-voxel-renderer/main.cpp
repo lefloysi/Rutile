@@ -1,32 +1,25 @@
 #define RUTILE_IMPL
+#include "cli.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
 #include "world.h"
 
 #include <GLFW/glfw3.h>
+#include <rtsl/sdk/program.hpp>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
-#include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <iostream>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vk13";
-constexpr const char* kLayers[] = { "RT_VALIDATION" };
+constexpr const char* kLayers[] = { "RT_VALIDATION_LAYER" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 
-struct TransformUniform {
-	f32 transform[16];
-	f32 time;
-	f32 padding[3];
-};
-
-typedef TransformUniform WaterUniform;
+extern "C" const rtsl::ProgramBytes terrain_rtslp;
+extern "C" const rtsl::ProgramBytes water_rtslp;
 
 struct Camera {
 	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
@@ -43,151 +36,16 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ 1, offsetof(Vertex, color), RT_RGB32_SFLOAT },
-	{ 2, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ 3, offsetof(Vertex, ao), RT_R32_SFLOAT },
-	{ 4, offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
-	{ 5, offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
-	{ 6, offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "ao", offsetof(Vertex, ao), RT_R32_SFLOAT },
+	{ "pixel_uv", offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
+	{ "edge_mask", offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
+	{ "corner_mask", offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
 };
 
 constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 7 };
-
-constexpr const char* kVertexShader = R"(
-#version 460
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_color;
-layout(location = 2) in vec3 in_normal;
-layout(location = 3) in float in_ao;
-layout(location = 4) in vec2 in_pixel_uv;
-layout(location = 5) in float in_edge_mask;
-layout(location = 6) in float in_corner_mask;
-layout(location = 0) flat out vec3 color;
-layout(location = 1) flat out vec3 normal;
-layout(location = 2) out float ao;
-layout(location = 3) out vec2 pixel_uv;
-layout(location = 4) flat out int edge_mask;
-layout(location = 5) flat out int corner_mask;
-
-layout(set = 0, binding = 0) uniform Transform {
-	mat4 transform;
-} u_transform;
-
-void main() {
-	gl_Position = u_transform.transform * vec4(in_position, 1.0);
-	color = in_color;
-	normal = in_normal;
-	ao = in_ao;
-	pixel_uv = in_pixel_uv;
-	edge_mask = int(in_edge_mask + 0.5);
-	corner_mask = int(in_corner_mask + 0.5);
-}
-)";
-
-constexpr const char* kFragmentShader = R"(
-#version 460
-layout(location = 0) flat in vec3 color;
-layout(location = 1) flat in vec3 normal;
-layout(location = 2) in float ao;
-layout(location = 3) in vec2 pixel_uv;
-layout(location = 4) flat in int edge_mask;
-layout(location = 5) flat in int corner_mask;
-layout(location = 0) out vec4 out_color;
-
-const float BlockPixelSize = 8.0;
-const float BlockEdgePixelShade = 0.82;
-
-bool mask_bit(int mask, int bit) {
-	return (mask & bit) != 0;
-}
-
-bool masked_edge_pixel(ivec2 p) {
-	return
-		(p.x == 0 && mask_bit(edge_mask, 1)) ||
-		(p.x == 7 && mask_bit(edge_mask, 2)) ||
-		(p.y == 0 && mask_bit(edge_mask, 4)) ||
-		(p.y == 7 && mask_bit(edge_mask, 8));
-}
-
-bool masked_corner_pixel(ivec2 p) {
-	return
-		(p.x == 0 && p.y == 0 && mask_bit(corner_mask, 1)) ||
-		(p.x == 7 && p.y == 0 && mask_bit(corner_mask, 2)) ||
-		(p.x == 7 && p.y == 7 && mask_bit(corner_mask, 4)) ||
-		(p.x == 0 && p.y == 7 && mask_bit(corner_mask, 8));
-}
-
-void main() {
-	ivec2 p = clamp(ivec2(floor(pixel_uv * BlockPixelSize)), ivec2(0), ivec2(7));
-	bool outline_pixel = masked_edge_pixel(p) || masked_corner_pixel(p);
-	vec3 pixel_color = color * (outline_pixel ? BlockEdgePixelShade : 1.0);
-	vec3 n = normalize(normal);
-	vec3 light_dir = normalize(vec3(-0.35, 0.85, -0.45));
-	vec3 sky_dir = vec3(0.0, 1.0, 0.0);
-	float diffuse = max(dot(n, light_dir), 0.0);
-	float skylight = clamp(dot(n, sky_dir) * 0.5 + 0.5, 0.0, 1.0);
-	float bounce = max(dot(n, normalize(vec3(0.4, 0.35, 0.7))), 0.0) * 0.12;
-	vec3 ambient = mix(vec3(0.16, 0.18, 0.22), vec3(0.30, 0.35, 0.42), skylight);
-	vec3 sunlight = vec3(1.0, 0.94, 0.82) * diffuse;
-	vec3 lit = pixel_color * (ambient + sunlight + bounce) * clamp(ao, 0.35, 1.0);
-	out_color = vec4(lit, 1.0);
-}
-)";
-
-constexpr const char* kWaterVertexShader = R"(
-#version 460
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_color;
-layout(location = 2) in vec3 in_normal;
-layout(location = 3) in float in_ao;
-layout(location = 4) in vec2 in_pixel_uv;
-layout(location = 5) in float in_edge_mask;
-layout(location = 6) in float in_corner_mask;
-layout(location = 0) out vec3 color;
-layout(location = 1) out vec3 normal;
-layout(location = 2) out vec3 world_position;
-
-layout(set = 0, binding = 0) uniform Transform {
-	mat4 transform;
-	float time;
-} u_transform;
-
-void main() {
-	vec3 position = in_position;
-	float wave_a = sin(position.x * 1.45 + u_transform.time * 1.8);
-	float wave_b = cos(position.z * 1.20 + u_transform.time * 1.35);
-	position.y += (wave_a + wave_b) * 0.055;
-	gl_Position = u_transform.transform * vec4(position, 1.0);
-	color = in_color;
-	normal = normalize(vec3(-wave_a * 0.08, 1.0, -wave_b * 0.08));
-	world_position = position;
-}
-)";
-
-constexpr const char* kWaterFragmentShader = R"(
-#version 460
-layout(location = 0) in vec3 color;
-layout(location = 1) in vec3 normal;
-layout(location = 2) in vec3 world_position;
-layout(location = 0) out vec4 out_color;
-
-void main() {
-	vec3 n = normalize(normal);
-	vec3 light_dir = normalize(vec3(-0.35, 0.85, -0.45));
-	float diffuse = max(dot(n, light_dir), 0.0);
-	float sparkle = pow(max(dot(n, normalize(vec3(-0.2, 0.95, 0.15))), 0.0), 56.0);
-	float ripple = sin(world_position.x * 4.0 + world_position.z * 3.0) * 0.5 + 0.5;
-	float fresnel = pow(1.0 - clamp(dot(n, normalize(vec3(0.0, 0.72, 0.68))), 0.0, 1.0), 3.0);
-	vec3 ambient = vec3(0.08, 0.16, 0.24);
-	vec3 deep_water = color * vec3(0.55, 0.75, 0.95);
-	vec3 bright_water = vec3(0.24, 0.55, 0.78);
-	vec3 water = mix(deep_water, bright_water, ripple * 0.18 + fresnel * 0.32);
-	water *= ambient + vec3(0.35, 0.55, 0.72) * diffuse;
-	water += vec3(0.58, 0.78, 0.92) * sparkle;
-	out_color = vec4(clamp(water, vec3(0.0), vec3(1.0)), 0.72);
-}
-)";
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
@@ -201,37 +59,9 @@ glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
 	return projection * view;
 }
 
-void write_transform(TransformUniform* uniform, const glm::mat4& transform) {
-	std::memcpy(uniform->transform, glm::value_ptr(transform), sizeof(uniform->transform));
-	uniform->time = 0.0f;
-	uniform->padding[0] = 0.0f;
-	uniform->padding[1] = 0.0f;
-	uniform->padding[2] = 0.0f;
-}
-
-void write_water_transform(WaterUniform* uniform, const glm::mat4& transform, f32 time) {
-	std::memcpy(uniform->transform, glm::value_ptr(transform), sizeof(uniform->transform));
-	uniform->time = time;
-	uniform->padding[0] = 0.0f;
-	uniform->padding[1] = 0.0f;
-	uniform->padding[2] = 0.0f;
-}
-
-void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
-	if (*depth_view) {
-		rtTextureViewDestroy(*depth_view);
-	}
-	if (*depth_texture) {
-		rtTextureDestroy(*depth_texture);
-	}
-	*depth_texture = rtTextureCreate();
-	rtTimepointWait(rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
-	*depth_view = rtTextureViewCreate();
-	rtTextureViewBind(*depth_view, *depth_texture);
-	if (!*depth_view) {
-		rtTextureDestroy(*depth_texture);
-		*depth_texture = RT_NULL_HANDLE;
-	}
+void resize_depth_buffer(rt_texture depth_texture, rt_texture_view depth_view, u32 width, u32 height) {
+	rtTimepointWait(rtTextureData(depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
+	rtTextureViewBind(depth_view, depth_texture);
 }
 
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
@@ -295,8 +125,8 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 }
 
 int main(int argc, char** argv) {
-	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
-	rtLoad(backend_name, kLayers, 1);
+	const ExampleOptions options = parse_cli(argc, argv);
+	rtLoad(options.backend.c_str(), kLayers, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
 
@@ -305,7 +135,7 @@ int main(int argc, char** argv) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 05 Voxel Engine", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 05 Voxel Renderer", nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
@@ -337,37 +167,35 @@ int main(int argc, char** argv) {
 	const u64 water_vertex_size = (u64)(water_vertices.size() * sizeof(water_vertices[0]));
 	rtBufferData(water_vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, water_vertex_size, water_vertices.data());
 
-	TransformUniform transform = {};
+	glm::mat4 transform{ 1.0f };
 	rt_buffer transform_buffer = rtBufferCreate();
 	rtBufferData(transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(transform), &transform);
 
-	WaterUniform water_transform = {};
+	glm::mat4 water_transform{ 1.0f };
 	rt_buffer water_transform_buffer = rtBufferCreate();
 	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(water_transform), &water_transform);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
-	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
-	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
+	rtGraphicsProgramSource(graphics_program, terrain_rtslp.size, terrain_rtslp.data);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
-	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "Transform");
+	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramLayout(water_program, &kVertexLayout);
-	rtGraphicsProgramVertexShader(water_program, std::strlen(kWaterVertexShader), kWaterVertexShader);
-	rtGraphicsProgramFragmentShader(water_program, std::strlen(kWaterFragmentShader), kWaterFragmentShader);
+	rtGraphicsProgramSource(water_program, water_rtslp.size, water_rtslp.data);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtGraphicsProgramFinalize(water_program);
-	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "Transform");
+	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "scene");
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
-	rt_texture depth_texture = RT_NULL_HANDLE;
-	rt_texture_view depth_view = RT_NULL_HANDLE;
+	rt_texture depth_texture = rtTextureCreate();
+	rt_texture_view depth_view = rtTextureViewCreate();
 	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
 	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
-	recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
+	resize_depth_buffer(depth_texture, depth_view, depth_width, depth_height);
 
 	Camera camera;
 	auto start_time = std::chrono::steady_clock::now();
@@ -399,7 +227,7 @@ int main(int argc, char** argv) {
 			ResizeInProgress.store(true, std::memory_order_release);
 			rtSwapchainResize(swapchain, depth_width, depth_height);
 			ResizeInProgress.store(false, std::memory_order_release);
-			recreate_depth_buffer(queue, &depth_texture, &depth_view, depth_width, depth_height);
+			resize_depth_buffer(depth_texture, depth_view, depth_width, depth_height);
 			continue;
 		}
 
@@ -411,8 +239,11 @@ int main(int argc, char** argv) {
 		const f32 aspect = current_height ? (f32)current_width / (f32)current_height : 1.0f;
 		const glm::mat4 view_projection = camera_matrix(camera, aspect);
 		const std::chrono::duration<f32> elapsed = now - start_time;
-		write_transform(&transform, view_projection);
-		write_water_transform(&water_transform, view_projection, elapsed.count());
+		transform = view_projection;
+		water_transform = view_projection * glm::translate(
+			glm::mat4{ 1.0f },
+			glm::vec3{ 0.0f, glm::sin(elapsed.count() * 1.8f) * 0.035f, 0.0f }
+		);
 		rtBufferSubdata(transform_buffer, 0, sizeof(transform), &transform);
 		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
 
@@ -443,13 +274,14 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[96];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile 05 Voxel Engine - %.0f FPS", fps);
+			std::snprintf(title, sizeof(title), "Rutile 05 Voxel Renderer - %.0f FPS", fps);
 			glfwSetWindowTitle(window, title);
 			fps_time = fps_now;
 			fps_frames = 0;
 		}
 	}
 
+	rtTimepointWait(last_rendered);
 	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);

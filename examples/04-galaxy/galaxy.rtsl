@@ -1,0 +1,47 @@
+uniform {
+	UniformBuffer scene;
+}
+
+layout scene : struct {
+	mat4 view_projection;
+	vec4 light_direction;
+	f32 time;
+};
+
+struct Point {
+	vec3 position;
+	vec4 color;
+	vec3 normal;
+	f32 kind;
+	f32 seed;
+};
+
+struct Vertex {
+	vec4 position;
+	vec4 color;
+	vec3 normal;
+	f32 kind;
+	f32 seed;
+
+	fn Vertex(Point point) {
+		position = scene.view_projection * vec4(point.position, 1.0);
+		color = point.color;
+		normal = point.normal;
+		kind = point.kind;
+		seed = point.seed;
+	}
+};
+
+@stage : vertex
+fn main(Point point) -> Vertex : position(clip), color(smooth), normal(smooth), kind(flat), seed(flat) {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	f32 diffuse = 0.5 + 0.5 * (vertex.normal.x * scene.light_direction.x + vertex.normal.y * scene.light_direction.y + vertex.normal.z * scene.light_direction.z);
+	f32 star_light = 1.05 + diffuse * 0.55;
+	f32 planet_light = 0.12 + diffuse * 0.92;
+	f32 light = star_light * (1.0 - vertex.kind) + planet_light * vertex.kind;
+	return vec4(vertex.color.xyz * light, vertex.color.w);
+}

@@ -1,0 +1,28 @@
+uniform {
+	Sampler2D plasma;
+}
+
+struct Point {
+	vec2 position;
+	vec2 uv;
+};
+
+struct Vertex {
+	vec4 position;
+	vec2 uv;
+
+	fn Vertex(Point point) {
+		position = vec4(point.position, 0.0, 1.0);
+		uv = point.uv;
+	}
+};
+
+@stage : vertex
+fn main(Point point) -> Vertex : position(clip), uv(smooth) {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	return sample(plasma, vertex.uv);
+}

@@ -1,13 +1,16 @@
 #include "graphics_program.hpp"
 #include "context.hpp"
 #include "error.hpp"
-#include "rtsl-hlsl.hpp"
 
+#include <dxcapi.h>
+#include <rtsl/hlsl.hpp>
 #include <cassert>
-#include <cstddef>
-#include <cstdio>
+#include <climits>
 #include <cstring>
+#include <iterator>
 #include <span>
+#include <string>
+#include <string_view>
 
 rt_graphics_program rtGraphicsProgramCreate() {
 	return rtdx_graphics_program_to_handle(rtdx_graphics_program_create(rtdx_get_current_context()));
@@ -85,49 +88,77 @@ void rtdx_graphics_program_finish(rtdx_context* ctx, rtdx_graphics_program* prog
 	rtdx_graphics_program_destroy_root_signature(program);
 	program->uniform_locations.clear();
 	program->program_source.clear();
+	program->rtsl_program.reset();
+	program->vertex_dxil.clear();
+	program->fragment_dxil.clear();
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(program));
 }
 
-static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_graphics_program* program) {
-	D3D12_DESCRIPTOR_RANGE srv_ranges[RTDX_MAX_SHADER_BINDINGS] = {};
-	D3D12_DESCRIPTOR_RANGE sampler_ranges[RTDX_MAX_SHADER_BINDINGS] = {};
-	for (u32 i = 0; i < RTDX_MAX_SHADER_BINDINGS; ++i) {
-		srv_ranges[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-		srv_ranges[i].NumDescriptors = 1;
-		srv_ranges[i].BaseShaderRegister = i;
-		srv_ranges[i].RegisterSpace = 0;
-		srv_ranges[i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-		sampler_ranges[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-		sampler_ranges[i].NumDescriptors = 1;
-		sampler_ranges[i].BaseShaderRegister = i;
-		sampler_ranges[i].RegisterSpace = 0;
-		sampler_ranges[i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+static D3D12_SHADER_VISIBILITY rtdx_shader_visibility(rtsl::StageMask stages) {
+	if (stages == rtsl::StageMask::vertex) {
+		return D3D12_SHADER_VISIBILITY_VERTEX;
 	}
+	if (stages == rtsl::StageMask::fragment) {
+		return D3D12_SHADER_VISIBILITY_PIXEL;
+	}
+	return D3D12_SHADER_VISIBILITY_ALL;
+}
 
-	D3D12_ROOT_PARAMETER parameters[RTDX_MAX_SHADER_BINDINGS * 3] = {};
-	for (u32 i = 0; i < RTDX_MAX_SHADER_BINDINGS; ++i) {
-		parameters[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-		parameters[i].Descriptor.ShaderRegister = i;
-		parameters[i].Descriptor.RegisterSpace = 0;
-		parameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_graphics_program* program) {
+	std::vector<D3D12_DESCRIPTOR_RANGE> ranges;
+	std::vector<D3D12_ROOT_PARAMETER> parameters;
+	ranges.reserve(program->rtsl_program->resources().size() * 2);
+	parameters.reserve(program->rtsl_program->resources().size() * 2);
+	program->uniform_locations.clear();
+	program->uniform_locations.reserve(program->rtsl_program->resources().size());
 
-		u32 srv_parameter = RTDX_MAX_SHADER_BINDINGS + i;
-		parameters[srv_parameter].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-		parameters[srv_parameter].DescriptorTable.NumDescriptorRanges = 1;
-		parameters[srv_parameter].DescriptorTable.pDescriptorRanges = &srv_ranges[i];
-		parameters[srv_parameter].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	for (const rtsl::Resource& resource : program->rtsl_program->resources()) {
+		rtdx_uniform_location location = {};
+		location.program = program;
+		strncpy_s(location.name, resource.name.c_str(), _TRUNCATE);
+		location.slot = static_cast<u32>(program->uniform_locations.size());
+		location.binding = resource.descriptor.binding;
+		const D3D12_SHADER_VISIBILITY visibility = rtdx_shader_visibility(resource.stages);
 
-		u32 sampler_parameter = RTDX_MAX_SHADER_BINDINGS * 2 + i;
-		parameters[sampler_parameter].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-		parameters[sampler_parameter].DescriptorTable.NumDescriptorRanges = 1;
-		parameters[sampler_parameter].DescriptorTable.pDescriptorRanges = &sampler_ranges[i];
-		parameters[sampler_parameter].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+		if (resource.kind == rtsl::ResourceKind::uniform_buffer) {
+			location.kind = rtdx_uniform_location_kind::buffer;
+			location.root_parameter = static_cast<u32>(parameters.size());
+			D3D12_ROOT_PARAMETER parameter = {};
+			parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+			parameter.Descriptor.ShaderRegister = resource.descriptor.binding;
+			parameter.Descriptor.RegisterSpace = resource.descriptor.set;
+			parameter.ShaderVisibility = visibility;
+			parameters.push_back(parameter);
+		} else if (resource.kind == rtsl::ResourceKind::sampled_texture || resource.kind == rtsl::ResourceKind::sampler) {
+			location.kind = rtdx_uniform_location_kind::texture;
+			location.root_parameter = static_cast<u32>(parameters.size());
+			for (const D3D12_DESCRIPTOR_RANGE_TYPE range_type : { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER }) {
+				D3D12_DESCRIPTOR_RANGE range = {};
+				range.RangeType = range_type;
+				range.NumDescriptors = 1;
+				range.BaseShaderRegister = resource.descriptor.binding;
+				range.RegisterSpace = resource.descriptor.set;
+				range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+				ranges.push_back(range);
+
+				D3D12_ROOT_PARAMETER parameter = {};
+				parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+				parameter.DescriptorTable.NumDescriptorRanges = 1;
+				parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
+				parameter.ShaderVisibility = visibility;
+				parameters.push_back(parameter);
+			}
+			location.sampler_root_parameter = location.root_parameter + 1;
+		} else {
+			rtdx_throwf(RT_UNSUPPORTED_FEATURE, "DX12 does not support RTSL resource '%s' yet", resource.name.c_str());
+			return false;
+		}
+		program->uniform_locations.push_back(location);
 	}
 
 	D3D12_ROOT_SIGNATURE_DESC desc = {};
-	desc.NumParameters = RTDX_MAX_SHADER_BINDINGS * 3;
-	desc.pParameters = parameters;
+	desc.NumParameters = static_cast<UINT>(parameters.size());
+	desc.pParameters = parameters.data();
 	desc.NumStaticSamplers = 0;
 	desc.pStaticSamplers = nullptr;
 	desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -152,8 +183,53 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 	return true;
 }
 
+static DXGI_FORMAT rtdx_vertex_format(rt_format format) {
+	switch (format) {
+	case RT_R32_SFLOAT: return DXGI_FORMAT_R32_FLOAT;
+	case RT_RG32_SFLOAT: return DXGI_FORMAT_R32G32_FLOAT;
+	case RT_RGB32_SFLOAT: return DXGI_FORMAT_R32G32B32_FLOAT;
+	case RT_RGBA32_SFLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+	case RT_R32_SINT: return DXGI_FORMAT_R32_SINT;
+	case RT_RG32_SINT: return DXGI_FORMAT_R32G32_SINT;
+	case RT_RGB32_SINT: return DXGI_FORMAT_R32G32B32_SINT;
+	case RT_RGBA32_SINT: return DXGI_FORMAT_R32G32B32A32_SINT;
+	case RT_R32_UINT: return DXGI_FORMAT_R32_UINT;
+	case RT_RG32_UINT: return DXGI_FORMAT_R32G32_UINT;
+	case RT_RGB32_UINT: return DXGI_FORMAT_R32G32B32_UINT;
+	case RT_RGBA32_UINT: return DXGI_FORMAT_R32G32B32A32_UINT;
+	default: return DXGI_FORMAT_UNKNOWN;
+	}
+}
+
+static D3D12_BLEND rtdx_blend_factor(rt_blend_factor factor) {
+	switch (factor) {
+	case RT_BLEND_ZERO: return D3D12_BLEND_ZERO;
+	case RT_BLEND_ONE: return D3D12_BLEND_ONE;
+	case RT_BLEND_SRC_COLOR: return D3D12_BLEND_SRC_COLOR;
+	case RT_BLEND_ONE_MINUS_SRC_COLOR: return D3D12_BLEND_INV_SRC_COLOR;
+	case RT_BLEND_DST_COLOR: return D3D12_BLEND_DEST_COLOR;
+	case RT_BLEND_ONE_MINUS_DST_COLOR: return D3D12_BLEND_INV_DEST_COLOR;
+	case RT_BLEND_SRC_ALPHA: return D3D12_BLEND_SRC_ALPHA;
+	case RT_BLEND_ONE_MINUS_SRC_ALPHA: return D3D12_BLEND_INV_SRC_ALPHA;
+	case RT_BLEND_DST_ALPHA: return D3D12_BLEND_DEST_ALPHA;
+	case RT_BLEND_ONE_MINUS_DST_ALPHA: return D3D12_BLEND_INV_DEST_ALPHA;
+	default: return D3D12_BLEND_ZERO;
+	}
+}
+
+static D3D12_BLEND_OP rtdx_blend_op(rt_blend_op operation) {
+	switch (operation) {
+	case RT_BLEND_OP_ADD: return D3D12_BLEND_OP_ADD;
+	case RT_BLEND_OP_SUBTRACT: return D3D12_BLEND_OP_SUBTRACT;
+	case RT_BLEND_OP_REVERSE_SUBTRACT: return D3D12_BLEND_OP_REV_SUBTRACT;
+	case RT_BLEND_OP_MIN: return D3D12_BLEND_OP_MIN;
+	case RT_BLEND_OP_MAX: return D3D12_BLEND_OP_MAX;
+	default: return D3D12_BLEND_OP_ADD;
+	}
+}
+
 bool rtdx_graphics_program_prepare(
-	rtdx_context* /*ctx*/,
+	rtdx_context* ctx,
 	rtdx_graphics_program* program,
 	DXGI_FORMAT color_format,
 	DXGI_FORMAT depth_format
@@ -162,10 +238,92 @@ bool rtdx_graphics_program_prepare(
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before use");
 		return false;
 	}
+	if (program->d3d_pipeline && program->d3d_pipeline_format == color_format && program->d3d_pipeline_depth_format == depth_format) {
+		return true;
+	}
+	rtdx_graphics_program_destroy_pipeline(program);
 
-	// TODO: real pipeline creation lives behind the upcoming HLSL -> DXBC step.
-	// For now the placeholder transpiler returns dummy HLSL and we skip pipeline
-	// creation entirely, so draws using this program will be no-ops.
+	std::vector<D3D12_INPUT_ELEMENT_DESC> elements;
+	elements.reserve(program->vertex_layout.attribute_count);
+	const rtsl::EntryPoint* vertex = program->rtsl_program->entry(rtsl::Stage::vertex);
+	if (!vertex || (program->vertex_layout.attribute_count && !vertex->input)) {
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "RTSL vertex entry does not match the configured vertex layout");
+		return false;
+	}
+	for (u32 index = 0; index < program->vertex_layout.attribute_count; ++index) {
+		const rt_vertex_attribute& attribute = program->vertex_attributes[index];
+		const DXGI_FORMAT format = rtdx_vertex_format(attribute.format);
+		if (format == DXGI_FORMAT_UNKNOWN) {
+			rtdx_throwf(RT_UNSUPPORTED_FEATURE, "unsupported vertex attribute format");
+			return false;
+		}
+		auto reflected = vertex->input->elements.end();
+		for (auto candidate = vertex->input->elements.begin(); candidate != vertex->input->elements.end(); ++candidate) {
+			if (candidate->name == attribute.name) {
+				reflected = candidate;
+				break;
+			}
+		}
+		if (reflected == vertex->input->elements.end() || !reflected->location) {
+			rtdx_throwf(RT_SHADER_LINK_FAILED, "vertex attribute '%s' is not declared by the RTSL entry", attribute.name);
+			return false;
+		}
+		elements.push_back(D3D12_INPUT_ELEMENT_DESC{
+			.SemanticName = "TEXCOORD",
+			.SemanticIndex = *reflected->location,
+			.Format = format,
+			.InputSlot = 0,
+			.AlignedByteOffset = attribute.offset,
+			.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+			.InstanceDataStepRate = 0,
+		});
+	}
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+	desc.pRootSignature = program->d3d_root_signature;
+	desc.VS = { program->vertex_dxil.data(), program->vertex_dxil.size() };
+	desc.PS = { program->fragment_dxil.data(), program->fragment_dxil.size() };
+	desc.BlendState.AlphaToCoverageEnable = FALSE;
+	desc.BlendState.IndependentBlendEnable = FALSE;
+	D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
+	blend.BlendEnable = program->blend_enabled;
+	blend.LogicOpEnable = FALSE;
+	blend.SrcBlend = rtdx_blend_factor(program->src_color_blend);
+	blend.DestBlend = rtdx_blend_factor(program->dst_color_blend);
+	blend.BlendOp = rtdx_blend_op(program->color_blend_op);
+	blend.SrcBlendAlpha = rtdx_blend_factor(program->src_alpha_blend);
+	blend.DestBlendAlpha = rtdx_blend_factor(program->dst_alpha_blend);
+	blend.BlendOpAlpha = rtdx_blend_op(program->alpha_blend_op);
+	blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+	blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	desc.SampleMask = UINT_MAX;
+	desc.RasterizerState.FillMode = program->fill_mode == RT_FILL_WIREFRAME ? D3D12_FILL_MODE_WIREFRAME : D3D12_FILL_MODE_SOLID;
+	desc.RasterizerState.CullMode = program->cull_mode == RT_CULL_FRONT ? D3D12_CULL_MODE_FRONT :
+		program->cull_mode == RT_CULL_BACK ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+	desc.RasterizerState.FrontCounterClockwise = program->front_face == RT_FRONT_FACE_CCW;
+	desc.RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+	desc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+	desc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+	desc.RasterizerState.DepthClipEnable = TRUE;
+	desc.DepthStencilState.DepthEnable = depth_format != DXGI_FORMAT_UNKNOWN;
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	desc.DepthStencilState.StencilEnable = FALSE;
+	desc.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	desc.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+	desc.InputLayout = { elements.data(), static_cast<UINT>(elements.size()) };
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	desc.NumRenderTargets = 1;
+	desc.RTVFormats[0] = color_format;
+	desc.DSVFormat = depth_format;
+	desc.SampleDesc.Count = 1;
+
+	const HRESULT result = ctx->d3d_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&program->d3d_pipeline));
+	if (FAILED(result)) {
+		rtdx_throwf(rtdx_error_from_hresult(result), "CreateGraphicsPipelineState failed: 0x%08x", static_cast<u32>(result));
+		return false;
+	}
+
 	program->d3d_pipeline_format = color_format;
 	program->d3d_pipeline_depth_format = depth_format;
 	return true;
@@ -205,6 +363,9 @@ void rtdx_graphics_program_source(rtdx_context* /*ctx*/, rtdx_graphics_program* 
 	const auto* bytes = static_cast<const unsigned char*>(data);
 	program->program_source.assign(bytes, bytes + size);
 	program->uniform_locations.clear();
+	program->rtsl_program.reset();
+	program->vertex_dxil.clear();
+	program->fragment_dxil.clear();
 	rtdx_graphics_program_destroy_root_signature(program);
 }
 
@@ -252,56 +413,6 @@ void rtdx_graphics_program_blend_state(
 	rtdx_graphics_program_destroy_pipeline(program);
 }
 
-static void rtdx_graphics_program_translate_rtslp(rtdx_graphics_program* program) {
-	const std::span source{
-		reinterpret_cast<const std::byte*>(program->program_source.data()),
-		program->program_source.size(),
-	};
-	rtdx_rtsl_program translated = rtdx_rtsl_program_load(source);
-	if (!translated.module) {
-		rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "failed to load RTSL program");
-		return;
-	}
-	const rtdx_rtsl_translation reflection = rtdx_rtsl_program_translate(translated);
-
-	program->uniform_locations.clear();
-	const size_t uniform_count = reflection.uniforms.size();
-	program->uniform_locations.reserve(uniform_count);
-	for (size_t i = 0; i < uniform_count; ++i) {
-		const rtsl_uniform_info& info = reflection.uniforms[i];
-		if (info.binding >= RTDX_MAX_SHADER_BINDINGS) {
-			rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "uniform binding exceeds dx12 backend limit");
-			program->uniform_locations.clear();
-			rtdx_rtsl_program_destroy(translated);
-			return;
-		}
-		rtdx_uniform_location loc{};
-		loc.program = program;
-		std::snprintf(loc.name, sizeof(loc.name), "%s", info.qualified_name ? info.qualified_name : "");
-		loc.slot = info.binding;
-		if (info.kind == RTSL_UNIFORM_KIND_UNIFORM_BUFFER) {
-			loc.kind = rtdx_uniform_location_kind::buffer;
-			loc.root_parameter = info.binding;
-			loc.sampler_root_parameter = 0;
-		} else if (info.kind == RTSL_UNIFORM_KIND_STORAGE_BUFFER) {
-			loc.kind = rtdx_uniform_location_kind::storage_buffer;
-			loc.root_parameter = RTDX_MAX_SHADER_BINDINGS + info.binding;
-			loc.sampler_root_parameter = 0;
-		} else if (info.kind == RTSL_UNIFORM_KIND_SAMPLED_IMAGE) {
-			loc.kind = rtdx_uniform_location_kind::texture;
-			loc.root_parameter = RTDX_MAX_SHADER_BINDINGS + info.binding;
-			loc.sampler_root_parameter = RTDX_MAX_SHADER_BINDINGS * 2 + info.binding;
-		} else {
-			rtdx_throwf(RT_SHADER_COMPILATION_FAILED, "unsupported RTSL uniform kind in DX12 backend");
-			program->uniform_locations.clear();
-			rtdx_rtsl_program_destroy(translated);
-			return;
-		}
-		program->uniform_locations.push_back(loc);
-	}
-	rtdx_rtsl_program_destroy(translated);
-}
-
 void rtdx_graphics_program_reset(rtdx_context* /*ctx*/, rtdx_graphics_program* program) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
@@ -309,6 +420,56 @@ void rtdx_graphics_program_reset(rtdx_context* /*ctx*/, rtdx_graphics_program* p
 	}
 	rtdx_graphics_program_destroy_root_signature(program);
 	program->uniform_locations.clear();
+	program->rtsl_program.reset();
+	program->vertex_dxil.clear();
+	program->fragment_dxil.clear();
+}
+
+static bool rtdx_compile_hlsl(std::string_view source, const wchar_t* profile, std::vector<unsigned char>& bytecode) {
+	IDxcCompiler3* compiler = nullptr;
+	IDxcResult* result = nullptr;
+	IDxcBlobUtf8* errors = nullptr;
+	IDxcBlob* object = nullptr;
+
+	HRESULT status = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+	if (SUCCEEDED(status)) {
+		const DxcBuffer buffer = {
+			.Ptr = source.data(),
+			.Size = source.size(),
+			.Encoding = DXC_CP_UTF8,
+		};
+		const wchar_t* arguments[] = { L"-E", L"main", L"-T", profile, L"-HV", L"2021", L"-Ges" };
+		status = compiler->Compile(&buffer, arguments, static_cast<UINT32>(std::size(arguments)), nullptr, IID_PPV_ARGS(&result));
+	}
+	HRESULT compile_status = status;
+	if (SUCCEEDED(status)) {
+		result->GetStatus(&compile_status);
+		result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
+	}
+	if (FAILED(status) || FAILED(compile_status)) {
+		const char* message = errors && errors->GetStringLength() ? errors->GetStringPointer() : "DXC failed without diagnostics";
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "%s", message);
+		rtdx_release(&object);
+		rtdx_release(&errors);
+		rtdx_release(&result);
+		rtdx_release(&compiler);
+		return false;
+	}
+	status = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
+	if (FAILED(status) || !object) {
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "DXC did not produce shader bytecode");
+		rtdx_release(&errors);
+		rtdx_release(&result);
+		rtdx_release(&compiler);
+		return false;
+	}
+	const auto* begin = static_cast<const unsigned char*>(object->GetBufferPointer());
+	bytecode.assign(begin, begin + object->GetBufferSize());
+	rtdx_release(&object);
+	rtdx_release(&errors);
+	rtdx_release(&result);
+	rtdx_release(&compiler);
+	return true;
 }
 
 void rtdx_graphics_program_finalize(rtdx_context* ctx, rtdx_graphics_program* program) {
@@ -318,12 +479,33 @@ void rtdx_graphics_program_finalize(rtdx_context* ctx, rtdx_graphics_program* pr
 		rtdx_throwf(RT_SHADER_LINK_FAILED, "graphics program finalize requires an RTSLP source set via rtGraphicsProgramSource");
 		return;
 	}
-	rtdx_graphics_program_translate_rtslp(program);
-	if (rtError() != RT_SUCCESS) {
+	auto loaded = rtsl::load_program(std::as_bytes(std::span{ program->program_source }));
+	if (!loaded) {
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "invalid RTSLP source: %s", loaded.error().message.c_str());
 		return;
 	}
-	if (!program->d3d_root_signature && !rtdx_graphics_program_create_root_signature(ctx, program)) {
+	auto vertex = rtsl::hlsl::transpile(*loaded, rtsl::Stage::vertex);
+	auto fragment = rtsl::hlsl::transpile(*loaded, rtsl::Stage::fragment);
+	if (!vertex || !fragment) {
+		const rtsl::hlsl::Error& error = !vertex ? vertex.error() : fragment.error();
+		rtdx_throwf(RT_SHADER_LINK_FAILED, "RTSL to HLSL failed in %s: %s", error.context.c_str(), error.message.c_str());
 		return;
+	}
+	std::vector<unsigned char> vertex_dxil;
+	std::vector<unsigned char> fragment_dxil;
+	if (!rtdx_compile_hlsl(vertex->source, L"vs_6_0", vertex_dxil) ||
+		!rtdx_compile_hlsl(fragment->source, L"ps_6_0", fragment_dxil)) {
+		return;
+	}
+
+	rtdx_graphics_program_destroy_root_signature(program);
+	program->rtsl_program = std::make_unique<rtsl::Program>(std::move(*loaded));
+	program->vertex_dxil = std::move(vertex_dxil);
+	program->fragment_dxil = std::move(fragment_dxil);
+	if (!rtdx_graphics_program_create_root_signature(ctx, program)) {
+		program->rtsl_program.reset();
+		program->vertex_dxil.clear();
+		program->fragment_dxil.clear();
 	}
 }
 

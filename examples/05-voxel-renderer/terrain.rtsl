@@ -1,0 +1,74 @@
+uniform {
+	UniformBuffer scene;
+}
+
+layout scene : struct {
+	mat4 transform;
+};
+
+struct Point {
+	vec3 position;
+	vec3 color;
+	vec3 normal;
+	f32 ao;
+	vec2 pixel_uv;
+	f32 edge_mask;
+	f32 corner_mask;
+};
+
+struct Vertex {
+	vec4 position;
+	vec3 color;
+	vec3 normal;
+	f32 ao;
+	vec2 pixel_uv;
+	f32 edge_mask;
+	f32 corner_mask;
+
+	fn Vertex(Point point) {
+		position = scene.transform * vec4(point.position, 1.0);
+		color = point.color;
+		normal = point.normal;
+		ao = point.ao;
+		pixel_uv = point.pixel_uv;
+		edge_mask = point.edge_mask;
+		corner_mask = point.corner_mask;
+	}
+};
+
+fn mask_bit(f32 mask, f32 bit) -> bool {
+	return (mask / bit) % 2.0 >= 1.0;
+}
+
+fn masked_edge_pixel(vec2 uv, f32 mask) -> bool {
+	return
+		(uv.x < 0.125 && mask_bit(mask, 1.0)) ||
+		(uv.x >= 0.875 && mask_bit(mask, 2.0)) ||
+		(uv.y < 0.125 && mask_bit(mask, 4.0)) ||
+		(uv.y >= 0.875 && mask_bit(mask, 8.0));
+}
+
+fn masked_corner_pixel(vec2 uv, f32 mask) -> bool {
+	return
+		(uv.x < 0.125 && uv.y < 0.125 && mask_bit(mask, 1.0)) ||
+		(uv.x >= 0.875 && uv.y < 0.125 && mask_bit(mask, 2.0)) ||
+		(uv.x >= 0.875 && uv.y >= 0.875 && mask_bit(mask, 4.0)) ||
+		(uv.x < 0.125 && uv.y >= 0.875 && mask_bit(mask, 8.0));
+}
+
+@stage : vertex
+fn main(Point point) -> Vertex : position(clip), color(flat), normal(flat), ao(smooth), pixel_uv(smooth), edge_mask(flat), corner_mask(flat) {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	f32 sky_light = 0.82 + vertex.normal.y * 0.16;
+	f32 side_light = vertex.normal.x * -0.05 + vertex.normal.z * -0.03;
+	vec3 color = vertex.color * (sky_light + side_light) * vertex.ao;
+	f32 shade = 1.0;
+	if (masked_edge_pixel(vertex.pixel_uv, vertex.edge_mask) || masked_corner_pixel(vertex.pixel_uv, vertex.corner_mask)) {
+		shade = 0.82;
+	}
+	return vec4(color * shade, 1.0);
+}

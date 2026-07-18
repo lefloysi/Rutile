@@ -1,0 +1,24 @@
+struct Point {
+	vec2 position;
+	vec3 color;
+};
+
+struct Vertex {
+	vec4 position;
+	vec3 color;
+
+	fn Vertex(Point point) {
+		position = vec4(point.position, 0.0, 1.0);
+		color = point.color;
+	}
+};
+
+@stage : vertex
+fn main(Point point) -> Vertex : position(clip), color(smooth) {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	return vec4(vertex.color, 1.0);
+}

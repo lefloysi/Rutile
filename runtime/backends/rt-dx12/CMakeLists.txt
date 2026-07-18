@@ -20,8 +20,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/error.cpp"
     "src/error.hpp"
     "src/init.cpp"
-    "src/rtsl-hlsl.cpp"
-    "src/rtsl-hlsl.hpp"
     "src/types.hpp"
     "src/resource/buffer.cpp"
     "src/resource/buffer.hpp"
@@ -44,13 +42,45 @@ target_sources(${PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE "src")
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:Debug>:RTDX_ENABLE_D3D12_VALIDATION>
+)
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
-        rtsl
         d3d12
         dxgi
         dxguid
+        dxcompiler
+        RTSL::hlsl
 )
+
+find_file(_rtdx_dxcompiler_dll dxcompiler.dll HINTS
+    "${CMAKE_WINDOWS_KITS_10_DIR}/Redist/D3D/x64"
+    "C:/Program Files (x86)/Windows Kits/10/Redist/D3D/x64"
+    "$ENV{VULKAN_SDK}/Bin"
+)
+find_file(_rtdx_dxil_dll dxil.dll HINTS
+    "${CMAKE_WINDOWS_KITS_10_DIR}/Redist/D3D/x64"
+    "C:/Program Files (x86)/Windows Kits/10/Redist/D3D/x64"
+    "$ENV{VULKAN_SDK}/Bin"
+)
+if(_rtdx_dxcompiler_dll AND _rtdx_dxil_dll)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_rtdx_dxcompiler_dll}"
+            "${_rtdx_dxil_dll}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+    )
+    if(RUTILE_INSTALL)
+        install(FILES
+            "${_rtdx_dxcompiler_dll}"
+            "${_rtdx_dxil_dll}"
+            DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        )
+    endif()
+else()
+    message(FATAL_ERROR "rt-dx12 requires redistributable dxcompiler.dll and dxil.dll")
+endif()

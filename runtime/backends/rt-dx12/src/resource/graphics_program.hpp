@@ -5,10 +5,11 @@
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <rtsl/sdk/program.hpp>
+#include <memory>
 #include <vector>
 
 inline constexpr u32 RTDX_MAX_VERTEX_ATTRIBUTES = 16;
-inline constexpr u32 RTDX_MAX_SHADER_BINDINGS = 8;
 inline constexpr u32 RTDX_MAX_SHADER_RESOURCE_NAME = 64;
 
 struct rtdx_graphics_program;
@@ -34,6 +35,7 @@ struct rtdx_uniform_location {
 	char name[RTDX_MAX_SHADER_RESOURCE_NAME];
 	rtdx_uniform_location_kind kind;
 	u32 slot;
+	u32 binding;
 	u32 root_parameter;
 	u32 sampler_root_parameter;
 };
@@ -60,6 +62,9 @@ struct rtdx_graphics_program {
 
 	std::vector<rtdx_uniform_location> uniform_locations;
 	std::vector<unsigned char> program_source;
+	std::unique_ptr<rtsl::Program> rtsl_program;
+	std::vector<unsigned char> vertex_dxil;
+	std::vector<unsigned char> fragment_dxil;
 };
 RTDX_DECLARE_NEW_RESOURCE(graphics_program)
 

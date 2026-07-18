@@ -714,7 +714,7 @@ void rtdx_command_buffer_storage_buffer(
 	}
 	rtdx_uniform_location* location = nullptr;
 	for (rtdx_uniform_location& candidate : command_buffer->graphics_program->uniform_locations) {
-		if (candidate.kind == rtdx_uniform_location_kind::storage_buffer && candidate.slot == binding) {
+		if (candidate.kind == rtdx_uniform_location_kind::storage_buffer && candidate.binding == binding) {
 			location = &candidate;
 			break;
 		}

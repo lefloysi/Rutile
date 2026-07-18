@@ -102,7 +102,7 @@ static D3D12_SAMPLER_DESC rtdx_sampler_desc(struct rtdx_texture_view* view) {
 	result.AddressW = rtdx_address_mode(view->address_w);
 	result.MipLODBias = view->lod_bias;
 	result.MaxAnisotropy = view->max_anisotropy;
-	result.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	result.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
 	result.BorderColor[0] = 0.0f;
 	result.BorderColor[1] = 0.0f;
 	result.BorderColor[2] = 0.0f;
@@ -631,7 +631,7 @@ static bool rtdx_texture_view_prepare_sampler_heap(struct rtdx_context* ctx, str
 	D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 	heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
 	heap_desc.NumDescriptors = 1;
-	heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&texture_view->d3d_sampler_heap));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateDescriptorHeap(sampler) failed: 0x%08x", (u32)result);
@@ -639,7 +639,7 @@ static bool rtdx_texture_view_prepare_sampler_heap(struct rtdx_context* ctx, str
 	}
 
 	texture_view->sampler_cpu = texture_view->d3d_sampler_heap->GetCPUDescriptorHandleForHeapStart();
-	texture_view->sampler_gpu = texture_view->d3d_sampler_heap->GetGPUDescriptorHandleForHeapStart();
+	texture_view->sampler_gpu.ptr = 0;
 	return true;
 }
 
@@ -742,7 +742,7 @@ void rtdx_texture_view_lod(
 }
 
 struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, struct rtdx_texture* dst_texture, u32 dst_mip) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
 	struct rtdx_timepoint timepoint = { queue, 0 };
 	if (!queue) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy requires a valid queue");
@@ -975,7 +975,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 }
 
 struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
 	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	struct rtdx_texture* src_node = src_texture ? src_texture->active : NULL;
@@ -995,7 +995,7 @@ struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx
 }
 
 struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
 	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	struct rtdx_texture* node = texture ? texture->active : NULL;
@@ -1109,7 +1109,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 }
 
 struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct rtdx_texture_view* texture_view, struct rtdx_buffer* buffer) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
 	struct rtdx_timepoint timepoint = { queue, 0 };
 	assert(queue);
 	assert(texture_view && texture_view->d3d_resource);

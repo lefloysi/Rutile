@@ -373,7 +373,7 @@ static u32 rtvk_texture_mip_level_count(u32 width, u32 height, u32 depth) {
 	max_extent = max_extent > 1u ? max_extent : 1u;
 	u32 mip_levels = 1;
 	while (max_extent > 1) {
-		max_extent = (max_extent + 1) / 2;
+		max_extent /= 2;
 		++mip_levels;
 	}
 	return mip_levels;
@@ -443,14 +443,14 @@ void rtvk_texture_view_init(struct rtvk_context* ctx, struct rtvk_texture_view* 
 void rtvk_texture_finish(struct rtvk_texture* texture) {
 	struct rtvk_context* ctx = texture->base.ctx;
 	if (texture->active) {
-		rtvk_resource_release(&texture->active->base);
+		rtvk_resource_retire(&texture->active->base);
 		texture->active = NULL;
 	}
 	struct rtvk_texture* node = texture->next;
 	while (node) {
 		struct rtvk_texture* next = node->next;
 		node->next = NULL;
-		rtvk_resource_release(&node->base);
+		rtvk_resource_retire(&node->base);
 		node = next;
 	}
 	texture->next = NULL;
@@ -492,7 +492,7 @@ void rtvk_texture_collect_nodes(struct rtvk_texture* texture) {
 		if (node->base.ref_count == 1) {
 			*link = node->next;
 			node->next = NULL;
-			rtvk_resource_release(&node->base);
+			rtvk_resource_retire(&node->base);
 			continue;
 		}
 		link = &node->next;
@@ -943,7 +943,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 
 	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &node->vk_image, &node->vma_allocation, NULL);
 	if (result != VK_SUCCESS) {
-		rtvk_resource_release(&node->base);
+		rtvk_resource_retire(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
@@ -965,7 +965,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	if (data && upload_size) {
 		rtvk_texture_upload_staging(ctx, queue, upload_size);
 		if (rtvk_error() != RT_SUCCESS) {
-			rtvk_resource_release(&node->base);
+			rtvk_resource_retire(&node->base);
 			return timepoint;
 		}
 	}
@@ -979,7 +979,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 
 	rtvk_texture_upload_command(ctx, queue);
 	if (rtvk_error() != RT_SUCCESS) {
-		rtvk_resource_release(&node->base);
+		rtvk_resource_retire(&node->base);
 		return timepoint;
 	}
 	VkCommandBuffer command_buffer = queue->upload_command_buffer;
@@ -988,7 +988,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
-		rtvk_resource_release(&node->base);
+		rtvk_resource_retire(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}
@@ -1135,7 +1135,7 @@ struct rtvk_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_te
 	}
 
 	if (result != VK_SUCCESS) {
-		rtvk_resource_release(&node->base);
+		rtvk_resource_retire(&node->base);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return timepoint;
 	}

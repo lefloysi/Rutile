@@ -1,5 +1,4 @@
-#ifndef RUTILE_EXAMPLE_UTIL_H
-#define RUTILE_EXAMPLE_UTIL_H
+#pragma once
 
 #include <cstddef>
 #include <span>
@@ -28,4 +27,3 @@ std::span<std::byte> to_bytes(std::span<T> values) {
 	};
 }
 
-#endif

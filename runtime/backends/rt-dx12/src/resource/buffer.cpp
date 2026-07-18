@@ -163,7 +163,7 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 	desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 	desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
-	storage->state = rtdx_buffer_uses_host_storage(mode, usage) ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COPY_DEST;
+	storage->state = rtdx_buffer_uses_host_storage(mode, usage) ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COMMON;
 	HRESULT result = ctx->d3d_device->CreateCommittedResource(
 		&heap,
 		D3D12_HEAP_FLAG_NONE,

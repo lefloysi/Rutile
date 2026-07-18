@@ -1,0 +1,37 @@
+uniform {
+	UniformBuffer scene;
+}
+
+layout scene : mat4;
+
+struct Point {
+	vec3 position;
+	vec3 color;
+	vec3 normal;
+};
+
+struct Vertex {
+	vec4 position;
+	vec3 color;
+	vec3 normal;
+
+	fn Vertex(Point point) {
+		position = scene * vec4(point.position, 1.0);
+		color = point.color;
+		normal = point.normal;
+	}
+};
+
+@stage : vertex
+fn main(Point point) -> Vertex : position(clip), color(smooth), normal(flat) {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	f32 light = vertex.normal.x * -0.35 + vertex.normal.y * 0.65 + vertex.normal.z * 0.68;
+	if (light < 0.0) {
+		light = 0.0;
+	}
+	return vec4(vertex.color * (0.22 + light * 0.78), 1.0);
+}

@@ -29,6 +29,7 @@ rtdx_context* rtdx_create_context(rtdx_context_flags flags);
 void rtdx_context_init(rtdx_context* ctx);
 void rtdx_context_finish(rtdx_context* ctx);
 void rtdx_context_destroy(rtdx_context* ctx);
+void rtdx_context_report_validation(rtdx_context* ctx);
 
 template <typename T>
 inline void rtdx_release(T** object) {

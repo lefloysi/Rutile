@@ -131,11 +131,16 @@ extern "C" const u32* rtsl_spirv_stage_words(
 	if (!translation || !word_count) {
 		return nullptr;
 	}
-	const rtsl::spirv::Shader& shader = stage == RTSL_SPIRV_VERTEX
-		? translation->vertex
-		: translation->fragment;
-	*word_count = static_cast<u64>(shader.words.size());
-	return shader.words.data();
+	*word_count = 0;
+	switch (stage) {
+	case RTSL_SPIRV_VERTEX:
+		*word_count = static_cast<u64>(translation->vertex.words.size());
+		return translation->vertex.words.data();
+	case RTSL_SPIRV_FRAGMENT:
+		*word_count = static_cast<u64>(translation->fragment.words.size());
+		return translation->fragment.words.data();
+	}
+	return nullptr;
 }
 
 extern "C" u32 rtsl_spirv_resource_count(const rtsl_spirv_translation* translation) {

@@ -3,7 +3,6 @@
 
 #include "config.h"
 #include "resource.h"
-#include "rtsl_spirv.h"
 
 #include <vulkan/vulkan.h>
 

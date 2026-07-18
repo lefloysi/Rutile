@@ -1,4 +1,5 @@
 #define RUTILE_IMPL
+#include "cli.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
@@ -14,11 +15,12 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <iostream>
+#include <rtsl/sdk/program.hpp>
 #include <random>
 #include <vector>
 
-constexpr const char* kDefaultBackendName = "rt-vk13";
+extern "C" const rtsl::ProgramBytes galaxy_rtslp;
+
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 kStarCount = 26000;
 constexpr u32 kPlanetCount = 520;
@@ -52,76 +54,14 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute kVertexAttributes[] = {
-	{ 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ 1, offsetof(Vertex, color), RT_RGBA32_SFLOAT },
-	{ 2, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ 3, offsetof(Vertex, kind), RT_R32_SFLOAT },
-	{ 4, offsetof(Vertex, seed), RT_R32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGBA32_SFLOAT },
+	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "kind", offsetof(Vertex, kind), RT_R32_SFLOAT },
+	{ "seed", offsetof(Vertex, seed), RT_R32_SFLOAT },
 };
 
 constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 5 };
-
-constexpr const char* kVertexShader = R"(
-#version 460
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec4 in_color;
-layout(location = 2) in vec3 in_normal;
-layout(location = 3) in float in_kind;
-layout(location = 4) in float in_seed;
-layout(location = 0) out vec4 color;
-layout(location = 1) out vec3 normal;
-layout(location = 2) flat out float kind;
-layout(location = 3) flat out float seed;
-
-layout(set = 0, binding = 0) uniform Scene {
-	mat4 view_projection;
-	vec4 light_dir;
-	float time;
-} scene;
-
-void main() {
-	gl_Position = scene.view_projection * vec4(in_position, 1.0);
-	color = in_color;
-	normal = in_normal;
-	kind = in_kind;
-	seed = in_seed;
-}
-)";
-
-constexpr const char* kFragmentShader = R"(
-#version 460
-layout(location = 0) in vec4 color;
-layout(location = 1) in vec3 normal;
-layout(location = 2) flat in float kind;
-layout(location = 3) flat in float seed;
-layout(location = 0) out vec4 out_color;
-
-layout(set = 0, binding = 0) uniform Scene {
-	mat4 view_projection;
-	vec4 light_dir;
-	float time;
-} scene;
-
-void main() {
-	vec3 n = normalize(normal);
-	vec3 light_dir = normalize(scene.light_dir.xyz);
-	float diffuse = max(dot(n, light_dir), 0.0);
-
-	if (kind < 0.5) {
-		float pulse = 0.82 + 0.18 * sin(scene.time * (1.4 + seed * 3.1) + seed * 31.0);
-		vec3 glow = color.rgb * (1.15 + diffuse * 0.55) * pulse;
-		out_color = vec4(glow, color.a);
-		return;
-	}
-
-	float rim = pow(max(0.0, 1.0 - abs(n.z)), 2.4);
-	float bands = sin((n.y + seed) * 23.0) * 0.5 + 0.5;
-	vec3 shaded = color.rgb * (0.10 + diffuse * 0.96);
-	shaded = mix(shaded, shaded * vec3(1.14, 1.07, 0.92), bands * 0.18);
-	shaded += color.rgb * rim * 0.10;
-	out_color = vec4(shaded, color.a);
-}
-)";
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
@@ -278,19 +218,14 @@ void write_scene_uniform(SceneUniform* uniform, const Camera& camera, f32 aspect
 }
 
 void recreate_depth_buffer(rt_queue queue, rt_texture* depth_texture, rt_texture_view* depth_view, u32 width, u32 height) {
-	if (*depth_view) {
-		rtTextureViewDestroy(*depth_view);
+	(void)queue;
+	if (!*depth_texture) {
+		*depth_texture = rtTextureCreate();
 	}
-	if (*depth_texture) {
-		rtTextureDestroy(*depth_texture);
-	}
-	*depth_texture = rtTextureCreate();
 	rtTextureData(*depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL);
-	*depth_view = rtTextureViewCreate();
-	rtTextureViewBind(*depth_view, *depth_texture);
 	if (!*depth_view) {
-		rtTextureDestroy(*depth_texture);
-		*depth_texture = RT_NULL_HANDLE;
+		*depth_view = rtTextureViewCreate();
+		rtTextureViewBind(*depth_view, *depth_texture);
 	}
 }
 
@@ -352,40 +287,15 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 }
 
 int main(int argc, char** argv) {
-	const char* backend_name = argc > 1 ? argv[1] : kDefaultBackendName;
-	if (rtLoad(backend_name, nullptr, 0) != RT_SUCCESS) {
-		std::cerr << "rtLoad failed\n";
-		return 1;
-	}
-	if (!rtLoad_RT_EXT_SWAPCHAIN() || !rtLoad_RT_EXT_GLFW()) {
-		std::cerr << "required swapchain/GLFW extensions are not available\n";
-		rtUnload();
-		return 1;
-	}
-
-	std::cout << "backend: " << rtGetName() << "\n";
+	const ExampleOptions options = parse_cli(argc, argv);
+	rtLoad(options.backend.c_str(), nullptr, 0);
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 	rtInit(kFeatures, 1);
-	if (rtError() != RT_SUCCESS) {
-		std::cerr << "rtInit failed: " << rtErrorMessage() << "\n";
-		rtUnload();
-		return 1;
-	}
-	if (!glfwInit()) {
-		std::cerr << "glfwInit failed\n";
-		rtExit();
-		rtUnload();
-		return 1;
-	}
+	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 06 Galaxy", nullptr, nullptr);
-	if (!window) {
-		std::cerr << "glfwCreateWindow failed\n";
-		glfwTerminate();
-		rtExit();
-		rtUnload();
-		return 1;
-	}
+	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 04 Galaxy", nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
@@ -417,11 +327,10 @@ int main(int argc, char** argv) {
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
-	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
-	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
+	rtGraphicsProgramSource(graphics_program, galaxy_rtslp.size, galaxy_rtslp.data);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
-	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "Scene");
+	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = RT_NULL_HANDLE;
@@ -497,7 +406,7 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[128];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile 06 Galaxy - %.0f FPS - %u mesh stars, %u planets", fps, kStarCount, kPlanetCount);
+			std::snprintf(title, sizeof(title), "Rutile 04 Galaxy - %.0f FPS - %u mesh stars, %u planets", fps, kStarCount, kPlanetCount);
 			glfwSetWindowTitle(window, title);
 			fps_time = std::chrono::steady_clock::now();
 			fps_frames = 0;

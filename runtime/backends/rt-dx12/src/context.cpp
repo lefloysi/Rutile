@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <new>
+#include <vector>
 
 rtdx_context* current_context = nullptr;
 
@@ -167,4 +168,27 @@ void rtdx_context_destroy(rtdx_context* ctx) {
 
 	rtdx_context_finish(ctx);
 	delete ctx;
+}
+
+void rtdx_context_report_validation(rtdx_context* ctx) {
+#if defined(RTDX_ENABLE_D3D12_VALIDATION)
+	ID3D12InfoQueue* messages = nullptr;
+	if (!ctx || !ctx->d3d_device || FAILED(ctx->d3d_device->QueryInterface(IID_PPV_ARGS(&messages)))) {
+		return;
+	}
+	const UINT64 count = messages->GetNumStoredMessagesAllowedByRetrievalFilter();
+	for (UINT64 index = 0; index < count; ++index) {
+		SIZE_T size = 0;
+		messages->GetMessage(index, nullptr, &size);
+		std::vector<unsigned char> storage(size);
+		auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+		if (SUCCEEDED(messages->GetMessage(index, message, &size))) {
+			rtdx_printf("D3D12 validation: %s\n", message->pDescription);
+		}
+	}
+	messages->ClearStoredMessages();
+	messages->Release();
+#else
+	(void)ctx;
+#endif
 }
