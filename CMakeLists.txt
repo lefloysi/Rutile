@@ -2,12 +2,15 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(Rutile VERSION 0.1.0 LANGUAGES C CXX)
 
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set(CMAKE_SYSTEM_VERSION "10.0.26100.0" CACHE STRING "Windows SDK version" FORCE)
-    set(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION "10.0.26100.0" CACHE STRING "Windows SDK version" FORCE)
+if(NOT WIN32)
+    message(FATAL_ERROR "Rutile supports Windows only.")
 endif()
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+include(CTest)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 

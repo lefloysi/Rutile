@@ -54,19 +54,18 @@ rutile/
 
   examples/             # sample apps that link the C binding + runtime
   spec/                 # SPEC.html, SHADERS.md, RTIR contract docs
-  scripts/              # build.sh, build.bat, test.sh, test.bat
+  scripts/              # Windows build and test entry points
   cmake/                # RutileTarget.cmake, RutileConfig.cmake.in
 ```
 
 ## Build strategy
 
-CMake is intentionally scoped to the C/C++ subtree. Everything outside that
-subtree is driven by `scripts/build.sh` and `scripts/build.bat`:
+CMake is intentionally scoped to the C/C++ subtree. Windows development is
+driven by two batch entry points:
 
-- `scripts/build.sh` — POSIX entry point; invokes CMake on the runtime and
-  C binding, and will later invoke `zig build` / `cargo build` for the
-  other language bindings.
-- `scripts/build.bat` — Windows equivalent.
+- `scripts/build.bat` — configures dependencies and builds the repository.
+- `scripts/test.bat` — configures a dedicated test tree, builds it, and runs
+  every registered CTest test.
 - `bindings/c/CMakeLists.txt` — importable on its own. Downstream C/C++
   consumers that only need headers can `add_subdirectory(rutile/bindings/c)`
   without pulling in the runtime.
@@ -118,6 +117,6 @@ When adding `bindings/zig/` or `bindings/rust/`:
 - The binding wraps the C ABI defined in `bindings/c/include/rutile.h`. It
   does not reinvent the ABI.
 - Its build system is native to the language. No CMake.
-- Its build is invoked from `scripts/build.{sh,bat}` as a separate phase
+- Its build is invoked from `scripts/build.bat` as a separate phase
   after the C/C++ build.
 - The README at `bindings/README.md` tracks the binding inventory.

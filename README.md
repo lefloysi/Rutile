@@ -3,9 +3,24 @@
 Rutile is a user-space graphics API built around portability and ease of use.
 Backends are explicitly loaded DLLs to support various features such as layers and extensions.
 The core Rutile API is quite small, supporting only things that *every* api is expected to support.
+Rutile currently supports Windows only.
 
 At this point only C bindings exist. Other languages are theoretically supported by the architecture,
 just not implemented at this point.
+
+## Build and test
+
+Install Visual Studio with the C++ desktop workload, CMake, and vcpkg. Set
+`VCPKG_ROOT` to the vcpkg directory or run `vcpkg integrate install`, then use:
+
+```bat
+scripts\build.bat Debug
+scripts\test.bat Debug
+```
+
+`test.bat` configures and builds the test tree before running CTest. It returns
+an error if configuration fails, compilation fails, a test fails, or no tests
+are registered.
 
 Here is a screenshot from the voxel renderer.
 <p align="center">
