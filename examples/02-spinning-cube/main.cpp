@@ -177,8 +177,9 @@ int main(int argc, char** argv) {
 	Camera camera;
 	const auto start = std::chrono::steady_clock::now();
 	auto previous = start;
+	u32 rendered_frames = 0;
 
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
 		glfwPollEvents();
 		const auto now = std::chrono::steady_clock::now();
 		const f32 delta = std::chrono::duration<f32>(now - previous).count();
@@ -219,6 +220,7 @@ int main(int argc, char** argv) {
 		last_rendered = rtQueueSubmit(queue, command_buffer);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, last_rendered);
+		rendered_frames++;
 	}
 
 	rtTimepointWait(last_rendered);
