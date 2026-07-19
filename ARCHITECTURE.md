@@ -50,10 +50,10 @@ rutile/
       rt-gl33/          # target: rt-gl33 -> Rutile::rt-gl33
     layers/
       rt-validation-layer/  # target: rt-validation-layer
-      logging/          # target: rt-logging-layer
+      rt-logging-layer/     # target: rt-logging-layer
 
   examples/             # sample apps that link the C binding + runtime
-  spec/                 # SPEC.html, SHADERS.md, RTIR contract docs
+  spec/                 # SPEC.html, the core API specification
   scripts/              # Windows build and test entry points
   cmake/                # RutileTarget.cmake, RutileConfig.cmake.in
 ```
@@ -66,6 +66,7 @@ driven by two batch entry points:
 - `scripts/build.bat` — configures dependencies and builds the repository.
 - `scripts/test.bat` — configures a dedicated test tree, builds it, and runs
   every registered CTest test.
+- `scripts/test-examples.bat` — configures and builds the example tree.
 - `bindings/c/CMakeLists.txt` — importable on its own. Downstream C/C++
   consumers that only need headers can `add_subdirectory(rutile/bindings/c)`
   without pulling in the runtime.

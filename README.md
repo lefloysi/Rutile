@@ -24,7 +24,7 @@ are registered.
 
 Here is a screenshot from the voxel renderer.
 <p align="center">
-  <img src="examples/05-voxel-engine/image.png" alt="Rutile Minecraft example" width="720">
+  <img src="examples/05-voxel-renderer/image.png" alt="Rutile Minecraft example" width="720">
 </p>
 
 ## Project Shape
@@ -32,9 +32,10 @@ Here is a screenshot from the voxel renderer.
 - `bindings/c/include/rutile.h` is the public loader and core API.
 - `bindings/c/include/rt_ext_*.h` files are optional extension packages.
 - `rt-vk13` is the Vulkan backend.
+- `rt-dx12` is the DirectX 12 backend (Windows only).
 - `rt-validation-layer` is a validation layer.
 - `rt-logging-layer` is a logging layer.
-- `examples` is a collection of small projects that show how to use Rutile. Because of ongoing development moving to the new custom RTSL examples do NOT work at this point.
+- `examples` is a collection of small projects that show how to use Rutile. All examples use RTSL shaders and can be built and run with `scripts\test-examples.bat`.
 
 ## Loading
 
