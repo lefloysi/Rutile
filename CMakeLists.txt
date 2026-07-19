@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(Rutile VERSION 0.1.0 LANGUAGES C CXX)
 
-if(NOT WIN32)
-    message(FATAL_ERROR "Rutile supports Windows only.")
-endif()
-
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
