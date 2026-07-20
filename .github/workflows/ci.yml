@@ -61,7 +61,25 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake --preset windows-ci
+        run: |
+          cmake --preset windows-ci
+          $configureExitCode = $LASTEXITCODE
+          if ($configureExitCode -ne 0) {
+            Get-ChildItem -Path "out\build\windows-ci" -Recurse -Include "CMakeConfigureLog.yaml","CMakeError.log","CMakeOutput.log" -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                "::group::$($_.FullName)"
+                Get-Content -LiteralPath $_.FullName -Tail 400
+                "::endgroup::"
+              }
+            Get-ChildItem -Path "out\build\windows-ci" -Recurse -Include "*.log" -ErrorAction SilentlyContinue |
+              Select-Object -First 20 |
+              ForEach-Object {
+                "::group::$($_.FullName)"
+                Get-Content -LiteralPath $_.FullName -Tail 200
+                "::endgroup::"
+              }
+            exit $configureExitCode
+          }
 
       - name: Build
         shell: pwsh
