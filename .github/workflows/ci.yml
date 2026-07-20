@@ -239,7 +239,16 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
-          cmake --preset linux-ci
+          set +e
+          output=$(cmake --preset linux-ci 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            message=$(printf '%s\n' "$output" | tail -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Linux configure failed::$message"
+            exit "$status"
+          fi
 
       - name: Build
         run: |
@@ -283,7 +292,17 @@ jobs:
           test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Configure
-        run: cmake --preset macos-ci
+        run: |
+          set +e
+          output=$(cmake --preset macos-ci 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            message=$(printf '%s\n' "$output" | tail -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=macOS configure failed::$message"
+            exit "$status"
+          fi
 
       - name: Build
         run: cmake --build --preset macos-ci --parallel
