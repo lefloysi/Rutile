@@ -207,9 +207,6 @@ jobs:
             cc: clang
             cxx: clang++
 
-    env:
-      VCPKG_ROOT: ${{ runner.temp }}/vcpkg
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -223,8 +220,10 @@ jobs:
 
       - name: Setup vcpkg
         run: |
+          VCPKG_ROOT="$RUNNER_TEMP/vcpkg"
           git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$VCPKG_ROOT" >> "$GITHUB_ENV"
 
       - name: Verify tools
         run: |
@@ -259,9 +258,6 @@ jobs:
     runs-on: macos-14
     needs: linux
 
-    env:
-      VCPKG_ROOT: ${{ runner.temp }}/vcpkg
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -273,8 +269,10 @@ jobs:
 
       - name: Setup vcpkg
         run: |
+          VCPKG_ROOT="$RUNNER_TEMP/vcpkg"
           git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$VCPKG_ROOT" >> "$GITHUB_ENV"
 
       - name: Verify tools
         run: |
