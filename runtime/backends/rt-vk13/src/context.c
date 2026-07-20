@@ -334,16 +334,37 @@ static void rtvk_context_pick_physical_device(struct rtvk_context* ctx) {
 		return;
 	}
 
-	ctx->vk_physical_device = physical_devices[0];
+	ctx->vk_physical_device = VK_NULL_HANDLE;
+	VkPhysicalDeviceProperties best_unsupported_properties = { 0 };
 	for (u32 i = 0; i < physical_device_count; i++) {
 		VkPhysicalDeviceProperties properties;
 		vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
+		if (properties.apiVersion < RTVK_VULKAN_API_VERSION) {
+			if (properties.apiVersion > best_unsupported_properties.apiVersion) {
+				best_unsupported_properties = properties;
+			}
+			continue;
+		}
+		if (!ctx->vk_physical_device) {
+			ctx->vk_physical_device = physical_devices[i];
+		}
 		if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			ctx->vk_physical_device = physical_devices[i];
 			break;
 		}
 	}
 	free(physical_devices);
+
+	if (!ctx->vk_physical_device) {
+		rtvk_throwf(
+			RT_INCOMPATIBLE_DRIVER,
+			"Vulkan 1.3 is required, but the best available graphics device '%s' only supports Vulkan %u.%u.%u; update the graphics driver or use another graphics backend",
+			best_unsupported_properties.deviceName,
+			VK_API_VERSION_MAJOR(best_unsupported_properties.apiVersion),
+			VK_API_VERSION_MINOR(best_unsupported_properties.apiVersion),
+			VK_API_VERSION_PATCH(best_unsupported_properties.apiVersion)
+		);
+	}
 }
 
 static void rtvk_context_create_device(struct rtvk_context* ctx) {
@@ -479,6 +500,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
 	}
+	volkLoadDevice(ctx->vk_device);
 
 	ctx->queues = calloc(queue_family_count, sizeof(*ctx->queues));
 	if (!ctx->queues) {
@@ -504,12 +526,17 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 }
 
 static void rtvk_context_create_allocator(struct rtvk_context* ctx) {
+	VmaVulkanFunctions vulkan_functions = { 0 };
+	vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+	vulkan_functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
 	VmaAllocatorCreateInfo allocator_info = { 0 };
 	allocator_info.flags = 0;
 	allocator_info.physicalDevice = ctx->vk_physical_device;
 	allocator_info.device = ctx->vk_device;
 	allocator_info.instance = ctx->vk_instance;
 	allocator_info.vulkanApiVersion = RTVK_VULKAN_API_VERSION;
+	allocator_info.pVulkanFunctions = &vulkan_functions;
 
 	VkResult result = vmaCreateAllocator(&allocator_info, &ctx->vma_allocator);
 	if (result != VK_SUCCESS) {
@@ -540,6 +567,24 @@ struct rtvk_context* rtvk_create_context(rtvk_context_flags flags) {
 
 void rtvk_context_init(struct rtvk_context* ctx) {
 	u64 start_ns = rtvk_now_ns();
+	VkResult result = volkInitialize();
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(RT_INCOMPATIBLE_DRIVER, "Vulkan loader is unavailable or could not be initialized (%s)", rtvk_vk_result_name(result));
+		return;
+	}
+
+	u32 loader_version = volkGetInstanceVersion();
+	if (loader_version < RTVK_VULKAN_API_VERSION) {
+		rtvk_throwf(
+			RT_INCOMPATIBLE_DRIVER,
+			"Vulkan 1.3 is required, but the installed Vulkan loader only supports %u.%u.%u; update the graphics driver or use another graphics backend",
+			VK_API_VERSION_MAJOR(loader_version),
+			VK_API_VERSION_MINOR(loader_version),
+			VK_API_VERSION_PATCH(loader_version)
+		);
+		return;
+	}
+
 	const char* instance_extensions[16];
 	u32 instance_extension_count = 0;
 	VkExtensionProperties* available_instance_extensions = NULL;
@@ -624,11 +669,12 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 	instance_info.enabledExtensionCount = instance_extension_count;
 	instance_info.ppEnabledExtensionNames = instance_extensions;
 
-	VkResult result = vkCreateInstance(&instance_info, VK_ALLOCATOR, &ctx->vk_instance);
+	result = vkCreateInstance(&instance_info, VK_ALLOCATOR, &ctx->vk_instance);
 	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		rtvk_throwf(rtvk_error_from_vk(result), "failed to create a Vulkan 1.3 instance: %s", rtvk_vk_result_name(result));
 		return;
 	}
+	volkLoadInstance(ctx->vk_instance);
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)
 	if (validation_enabled) {
 		rtvk_context_create_debug_messenger(ctx);

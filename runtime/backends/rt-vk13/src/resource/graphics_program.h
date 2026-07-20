@@ -4,7 +4,7 @@
 #include "config.h"
 #include "resource.h"
 
-#include <vulkan/vulkan.h>
+#include <volk.h>
 
 /*===============================================================================================*/
 /*                                                                                               */

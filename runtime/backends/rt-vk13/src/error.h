@@ -5,7 +5,7 @@
 #include "types.h"
 
 #include <stdarg.h>
-#include <vulkan/vulkan.h>
+#include <volk.h>
 
 RTVK_EXTERN_C_ENTER
 

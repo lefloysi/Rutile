@@ -4,19 +4,9 @@ project(rt-vk13 C CXX)
 
 find_package(Vulkan REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(volk CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 include(RutileTarget)
-
-set(RUTILE_VULKAN_LIBRARY Vulkan::Vulkan)
-if(UNIX AND NOT APPLE)
-    if(EXISTS "/usr/lib/x86_64-linux-gnu/libvulkan.so")
-        set(RUTILE_VULKAN_LIBRARY "/usr/lib/x86_64-linux-gnu/libvulkan.so")
-    elseif(EXISTS "/lib/x86_64-linux-gnu/libvulkan.so")
-        set(RUTILE_VULKAN_LIBRARY "/lib/x86_64-linux-gnu/libvulkan.so")
-    else()
-        message(FATAL_ERROR "Could not find the Linux system Vulkan loader. Install libvulkan-dev.")
-    endif()
-endif()
 
 add_library(${PROJECT_NAME} SHARED)
 target_compile_features(${PROJECT_NAME} PRIVATE
@@ -24,6 +14,9 @@ target_compile_features(${PROJECT_NAME} PRIVATE
     cxx_std_23
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
+    VK_NO_PROTOTYPES
+    VMA_STATIC_VULKAN_FUNCTIONS=0
+    VMA_DYNAMIC_VULKAN_FUNCTIONS=1
     "$<$<CONFIG:Debug>:RTVK_ENABLE_VULKAN_VALIDATION>"
 )
 
@@ -71,9 +64,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME}
-    PUBLIC
-        ${RUTILE_VULKAN_LIBRARY}
     PRIVATE
+        volk::volk
         GPUOpen::VulkanMemoryAllocator
         ${CMAKE_DL_LIBS}
         Threads::Threads

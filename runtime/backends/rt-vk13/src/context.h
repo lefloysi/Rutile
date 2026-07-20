@@ -4,7 +4,7 @@
 #include "types.h"
 
 #include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
+#include <volk.h>
 
 typedef struct rtvk_context_flags {
 	unsigned presentation : 1;

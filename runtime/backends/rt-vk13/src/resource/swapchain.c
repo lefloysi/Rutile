@@ -781,12 +781,16 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 	 * deadlock surfaces as VK_TIMEOUT instead of hanging the app. */
 	VkResult result = vkAcquireNextImageKHR(ctx->vk_device, swapchain->vk_swapchain, 1000000000ull, acquire_frame->image_available, VK_NULL_HANDLE, &swapchain->current_image_index);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: swapchain is out of date");
+		/* Window resizing can invalidate the surface between the GLFW resize
+		 * callback and this acquire. This is a transient no-frame condition,
+		 * not an application error; the pending resize will rebuild the
+		 * swapchain and the render loop can retry on its next iteration. */
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
 	if (result == VK_TIMEOUT || result == VK_NOT_READY) {
-		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: no image available within timeout (previous frames likely not yet presented)");
+		/* Occlusion and interactive resizing may temporarily make forward
+		 * progress unavailable. Match the out-of-date path and skip a frame. */
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
