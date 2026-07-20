@@ -60,4 +60,13 @@ jobs:
 
       - name: Test
         shell: pwsh
-        run: ctest --preset windows-ci
+        run: |
+          $ctestOutput = ctest --preset windows-ci 2>&1
+          $ctestExitCode = $LASTEXITCODE
+          $ctestOutput
+          if ($ctestExitCode -ne 0) {
+            $message = ($ctestOutput -join "`n")
+            $message = $message.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            "::error title=CTest failed::$message"
+            exit $ctestExitCode
+          }
