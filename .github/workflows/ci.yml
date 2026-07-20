@@ -104,7 +104,15 @@ jobs:
 
       - name: Build
         shell: pwsh
-        run: cmake --build --preset windows-clang-ci --parallel
+        run: |
+          $output = cmake --build --preset windows-clang-ci --parallel 2>&1
+          $exitCode = $LASTEXITCODE
+          $output
+          if ($exitCode -ne 0) {
+            $message = ($output -join "`n").Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            "::error title=Windows Clang build failed::$message"
+            exit $exitCode
+          }
 
       - name: Test
         shell: pwsh
@@ -132,6 +140,7 @@ jobs:
           install: >-
             git
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
 
       - name: Setup vcpkg
@@ -146,20 +155,35 @@ jobs:
       - name: Verify tools
         shell: msys2 {0}
         run: |
-          cmake --version
-          ninja --version
-          gcc --version
-          g++ --version
+          export PATH="/ucrt64/bin:$PATH"
+          {
+            cmake --version
+            ninja --version
+            gcc --version
+            g++ --version
+          } 2>&1 | tee verify-tools.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            message=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' verify-tools.log)
+            echo "::error title=Windows GCC tool verification failed::$message"
+            exit "$status"
+          fi
           test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Configure
         shell: msys2 {0}
-        run: cmake --preset windows-gcc-ci
+        run: |
+          export PATH="/ucrt64/bin:$PATH"
+          cmake --preset windows-gcc-ci
 
       - name: Build
         shell: msys2 {0}
-        run: cmake --build --preset windows-gcc-ci --parallel
+        run: |
+          export PATH="/ucrt64/bin:$PATH"
+          cmake --build --preset windows-gcc-ci --parallel
 
       - name: Test
         shell: msys2 {0}
-        run: ctest --preset windows-gcc-ci
+        run: |
+          export PATH="/ucrt64/bin:$PATH"
+          ctest --preset windows-gcc-ci
