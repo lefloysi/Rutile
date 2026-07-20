@@ -65,7 +65,6 @@ jobs:
   windows-clang:
     name: Windows Clang
     runs-on: windows-2022
-    needs: windows
 
     env:
       VCPKG_ROOT: C:\vcpkg
@@ -122,7 +121,6 @@ jobs:
   windows-gcc:
     name: Windows GCC
     runs-on: windows-2022
-    needs: windows
 
     env:
       VCPKG_ROOT: C:\vcpkg
@@ -192,9 +190,6 @@ jobs:
   linux:
     name: Linux
     runs-on: ubuntu-24.04
-    needs:
-      - windows-clang
-      - windows-gcc
 
     strategy:
       fail-fast: false
@@ -203,9 +198,13 @@ jobs:
           - name: GCC
             cc: gcc
             cxx: g++
+            cxxflags: ''
+            ldflags: ''
           - name: Clang
             cc: clang
             cxx: clang++
+            cxxflags: -stdlib=libc++
+            ldflags: -stdlib=libc++
 
     steps:
       - name: Checkout
@@ -223,6 +222,8 @@ jobs:
             libxi-dev \
             libxinerama-dev \
             libxrandr-dev \
+            libc++-dev \
+            libc++abi-dev \
             ninja-build \
             xorg-dev
 
@@ -237,6 +238,8 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
+          export CXXFLAGS="${{ matrix.compiler.cxxflags }}"
+          export LDFLAGS="${{ matrix.compiler.ldflags }}"
           cmake --version
           ninja --version
           "$CC" --version
@@ -247,6 +250,8 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
+          export CXXFLAGS="${{ matrix.compiler.cxxflags }}"
+          export LDFLAGS="${{ matrix.compiler.ldflags }}"
           set +e
           output=$(cmake --preset linux-ci 2>&1)
           status=$?
@@ -262,6 +267,8 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
+          export CXXFLAGS="${{ matrix.compiler.cxxflags }}"
+          export LDFLAGS="${{ matrix.compiler.ldflags }}"
           set +e
           output=$(cmake --build --preset linux-ci --parallel 2>&1)
           status=$?
@@ -277,6 +284,8 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
+          export CXXFLAGS="${{ matrix.compiler.cxxflags }}"
+          export LDFLAGS="${{ matrix.compiler.ldflags }}"
           ctest --preset linux-ci
 
   macos:
