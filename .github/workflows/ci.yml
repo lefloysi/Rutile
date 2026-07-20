@@ -109,7 +109,8 @@ jobs:
           $exitCode = $LASTEXITCODE
           $output
           if ($exitCode -ne 0) {
-            $message = ($output -join "`n").Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            $tail = $output | Select-Object -Last 120
+            $message = ($tail -join "`n").Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
             "::error title=Windows Clang build failed::$message"
             exit $exitCode
           }
