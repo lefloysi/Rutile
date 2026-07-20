@@ -148,6 +148,56 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       }
+    },
+    {
+      "name": "linux-ci",
+      "displayName": "Linux CI",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_MANIFEST_FEATURES": "tests",
+        "BUILD_TESTING": "ON",
+        "RUTILE_BUILD_EXAMPLES": "OFF",
+        "RUTILE_BUILD_GL33": "OFF",
+        "RUTILE_BUILD_VK13": "OFF",
+        "RUTILE_BUILD_DX12": "OFF",
+        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
+        "RUTILE_BUILD_LOGGING_LAYER": "ON",
+        "RUTILE_INSTALL": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "macos-ci",
+      "displayName": "macOS CI",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-osx",
+        "VCPKG_MANIFEST_FEATURES": "tests",
+        "BUILD_TESTING": "ON",
+        "RUTILE_BUILD_EXAMPLES": "OFF",
+        "RUTILE_BUILD_GL33": "OFF",
+        "RUTILE_BUILD_VK13": "OFF",
+        "RUTILE_BUILD_DX12": "OFF",
+        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
+        "RUTILE_BUILD_LOGGING_LAYER": "ON",
+        "RUTILE_INSTALL": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
     }
   ],
   "buildPresets": [
@@ -198,6 +248,14 @@
     {
       "name": "windows-gcc-ci",
       "configurePreset": "windows-gcc-ci"
+    },
+    {
+      "name": "linux-ci",
+      "configurePreset": "linux-ci"
+    },
+    {
+      "name": "macos-ci",
+      "configurePreset": "macos-ci"
     }
   ],
   "testPresets": [
@@ -234,6 +292,26 @@
     {
       "name": "windows-gcc-ci",
       "configurePreset": "windows-gcc-ci",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "linux-ci",
+      "configurePreset": "linux-ci",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "macos-ci",
+      "configurePreset": "macos-ci",
       "output": {
         "outputOnFailure": true
       },

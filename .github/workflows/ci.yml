@@ -188,3 +188,98 @@ jobs:
         run: |
           export PATH="/ucrt64/bin:$PATH"
           ctest --preset windows-gcc-ci
+
+  linux:
+    name: Linux ${{ matrix.compiler.name }}
+    runs-on: ubuntu-24.04
+    needs:
+      - windows-clang
+      - windows-gcc
+
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - name: GCC
+            cc: gcc
+            cxx: g++
+          - name: Clang
+            cc: clang
+            cxx: clang++
+
+    env:
+      VCPKG_ROOT: ${{ runner.temp }}/vcpkg
+      CC: ${{ matrix.compiler.cc }}
+      CXX: ${{ matrix.compiler.cxx }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Verify tools
+        run: |
+          cmake --version
+          ninja --version
+          "$CC" --version
+          "$CXX" --version
+          test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Configure
+        run: cmake --preset linux-ci
+
+      - name: Build
+        run: cmake --build --preset linux-ci --parallel
+
+      - name: Test
+        run: ctest --preset linux-ci
+
+  macos:
+    name: macOS setup
+    runs-on: macos-14
+    needs: linux
+
+    env:
+      VCPKG_ROOT: ${{ runner.temp }}/vcpkg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: brew install ninja
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Verify tools
+        run: |
+          cmake --version
+          ninja --version
+          clang --version
+          clang++ --version
+          test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Configure
+        run: cmake --preset macos-ci
+
+      - name: Build
+        run: cmake --build --preset macos-ci --parallel
+
+      - name: Test
+        run: ctest --preset macos-ci
