@@ -262,7 +262,16 @@ jobs:
         run: |
           export CC="${{ matrix.compiler.cc }}"
           export CXX="${{ matrix.compiler.cxx }}"
-          cmake --build --preset linux-ci --parallel
+          set +e
+          output=$(cmake --build --preset linux-ci --parallel 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            message=$(printf '%s\n' "$output" | tail -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Linux build failed::$message"
+            exit "$status"
+          fi
 
       - name: Test
         run: |
@@ -313,7 +322,17 @@ jobs:
           fi
 
       - name: Build
-        run: cmake --build --preset macos-ci --parallel
+        run: |
+          set +e
+          output=$(cmake --build --preset macos-ci --parallel 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            message=$(printf '%s\n' "$output" | tail -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=macOS build failed::$message"
+            exit "$status"
+          fi
 
       - name: Test
         run: ctest --preset macos-ci
