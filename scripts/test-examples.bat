@@ -30,16 +30,16 @@ if not exist "%toolchain%" (
 )
 
 set "RUTILE_EXAMPLE_BACKENDS=%~3"
-if not defined RUTILE_EXAMPLE_BACKENDS set "RUTILE_EXAMPLE_BACKENDS=rt-vk13"
-set "features=examples;gl33"
-set "build_vk13=OFF"
-set "build_dx12=OFF"
+if not defined RUTILE_EXAMPLE_BACKENDS set "RUTILE_EXAMPLE_BACKENDS=rt-vulkan"
+set "features=examples;opengl"
+set "build_vulkan=OFF"
+set "build_directx12=OFF"
 for %%B in (%RUTILE_EXAMPLE_BACKENDS%) do (
-	if /I "%%B"=="rt-vk13" (
-		set "build_vk13=ON"
+	if /I "%%B"=="rt-vulkan" (
+		set "build_vulkan=ON"
 		set "features=!features!;vulkan"
 	)
-	if /I "%%B"=="rt-dx12" set "build_dx12=ON"
+	if /I "%%B"=="rt-directx12" set "build_directx12=ON"
 )
 
 echo Configuring examples with vcpkg features: !features!
@@ -49,8 +49,8 @@ cmake -S "%repo%" -B "%build_dir%" ^
 	-DVCPKG_TARGET_TRIPLET=x64-windows-static ^
 	-DVCPKG_MANIFEST_FEATURES="!features!" ^
 	-DRUTILE_BUILD_EXAMPLES=ON ^
-	-DRUTILE_BUILD_VK13=%build_vk13% ^
-	-DRUTILE_BUILD_DX12=%build_dx12%
+	-DRUTILE_BUILD_VULKAN=%build_vulkan% ^
+	-DRUTILE_BUILD_DIRECTX12=%build_directx12%
 if errorlevel 1 exit /b %errorlevel%
 
 echo Building examples...

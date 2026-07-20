@@ -5,7 +5,7 @@ Rutile is a graphics stack split along three axes that stay decoupled:
 1. **API** — the C ABI defined in `bindings/c/include/rutile.h`. This is the
    contract every backend implements and every host language binds to.
 2. **Runtime** — the C/C++ implementation of that API: loader-like dispatch,
-   the backends (Vulkan, DX12, GL33), and optional layers (validation,
+   the backends (Vulkan, DirectX 12, OpenGL), and optional layers (validation,
    logging).
 3. **Shader programs** — RTSL compiles source into linked `.rtslp` artifacts.
    Runtime backends load the normalized IR through `RTSL::sdk` and lower it
@@ -22,7 +22,7 @@ Rutile is a graphics stack split along three axes that stay decoupled:
 |                     runtime/ (C/C++)                            |
 |                                                                 |
 |  layers/                         backends/                       |
-|  validation, logging            vulkan, dx12, gl33              |
+|  validation, logging            vulkan, directx12, opengl              |
 +-----------------------------------------------------------------+
                  ^
                  |  rtsl produces rtslp packages that backends consume
@@ -45,9 +45,9 @@ rutile/
 
   runtime/              # C/C++ implementation
     backends/
-      rt-vk13/          # target: rt-vk13 -> Rutile::rt-vk13
-      rt-dx12/          # target: rt-dx12 -> Rutile::rt-dx12
-      rt-gl33/          # target: rt-gl33 -> Rutile::rt-gl33
+      rt-vulkan/          # target: rt-vulkan -> Rutile::rt-vulkan
+      rt-directx12/          # target: rt-directx12 -> Rutile::rt-directx12
+      rt-opengl/          # target: rt-opengl -> Rutile::rt-opengl
     layers/
       rt-validation-layer/  # target: rt-validation-layer
       rt-logging-layer/     # target: rt-logging-layer
@@ -106,7 +106,7 @@ RTIR is the normalized representation stored in linked RTSL program artifacts.
 `RTSL::sdk` owns artifact loading, validation, immutable IR access, and
 reflection. Target transpilers live under `RTSL/transpilers/`; the Vulkan
 backend links `RTSL::spirv`, which lowers vertex and fragment stages directly
-to SPIR-V words. The DX12 backend links `RTSL::hlsl`, compiles the generated
+to SPIR-V words. The DirectX 12 backend links `RTSL::hlsl`, compiles the generated
 HLSL to DXIL with DXC, and derives its root signature and input layout from
 RTSL reflection. Neither runtime backend links the source-language compiler;
 Vulkan has no intermediate GLSL path.

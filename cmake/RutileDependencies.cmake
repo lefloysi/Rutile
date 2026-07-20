@@ -43,7 +43,7 @@ function(rutile_find_vulkan_backend_dependencies)
         rutile_find_vulkan_sdk_headers(_rutile_vulkan_sdk_include)
         if(NOT _rutile_vulkan_sdk_include)
             message(FATAL_ERROR
-                "RUTILE_BUILD_VK13 is ON, but Vulkan headers were not found. "
+                "RUTILE_BUILD_VULKAN is ON, but Vulkan headers were not found. "
                 "Install the Vulkan SDK and set VULKAN_SDK, or install vulkan-headers with vcpkg."
             )
         endif()

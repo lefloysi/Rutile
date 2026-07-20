@@ -30,9 +30,9 @@ Common requirements:
 Windows requirements:
 
 - Visual Studio 2022 with the **Desktop development with C++** workload
-- Vulkan SDK if building `rt-vk13`
+- Vulkan SDK if building `rt-vulkan`
 - DirectX Shader Compiler dependency is pulled through vcpkg when using the
-  `dx12` manifest feature
+  `directx12` manifest feature
 
 Linux requirements:
 
@@ -70,7 +70,7 @@ cmake --build --preset windows-ci --parallel
 ctest --preset windows-ci
 ```
 
-That builds `rt-vk13`, `rt-dx12`, `rt-validation-layer`, `rt-logging-layer`,
+That builds `rt-vulkan`, `rt-directx12`, `rt-validation-layer`, `rt-logging-layer`,
 `rtsl-tests`, `rtsl-sdk-tests`, and `rtslc`.
 
 The normal Windows debug build is:
@@ -130,8 +130,8 @@ The vcpkg manifest is split into features so optional dependencies stay behind
 the targets that use them:
 
 - `vulkan`: Vulkan backend dependencies
-- `dx12`: DirectX 12 backend dependencies
-- `gl33`: OpenGL 3.3 backend dependencies
+- `directx12`: DirectX 12 backend dependencies
+- `opengl`: OpenGL 3.3 backend dependencies
 - `examples`: GLFW, GLM, CLI11, and stb for examples
 - `tests`: Catch2 and test CLI support
 
@@ -143,14 +143,14 @@ For example, use `windows-core` for a headers/layers-only configure and
 Build the examples and run them against the Vulkan backend:
 
 ```bat
-scripts\test-examples.bat Debug out\build\examples rt-vk13
+scripts\test-examples.bat Debug out\build\examples rt-vulkan
 ```
 
 Run the built examples manually from the build output directory:
 
 ```bat
-out\build\examples\bin\rutile-01-triangle.exe --backend rt-vk13
-out\build\examples\bin\rutile-05-voxel-renderer.exe --backend rt-vk13 --frames 300
+out\build\examples\bin\rutile-01-triangle.exe --backend rt-vulkan
+out\build\examples\bin\rutile-05-voxel-renderer.exe --backend rt-vulkan --frames 300
 ```
 
 If you use a multi-config generator, the executables are under
@@ -169,8 +169,8 @@ Here is a screenshot from the voxel renderer.
 
 - `bindings/c/include/rutile.h` is the public loader and core API.
 - `bindings/c/include/rt_ext_*.h` files are optional extension packages.
-- `rt-vk13` is the Vulkan backend.
-- `rt-dx12` is the DirectX 12 backend (Windows only).
+- `rt-vulkan` is the Vulkan backend.
+- `rt-directx12` is the DirectX 12 backend (Windows only).
 - `rt-validation-layer` is a validation layer.
 - `rt-logging-layer` is a logging layer.
 - `examples` is a collection of small projects that show how to use Rutile. All examples use RTSL shaders and can be built and run with `scripts\test-examples.bat`.
@@ -184,7 +184,7 @@ const char* layers[] = {
     "RT_VALIDATION_LAYER",
     "RT_LOGGING_LAYER",
 };
-if (rtLoad("rt-vk13", layers, 2) != RT_SUCCESS) {
+if (rtLoad("rt-vulkan", layers, 2) != RT_SUCCESS) {
     /* handle load failure */
 }
 ```
@@ -228,7 +228,7 @@ The application includes the extension header and loads it after the backend:
 ```c
 #include "rt_ext_my_feature.h"
 
-rtLoad("rt-vk13", layers, layer_count);
+rtLoad("rt-vulkan", layers, layer_count);
 
 if (rtLoad_RT_EXT_MY_FEATURE()) {
     rtMyFeatureDoThing(...);

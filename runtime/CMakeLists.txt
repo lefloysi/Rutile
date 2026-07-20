@@ -1,7 +1,7 @@
 # Rutile runtime: the C/C++ implementation of the Rutile API.
 #
 # The runtime is split into:
-#   backends/*      vulkan, dx12, gl33 backends
+#   backends/*      vulkan, directx12, opengl backends
 #   layers/*        validation, logging
 #
 # Runtime shader/artifact support lives behind RTSL::sdk and target-specific

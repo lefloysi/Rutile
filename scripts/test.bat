@@ -6,7 +6,7 @@ set "build_dir=%repo_root%\out\tests"
 set "config=%~1"
 if not defined config set "config=Debug"
 
-set "RUTILE_VCPKG_FEATURES=gl33;tests;vulkan"
+set "RUTILE_VCPKG_FEATURES=opengl;tests;vulkan"
 call "%repo_root%\scripts\build.bat" "%config%" "%build_dir%" "-DBUILD_TESTING=ON" "-DRUTILE_BUILD_EXAMPLES=OFF" "-DRUTILE_INSTALL=OFF"
 if errorlevel 1 exit /b 1
 

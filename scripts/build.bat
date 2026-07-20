@@ -28,7 +28,7 @@ if not exist "%vcpkg_toolchain%" (
 )
 
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows-static"
-if not defined RUTILE_VCPKG_FEATURES set "RUTILE_VCPKG_FEATURES=examples;gl33;tests;vulkan"
+if not defined RUTILE_VCPKG_FEATURES set "RUTILE_VCPKG_FEATURES=examples;opengl;tests;vulkan"
 
 shift
 shift

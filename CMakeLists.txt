@@ -8,9 +8,9 @@ include(GNUInstallDirs)
 
 option(RUTILE_BUILD_EXAMPLES "Build Rutile examples" ${PROJECT_IS_TOP_LEVEL})
 option(RUTILE_INSTALL "Generate Rutile install rules" ${PROJECT_IS_TOP_LEVEL})
-option(RUTILE_BUILD_VK13 "Build the Vulkan 1.3 Rutile runtime." ON)
-option(RUTILE_BUILD_DX12 "Build the DirectX 12 Rutile runtime on Windows." ON)
-option(RUTILE_BUILD_GL33 "Build the OpenGL 3.3 Rutile runtime on Windows." OFF)
+option(RUTILE_BUILD_VULKAN "Build the Vulkan 1.3 Rutile runtime." ON)
+option(RUTILE_BUILD_DIRECTX12 "Build the DirectX 12 Rutile runtime on Windows." ON)
+option(RUTILE_BUILD_OPENGL "Build the OpenGL 3.3 Rutile runtime on Windows." OFF)
 option(RUTILE_BUILD_VALIDATION_LAYER "Build the Rutile validation layer." ON)
 option(RUTILE_BUILD_LOGGING_LAYER "Build the Rutile logging layer." ON)
 
@@ -29,7 +29,7 @@ if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET AND NOT VCPKG_TA
     list(PREPEND CMAKE_PREFIX_PATH "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
 endif()
 
-set(RTSL_BUILD_SPIRV "${RUTILE_BUILD_VK13}" CACHE BOOL "Build the RTSL SPIR-V transpiler" FORCE)
+set(RTSL_BUILD_SPIRV "${RUTILE_BUILD_VULKAN}" CACHE BOOL "Build the RTSL SPIR-V transpiler" FORCE)
 add_subdirectory("RTSL")
 
 # The Rutile::rutile interface target lives in the C binding so that

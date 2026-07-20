@@ -73,7 +73,7 @@ the same change. Do not leave tribal knowledge living only in chat.
 - Vulkan may also encounter `VK_ERROR_OUT_OF_DATE_KHR` or `VK_SUBOPTIMAL_KHR`, but those are not a
   replacement for the explicit resize API. They are error/recovery signals, not the primary resize
   protocol.
-- DX12 has no direct equivalent to `VK_ERROR_OUT_OF_DATE_KHR` for window resizing. Resize is performed
+- DirectX 12 has no direct equivalent to `VK_ERROR_OUT_OF_DATE_KHR` for window resizing. Resize is performed
   by releasing back-buffer references and calling `IDXGISwapChain::ResizeBuffers`.
 - Metal-style backends should treat drawable size similarly: update the layer/view drawable size from
   the platform resize path, then recreate or reacquire drawable-dependent resources.
