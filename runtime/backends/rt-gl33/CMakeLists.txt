@@ -11,10 +11,6 @@ include(RutileTarget)
 find_package(glfw3 CONFIG REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED)
-target_compile_features(${PROJECT_NAME} PRIVATE
-    c_std_11
-    cxx_std_23
-)
 
 target_sources(${PROJECT_NAME} PRIVATE
     "src/config.h"
@@ -30,6 +26,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/glfw/glfw.c"
     
     "src/platform/proc.h"
+    "src/platform/glfw.h"
     "src/platform/win32/proc.c"
     "src/platform/win32/glfw.c"
     "src/platform/context.h"

@@ -5,7 +5,6 @@ project(rt-logging-layer C)
 include(RutileTarget)
 
 add_library(${PROJECT_NAME} SHARED)
-target_compile_features(${PROJECT_NAME} PRIVATE c_std_11)
 
 target_sources(${PROJECT_NAME} PRIVATE
     "src/buffer.c"

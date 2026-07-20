@@ -1,5 +1,30 @@
 include_guard(GLOBAL)
 
+function(rutile_apply_common_target_settings target_name)
+    get_target_property(_rutile_sources "${target_name}" SOURCES)
+    set(_rutile_uses_c OFF)
+    set(_rutile_uses_cxx OFF)
+    foreach(_rutile_source IN LISTS _rutile_sources)
+        if(_rutile_source MATCHES "\\.(c)$")
+            set(_rutile_uses_c ON)
+        elseif(_rutile_source MATCHES "\\.(cc|cpp|cxx|c\\+\\+)$")
+            set(_rutile_uses_cxx ON)
+        endif()
+    endforeach()
+    if(_rutile_uses_c)
+        target_compile_features("${target_name}" PRIVATE c_std_11)
+    endif()
+    if(_rutile_uses_cxx)
+        target_compile_features("${target_name}" PRIVATE cxx_std_23)
+    endif()
+
+    if(MSVC)
+        set_target_properties("${target_name}" PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+    endif()
+endfunction()
+
 function(rutile_set_common_output_dirs target_name)
     set_target_properties(${target_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -22,12 +47,6 @@ endfunction()
 function(rutile_register_runtime_target target_name)
     if(NOT TARGET "${target_name}")
         message(FATAL_ERROR "Rutile runtime target '${target_name}' does not exist")
-    endif()
-
-    if(MSVC)
-        set_target_properties("${target_name}" PROPERTIES
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
-        )
     endif()
 
     set_property(GLOBAL APPEND PROPERTY RUTILE_RUNTIME_TARGETS "${target_name}")
@@ -53,6 +72,7 @@ endfunction()
 
 function(rutile_configure_shared_library target_name)
     rutile_set_common_output_dirs(${target_name})
+    rutile_apply_common_target_settings(${target_name})
     target_compile_definitions(${target_name} PRIVATE RT_BUILD_DLL)
     target_include_directories(${target_name}
         PUBLIC

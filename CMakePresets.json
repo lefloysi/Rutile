@@ -1,0 +1,102 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_FEATURES": "examples;gl33;tests;vulkan"
+      }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows RelWithDebInfo",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VCPKG_MANIFEST_FEATURES": "examples;gl33;tests;vulkan"
+      }
+    },
+    {
+      "name": "windows-vulkan-examples",
+      "displayName": "Windows Vulkan Examples",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_FEATURES": "examples;vulkan",
+        "RUTILE_BUILD_DX12": "OFF",
+        "RUTILE_BUILD_GL33": "OFF",
+        "RUTILE_BUILD_VK13": "ON",
+        "RUTILE_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "windows-core",
+      "displayName": "Windows Core Runtime Headers and Layers",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_FEATURES": "",
+        "BUILD_TESTING": "OFF",
+        "RUTILE_BUILD_EXAMPLES": "OFF",
+        "RUTILE_BUILD_GL33": "OFF",
+        "RUTILE_BUILD_VK13": "OFF",
+        "RUTILE_BUILD_DX12": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-vulkan-examples",
+      "configurePreset": "windows-vulkan-examples",
+      "targets": [
+        "rutile-01-triangle",
+        "rutile-02-spinning-cube",
+        "rutile-03-plasma-lab",
+        "rutile-04-galaxy",
+        "rutile-05-voxel-renderer"
+      ]
+    },
+    {
+      "name": "windows-core",
+      "configurePreset": "windows-core"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

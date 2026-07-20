@@ -9,7 +9,6 @@ endif()
 include(RutileTarget)
 
 add_library(${PROJECT_NAME} SHARED)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)
 target_sources(${PROJECT_NAME} PRIVATE
     "src/atomic.hpp"
     "src/config.hpp"

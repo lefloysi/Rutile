@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(Rutile VERSION 0.1.0 LANGUAGES C CXX)
 
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
 include(CTest)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -14,20 +10,26 @@ option(RUTILE_BUILD_EXAMPLES "Build Rutile examples" ${PROJECT_IS_TOP_LEVEL})
 option(RUTILE_INSTALL "Generate Rutile install rules" ${PROJECT_IS_TOP_LEVEL})
 option(RUTILE_BUILD_VK13 "Build the Vulkan 1.3 Rutile runtime." ON)
 option(RUTILE_BUILD_DX12 "Build the DirectX 12 Rutile runtime on Windows." OFF)
-option(RUTILE_BUILD_GL33 "Build the OpenGL 3.3 Rutile runtime on Windows." ON)
+option(RUTILE_BUILD_GL33 "Build the OpenGL 3.3 Rutile runtime on Windows." ${WIN32})
 option(RUTILE_BUILD_VALIDATION_LAYER "Build the Rutile validation layer." ON)
 option(RUTILE_BUILD_LOGGING_LAYER "Build the Rutile logging layer." ON)
+
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 set(RUTILE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(RUTILE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/Rutile" CACHE STRING "Rutile CMake package install directory")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(RutileDependencies)
 include(RutileTarget)
 
 if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET AND NOT VCPKG_TARGET_TRIPLET STREQUAL "")
     list(PREPEND CMAKE_PREFIX_PATH "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
 endif()
 
+set(RTSL_BUILD_SPIRV "${RUTILE_BUILD_VK13}" CACHE BOOL "Build the RTSL SPIR-V transpiler" FORCE)
 add_subdirectory("RTSL")
 
 # The Rutile::rutile interface target lives in the C binding so that

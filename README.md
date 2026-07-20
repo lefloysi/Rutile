@@ -8,19 +8,63 @@ Rutile currently supports Windows only.
 At this point only C bindings exist. Other languages are theoretically supported by the architecture,
 just not implemented at this point.
 
-## Build and test
+## Build
 
-Install Visual Studio with the C++ desktop workload, CMake, and vcpkg. Set
-`VCPKG_ROOT` to the vcpkg directory or run `vcpkg integrate install`, then use:
+Install:
+
+- Visual Studio 2022 with the **Desktop development with C++** workload
+- CMake 3.28 or newer
+- vcpkg, either from Visual Studio or from a standalone checkout with `VCPKG_ROOT` set
+- Vulkan SDK, only if you build the Vulkan backend
+
+The easiest Windows build uses the repository script. It enters the MSVC x64
+developer environment, uses vcpkg manifest mode, and defaults to the static
+`x64-windows-static` triplet:
 
 ```bat
 scripts\build.bat Debug
-scripts\test.bat Debug
 ```
 
-`test.bat` configures and builds the test tree before running CTest. It returns
-an error if configuration fails, compilation fails, a test fails, or no tests
-are registered.
+For command-line CMake with a standalone vcpkg checkout:
+
+```bat
+cmake --preset windows-debug
+cmake --build --preset windows-debug
+ctest --preset windows-debug
+```
+
+The vcpkg manifest is split into features so optional dependencies stay behind
+the targets that use them:
+
+- `vulkan`: `rt-vk13`, VMA, volk, Vulkan headers, SPIR-V headers
+- `gl33`: `rt-gl33` support dependencies
+- `examples`: GLFW, GLM, CLI11, stb
+- `tests`: Catch2 and test CLI support
+
+For example, a headers/layers-only configure can use `windows-core`, while a
+Vulkan examples configure can use `windows-vulkan-examples`.
+
+## Run Examples
+
+Build the examples and run them against the Vulkan backend:
+
+```bat
+scripts\test-examples.bat Debug out\build\examples rt-vk13
+```
+
+Run the built examples manually from the build output directory:
+
+```bat
+out\build\examples\bin\rutile-01-triangle.exe --backend rt-vk13
+out\build\examples\bin\rutile-05-voxel-renderer.exe --backend rt-vk13 --frames 300
+```
+
+If you use a multi-config generator, the executables are under
+`out\build\examples\bin\Debug` instead.
+
+`scripts\test.bat Debug` configures, builds, and runs the test tree with CTest.
+It returns an error if configuration fails, compilation fails, a test fails, or
+no tests are registered.
 
 Here is a screenshot from the voxel renderer.
 <p align="center">

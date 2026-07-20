@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 for %%I in ("%~dp0..") do set "repo=%%~fI"
 set "configuration=%~1"
@@ -29,20 +29,28 @@ if not exist "%toolchain%" (
 	exit /b 1
 )
 
-if not exist "%repo%\RTSL\CMakeLists.txt" (
-	echo Initializing git submodules...
-	git -C "%repo%" submodule update --init --recursive
-	if errorlevel 1 exit /b %errorlevel%
+set "RUTILE_EXAMPLE_BACKENDS=%~3"
+if not defined RUTILE_EXAMPLE_BACKENDS set "RUTILE_EXAMPLE_BACKENDS=rt-vk13"
+set "features=examples;gl33"
+set "build_vk13=OFF"
+set "build_dx12=OFF"
+for %%B in (%RUTILE_EXAMPLE_BACKENDS%) do (
+	if /I "%%B"=="rt-vk13" (
+		set "build_vk13=ON"
+		set "features=!features!;vulkan"
+	)
+	if /I "%%B"=="rt-dx12" set "build_dx12=ON"
 )
 
-echo Configuring Vulkan, DirectX 12, and examples...
+echo Configuring examples with vcpkg features: !features!
 cmake -S "%repo%" -B "%build_dir%" ^
 	-DCMAKE_BUILD_TYPE=%configuration% ^
 	-DCMAKE_TOOLCHAIN_FILE="%toolchain%" ^
 	-DVCPKG_TARGET_TRIPLET=x64-windows-static ^
+	-DVCPKG_MANIFEST_FEATURES="!features!" ^
 	-DRUTILE_BUILD_EXAMPLES=ON ^
-	-DRUTILE_BUILD_VK13=ON ^
-	-DRUTILE_BUILD_DX12=ON
+	-DRUTILE_BUILD_VK13=%build_vk13% ^
+	-DRUTILE_BUILD_DX12=%build_dx12%
 if errorlevel 1 exit /b %errorlevel%
 
 echo Building examples...
@@ -61,14 +69,14 @@ if not exist "%bin_dir%\rutile-01-triangle.exe" (
 	exit /b 1
 )
 
-for %%B in (rt-vk13 rt-dx12) do (
+for %%B in (%RUTILE_EXAMPLE_BACKENDS%) do (
 	for %%E in (rutile-01-triangle rutile-02-spinning-cube rutile-03-plasma-lab rutile-04-galaxy rutile-05-voxel-renderer) do (
 		call :run_example %%E %%B
 		if errorlevel 1 exit /b 1
 	)
 )
 
-echo All 10 example/backend combinations passed.
+echo Example run completed.
 exit /b 0
 
 :run_example

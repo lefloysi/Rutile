@@ -2,17 +2,11 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(rt-vk13 C CXX)
 
-find_package(Vulkan REQUIRED)
-find_package(VulkanMemoryAllocator CONFIG REQUIRED)
-find_package(volk CONFIG REQUIRED)
-find_package(Threads REQUIRED)
+include(RutileDependencies)
 include(RutileTarget)
+rutile_find_vulkan_backend_dependencies()
 
 add_library(${PROJECT_NAME} SHARED)
-target_compile_features(${PROJECT_NAME} PRIVATE
-    c_std_11
-    cxx_std_23
-)
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0
@@ -67,6 +61,7 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
         volk::volk
         GPUOpen::VulkanMemoryAllocator
+        $<$<TARGET_EXISTS:Vulkan::Headers>:Vulkan::Headers>
         ${CMAKE_DL_LIBS}
         Threads::Threads
         RTSL::spirv

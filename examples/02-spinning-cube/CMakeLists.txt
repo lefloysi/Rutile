@@ -5,11 +5,10 @@ add_executable(rutile-02-spinning-cube
 set_source_files_properties(cube.rtsl PROPERTIES HEADER_FILE_ONLY TRUE)
 
 rutile_configure_example(rutile-02-spinning-cube)
-set(_cube_rtsl_dir "${CMAKE_CURRENT_BINARY_DIR}/rtsl")
-rtsl_add_program(rutile-02-spinning-cube
-    RTSLC rtslc
-    OUTPUT_DIR "${_cube_rtsl_dir}"
-    EMBED
+rtsl_add_program(rutile-02-spinning-cube-shader
+    SYMBOL cube_rtslp
     SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cube.rtsl"
 )
-target_include_directories(rutile-02-spinning-cube PRIVATE "${_cube_rtsl_dir}")
+rtsl_embed_program(rutile-02-spinning-cube
+    PROGRAMS rutile-02-spinning-cube-shader
+)
