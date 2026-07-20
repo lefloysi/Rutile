@@ -19,8 +19,6 @@ jobs:
 
     env:
       VCPKG_ROOT: C:\vcpkg
-      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
 
     steps:
       - name: Checkout
@@ -32,13 +30,6 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      - name: Export GitHub Actions cache environment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Setup vcpkg
         shell: pwsh
@@ -61,25 +52,7 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: |
-          cmake --preset windows-ci
-          $configureExitCode = $LASTEXITCODE
-          if ($configureExitCode -ne 0) {
-            Get-ChildItem -Path "out\build\windows-ci" -Recurse -Include "CMakeConfigureLog.yaml","CMakeError.log","CMakeOutput.log" -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                "::group::$($_.FullName)"
-                Get-Content -LiteralPath $_.FullName -Tail 400
-                "::endgroup::"
-              }
-            Get-ChildItem -Path "out\build\windows-ci" -Recurse -Include "*.log" -ErrorAction SilentlyContinue |
-              Select-Object -First 20 |
-              ForEach-Object {
-                "::group::$($_.FullName)"
-                Get-Content -LiteralPath $_.FullName -Tail 200
-                "::endgroup::"
-              }
-            exit $configureExitCode
-          }
+        run: cmake --preset windows-ci
 
       - name: Build
         shell: pwsh
