@@ -1,48 +1,142 @@
 # Rutile
 
-Rutile is a user-space graphics API built around portability and ease of use.
-Backends are explicitly loaded DLLs to support various features such as layers and extensions.
-The core Rutile API is quite small, supporting only things that *every* api is expected to support.
-Rutile currently supports Windows only.
+Rutile is a small user-space graphics API with explicit runtime backend loading.
+Applications load a backend such as Vulkan or DirectX 12 at startup, and can
+insert layers for validation, logging, profiling, or other interception work.
 
-At this point only C bindings exist. Other languages are theoretically supported by the architecture,
-just not implemented at this point.
+The public API is currently a C binding. Other language bindings are possible,
+but are not implemented yet.
 
-## Build
+## Platform Status
 
-Install:
+- Windows MSVC: builds and tests the Vulkan backend, DirectX 12 backend,
+  validation layer, logging layer, RTSL compiler, and RTSL tests.
+- Windows Clang and Windows GCC: build and test portable compiler coverage with
+  backends disabled and layers/tests enabled.
+- Linux GCC and Linux Clang: build and test portable compiler coverage with
+  backends disabled and layers/tests enabled.
+- macOS: build and test setup is present with backends disabled. macOS backend
+  compilation is intentionally not enabled yet.
+
+## Requirements
+
+Common requirements:
+
+- CMake 3.28 or newer
+- Ninja
+- Git submodules checked out recursively
+- vcpkg with `VCPKG_ROOT` pointing at the vcpkg checkout
+
+Windows requirements:
 
 - Visual Studio 2022 with the **Desktop development with C++** workload
-- CMake 3.28 or newer
-- vcpkg, either from Visual Studio or from a standalone checkout with `VCPKG_ROOT` set
-- Vulkan SDK, only if you build the Vulkan backend
+- Vulkan SDK if building `rt-vk13`
+- DirectX Shader Compiler dependency is pulled through vcpkg when using the
+  `dx12` manifest feature
 
-The easiest Windows build uses the repository script. It enters the MSVC x64
-developer environment, uses vcpkg manifest mode, and defaults to the static
-`x64-windows-static` triplet:
+Linux requirements:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  libgl1-mesa-dev \
+  libx11-dev \
+  libxcursor-dev \
+  libxi-dev \
+  libxinerama-dev \
+  libxrandr-dev \
+  libc++-dev \
+  libc++abi-dev \
+  ninja-build \
+  xorg-dev
+```
+
+macOS requirements:
+
+```sh
+brew install ninja
+```
+
+The GitHub macOS runner is arm64, so the CI preset uses the `arm64-osx` vcpkg
+triplet.
+
+## Build And Test
+
+The CI-equivalent Windows MSVC build is:
+
+```bat
+cmake --preset windows-ci
+cmake --build --preset windows-ci --parallel
+ctest --preset windows-ci
+```
+
+That builds `rt-vk13`, `rt-dx12`, `rt-validation-layer`, `rt-logging-layer`,
+`rtsl-tests`, `rtsl-sdk-tests`, and `rtslc`.
+
+The normal Windows debug build is:
+
+```bat
+cmake --preset windows-debug
+cmake --build --preset windows-debug --parallel
+ctest --preset windows-debug
+```
+
+The repository script also enters the MSVC x64 developer environment and uses
+the static `x64-windows-static` triplet:
 
 ```bat
 scripts\build.bat Debug
 ```
 
-For command-line CMake with a standalone vcpkg checkout:
+Windows compiler coverage:
 
 ```bat
-cmake --preset windows-debug
-cmake --build --preset windows-debug
-ctest --preset windows-debug
+cmake --preset windows-clang-ci
+cmake --build --preset windows-clang-ci --parallel
+ctest --preset windows-clang-ci
+
+cmake --preset windows-gcc-ci
+cmake --build --preset windows-gcc-ci --parallel
+ctest --preset windows-gcc-ci
 ```
+
+Linux compiler coverage:
+
+```sh
+cmake --preset linux-ci
+cmake --build --preset linux-ci --parallel
+ctest --preset linux-ci
+```
+
+For Linux Clang, use libc++ so `<expected>` is available with C++23:
+
+```sh
+CC=clang CXX=clang++ CXXFLAGS=-stdlib=libc++ LDFLAGS=-stdlib=libc++ cmake --preset linux-ci
+cmake --build --preset linux-ci --parallel
+ctest --preset linux-ci
+```
+
+macOS setup build:
+
+```sh
+cmake --preset macos-ci
+cmake --build --preset macos-ci --parallel
+ctest --preset macos-ci
+```
+
+## vcpkg Features
 
 The vcpkg manifest is split into features so optional dependencies stay behind
 the targets that use them:
 
-- `vulkan`: `rt-vk13`, VMA, volk, Vulkan headers, SPIR-V headers
-- `gl33`: `rt-gl33` support dependencies
-- `examples`: GLFW, GLM, CLI11, stb
+- `vulkan`: Vulkan backend dependencies
+- `dx12`: DirectX 12 backend dependencies
+- `gl33`: OpenGL 3.3 backend dependencies
+- `examples`: GLFW, GLM, CLI11, and stb for examples
 - `tests`: Catch2 and test CLI support
 
-For example, a headers/layers-only configure can use `windows-core`, while a
-Vulkan examples configure can use `windows-vulkan-examples`.
+For example, use `windows-core` for a headers/layers-only configure and
+`windows-vulkan-examples` for the Vulkan examples.
 
 ## Run Examples
 
