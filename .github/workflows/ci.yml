@@ -190,7 +190,7 @@ jobs:
           ctest --preset windows-gcc-ci
 
   linux:
-    name: Linux ${{ matrix.compiler.name }}
+    name: Linux
     runs-on: ubuntu-24.04
     needs:
       - windows-clang
@@ -209,8 +209,6 @@ jobs:
 
     env:
       VCPKG_ROOT: ${{ runner.temp }}/vcpkg
-      CC: ${{ matrix.compiler.cc }}
-      CXX: ${{ matrix.compiler.cxx }}
 
     steps:
       - name: Checkout
@@ -230,6 +228,8 @@ jobs:
 
       - name: Verify tools
         run: |
+          export CC="${{ matrix.compiler.cc }}"
+          export CXX="${{ matrix.compiler.cxx }}"
           cmake --version
           ninja --version
           "$CC" --version
@@ -237,13 +237,22 @@ jobs:
           test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Configure
-        run: cmake --preset linux-ci
+        run: |
+          export CC="${{ matrix.compiler.cc }}"
+          export CXX="${{ matrix.compiler.cxx }}"
+          cmake --preset linux-ci
 
       - name: Build
-        run: cmake --build --preset linux-ci --parallel
+        run: |
+          export CC="${{ matrix.compiler.cc }}"
+          export CXX="${{ matrix.compiler.cxx }}"
+          cmake --build --preset linux-ci --parallel
 
       - name: Test
-        run: ctest --preset linux-ci
+        run: |
+          export CC="${{ matrix.compiler.cc }}"
+          export CXX="${{ matrix.compiler.cxx }}"
+          ctest --preset linux-ci
 
   macos:
     name: macOS setup
