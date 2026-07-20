@@ -52,16 +52,26 @@ target_link_libraries(${PROJECT_NAME}
         d3d12
         dxgi
         dxguid
-        dxcompiler
         RTSL::hlsl
 )
 
+find_library(_rtdx_dxcompiler_lib dxcompiler)
+if(_rtdx_dxcompiler_lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE "${_rtdx_dxcompiler_lib}")
+else()
+    target_link_libraries(${PROJECT_NAME} PRIVATE dxcompiler)
+endif()
+
 find_file(_rtdx_dxcompiler_dll dxcompiler.dll HINTS
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin"
     "${CMAKE_WINDOWS_KITS_10_DIR}/Redist/D3D/x64"
     "C:/Program Files (x86)/Windows Kits/10/Redist/D3D/x64"
     "$ENV{VULKAN_SDK}/Bin"
 )
 find_file(_rtdx_dxil_dll dxil.dll HINTS
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin"
     "${CMAKE_WINDOWS_KITS_10_DIR}/Redist/D3D/x64"
     "C:/Program Files (x86)/Windows Kits/10/Redist/D3D/x64"
     "$ENV{VULKAN_SDK}/Bin"
