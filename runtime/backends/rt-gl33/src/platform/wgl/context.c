@@ -6,46 +6,100 @@
 #include <stdlib.h>
 #include <windows.h>
 
+/*
+** struct gl_context holds the real WGL context plus the bootstrap
+** drawable it was created against. The bootstrap window is a
+** message-only window (HWND_MESSAGE parent) - it can never be shown,
+** needs no monitor, and works identically whether or not this process
+** ever attaches a real window later. This is why "presentation" does
+** not change anything about how the context itself is built on
+** Windows - only Linux's EGL platform choice cares about it.
+*/
 struct gl_context {
 	HWND bootstrap_window;
 	HDC bootstrap_dc;
 	HGLRC hglrc;
+	int pixel_format;
+	PIXELFORMATDESCRIPTOR pfd;
+};
+
+/*
+** struct gl_surface wraps a real, caller-owned native window. It only
+** ever exists once the caller actually has a window to attach - see
+** platform/context.h for why there is no such thing as a "headless
+** surface".
+*/
+struct gl_surface {
+	HWND window;
+	HDC dc;
 };
 
 typedef HGLRC(WINAPI* PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int*);
 
-static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profile, gl_context* share) {
-	gl_context* context = NULL;
-	HWND hwnd = NULL;
-	HDC hdc = NULL;
-	HGLRC legacy = NULL;
-	HGLRC hglrc = NULL;
-	PFN_wglCreateContextAttribsARB wglCreateContextAttribsARB = NULL;
+/*
+** Tracks the context current on this thread. WGL has no way to go
+** from an HGLRC back to our gl_context wrapper, so we keep our own
+** thread-local record instead of asking the driver.
+*/
+static __declspec(thread) struct gl_context* rtgl_tls_current_context = NULL;
+
+static bool rtgl_register_bootstrap_class(void) {
 	WNDCLASSA wc = { 0 };
 	ATOM atom;
 
 	wc.lpfnWndProc = DefWindowProcA;
 	wc.hInstance = GetModuleHandleA(NULL);
-	wc.lpszClassName = "rtgl33_hidden_window";
+	wc.lpszClassName = "rtgl33_bootstrap_window";
+
 	atom = RegisterClassA(&wc);
 	if (!atom && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to register hidden GL33 window class");
+		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to register GL33 bootstrap window class");
+		return false;
+	}
+	return true;
+}
+
+struct gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool presentation, struct gl_context* share) {
+	struct gl_context* context = NULL;
+	HWND hwnd = NULL;
+	HDC hdc = NULL;
+	HGLRC legacy = NULL;
+	HGLRC hglrc = NULL;
+	PFN_wglCreateContextAttribsARB wglCreateContextAttribsARB = NULL;
+	PIXELFORMATDESCRIPTOR pfd = { 0 };
+	int pixel_format;
+
+	/*
+	** presentation is unused here - a message-only window works
+	** identically whether or not a real window is attached later,
+	** so Windows has no branch to make. It is accepted purely to
+	** keep the signature uniform across platforms.
+	*/
+	(void)presentation;
+	rtgl_printf("rt-gl33: WGL creating hidden bootstrap window\n");
+
+	if (!rtgl_register_bootstrap_class()) {
 		goto fail;
 	}
 
-	hwnd = CreateWindowExA(0, "rtgl33_hidden_window", "rtgl33_hidden_window", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1, 1, NULL, NULL, GetModuleHandleA(NULL), NULL);
+	/*
+	** HWND_MESSAGE makes this a message-only window: it cannot be
+	** shown, has no taskbar entry, no z-order, and needs no display
+	** attached. It still yields a normal HWND/HDC pair that WGL
+	** accepts everywhere a real window's would be accepted.
+	*/
+	hwnd = CreateWindowExA(0, "rtgl33_bootstrap_window", "", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, GetModuleHandleA(NULL), NULL);
 	if (!hwnd) {
-		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create hidden GL33 bootstrap window");
+		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create GL33 bootstrap window");
 		goto fail;
 	}
 
 	hdc = GetDC(hwnd);
 	if (!hdc) {
-		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to acquire hidden GL33 device context");
+		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to acquire GL33 bootstrap device context");
 		goto fail;
 	}
 
-	PIXELFORMATDESCRIPTOR pfd = { 0 };
 	pfd.nSize = sizeof(pfd);
 	pfd.nVersion = 1;
 	pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
@@ -55,7 +109,7 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 	pfd.cDepthBits = 24;
 	pfd.cStencilBits = 8;
 
-	int pixel_format = ChoosePixelFormat(hdc, &pfd);
+	pixel_format = ChoosePixelFormat(hdc, &pfd);
 	if (!pixel_format || !SetPixelFormat(hdc, pixel_format, &pfd)) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to choose a GL33 pixel format");
 		goto fail;
@@ -73,27 +127,36 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 	}
 
 	wglCreateContextAttribsARB = (PFN_wglCreateContextAttribsARB)wglGetProcAddress("wglCreateContextAttribsARB");
+	if (!wglCreateContextAttribsARB) {
+		rtgl_throwf(RT_PLATFORM_FAILURE, "driver does not support wglCreateContextAttribsARB");
+		goto fail;
+	}
+	rtgl_printf("rt-gl33: WGL bootstrap context active, creating GL %u.%u core context\n", major, minor);
 
-	hglrc = legacy;
-	if (wglCreateContextAttribsARB) {
+	{
 		HGLRC share_hglrc = share ? share->hglrc : NULL;
 		const int attribs[] = {
-			0x2091 /* WGL_CONTEXT_MAJOR_VERSION_ARB */, major, 0x2092 /* WGL_CONTEXT_MINOR_VERSION_ARB */, minor, 0x9126 /* WGL_CONTEXT_PROFILE_MASK_ARB */, core_profile ? 0x00000001 /* WGL_CONTEXT_CORE_PROFILE_BIT_ARB */ : 0, 0
+			0x2091 /* WGL_CONTEXT_MAJOR_VERSION_ARB */, major, 0x2092 /* WGL_CONTEXT_MINOR_VERSION_ARB */, minor, 0x9126 /* WGL_CONTEXT_PROFILE_MASK_ARB */, 0x00000001 /* WGL_CONTEXT_CORE_PROFILE_BIT_ARB */, 0
 		};
-		HGLRC modern = wglCreateContextAttribsARB(hdc, share_hglrc, attribs);
-		if (modern) {
-			wglMakeCurrent(NULL, NULL);
-			wglDeleteContext(legacy);
-			hglrc = modern;
-			if (!wglMakeCurrent(hdc, hglrc)) {
-				rtgl_throwf(RT_PLATFORM_FAILURE, "failed to activate GL 3.3 context");
-				goto fail;
-			}
+
+		hglrc = wglCreateContextAttribsARB(hdc, share_hglrc, attribs);
+		if (!hglrc) {
+			rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create GL %u.%u core context", major, minor);
+			goto fail;
+		}
+
+		wglMakeCurrent(NULL, NULL);
+		wglDeleteContext(legacy);
+		legacy = NULL;
+
+		if (!wglMakeCurrent(hdc, hglrc)) {
+			rtgl_throwf(RT_PLATFORM_FAILURE, "failed to activate GL %u.%u context", major, minor);
+			goto fail;
 		}
 	}
 
-	context = calloc(1, sizeof(gl_context));
-	RTGL_CHECK_ALLOC(context, sizeof(gl_context), "GL33 platform context");
+	context = calloc(1, sizeof(struct gl_context));
+	RTGL_CHECK_ALLOC(context, sizeof(struct gl_context), "GL33 platform context");
 	if (!context) {
 		goto fail;
 	}
@@ -101,9 +164,20 @@ static gl_context* rtgl_context_bootstrap(u08 major, u08 minor, bool core_profil
 	context->bootstrap_window = hwnd;
 	context->bootstrap_dc = hdc;
 	context->hglrc = hglrc;
+	context->pixel_format = pixel_format;
+	context->pfd = pfd;
+
+	rtgl_tls_current_context = context;
+	rtgl_printf("rt-gl33: WGL context created (pixel_format=%d)\n", pixel_format);
 	return context;
 
 fail:
+	if (legacy) {
+		if (wglGetCurrentContext() == legacy) {
+			wglMakeCurrent(NULL, NULL);
+		}
+		wglDeleteContext(legacy);
+	}
 	if (hglrc) {
 		if (wglGetCurrentContext() == hglrc) {
 			wglMakeCurrent(NULL, NULL);
@@ -119,16 +193,13 @@ fail:
 	return NULL;
 }
 
-gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool core_profile, gl_context* share) {
-	return rtgl_context_bootstrap(major, minor, core_profile, share);
-}
-
-void rtgl_destroy_glcontext(gl_context* context) {
+void rtgl_destroy_glcontext(struct gl_context* context) {
 	if (!context) {
 		return;
 	}
 	if (wglGetCurrentContext() == context->hglrc) {
 		wglMakeCurrent(NULL, NULL);
+		rtgl_tls_current_context = NULL;
 	}
 	if (context->hglrc) {
 		wglDeleteContext(context->hglrc);
@@ -139,25 +210,112 @@ void rtgl_destroy_glcontext(gl_context* context) {
 	if (context->bootstrap_window) {
 		DestroyWindow(context->bootstrap_window);
 	}
+	rtgl_printf("rt-gl33: WGL context destroyed\n");
 	free(context);
 }
 
-void rtgl_make_glcontext_current(gl_context* context) {
-	if (!context) {
-		wglMakeCurrent(NULL, NULL);
+struct gl_context* rtgl_get_current_glcontext(void) {
+	return rtgl_tls_current_context;
+}
+
+/*
+** native_window_handle_t is an HWND on this platform. The window's
+** pixel format is set to match the context's exactly - a WGL
+** requirement, not a stylistic choice: a context can only be made
+** current against a drawable whose pixel format is compatible with
+** the one it was created with.
+*/
+struct gl_surface* rtgl_create_window_surface(struct gl_context* context, native_window_handle_t window) {
+	struct gl_surface* surface;
+	HWND hwnd = (HWND)window;
+	HDC hdc;
+
+	hdc = GetDC(hwnd);
+	if (!hdc) {
+		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to acquire device context for window surface");
+		return NULL;
+	}
+
+	if (!SetPixelFormat(hdc, context->pixel_format, &context->pfd)) {
+		/*
+		** SetPixelFormat can only be called once per HDC for the
+		** lifetime of the window. If the caller already set a
+		** compatible format themselves this fails harmlessly;
+		** anything else is a real mismatch.
+		*/
+		if (GetPixelFormat(hdc) != context->pixel_format) {
+			rtgl_throwf(RT_PLATFORM_FAILURE, "failed to set matching pixel format on window surface");
+			ReleaseDC(hwnd, hdc);
+			return NULL;
+		}
+	}
+
+	surface = calloc(1, sizeof(struct gl_surface));
+	RTGL_CHECK_ALLOC(surface, sizeof(struct gl_surface), "GL33 window surface");
+	if (!surface) {
+		ReleaseDC(hwnd, hdc);
+		return NULL;
+	}
+
+	surface->window = hwnd;
+	surface->dc = hdc;
+	rtgl_printf("rt-gl33: WGL window surface created (hwnd=%p, pixel_format=%d)\n", (void*)hwnd, context->pixel_format);
+	return surface;
+}
+
+void rtgl_destroy_glsurface(struct gl_surface* surface) {
+	if (!surface) {
 		return;
 	}
-	wglMakeCurrent(context->bootstrap_dc, context->hglrc);
+	if (surface->dc && surface->window) {
+		ReleaseDC(surface->window, surface->dc);
+	}
+	rtgl_printf("rt-gl33: WGL window surface destroyed\n");
+	free(surface);
+}
+
+/*
+** surface == NULL means headless: fall back to the bootstrap drawable
+** owned by the context itself, never exposed to the caller.
+*/
+void rtgl_make_glcontext_current(struct gl_context* context, struct gl_surface* surface) {
+	if (!context) {
+		wglMakeCurrent(NULL, NULL);
+		rtgl_tls_current_context = NULL;
+		return;
+	}
+
+	HDC hdc = surface ? surface->dc : context->bootstrap_dc;
+	if (!wglMakeCurrent(hdc, context->hglrc)) {
+		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to make GL33 context current");
+		return;
+	}
+	rtgl_tls_current_context = context;
 }
 
 void rtgl_release_current_context(void) {
 	wglMakeCurrent(NULL, NULL);
+	rtgl_tls_current_context = NULL;
 }
 
-rtgl_proc_t rtgl_load_proc(const char* name) {
-	rtgl_proc_t proc = (rtgl_proc_t)wglGetProcAddress(name);
+/*
+** context is required to be current on the calling thread before
+** this is called - a WGL constraint, applied universally per
+** platform/context.h so no platform-specific exception exists.
+*/
+rtgl_proc_t rtgl_load_proc(struct gl_context* context, const char* name) {
+	rtgl_proc_t proc;
+
+	(void)context;
+
+	proc = (rtgl_proc_t)wglGetProcAddress(name);
 	if (proc) {
 		return proc;
 	}
+	/*
+	** wglGetProcAddress only resolves entry points beyond GL 1.1;
+	** anything the ICD exports directly (older core functions) has
+	** to come from the DLL itself.
+	*/
 	return (rtgl_proc_t)GetProcAddress(GetModuleHandleA("opengl32.dll"), name);
 }

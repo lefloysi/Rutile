@@ -25,8 +25,16 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/context.h"
     "src/error.c"
     "src/error.h"
+    "src/resource/swapchain.c"
+    "src/resource/swapchain.h"
+    "src/resource/glfw/glfw.c"
+    
+    "src/platform/proc.h"
+    "src/platform/win32/proc.c"
+    "src/platform/win32/glfw.c"
     "src/platform/context.h"
     "src/platform/wgl/context.c"
+    "src/glad/gl.c"
     "src/glad/gl.h"
     "src/types.h")
 
@@ -38,4 +46,7 @@ target_link_libraries(${PROJECT_NAME}
         opengl32
         gdi32
         user32
+        psapi
 )
+
+add_subdirectory("workspace")

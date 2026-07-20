@@ -12,21 +12,22 @@
 struct rtgl_context* current_context = NULL;
 
 static GLADapiproc rtgl_glad_load_proc(void* userptr, const char* name) {
-	(void)userptr;
-	return (GLADapiproc)rtgl_load_proc(name);
+	struct gl_context* gl_context = (struct gl_context*)userptr;
+	return (GLADapiproc)rtgl_load_proc(gl_context, name);
 }
 
 static unsigned __stdcall rtgl_context_thread(void* arg) {
 	struct rtgl_context* ctx = (struct rtgl_context*)arg;
 
-	ctx->gl_context = rtgl_create_glcontext(3, 3, true, NULL);
+	rtgl_printf("rt-gl33: worker thread starting\n");
+	ctx->gl_context = rtgl_create_glcontext(3, 3, ctx->flags.presentation, NULL);
 	if (!ctx->gl_context) {
 		SetEvent((HANDLE)ctx->ready_event);
 		return 0;
 	}
 
-	rtgl_make_glcontext_current(ctx->gl_context);
-	if (!gladLoadGLUserPtr(rtgl_glad_load_proc, NULL)) {
+	rtgl_make_glcontext_current(ctx->gl_context, NULL);
+	if (!gladLoadGLUserPtr(rtgl_glad_load_proc, ctx->gl_context)) {
 		rtgl_release_current_context();
 		rtgl_destroy_glcontext(ctx->gl_context);
 		ctx->gl_context = NULL;
@@ -34,9 +35,11 @@ static unsigned __stdcall rtgl_context_thread(void* arg) {
 		return 0;
 	}
 
+	rtgl_printf("rt-gl33: loaded OpenGL entry points\n");
 	rtgl_release_current_context();
 	SetEvent((HANDLE)ctx->ready_event);
 	WaitForSingleObject((HANDLE)ctx->stop_event, INFINITE);
+	rtgl_printf("rt-gl33: worker thread stopping\n");
 	rtgl_destroy_glcontext(ctx->gl_context);
 	ctx->gl_context = NULL;
 	return 0;
@@ -52,6 +55,7 @@ struct rtgl_context* rtgl_create_context(rtgl_context_flags flags) {
 		return NULL;
 	}
 	result->flags = flags;
+	rtgl_printf("rt-gl33: creating context (presentation=%u)\n", flags.presentation ? 1u : 0u);
 	rtgl_context_init(result);
 	if (rtgl_error() != RT_SUCCESS) {
 		rtgl_context_destroy(result);
@@ -80,6 +84,7 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 		rtgl_throwf(RT_INITIALIZATION_FAILED, "failed to create GL33 platform context");
 		return;
 	}
+	rtgl_printf("rt-gl33: context ready\n");
 }
 
 void rtgl_context_finish(struct rtgl_context* ctx) {
@@ -103,7 +108,9 @@ void rtgl_context_finish(struct rtgl_context* ctx) {
 }
 
 void rtgl_context_destroy(struct rtgl_context* ctx) {
-	assert(ctx);
+	if (!ctx) {
+		return;
+	}
 
 	rtgl_context_finish(ctx);
 	free(ctx);

@@ -13,8 +13,10 @@ extern "C" {
 #endif
 
 typedef struct GLFWwindow GLFWwindow;
+typedef bool (*PFN_rtInit_RT_EXT_GLFW)(void);
 typedef void (*PFN_rtSwapchainBindWindowGLFW)(rt_swapchain swapchain, GLFWwindow* window);
 
+extern PFN_rtInit_RT_EXT_GLFW rt_rtInit_RT_EXT_GLFW;
 extern PFN_rtSwapchainBindWindowGLFW rt_rtSwapchainBindWindowGLFW;
 bool rtLoad_RT_EXT_GLFW(void);
 
@@ -24,11 +26,13 @@ static inline void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow*
 
 #ifdef RUTILE_IMPL
 
+PFN_rtInit_RT_EXT_GLFW rt_rtInit_RT_EXT_GLFW = NULL;
 PFN_rtSwapchainBindWindowGLFW rt_rtSwapchainBindWindowGLFW = NULL;
 
 bool rtLoad_RT_EXT_GLFW(void) {
+	rt_rtInit_RT_EXT_GLFW = (PFN_rtInit_RT_EXT_GLFW)rtGetProc("rtInit_RT_EXT_GLFW");
 	rt_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)rtGetProc("rtSwapchainBindWindowGLFW");
-	return rt_rtSwapchainBindWindowGLFW != NULL;
+	return rt_rtSwapchainBindWindowGLFW != NULL && (!rt_rtInit_RT_EXT_GLFW || rt_rtInit_RT_EXT_GLFW());
 }
 
 /* Neither rt-vk13 nor rt-dx12 link GLFW themselves; they resolve the GLFW
