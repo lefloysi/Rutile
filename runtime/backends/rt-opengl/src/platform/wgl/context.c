@@ -219,18 +219,17 @@ struct gl_context* rtgl_get_current_glcontext(void) {
 }
 
 /*
-** native_window_handle_t is an HWND on this platform. The window's
+** window is an HWND on this platform. The window's
 ** pixel format is set to match the context's exactly - a WGL
 ** requirement, not a stylistic choice: a context can only be made
 ** current against a drawable whose pixel format is compatible with
 ** the one it was created with.
 */
-struct gl_surface* rtgl_create_window_surface(struct gl_context* context, native_window_handle_t window) {
+struct gl_surface* rtgl_create_wgl_surface(struct gl_context* context, HWND window) {
 	struct gl_surface* surface;
-	HWND hwnd = (HWND)window;
 	HDC hdc;
 
-	hdc = GetDC(hwnd);
+	hdc = GetDC(window);
 	if (!hdc) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to acquire device context for window surface");
 		return NULL;
@@ -245,7 +244,7 @@ struct gl_surface* rtgl_create_window_surface(struct gl_context* context, native
 		*/
 		if (GetPixelFormat(hdc) != context->pixel_format) {
 			rtgl_throwf(RT_PLATFORM_FAILURE, "failed to set matching pixel format on window surface");
-			ReleaseDC(hwnd, hdc);
+			ReleaseDC(window, hdc);
 			return NULL;
 		}
 	}
@@ -253,13 +252,13 @@ struct gl_surface* rtgl_create_window_surface(struct gl_context* context, native
 	surface = calloc(1, sizeof(struct gl_surface));
 	RTGL_CHECK_ALLOC(surface, sizeof(struct gl_surface), "OpenGL window surface");
 	if (!surface) {
-		ReleaseDC(hwnd, hdc);
+		ReleaseDC(window, hdc);
 		return NULL;
 	}
 
-	surface->window = hwnd;
+	surface->window = window;
 	surface->dc = hdc;
-	rtgl_printf("rt-opengl: WGL window surface created (hwnd=%p, pixel_format=%d)\n", (void*)hwnd, context->pixel_format);
+	rtgl_printf("rt-opengl: WGL window surface created (hwnd=%p, pixel_format=%d)\n", (void*)window, context->pixel_format);
 	return surface;
 }
 

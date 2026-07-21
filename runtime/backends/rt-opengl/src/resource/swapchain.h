@@ -1,5 +1,5 @@
-#ifndef RTOPENGL_SWAPCHAIN_H
-#define RTOPENGL_SWAPCHAIN_H
+#ifndef RTGL_SWAPCHAIN_H
+#define RTGL_SWAPCHAIN_H
 
 #include "config.h"
 #include "platform/context.h"
@@ -34,7 +34,6 @@ static inline rt_swapchain rtgl_swapchain_to_handle(struct rtgl_swapchain* swapc
 
 struct rtgl_swapchain* rtgl_swapchain_create(struct rtgl_context* ctx);
 void rtgl_swapchain_destroy(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain);
-void rtgl_swapchain_init_from_window(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, native_window_handle_t window, u32 width, u32 height);
 void rtgl_swapchain_init_from_surface(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, struct gl_surface* surface, u32 width, u32 height);
 
-#endif /* RTOPENGL_SWAPCHAIN_H */
+#endif /* RTGL_SWAPCHAIN_H */

@@ -1,5 +1,5 @@
-#ifndef RTOPENGL_ERROR_H
-#define RTOPENGL_ERROR_H
+#ifndef RTGL_ERROR_H
+#define RTGL_ERROR_H
 
 #include "config.h"
 #include "types.h"
@@ -30,4 +30,4 @@ const char* rtgl_error_message();
 void rtgl_clear_error();
 
 RTGL_EXTERN_C_EXIT
-#endif /* RTOPENGL_ERROR_H */
+#endif /* RTGL_ERROR_H */

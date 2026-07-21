@@ -20,9 +20,9 @@ static unsigned __stdcall rtgl_context_thread(void* arg) {
 	struct rtgl_context* ctx = (struct rtgl_context*)arg;
 
 	rtgl_printf("rt-opengl: worker thread starting\n");
-	ctx->gl_context = rtgl_create_glcontext(3, 3, ctx->flags.presentation, NULL);
+	ctx->gl_context = rtgl_create_glcontext(4, 6, ctx->flags.presentation, NULL);
 	if (!ctx->gl_context) {
-		SetEvent((HANDLE)ctx->ready_event);
+		SetEvent(ctx->ready_event);
 		return 0;
 	}
 
@@ -31,14 +31,22 @@ static unsigned __stdcall rtgl_context_thread(void* arg) {
 		rtgl_release_current_context();
 		rtgl_destroy_glcontext(ctx->gl_context);
 		ctx->gl_context = NULL;
-		SetEvent((HANDLE)ctx->ready_event);
+		SetEvent(ctx->ready_event);
+		return 0;
+	}
+	if (!GLAD_GL_VERSION_4_6) {
+		rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL 4.6 is required");
+		rtgl_release_current_context();
+		rtgl_destroy_glcontext(ctx->gl_context);
+		ctx->gl_context = NULL;
+		SetEvent(ctx->ready_event);
 		return 0;
 	}
 
 	rtgl_printf("rt-opengl: loaded OpenGL entry points\n");
 	rtgl_release_current_context();
-	SetEvent((HANDLE)ctx->ready_event);
-	WaitForSingleObject((HANDLE)ctx->stop_event, INFINITE);
+	SetEvent(ctx->ready_event);
+	WaitForSingleObject(ctx->stop_event, INFINITE);
 	rtgl_printf("rt-opengl: worker thread stopping\n");
 	rtgl_destroy_glcontext(ctx->gl_context);
 	ctx->gl_context = NULL;
@@ -73,13 +81,13 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 		return;
 	}
 
-	ctx->thread_handle = (void*)_beginthreadex(NULL, 0, rtgl_context_thread, ctx, 0, &ctx->thread_id);
+	ctx->thread_handle = (HANDLE)_beginthreadex(NULL, 0, rtgl_context_thread, ctx, 0, &ctx->thread_id);
 	if (!ctx->thread_handle) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create OpenGL worker thread");
 		return;
 	}
 
-	WaitForSingleObject((HANDLE)ctx->ready_event, INFINITE);
+	WaitForSingleObject(ctx->ready_event, INFINITE);
 	if (!ctx->gl_context) {
 		rtgl_throwf(RT_INITIALIZATION_FAILED, "failed to create OpenGL platform context");
 		return;
@@ -90,19 +98,19 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 void rtgl_context_finish(struct rtgl_context* ctx) {
 	assert(ctx);
 	if (ctx->stop_event) {
-		SetEvent((HANDLE)ctx->stop_event);
+		SetEvent(ctx->stop_event);
 	}
 	if (ctx->thread_handle) {
-		WaitForSingleObject((HANDLE)ctx->thread_handle, INFINITE);
-		CloseHandle((HANDLE)ctx->thread_handle);
+		WaitForSingleObject(ctx->thread_handle, INFINITE);
+		CloseHandle(ctx->thread_handle);
 		ctx->thread_handle = NULL;
 	}
 	if (ctx->ready_event) {
-		CloseHandle((HANDLE)ctx->ready_event);
+		CloseHandle(ctx->ready_event);
 		ctx->ready_event = NULL;
 	}
 	if (ctx->stop_event) {
-		CloseHandle((HANDLE)ctx->stop_event);
+		CloseHandle(ctx->stop_event);
 		ctx->stop_event = NULL;
 	}
 }

@@ -1,5 +1,5 @@
-#ifndef RTOPENGL_PLATFORM_CONTEXT_H
-#define RTOPENGL_PLATFORM_CONTEXT_H
+#ifndef RTGL_PLATFORM_CONTEXT_H
+#define RTGL_PLATFORM_CONTEXT_H
 #include "config.h"
 #include "types.h"
 
@@ -32,9 +32,7 @@ struct gl_context* rtgl_get_current_glcontext(void);
 ** native window handle actually exists.
 */
 struct gl_surface;
-typedef void* native_window_handle_t;
 
-struct gl_surface* rtgl_create_window_surface(struct gl_context* context, native_window_handle_t window);
 void rtgl_destroy_glsurface(struct gl_surface* surface);
 
 /*
@@ -58,4 +56,4 @@ typedef void* rtgl_proc_t;
 typedef rtgl_proc_t (*PFN_rtglLoadProc)(void* userptr, const char* name);
 rtgl_proc_t rtgl_load_proc(struct gl_context* context, const char* name);
 
-#endif /* RTOPENGL_PLATFORM_CONTEXT_H */
+#endif /* RTGL_PLATFORM_CONTEXT_H */

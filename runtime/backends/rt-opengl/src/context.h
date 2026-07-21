@@ -1,7 +1,12 @@
-#ifndef RTOPENGL_CONTEXT_H
-#define RTOPENGL_CONTEXT_H
+#ifndef RTGL_CONTEXT_H
+#define RTGL_CONTEXT_H
 #include "platform/context.h"
 #include "types.h"
+
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,9 +18,11 @@ typedef struct rtgl_context_flags {
 
 struct rtgl_context {
 	struct gl_context* gl_context;
-	void* thread_handle;
-	void* ready_event;
-	void* stop_event;
+#if defined(_WIN32)
+	HANDLE thread_handle;
+	HANDLE ready_event;
+	HANDLE stop_event;
+#endif
 	unsigned thread_id;
 	rtgl_context_flags flags;
 };
@@ -30,4 +37,4 @@ void rtgl_context_destroy(struct rtgl_context* ctx);
 #ifdef __cplusplus
 }
 #endif
-#endif /* RTOPENGL_CONTEXT_H */
+#endif /* RTGL_CONTEXT_H */

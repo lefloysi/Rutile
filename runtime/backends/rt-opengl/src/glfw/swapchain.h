@@ -1,7 +1,8 @@
-#ifndef RTOPENGL_SWAPCHAIN_GLFW_H
-#define RTOPENGL_SWAPCHAIN_GLFW_H
+#ifndef RTGL_GLFW_SWAPCHAIN_H
+#define RTGL_GLFW_SWAPCHAIN_H
 
 #include "config.h"
+#include "glfw/glfw.h"
 #include "resource/swapchain.h"
 #define RT_NO_API_WRAPPERS
 #include "rt_ext_glfw.h"
@@ -15,6 +16,6 @@ RTGL_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* wind
 
 RTGL_EXTERN_C_EXIT
 
-void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, GLFWwindow* window);
+void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, GLFWwindow* window, u32 width, u32 height);
 
-#endif /* RTOPENGL_SWAPCHAIN_GLFW_H */
+#endif /* RTGL_GLFW_SWAPCHAIN_H */

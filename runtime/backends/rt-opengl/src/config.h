@@ -1,5 +1,5 @@
-#ifndef RTOPENGL_CONFIG_H
-#define RTOPENGL_CONFIG_H
+#ifndef RTGL_CONFIG_H
+#define RTGL_CONFIG_H
 
 #ifdef __cplusplus
 #define RTGL_EXTERN_C_ENTER extern "C" {
@@ -46,4 +46,4 @@
 #define RTGL_ALLOC(var, type, count, what)     \
 	type* var = calloc((count), sizeof(type)); \
 	RTGL_CHECK_ALLOC(var, sizeof(type) * (usize)(count), (what))
-#endif /* RTOPENGL_CONFIG_H */
+#endif /* RTGL_CONFIG_H */

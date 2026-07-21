@@ -1,5 +1,5 @@
-#ifndef RTOPENGL_CORE_H
-#define RTOPENGL_CORE_H
+#ifndef RTGL_CORE_H
+#define RTGL_CORE_H
 
 #include "config.h"
 #include "error.h"
@@ -14,4 +14,4 @@ RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 
 RTGL_EXTERN_C_EXIT
 
-#endif /* RTOPENGL_CORE_H */
+#endif /* RTGL_CORE_H */

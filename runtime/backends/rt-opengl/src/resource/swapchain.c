@@ -64,30 +64,6 @@ void rtgl_swapchain_destroy(struct rtgl_context* ctx, struct rtgl_swapchain* swa
 	free(swapchain);
 }
 
-void rtgl_swapchain_init_from_window(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, native_window_handle_t window, u32 width, u32 height) {
-	if (!ctx || !ctx->gl_context || !swapchain || !window) {
-		rtgl_throwf(RT_IMPROPER_USAGE, "swapchain, context, and native window must be valid");
-		return;
-	}
-	if (swapchain->bound) {
-		rtgl_throwf(RT_IMPROPER_USAGE, "OpenGL swapchain is already bound to a window");
-		return;
-	}
-	if (width == 0 || height == 0) {
-		rtgl_throwf(RT_IMPROPER_USAGE, "swapchain window extent must be non-zero");
-		return;
-	}
-
-	swapchain->surface = rtgl_create_window_surface(ctx->gl_context, window);
-	if (!swapchain->surface) {
-		return;
-	}
-	swapchain->width = width;
-	swapchain->height = height;
-	swapchain->bound = true;
-	rtgl_printf("rt-opengl: swapchain bound to window (%ux%u)\n", width, height);
-}
-
 void rtgl_swapchain_init_from_surface(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, struct gl_surface* surface, u32 width, u32 height) {
 	if (!ctx || !ctx->gl_context || !swapchain || !surface) {
 		rtgl_throwf(RT_IMPROPER_USAGE, "swapchain, context, and GL surface must be valid");
