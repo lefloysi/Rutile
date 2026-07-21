@@ -223,8 +223,7 @@ struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, 
 
 	VmaAllocationCreateInfo allocation_info = { 0 };
 	if (rtvk_buffer_uses_host_storage(mode, usage)) {
-		allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-								VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 		allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
 	} else {
 		allocation_info.flags = 0;

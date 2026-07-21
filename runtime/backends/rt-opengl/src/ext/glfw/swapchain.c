@@ -1,4 +1,4 @@
-#include "glfw/swapchain.h"
+#include "ext/glfw/swapchain.h"
 
 #include "context.h"
 #include "error.h"
@@ -44,8 +44,18 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	);
 }
 
-void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, GLFWwindow* window, u32 width, u32 height) {
+typedef struct rtgl_glfw_surface_job {
+	GLFWwindow* window;
 	struct gl_surface* surface;
+} rtgl_glfw_surface_job;
+
+static void rtgl_glfw_exec_create_surface(struct rtgl_context* ctx, void* data) {
+	rtgl_glfw_surface_job* job = (rtgl_glfw_surface_job*)data;
+	job->surface = rtgl_create_glfw_surface(ctx->gl_context, job->window);
+}
+
+void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, GLFWwindow* window, u32 width, u32 height) {
+	rtgl_glfw_surface_job job;
 
 	assert(ctx);
 	assert(swapchain);
@@ -53,9 +63,11 @@ void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapc
 	assert(width != 0);
 	assert(height != 0);
 
-	surface = rtgl_create_glfw_surface(ctx->gl_context, window);
-	if (!surface) {
+	job.window = window;
+	job.surface = NULL;
+	rtgl_context_execute(ctx, rtgl_glfw_exec_create_surface, &job);
+	if (!job.surface) {
 		return;
 	}
-	rtgl_swapchain_init_from_surface(ctx, swapchain, surface, width, height);
+	rtgl_swapchain_init_from_surface(ctx, swapchain, job.surface, width, height);
 }

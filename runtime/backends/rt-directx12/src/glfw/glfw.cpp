@@ -19,27 +19,25 @@ static rtdx_glfw_procs rtdx_glfw;
 /*                                                                                               */
 /*===============================================================================================*/
 
-static void* rtdx_glfw_symbol(const char* name) {
-	HMODULE module = GetModuleHandleA(NULL);
-	void* symbol = module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
-	if (symbol) {
-		return symbol;
-	}
+static HMODULE rtdx_glfw_module() {
+	HMODULE module = GetModuleHandleA("glfw3.dll");
+	return module ? module : GetModuleHandleA(NULL);
+}
 
-	module = GetModuleHandleA("glfw3.dll");
-	if (!module) {
-		module = LoadLibraryA("glfw3.dll");
-	}
+static void* rtdx_glfw_symbol(HMODULE module, const char* name) {
 	return module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
 }
 
 static bool rtdx_glfw_resolve() {
+	HMODULE module;
+
 	if (rtdx_glfw.resolved) {
 		return rtdx_glfw.get_framebuffer_size && rtdx_glfw.get_win32_window;
 	}
 
-	rtdx_glfw.get_framebuffer_size = reinterpret_cast<PFN_rtdx_glfwGetFramebufferSize>(rtdx_glfw_symbol("glfwGetFramebufferSize"));
-	rtdx_glfw.get_win32_window = reinterpret_cast<PFN_rtdx_glfwGetWin32Window>(rtdx_glfw_symbol("glfwGetWin32Window"));
+	module = rtdx_glfw_module();
+	rtdx_glfw.get_framebuffer_size = reinterpret_cast<PFN_rtdx_glfwGetFramebufferSize>(rtdx_glfw_symbol(module, "glfwGetFramebufferSize"));
+	rtdx_glfw.get_win32_window = reinterpret_cast<PFN_rtdx_glfwGetWin32Window>(rtdx_glfw_symbol(module, "glfwGetWin32Window"));
 
 	if (!rtdx_glfw.get_framebuffer_size || !rtdx_glfw.get_win32_window) {
 		rtdx_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW symbols are not exported by the executable or available from glfw3.dll");

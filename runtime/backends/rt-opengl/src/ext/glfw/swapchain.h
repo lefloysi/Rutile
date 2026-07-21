@@ -1,5 +1,5 @@
-#ifndef RTGL_GLFW_SWAPCHAIN_H
-#define RTGL_GLFW_SWAPCHAIN_H
+#ifndef RTGL_EXT_GLFW_SWAPCHAIN_H
+#define RTGL_EXT_GLFW_SWAPCHAIN_H
 
 #include "config.h"
 #include "glfw/glfw.h"
@@ -18,4 +18,4 @@ RTGL_EXTERN_C_EXIT
 
 void rtgl_swapchain_bind_window_glfw(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, GLFWwindow* window, u32 width, u32 height);
 
-#endif /* RTGL_GLFW_SWAPCHAIN_H */
+#endif /* RTGL_EXT_GLFW_SWAPCHAIN_H */
