@@ -615,12 +615,11 @@ static VkPipelineStageFlags rtvk_command_buffer_layout_stage(VkImageLayout layou
 void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
 	assert(command_buffer);
 	assert(view);
-	assert(view->backing);
+	assert(view->image);
 
-	VkImage vk_image; VkFormat vk_format; VkImageLayout* vk_layout; enum rt_texture_type type;
-	u32 width, height, depth, mips;
-	rtvk_image_backing_read(view->backing, &vk_image, &vk_format, &vk_layout, &type, &width, &height, &depth, &mips);
-	assert(vk_image);
+	struct rtvk_image_base* image = view->image;
+	VkImageLayout* vk_layout = &image->vk_layout;
+	assert(image->vk_image);
 
 	if (*vk_layout == layout) {
 		return;
@@ -640,10 +639,10 @@ void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_
 	barrier.newLayout = layout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = vk_image;
-	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(vk_format);
+	barrier.image = image->vk_image;
+	barrier.subresourceRange.aspectMask = rtvk_texture_format_aspect(image->vk_format);
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = mips;
+	barrier.subresourceRange.levelCount = image->mip_levels ? image->mip_levels : 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
@@ -874,7 +873,7 @@ void rtvk_command_buffer_uniform_texture(
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform location does not belong to the active graphics program");
 		return;
 	}
-	if (!texture_view || !texture_view->backing || !texture_view->vk_image_view) {
+	if (!texture_view || !texture_view->image || !texture_view->vk_image_view) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture view is NULL");
 		return;
 	}

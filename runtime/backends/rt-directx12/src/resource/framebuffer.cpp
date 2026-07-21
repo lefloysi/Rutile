@@ -57,7 +57,7 @@ void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* 
 }
 
 bool rtdx_texture_view_valid(struct rtdx_texture_view* view) {
-	return view && view->base.type == rtdx_resource_type::texture_view && view->d3d_resource;
+	return view && view->base.type == rtdx_resource_type::texture_view && view->image && view->image->d3d_resource;
 }
 
 void rtdx_framebuffer_set_color_view(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer, u32 slot, struct rtdx_texture_view* view) {
@@ -74,7 +74,7 @@ void rtdx_framebuffer_set_color_view(struct rtdx_context* ctx, struct rtdx_frame
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer color texture view has no render target view");
 		return;
 	}
-	if (view && rtdx_texture_format_is_depth(view->dxgi_format)) {
+	if (view && view->image && rtdx_texture_format_is_depth(view->image->dxgi_format)) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer color texture view format has no color aspect");
 		return;
 	}
@@ -117,7 +117,7 @@ void rtdx_framebuffer_set_depth_view(struct rtdx_context* ctx, struct rtdx_frame
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer depth texture view has no depth stencil view");
 		return;
 	}
-	if (view && !rtdx_texture_format_is_depth(view->dxgi_format)) {
+	if (view && view->image && !rtdx_texture_format_is_depth(view->image->dxgi_format)) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "framebuffer depth texture view format has no depth aspect");
 		return;
 	}

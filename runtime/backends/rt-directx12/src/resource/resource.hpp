@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <new>
+#include <type_traits>
 
 struct rtdx_context;
 struct rtdx_queue;
@@ -63,7 +64,16 @@ inline void rtdx_delete_resource(T* resource) {
 
 #define RTDX_ALLOC_RESOURCE(type) (new (std::nothrow) type{})
 #define RTDX_FREE_RESOURCE(resource) (delete (resource))
-#define RTDX_RESOURCE_BASE(resource) (&(resource)->base)
+template <typename T>
+inline rtdx_resource_base* rtdx_resource_base_ptr(T* resource) {
+	if constexpr (std::is_base_of_v<rtdx_resource_base, T>) {
+		return static_cast<rtdx_resource_base*>(resource);
+	} else {
+		return &resource->base;
+	}
+}
+
+#define RTDX_RESOURCE_BASE(resource) (rtdx_resource_base_ptr(resource))
 #define rtdx_retain_resource(resource) rtdx_retain_resource_impl(resource)
 #define rtdx_release_resource(resource) rtdx_release_resource_impl(resource)
 

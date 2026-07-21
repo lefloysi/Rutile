@@ -55,7 +55,7 @@ bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base);
 rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint);
 
 #define RTVK_ALLOC_RESOURCE(type) (type*)rtvk_alloc_resource(sizeof(type))
-#define RTVK_RESOURCE_BASE(resource) (&(resource)->base)
+#define RTVK_RESOURCE_BASE(resource) ((struct rtvk_resource_base*)&(resource)->base)
 #define rtvk_retain_resource(resource) rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)))
 #define rtvk_release_resource(resource)                            \
 	do {                                                           \

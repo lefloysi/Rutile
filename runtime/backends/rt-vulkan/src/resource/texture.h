@@ -36,15 +36,11 @@ RTVK_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 /*===============================================================================================*/
 
 
-struct rtvk_texture {
+struct rtvk_image_base {
 	struct rtvk_resource_base base;
-	struct rtvk_texture* active;
-	struct rtvk_texture* next;
-
 	VkImage vk_image;
 	VkFormat vk_format;
 	VkImageLayout vk_layout;
-	VmaAllocation vma_allocation;
 	enum rt_texture_type type;
 	u32 width;
 	u32 height;
@@ -52,11 +48,19 @@ struct rtvk_texture {
 	u32 mip_levels;
 };
 
+struct rtvk_texture {
+	struct rtvk_image_base base;
+	struct rtvk_texture* active;
+	struct rtvk_texture* next;
+
+	VmaAllocation vma_allocation;
+};
+
 RTVK_DECLARE_NEW_RESOURCE(texture)
 
 struct rtvk_texture_view {
 	struct rtvk_resource_base base;
-	struct rtvk_resource_base* backing;
+	struct rtvk_image_base* image;
 	VkImageView vk_image_view;
 	VkSampler vk_sampler;
 
@@ -76,22 +80,8 @@ RTVK_DECLARE_NEW_RESOURCE(texture_view)
 
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture);
 void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_texture* texture);
-// Bind a view against any image-owning resource by its shared base header.
-// The backing must be an image-owning resource type (currently
-// RT_RESOURCE_TEXTURE or RT_RESOURCE_SWAPCHAIN_FRAME) — the concrete struct
-// is reached via container_of on base->type when descriptor state is needed.
-void rtvk_texture_view_bind_backing(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_resource_base* backing);
+void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_base* image);
 
-// Resolve an image-owning resource base to the fields needed for barrier
-// insertion, VkImageView creation, extent queries. Reads live from the
-// backing struct — no caching. `out_layout` receives a pointer into the
-// backing so callers can update it after transitions.
-void rtvk_image_backing_read(struct rtvk_resource_base* backing, VkImage* out_image, VkFormat* out_format, VkImageLayout** out_layout, enum rt_texture_type* out_type, u32* out_w, u32* out_h, u32* out_d, u32* out_mips);
-
-// Convenience wrappers over rtvk_image_backing_read for single-field queries.
-// A NULL backing is treated as an all-zero image (width/height 0,
-// format UNDEFINED, layout UNDEFINED) so caller-side null guards can be
-// replaced by using the return value directly.
 u32 rtvk_view_width(const struct rtvk_texture_view* view);
 u32 rtvk_view_height(const struct rtvk_texture_view* view);
 VkFormat rtvk_view_format(const struct rtvk_texture_view* view);

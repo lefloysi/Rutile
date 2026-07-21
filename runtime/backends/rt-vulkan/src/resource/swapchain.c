@@ -13,25 +13,17 @@ const VkSurfaceFormatKHR rtvk_swapchain_format_preferences[] = {
 	{ VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
 	{ VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
 };
-const u32 rtvk_swapchain_format_preferences_count =
-	(u32)(sizeof(rtvk_swapchain_format_preferences) / sizeof(rtvk_swapchain_format_preferences[0]));
+const u32 rtvk_swapchain_format_preferences_count = (u32)(sizeof(rtvk_swapchain_format_preferences) / sizeof(rtvk_swapchain_format_preferences[0]));
 const VkPresentModeKHR rtvk_swapchain_present_mode_preferences[] = {
 	VK_PRESENT_MODE_MAILBOX_KHR,
 	VK_PRESENT_MODE_IMMEDIATE_KHR,
 	VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 };
-const u32 rtvk_swapchain_present_mode_preferences_count =
-	(u32)(sizeof(rtvk_swapchain_present_mode_preferences) / sizeof(rtvk_swapchain_present_mode_preferences[0]));
+const u32 rtvk_swapchain_present_mode_preferences_count = (u32)(sizeof(rtvk_swapchain_present_mode_preferences) / sizeof(rtvk_swapchain_present_mode_preferences[0]));
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
-/*
-** SPEC.html §9.1 Swapchain
-** Implements create, destroy, resize, acquire, and present.
-** Frame sync bridges binary semaphores onto the timeline queue model.
-*/
 
 rt_swapchain rtSwapchainCreate(void) {
 	return rtvk_swapchain_to_handle(rtvk_swapchain_create(rtvk_get_current_context()));
@@ -141,11 +133,9 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 
 
 static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
-	if (frame->present_command_pool) {
-		vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
-		frame->present_command_pool = VK_NULL_HANDLE;
-		frame->present_command_buffer = VK_NULL_HANDLE;
-	}
+	vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
+	frame->present_command_pool = VK_NULL_HANDLE;
+	frame->present_command_buffer = VK_NULL_HANDLE;
 	frame->present_command_family_index = (u32)-1;
 }
 
@@ -201,40 +191,26 @@ static void rtvk_swapchain_destroy_color_views(struct rtvk_context* ctx, struct 
 }
 
 void rtvk_swapchain_frame_init(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
-	rtvk_init_resource_base(ctx, &frame->base, RT_RESOURCE_SWAPCHAIN_FRAME);
-	frame->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	frame->vk_format = VK_FORMAT_UNDEFINED;
-	frame->type = RT_TEXTURE_2D;
-	frame->depth = 1;
-	frame->mip_levels = 1;
+	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(frame), RT_RESOURCE_SWAPCHAIN_FRAME);
+	frame->base.vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	frame->base.vk_format = VK_FORMAT_UNDEFINED;
+	frame->base.type = RT_TEXTURE_2D;
+	frame->base.depth = 1;
+	frame->base.mip_levels = 1;
 }
 
-// Idempotent teardown of a frame's swapchain-scoped Vulkan objects. Called
-// eagerly by rtvk_swapchain_destroy_frames while ctx is guaranteed valid,
-// and again as the generic finalize hook when the frame's refcount hits zero
-// — the second call is a no-op because every handle is already NULL.
 // VkImage itself belongs to VkSwapchainKHR and is destroyed by that API.
 void rtvk_swapchain_frame_finish(struct rtvk_swapchain_frame* frame) {
-	struct rtvk_context* ctx = frame->base.ctx;
-	// If ctx was already nulled by a prior rtvk_finish_resource_base call,
-	// no Vulkan objects remain either — nothing to do.
-	if (ctx) {
-		if (frame->image_available) {
-			vkDestroySemaphore(ctx->vk_device, frame->image_available, VK_ALLOCATOR);
-			frame->image_available = VK_NULL_HANDLE;
-		}
-		if (frame->present_ready) {
-			vkDestroySemaphore(ctx->vk_device, frame->present_ready, VK_ALLOCATOR);
-			frame->present_ready = VK_NULL_HANDLE;
-		}
-		if (frame->present_command_pool) {
-			vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
-			frame->present_command_pool = VK_NULL_HANDLE;
-			frame->present_command_buffer = VK_NULL_HANDLE;
-		}
-	}
-	frame->vk_image = VK_NULL_HANDLE;
-	rtvk_finish_resource_base(&frame->base);
+	struct rtvk_context* ctx = frame->base.base.ctx;
+	vkDestroySemaphore(ctx->vk_device, frame->image_available, VK_ALLOCATOR);
+	vkDestroySemaphore(ctx->vk_device, frame->present_ready, VK_ALLOCATOR);
+	vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
+	frame->image_available = VK_NULL_HANDLE;
+	frame->present_ready = VK_NULL_HANDLE;
+	frame->present_command_pool = VK_NULL_HANDLE;
+	frame->present_command_buffer = VK_NULL_HANDLE;
+	frame->base.vk_image = VK_NULL_HANDLE;
+	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(frame));
 }
 
 static void rtvk_swapchain_destroy_frames(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
@@ -244,12 +220,7 @@ static void rtvk_swapchain_destroy_frames(struct rtvk_context* ctx, struct rtvk_
 	}
 	for (u32 i = 0; i < swapchain->image_count; i++) {
 		if (swapchain->frames[i]) {
-			// Eagerly kill Vulkan objects while ctx is still alive — a stray
-			// view holding a ref would otherwise leave them dangling past the
-			// swapchain's own destruction. Then retire drops the swapchain's
-			// ref; the generic path free()s the struct once no view holds it.
-			rtvk_swapchain_frame_finish(swapchain->frames[i]);
-			rtvk_resource_retire(&swapchain->frames[i]->base);
+			rtvk_resource_retire(RTVK_RESOURCE_BASE(swapchain->frames[i]));
 			swapchain->frames[i] = NULL;
 		}
 	}
@@ -260,26 +231,18 @@ static void rtvk_swapchain_destroy_frames(struct rtvk_context* ctx, struct rtvk_
 void rtvk_swapchain_finish(struct rtvk_swapchain* swapchain) {
 	struct rtvk_context* ctx = swapchain->base.ctx;
 	rtvk_swapchain_force_unacquired(swapchain);
-	if (ctx && ctx->vk_device) {
-		vkDeviceWaitIdle(ctx->vk_device);
-	}
+	vkDeviceWaitIdle(ctx->vk_device);
 	rtvk_swapchain_wait_all_frames(ctx, swapchain);
 	rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 	rtvk_swapchain_destroy_color_views(ctx, swapchain);
 	rtvk_swapchain_destroy_frames(ctx, swapchain);
 
-	if (swapchain->vk_swapchain) {
-		vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
-		swapchain->vk_swapchain = VK_NULL_HANDLE;
-	}
-	if (swapchain->vk_surface) {
-		vkDestroySurfaceKHR(ctx->vk_instance, swapchain->vk_surface, VK_ALLOCATOR);
-		swapchain->vk_surface = VK_NULL_HANDLE;
-	}
-	if (swapchain->present_queue) {
-		rtvk_release_resource(swapchain->present_queue);
-		swapchain->present_queue = NULL;
-	}
+	vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
+	vkDestroySurfaceKHR(ctx->vk_instance, swapchain->vk_surface, VK_ALLOCATOR);
+	rtvk_release_resource(swapchain->present_queue);
+	swapchain->vk_swapchain = VK_NULL_HANDLE;
+	swapchain->vk_surface = VK_NULL_HANDLE;
+	swapchain->present_queue = NULL;
 	swapchain->image_count = 0;
 	rtvk_swapchain_unlock(swapchain);
 	rtvk_swapchain_finish_sync(swapchain);
@@ -333,10 +296,10 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 			goto cleanup;
 		}
 		rtvk_swapchain_frame_init(ctx, frame);
-		frame->vk_image = images[i];
-		frame->vk_format = swapchain->vk_format;
-		frame->width = swapchain->extent.width;
-		frame->height = swapchain->extent.height;
+		frame->base.vk_image = images[i];
+		frame->base.vk_format = swapchain->vk_format;
+		frame->base.width = swapchain->extent.width;
+		frame->base.height = swapchain->extent.height;
 		swapchain->frames[i] = frame;
 
 		swapchain->framebuffers[i] = rtvk_framebuffer_create(ctx);
@@ -348,7 +311,7 @@ void rtvk_swapchain_create_framebuffers(struct rtvk_context* ctx, struct rtvk_sw
 		if (!swapchain->color_views[i]) {
 			goto cleanup;
 		}
-		rtvk_texture_view_bind_backing(ctx, swapchain->color_views[i], &frame->base);
+		rtvk_texture_view_bind_image(ctx, swapchain->color_views[i], &frame->base);
 		rtvk_framebuffer_set_color_view(ctx, swapchain->framebuffers[i], 0, swapchain->color_views[i]);
 		if (rtvk_error() != RT_SUCCESS) {
 			goto cleanup;
@@ -639,7 +602,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = current->vk_image;
+	barrier.image = current->base.vk_image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
@@ -688,14 +651,11 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 
 	struct rtvk_framebuffer* framebuffer = swapchain->framebuffers ? swapchain->framebuffers[swapchain->current_image_index] : NULL;
 	struct rtvk_texture_view* color_view = framebuffer ? framebuffer->color_views[0] : NULL;
-	if (color_view && color_view->backing) {
+	if (color_view && color_view->image) {
 		// Post-present, the swapchain image is in PRESENT_SRC_KHR. Sync the
 		// backing frame's layout so the next transition uses the correct
 		// oldLayout.
-		VkImage img; VkFormat fmt; VkImageLayout* lay; enum rt_texture_type type;
-		u32 w, h, d, m;
-		rtvk_image_backing_read(color_view->backing, &img, &fmt, &lay, &type, &w, &h, &d, &m);
-		*lay = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		color_view->image->vk_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	}
 	rendered.queue->timeline_value = signal_value;
 	rendered.queue->submitted_value = signal_value;
@@ -734,28 +694,20 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	vkDeviceWaitIdle(ctx->vk_device);
 	VkSurfaceKHR surface = swapchain->vk_surface;
 	struct rtvk_queue* present_queue = swapchain->present_queue;
-	if (present_queue) {
-		rtvk_retain_resource(present_queue);
-	}
+	rtvk_retain_resource(present_queue);
 
 	rtvk_swapchain_wait_all_frames(ctx, swapchain);
 	rtvk_swapchain_destroy_framebuffers(ctx, swapchain);
 	rtvk_swapchain_destroy_color_views(ctx, swapchain);
 	rtvk_swapchain_destroy_frames(ctx, swapchain);
-	if (swapchain->vk_swapchain) {
-		vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
-		swapchain->vk_swapchain = VK_NULL_HANDLE;
-	}
-	if (swapchain->present_queue) {
-		rtvk_release_resource(swapchain->present_queue);
-		swapchain->present_queue = NULL;
-	}
+	vkDestroySwapchainKHR(ctx->vk_device, swapchain->vk_swapchain, VK_ALLOCATOR);
+	rtvk_release_resource(swapchain->present_queue);
+	swapchain->vk_swapchain = VK_NULL_HANDLE;
+	swapchain->present_queue = NULL;
 
 	rtvk_swapchain_init_from_surface(ctx, swapchain, surface, width, height);
 	ok = rtvk_error() == RT_SUCCESS;
-	if (present_queue) {
-		rtvk_release_resource(present_queue);
-	}
+	rtvk_release_resource(present_queue);
 	rtvk_swapchain_unlock(swapchain);
 	return ok;
 }

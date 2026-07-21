@@ -114,7 +114,9 @@ static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct
 		// swapchain's ID3D12Resource objects, so drop the back-buffer pointer directly here — the
 		// wrappers' ref-counted cleanup will then find a NULL resource and skip the release.
 		if (swapchain->texture_views[i]) {
-			swapchain->texture_views[i]->d3d_resource = NULL;
+			if (swapchain->texture_views[i]->image) {
+				swapchain->texture_views[i]->image->d3d_resource = NULL;
+			}
 			rtdx_texture_view_destroy(ctx, swapchain->texture_views[i]);
 			swapchain->texture_views[i] = NULL;
 		}
@@ -320,6 +322,10 @@ bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapch
 	return true;
 }
 
+bool rtdx_swapchain_create_for_window(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rtdx_native_window window, u32 width, u32 height) {
+	return rtdx_swapchain_create_for_hwnd(ctx, swapchain, window, width, height);
+}
+
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rt_swapchain_acquire_result empty = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
 	if (!swapchain || !swapchain->dxgi_swapchain) {
@@ -384,16 +390,16 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 		return false;
 	}
 
-	if (view->state != D3D12_RESOURCE_STATE_PRESENT) {
+	if (view->image->state != D3D12_RESOURCE_STATE_PRESENT) {
 		D3D12_RESOURCE_BARRIER barrier = {};
 		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 		barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		barrier.Transition.pResource = view->d3d_resource;
+		barrier.Transition.pResource = view->image->d3d_resource;
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-		barrier.Transition.StateBefore = view->state;
+		barrier.Transition.StateBefore = view->image->state;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 		frame->present_command_list->ResourceBarrier(1, &barrier);
-		view->state = D3D12_RESOURCE_STATE_PRESENT;
+		view->image->state = D3D12_RESOURCE_STATE_PRESENT;
 	}
 
 	result = frame->present_command_list->Close();

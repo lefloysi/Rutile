@@ -62,16 +62,7 @@ struct rtvk_swapchain {
 };
 
 struct rtvk_swapchain_frame {
-	struct rtvk_resource_base base;
-
-	VkImage vk_image;
-	VkFormat vk_format;
-	VkImageLayout vk_layout;
-	enum rt_texture_type type;
-	u32 width;
-	u32 height;
-	u32 depth;
-	u32 mip_levels;
+	struct rtvk_image_base base;
 
 	VkSemaphore image_available;
 	VkSemaphore present_ready;

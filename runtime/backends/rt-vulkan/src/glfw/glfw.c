@@ -1,8 +1,6 @@
-#include "resource/glfw/glfw.h"
-#include "context.h"
+#include "glfw/glfw.h"
 #include "error.h"
-
-#include <volk.h>
+#include "context.h"
 
 #if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
@@ -11,6 +9,8 @@
 #else
 #  include <dlfcn.h>
 #endif
+
+#include <assert.h>
 
 /*
  * rt-vulkan deliberately does NOT link GLFW. The host application brings its
@@ -99,25 +99,7 @@ static void rtvk_glfw_resolve(void) {
 	g_glfw.ok = 1;
 }
 
-void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
-	rtvk_swapchain_bind_window_glfw(
-		rtvk_get_current_context(),
-		rtvk_swapchain_from_handle(swapchain),
-		window
-	);
-}
-
-void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, GLFWwindow* window) {
-	VkSurfaceKHR surface = VK_NULL_HANDLE;
-	int width = 0;
-	int height = 0;
-	VkResult result;
-
-	if (!ctx || !swapchain || !window) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain, context, and GLFW window must be valid");
-		return;
-	}
-
+void rtvk_init_glfw_platform(void) {
 	rtvk_glfw_resolve();
 	if (!g_glfw.ok) {
 		rtvk_throwf(
@@ -125,10 +107,12 @@ void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapc
 			"rt-vulkan could not locate GLFW in this process: %s",
 			g_glfw.failure_reason ? g_glfw.failure_reason : "unknown reason"
 		);
-		return;
 	}
+}
 
-	result = g_glfw.create_window_surface(ctx->vk_instance, window, VK_ALLOCATOR, &surface);
+VkSurfaceKHR rtvk_create_glfw_surface(struct rtvk_context* ctx, GLFWwindow* window) {
+	VkSurfaceKHR surface = VK_NULL_HANDLE;
+	VkResult result = g_glfw.create_window_surface(ctx->vk_instance, window, VK_ALLOCATOR, &surface);
 	if (result != VK_SUCCESS) {
 		const char* glfw_msg = NULL;
 		int glfw_code = 0;
@@ -142,18 +126,23 @@ void rtvk_swapchain_bind_window_glfw(struct rtvk_context* ctx, struct rtvk_swapc
 			glfw_code,
 			glfw_msg ? glfw_msg : "no GLFW error message"
 		);
-		return;
+		return VK_NULL_HANDLE;
 	}
+	return surface;
+}
 
-	g_glfw.get_framebuffer_size(window, &width, &height);
-	if (width <= 0 || height <= 0) {
-		rtvk_throwf(
-			RT_IMPROPER_USAGE,
-			"glfwGetFramebufferSize returned non-positive extent (%dx%d); window may be minimized or not yet shown",
-			width,
-			height
-		);
-		return;
+void rtvk_glfw_get_framebuffer_size(GLFWwindow* window, int* width, int* height) {
+	assert(g_glfw.get_framebuffer_size);
+	assert(window);
+	g_glfw.get_framebuffer_size(window, width, height);
+}
+
+void rtvk_glfw_get_error(int* code, const char** message) {
+	assert(code);
+	assert(message);
+	*code = 0;
+	*message = NULL;
+	if (g_glfw.get_error) {
+		*code = g_glfw.get_error(message);
 	}
-	rtvk_swapchain_init_from_surface(ctx, swapchain, surface, (u32)width, (u32)height);
 }

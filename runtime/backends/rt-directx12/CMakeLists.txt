@@ -36,8 +36,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/swapchain.hpp"
     "src/resource/texture.cpp"
     "src/resource/texture.hpp"
-    "src/resource/glfw/glfw.cpp"
-    "src/resource/glfw/glfw.hpp"
+    "src/glfw/glfw.cpp"
+    "src/glfw/glfw.hpp"
+    "src/glfw/swapchain.cpp"
+    "src/glfw/swapchain.hpp"
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE "src")

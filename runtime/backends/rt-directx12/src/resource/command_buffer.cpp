@@ -403,19 +403,19 @@ void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buf
 }
 
 static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* view, D3D12_RESOURCE_STATES next_state) {
-	if (!view || !view->d3d_resource || view->state == next_state) {
+	if (!view || !view->image || !view->image->d3d_resource || view->image->state == next_state) {
 		return;
 	}
 
 	D3D12_RESOURCE_BARRIER barrier = {};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-	barrier.Transition.pResource = view->d3d_resource;
+	barrier.Transition.pResource = view->image->d3d_resource;
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	barrier.Transition.StateBefore = view->state;
+	barrier.Transition.StateBefore = view->image->state;
 	barrier.Transition.StateAfter = next_state;
 	command_buffer->d3d_command_list->ResourceBarrier(1, &barrier);
-	view->state = next_state;
+	view->image->state = next_state;
 }
 
 void rtdx_command_buffer_begin_rendering(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_framebuffer* framebuffer) {
@@ -506,16 +506,16 @@ void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct r
 		return;
 	}
 
-	DXGI_FORMAT depth_format = depth_view ? depth_view->dxgi_format : DXGI_FORMAT_UNKNOWN;
-	if (!rtdx_graphics_program_prepare(ctx, program, color_view->dxgi_format, depth_format)) {
+	DXGI_FORMAT depth_format = depth_view ? depth_view->image->dxgi_format : DXGI_FORMAT_UNKNOWN;
+	if (!rtdx_graphics_program_prepare(ctx, program, color_view->image->dxgi_format, depth_format)) {
 		return;
 	}
 
 	D3D12_VIEWPORT viewport = {};
 	viewport.TopLeftX = 0.0f;
 	viewport.TopLeftY = 0.0f;
-	viewport.Width = (f32)color_view->width;
-	viewport.Height = (f32)color_view->height;
+	viewport.Width = (f32)color_view->image->width;
+	viewport.Height = (f32)color_view->image->height;
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 	node->d3d_command_list->RSSetViewports(1, &viewport);
@@ -523,8 +523,8 @@ void rtdx_command_buffer_use_graphics_program(struct rtdx_context* ctx, struct r
 	D3D12_RECT scissor = {};
 	scissor.left = 0;
 	scissor.top = 0;
-	scissor.right = (LONG)color_view->width;
-	scissor.bottom = (LONG)color_view->height;
+	scissor.right = (LONG)color_view->image->width;
+	scissor.bottom = (LONG)color_view->image->height;
 	node->d3d_command_list->RSSetScissorRects(1, &scissor);
 
 	node->d3d_command_list->SetGraphicsRootSignature(program->d3d_root_signature);
@@ -642,7 +642,7 @@ void rtdx_command_buffer_uniform_texture(
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform location does not belong to the active graphics program");
 		return;
 	}
-	if (!texture_view || !texture_view->d3d_resource) {
+	if (!texture_view || !texture_view->image || !texture_view->image->d3d_resource) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "uniform texture view is invalid");
 		return;
 	}
@@ -661,13 +661,13 @@ void rtdx_command_buffer_uniform_texture(
 
 	u32 descriptor_index = node->descriptor_cursor++;
 	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-	srv_desc.Format = texture_view->dxgi_format;
+	srv_desc.Format = texture_view->image->dxgi_format;
 	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srv_desc.Texture2D.MostDetailedMip = 0;
 	srv_desc.Texture2D.MipLevels = 1;
 	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
-	ctx->d3d_device->CreateShaderResourceView(texture_view->d3d_resource, &srv_desc, srv_cpu);
+	ctx->d3d_device->CreateShaderResourceView(texture_view->image->d3d_resource, &srv_desc, srv_cpu);
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_sampler_heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, descriptor_index);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, texture_view->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 

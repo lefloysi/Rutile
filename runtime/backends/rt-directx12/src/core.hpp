@@ -4,7 +4,7 @@
 #include "error.hpp"
 #include "resource/buffer.hpp"
 #include "resource/command_buffer.hpp"
-#include "resource/glfw/glfw.hpp"
+#include "glfw/swapchain.hpp"
 #include "resource/graphics_program.hpp"
 #include "resource/queue.hpp"
 #include "resource/swapchain.hpp"

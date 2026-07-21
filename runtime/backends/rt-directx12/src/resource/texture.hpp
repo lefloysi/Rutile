@@ -25,13 +25,8 @@ RTDX_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 
 struct rtdx_buffer;
 
-struct rtdx_texture {
-	rtdx_resource_base base;
-	rtdx_texture* active;
-	rtdx_texture* next;
-
+struct rtdx_image_base : rtdx_resource_base {
 	ID3D12Resource* d3d_resource;
-
 	u32 width;
 	u32 height;
 	u32 depth;
@@ -39,13 +34,17 @@ struct rtdx_texture {
 	D3D12_RESOURCE_STATES state;
 	rt_texture_type type;
 };
+
+struct rtdx_texture : rtdx_image_base {
+	rtdx_texture* active;
+	rtdx_texture* next;
+};
 RTDX_DECLARE_NEW_RESOURCE(texture)
 
 struct rtdx_texture_view {
 	rtdx_resource_base base;
 
-	rtdx_texture* texture;
-	ID3D12Resource* d3d_resource;
+	rtdx_image_base* image;
 	ID3D12DescriptorHeap* d3d_sampler_heap;
 	ID3D12DescriptorHeap* d3d_rtv_heap;
 	ID3D12DescriptorHeap* d3d_dsv_heap;
@@ -54,11 +53,6 @@ struct rtdx_texture_view {
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu;
 	D3D12_GPU_DESCRIPTOR_HANDLE sampler_gpu;
 
-	u32 width;
-	u32 height;
-	u32 depth;
-	DXGI_FORMAT dxgi_format;
-	D3D12_RESOURCE_STATES state;
 	rt_filter mag_filter;
 	rt_filter min_filter;
 	rt_mip_filter mip_filter;

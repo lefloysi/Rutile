@@ -1,8 +1,8 @@
-#include "resource/glfw/glfw.hpp"
-#include "context.hpp"
+#include "glfw/glfw.hpp"
 #include "error.hpp"
 
 #include <windows.h>
+#include <cassert>
 
 using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow* window, int* width, int* height);
 using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow* window);
@@ -38,10 +38,8 @@ static bool rtdx_glfw_resolve() {
 		return rtdx_glfw.get_framebuffer_size && rtdx_glfw.get_win32_window;
 	}
 
-	rtdx_glfw.get_framebuffer_size =
-		reinterpret_cast<PFN_rtdx_glfwGetFramebufferSize>(rtdx_glfw_symbol("glfwGetFramebufferSize"));
-	rtdx_glfw.get_win32_window =
-		reinterpret_cast<PFN_rtdx_glfwGetWin32Window>(rtdx_glfw_symbol("glfwGetWin32Window"));
+	rtdx_glfw.get_framebuffer_size = reinterpret_cast<PFN_rtdx_glfwGetFramebufferSize>(rtdx_glfw_symbol("glfwGetFramebufferSize"));
+	rtdx_glfw.get_win32_window = reinterpret_cast<PFN_rtdx_glfwGetWin32Window>(rtdx_glfw_symbol("glfwGetWin32Window"));
 
 	if (!rtdx_glfw.get_framebuffer_size || !rtdx_glfw.get_win32_window) {
 		rtdx_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW symbols are not exported by the executable or available from glfw3.dll");
@@ -52,34 +50,18 @@ static bool rtdx_glfw_resolve() {
 	return true;
 }
 
-void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
-	int width = 0;
-	int height = 0;
-	HWND hwnd;
+void rtdx_init_glfw_platform() {
+	rtdx_glfw_resolve();
+}
 
-	if (!window) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "rtSwapchainBindWindowGLFW window is NULL");
-		return;
-	}
-	if (!rtdx_glfw_resolve()) {
-		return;
-	}
+rtdx_native_window rtdx_glfw_get_native_window(GLFWwindow* window) {
+	assert(rtdx_glfw.get_win32_window);
+	assert(window);
+	return rtdx_glfw.get_win32_window(window);
+}
 
-	rtClearError();
-	rtdx_glfw.get_framebuffer_size(window, &width, &height);
-	hwnd = rtdx_glfw.get_win32_window(window);
-	if (!hwnd) {
-		rtdx_throwf(RT_UNSUPPORTED_PLATFORM, "GLFW window has no Win32 HWND");
-		return;
-	}
-
-	if (!rtdx_swapchain_create_for_hwnd(
-		rtdx_get_current_context(),
-		rtdx_swapchain_from_handle(swapchain),
-		hwnd,
-		(u32)width,
-		(u32)height
-	)) {
-		return;
-	}
+void rtdx_glfw_get_framebuffer_size(GLFWwindow* window, int* width, int* height) {
+	assert(rtdx_glfw.get_framebuffer_size);
+	assert(window);
+	rtdx_glfw.get_framebuffer_size(window, width, height);
 }
