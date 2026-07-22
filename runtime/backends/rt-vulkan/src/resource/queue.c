@@ -169,7 +169,7 @@ struct rtvk_submitted_batch* rtvk_queue_create_batch(struct rtvk_context* ctx, s
 	batch->value = value;
 	batch->command_buffer_node = command_buffer ? command_buffer->active : NULL;
 	if (batch->command_buffer_node) {
-		rtvk_command_buffer_node_retain(batch->command_buffer_node);
+		rtvk_retain_resource(batch->command_buffer_node);
 	}
 	return batch;
 }
@@ -238,7 +238,7 @@ void rtvk_queue_collect_to_value(struct rtvk_context* ctx, struct rtvk_queue* qu
 			batch->command_buffer_node->pending_timepoint.value = 0;
 		}
 		if (batch->command_buffer_node) {
-			rtvk_command_buffer_node_release(batch->command_buffer_node);
+			rtvk_release_resource(batch->command_buffer_node);
 		}
 		free(batch);
 	}

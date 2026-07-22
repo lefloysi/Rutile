@@ -170,15 +170,20 @@ void rtdx_command_buffer_init(struct rtdx_context* ctx, struct rtdx_command_buff
 
 void rtdx_command_buffer_finish(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer) {
 	struct rtdx_command_buffer* node = command_buffer->next;
-	rtdx_command_buffer_node_release(command_buffer->active);
+	rtdx_release_resource(command_buffer->active);
 	command_buffer->active = NULL;
 	while (node) {
 		struct rtdx_command_buffer* next = node->next;
 		node->next = NULL;
-		rtdx_command_buffer_node_release(node);
+		rtdx_release_resource(node);
 		node = next;
 	}
 	command_buffer->next = NULL;
+	if (!ctx->shutting_down && (command_buffer->d3d_command_list || command_buffer->d3d_allocator)) {
+		rtdx_command_buffer_release_recorded_resources(command_buffer);
+		rtdx_release(&command_buffer->d3d_command_list);
+		rtdx_release(&command_buffer->d3d_allocator);
+	}
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer));
 }
 
@@ -330,6 +335,7 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 	node->d3d_command_list->Close();
 
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::command_buffer);
+	rtdx_atomic_bool_store(&node->base.zombie, true);
 	return node;
 }
 
@@ -825,39 +831,6 @@ void rtdx_command_buffer_end(struct rtdx_context* ctx, struct rtdx_command_buffe
 		return;
 	}
 	command_buffer->recording = false;
-}
-
-void rtdx_command_buffer_node_retain(struct rtdx_command_buffer* command_buffer) {
-	if (!command_buffer) {
-		return;
-	}
-	rtdx_atomic_inc(&command_buffer->base.ref_count);
-}
-
-void rtdx_command_buffer_node_release(struct rtdx_command_buffer* command_buffer) {
-	if (!command_buffer) {
-		return;
-	}
-	if (rtdx_atomic_dec(&command_buffer->base.ref_count) != 0) {
-		return;
-	}
-
-	if (command_buffer->base.ctx && command_buffer->base.ctx->shutting_down) {
-		rtdx_atomic_bool_finish(&command_buffer->base.zombie);
-		rtdx_atomic_u32_finish(&command_buffer->base.job_count);
-		rtdx_atomic_u32_finish(&command_buffer->base.ref_count);
-		RTDX_FREE_RESOURCE(command_buffer);
-		return;
-	}
-
-	rtdx_command_buffer_release_recorded_resources(command_buffer);
-	rtdx_release(&command_buffer->d3d_command_list);
-	rtdx_release(&command_buffer->d3d_allocator);
-	rtdx_finish_resource_base(command_buffer->base.ctx, RTDX_RESOURCE_BASE(command_buffer));
-	rtdx_atomic_bool_finish(&command_buffer->base.zombie);
-	rtdx_atomic_u32_finish(&command_buffer->base.job_count);
-	rtdx_atomic_u32_finish(&command_buffer->base.ref_count);
-	RTDX_FREE_RESOURCE(command_buffer);
 }
 
 struct rtdx_command_buffer* rtdx_command_buffer_active_node(struct rtdx_command_buffer* command_buffer) {

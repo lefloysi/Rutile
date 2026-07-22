@@ -1,13 +1,17 @@
 #ifndef RTGL_RESOURCE_H
 #define RTGL_RESOURCE_H
 
+#include "config.h"
 #include "types.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 
-struct rtgl_context;
-struct rtgl_resource_base;
+RTGL_EXTERN_C_ENTER
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 typedef enum rtgl_resource_type {
 	RTGL_RESOURCE_UNKNOWN,
@@ -17,6 +21,7 @@ typedef enum rtgl_resource_type {
 	RTGL_RESOURCE_GRAPHICS_PROGRAM,
 	RTGL_RESOURCE_QUEUE,
 	RTGL_RESOURCE_SWAPCHAIN,
+	RTGL_RESOURCE_SWAPCHAIN_FRAME,
 	RTGL_RESOURCE_TEXTURE,
 	RTGL_RESOURCE_TEXTURE_VIEW,
 } rtgl_resource_type;
@@ -40,12 +45,17 @@ void rtgl_finish_resource_base(struct rtgl_resource_base* base);
 void rtgl_resource_retain(struct rtgl_resource_base* base);
 void rtgl_resource_release(struct rtgl_resource_base* base);
 void rtgl_resource_retire(struct rtgl_resource_base* base);
+void rtgl_resource_try_free(struct rtgl_resource_base* base);
 void rtgl_resource_finalize(struct rtgl_resource_base* base);
 bool rtgl_resource_ready_to_destroy(struct rtgl_resource_base* base);
 rt_timepoint rtgl_timepoint_to_public(struct rtgl_timepoint timepoint);
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 #define RTGL_ALLOC_RESOURCE(type) (type*)rtgl_alloc_resource(sizeof(type))
-#define RTGL_RESOURCE_BASE(resource) (&(resource)->base)
+#define RTGL_RESOURCE_BASE(resource) ((struct rtgl_resource_base*)&(resource)->base)
 #define rtgl_retain_resource(resource) rtgl_resource_retain((RTGL_RESOURCE_BASE(resource)))
 #define rtgl_release_resource(resource)                            \
 	do {                                                           \
@@ -72,11 +82,11 @@ rt_timepoint rtgl_timepoint_to_public(struct rtgl_timepoint timepoint);
 		return type;                                                                 \
 	}                                                                                \
 	void rtgl_##type##_destroy(struct rtgl_context* ctx, struct rtgl_##type* type) { \
-		(void)ctx;                                                                   \
 		if (!type) {                                                                 \
 			return;                                                                  \
 		}                                                                            \
 		rtgl_resource_retire(RTGL_RESOURCE_BASE(type));                              \
 	}
 
+RTGL_EXTERN_C_EXIT
 #endif /* RTGL_RESOURCE_H */

@@ -155,25 +155,29 @@ void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
 	struct rtvk_command_buffer* node = command_buffer->next;
 	if (command_buffer->active) {
 		rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
-		rtvk_command_buffer_node_release(command_buffer->active);
+		rtvk_release_resource(command_buffer->active);
 	}
 	command_buffer->active = NULL;
 	while (node) {
 		struct rtvk_command_buffer* next = node->next;
 		node->next = NULL;
 		rtvk_command_buffer_wait_pending(ctx, node);
-		rtvk_command_buffer_node_release(node);
+		rtvk_release_resource(node);
 		node = next;
 	}
 	command_buffer->next = NULL;
-	rtvk_command_buffer_destroy_descriptor_pools(ctx, command_buffer);
+	if (command_buffer->vk_command_pool || command_buffer->vk_command_buffer) {
+		rtvk_command_buffer_release_recorded_resources(command_buffer);
+		rtvk_command_buffer_destroy_descriptor_pools(ctx, command_buffer);
+		rtvk_command_buffer_destroy_vk_handles(ctx, command_buffer);
+	}
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(command_buffer));
 }
 
 void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* command_buffer) {
 	assert(command_buffer);
 	if (command_buffer->vertex_buffer_node) {
-		rtvk_buffer_node_release(command_buffer->vertex_buffer_node);
+		rtvk_release_resource(command_buffer->vertex_buffer_node);
 	}
 	command_buffer->vertex_buffer_node = NULL;
 	if (command_buffer->graphics_program) {
@@ -194,7 +198,7 @@ void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* 
 void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot* slot) {
 	assert(slot);
 	if (slot->kind == RTVK_UNIFORM_SLOT_BUFFER || slot->kind == RTVK_UNIFORM_SLOT_STORAGE_BUFFER) {
-		rtvk_buffer_node_release(slot->buffer.node);
+		rtvk_release_resource(slot->buffer.node);
 	}
 	if (slot->kind == RTVK_UNIFORM_SLOT_TEXTURE || slot->kind == RTVK_UNIFORM_SLOT_STORAGE_TEXTURE) {
 		if (slot->texture.view) {
@@ -261,9 +265,13 @@ void rtvk_command_buffer_destroy_descriptor_pools(struct rtvk_context* ctx, stru
 void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
 	assert(ctx);
 	assert(command_buffer);
-	vkFreeCommandBuffers(ctx->vk_device, command_buffer->vk_command_pool, 1, &command_buffer->vk_command_buffer);
+	if (command_buffer->vk_command_buffer) {
+		vkFreeCommandBuffers(ctx->vk_device, command_buffer->vk_command_pool, 1, &command_buffer->vk_command_buffer);
+	}
 	command_buffer->vk_command_buffer = VK_NULL_HANDLE;
-	vkDestroyCommandPool(ctx->vk_device, command_buffer->vk_command_pool, VK_ALLOCATOR);
+	if (command_buffer->vk_command_pool) {
+		vkDestroyCommandPool(ctx->vk_device, command_buffer->vk_command_pool, VK_ALLOCATOR);
+	}
 	command_buffer->vk_command_pool = VK_NULL_HANDLE;
 	command_buffer->bound_descriptor_set = VK_NULL_HANDLE;
 	command_buffer->uniforms_dirty = true;
@@ -315,6 +323,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 	}
 
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(node), RT_RESOURCE_COMMAND_BUFFER);
+	rtvk_atomic_bool_store(&node->base.zombie, true);
 	node->family_index = family_index;
 	return node;
 }
@@ -331,7 +340,7 @@ static struct rtvk_command_buffer* rtvk_command_buffer_take_reusable_node(struct
 	struct rtvk_command_buffer** link = &command_buffer->next;
 	while (*link) {
 		struct rtvk_command_buffer* node = *link;
-		if (node->family_index == family_index && node->base.ref_count == 1) {
+		if (node->family_index == family_index && rtvk_atomic_load(&node->base.ref_count) == 1) {
 			*link = node->next;
 			node->next = NULL;
 			return node;
@@ -788,7 +797,7 @@ void rtvk_command_buffer_uniform_buffer(
 		return;
 	}
 	rtvk_command_buffer_clear_uniform_slot(slot);
-	rtvk_buffer_node_retain(buffer_node);
+	rtvk_retain_resource(buffer_node);
 	slot->kind = RTVK_UNIFORM_SLOT_BUFFER;
 	slot->buffer.node = buffer_node;
 	slot->buffer.offset = offset;
@@ -841,7 +850,7 @@ void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_co
 		return;
 	}
 	rtvk_command_buffer_clear_uniform_slot(slot);
-	rtvk_buffer_node_retain(buffer_node);
+	rtvk_retain_resource(buffer_node);
 	slot->kind = RTVK_UNIFORM_SLOT_STORAGE_BUFFER;
 	slot->buffer.node = buffer_node;
 	slot->buffer.offset = offset;
@@ -920,9 +929,9 @@ void rtvk_command_buffer_bind_vertex_buffer(struct rtvk_context* ctx, struct rtv
 
 	VkDeviceSize vk_offset = (VkDeviceSize)offset;
 	vkCmdBindVertexBuffers(command_buffer_node->vk_command_buffer, 0, 1, &node->vk_buffer, &vk_offset);
-	rtvk_buffer_node_retain(node);
+	rtvk_retain_resource(node);
 	if (command_buffer_node->vertex_buffer_node) {
-		rtvk_buffer_node_release(command_buffer_node->vertex_buffer_node);
+		rtvk_release_resource(command_buffer_node->vertex_buffer_node);
 	}
 	command_buffer_node->vertex_buffer_node = node;
 	command_buffer->vertex_buffer = buffer;
@@ -1143,23 +1152,4 @@ void rtvk_command_buffer_draw(struct rtvk_context* ctx, struct rtvk_command_buff
 		return;
 	}
 	vkCmdDraw(command_buffer->active->vk_command_buffer, vertex_count, 1, first_vertex, 0);
-}
-
-void rtvk_command_buffer_node_retain(struct rtvk_command_buffer* command_buffer) {
-	assert(command_buffer);
-	command_buffer->base.ref_count++;
-}
-
-void rtvk_command_buffer_node_release(struct rtvk_command_buffer* command_buffer) {
-	assert(command_buffer);
-	assert(command_buffer->base.ref_count > 0);
-	if (--command_buffer->base.ref_count != 0) {
-		return;
-	}
-
-	rtvk_command_buffer_release_recorded_resources(command_buffer);
-	rtvk_command_buffer_destroy_descriptor_pools(command_buffer->base.ctx, command_buffer);
-	rtvk_command_buffer_destroy_vk_handles(command_buffer->base.ctx, command_buffer);
-	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(command_buffer));
-	free(command_buffer);
 }

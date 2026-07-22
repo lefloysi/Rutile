@@ -193,6 +193,7 @@ int main(int argc, char** argv) {
 			depth_width = width;
 			depth_height = height;
 			rtTextureData(depth, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, nullptr);
+			rtTextureViewBind(depth_view, depth);
 		}
 		const glm::mat4 view = glm::lookAt(camera.position, camera.position + camera_forward(camera), glm::vec3(0, 1, 0));
 		const glm::mat4 projection = glm::perspective(glm::radians(60.0f), static_cast<f32>(width) / static_cast<f32>(height), 0.1f, 100.0f);

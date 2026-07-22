@@ -5,14 +5,8 @@
 #include "resource/framebuffer.h"
 #include "resource/resource.h"
 #include "resource/texture.h"
+#include "sync.h"
 #include <volk.h>
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <pthread.h>
-#endif
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -41,8 +35,6 @@ struct rtvk_swapchain {
 	VkSwapchainKHR vk_swapchain;
 
 	struct rtvk_queue* present_queue;
-	struct rtvk_framebuffer** framebuffers;
-	struct rtvk_texture_view** color_views;
 	struct rtvk_swapchain_frame** frames;
 
 	VkExtent2D extent;
@@ -52,18 +44,15 @@ struct rtvk_swapchain {
 	u32 current_frame_index;
 	bool frame_acquired;
 
-#if defined(_WIN32)
-	CRITICAL_SECTION frame_lock;
-	CONDITION_VARIABLE frame_condition;
-#else
-	pthread_mutex_t frame_lock;
-	pthread_cond_t frame_condition;
-#endif
+	struct rt_mutex* frame_lock;
+	struct rt_condition* frame_condition;
 };
 
 struct rtvk_swapchain_frame {
 	struct rtvk_image_base base;
 
+	struct rtvk_framebuffer* framebuffer;
+	struct rtvk_texture_view* color_view;
 	VkSemaphore image_available;
 	VkSemaphore present_ready;
 	VkCommandPool present_command_pool;

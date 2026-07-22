@@ -273,6 +273,13 @@ void rtgl_destroy_glsurface(struct gl_surface* surface) {
 	free(surface);
 }
 
+void rtgl_swap_glsurface_buffers(struct gl_surface* surface) {
+	if (!surface || !surface->dc) {
+		return;
+	}
+	SwapBuffers(surface->dc);
+}
+
 /*
 ** surface == NULL means headless: fall back to the bootstrap drawable
 ** owned by the context itself, never exposed to the caller.

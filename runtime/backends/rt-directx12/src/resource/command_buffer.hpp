@@ -89,6 +89,4 @@ void rtdx_command_buffer_bind_vertex_buffer(rtdx_context* ctx, rtdx_command_buff
 void rtdx_command_buffer_draw(rtdx_context* ctx, rtdx_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex);
 void rtdx_command_buffer_end_rendering(rtdx_context* ctx, rtdx_command_buffer* command_buffer);
 void rtdx_command_buffer_end(rtdx_context* ctx, rtdx_command_buffer* command_buffer);
-void rtdx_command_buffer_node_retain(rtdx_command_buffer* command_buffer);
-void rtdx_command_buffer_node_release(rtdx_command_buffer* command_buffer);
 rtdx_command_buffer* rtdx_command_buffer_active_node(rtdx_command_buffer* command_buffer);

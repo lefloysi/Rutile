@@ -93,6 +93,7 @@ typedef struct rt_proc_chain {
 
 typedef const char* (*PFN_rtLayerGetName)(void);
 typedef void (*PFN_rtLayerSetNext)(rt_proc_chain next);
+typedef void (*PFN_rtSettingApply)(const char* backend_name, const char* value);
 
 #ifndef RUTILE_LOADER_ONLY
 
@@ -360,6 +361,37 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 **         @p layer_names).
 */
 enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
+
+/*!
+** @brief Add a backend-specific loader setting.
+**
+** Settings are string key/value pairs stored by the loader before a backend is
+** loaded. When a backend is loaded, every setting is offered to that backend.
+** The backend decides which names and values it understands and ignores the
+** rest.
+**
+** Example:
+** @code
+** rtSettingAdd("rt-opengl", "-v 4.0");
+** rtLoad("rt-opengl", NULL, 0);
+** @endcode
+**
+** @param backend_name  Backend name the setting applies to.
+** @param value         Backend-defined setting string.
+**
+** @return RT_SUCCESS on success.
+** @return RT_IMPROPER_USAGE if either string is NULL.
+** @return RT_OUT_OF_HOST_MEMORY if the loader setting pool is full.
+*/
+enum rt_error rtSettingAdd(const char* backend_name, const char* value);
+
+/*!
+** @brief Clear all settings stored by the loader.
+**
+** This does not affect an already-loaded backend. Call before @ref rtLoad to
+** change what settings the next loaded backend sees.
+*/
+void rtSettingClear(void);
 
 /*!
 ** @brief Unload the current backend and layers.
@@ -1587,6 +1619,9 @@ static inline bool rtTimepointReached(rt_timepoint timepoint) {
 
 #define RT__MAX_LAYERS 16
 #define RT__MAX_DLLS (RT__MAX_LAYERS + 1)
+#define RT__MAX_SETTINGS 64
+#define RT__MAX_SETTING_NAME 64
+#define RT__MAX_SETTING_VALUE 256
 
 #if defined(_WIN32)
 #define RT__THREAD_LOCAL __declspec(thread)
@@ -1749,6 +1784,11 @@ typedef struct rt_layer_link {
 	rt_proc_chain next;
 } rt_layer_link;
 
+typedef struct rt_setting_entry {
+	char backend_name[RT__MAX_SETTING_NAME];
+	char value[RT__MAX_SETTING_VALUE];
+} rt_setting_entry;
+
 static rt__dll_handle rt__backend_dll;
 static rt_layer_link rt__layer_links[RT__MAX_LAYERS];
 static rt_proc_chain rt__chain;
@@ -1756,6 +1796,8 @@ bool rt_loaded = false;
 
 static rt__dll_handle rt__dlls[RT__MAX_DLLS];
 static u32 rt__dll_count;
+static rt_setting_entry rt__settings[RT__MAX_SETTINGS];
+static u32 rt__setting_count;
 
 static rt_proc_t rt__backend_proc(const rt_proc_chain* chain, const char* name) {
 
@@ -2042,6 +2084,21 @@ static void rt__layer_set_next(u32 index, rt_proc_chain next) {
 	}
 
 	link->chain.get_proc = rt__layer_procs[index];
+}
+
+static void rt__apply_backend_settings(const char* backend_name) {
+	if (!rt__backend_dll || !backend_name) {
+		return;
+	}
+
+	PFN_rtSettingApply apply = (PFN_rtSettingApply)rt__dll_symbol(rt__backend_dll, "rtSettingApply");
+	if (!apply) {
+		return;
+	}
+
+	for (u32 i = 0; i < rt__setting_count; i++) {
+		apply(rt__settings[i].backend_name, rt__settings[i].value);
+	}
 }
 
 PFN_rtInit rt_rtInit = NULL;
@@ -2361,6 +2418,29 @@ static void rt__load_core_development(void) {
 
 #undef RT__CORE_RESOLVE
 
+enum rt_error rtSettingAdd(const char* backend_name, const char* value) {
+	rt__loader_clear_error_state();
+	if (!backend_name || !value) {
+		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtSettingAdd requires non-NULL backend_name and value");
+		return RT_IMPROPER_USAGE;
+	}
+	if (rt__setting_count >= RT__MAX_SETTINGS) {
+		rt__loader_set_errorf(RT_OUT_OF_HOST_MEMORY, "rtSettingAdd setting pool is full");
+		return RT_OUT_OF_HOST_MEMORY;
+	}
+
+	rt_setting_entry* setting = &rt__settings[rt__setting_count++];
+	snprintf(setting->backend_name, sizeof(setting->backend_name), "%s", backend_name);
+	setting->backend_name[sizeof(setting->backend_name) - 1] = '\0';
+	snprintf(setting->value, sizeof(setting->value), "%s", value);
+	setting->value[sizeof(setting->value) - 1] = '\0';
+	return RT_SUCCESS;
+}
+
+void rtSettingClear(void) {
+	rt__setting_count = 0;
+}
+
 enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count) {
 	rt__loader_clear_error_state();
 	if (!backend_name) {
@@ -2391,6 +2471,7 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 		rt__loader_print_error();
 		return err;
 	}
+	rt__apply_backend_settings(backend_name);
 	for (u32 i = 0; i < layer_count; i++) {
 		err = rt__load_layer_named(layer_names[i], &rt__layer_links[i], message, sizeof(message));
 		if (err != RT_SUCCESS) {
@@ -2451,6 +2532,7 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 		rt_loaded = false;
 		return RT_SUCCESS;
 	}
+	rt__apply_backend_settings(backend_name);
 
 	u32 loaded_layers = 0;
 	for (u32 i = 0; i < layer_count; i++) {

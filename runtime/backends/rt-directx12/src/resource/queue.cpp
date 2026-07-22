@@ -60,10 +60,10 @@ struct rtdx_queue* rtdx_queue_create(struct rtdx_context* ctx, enum rt_queue_cap
 }
 
 void rtdx_queue_destroy(struct rtdx_context* ctx, struct rtdx_queue* queue) {
+	(void)ctx;
 	if (!queue) {
 		return;
 	}
-	rtdx_queue_finish(ctx, queue);
 	rtdx_resource_retire(RTDX_RESOURCE_BASE(queue));
 }
 
@@ -89,9 +89,9 @@ bool rtdx_queue_init(struct rtdx_context* ctx, struct rtdx_queue* queue, enum rt
 		return false;
 	}
 
-	queue->fence_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+	queue->fence_event = rt_event_create(false, false);
 	if (!queue->fence_event) {
-		rtdx_throwf(RT_PLATFORM_FAILURE, "CreateEventA failed");
+		rtdx_throwf(RT_PLATFORM_FAILURE, "failed to create DirectX queue fence event");
 		return false;
 	}
 
@@ -109,7 +109,7 @@ void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	queue->upload_buffer_size = 0;
 	queue->upload_fence_value = 0;
 	if (queue->fence_event) {
-		CloseHandle(queue->fence_event);
+		rt_event_destroy(queue->fence_event);
 		queue->fence_event = NULL;
 	}
 	rtdx_release(&queue->d3d_fence);
@@ -153,7 +153,7 @@ static struct rtdx_submitted_batch* rtdx_queue_create_batch(struct rtdx_context*
 
 	batch->value = value;
 	batch->command_buffer_node = rtdx_command_buffer_active_node(command_buffer);
-	rtdx_command_buffer_node_retain(batch->command_buffer_node);
+	rtdx_retain_resource(batch->command_buffer_node);
 	return batch;
 }
 
@@ -181,11 +181,7 @@ void rtdx_queue_collect(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 		if (!queue->submitted_head) {
 			queue->submitted_tail = NULL;
 		}
-		if (ctx && ctx->shutting_down) {
-			RTDX_FREE_RESOURCE(batch);
-			continue;
-		}
-		rtdx_command_buffer_node_release(batch->command_buffer_node);
+		rtdx_release_resource(batch->command_buffer_node);
 		RTDX_FREE_RESOURCE(batch);
 	}
 }
@@ -245,7 +241,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 		HRESULT wait_result = queue->d3d_queue->Wait(wait.queue->d3d_fence, wait.value);
 		if (FAILED(wait_result)) {
 			if (batch) {
-				rtdx_command_buffer_node_release(batch->command_buffer_node);
+				rtdx_release_resource(batch->command_buffer_node);
 				RTDX_FREE_RESOURCE(batch);
 			}
 			rtdx_throwf(rtdx_error_from_hresult(wait_result), "ID3D12CommandQueue::Wait failed: 0x%08x", (u32)wait_result);
@@ -263,7 +259,7 @@ struct rtdx_timepoint rtdx_queue_submit(struct rtdx_context* ctx, struct rtdx_qu
 	HRESULT result = queue->d3d_queue->Signal(queue->d3d_fence, value);
 	if (FAILED(result)) {
 		if (batch) {
-			rtdx_command_buffer_node_release(batch->command_buffer_node);
+			rtdx_release_resource(batch->command_buffer_node);
 			RTDX_FREE_RESOURCE(batch);
 		}
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -314,12 +310,12 @@ void rtdx_timepoint_wait(struct rtdx_context* ctx, struct rtdx_timepoint timepoi
 		return;
 	}
 
-	HRESULT result = timepoint.queue->d3d_fence->SetEventOnCompletion(timepoint.value, timepoint.queue->fence_event);
+	HRESULT result = timepoint.queue->d3d_fence->SetEventOnCompletion(timepoint.value, (HANDLE)rt_event_native_handle(timepoint.queue->fence_event));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Fence::SetEventOnCompletion failed: 0x%08x", (u32)result);
 		return;
 	}
-	WaitForSingleObject(timepoint.queue->fence_event, INFINITE);
+	rt_event_wait(timepoint.queue->fence_event);
 	rtdx_queue_collect(ctx, timepoint.queue);
 }
 

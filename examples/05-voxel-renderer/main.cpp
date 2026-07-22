@@ -15,6 +15,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 
+
 constexpr const char* kLayers[] = { "RT_VALIDATION_LAYER" };
 constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
 

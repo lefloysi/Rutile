@@ -397,14 +397,14 @@ void rtdx_texture_view_init(struct rtdx_context* ctx, struct rtdx_texture_view* 
 }
 
 void rtdx_texture_finish(struct rtdx_context* ctx, struct rtdx_texture* texture) {
-	rtdx_texture_node_release(texture->active);
+	rtdx_release_resource(texture->active);
 	texture->active = NULL;
 
 	struct rtdx_texture* node = texture->next;
 	while (node) {
 		struct rtdx_texture* next = node->next;
 		node->next = NULL;
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		node = next;
 	}
 	texture->next = NULL;
@@ -435,31 +435,9 @@ static struct rtdx_texture* rtdx_texture_node_create(struct rtdx_context* ctx) {
 	}
 
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::texture);
+	rtdx_atomic_bool_store(&node->zombie, true);
 	node->state = D3D12_RESOURCE_STATE_COMMON;
 	return node;
-}
-
-void rtdx_texture_node_retain(struct rtdx_texture* texture) {
-	if (!texture) {
-		return;
-	}
-	rtdx_resource_retain(RTDX_RESOURCE_BASE(texture));
-}
-
-void rtdx_texture_node_release(struct rtdx_texture* texture) {
-	if (!texture) {
-		return;
-	}
-	if (rtdx_atomic_dec(&texture->ref_count) != 0) {
-		return;
-	}
-	struct rtdx_context* ctx = texture->ctx;
-	rtdx_release(&texture->d3d_resource);
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(texture));
-	rtdx_atomic_bool_finish(&texture->zombie);
-	rtdx_atomic_u32_finish(&texture->job_count);
-	rtdx_atomic_u32_finish(&texture->ref_count);
-	RTDX_FREE_RESOURCE(texture);
 }
 
 static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
@@ -521,7 +499,7 @@ static void rtdx_texture_collect_nodes(struct rtdx_texture* texture) {
 		if (rtdx_atomic_load(&node->ref_count) == 1) {
 			*link = node->next;
 			node->next = NULL;
-			rtdx_texture_node_release(node);
+			rtdx_release_resource(node);
 			continue;
 		}
 		link = &node->next;
@@ -856,7 +834,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 		IID_PPV_ARGS(&node->d3d_resource)
 	);
 	if (FAILED(result)) {
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture) failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
@@ -886,7 +864,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 	ctx->d3d_device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &footprint, &row_count, &row_size, &upload_size);
 
 	if (data && !rtdx_texture_upload_staging(ctx, queue, upload_size)) {
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		return timepoint;
 	}
 
@@ -894,7 +872,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 		void* mapped = NULL;
 		result = queue->upload_buffer->Map(0, NULL, &mapped);
 		if (FAILED(result)) {
-			rtdx_texture_node_release(node);
+			rtdx_release_resource(node);
 			rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Resource::Map failed: 0x%08x", (u32)result);
 			return timepoint;
 		}
@@ -909,7 +887,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 	}
 
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		return timepoint;
 	}
 	ID3D12GraphicsCommandList* command_list = queue->upload_command_list;
@@ -937,7 +915,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 
 	result = command_list->Close();
 	if (FAILED(result)) {
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Close failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
@@ -947,7 +925,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 	u64 fence_value = queue->fence_value + 1;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
-		rtdx_texture_node_release(node);
+		rtdx_release_resource(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
 		return timepoint;
 	}

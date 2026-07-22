@@ -4,7 +4,7 @@
 #include "types.hpp"
 
 #include <stdarg.h>
-#include <windows.h>
+#include <dxgi.h>
 
 RTDX_API void rtSetOutput(PFN_rtOutput output, void* user_data);
 RTDX_API rt_error rtError();

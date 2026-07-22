@@ -2,9 +2,9 @@
 
 #include "config.hpp"
 #include "resource.hpp"
+#include "sync.h"
 
 #include <d3d12.h>
-#include <windows.h>
 
 RTDX_API rt_queue rtQueueQuery(rt_queue_capability capability);
 RTDX_API void rtQueueWait(rt_queue queue, rt_timepoint timepoint);
@@ -29,7 +29,7 @@ struct rtdx_queue {
 	ID3D12CommandAllocator* upload_allocator;
 	ID3D12GraphicsCommandList* upload_command_list;
 	ID3D12Resource* upload_buffer;
-	HANDLE fence_event;
+	rt_event* fence_event;
 
 	rtdx_timepoint wait_timepoints[8];
 	rtdx_submitted_batch* submitted_head;

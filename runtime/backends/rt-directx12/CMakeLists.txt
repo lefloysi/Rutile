@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28.0)
 
-project(rt-directx12 CXX)
+project(rt-directx12 C CXX)
 
 if(NOT WIN32)
     return()
@@ -10,6 +10,8 @@ include(RutileTarget)
 
 add_library(${PROJECT_NAME} SHARED)
 target_sources(${PROJECT_NAME} PRIVATE
+    "../../common/sync.h"
+    "../../common/win32/sync.c"
     "src/atomic.hpp"
     "src/config.hpp"
     "src/context.cpp"
@@ -34,6 +36,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/resource.hpp"
     "src/resource/swapchain.cpp"
     "src/resource/swapchain.hpp"
+    "src/resource/swapchain_win32.cpp"
+    "src/resource/swapchain_win32.hpp"
     "src/resource/texture.cpp"
     "src/resource/texture.hpp"
     "src/glfw/glfw.cpp"
@@ -42,7 +46,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/glfw/swapchain.hpp"
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE "src")
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "src"
+    "../../common"
+)
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:RTDX_ENABLE_D3D12_VALIDATION>
 )

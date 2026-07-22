@@ -17,6 +17,9 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_sources(${PROJECT_NAME} PRIVATE
     "src/core.c"
     "src/error.c"
+    "../../common/sync.h"
+    "$<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/../../common/win32/sync.c>"
+    "$<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_CURRENT_SOURCE_DIR}/../../common/posix/sync.c>"
     
     "src/atomic.cpp"
     
@@ -55,6 +58,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
+    "../../common"
 )
 
 rutile_configure_shared_library(${PROJECT_NAME})

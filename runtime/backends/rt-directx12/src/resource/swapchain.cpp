@@ -46,7 +46,6 @@ void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 
 RTDX_DEFINE_RESOURCE_PRIVATE(swapchain)
 
-static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain);
 static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame);
 static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
 
@@ -54,34 +53,40 @@ void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapch
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), rtdx_resource_type::swapchain);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	swapchain->vsync = false;
-	InitializeCriticalSection(&swapchain->frame_lock);
-	InitializeConditionVariable(&swapchain->frame_condition);
+	swapchain->frame_lock = rt_mutex_create();
+	swapchain->frame_condition = rt_condition_create();
+	if (!swapchain->frame_lock || !swapchain->frame_condition) {
+		rtdx_throwf(RT_PLATFORM_FAILURE, "failed to create DirectX swapchain synchronization");
+	}
 }
 
 static void rtdx_swapchain_lock(struct rtdx_swapchain* swapchain) {
-	EnterCriticalSection(&swapchain->frame_lock);
+	rt_mutex_lock(swapchain->frame_lock);
 }
 
 static void rtdx_swapchain_unlock(struct rtdx_swapchain* swapchain) {
-	LeaveCriticalSection(&swapchain->frame_lock);
+	rt_mutex_unlock(swapchain->frame_lock);
 }
 
 static void rtdx_swapchain_lock_unacquired(struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	while (swapchain->frame_acquired) {
-		SleepConditionVariableCS(&swapchain->frame_condition, &swapchain->frame_lock, INFINITE);
+		rt_condition_wait(swapchain->frame_condition, swapchain->frame_lock);
 	}
 }
 
 static void rtdx_swapchain_mark_unacquired(struct rtdx_swapchain* swapchain) {
 	rtdx_swapchain_lock(swapchain);
 	swapchain->frame_acquired = false;
-	WakeAllConditionVariable(&swapchain->frame_condition);
+	rt_condition_broadcast(swapchain->frame_condition);
 	rtdx_swapchain_unlock(swapchain);
 }
 
 static void rtdx_swapchain_finish_sync(struct rtdx_swapchain* swapchain) {
-	DeleteCriticalSection(&swapchain->frame_lock);
+	rt_condition_destroy(swapchain->frame_condition);
+	swapchain->frame_condition = NULL;
+	rt_mutex_destroy(swapchain->frame_lock);
+	swapchain->frame_lock = NULL;
 }
 
 void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame) {
@@ -192,7 +197,7 @@ void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 	}
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
 	if (swapchain->frame_latency_object) {
-		CloseHandle(swapchain->frame_latency_object);
+		rt_native_wait_handle_close(swapchain->frame_latency_object);
 		swapchain->frame_latency_object = NULL;
 	}
 	rtdx_release(&swapchain->rtv_heap);
@@ -202,7 +207,7 @@ void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain));
 }
 
-static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
+bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtClearError();
 	D3D12_DESCRIPTOR_HEAP_DESC heap_info = {};
 	heap_info.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -263,67 +268,6 @@ static bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct 
 	}
 
 	return true;
-}
-
-bool rtdx_swapchain_create_for_hwnd(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, HWND hwnd, u32 width, u32 height) {
-	rtClearError();
-	swapchain->hwnd = hwnd;
-	swapchain->width = width;
-	swapchain->height = height;
-
-	DXGI_SWAP_CHAIN_DESC1 swapchain_info = {};
-	swapchain_info.Width = width;
-	swapchain_info.Height = height;
-	swapchain_info.Format = swapchain->dxgi_format;
-	swapchain_info.Stereo = FALSE;
-	swapchain_info.SampleDesc.Count = 1;
-	swapchain_info.SampleDesc.Quality = 0;
-	swapchain_info.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swapchain_info.BufferCount = RTDX_MAX_FRAMES_IN_FLIGHT;
-	swapchain_info.Scaling = DXGI_SCALING_STRETCH;
-	swapchain_info.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	swapchain_info.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-	swapchain_info.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
-
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
-	IDXGISwapChain1* swapchain1 = NULL;
-	HRESULT result = ctx->dxgi_factory->CreateSwapChainForHwnd(
-		queue->d3d_queue,
-		hwnd,
-		&swapchain_info,
-		NULL,
-		NULL,
-		&swapchain1
-	);
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "CreateSwapChainForHwnd failed: 0x%08x", (u32)result);
-		return false;
-	}
-
-	ctx->dxgi_factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
-	result = swapchain1->QueryInterface(IID_PPV_ARGS(&swapchain->dxgi_swapchain));
-	swapchain1->Release();
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3 QueryInterface failed: 0x%08x", (u32)result);
-		return false;
-	}
-
-	result = swapchain->dxgi_swapchain->SetMaximumFrameLatency(16);
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3::SetMaximumFrameLatency failed: 0x%08x", (u32)result);
-		return false;
-	}
-	swapchain->frame_latency_object = swapchain->dxgi_swapchain->GetFrameLatencyWaitableObject();
-
-	if (!rtdx_swapchain_create_framebuffers(ctx, swapchain)) {
-		return false;
-	}
-
-	return true;
-}
-
-bool rtdx_swapchain_create_for_window(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rtdx_native_window window, u32 width, u32 height) {
-	return rtdx_swapchain_create_for_hwnd(ctx, swapchain, window, width, height);
 }
 
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {

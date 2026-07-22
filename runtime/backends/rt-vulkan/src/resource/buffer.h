@@ -35,9 +35,6 @@ struct rtvk_buffer {
 };
 RTVK_DECLARE_NEW_RESOURCE(buffer)
 
-void rtvk_buffer_node_retain(struct rtvk_buffer* buffer);
-void rtvk_buffer_node_release(struct rtvk_buffer* buffer);
-
 struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
 struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data);
 

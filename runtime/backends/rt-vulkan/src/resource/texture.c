@@ -437,7 +437,7 @@ void rtvk_texture_collect_nodes(struct rtvk_texture* texture) {
 	struct rtvk_texture** link = &texture->next;
 	while (*link) {
 		struct rtvk_texture* node = *link;
-		if (node->base.base.ref_count == 1) {
+		if (rtvk_atomic_load(&node->base.base.ref_count) == 1) {
 			*link = node->next;
 			node->next = NULL;
 			rtvk_resource_retire(RTVK_RESOURCE_BASE(node));

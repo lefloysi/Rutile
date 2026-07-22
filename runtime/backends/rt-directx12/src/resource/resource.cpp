@@ -4,6 +4,7 @@
 #include "error.hpp"
 #include "framebuffer.hpp"
 #include "graphics_program.hpp"
+#include "queue.hpp"
 #include "resource/swapchain.hpp"
 #include "texture.hpp"
 
@@ -58,6 +59,8 @@ void rtdx_resource_finalize(rtdx_resource_base* base) {
 		rtdx_texture_view_finish(ctx, static_cast<rtdx_texture_view*>(static_cast<void*>(base)));
 		break;
 	case rtdx_resource_type::queue:
+		rtdx_queue_finish(ctx, static_cast<rtdx_queue*>(static_cast<void*>(base)));
+		break;
 	case rtdx_resource_type::unknown:
 		break;
 	}

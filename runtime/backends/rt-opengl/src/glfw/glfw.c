@@ -14,6 +14,8 @@ typedef struct rtgl_glfw_procs {
 
 static rtgl_glfw_procs glfw_procs;
 
+struct gl_surface* rtgl_create_wgl_surface(struct gl_context* context, HWND window);
+
 static HMODULE rtgl_glfw_module(void) {
 	HMODULE module = GetModuleHandleA("glfw3.dll");
 	return module ? module : GetModuleHandleA(NULL);
@@ -50,6 +52,10 @@ HWND glfwGetWin32Window(GLFWwindow* window) {
 	assert(glfw_procs.glfwGetWin32Window);
 	assert(window);
 	return glfw_procs.glfwGetWin32Window(window);
+}
+
+struct gl_surface* rtgl_create_glfw_surface(struct gl_context* context, GLFWwindow* window) {
+	return rtgl_create_wgl_surface(context, glfwGetWin32Window(window));
 }
 
 void glfwGetFramebufferSize(GLFWwindow* window, int* width, int* height) {

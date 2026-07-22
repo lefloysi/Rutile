@@ -30,16 +30,17 @@ void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base
 	base->ref_count = 1;
 	base->job_count = 0;
 	base->zombie = false;
+	base->finalizing = false;
 }
 
 void rtvk_finish_resource_base(struct rtvk_resource_base* base) {
 	assert(base);
 	base->ctx = NULL;
-	base->zombie = true;
+	rtvk_atomic_bool_store(&base->zombie, true);
 }
 
 void rtvk_resource_try_free(struct rtvk_resource_base* base) {
-	if (rtvk_resource_ready_to_destroy(base)) {
+	if (rtvk_resource_ready_to_destroy(base) && !rtvk_atomic_bool_exchange(&base->finalizing, true)) {
 		rtvk_resource_finalize(base);
 		free(base);
 	}
@@ -47,31 +48,31 @@ void rtvk_resource_try_free(struct rtvk_resource_base* base) {
 
 void rtvk_resource_retain(struct rtvk_resource_base* base) {
 	assert(base);
-	base->ref_count++;
+	rtvk_atomic_inc(&base->ref_count);
 }
 
 void rtvk_resource_release(struct rtvk_resource_base* base) {
 	assert(base);
-	assert(base->ref_count > 0);
-	base->ref_count--;
+	assert(rtvk_atomic_load(&base->ref_count) > 0);
+	rtvk_atomic_dec(&base->ref_count);
 	rtvk_resource_try_free(base);
 }
 
 void rtvk_resource_job_begin(struct rtvk_resource_base* base) {
 	assert(base);
-	base->job_count++;
+	rtvk_atomic_inc(&base->job_count);
 }
 
 void rtvk_resource_job_end(struct rtvk_resource_base* base) {
 	assert(base);
-	assert(base->job_count > 0);
-	base->job_count--;
+	assert(rtvk_atomic_load(&base->job_count) > 0);
+	rtvk_atomic_dec(&base->job_count);
 	rtvk_resource_try_free(base);
 }
 
 void rtvk_resource_retire(struct rtvk_resource_base* base) {
 	assert(base);
-	base->zombie = true;
+	rtvk_atomic_bool_store(&base->zombie, true);
 	rtvk_resource_release(base);
 }
 
@@ -115,7 +116,9 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 
 bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base) {
 	assert(base);
-	return base->zombie && base->ref_count == 0 && base->job_count == 0;
+	return rtvk_atomic_bool_load(&base->zombie) &&
+		   rtvk_atomic_load(&base->ref_count) == 0 &&
+		   rtvk_atomic_load(&base->job_count) == 0;
 }
 
 rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint) {

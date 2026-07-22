@@ -3,6 +3,7 @@
 #include "context.hpp"
 #include "error.hpp"
 #include "glfw/glfw.hpp"
+#include "resource/swapchain_win32.hpp"
 
 void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	int width = 0;
@@ -19,10 +20,10 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 
 	rtClearError();
 	rtdx_glfw_get_framebuffer_size(window, &width, &height);
-	if (!rtdx_swapchain_create_for_window(
+	if (!rtdx_swapchain_create_for_hwnd(
 		rtdx_get_current_context(),
 		rtdx_swapchain_from_handle(swapchain),
-		rtdx_glfw_get_native_window(window),
+		rtdx_glfw_get_hwnd(window),
 		(u32)width,
 		(u32)height
 	)) {

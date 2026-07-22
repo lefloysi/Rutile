@@ -100,8 +100,6 @@ struct rtvk_command_buffer {
 RTVK_DECLARE_NEW_RESOURCE(command_buffer)
 
 struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context* ctx, u32 family_index);
-void rtvk_command_buffer_node_retain(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_node_release(struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 
 void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue);

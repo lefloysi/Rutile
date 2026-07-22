@@ -70,8 +70,6 @@ rtdx_texture* rtdx_texture_create_for_swapchain_image(rtdx_context* ctx, ID3D12R
 rtdx_texture_view* rtdx_texture_view_create_for_texture(rtdx_context* ctx, rtdx_texture* texture, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
 void rtdx_texture_view_bind(rtdx_context* ctx, rtdx_texture_view* view, rtdx_texture* texture);
 rtdx_texture_view* rtdx_texture_view_create_for_swapchain(rtdx_context* ctx, rtdx_texture* texture, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
-void rtdx_texture_node_retain(rtdx_texture* texture);
-void rtdx_texture_node_release(rtdx_texture* texture);
 void rtdx_texture_view_filter(rtdx_texture_view* texture_view, rt_filter mag_filter, rt_filter min_filter, rt_mip_filter mip_filter);
 void rtdx_texture_view_address(rtdx_texture_view* texture_view, rt_address_mode address_u, rt_address_mode address_v, rt_address_mode address_w);
 void rtdx_texture_view_anisotropy(rtdx_texture_view* texture_view, u32 max_anisotropy);

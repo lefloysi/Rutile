@@ -3,6 +3,8 @@
 #include "config.h"
 #include "types.h"
 
+RTGL_EXTERN_C_ENTER
+
 /*
 ** Context management
 **
@@ -34,6 +36,7 @@ struct gl_context* rtgl_get_current_glcontext(void);
 struct gl_surface;
 
 void rtgl_destroy_glsurface(struct gl_surface* surface);
+void rtgl_swap_glsurface_buffers(struct gl_surface* surface);
 
 /*
 ** Current context / surface binding (thread-local)
@@ -56,4 +59,5 @@ typedef void* rtgl_proc_t;
 typedef rtgl_proc_t (*PFN_rtglLoadProc)(void* userptr, const char* name);
 rtgl_proc_t rtgl_load_proc(struct gl_context* context, const char* name);
 
+RTGL_EXTERN_C_EXIT
 #endif /* RTGL_PLATFORM_CONTEXT_H */

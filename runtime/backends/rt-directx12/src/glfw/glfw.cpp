@@ -52,7 +52,7 @@ void rtdx_init_glfw_platform() {
 	rtdx_glfw_resolve();
 }
 
-rtdx_native_window rtdx_glfw_get_native_window(GLFWwindow* window) {
+HWND rtdx_glfw_get_hwnd(GLFWwindow* window) {
 	assert(rtdx_glfw.get_win32_window);
 	assert(window);
 	return rtdx_glfw.get_win32_window(window);

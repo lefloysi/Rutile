@@ -33,6 +33,7 @@ struct rtvk_resource_base {
 	u32 ref_count;
 	u32 job_count;
 	bool zombie;
+	bool finalizing;
 };
 
 struct rtvk_timepoint {

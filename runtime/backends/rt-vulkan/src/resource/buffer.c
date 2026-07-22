@@ -191,17 +191,22 @@ void rtvk_buffer_init(struct rtvk_context* ctx, struct rtvk_buffer* buffer) {
 }
 
 void rtvk_buffer_finish(struct rtvk_buffer* buffer) {
-	rtvk_buffer_node_release(buffer->active);
+	rtvk_release_resource(buffer->active);
 	buffer->active = NULL;
 
 	struct rtvk_buffer* node = buffer->next;
 	while (node) {
 		struct rtvk_buffer* next = node->next;
 		node->next = NULL;
-		rtvk_buffer_node_release(node);
+		rtvk_release_resource(node);
 		node = next;
 	}
 	buffer->next = NULL;
+	if (buffer->vk_buffer) {
+		vmaDestroyBuffer(buffer->base.ctx->vma_allocator, buffer->vk_buffer, buffer->vma_allocation);
+		buffer->vk_buffer = VK_NULL_HANDLE;
+		buffer->vma_allocation = VK_NULL_HANDLE;
+	}
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(buffer));
 }
 
@@ -238,27 +243,12 @@ struct rtvk_buffer* rtvk_buffer_node_create(struct rtvk_context* ctx, u64 size, 
 	}
 
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(node), RT_RESOURCE_BUFFER);
+	rtvk_atomic_bool_store(&node->base.zombie, true);
 	node->size = size;
 	node->mode = mode;
 	node->usage = usage;
 
 	return node;
-}
-
-void rtvk_buffer_node_retain(struct rtvk_buffer* buffer) {
-	assert(buffer);
-	buffer->base.ref_count++;
-}
-
-void rtvk_buffer_node_release(struct rtvk_buffer* buffer) {
-	assert(buffer);
-	assert(buffer->base.ref_count > 0);
-	if (--buffer->base.ref_count != 0) {
-		return;
-	}
-
-	vmaDestroyBuffer(buffer->base.ctx->vma_allocator, buffer->vk_buffer, buffer->vma_allocation);
-	free(buffer);
 }
 
 void rtvk_buffer_write_host(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
@@ -469,7 +459,7 @@ struct rtvk_buffer* rtvk_buffer_take_reusable_node(struct rtvk_buffer* buffer, u
 		if (node->size == size &&
 			node->mode == mode &&
 			node->usage == usage &&
-			node->base.ref_count == 1) {
+			rtvk_atomic_load(&node->base.ref_count) == 1) {
 			*link = node->next;
 			node->next = NULL;
 			return node;
@@ -566,7 +556,7 @@ struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_
 	}
 
 	bool replaced_storage = false;
-	if (buffer->active->base.ref_count > 1) {
+	if (rtvk_atomic_load(&buffer->active->base.ref_count) > 1) {
 		struct rtvk_buffer* old_node = buffer->active;
 
 		rtvk_buffer_recycle_node(buffer, old_node);

@@ -3,9 +3,16 @@
 
 #include "config.h"
 #include "platform/context.h"
-#include "types.h"
+#include "framebuffer.h"
+#include "resource.h"
+#include "texture.h"
 
 RTGL_EXTERN_C_ENTER
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 
 RTGL_API rt_swapchain rtSwapchainCreate(void);
 RTGL_API void rtSwapchainDestroy(rt_swapchain swapchain);
@@ -13,27 +20,32 @@ RTGL_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 RTGL_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTGL_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 
-RTGL_EXTERN_C_EXIT
 
-struct rtgl_context;
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
-struct rtgl_swapchain {
-	struct gl_surface* surface;
-	u32 width;
-	u32 height;
-	bool bound;
+struct rtgl_swapchain_frame {
+	struct rtgl_image_base base;
+	struct rtgl_framebuffer* framebuffer;
+	struct rtgl_texture_view* color_view;
 };
 
-static inline struct rtgl_swapchain* rtgl_swapchain_from_handle(rt_swapchain swapchain) {
-	return (struct rtgl_swapchain*)swapchain;
-}
+struct rtgl_swapchain {
+	struct rtgl_resource_base base;
+	struct gl_surface* surface;
+	struct rtgl_swapchain_frame** frames;
+	u32 image_count;
+	u32 current_frame_index;
+};
+RTGL_DECLARE_NEW_RESOURCE(swapchain)
 
-static inline rt_swapchain rtgl_swapchain_to_handle(struct rtgl_swapchain* swapchain) {
-	return (rt_swapchain)swapchain;
-}
+void rtgl_swapchain_frame_init(struct rtgl_context* ctx, struct rtgl_swapchain_frame* frame);
+void rtgl_swapchain_frame_finish(struct rtgl_swapchain_frame* frame);
+void rtgl_swapchain_create_images(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, u32 width, u32 height);
+void rtgl_swapchain_resize(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, u32 width, u32 height);
+rt_swapchain_acquire_result rtgl_swapchain_acquire(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain);
+void rtgl_swapchain_present(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, struct rtgl_timepoint rendered);
 
-struct rtgl_swapchain* rtgl_swapchain_create(struct rtgl_context* ctx);
-void rtgl_swapchain_destroy(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain);
-void rtgl_swapchain_init_from_surface(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, struct gl_surface* surface, u32 width, u32 height);
-
+RTGL_EXTERN_C_EXIT
 #endif /* RTGL_SWAPCHAIN_H */
