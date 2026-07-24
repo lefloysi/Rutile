@@ -9,6 +9,11 @@
 #include <memory>
 #include <vector>
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
+
 inline constexpr u32 RTDX_MAX_VERTEX_ATTRIBUTES = 16;
 inline constexpr u32 RTDX_MAX_SHADER_RESOURCE_NAME = 64;
 
@@ -24,6 +29,11 @@ RTDX_API void rtGraphicsProgramFinalize(rt_graphics_program program);
 RTDX_API void rtGraphicsProgramReset(rt_graphics_program program);
 RTDX_API rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
+
 enum class rtdx_uniform_location_kind {
 	buffer,
 	storage_buffer,
@@ -36,6 +46,7 @@ struct rtdx_uniform_location {
 	rtdx_uniform_location_kind kind;
 	u32 slot;
 	u32 binding;
+	u32 storage_stride;
 	u32 root_parameter;
 	u32 sampler_root_parameter;
 };

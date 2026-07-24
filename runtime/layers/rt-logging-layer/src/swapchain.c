@@ -9,6 +9,7 @@ RT_EXPORT void rtSwapchainDestroy(rt_swapchain swapchain) { rtlog_rtSwapchainDes
 RT_EXPORT void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) { rtlog_rtSwapchainResize(swapchain, width, height); }
 RT_EXPORT rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) { return rtlog_rtSwapchainAcquire(swapchain); }
 RT_EXPORT void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) { rtlog_rtSwapchainPresent(swapchain, rendered); }
+RT_EXPORT bool rtInit_RT_EXT_GLFW(void) { return rtlog_rtInit_RT_EXT_GLFW(); }
 RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) { rtlog_rtSwapchainBindWindowGLFW(swapchain, window); }
 
 /*===============================================================================================*/
@@ -73,6 +74,19 @@ void rtlog_rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 	next_rtSwapchainPresent(swapchain, rendered);
 	rtlog_printf("rtSwapchainPresent completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtSwapchainPresent");
+}
+
+bool rtlog_rtInit_RT_EXT_GLFW(void) {
+	u64 start_ns = rtlog_now_ns();
+	rtlog_printf("rtInit_RT_EXT_GLFW()\n");
+	if (!next_rtInit_RT_EXT_GLFW) {
+		rtlog_printf("rtInit_RT_EXT_GLFW missing next function, treating as no-op [%s]\n", rtlog_elapsed(start_ns));
+		return true;
+	}
+	bool result = next_rtInit_RT_EXT_GLFW();
+	rtlog_printf("rtInit_RT_EXT_GLFW -> %s [%s]\n", result ? "true" : "false", rtlog_elapsed(start_ns));
+	rtlog_error("rtInit_RT_EXT_GLFW");
+	return result;
 }
 
 void rtlog_rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {

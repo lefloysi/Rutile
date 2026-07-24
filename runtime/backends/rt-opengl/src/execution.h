@@ -15,6 +15,8 @@ struct rtgl_execution_context {
 	u08 gl_minor;
 	bool direct_state_access;
 	bool texture_storage;
+	bool texture_buffer;
+	bool texture_buffer_range;
 	bool separate_shader_objects;
 	bool shader_storage_buffer;
 	bool spirv;
@@ -47,12 +49,13 @@ void rtgl_execution_framebuffer_delete(struct rtgl_context* ctx, struct rtgl_fra
 void rtgl_execution_framebuffer_attach_color(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, u32 slot, struct rtgl_texture_view* view);
 void rtgl_execution_framebuffer_attach_depth(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, struct rtgl_texture_view* view);
 
-void rtgl_execution_graphics_program_create(struct rtgl_context* ctx, struct rtgl_graphics_program* program);
-void rtgl_execution_graphics_program_delete(struct rtgl_context* ctx, struct rtgl_graphics_program* program);
+void rtgl_execution_graphics_program_finalize(struct rtgl_context* ctx, struct rtgl_graphics_program* program);
+void rtgl_execution_graphics_program_destroy(struct rtgl_context* ctx, struct rtgl_graphics_program* program);
 
 void rtgl_execution_texture_create(struct rtgl_context* ctx, struct rtgl_image_base* image);
 void rtgl_execution_texture_delete(struct rtgl_context* ctx, struct rtgl_image_base* image);
 void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_base* image, const void* data);
+void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
 
 struct gl_surface* rtgl_execution_glfw_surface_create(struct rtgl_context* ctx, struct GLFWwindow* window);
 void rtgl_execution_surface_destroy(struct rtgl_context* ctx, struct gl_surface* surface);

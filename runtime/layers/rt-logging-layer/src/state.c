@@ -77,6 +77,7 @@ PFN_rtSwapchainDestroy next_rtSwapchainDestroy = NULL;
 PFN_rtSwapchainResize next_rtSwapchainResize = NULL;
 PFN_rtSwapchainAcquire next_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent next_rtSwapchainPresent = NULL;
+PFN_rtInit_RT_EXT_GLFW next_rtInit_RT_EXT_GLFW = NULL;
 PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW = NULL;
 
 /*===============================================================================================*/
@@ -161,5 +162,6 @@ RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
 	next_rtSwapchainResize = (PFN_rtSwapchainResize)next.get_proc(&next, "rtSwapchainResize");
 	next_rtSwapchainAcquire = (PFN_rtSwapchainAcquire)next.get_proc(&next, "rtSwapchainAcquire");
 	next_rtSwapchainPresent = (PFN_rtSwapchainPresent)next.get_proc(&next, "rtSwapchainPresent");
+	next_rtInit_RT_EXT_GLFW = (PFN_rtInit_RT_EXT_GLFW)next.get_proc(&next, "rtInit_RT_EXT_GLFW");
 	next_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)next.get_proc(&next, "rtSwapchainBindWindowGLFW");
 }

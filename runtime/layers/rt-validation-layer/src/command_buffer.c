@@ -106,10 +106,10 @@ RT_EXPORT void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_
 	);
 }
 
-RT_EXPORT void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
+RT_EXPORT void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
 	rtval_command_buffer_storage_buffer(
 		rtval_command_buffer_from_handle(command_buffer),
-		binding,
+		location,
 		rtval_buffer_from_handle(buffer),
 		offset,
 		size
@@ -373,7 +373,7 @@ void rtval_command_buffer_uniform_texture(struct rtval_command_buffer* cb, rt_un
 	rtval_report_error("rtCmdUniformTexture");
 }
 
-void rtval_command_buffer_storage_buffer(struct rtval_command_buffer* cb, u32 binding, struct rtval_buffer* buffer, u64 offset, u64 size) {
+void rtval_command_buffer_storage_buffer(struct rtval_command_buffer* cb, rt_uniform_location location, struct rtval_buffer* buffer, u64 offset, u64 size) {
 	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
 	if (!state) {
 		RTVAL_DROP("rtCmdStorageBuffer: invalid command buffer");
@@ -391,7 +391,7 @@ void rtval_command_buffer_storage_buffer(struct rtval_command_buffer* cb, u32 bi
 		RTVAL_DROP("rtCmdStorageBuffer: zero size");
 		return;
 	}
-	rtval_next_rtCmdStorageBuffer(state->backend, binding, buf_state->backend, offset, size);
+	rtval_next_rtCmdStorageBuffer(state->backend, location, buf_state->backend, offset, size);
 	rtval_report_error("rtCmdStorageBuffer");
 }
 

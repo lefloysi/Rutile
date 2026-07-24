@@ -8,6 +8,10 @@
 #include "resource/swapchain.hpp"
 #include "texture.hpp"
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 void* rtdx_alloc_resource(usize size) {
 	rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for graphics resource", size);
 	return nullptr;

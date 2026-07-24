@@ -28,6 +28,15 @@ RT_EXPORT void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered)
 	rtval_swapchain_present(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), rendered);
 }
 
+RT_EXPORT bool rtInit_RT_EXT_GLFW(void) {
+	if (!rtval_next_rtInit_RT_EXT_GLFW) {
+		return true;
+	}
+	bool result = rtval_next_rtInit_RT_EXT_GLFW();
+	rtval_report_error("rtInit_RT_EXT_GLFW");
+	return result;
+}
+
 RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	rtval_swapchain_bind_window_glfw(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), window);
 }

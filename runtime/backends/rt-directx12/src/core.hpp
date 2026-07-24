@@ -12,6 +12,6 @@
 
 RTDX_API void rtInit(const char* const* features, u32 feature_count);
 RTDX_API void rtExit();
-RTDX_API void rtSettingApply(const char* backend_name, const char* value);
+RTDX_API void rtSettingApply(const char* name, const char* value);
 RTDX_API const char* rtGetName();
 RTDX_API rt_format_usage rtQueryFormatCapabilities(rt_format format);

@@ -55,6 +55,7 @@ void rtInit(const char* const* features, u32 feature_count) {
 		return;
 	}
 
+	rtdx_printf("rutile: initializing backend rt-directx12\n");
 	current_context = rtdx_create_context(flags);
 }
 

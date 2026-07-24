@@ -5,6 +5,19 @@
 #include "resource/queue.h"
 
 #include <assert.h>
+#include <stdio.h>
+
+static void rtgl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* user_param) {
+	(void)source;
+	(void)type;
+	(void)id;
+	(void)length;
+	(void)user_param;
+	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) {
+		return;
+	}
+	fprintf(stderr, "rt-opengl: GL debug severity=%u: %s\n", (unsigned)severity, message ? message : "(no message)");
+}
 
 static GLADapiproc rtgl_load_opengl_proc_from_context(void* context, const char* name) {
 	return (GLADapiproc)rtgl_load_proc((struct gl_context*)context, name);
@@ -25,7 +38,7 @@ static bool rtgl_execution_create_best_context(struct rtgl_context* ctx) {
 
 	if (rtgl_forced_context_version(&forced_major, &forced_minor)) {
 		rtgl_clear_error();
-		rtgl_printf("rt-opengl: forcing GL %u.%u context from backend setting\n", forced_major, forced_minor);
+		rtgl_printf("rt-opengl: initializing OpenGL %u.%u (forced by backend setting)\n", forced_major, forced_minor);
 		ctx->execution.gl_context = rtgl_create_glcontext(forced_major, forced_minor, ctx->flags.presentation, NULL);
 		if (ctx->execution.gl_context) {
 			ctx->execution.gl_major = forced_major;
@@ -38,6 +51,7 @@ static bool rtgl_execution_create_best_context(struct rtgl_context* ctx) {
 
 	for (u32 i = 0; i < (u32)(sizeof(versions) / sizeof(versions[0])); i++) {
 		rtgl_clear_error();
+		rtgl_printf("rt-opengl: initializing OpenGL %u.%u\n", versions[i][0], versions[i][1]);
 		ctx->execution.gl_context = rtgl_create_glcontext(versions[i][0], versions[i][1], ctx->flags.presentation, NULL);
 		if (ctx->execution.gl_context) {
 			ctx->execution.gl_major = versions[i][0];
@@ -46,23 +60,30 @@ static bool rtgl_execution_create_best_context(struct rtgl_context* ctx) {
 		}
 		rtgl_printf("rt-opengl: GL %u.%u context unavailable, trying lower version\n", versions[i][0], versions[i][1]);
 	}
-	rtgl_throwf(RT_INITIALIZATION_FAILED, "failed to create an OpenGL 4.0+ core context");
+	rtgl_throwf(RT_INITIALIZATION_FAILED, "failed to create a supported OpenGL core context");
 	return false;
 }
 
 static void rtgl_execution_detect_capabilities(struct rtgl_context* ctx) {
 	ctx->execution.direct_state_access = GLAD_GL_VERSION_4_5 || GLAD_GL_ARB_direct_state_access;
 	ctx->execution.texture_storage = GLAD_GL_VERSION_4_2 || GLAD_GL_ARB_texture_storage;
+	ctx->execution.texture_buffer = GLAD_GL_VERSION_4_0 || GLAD_GL_ARB_texture_buffer_object;
+	ctx->execution.texture_buffer_range = GLAD_GL_VERSION_4_3 || GLAD_GL_ARB_texture_buffer_range;
 	ctx->execution.separate_shader_objects = GLAD_GL_VERSION_4_1 || GLAD_GL_ARB_separate_shader_objects;
 	ctx->execution.shader_storage_buffer = GLAD_GL_VERSION_4_3 || GLAD_GL_ARB_shader_storage_buffer_object;
 	ctx->execution.spirv = GLAD_GL_VERSION_4_6 || GLAD_GL_ARB_gl_spirv;
 	rtgl_printf(
-		"rt-opengl: capabilities dsa=%u texture_storage=%u sso=%u ssbo=%u spirv=%u\n",
+		"rt-opengl: capabilities dsa=%u texture_storage=%u texture_buffer=%u texture_buffer_range=%u sso=%u ssbo=%u spirv=%u\n",
 		ctx->execution.direct_state_access ? 1u : 0u,
 		ctx->execution.texture_storage ? 1u : 0u,
+		ctx->execution.texture_buffer ? 1u : 0u,
+		ctx->execution.texture_buffer_range ? 1u : 0u,
 		ctx->execution.separate_shader_objects ? 1u : 0u,
 		ctx->execution.shader_storage_buffer ? 1u : 0u,
 		ctx->execution.spirv ? 1u : 0u);
+	if (!ctx->execution.direct_state_access || !ctx->execution.texture_storage || !ctx->execution.shader_storage_buffer) {
+		rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL backend requires DSA, texture storage, and shader storage buffer support");
+	}
 }
 
 void rtgl_execution_queue_complete_locked(struct rtgl_queue* queue, u64 value) {
@@ -122,12 +143,19 @@ static rtgl_execution_command* rtgl_execution_pop_command(struct rtgl_context* c
 }
 
 static void rtgl_execution_run_commands(struct rtgl_context* ctx) {
-	rtgl_execution_command* command;
+	rtgl_execution_command* command = rtgl_execution_pop_command(ctx);
 
-	while ((command = rtgl_execution_pop_command(ctx)) != NULL) {
+	if (!command) {
+		return;
+	}
+
+	rtgl_make_glcontext_current(ctx->execution.gl_context, NULL);
+	do {
 		command->run(ctx, command);
 		command->finish(command);
-	}
+		command = rtgl_execution_pop_command(ctx);
+	} while (command);
+	rtgl_release_current_context();
 }
 
 static unsigned rtgl_execution_thread(void* arg) {
@@ -156,9 +184,17 @@ static unsigned rtgl_execution_thread(void* arg) {
 		rt_event_signal(ctx->execution.ready_event);
 		return 0;
 	}
+	if (glDebugMessageCallback && (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug)) {
+		glEnable(GL_DEBUG_OUTPUT);
+		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		glDebugMessageCallback(rtgl_debug_callback, ctx);
+		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION, 0, NULL, GL_FALSE);
+		rtgl_printf("rt-opengl: GL debug callback enabled\n");
+	}
 
 	rtgl_execution_detect_capabilities(ctx);
 	rtgl_printf("rt-opengl: loaded OpenGL %u.%u entry points\n", ctx->execution.gl_major, ctx->execution.gl_minor);
+	rtgl_release_current_context();
 	rt_event_signal(ctx->execution.ready_event);
 	wait_events[0] = ctx->execution.stop_event;
 	wait_events[1] = ctx->execution.work_event;
@@ -170,7 +206,6 @@ static unsigned rtgl_execution_thread(void* arg) {
 		rtgl_execution_run_commands(ctx);
 	}
 	rtgl_execution_run_commands(ctx);
-	rtgl_release_current_context();
 	rtgl_printf("rt-opengl: worker thread stopping\n");
 	rtgl_destroy_glcontext(ctx->execution.gl_context);
 	ctx->execution.gl_context = NULL;

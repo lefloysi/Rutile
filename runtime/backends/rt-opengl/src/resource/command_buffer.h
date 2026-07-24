@@ -4,7 +4,8 @@
 #include "buffer.h"
 #include "framebuffer.h"
 #include "graphics_program.h"
-#include "queue.h"
+#include "resource.h"
+#include "texture.h"
 
 RTGL_EXTERN_C_ENTER
 
@@ -19,12 +20,14 @@ RTGL_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graph
 RTGL_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 RTGL_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTGL_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-RTGL_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
-RTGL_API void rtCmdStorageTexture(rt_command_buffer command_buffer, u32 binding, rt_texture_view texture_view);
+RTGL_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTGL_API void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 RTGL_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 RTGL_API void rtCmdEndRendering(rt_command_buffer command_buffer);
 RTGL_API void rtCmdEnd(rt_command_buffer command_buffer);
+
+RTGL_EXTERN_C_EXIT
+
 
 typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_BEGIN_RENDERING,
@@ -42,6 +45,7 @@ typedef enum rtgl_recorded_command_kind {
 
 typedef struct rtgl_recorded_command {
 	rtgl_recorded_command_kind kind;
+	u32 size;
 	union {
 		struct {
 			struct rtgl_framebuffer* framebuffer;
@@ -52,9 +56,7 @@ typedef struct rtgl_recorded_command {
 			u32 color_index;
 			f32 values[4];
 		} clear_color;
-		struct {
-			f32 depth;
-		} clear_depth;
+		f32 clear_depth;
 		struct {
 			struct rtgl_graphics_program* program;
 		} use_graphics_program;
@@ -66,16 +68,19 @@ typedef struct rtgl_recorded_command {
 		} set_scissor;
 		struct {
 			rtgl_uniform_location* location;
+			struct rtgl_graphics_program* location_program;
 			struct rtgl_buffer* buffer;
 			u64 offset;
 			u64 size;
 		} uniform_buffer;
 		struct {
 			rtgl_uniform_location* location;
+			struct rtgl_graphics_program* location_program;
 			struct rtgl_texture_view* texture_view;
 		} uniform_texture;
 		struct {
-			u32 binding;
+			rtgl_uniform_location* location;
+			struct rtgl_graphics_program* location_program;
 			struct rtgl_buffer* buffer;
 			u64 offset;
 			u64 size;
@@ -88,7 +93,7 @@ typedef struct rtgl_recorded_command {
 			u32 vertex_count;
 			u32 first_vertex;
 		} draw;
-	};
+	} data;
 } rtgl_recorded_command;
 
 struct rtgl_command_buffer {
@@ -97,14 +102,15 @@ struct rtgl_command_buffer {
 	rtgl_recorded_command* commands;
 	u32 command_count;
 	u32 command_capacity;
-	bool recording;
-	bool rendering;
 };
+
+RTGL_EXTERN_C_ENTER
+
 RTGL_DECLARE_NEW_RESOURCE(command_buffer)
 
 struct rtgl_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer);
 void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_buffer* command_buffer, struct rtgl_queue* queue, u64 complete_value);
-void rtgl_command_buffer_clear_recorded_resources(struct rtgl_command_buffer* command_buffer);
 
 RTGL_EXTERN_C_EXIT
+
 #endif /* RTGL_COMMAND_BUFFER_H */

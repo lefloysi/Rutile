@@ -10,11 +10,11 @@
 
 int main() {
 	rtLoadDevelopment("rt-opengl", nullptr, 0);
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
 
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

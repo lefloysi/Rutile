@@ -10,18 +10,6 @@ static bool rtvk_validate_init_features(const char* const* features, u32 feature
 /*                                                                                               */
 /*===============================================================================================*/
 
-typedef struct rtvk_setting_entry {
-	char backend_name[64];
-	char value[256];
-} rtvk_setting_entry;
-
-static rtvk_setting_entry rtvk_settings[64];
-static u32 rtvk_setting_count = 0;
-
-static bool rtvk_backend_equals(const char* backend_name) {
-	return backend_name && strcmp(backend_name, "rt-vulkan") == 0;
-}
-
 void rtInit(const char* const* features, u32 feature_count) {
 	rtvk_context_flags flags;
 
@@ -35,27 +23,16 @@ void rtInit(const char* const* features, u32 feature_count) {
 		return;
 	}
 
+	rtvk_printf("rutile: initializing backend rt-vulkan\n");
 	current_context = rtvk_create_context(flags);
 }
 void rtExit(void) {
 	rtvk_context_destroy(current_context);
 	current_context = NULL;
 }
-void rtSettingApply(const char* backend_name, const char* value) {
-	if (!backend_name || !value) {
-		return;
-	}
-	if (rtvk_setting_count < (u32)(sizeof(rtvk_settings) / sizeof(rtvk_settings[0]))) {
-		snprintf(rtvk_settings[rtvk_setting_count].backend_name, sizeof(rtvk_settings[rtvk_setting_count].backend_name), "%s", backend_name);
-		rtvk_settings[rtvk_setting_count].backend_name[sizeof(rtvk_settings[rtvk_setting_count].backend_name) - 1] = '\0';
-		snprintf(rtvk_settings[rtvk_setting_count].value, sizeof(rtvk_settings[rtvk_setting_count].value), "%s", value);
-		rtvk_settings[rtvk_setting_count].value[sizeof(rtvk_settings[rtvk_setting_count].value) - 1] = '\0';
-		rtvk_setting_count++;
-	}
-
-	if (!rtvk_backend_equals(backend_name)) {
-		return;
-	}
+void rtSettingApply(const char* name, const char* value) {
+	(void)name;
+	(void)value;
 }
 const char* rtGetName(void) { return "rt-vulkan"; }
 enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {

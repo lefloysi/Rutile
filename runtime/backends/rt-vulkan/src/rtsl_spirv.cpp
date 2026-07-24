@@ -59,13 +59,7 @@ u32 stage_flags(rtsl::StageMask stages) {
 
 } // namespace
 
-extern "C" rtsl_spirv_status rtsl_spirv_translate(
-	u64 size,
-	const void* data,
-	rtsl_spirv_translation** translation,
-	char* message,
-	u64 message_capacity
-) {
+extern "C" rtsl_spirv_status rtsl_spirv_translate(u64 size, const void* data, rtsl_spirv_translation** translation, char* message, u64 message_capacity) {
 	if (!translation || !data || size == 0) {
 		write_message(message, message_capacity, "rtsl_spirv_translate", "program bytes are missing");
 		return RTSL_SPIRV_INVALID_PROGRAM;
@@ -80,25 +74,19 @@ extern "C" rtsl_spirv_status rtsl_spirv_translate(
 		auto program = rtsl::load_program(bytes);
 		if (!program) {
 			write_message(message, message_capacity, program.error().context, program.error().message);
-			return program.error().code == rtsl::LoadErrorCode::allocation_failure
-				? RTSL_SPIRV_OUT_OF_MEMORY
-				: RTSL_SPIRV_INVALID_PROGRAM;
+			return program.error().code == rtsl::LoadErrorCode::allocation_failure ? RTSL_SPIRV_OUT_OF_MEMORY : RTSL_SPIRV_INVALID_PROGRAM;
 		}
 
 		auto vertex = rtsl::spirv::transpile(*program, rtsl::Stage::vertex);
 		if (!vertex) {
 			write_message(message, message_capacity, vertex.error().context, vertex.error().message);
-			return vertex.error().code == rtsl::spirv::ErrorCode::allocation_failure
-				? RTSL_SPIRV_OUT_OF_MEMORY
-				: RTSL_SPIRV_TRANSPILATION_FAILED;
+			return vertex.error().code == rtsl::spirv::ErrorCode::allocation_failure ? RTSL_SPIRV_OUT_OF_MEMORY : RTSL_SPIRV_TRANSPILATION_FAILED;
 		}
 
 		auto fragment = rtsl::spirv::transpile(*program, rtsl::Stage::fragment);
 		if (!fragment) {
 			write_message(message, message_capacity, fragment.error().context, fragment.error().message);
-			return fragment.error().code == rtsl::spirv::ErrorCode::allocation_failure
-				? RTSL_SPIRV_OUT_OF_MEMORY
-				: RTSL_SPIRV_TRANSPILATION_FAILED;
+			return fragment.error().code == rtsl::spirv::ErrorCode::allocation_failure ? RTSL_SPIRV_OUT_OF_MEMORY : RTSL_SPIRV_TRANSPILATION_FAILED;
 		}
 
 		*translation = new rtsl_spirv_translation{
@@ -123,10 +111,7 @@ extern "C" void rtsl_spirv_translation_destroy(rtsl_spirv_translation* translati
 	delete translation;
 }
 
-extern "C" const u32* rtsl_spirv_stage_words(
-	const rtsl_spirv_translation* translation,
-	rtsl_spirv_stage stage,
-	u64* word_count
+extern "C" const u32* rtsl_spirv_stage_words(const rtsl_spirv_translation* translation, rtsl_spirv_stage stage, u64* word_count
 ) {
 	if (!translation || !word_count) {
 		return nullptr;

@@ -83,6 +83,7 @@ PFN_rtSwapchainDestroy rtval_next_rtSwapchainDestroy = NULL;
 PFN_rtSwapchainResize rtval_next_rtSwapchainResize = NULL;
 PFN_rtSwapchainAcquire rtval_next_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent rtval_next_rtSwapchainPresent = NULL;
+PFN_rtInit_RT_EXT_GLFW rtval_next_rtInit_RT_EXT_GLFW = NULL;
 PFN_rtSwapchainBindWindowGLFW rtval_next_rtSwapchainBindWindowGLFW = NULL;
 PFN_rtSetOutput rtval_next_rtSetOutput = NULL;
 
@@ -466,6 +467,7 @@ RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
 	rtval_next_rtSwapchainResize = (PFN_rtSwapchainResize)next.get_proc(&next, "rtSwapchainResize");
 	rtval_next_rtSwapchainAcquire = (PFN_rtSwapchainAcquire)next.get_proc(&next, "rtSwapchainAcquire");
 	rtval_next_rtSwapchainPresent = (PFN_rtSwapchainPresent)next.get_proc(&next, "rtSwapchainPresent");
+	rtval_next_rtInit_RT_EXT_GLFW = (PFN_rtInit_RT_EXT_GLFW)next.get_proc(&next, "rtInit_RT_EXT_GLFW");
 	rtval_next_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)next.get_proc(&next, "rtSwapchainBindWindowGLFW");
 	rtval_next_rtSetOutput = (PFN_rtSetOutput)next.get_proc(&next, "rtSetOutput");
 }

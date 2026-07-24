@@ -189,15 +189,18 @@ if (rtLoad("rt-vulkan", layers, 2) != RT_SUCCESS) {
 }
 ```
 
-After `rtLoad`, extension headers can resolve their own procs:
+After `rtLoad` and `rtInit`, extension headers can resolve their own procs and initialize extension state against the current context:
 
 ```c
-if (!rtLoad_RT_EXT_SWAPCHAIN()) {
-    /* the loaded backend/layer chain does not support the swapchain extension */
+const char* features[] = { RT_FEATURE_PRESENTATION };
+rtInit(features, 1);
+
+if (rtLoad_RT_EXT_SWAPCHAIN() != RT_SUCCESS) {
+    /* the loaded backend/layer chain does not expose the swapchain extension */
 }
 
-if (!rtLoad_RT_EXT_GLFW()) {
-    /* the loaded backend/layer chain does not support the GLFW extension */
+if (rtLoad_RT_EXT_GLFW() != RT_SUCCESS) {
+    /* the extension exists but the current context may not support it */
 }
 ```
 
@@ -223,14 +226,15 @@ These headers contain things like:
 - a function (like `rtLoad_EXT_SWAPCHAIN`) that resolves names through `rtGetProc`
 
 
-The application includes the extension header and loads it after the backend:
+The application includes the extension header and loads it after the backend and core context are initialized:
 
 ```c
 #include "rt_ext_my_feature.h"
 
 rtLoad("rt-vulkan", layers, layer_count);
+rtInit(features, feature_count);
 
-if (rtLoad_RT_EXT_MY_FEATURE()) {
+if (rtLoad_RT_EXT_MY_FEATURE() == RT_SUCCESS) {
     rtMyFeatureDoThing(...);
 }
 ```

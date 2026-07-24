@@ -29,7 +29,7 @@ RTVK_API void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth);
 RTVK_API void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil);
 RTVK_API void rtCmdComputeBarrier(rt_command_buffer command_buffer);
 RTVK_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
-RTVK_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
+RTVK_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTVK_API void rtCmdStorageTexture(rt_command_buffer command_buffer, u32 binding, rt_texture_view texture_view);
 RTVK_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTVK_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
@@ -118,7 +118,7 @@ void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_com
 void rtvk_command_buffer_compute_barrier(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_set_scissor(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtvk_command_buffer_storage_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_texture_view* texture_view);
-void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_buffer* buffer, u64 offset, u64 size);
+void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_buffer* buffer, u64 offset, u64 size);
 void rtvk_command_buffer_uniform_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_buffer* buffer, u64 offset, u64 size);
 void rtvk_command_buffer_uniform_texture(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_texture_view* texture_view);
 void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_graphics_program* program);

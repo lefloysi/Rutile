@@ -17,7 +17,7 @@
 
 RTVK_API void rtInit(const char* const* features, u32 feature_count);
 RTVK_API void rtExit(void);
-RTVK_API void rtSettingApply(const char* backend_name, const char* value);
+RTVK_API void rtSettingApply(const char* name, const char* value);
 RTVK_API const char* rtGetName(void);
 RTVK_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 VkFormat rtvk_format_to_vk(enum rt_format format);

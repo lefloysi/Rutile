@@ -8,12 +8,9 @@
 
 /*
 ** struct gl_context holds the real WGL context plus the bootstrap
-** drawable it was created against. The bootstrap window is a
-** message-only window (HWND_MESSAGE parent) - it can never be shown,
-** needs no monitor, and works identically whether or not this process
-** ever attaches a real window later. This is why "presentation" does
-** not change anything about how the context itself is built on
-** Windows - only Linux's EGL platform choice cares about it.
+** drawable it was created against. The bootstrap window is a normal hidden
+** top-level window. WGL drivers are much less predictable with message-only
+** HWNDs as GL drawables, even when initial context creation appears to work.
 */
 struct gl_context {
 	HWND bootstrap_window;
@@ -82,13 +79,7 @@ struct gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool presentation
 		goto fail;
 	}
 
-	/*
-	** HWND_MESSAGE makes this a message-only window: it cannot be
-	** shown, has no taskbar entry, no z-order, and needs no display
-	** attached. It still yields a normal HWND/HDC pair that WGL
-	** accepts everywhere a real window's would be accepted.
-	*/
-	hwnd = CreateWindowExA(0, "rtopengl_bootstrap_window", "", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, GetModuleHandleA(NULL), NULL);
+	hwnd = CreateWindowExA(0, "rtopengl_bootstrap_window", "", WS_OVERLAPPED, 0, 0, 1, 1, NULL, NULL, GetModuleHandleA(NULL), NULL);
 	if (!hwnd) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to create OpenGL bootstrap window");
 		goto fail;

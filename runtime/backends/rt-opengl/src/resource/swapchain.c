@@ -133,9 +133,9 @@ void rtgl_swapchain_resize(struct rtgl_context* ctx, struct rtgl_swapchain* swap
 			continue;
 		}
 		rtgl_execution_texture_delete(ctx, &frame->base);
-		rtgl_execution_texture_create(ctx, &frame->base);
 		frame->base.width = width;
 		frame->base.height = height;
+		rtgl_execution_texture_create(ctx, &frame->base);
 		rtgl_execution_texture_data(ctx, &frame->base, NULL);
 		if (rtgl_error() != RT_SUCCESS) {
 			return;

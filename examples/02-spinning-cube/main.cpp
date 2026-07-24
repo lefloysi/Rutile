@@ -135,10 +135,10 @@ void update_camera(GLFWwindow* window, Camera& camera, f32 delta) {
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
 	rtLoadDevelopment(options.backend.c_str(), nullptr, 0);
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

@@ -22,6 +22,7 @@ RTGL_API void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data);
 struct rtgl_buffer {
 	struct rtgl_resource_base base;
 	GLuint gl_buffer;
+	GLuint gl_texture_buffer;
 	u64 size;
 	enum rt_buffer_mode mode;
 	enum rt_buffer_usage usage;

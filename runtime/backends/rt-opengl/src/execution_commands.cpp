@@ -11,6 +11,7 @@
 #include "resource/texture.h"
 #include "rtsl_spirv.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static GLenum rtgl_buffer_gl_usage(enum rt_buffer_mode mode) {
@@ -25,8 +26,10 @@ void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer* 
 	rtgl_execution_submit_sync(ctx, [buffer](struct rtgl_context* exec_ctx) {
 		if (exec_ctx->execution.direct_state_access) {
 			glCreateBuffers(1, &buffer->gl_buffer);
+			glCreateTextures(GL_TEXTURE_BUFFER, 1, &buffer->gl_texture_buffer);
 		} else {
 			glGenBuffers(1, &buffer->gl_buffer);
+			glGenTextures(1, &buffer->gl_texture_buffer);
 		}
 	});
 }
@@ -36,6 +39,10 @@ void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer* 
 		if (buffer->gl_buffer) {
 			glDeleteBuffers(1, &buffer->gl_buffer);
 			buffer->gl_buffer = 0;
+		}
+		if (buffer->gl_texture_buffer) {
+			glDeleteTextures(1, &buffer->gl_texture_buffer);
+			buffer->gl_texture_buffer = 0;
 		}
 	});
 }
@@ -141,22 +148,6 @@ void rtgl_execution_framebuffer_attach_depth(struct rtgl_context* ctx, struct rt
 	});
 }
 
-static GLuint rtgl_execution_compile_shader(GLenum stage, const char* source) {
-	GLuint shader = glCreateShader(stage);
-	glShaderSource(shader, 1, &source, NULL);
-	glCompileShader(shader);
-	GLint ok = GL_FALSE;
-	glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-	if (!ok) {
-		char log[1024] = { 0 };
-		glGetShaderInfoLog(shader, sizeof(log), NULL, log);
-		rtgl_throwf(RT_SHADER_COMPILATION_FAILED, "OpenGL shader compilation failed: %s", log);
-		glDeleteShader(shader);
-		return 0;
-	}
-	return shader;
-}
-
 static GLuint rtgl_execution_compile_spirv_shader(GLenum stage, const u32* words, u64 word_count) {
 	if (!words || word_count == 0) {
 		return 0;
@@ -209,7 +200,11 @@ static void rtgl_graphics_program_reflect_spirv(struct rtgl_graphics_program* pr
 	}
 }
 
-static bool rtgl_execution_graphics_program_create_spirv(struct rtgl_graphics_program* program) {
+static bool rtgl_execution_graphics_program_finalize_spirv(struct rtgl_context* exec_ctx, struct rtgl_graphics_program* program) {
+	if (!exec_ctx->execution.spirv) {
+		rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL backend requires GL 4.6 or ARB_gl_spirv");
+		return true;
+	}
 	if (!program->source_bytes || program->source_size == 0) {
 		return false;
 	}
@@ -262,263 +257,45 @@ static bool rtgl_execution_graphics_program_create_spirv(struct rtgl_graphics_pr
 	return true;
 }
 
-void rtgl_execution_graphics_program_create(struct rtgl_context* ctx, struct rtgl_graphics_program* program) {
-	static const char* triangle_vertex_source =
-		"#version 400 core\n"
-		"layout(location = 0) in vec2 rt_position;\n"
-		"layout(location = 1) in vec3 rt_color;\n"
-		"layout(location = 0) out vec3 rt_out_color;\n"
-		"void main() {\n"
-		"    gl_Position = vec4(rt_position, 0.0, 1.0);\n"
-		"    rt_out_color = rt_color;\n"
-		"}\n";
-	static const char* triangle_fragment_source =
-		"#version 400 core\n"
-		"layout(location = 0) in vec3 rt_out_color;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"void main() {\n"
-		"    rt_frag_color = vec4(rt_out_color, 1.0);\n"
-		"}\n";
-	static const char* ui_vertex_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform UiDraw {\n"
-		"    vec2 viewport_size;\n"
-		"    vec2 translation;\n"
-		"    float texture_mode;\n"
-		"    float padding;\n"
-		"} ui;\n"
-		"layout(location = 0) in vec2 rt_position;\n"
-		"layout(location = 1) in vec2 rt_uv;\n"
-		"layout(location = 2) in vec4 rt_color;\n"
-		"layout(location = 0) out vec2 rt_out_uv;\n"
-		"layout(location = 1) out vec4 rt_out_color;\n"
-		"void main() {\n"
-		"    vec2 pixel = rt_position + ui.translation;\n"
-		"    vec2 ndc = vec2(pixel.x / ui.viewport_size.x * 2.0 - 1.0, 1.0 - pixel.y / ui.viewport_size.y * 2.0);\n"
-		"    gl_Position = vec4(ndc, 0.0, 1.0);\n"
-		"    rt_out_uv = rt_uv;\n"
-		"    rt_out_color = rt_color;\n"
-		"}\n";
-	static const char* ui_fragment_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform UiDraw {\n"
-		"    vec2 viewport_size;\n"
-		"    vec2 translation;\n"
-		"    float texture_mode;\n"
-		"    float padding;\n"
-		"} ui;\n"
-		"layout(binding = 1) uniform sampler2D UiTexture;\n"
-		"layout(location = 0) in vec2 rt_out_uv;\n"
-		"layout(location = 1) in vec4 rt_out_color;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"void main() {\n"
-		"    vec4 texel = texture(UiTexture, rt_out_uv);\n"
-		"    rt_frag_color = rt_out_color * mix(vec4(1.0), texel, ui.texture_mode);\n"
-		"}\n";
-	static const char* overlay_vertex_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform OverlayDraw {\n"
-		"    vec2 viewport_size;\n"
-		"} overlay;\n"
-		"layout(location = 0) in vec2 rt_position;\n"
-		"layout(location = 1) in vec4 rt_color;\n"
-		"layout(location = 0) out vec4 rt_out_color;\n"
-		"void main() {\n"
-		"    vec2 ndc = vec2(rt_position.x / overlay.viewport_size.x * 2.0 - 1.0, 1.0 - rt_position.y / overlay.viewport_size.y * 2.0);\n"
-		"    gl_Position = vec4(ndc, 0.0, 1.0);\n"
-		"    rt_out_color = rt_color;\n"
-		"}\n";
-	static const char* overlay_fragment_source =
-		"#version 400 core\n"
-		"layout(location = 0) in vec4 rt_out_color;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"void main() {\n"
-		"    rt_frag_color = rt_out_color;\n"
-		"}\n";
-	static const char* cube_vertex_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform Scene {\n"
-		"    mat4 transform;\n"
-		"} scene;\n"
-		"layout(location = 0) in vec3 rt_position;\n"
-		"layout(location = 1) in vec3 rt_color;\n"
-		"layout(location = 2) in vec3 rt_normal;\n"
-		"layout(location = 0) out vec3 rt_out_color;\n"
-		"layout(location = 1) flat out vec3 rt_out_normal;\n"
-		"void main() {\n"
-		"    gl_Position = scene.transform * vec4(rt_position, 1.0);\n"
-		"    rt_out_color = rt_color;\n"
-		"    rt_out_normal = rt_normal;\n"
-		"}\n";
-	static const char* cube_fragment_source =
-		"#version 400 core\n"
-		"layout(location = 0) in vec3 rt_out_color;\n"
-		"layout(location = 1) flat in vec3 rt_out_normal;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"void main() {\n"
-		"    float light = rt_out_normal.x * -0.35 + rt_out_normal.y * 0.65 + rt_out_normal.z * 0.68;\n"
-		"    light = max(light, 0.0);\n"
-		"    rt_frag_color = vec4(rt_out_color * (0.22 + light * 0.78), 1.0);\n"
-		"}\n";
-	static const char* terrain_vertex_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform Scene {\n"
-		"    mat4 transform;\n"
-		"} scene;\n"
-		"layout(location = 0) in vec3 rt_position;\n"
-		"layout(location = 1) in vec3 rt_color;\n"
-		"layout(location = 2) in vec3 rt_normal;\n"
-		"layout(location = 3) in float rt_ao;\n"
-		"layout(location = 4) in vec2 rt_pixel_uv;\n"
-		"layout(location = 5) in float rt_edge_mask;\n"
-		"layout(location = 6) in float rt_corner_mask;\n"
-		"layout(location = 0) flat out vec3 rt_out_color;\n"
-		"layout(location = 1) flat out vec3 rt_out_normal;\n"
-		"layout(location = 2) out float rt_out_ao;\n"
-		"layout(location = 3) out vec2 rt_out_pixel_uv;\n"
-		"layout(location = 4) flat out float rt_out_edge_mask;\n"
-		"layout(location = 5) flat out float rt_out_corner_mask;\n"
-		"void main() {\n"
-		"    gl_Position = scene.transform * vec4(rt_position, 1.0);\n"
-		"    rt_out_color = rt_color;\n"
-		"    rt_out_normal = rt_normal;\n"
-		"    rt_out_ao = rt_ao;\n"
-		"    rt_out_pixel_uv = rt_pixel_uv;\n"
-		"    rt_out_edge_mask = rt_edge_mask;\n"
-		"    rt_out_corner_mask = rt_corner_mask;\n"
-		"}\n";
-	static const char* terrain_fragment_source =
-		"#version 400 core\n"
-		"layout(location = 0) flat in vec3 rt_out_color;\n"
-		"layout(location = 1) flat in vec3 rt_out_normal;\n"
-		"layout(location = 2) in float rt_out_ao;\n"
-		"layout(location = 3) in vec2 rt_out_pixel_uv;\n"
-		"layout(location = 4) flat in float rt_out_edge_mask;\n"
-		"layout(location = 5) flat in float rt_out_corner_mask;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"bool rt_mask_bit(float mask, float bit) {\n"
-		"    return mod(mask / bit, 2.0) >= 1.0;\n"
-		"}\n"
-		"bool rt_masked_edge_pixel(vec2 uv, float mask) {\n"
-		"    return (uv.x < 0.125 && rt_mask_bit(mask, 1.0)) ||\n"
-		"        (uv.x >= 0.875 && rt_mask_bit(mask, 2.0)) ||\n"
-		"        (uv.y < 0.125 && rt_mask_bit(mask, 4.0)) ||\n"
-		"        (uv.y >= 0.875 && rt_mask_bit(mask, 8.0));\n"
-		"}\n"
-		"bool rt_masked_corner_pixel(vec2 uv, float mask) {\n"
-		"    return (uv.x < 0.125 && uv.y < 0.125 && rt_mask_bit(mask, 1.0)) ||\n"
-		"        (uv.x >= 0.875 && uv.y < 0.125 && rt_mask_bit(mask, 2.0)) ||\n"
-		"        (uv.x >= 0.875 && uv.y >= 0.875 && rt_mask_bit(mask, 4.0)) ||\n"
-		"        (uv.x < 0.125 && uv.y >= 0.875 && rt_mask_bit(mask, 8.0));\n"
-		"}\n"
-		"void main() {\n"
-		"    float sky_light = 0.82 + rt_out_normal.y * 0.16;\n"
-		"    float side_light = rt_out_normal.x * -0.05 + rt_out_normal.z * -0.03;\n"
-		"    vec3 color = rt_out_color * (sky_light + side_light) * rt_out_ao;\n"
-		"    float shade = 1.0;\n"
-		"    if (rt_masked_edge_pixel(rt_out_pixel_uv, rt_out_edge_mask) || rt_masked_corner_pixel(rt_out_pixel_uv, rt_out_corner_mask)) {\n"
-		"        shade = 0.82;\n"
-		"    }\n"
-		"    rt_frag_color = vec4(color * shade, 1.0);\n"
-		"}\n";
-	static const char* water_vertex_source =
-		"#version 400 core\n"
-		"layout(std140, binding = 0) uniform Scene {\n"
-		"    mat4 transform;\n"
-		"} scene;\n"
-		"layout(location = 0) in vec3 rt_position;\n"
-		"layout(location = 1) in vec3 rt_color;\n"
-		"layout(location = 2) in vec3 rt_normal;\n"
-		"layout(location = 0) out vec3 rt_out_color;\n"
-		"layout(location = 1) out vec3 rt_out_normal;\n"
-		"void main() {\n"
-		"    gl_Position = scene.transform * vec4(rt_position, 1.0);\n"
-		"    rt_out_color = rt_color;\n"
-		"    rt_out_normal = rt_normal;\n"
-		"}\n";
-	static const char* water_fragment_source =
-		"#version 400 core\n"
-		"layout(location = 0) in vec3 rt_out_color;\n"
-		"layout(location = 1) in vec3 rt_out_normal;\n"
-		"layout(location = 0) out vec4 rt_frag_color;\n"
-		"void main() {\n"
-		"    float light = 0.68 + rt_out_normal.y * 0.22;\n"
-		"    rt_frag_color = vec4(rt_out_color * light + vec3(0.04, 0.08, 0.12), 0.72);\n"
-		"}\n";
-
+void rtgl_execution_graphics_program_finalize(struct rtgl_context* ctx, struct rtgl_graphics_program* program) {
+	rtgl_retain_resource(program);
 	rtgl_execution_submit_sync(ctx, [program](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.spirv && rtgl_execution_graphics_program_create_spirv(program)) {
-			return;
-		}
-		bool voxel = program->vertex_layout.attribute_count >= 7;
-		bool ui = !voxel && program->vertex_layout.attribute_count == 3 && program->vertex_layout.stride == sizeof(float) * 8;
-		bool overlay = !voxel && program->vertex_layout.attribute_count == 2 && program->vertex_layout.stride == sizeof(float) * 6;
-		bool cube = !voxel && !ui && program->vertex_layout.attribute_count >= 3;
-		const char* vertex_source = ui ? ui_vertex_source : (overlay ? overlay_vertex_source : (voxel ? (program->blend_enabled ? water_vertex_source : terrain_vertex_source) : (cube ? cube_vertex_source : triangle_vertex_source)));
-		const char* fragment_source = ui ? ui_fragment_source : (overlay ? overlay_fragment_source : (voxel ? (program->blend_enabled ? water_fragment_source : terrain_fragment_source) : (cube ? cube_fragment_source : triangle_fragment_source)));
-		GLuint vertex = rtgl_execution_compile_shader(GL_VERTEX_SHADER, vertex_source);
-		GLuint fragment = vertex ? rtgl_execution_compile_shader(GL_FRAGMENT_SHADER, fragment_source) : 0;
-		if (!vertex || !fragment) {
-			if (vertex) {
-				glDeleteShader(vertex);
-			}
-			return;
-		}
-
-		GLuint gl_program = glCreateProgram();
-		glAttachShader(gl_program, vertex);
-		glAttachShader(gl_program, fragment);
-		glLinkProgram(gl_program);
-		glDeleteShader(vertex);
-		glDeleteShader(fragment);
-
-		GLint ok = GL_FALSE;
-		glGetProgramiv(gl_program, GL_LINK_STATUS, &ok);
-		if (!ok) {
-			char log[1024] = { 0 };
-			glGetProgramInfoLog(gl_program, sizeof(log), NULL, log);
-			rtgl_throwf(RT_SHADER_LINK_FAILED, "OpenGL shader link failed: %s", log);
-			glDeleteProgram(gl_program);
-			return;
-		}
-
-		if (program->gl_program) {
-			glDeleteProgram(program->gl_program);
-		}
-		program->gl_program = gl_program;
-		for (u32 i = 0; i < program->uniform_location_count; i++) {
-			rtgl_uniform_location* location = &program->uniform_locations[i];
-			if (location->kind == RTGL_UNIFORM_LOCATION_TEXTURE) {
-				location->gl_location = glGetUniformLocation(program->gl_program, location->name);
-				if (location->gl_location >= 0) {
-					if (exec_ctx->execution.separate_shader_objects) {
-						glProgramUniform1i(program->gl_program, location->gl_location, (GLint)location->binding);
-					} else {
-						GLint previous_program = 0;
-						glGetIntegerv(GL_CURRENT_PROGRAM, &previous_program);
-						glUseProgram(program->gl_program);
-						glUniform1i(location->gl_location, (GLint)location->binding);
-						glUseProgram((GLuint)previous_program);
+		const bool finalized = rtgl_execution_graphics_program_finalize_spirv(exec_ctx, program);
+		if (finalized && program->gl_program) {
+			for (u32 i = 0; i < program->uniform_location_count; i++) {
+				rtgl_uniform_location* location = &program->uniform_locations[i];
+				if (location->kind == RTGL_UNIFORM_LOCATION_TEXTURE) {
+					location->gl_location = glGetUniformLocation(program->gl_program, location->name);
+					if (location->gl_location >= 0) {
+						if (exec_ctx->execution.separate_shader_objects) {
+							glProgramUniform1i(program->gl_program, location->gl_location, (GLint)location->binding);
+						} else {
+							GLint previous_program = 0;
+							glGetIntegerv(GL_CURRENT_PROGRAM, &previous_program);
+							glUseProgram(program->gl_program);
+							glUniform1i(location->gl_location, (GLint)location->binding);
+							glUseProgram((GLuint)previous_program);
+						}
 					}
-				}
-			} else if (location->kind == RTGL_UNIFORM_LOCATION_STORAGE_BUFFER) {
-				if (exec_ctx->execution.shader_storage_buffer) {
-					const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, location->name);
+				} else if (location->kind == RTGL_UNIFORM_LOCATION_STORAGE_BUFFER) {
+					if (exec_ctx->execution.shader_storage_buffer) {
+						const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, location->name);
+						if (block != GL_INVALID_INDEX) {
+							glShaderStorageBlockBinding(program->gl_program, block, location->binding);
+						}
+					}
+				} else {
+					const GLuint block = glGetUniformBlockIndex(program->gl_program, location->name);
 					if (block != GL_INVALID_INDEX) {
-						glShaderStorageBlockBinding(program->gl_program, block, location->binding);
+						glUniformBlockBinding(program->gl_program, block, location->binding);
 					}
-				}
-			} else {
-				const GLuint block = glGetUniformBlockIndex(program->gl_program, location->name);
-				if (block != GL_INVALID_INDEX) {
-					glUniformBlockBinding(program->gl_program, block, location->binding);
 				}
 			}
 		}
+		rtgl_resource_release(RTGL_RESOURCE_BASE(program));
 	});
 }
-
-void rtgl_execution_graphics_program_delete(struct rtgl_context* ctx, struct rtgl_graphics_program* program) {
+void rtgl_execution_graphics_program_destroy(struct rtgl_context* ctx, struct rtgl_graphics_program* program) {
 	rtgl_execution_submit_sync(ctx, [program](struct rtgl_context*) {
 		if (program->gl_program) {
 			glDeleteProgram(program->gl_program);
@@ -592,6 +369,40 @@ void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_bas
 	});
 }
 
+void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+	(void)offset_z;
+	(void)depth;
+	rtgl_execution_submit_sync(ctx, [image, mip, offset_x, offset_y, width, height, data](struct rtgl_context* exec_ctx) {
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		if (exec_ctx->execution.direct_state_access) {
+			glTextureSubImage2D(
+				image->gl_texture,
+				(GLint)mip,
+				(GLint)offset_x,
+				(GLint)offset_y,
+				(GLsizei)width,
+				(GLsizei)height,
+				rtgl_texture_upload_format(image->format),
+				rtgl_texture_upload_type(image->format),
+				data);
+		} else {
+			rtgl_bind_texture_2d(image->gl_texture);
+			glTexSubImage2D(
+				GL_TEXTURE_2D,
+				(GLint)mip,
+				(GLint)offset_x,
+				(GLint)offset_y,
+				(GLsizei)width,
+				(GLsizei)height,
+				rtgl_texture_upload_format(image->format),
+				rtgl_texture_upload_type(image->format),
+				data);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	});
+}
+
 struct gl_surface* rtgl_execution_glfw_surface_create(struct rtgl_context* ctx, struct GLFWwindow* window) {
 	struct gl_surface* surface = NULL;
 
@@ -617,14 +428,13 @@ static void rtgl_execution_present_now(struct rtgl_context* ctx, struct rtgl_que
 	rtgl_make_glcontext_current(ctx->execution.gl_context, swapchain->surface);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_FRAMEBUFFER_SRGB);
-	if (ctx->execution.direct_state_access) {
-		glBlitNamedFramebuffer(framebuffer->gl_framebuffer, 0, 0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)width, (GLint)height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-	} else {
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->gl_framebuffer);
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-		glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)width, (GLint)height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-	}
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->gl_framebuffer);
+	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	glViewport(0, 0, (GLsizei)width, (GLsizei)height);
+	glDrawBuffer(GL_BACK);
+	glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)width, (GLint)height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 	rtgl_swap_glsurface_buffers(swapchain->surface);
 	rtgl_make_glcontext_current(ctx->execution.gl_context, NULL);
 

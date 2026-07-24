@@ -115,8 +115,8 @@ void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location l
 	);
 }
 
-void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
-	rtvk_command_buffer_storage_buffer(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer), binding, rtvk_buffer_from_handle(buffer), offset, size);
+void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
+	rtvk_command_buffer_storage_buffer(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer), rtvk_uniform_location_from_handle(location), rtvk_buffer_from_handle(buffer), offset, size);
 }
 
 void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
@@ -409,9 +409,13 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_c
 	}
 	struct rtvk_texture_view* color_view = framebuffer->color_views[0];
 	struct rtvk_texture_view* depth_view = framebuffer->depth_view;
+	if (!color_view || !color_view->image || !color_view->vk_image_view) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "begin rendering requires a valid color attachment");
+		return;
+	}
 	VkRenderingAttachmentInfo color_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 	color_attachment.pNext = NULL;
-	color_attachment.imageView = color_view ? color_view->vk_image_view : VK_NULL_HANDLE;
+	color_attachment.imageView = color_view->vk_image_view;
 	color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	color_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
 	color_attachment.resolveImageView = VK_NULL_HANDLE;
@@ -511,7 +515,9 @@ void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_comma
 
 	struct rtvk_texture_view* depth_view = command_buffer->framebuffer->depth_view;
 	if (!depth_view || !depth_view->vk_image_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "depth attachment view is NULL");
+		/* A swapchain framebuffer may legitimately have no depth attachment.
+		 * Clearing depth in that framebuffer is therefore a no-op, matching the
+		 * other backends and allowing colour-only render passes. */
 		return;
 	}
 
@@ -622,13 +628,21 @@ static VkPipelineStageFlags rtvk_command_buffer_layout_stage(VkImageLayout layou
 }
 
 void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_texture_view* view, VkImageLayout layout, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
-	assert(command_buffer);
-	assert(view);
-	assert(view->image);
+	if (!command_buffer || !command_buffer->vk_command_buffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture transition requires a valid command buffer");
+		return;
+	}
+	if (!view || !view->image) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture transition requires a valid texture view");
+		return;
+	}
 
 	struct rtvk_image_base* image = view->image;
 	VkImageLayout* vk_layout = &image->vk_layout;
-	assert(image->vk_image);
+	if (!image->vk_image) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "texture transition requires an allocated Vulkan image");
+		return;
+	}
 
 	if (*vk_layout == layout) {
 		return;
@@ -806,7 +820,7 @@ void rtvk_command_buffer_uniform_buffer(
 	node->uniforms_dirty = true;
 }
 
-void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 binding, struct rtvk_buffer* buffer, u64 offset, u64 size) {
+void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_uniform_location* location, struct rtvk_buffer* buffer, u64 offset, u64 size) {
 	(void)ctx;
 	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
 	struct rtvk_buffer* buffer_node = buffer ? buffer->active : NULL;
@@ -818,16 +832,8 @@ void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_co
 		rtvk_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
 		return;
 	}
-	struct rtvk_uniform_location* location = NULL;
-	for (u32 i = 0; i < command_buffer->graphics_program->uniform_location_count; i++) {
-		struct rtvk_uniform_location* candidate = &command_buffer->graphics_program->uniform_locations[i];
-		if (candidate->kind == RTVK_UNIFORM_LOCATION_STORAGE_BUFFER && candidate->binding == binding) {
-			location = candidate;
-			break;
-		}
-	}
-	if (!location) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "storage buffer binding is not declared by the active graphics program");
+	if (!location || location->kind != RTVK_UNIFORM_LOCATION_STORAGE_BUFFER || location->program != command_buffer->graphics_program) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "storage buffer location does not belong to the active graphics program");
 		return;
 	}
 	if (!buffer_node || !buffer_node->vk_buffer) {

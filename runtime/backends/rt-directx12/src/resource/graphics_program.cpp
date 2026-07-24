@@ -8,9 +8,14 @@
 #include <climits>
 #include <cstring>
 #include <iterator>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 rt_graphics_program rtGraphicsProgramCreate() {
 	return rtdx_graphics_program_to_handle(rtdx_graphics_program_create(rtdx_get_current_context()));
@@ -32,16 +37,7 @@ void rtGraphicsProgramRasterState(rt_graphics_program program, rt_cull_mode cull
 	rtdx_graphics_program_raster_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-void rtGraphicsProgramBlendState(
-	rt_graphics_program program,
-	bool enabled,
-	rt_blend_factor src_color,
-	rt_blend_factor dst_color,
-	rt_blend_op color_op,
-	rt_blend_factor src_alpha,
-	rt_blend_factor dst_alpha,
-	rt_blend_op alpha_op
-) {
+void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op) {
 	rtdx_graphics_program_blend_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
@@ -56,6 +52,10 @@ void rtGraphicsProgramReset(rt_graphics_program program) {
 rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
 	return rtdx_graphics_program_uniform_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
 }
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 RTDX_DEFINE_RESOURCE_PRIVATE(graphics_program)
 
@@ -104,6 +104,51 @@ static D3D12_SHADER_VISIBILITY rtdx_shader_visibility(rtsl::StageMask stages) {
 	return D3D12_SHADER_VISIBILITY_ALL;
 }
 
+static std::optional<u32> rtdx_type_byte_size(const rtsl::Program& program, rtsl::ir::Id type_id) {
+	const rtsl::ir::Type* type = program.find_type(type_id);
+	if (!type) {
+		return std::nullopt;
+	}
+	switch (type->kind) {
+	case rtsl::ir::TypeKind::boolean:
+	case rtsl::ir::TypeKind::signed_integer:
+	case rtsl::ir::TypeKind::unsigned_integer:
+	case rtsl::ir::TypeKind::floating:
+		return type->bit_width / 8u;
+	case rtsl::ir::TypeKind::vector: {
+		const std::optional<u32> element = rtdx_type_byte_size(program, type->element_type);
+		return element ? std::optional<u32>{ *element * type->element_count } : std::nullopt;
+	}
+	case rtsl::ir::TypeKind::matrix: {
+		const std::optional<u32> column = rtdx_type_byte_size(program, type->element_type);
+		return column ? std::optional<u32>{ *column * type->element_count } : std::nullopt;
+	}
+	case rtsl::ir::TypeKind::structure: {
+		u32 size = 0;
+		for (rtsl::ir::Id member : type->members) {
+			const std::optional<u32> member_size = rtdx_type_byte_size(program, member);
+			if (!member_size) {
+				return std::nullopt;
+			}
+			size += *member_size;
+		}
+		return size;
+	}
+	default:
+		return std::nullopt;
+	}
+}
+
+static std::optional<u32> rtdx_storage_buffer_stride(const rtsl::Program& program, const rtsl::Resource& resource) {
+	const rtsl::ir::Type* block = program.find_type(resource.value_type);
+	const rtsl::ir::Type* array = block && block->kind == rtsl::ir::TypeKind::structure && block->members.size() == 1
+		? program.find_type(block->members.front()) : nullptr;
+	if (!array || array->kind != rtsl::ir::TypeKind::runtime_array) {
+		return std::nullopt;
+	}
+	return rtdx_type_byte_size(program, array->element_type);
+}
+
 static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_graphics_program* program) {
 	std::vector<D3D12_DESCRIPTOR_RANGE> ranges;
 	std::vector<D3D12_ROOT_PARAMETER> parameters;
@@ -149,6 +194,30 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 				parameters.push_back(parameter);
 			}
 			location.sampler_root_parameter = location.root_parameter + 1;
+		} else if (resource.kind == rtsl::ResourceKind::storage_buffer) {
+			const std::optional<u32> stride = rtdx_storage_buffer_stride(*program->rtsl_program, resource);
+			if (!stride || *stride == 0) {
+				rtdx_throwf(RT_UNSUPPORTED_FEATURE, "DirectX 12 cannot reflect RTSL storage buffer '%s'", resource.name.c_str());
+				return false;
+			}
+			location.kind = rtdx_uniform_location_kind::storage_buffer;
+			location.storage_stride = *stride;
+			location.root_parameter = static_cast<u32>(parameters.size());
+
+			D3D12_DESCRIPTOR_RANGE range = {};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+			range.NumDescriptors = 1;
+			range.BaseShaderRegister = resource.descriptor.binding;
+			range.RegisterSpace = resource.descriptor.set;
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+			ranges.push_back(range);
+
+			D3D12_ROOT_PARAMETER parameter = {};
+			parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+			parameter.DescriptorTable.NumDescriptorRanges = 1;
+			parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
+			parameter.ShaderVisibility = visibility;
+			parameters.push_back(parameter);
 		} else {
 			rtdx_throwf(RT_UNSUPPORTED_FEATURE, "DirectX 12 does not support RTSL resource '%s' yet", resource.name.c_str());
 			return false;

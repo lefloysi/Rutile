@@ -5,11 +5,19 @@
 
 #include <d3d12.h>
 
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 RTDX_API rt_buffer rtBufferCreate();
 RTDX_API void rtBufferDestroy(rt_buffer buffer);
 RTDX_API rt_timepoint rtBufferData(rt_buffer buffer, rt_buffer_mode mode, rt_buffer_usage usage, u64 size, const void* data);
 RTDX_API rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data);
 RTDX_API void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data);
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
 
 struct rtdx_buffer_storage;
 

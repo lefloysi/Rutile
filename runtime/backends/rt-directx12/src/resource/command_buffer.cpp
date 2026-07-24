@@ -100,11 +100,11 @@ void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location l
 	);
 }
 
-void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
+void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
 	rtdx_command_buffer_storage_buffer(
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer),
-		binding,
+		(rtdx_uniform_location*)location,
 		rtdx_buffer_from_handle(buffer),
 		offset,
 		size
@@ -704,7 +704,7 @@ void rtdx_command_buffer_uniform_texture(
 void rtdx_command_buffer_storage_buffer(
 	struct rtdx_context* ctx,
 	struct rtdx_command_buffer* command_buffer,
-	u32 binding,
+	rtdx_uniform_location* location,
 	struct rtdx_buffer* buffer,
 	u64 offset,
 	u64 size
@@ -718,15 +718,8 @@ void rtdx_command_buffer_storage_buffer(
 		rtdx_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires an active graphics program");
 		return;
 	}
-	rtdx_uniform_location* location = nullptr;
-	for (rtdx_uniform_location& candidate : command_buffer->graphics_program->uniform_locations) {
-		if (candidate.kind == rtdx_uniform_location_kind::storage_buffer && candidate.binding == binding) {
-			location = &candidate;
-			break;
-		}
-	}
-	if (!location) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "storage buffer binding is not declared by the active graphics program");
+	if (!location || location->kind != rtdx_uniform_location_kind::storage_buffer || location->program != command_buffer->graphics_program) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "storage buffer location does not belong to the active graphics program");
 		return;
 	}
 	if (!buffer || !buffer->storage || !buffer->storage->d3d_resource) {
@@ -754,10 +747,10 @@ void rtdx_command_buffer_storage_buffer(
 	srv_desc.Format = DXGI_FORMAT_UNKNOWN;
 	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srv_desc.Buffer.FirstElement = offset / 4u;
-	srv_desc.Buffer.NumElements = static_cast<UINT>(size / 4u);
-	srv_desc.Buffer.StructureByteStride = 0;
-	srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+	srv_desc.Buffer.FirstElement = offset / location->storage_stride;
+	srv_desc.Buffer.NumElements = static_cast<UINT>(size / location->storage_stride);
+	srv_desc.Buffer.StructureByteStride = location->storage_stride;
+	srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu = rtdx_heap_cpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index);
 	ctx->d3d_device->CreateShaderResourceView(buffer->storage->d3d_resource, &srv_desc, srv_cpu);
 	ID3D12DescriptorHeap* heaps[] = { node->d3d_srv_heap };
@@ -767,7 +760,7 @@ void rtdx_command_buffer_storage_buffer(
 		rtdx_heap_gpu_handle(ctx, node->d3d_srv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, descriptor_index)
 	);
 
-	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, binding);
+	rtdx_uniform_slot* slot = rtdx_command_buffer_uniform_slot(node, location->slot);
 	if (!slot) {
 		return;
 	}

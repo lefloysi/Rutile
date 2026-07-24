@@ -6,6 +6,11 @@
 
 #include <stdlib.h>
 
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
 rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	struct rtdx_queue* queue = rtdx_queue_query(rtdx_get_current_context(), capability);
 	return rtdx_queue_to_handle(queue);

@@ -59,8 +59,17 @@ rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u3
 }
 
 rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture subdata is not implemented");
-	return (rt_timepoint){ RT_NULL_HANDLE, 0 };
+	return rtgl_timepoint_to_public(rtgl_texture_subdata(
+		rtgl_get_current_context(),
+		rtgl_texture_from_handle(texture),
+		mip,
+		offset_x,
+		offset_y,
+		offset_z,
+		width,
+		height,
+		depth,
+		data));
 }
 
 rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
@@ -135,6 +144,10 @@ void rtgl_texture_view_init(struct rtgl_context* ctx, struct rtgl_texture_view* 
 	view->address_v = RT_ADDRESS_REPEAT;
 	view->address_w = RT_ADDRESS_REPEAT;
 	view->max_anisotropy = 1;
+	view->min_lod = 0.0f;
+	view->max_lod = 1000.0f;
+	view->lod_bias = 0.0f;
+	view->parameters_applied = false;
 }
 
 void rtgl_texture_finish(struct rtgl_texture* texture) {
@@ -166,6 +179,29 @@ struct rtgl_timepoint rtgl_texture_data(struct rtgl_context* ctx, struct rtgl_te
 	return timepoint;
 }
 
+struct rtgl_timepoint rtgl_texture_subdata(struct rtgl_context* ctx, struct rtgl_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+	struct rtgl_timepoint timepoint = { NULL, 0 };
+	if (!texture || !texture->base.gl_texture) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "rtTextureSubdata requires an initialized texture");
+		return timepoint;
+	}
+	if (!data || width == 0 || height == 0 || depth == 0) {
+		return timepoint;
+	}
+	if (texture->base.type != RT_TEXTURE_2D || offset_z != 0 || depth != 1) {
+		rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture subdata currently supports 2D texture regions only");
+		return timepoint;
+	}
+	if (mip >= texture->base.mip_levels ||
+		offset_x > texture->base.width || offset_y > texture->base.height ||
+		width > texture->base.width - offset_x || height > texture->base.height - offset_y) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "rtTextureSubdata region is outside the texture bounds");
+		return timepoint;
+	}
+	rtgl_execution_texture_subdata(ctx, &texture->base, mip, offset_x, offset_y, offset_z, width, height, depth, data);
+	return timepoint;
+}
+
 void rtgl_texture_view_bind(struct rtgl_context* ctx, struct rtgl_texture_view* view, struct rtgl_texture* texture) {
 	if (!texture) {
 		return;
@@ -179,6 +215,7 @@ void rtgl_texture_view_bind_image(struct rtgl_context* ctx, struct rtgl_texture_
 		return;
 	}
 	view->image = image;
+	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_image_data(struct rtgl_context* ctx, struct rtgl_texture_view* view, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
@@ -212,22 +249,26 @@ void rtgl_texture_view_filter(struct rtgl_context* ctx, struct rtgl_texture_view
 	view->mag_filter = mag_filter;
 	view->min_filter = min_filter;
 	view->mip_filter = mip_filter;
+	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_address(struct rtgl_context* ctx, struct rtgl_texture_view* view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	view->address_u = address_u;
 	view->address_v = address_v;
 	view->address_w = address_w;
+	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_anisotropy(struct rtgl_context* ctx, struct rtgl_texture_view* view, u32 max_anisotropy) {
 	view->max_anisotropy = max_anisotropy;
+	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_lod(struct rtgl_context* ctx, struct rtgl_texture_view* view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	view->min_lod = min_lod;
 	view->max_lod = max_lod;
 	view->lod_bias = lod_bias;
+	view->parameters_applied = false;
 }
 
 rt_extent_3d rtgl_texture_view_extent(struct rtgl_context* ctx, struct rtgl_texture_view* view) {

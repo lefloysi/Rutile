@@ -30,7 +30,7 @@ extern PFN_rtSwapchainDestroy rt_rtSwapchainDestroy;
 extern PFN_rtSwapchainResize rt_rtSwapchainResize;
 extern PFN_rtSwapchainAcquire rt_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent rt_rtSwapchainPresent;
-bool rtLoad_RT_EXT_SWAPCHAIN(void);
+enum rt_error rtLoad_RT_EXT_SWAPCHAIN(void);
 
 #ifndef RT_NO_API_WRAPPERS
 static inline rt_swapchain rtSwapchainCreate(void) { return rt_rtSwapchainCreate(); }
@@ -48,22 +48,32 @@ PFN_rtSwapchainResize rt_rtSwapchainResize = NULL;
 PFN_rtSwapchainAcquire rt_rtSwapchainAcquire = NULL;
 PFN_rtSwapchainPresent rt_rtSwapchainPresent = NULL;
 
-#define RT__SWAPCHAIN_RESOLVE(name)      \
-	do {                                 \
-		rt_proc_t _p = rtGetProc(#name); \
-		if (!_p) {                       \
-			return false;                \
-		}                                \
-		rt_##name = (PFN_##name)_p;      \
+static void rt__clear_RT_EXT_SWAPCHAIN(void) {
+	rt_rtSwapchainCreate = NULL;
+	rt_rtSwapchainDestroy = NULL;
+	rt_rtSwapchainResize = NULL;
+	rt_rtSwapchainAcquire = NULL;
+	rt_rtSwapchainPresent = NULL;
+}
+
+#define RT__SWAPCHAIN_RESOLVE(name)       \
+	do {                                  \
+		rt_proc_t _p = rtGetProc(#name);  \
+		if (!_p) {                        \
+			rt__clear_RT_EXT_SWAPCHAIN(); \
+			return RT_EXTENSION_NOT_PRESENT; \
+		}                                 \
+		rt_##name = (PFN_##name)_p;       \
 	} while (0)
 
-bool rtLoad_RT_EXT_SWAPCHAIN(void) {
+enum rt_error rtLoad_RT_EXT_SWAPCHAIN(void) {
+	rt__clear_RT_EXT_SWAPCHAIN();
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainCreate);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainDestroy);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainResize);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainAcquire);
 	RT__SWAPCHAIN_RESOLVE(rtSwapchainPresent);
-	return true;
+	return RT_SUCCESS;
 }
 
 #undef RT__SWAPCHAIN_RESOLVE

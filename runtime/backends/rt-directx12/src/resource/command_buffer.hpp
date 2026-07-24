@@ -20,7 +20,7 @@ RTDX_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graph
 RTDX_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 RTDX_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTDX_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-RTDX_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
+	RTDX_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTDX_API void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 RTDX_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 RTDX_API void rtCmdEndRendering(rt_command_buffer command_buffer);
@@ -84,7 +84,7 @@ void rtdx_command_buffer_use_graphics_program(rtdx_context* ctx, rtdx_command_bu
 void rtdx_command_buffer_set_scissor(rtdx_context* ctx, rtdx_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtdx_command_buffer_uniform_buffer(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rt_uniform_location location, rtdx_buffer* buffer, u64 offset, u64 size);
 void rtdx_command_buffer_uniform_texture(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rt_uniform_location location, rtdx_texture_view* texture_view);
-void rtdx_command_buffer_storage_buffer(rtdx_context* ctx, rtdx_command_buffer* command_buffer, u32 binding, rtdx_buffer* buffer, u64 offset, u64 size);
+	void rtdx_command_buffer_storage_buffer(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rtdx_uniform_location* location, rtdx_buffer* buffer, u64 offset, u64 size);
 void rtdx_command_buffer_bind_vertex_buffer(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rtdx_buffer* buffer, u64 offset);
 void rtdx_command_buffer_draw(rtdx_context* ctx, rtdx_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex);
 void rtdx_command_buffer_end_rendering(rtdx_context* ctx, rtdx_command_buffer* command_buffer);

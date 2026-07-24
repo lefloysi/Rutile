@@ -31,10 +31,10 @@ static const rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 2 };
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
 	rtLoadDevelopment(options.backend.c_str(), nullptr, 0);
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
+	rtLoad_RT_EXT_SWAPCHAIN();
+	rtLoad_RT_EXT_GLFW();
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(program, triangle_rtslp.size, triangle_rtslp.data);

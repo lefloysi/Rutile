@@ -31,9 +31,6 @@ struct rtgl_queue {
 };
 RTGL_DECLARE_NEW_RESOURCE(queue)
 
-struct rtgl_swapchain;
-struct rtgl_framebuffer;
-
 struct rtgl_queue* rtgl_queue_query(struct rtgl_context* ctx, enum rt_queue_capability capability);
 struct rtgl_timepoint rtgl_queue_signal(struct rtgl_queue* queue);
 void rtgl_queue_complete(struct rtgl_queue* queue, u64 value);

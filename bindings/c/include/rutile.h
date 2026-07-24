@@ -53,7 +53,7 @@
 **
 ** **Destroy functions never record an error.** They are infallible by
 ** contract - not even RT_IMPROPER_USAGE, and not even from a validation
-** layer. This includes safety on NULL and on already-destroyed handles.
+** layer. 
 **
 ** @section build_macros Build macros
 **   - `RT_BUILD_DLL`       - define when building Rutile itself as a DLL.
@@ -93,7 +93,7 @@ typedef struct rt_proc_chain {
 
 typedef const char* (*PFN_rtLayerGetName)(void);
 typedef void (*PFN_rtLayerSetNext)(rt_proc_chain next);
-typedef void (*PFN_rtSettingApply)(const char* backend_name, const char* value);
+typedef void (*PFN_rtSettingApply)(const char* name, const char* value);
 
 #ifndef RUTILE_LOADER_ONLY
 
@@ -363,7 +363,7 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
 
 /*!
-** @brief Add a backend-specific loader setting.
+** @brief Add a loader setting.
 **
 ** Settings are string key/value pairs stored by the loader before a backend is
 ** loaded. When a backend is loaded, every setting is offered to that backend.
@@ -372,18 +372,18 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 **
 ** Example:
 ** @code
-** rtSettingAdd("rt-opengl", "-v 4.0");
+** rtSettingAdd("opengl.version", "4.0");
 ** rtLoad("rt-opengl", NULL, 0);
 ** @endcode
 **
-** @param backend_name  Backend name the setting applies to.
-** @param value         Backend-defined setting string.
+** @param name   Setting name.
+** @param value  Setting value.
 **
 ** @return RT_SUCCESS on success.
 ** @return RT_IMPROPER_USAGE if either string is NULL.
 ** @return RT_OUT_OF_HOST_MEMORY if the loader setting pool is full.
 */
-enum rt_error rtSettingAdd(const char* backend_name, const char* value);
+enum rt_error rtSettingAdd(const char* name, const char* value);
 
 /*!
 ** @brief Clear all settings stored by the loader.
@@ -488,7 +488,7 @@ typedef void (*PFN_rtCmdUseGraphicsProgram)(rt_command_buffer command_buffer, rt
 typedef void (*PFN_rtCmdSetScissor)(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 typedef void (*PFN_rtCmdUniformBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdUniformTexture)(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
+typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdBindVertexBuffer)(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 typedef void (*PFN_rtCmdDraw)(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 typedef void (*PFN_rtCmdEndRendering)(rt_command_buffer command_buffer);
@@ -1440,8 +1440,8 @@ static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_unifo
 static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
 	rt_rtCmdUniformTexture(command_buffer, location, texture_view);
 }
-static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size) {
-	rt_rtCmdStorageBuffer(command_buffer, binding, buffer, offset, size);
+static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
+	rt_rtCmdStorageBuffer(command_buffer, location, buffer, offset, size);
 }
 
 /*!
@@ -1785,7 +1785,7 @@ typedef struct rt_layer_link {
 } rt_layer_link;
 
 typedef struct rt_setting_entry {
-	char backend_name[RT__MAX_SETTING_NAME];
+	char name[RT__MAX_SETTING_NAME];
 	char value[RT__MAX_SETTING_VALUE];
 } rt_setting_entry;
 
@@ -2087,7 +2087,8 @@ static void rt__layer_set_next(u32 index, rt_proc_chain next) {
 }
 
 static void rt__apply_backend_settings(const char* backend_name) {
-	if (!rt__backend_dll || !backend_name) {
+	(void)backend_name;
+	if (!rt__backend_dll) {
 		return;
 	}
 
@@ -2097,7 +2098,7 @@ static void rt__apply_backend_settings(const char* backend_name) {
 	}
 
 	for (u32 i = 0; i < rt__setting_count; i++) {
-		apply(rt__settings[i].backend_name, rt__settings[i].value);
+		apply(rt__settings[i].name, rt__settings[i].value);
 	}
 }
 
@@ -2418,10 +2419,10 @@ static void rt__load_core_development(void) {
 
 #undef RT__CORE_RESOLVE
 
-enum rt_error rtSettingAdd(const char* backend_name, const char* value) {
+enum rt_error rtSettingAdd(const char* name, const char* value) {
 	rt__loader_clear_error_state();
-	if (!backend_name || !value) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtSettingAdd requires non-NULL backend_name and value");
+	if (!name || !value) {
+		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtSettingAdd requires non-NULL name and value");
 		return RT_IMPROPER_USAGE;
 	}
 	if (rt__setting_count >= RT__MAX_SETTINGS) {
@@ -2430,8 +2431,8 @@ enum rt_error rtSettingAdd(const char* backend_name, const char* value) {
 	}
 
 	rt_setting_entry* setting = &rt__settings[rt__setting_count++];
-	snprintf(setting->backend_name, sizeof(setting->backend_name), "%s", backend_name);
-	setting->backend_name[sizeof(setting->backend_name) - 1] = '\0';
+	snprintf(setting->name, sizeof(setting->name), "%s", name);
+	setting->name[sizeof(setting->name) - 1] = '\0';
 	snprintf(setting->value, sizeof(setting->value), "%s", value);
 	setting->value[sizeof(setting->value) - 1] = '\0';
 	return RT_SUCCESS;

@@ -63,6 +63,7 @@ struct rtgl_texture_view {
 	f32 min_lod;
 	f32 max_lod;
 	f32 lod_bias;
+	bool parameters_applied;
 };
 RTGL_DECLARE_NEW_RESOURCE(texture_view)
 
@@ -76,6 +77,7 @@ void rtgl_texture_view_anisotropy(struct rtgl_context* ctx, struct rtgl_texture_
 void rtgl_texture_view_lod(struct rtgl_context* ctx, struct rtgl_texture_view* view, f32 min_lod, f32 max_lod, f32 lod_bias);
 rt_extent_3d rtgl_texture_view_extent(struct rtgl_context* ctx, struct rtgl_texture_view* view);
 struct rtgl_timepoint rtgl_texture_data(struct rtgl_context* ctx, struct rtgl_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);
+struct rtgl_timepoint rtgl_texture_subdata(struct rtgl_context* ctx, struct rtgl_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
 GLenum rtgl_texture_upload_format(enum rt_format format);
 GLenum rtgl_texture_upload_type(enum rt_format format);
 bool rtgl_texture_view_valid(struct rtgl_texture_view* view);

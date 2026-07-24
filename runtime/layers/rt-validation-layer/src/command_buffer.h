@@ -26,7 +26,7 @@ void rtval_command_buffer_set_scissor(struct rtval_command_buffer* cb, u32 x, u3
 void rtval_command_buffer_use_compute_program(struct rtval_command_buffer* cb, struct rtval_compute_program* program);
 void rtval_command_buffer_uniform_buffer(struct rtval_command_buffer* cb, rt_uniform_location location, struct rtval_buffer* buffer, u64 offset, u64 size);
 void rtval_command_buffer_uniform_texture(struct rtval_command_buffer* cb, rt_uniform_location location, struct rtval_texture_view* view);
-void rtval_command_buffer_storage_buffer(struct rtval_command_buffer* cb, u32 binding, struct rtval_buffer* buffer, u64 offset, u64 size);
+void rtval_command_buffer_storage_buffer(struct rtval_command_buffer* cb, rt_uniform_location location, struct rtval_buffer* buffer, u64 offset, u64 size);
 void rtval_command_buffer_storage_texture(struct rtval_command_buffer* cb, u32 binding, struct rtval_texture_view* view);
 void rtval_command_buffer_compute_barrier(struct rtval_command_buffer* cb);
 

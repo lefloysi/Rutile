@@ -11,6 +11,9 @@ struct rtgl_execution_command {
 	rtgl_execution_command* next;
 	void (*run)(struct rtgl_context* ctx, rtgl_execution_command* command);
 	void (*finish)(rtgl_execution_command* command);
+
+	rtgl_execution_command(void (*next_run)(struct rtgl_context* ctx, rtgl_execution_command* command), void (*next_finish)(rtgl_execution_command* command))
+		: next(NULL), run(next_run), finish(next_finish) {}
 };
 
 bool rtgl_execution_submit_stack_command(struct rtgl_context* ctx, rtgl_execution_command* command);
@@ -21,11 +24,7 @@ template <class F>
 struct rtgl_async_command_t final : rtgl_execution_command {
 	F fn;
 
-	explicit rtgl_async_command_t(F&& next_fn) : fn(std::forward<F>(next_fn)) {
-		next = NULL;
-		run = &run_impl;
-		finish = &finish_impl;
-	}
+	explicit rtgl_async_command_t(F&& next_fn) : rtgl_execution_command(&run_impl, &finish_impl), fn(std::forward<F>(next_fn)) {}
 
 	static void run_impl(struct rtgl_context* ctx, rtgl_execution_command* command) {
 		static_cast<rtgl_async_command_t*>(command)->fn(ctx);
@@ -41,11 +40,8 @@ struct rtgl_sync_command_t final : rtgl_execution_command {
 	F fn;
 	struct rt_event* done_event;
 
-	rtgl_sync_command_t(F&& next_fn, struct rt_event* next_done_event) : fn(std::forward<F>(next_fn)), done_event(next_done_event) {
-		next = NULL;
-		run = &run_impl;
-		finish = &finish_impl;
-	}
+	rtgl_sync_command_t(F&& next_fn, struct rt_event* next_done_event)
+		: rtgl_execution_command(&run_impl, &finish_impl), fn(std::forward<F>(next_fn)), done_event(next_done_event) {}
 
 	static void run_impl(struct rtgl_context* ctx, rtgl_execution_command* command) {
 		static_cast<rtgl_sync_command_t*>(command)->fn(ctx);

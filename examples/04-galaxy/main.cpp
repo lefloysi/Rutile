@@ -289,9 +289,9 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
 	rtLoad(options.backend.c_str(), nullptr, 0);
+	rtInit(kFeatures, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
-	rtInit(kFeatures, 1);
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

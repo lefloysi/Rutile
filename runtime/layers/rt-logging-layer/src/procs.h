@@ -85,6 +85,7 @@ extern PFN_rtSwapchainDestroy next_rtSwapchainDestroy;
 extern PFN_rtSwapchainResize next_rtSwapchainResize;
 extern PFN_rtSwapchainAcquire next_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent next_rtSwapchainPresent;
+extern PFN_rtInit_RT_EXT_GLFW next_rtInit_RT_EXT_GLFW;
 extern PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW;
 
 void rtlog_set_output(PFN_rtOutput output, void* user_data);
@@ -158,7 +159,7 @@ void rtlog_rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 w
 void rtlog_rtCmdUseComputeProgram(rt_command_buffer command_buffer, rt_compute_program program);
 void rtlog_rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 void rtlog_rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-void rtlog_rtCmdStorageBuffer(rt_command_buffer command_buffer, u32 binding, rt_buffer buffer, u64 offset, u64 size);
+void rtlog_rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 void rtlog_rtCmdStorageTexture(rt_command_buffer command_buffer, u32 binding, rt_texture_view texture_view);
 void rtlog_rtCmdComputeBarrier(rt_command_buffer command_buffer);
 void rtlog_rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
@@ -180,6 +181,7 @@ void rtlog_rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 void rtlog_rtSwapchainSetVsync(rt_swapchain swapchain, bool enabled);
 rt_swapchain_acquire_result rtlog_rtSwapchainAcquire(rt_swapchain swapchain);
 void rtlog_rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
+bool rtlog_rtInit_RT_EXT_GLFW(void);
 void rtlog_rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window);
 
 #endif

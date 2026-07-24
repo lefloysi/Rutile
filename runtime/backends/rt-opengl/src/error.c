@@ -15,6 +15,7 @@ static thread_local void* rtgl_output_user_data = NULL;
 static void rtgl_default_output(const char* message, void* user_data) {
 	(void)user_data;
 	fputs(message, stdout);
+	fflush(stdout);
 }
 
 /*===============================================================================================*/

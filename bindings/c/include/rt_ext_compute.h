@@ -30,7 +30,7 @@ extern PFN_rtCmdUseComputeProgram rt_rtCmdUseComputeProgram;
 extern PFN_rtCmdStorageTexture rt_rtCmdStorageTexture;
 extern PFN_rtCmdComputeBarrier rt_rtCmdComputeBarrier;
 extern PFN_rtCmdDispatch rt_rtCmdDispatch;
-bool rtLoad_RT_EXT_COMPUTE(void);
+enum rt_error rtLoad_RT_EXT_COMPUTE(void);
 
 #ifndef RT_NO_API_WRAPPERS
 static inline rt_compute_program rtComputeProgramCreate(void) {
@@ -70,7 +70,26 @@ PFN_rtCmdStorageTexture rt_rtCmdStorageTexture = NULL;
 PFN_rtCmdComputeBarrier rt_rtCmdComputeBarrier = NULL;
 PFN_rtCmdDispatch rt_rtCmdDispatch = NULL;
 
-bool rtLoad_RT_EXT_COMPUTE(void) {
+typedef bool (*PFN_rtInit_RT_EXT_COMPUTE)(void);
+
+static void rt__clear_RT_EXT_COMPUTE(void) {
+	rt_rtComputeProgramCreate = NULL;
+	rt_rtComputeProgramDestroy = NULL;
+	rt_rtComputeProgramShader = NULL;
+	rt_rtComputeProgramLink = NULL;
+	rt_rtCmdUseComputeProgram = NULL;
+	rt_rtCmdStorageTexture = NULL;
+	rt_rtCmdComputeBarrier = NULL;
+	rt_rtCmdDispatch = NULL;
+}
+
+enum rt_error rtLoad_RT_EXT_COMPUTE(void) {
+	PFN_rtInit_RT_EXT_COMPUTE init = (PFN_rtInit_RT_EXT_COMPUTE)rtGetProc("rtInit_RT_EXT_COMPUTE");
+	rt__clear_RT_EXT_COMPUTE();
+	if (init && !init()) {
+		enum rt_error err = rtError();
+		return err != RT_SUCCESS ? err : RT_UNSUPPORTED_FEATURE;
+	}
 	rt_rtComputeProgramCreate = (PFN_rtComputeProgramCreate)rtGetProc("rtComputeProgramCreate");
 	rt_rtComputeProgramDestroy = (PFN_rtComputeProgramDestroy)rtGetProc("rtComputeProgramDestroy");
 	rt_rtComputeProgramShader = (PFN_rtComputeProgramShader)rtGetProc("rtComputeProgramShader");
@@ -80,14 +99,18 @@ bool rtLoad_RT_EXT_COMPUTE(void) {
 	rt_rtCmdComputeBarrier = (PFN_rtCmdComputeBarrier)rtGetProc("rtCmdComputeBarrier");
 	rt_rtCmdDispatch = (PFN_rtCmdDispatch)rtGetProc("rtCmdDispatch");
 
-	return rt_rtComputeProgramCreate &&
-		   rt_rtComputeProgramDestroy &&
-		   rt_rtComputeProgramShader &&
-		   rt_rtComputeProgramLink &&
-		   rt_rtCmdUseComputeProgram &&
-		   rt_rtCmdStorageTexture &&
-		   rt_rtCmdComputeBarrier &&
-		   rt_rtCmdDispatch;
+	if (rt_rtComputeProgramCreate &&
+		rt_rtComputeProgramDestroy &&
+		rt_rtComputeProgramShader &&
+		rt_rtComputeProgramLink &&
+		rt_rtCmdUseComputeProgram &&
+		rt_rtCmdStorageTexture &&
+		rt_rtCmdComputeBarrier &&
+		rt_rtCmdDispatch) {
+		return RT_SUCCESS;
+	}
+	rt__clear_RT_EXT_COMPUTE();
+	return RT_EXTENSION_NOT_PRESENT;
 }
 
 #endif /* RUTILE_IMPL */

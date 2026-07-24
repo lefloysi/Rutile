@@ -85,6 +85,7 @@ extern PFN_rtSwapchainDestroy rtval_next_rtSwapchainDestroy;
 extern PFN_rtSwapchainResize rtval_next_rtSwapchainResize;
 extern PFN_rtSwapchainAcquire rtval_next_rtSwapchainAcquire;
 extern PFN_rtSwapchainPresent rtval_next_rtSwapchainPresent;
+extern PFN_rtInit_RT_EXT_GLFW rtval_next_rtInit_RT_EXT_GLFW;
 extern PFN_rtSwapchainBindWindowGLFW rtval_next_rtSwapchainBindWindowGLFW;
 extern PFN_rtSetOutput rtval_next_rtSetOutput;
 

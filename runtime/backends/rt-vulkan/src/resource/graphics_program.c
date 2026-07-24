@@ -610,7 +610,30 @@ static bool rtvk_graphics_program_build_uniform_locations(
 			return false;
 		}
 
-		struct rtvk_uniform_location* location = &program->uniform_locations[program->uniform_location_count];
+		struct rtvk_uniform_location* location = NULL;
+		for (u32 existing_index = 0; existing_index < program->uniform_location_count; existing_index++) {
+			struct rtvk_uniform_location* existing = &program->uniform_locations[existing_index];
+			if (existing->binding != resource.binding) {
+				continue;
+			}
+			if (existing->kind != kind) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s use binding %u with different descriptor kinds", existing->name, resource.name, resource.binding);
+				return false;
+			}
+			if (strcmp(existing->name, resource.name) != 0) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s both use binding %u", existing->name, resource.name, resource.binding);
+				return false;
+			}
+			location = existing;
+			break;
+		}
+
+		if (location) {
+			location->stages |= stages;
+			continue;
+		}
+
+		location = &program->uniform_locations[program->uniform_location_count];
 		location->program = program;
 		memcpy(location->name, resource.name, strlen(resource.name) + 1);
 		location->stages = stages;
