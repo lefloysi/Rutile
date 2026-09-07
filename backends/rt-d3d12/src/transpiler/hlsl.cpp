@@ -9,6 +9,7 @@
 #include <limits>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace rtd3d12::hlsl {
 namespace {
@@ -350,7 +351,7 @@ private:
 		if (!primitive || primitive->kind != rtsl::ir::TypeKind::type_primitive) return fail("entry", "geometry entry parameter is not an RTIR primitive type");
 		const std::string element = typeName(module, primitive->element_type, error); if (element.empty()) return false;
 		const std::string input = valueName(function.parameters[0].value);
-		out << "[maxvertexcount(" << configuration->maximum_vertices << ")]\nvoid main(triangle " << element << " " << input << "[3], inout TriangleStream<" << element << "> rtsl_stream) {\n";
+		out << "[instance(" << configuration->invocations << ")]\n[maxvertexcount(" << configuration->maximum_vertices << ")]\nvoid main(triangle " << element << " " << input << "[3], inout TriangleStream<" << element << "> rtsl_stream) {\n";
 		entry_geometry_stream = "rtsl_stream"; suppress_returns = true;
 		if (!emitEntryFunctionBody(out, function, 1)) return false;
 		out << "}\n";
@@ -391,6 +392,12 @@ private:
 		return true;
 	}
 	bool emitEntryFunctionBody(std::ostringstream& out, const rtsl::ir::Function& function, int indent) {
+		geometry_end_markers.clear();
+		if (!entry_geometry_stream.empty()) {
+			for (const auto& block : function.blocks)
+				for (const auto& instruction : block.instructions)
+					if (isEndPrimitiveCall(instruction)) geometry_end_markers.insert(instruction.operands[1].value());
+		}
 		std::unordered_map<std::uint32_t, rtsl::ir::TypeId> value_types;
 		for (const auto& parameter : function.parameters) value_types.emplace(parameter.value.value(), parameter.type);
 		for (const auto& block : function.blocks) for (const auto& argument : block.arguments) value_types.emplace(argument.value.value(), argument.type);
@@ -399,7 +406,7 @@ private:
 		for (const auto& block : function.blocks) blocks.emplace(block.id.value(), &block);
 		return !function.blocks.empty() && emitBlock(out, function.blocks.front(), blocks, value_types, indent);
 	}
-	void clearEntryLowering() { entry_patch_parameter = {}; entry_patch_name.clear(); entry_current_index.clear(); entry_coordinate_name.clear(); entry_factor_name.clear(); entry_geometry_stream.clear(); outer_accesses.clear(); suppress_outer_stores = false; suppress_returns = false; }
+	void clearEntryLowering() { entry_patch_parameter = {}; entry_patch_name.clear(); entry_current_index.clear(); entry_coordinate_name.clear(); entry_factor_name.clear(); entry_geometry_stream.clear(); geometry_end_markers.clear(); outer_accesses.clear(); suppress_outer_stores = false; suppress_returns = false; }
 	bool emitStruct(std::ostringstream& out, const rtsl::ir::Type& type) {
 		const std::string name(module.strings.get(type.name)); if (name.empty()) return fail("type", "anonymous structure cannot be emitted to HLSL");
 		out << "struct " << name << " {\n";
@@ -533,8 +540,9 @@ private:
 		const rtsl::ir::Type* instruction_type = module.findType(ins.type);
 		const bool geometry_primitive = !entry_geometry_stream.empty() && instruction_type &&
 			instruction_type->kind == rtsl::ir::TypeKind::type_primitive;
+		const bool geometry_end_marker = geometry_end_markers.contains(ins.result.value());
 		const bool resultless = ins.opcode == rtsl::ir::Opcode::opcode_store ||
-			ins.opcode == rtsl::ir::Opcode::opcode_resource_store || geometry_primitive;
+			ins.opcode == rtsl::ir::Opcode::opcode_resource_store || geometry_primitive || geometry_end_marker;
 		const std::string type = resultless ? std::string{} : typeName(module, ins.type, error);
 		if (type.empty() && !resultless) return false;
 		auto binary = [&](const char* op) { if (ins.operands.size() != 2) return fail("instruction", "binary instruction has invalid operand count"); out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << " " << op << " " << valueName(ins.operands[1]) << ";\n"; return true; };
@@ -559,6 +567,11 @@ private:
 		case rtsl::ir::Opcode::opcode_construct: {
 			const rtsl::ir::Type* constructed = module.findType(ins.type);
 			if (!constructed) return fail("instruction", "construction references an unknown type");
+			if (geometry_end_marker) {
+				if (constructed->kind != rtsl::ir::TypeKind::type_structure || !constructed->members.empty() || !ins.operands.empty())
+					return fail("instruction", "geometry end marker construction is malformed");
+				return true;
+			}
 			// Geometry primitives are RTIR's transient emission accumulator.  They do
 			// not correspond to an HLSL value: constructing one emits its supplied
 			// vertices into the stage stream.
@@ -613,15 +626,58 @@ private:
 		case rtsl::ir::Opcode::opcode_compare_greater: return binary(">");
 		case rtsl::ir::Opcode::opcode_compare_greater_equal: return binary(">=");
 		case rtsl::ir::Opcode::opcode_logical_and: return binary("&&");
-		case rtsl::ir::Opcode::opcode_logical_or: return binary("||");
-		case rtsl::ir::Opcode::opcode_logical_not: if (ins.operands.size() != 1) return fail("instruction", "logical not has invalid operand count"); out << pad << type << " " << valueName(ins.result) << " = !" << valueName(ins.operands[0]) << ";\n"; return true;
-		case rtsl::ir::Opcode::opcode_negate: if (ins.operands.size() != 1) return fail("instruction", "negate has invalid operand count"); out << pad << type << " " << valueName(ins.result) << " = -" << valueName(ins.operands[0]) << ";\n"; return true;
-		case rtsl::ir::Opcode::opcode_extract: if (ins.operands.size() != 1 || ins.immediates.empty()) return fail("instruction", "extract is malformed"); out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << "[" << ins.immediates[0] << "];\n"; return true;
+		case rtsl::ir::Opcode::opcode_logical_or:
+			return binary("||");
+		case rtsl::ir::Opcode::opcode_logical_not:
+			if (ins.operands.size() != 1)
+				return fail("instruction", "logical not has invalid operand count");
+			out << pad << type << " " << valueName(ins.result) << " = !" << valueName(ins.operands[0]) << ";\n";
+			return true;
+		case rtsl::ir::Opcode::opcode_negate:
+			if (ins.operands.size() != 1)
+				return fail("instruction", "negate has invalid operand count");
+			out << pad << type << " " << valueName(ins.result) << " = -" << valueName(ins.operands[0]) << ";\n";
+			return true;
+		case rtsl::ir::Opcode::opcode_convert: {
+			if (ins.operands.size() != 1)
+				return fail("instruction", "convert has invalid operand count");
+			const rtsl::ir::Type* source = valueType(ins.operands[0]);
+			const rtsl::ir::Type* result = module.findType(ins.type);
+			if (!source || !result)
+				return fail("instruction", "convert has an unknown source or result type");
+			const rtsl::ir::Type* source_scalar = source->kind == rtsl::ir::TypeKind::type_vector ? module.findType(source->element_type) : source;
+			const rtsl::ir::Type* result_scalar = result->kind == rtsl::ir::TypeKind::type_vector ? module.findType(result->element_type) : result;
+			const bool source_numeric = source_scalar && (source_scalar->kind == rtsl::ir::TypeKind::type_floating ||
+														  source_scalar->kind == rtsl::ir::TypeKind::type_signed_integer || source_scalar->kind == rtsl::ir::TypeKind::type_unsigned_integer);
+			const bool result_numeric = result_scalar && (result_scalar->kind == rtsl::ir::TypeKind::type_floating ||
+														  result_scalar->kind == rtsl::ir::TypeKind::type_signed_integer || result_scalar->kind == rtsl::ir::TypeKind::type_unsigned_integer);
+			const bool matching_shape = source->kind != rtsl::ir::TypeKind::type_vector && result->kind != rtsl::ir::TypeKind::type_vector ||
+										source->kind == rtsl::ir::TypeKind::type_vector && result->kind == rtsl::ir::TypeKind::type_vector && source->element_count == result->element_count;
+			if (!source_numeric || !result_numeric || !matching_shape)
+				return fail("instruction", "convert requires matching scalar or vector numeric types");
+			if (source_scalar->bit_width != 32 || result_scalar->bit_width != 32)
+				return fail("instruction", "D3D12 HLSL conversion requires 32-bit numeric source and result types");
+			if (source->id == result->id)
+				return fail("instruction", "convert does not change the numeric type");
+			out << pad << type << " " << valueName(ins.result) << " = " << type << "(" << valueName(ins.operands[0]) << ");\n";
+			return true;
+		}
+		case rtsl::ir::Opcode::opcode_extract:
+			if (ins.operands.size() != 1 || ins.immediates.empty())
+				return fail("instruction", "extract is malformed");
+			out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << "[" << ins.immediates[0] << "];\n";
+			return true;
 		case rtsl::ir::Opcode::opcode_access: {
-			if (ins.operands.empty()) return fail("instruction", "access has no base operand");
-			auto found = value_types.find(ins.operands[0].value()); if (found == value_types.end()) return fail("instruction", "access base type is unavailable");
-			const rtsl::ir::Type* base = module.findType(found->second); if (!base) return fail("instruction", "access base type is unknown");
-			if (base->kind == rtsl::ir::TypeKind::type_pointer) base = module.findType(base->element_type);
+			if (ins.operands.empty())
+				return fail("instruction", "access has no base operand");
+			auto found = value_types.find(ins.operands[0].value());
+			if (found == value_types.end())
+				return fail("instruction", "access base type is unavailable");
+			const rtsl::ir::Type* base = module.findType(found->second);
+			if (!base)
+				return fail("instruction", "access base type is unknown");
+			if (base->kind == rtsl::ir::TypeKind::type_pointer)
+				base = module.findType(base->element_type);
 			if (base && base->kind == rtsl::ir::TypeKind::type_patch && ins.immediates.size() == 1) {
 				const std::string_view member = module.strings.get(static_cast<rtsl::ir::StringId>(ins.immediates[0]));
 				if (member == "current" && !entry_current_index.empty()) {
@@ -771,6 +827,7 @@ private:
 	std::string entry_geometry_stream;
 	std::unordered_map<std::uint32_t, std::uint32_t> storage_offsets;
 	std::uint32_t storage_block_size{};
+	std::unordered_set<std::uint32_t> geometry_end_markers;
 	std::unordered_map<std::uint32_t, std::string> outer_accesses;
 	bool suppress_outer_stores{};
 	bool suppress_returns{};

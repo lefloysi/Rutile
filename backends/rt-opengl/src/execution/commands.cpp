@@ -253,6 +253,9 @@ static void rtgl_program_reflect_spirv(struct rtgl_program* program, const rt_sp
 		mapping->binding = resource.binding;
 		mapping->gl_location = -1;
 		mapping->kind = rtgl_location_mapping_kind_from_spirv(resource.kind);
+		mapping->byte_offset = resource.offset;
+		mapping->byte_size = resource.size;
+		mapping->block_size = resource.block_size;
 	}
 	rtgl_program_reflect_fragment_outputs(program, translation);
 }

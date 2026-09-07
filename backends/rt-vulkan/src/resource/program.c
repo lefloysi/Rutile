@@ -665,7 +665,6 @@ void rtvk_program_layout(struct rtvk_context* ctx, struct rtvk_program* program,
 	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
 		const rt_vertex_input* input = &layout->inputs[input_index];
 		program->vertex_inputs[input_index] = *input;
-		program->vertex_attribute_sources[input_index] = input->attributes;
 		program->vertex_inputs[input_index].attributes = &program->vertex_attributes[attribute_offset];
 		memcpy(&program->vertex_attributes[attribute_offset], input->attributes, sizeof(*input->attributes) * input->attribute_count);
 		attribute_offset += input->attribute_count;
@@ -1241,10 +1240,24 @@ rt_location rtvk_program_uniform_location(struct rtvk_program* program, const ch
 
 rt_location rtvk_program_input_location(struct rtvk_program* program, const rt_vertex_attribute* attributes, usize attribute_count) {
 	if (!program || !attributes || attribute_count == 0 || !program->vk_pipeline_layout) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "program, attributes, and a finalized program are required to query a vertex input");
 		return NULL;
 	}
 	for (usize input_index = 0; input_index < program->vertex_layout.input_count; input_index++) {
-		if (program->vertex_attribute_sources[input_index] != attributes || program->vertex_inputs[input_index].attribute_count != attribute_count) {
+		const rt_vertex_input* input = &program->vertex_inputs[input_index];
+		if (input->attribute_count != attribute_count) {
+			continue;
+		}
+		bool matches = true;
+		for (usize attribute_index = 0; attribute_index < attribute_count; attribute_index++) {
+			const rt_vertex_attribute* expected = &input->attributes[attribute_index];
+			const rt_vertex_attribute* supplied = &attributes[attribute_index];
+			if (expected->offset != supplied->offset || expected->format != supplied->format || strcmp(expected->name, supplied->name) != 0) {
+				matches = false;
+				break;
+			}
+		}
+		if (!matches) {
 			continue;
 		}
 		for (u32 location_index = 0; location_index < 256; location_index++) {
@@ -1254,6 +1267,7 @@ rt_location rtvk_program_input_location(struct rtvk_program* program, const rt_v
 			}
 		}
 	}
+	rtvk_throwf(RT_IMPROPER_USAGE, "program has no matching vertex input");
 	return NULL;
 }
 

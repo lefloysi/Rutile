@@ -87,6 +87,12 @@ typedef struct rtgl_recorded_command {
 	union {
 		struct {
 			struct rtgl_framebuffer* framebuffer;
+			struct rtgl_image_base* color_images[RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+			struct rtgl_image_base* color_copy_sources[RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+			struct rtgl_image_base* depth_image;
+			struct rtgl_image_base* depth_copy_source;
+			struct rtgl_image_base* stencil_image;
+			struct rtgl_image_base* stencil_copy_source;
 		} begin_rendering;
 		struct {
 			enum rt_clear_flag attachments;

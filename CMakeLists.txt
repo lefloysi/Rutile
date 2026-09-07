@@ -11,6 +11,7 @@ endif()
 enable_testing()
 
 set(RUTILE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+include("${RUTILE_SOURCE_DIR}/cmake/rtsl_program.cmake")
 
 # The examples embed RTSL program artifacts through the rtslc target.
 set(RTSL_BUILD_CLI ON)
@@ -33,3 +34,4 @@ target_include_directories(rutile-cpp INTERFACE "include")
 add_subdirectory("backends")
 add_subdirectory("layers")
 add_subdirectory("examples")
+add_subdirectory("test")

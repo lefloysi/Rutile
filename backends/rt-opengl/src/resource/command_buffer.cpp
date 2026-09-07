@@ -51,6 +51,14 @@ void rtgl_command_buffer_release_command(struct rtgl_command_buffer* command_buf
 	switch (command->kind) {
 	case RTGL_RECORDED_COMMAND_BEGIN_RENDERING:
 		rtgl_release_resource(command->data.begin_rendering.framebuffer);
+		for (u32 color = 0; color < RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS; ++color) {
+			rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.color_images[color]);
+			rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.color_copy_sources[color]);
+		}
+		rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.depth_image);
+		rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.depth_copy_source);
+		rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.stencil_image);
+		rtgl_texture_image_release(command_buffer->base.ctx, command->data.begin_rendering.stencil_copy_source);
 		break;
 	case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 		rtgl_release_resource(command->data.use_program.program);
@@ -170,6 +178,37 @@ void rtgl_command_buffer_begin_rendering(struct rtgl_command_buffer* command_buf
 	command->kind = RTGL_RECORDED_COMMAND_BEGIN_RENDERING;
 	command->data.begin_rendering.framebuffer = framebuffer;
 	rtgl_retain_resource(framebuffer);
+	for (u32 color = 0; framebuffer && color < framebuffer->color_texture_count; ++color) {
+		struct rtgl_texture_view* view = framebuffer->color_views[color];
+		struct rtgl_image_base* copy_source = NULL;
+		struct rtgl_image_base* image = view && view->texture
+			? rtgl_texture_prepare_write(command_buffer->base.ctx, view->texture, &copy_source)
+			: view ? view->image : NULL;
+		command->data.begin_rendering.color_images[color] = image;
+		command->data.begin_rendering.color_copy_sources[color] = copy_source;
+		rtgl_texture_image_retain(image);
+	}
+	struct rtgl_texture_view* depth_view = framebuffer ? framebuffer->depth_view : NULL;
+	struct rtgl_image_base* depth_copy_source = NULL;
+	command->data.begin_rendering.depth_image = depth_view && depth_view->texture
+		? rtgl_texture_prepare_write(command_buffer->base.ctx, depth_view->texture, &depth_copy_source)
+		: depth_view ? depth_view->image : NULL;
+	command->data.begin_rendering.depth_copy_source = depth_copy_source;
+	rtgl_texture_image_retain(command->data.begin_rendering.depth_image);
+	struct rtgl_texture_view* stencil_view = framebuffer ? framebuffer->stencil_view : NULL;
+	if (depth_view && stencil_view && depth_view->texture && stencil_view->texture == depth_view->texture) {
+		command->data.begin_rendering.stencil_image = command->data.begin_rendering.depth_image;
+		command->data.begin_rendering.stencil_copy_source = command->data.begin_rendering.depth_copy_source;
+		rtgl_texture_image_retain(command->data.begin_rendering.stencil_image);
+		rtgl_texture_image_retain(command->data.begin_rendering.stencil_copy_source);
+	} else {
+		struct rtgl_image_base* stencil_copy_source = NULL;
+		command->data.begin_rendering.stencil_image = stencil_view && stencil_view->texture
+			? rtgl_texture_prepare_write(command_buffer->base.ctx, stencil_view->texture, &stencil_copy_source)
+			: stencil_view ? stencil_view->image : NULL;
+		command->data.begin_rendering.stencil_copy_source = stencil_copy_source;
+		rtgl_texture_image_retain(command->data.begin_rendering.stencil_image);
+	}
 	command_buffer->rendering = true;
 }
 
@@ -609,6 +648,14 @@ void rtgl_command_buffer_retain_command(rtgl_recorded_command* command) {
 	switch (command->kind) {
 	case RTGL_RECORDED_COMMAND_BEGIN_RENDERING:
 		rtgl_retain_resource(command->data.begin_rendering.framebuffer);
+		for (u32 color = 0; color < RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS; ++color) {
+			rtgl_texture_image_retain(command->data.begin_rendering.color_images[color]);
+			rtgl_texture_image_retain(command->data.begin_rendering.color_copy_sources[color]);
+		}
+		rtgl_texture_image_retain(command->data.begin_rendering.depth_image);
+		rtgl_texture_image_retain(command->data.begin_rendering.depth_copy_source);
+		rtgl_texture_image_retain(command->data.begin_rendering.stencil_image);
+		rtgl_texture_image_retain(command->data.begin_rendering.stencil_copy_source);
 		break;
 	case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 		rtgl_retain_resource(command->data.use_program.program);
@@ -1282,39 +1329,18 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			framebuffer = command->data.begin_rendering.framebuffer;
 			color_count = framebuffer ? framebuffer->color_texture_count : 0;
 			for (u32 color = 0; color < color_count; color++) {
-				struct rtgl_texture_view* view = framebuffer->color_views[color];
-				struct rtgl_image_base* copy_source = NULL;
-				color_images[color] = view && view->texture
-					? rtgl_texture_prepare_write(ctx, view->texture, &copy_source)
-					: view ? view->image : NULL;
-				if (color_images[color] && copy_source) {
-					rtgl_texture_image_copy(color_images[color], copy_source);
-				}
-				rtgl_texture_image_release(ctx, copy_source);
+				color_images[color] = command->data.begin_rendering.color_images[color];
+				if (color_images[color] && command->data.begin_rendering.color_copy_sources[color])
+					rtgl_texture_image_copy(color_images[color], command->data.begin_rendering.color_copy_sources[color]);
 			}
 			color_image = color_count ? color_images[0] : NULL;
-			struct rtgl_texture_view* depth_view = framebuffer ? framebuffer->depth_view : NULL;
-			struct rtgl_image_base* depth_copy_source = NULL;
-			depth_image = depth_view && depth_view->texture
-				? rtgl_texture_prepare_write(ctx, depth_view->texture, &depth_copy_source)
-				: depth_view ? depth_view->image : NULL;
-			if (depth_image && depth_copy_source) {
-				rtgl_texture_image_copy(depth_image, depth_copy_source);
-			}
-			rtgl_texture_image_release(ctx, depth_copy_source);
-			struct rtgl_texture_view* stencil_view = framebuffer ? framebuffer->stencil_view : NULL;
-			struct rtgl_image_base* stencil_copy_source = NULL;
-			if (depth_view && stencil_view && depth_view->texture && stencil_view->texture == depth_view->texture) {
-				stencil_image = depth_image;
-			} else {
-				stencil_image = stencil_view && stencil_view->texture
-					? rtgl_texture_prepare_write(ctx, stencil_view->texture, &stencil_copy_source)
-					: stencil_view ? stencil_view->image : NULL;
-			}
-			if (stencil_image && stencil_copy_source) {
-				rtgl_texture_image_copy(stencil_image, stencil_copy_source);
-			}
-			rtgl_texture_image_release(ctx, stencil_copy_source);
+			depth_image = command->data.begin_rendering.depth_image;
+			if (depth_image && command->data.begin_rendering.depth_copy_source)
+				rtgl_texture_image_copy(depth_image, command->data.begin_rendering.depth_copy_source);
+			stencil_image = command->data.begin_rendering.stencil_image;
+			if (stencil_image && command->data.begin_rendering.stencil_copy_source &&
+				stencil_image != depth_image)
+				rtgl_texture_image_copy(stencil_image, command->data.begin_rendering.stencil_copy_source);
 			if (!framebuffer || !color_image || !color_image->gl_texture) {
 				break;
 			}

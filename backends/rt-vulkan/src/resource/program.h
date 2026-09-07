@@ -99,7 +99,6 @@ struct rtvk_program {
 	rt_vertex_layout vertex_layout;
 	rt_vertex_input vertex_inputs[RTVK_MAX_VERTEX_ATTRIBUTES];
 	rt_vertex_attribute vertex_attributes[RTVK_MAX_VERTEX_ATTRIBUTES];
-	const rt_vertex_attribute* vertex_attribute_sources[RTVK_MAX_VERTEX_ATTRIBUTES];
 	struct rt_location_t locations[256];
 	char location_names[256][RTVK_MAX_SHADER_UNIFORM_NAME];
 	struct rtvk_program_input_mapping input_mappings[256];

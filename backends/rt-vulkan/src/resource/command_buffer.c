@@ -1284,7 +1284,10 @@ VkImageLayout rtvk_access_image_layout(rt_access access, VkImageLayout current_l
 		return access.type == RT_ACCESS_READ ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	}
 	if (access.stage & (RT_STAGE_VERTEX | RT_STAGE_FRAGMENT | RT_STAGE_COMPUTE)) {
-		return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		/* rt_access identifies a shader stage and read/write direction, but not
+		 * whether the shader binding is sampled or storage. GENERAL is valid for
+		 * both and therefore preserves the explicit barrier contract. */
+		return VK_IMAGE_LAYOUT_GENERAL;
 	}
 	if (access.stage & RT_STAGE_COLOR_ATTACHMENT) {
 		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1465,7 +1468,7 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 				image_infos[descriptor_index].sampler = descriptor->sampler.vk_sampler
 					? descriptor->sampler.vk_sampler
 					: texture->view->vk_sampler;
-				image_infos[descriptor_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				image_infos[descriptor_index].imageLayout = texture->image->vk_layout;
 				writes[descriptor_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			} else {
 				image_infos[descriptor_index].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -1521,7 +1524,7 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 			writes[descriptor_index].descriptorCount = 1;
 			image_infos[descriptor_index].imageView = image_infos[descriptor_index - 1].imageView;
 			image_infos[descriptor_index].sampler = descriptor->sampler.vk_sampler ? descriptor->sampler.vk_sampler : descriptor->texture.view->vk_sampler;
-			image_infos[descriptor_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			image_infos[descriptor_index].imageLayout = descriptor->texture.image->vk_layout;
 			writes[descriptor_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			writes[descriptor_index].pImageInfo = &image_infos[descriptor_index];
 			descriptor_index++;
@@ -2083,6 +2086,24 @@ void rtvk_lower_index_buffer(struct rtvk_lowered_command_buffer* lowered, struct
 }
 
 void rtvk_lower_draw(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_draw* command) {
+	if (!state->rendering || !state->framebuffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "draw requires an active rendering scope");
+		return;
+	}
+	if (!state->program || state->program->compute_program) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "draw requires a bound graphics program");
+		return;
+	}
+	if (!state->viewport_set || !state->scissor_set) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "draw requires a viewport and scissor");
+		return;
+	}
+	for (usize input_index = 0; input_index < state->program->vertex_layout.input_count; input_index++) {
+		if (input_index >= state->vertex_buffer_capacity || !state->vertex_buffers[input_index]) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "draw is missing vertex input %zu", input_index);
+			return;
+		}
+	}
 	rtvk_lower_bind_descriptors(ctx, lowered, state);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;

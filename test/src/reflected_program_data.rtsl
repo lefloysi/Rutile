@@ -1,0 +1,48 @@
+struct UiDraw {
+	vec4 first;
+	vec4 second;
+}
+
+uniform UiDraw ui_draw;
+
+@stage : compute
+fn main<1, 1, 1>(usize x, usize y, usize z) {
+	var vec4 value = ui_draw.first + ui_draw.second;
+}
+
+struct Point {
+	vec2 position;
+	vec2 uv;
+}
+
+struct Vertex : Position {
+	vec2 uv;
+
+	fn Vertex(Point point) {
+		position = vec4(point.position.x, point.position.y, 0.0, 1.0);
+		uv = point.uv;
+	}
+}
+
+@stage : vertex
+fn draw(Point point) -> Vertex {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn draw(Vertex vertex{.uv : smooth}) -> vec4 {
+	var f32 negative_fraction = -2.75;
+	var i32 signed_value = i32(negative_fraction);
+	var f32 signed_round_trip = f32(signed_value);
+	var u32 unsigned_value = u32(3.75);
+	var i32 signed_from_unsigned = i32(unsigned_value);
+	var f32 unsigned_round_trip = f32(signed_from_unsigned);
+	var vec2 component_product = vec2(ui_draw.first.x, ui_draw.first.y) * vec2(ui_draw.second.x, ui_draw.second.y);
+	var vec2 scaled_product = component_product / 1.0;
+	return vec4(
+		scaled_product.x + signed_round_trip + 2.25,
+		scaled_product.y + unsigned_round_trip / 4.0,
+		ui_draw.first.z * ui_draw.second.z,
+		ui_draw.first.w * ui_draw.second.w
+	);
+}

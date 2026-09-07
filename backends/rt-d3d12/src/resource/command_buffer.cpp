@@ -1219,7 +1219,7 @@ void rtd3d12_command_buffer_texture_copy_to_buffer(rt_command_buffer_t* cb, rt_t
 	if (!cb || !cb->recording || !dst || !dst->active || !rtd3d12_texture_range_valid(source, src_range) || !rtd3d12_texture_range_copy_supported(source, src_range) || !packed_size || dst_range.offset > dst->active->size || dst_range.size < packed_size || packed_size > dst->active->size - dst_range.offset) {
 		return;
 	}
-	rt::buffer_range packed_dst_range = { dst_range.offset, packed_size };
+	rt::buffer_range packed_dst_range = { packed_size, dst_range.offset };
 	rtd3d12_buffer_write write = rtd3d12_buffer_write_begin(rtd3d12_get_current_context(), dst);
 	if (!write.target) {
 		return;

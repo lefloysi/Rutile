@@ -251,8 +251,11 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 	const rtsl::ir::Module& module = program->rtsl_artifact->module;
 	std::vector<D3D12_DESCRIPTOR_RANGE> ranges;
 	std::vector<D3D12_ROOT_PARAMETER> parameters;
-	ranges.reserve(module.resources.size() * 2 + module.uniforms.size() + 1);
-	parameters.reserve(module.resources.size() * 2 + module.uniforms.size() + 1);
+	/* A storage texture contributes UAV, SRV, and sampler ranges. Root
+	 * parameters retain pointers into this vector until serialization, so it
+	 * must not reallocate while the signature is assembled. */
+	ranges.reserve(module.resources.size() * 3 + module.uniforms.size() + 1);
+	parameters.reserve(module.resources.size() * 3 + module.uniforms.size() + 1);
 	program->clear_mappings();
 
 	u32 next_resource_binding = 0;
@@ -381,6 +384,14 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 		parameters.push_back(parameter);
 		rt::location* location = program->allocate_location();
 		if (!location) return false;
+		program->uniform_data_mappings[location->address] = rtd3d12_program_data_mapping{
+			.name = mapping.name,
+			.binding = mapping.binding,
+			.root_parameter = mapping.root_parameter,
+			.byte_offset = 0,
+			.byte_size = *byte_size,
+			.block_size = (*byte_size + 15u) & ~usize(15u),
+		};
 		program->descriptor_mappings[location->address] = std::move(mapping);
 	}
 	/* Plain RTSL `storage` declarations share one raw UAV.  Their locations
