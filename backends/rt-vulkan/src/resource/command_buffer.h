@@ -305,12 +305,21 @@ struct rtvk_lowered_image_view {
 	struct rtvk_lowered_image_view* next;
 };
 
+struct rtvk_lowered_descriptor_pool {
+	VkDescriptorPool vk_descriptor_pool;
+	struct rtvk_lowered_descriptor_pool* next;
+};
+
 struct rtvk_lowered_command_buffer {
 	struct rtvk_lowered_resource_job* resource_jobs;
 	struct rtvk_lowered_staging_buffer* staging_buffers;
+	struct rtvk_lowered_staging_buffer* program_data_buffer;
+	usize program_data_capacity;
+	usize program_data_used;
+	usize program_data_alignment;
 	struct rtvk_lowered_image_view* image_views;
 	VkCommandBuffer vk_command_buffer;
-	VkDescriptorPool vk_descriptor_pool;
+	struct rtvk_lowered_descriptor_pool* descriptor_pools;
 	VkCommandPool vk_command_pool;
 };
 

@@ -315,24 +315,6 @@ struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(str
 		return NULL;
 	}
 
-	VkDescriptorPoolSize descriptor_sizes[] = {
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLER, 128 },
-	};
-	VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-	descriptor_pool_info.maxSets = 128;
-	descriptor_pool_info.poolSizeCount = (u32)(sizeof(descriptor_sizes) / sizeof(descriptor_sizes[0]));
-	descriptor_pool_info.pPoolSizes = descriptor_sizes;
-	result = vkCreateDescriptorPool(ctx->vk_device, &descriptor_pool_info, VK_ALLOCATOR, &lowered->vk_descriptor_pool);
-	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		rtvk_lowered_command_buffer_destroy(ctx, lowered);
-		return NULL;
-	}
-
 	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	result = vkBeginCommandBuffer(lowered->vk_command_buffer, &begin_info);

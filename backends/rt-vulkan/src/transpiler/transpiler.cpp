@@ -448,12 +448,12 @@ private:
 		return result;
 	}
 
-	std::uint32_t typeStorageImage(rtsl::ir::TypeId texel, std::uint32_t dimensions) {
-		const std::uint64_t key = static_cast<std::uint64_t>(texel.value()) << 32 | dimensions;
+	std::uint32_t typeStorageImage(rtsl::ir::TypeId texel, std::uint32_t extent) {
+		const std::uint64_t key = static_cast<std::uint64_t>(texel.value()) << 32 | extent;
 		if (const auto found = storage_images.find(key); found != storage_images.end()) return found->second;
 		const std::uint32_t result = id();
 		// Dim is 0/1/2 for 1D/2D/3D; sampled=2 denotes a read-write storage image.
-		instruction(25, {result, typeFor(texel), dimensions - 1, 0, 0, 0, 2, 0});
+		instruction(25, {result, typeFor(texel), extent - 1, 0, 0, 0, 2, 0});
 		storage_images.emplace(key, result);
 		return result;
 	}
@@ -625,20 +625,23 @@ private:
 				if (!type || type->parameter_types.size() != 2 || resourceTypeName(resource) != "buffer")
 					throw std::runtime_error("RTIR storage buffer must preserve buffer<header, element> type parameters");
 				const std::uint32_t block = id();
-				const std::uint32_t header = typeFor(type->parameter_types[0]);
-				const std::uint32_t elements = typeRuntimeArray(typeFor(type->parameter_types[1]), resourceStride(type->parameter_types[1]));
-				instruction(30, {block, header, elements});
-				instruction(71, {block, 2}); // Block
+				const bool has_header = module.findType(type->parameter_types[0])->kind != rtsl::ir::TypeKind::type_void;
+				const bool has_elements = module.findType(type->parameter_types[1])->kind != rtsl::ir::TypeKind::type_void;
+				std::vector<std::uint32_t> members{block};
+				if (has_header) { members.push_back(typeFor(type->parameter_types[0])); }
+				if (has_elements) { members.push_back(typeRuntimeArray(typeFor(type->parameter_types[1]), resourceStride(type->parameter_types[1]))); }
+				instruction(30, members);
+				instruction(71, {block, 2});
 				instruction(72, {block, 0, 35, 0});
-				instruction(72, {block, 1, 35, resourceStride(type->parameter_types[0])});
+				if (has_header && has_elements) { instruction(72, {block, 1, 35, resourceStride(type->parameter_types[0])}); }
 				instruction(59, {pointerType(12, block), variable, 12});
 			} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
 				const rtsl::ir::Type* type = module.findType(resource.type);
 				const std::string_view name = resourceTypeName(resource);
-				const std::uint32_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
-				if (!type || type->parameter_types.size() != 1 || !dimensions)
+				const std::uint32_t extent = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+				if (!type || type->parameter_types.size() != 1 || !extent)
 					throw std::runtime_error("RTIR storage image must preserve image dimension and texel type");
-				instruction(59, {pointerType(0, typeStorageImage(type->parameter_types[0], dimensions)), variable, 0});
+				instruction(59, {pointerType(0, typeStorageImage(type->parameter_types[0], extent)), variable, 0});
 			} else {
 				continue;
 			}
@@ -1335,7 +1338,7 @@ private:
 				if (!resource_type) throw std::runtime_error("RTIR resource load has an unknown resource type");
 				if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
 					if (source.operands.size() > 1) throw std::runtime_error("RTIR buffer resource load has too many coordinates");
-					const std::uint32_t member = source.operands.empty() ? 0 : 1;
+					const std::uint32_t member = source.operands.empty() || module.findType(resource_type->parameter_types[0])->kind == rtsl::ir::TypeKind::type_void ? 0 : 1;
 					std::vector<std::uint32_t> chain{pointerType(12, typeFor(source.type)), id(), resource_variable->second, constantUnsignedInteger(member)};
 					if (!source.operands.empty()) chain.push_back(valueFor(values, source.operands[0]));
 					instruction(65, chain);
@@ -1344,14 +1347,14 @@ private:
 				}
 				if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
 					const std::string_view name = resourceTypeName(resource);
-					const std::size_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
-					if (!dimensions || source.operands.size() != dimensions) throw std::runtime_error("RTIR image resource load has the wrong coordinate count");
+					const std::size_t extent = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+					if (!extent || source.operands.size() != extent) throw std::runtime_error("RTIR image resource load has the wrong coordinate count");
 					std::vector<std::uint32_t> coordinates;
 					for (const auto operand : source.operands) {
 						const std::uint32_t component = id(); instruction(124, {typeInteger(32, true), component, valueFor(values, operand)}); coordinates.push_back(component);
 					}
-					const std::uint32_t coordinate = dimensions == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)dimensions), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
-					const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)dimensions), image, resource_variable->second});
+					const std::uint32_t coordinate = extent == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)extent), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
+					const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)extent), image, resource_variable->second});
 					const rtsl::ir::Type* texel = module.findType(resource_type->parameter_types[0]);
 					if (texel && texel->kind == rtsl::ir::TypeKind::type_floating && texel->bit_width == 32) {
 						const std::uint32_t physical = id(); instruction(98, {typeVector(typeFloat(), 4), physical, image, coordinate});
@@ -1385,18 +1388,18 @@ private:
 				if (source.operands.size() != 2) throw std::runtime_error("RTIR buffer resource store requires coordinate and value");
 				const std::uint32_t pointer = id();
 				const auto type = value_types.at(source.operands[1].value());
-				instruction(65, {pointerType(12, typeFor(type)), pointer, resource_variable->second, constantUnsignedInteger(1), valueFor(values, source.operands[0])});
+				instruction(65, {pointerType(12, typeFor(type)), pointer, resource_variable->second, constantUnsignedInteger(module.findType(module.findType(resource.type)->parameter_types[0])->kind == rtsl::ir::TypeKind::type_void ? 0 : 1), valueFor(values, source.operands[0])});
 				instruction(62, {pointer, valueFor(values, source.operands[1])}); break;
 			}
 			if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
 				const std::string_view name = resourceTypeName(resource);
-				const std::size_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
-				if (!dimensions || source.operands.size() != dimensions + 1) throw std::runtime_error("RTIR image resource store has the wrong coordinate count");
+				const std::size_t extent = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+				if (!extent || source.operands.size() != extent + 1) throw std::runtime_error("RTIR image resource store has the wrong coordinate count");
 				std::vector<std::uint32_t> coordinates;
-				for (std::size_t index = 0; index < dimensions; ++index) { const std::uint32_t component = id(); instruction(124, {typeInteger(32, true), component, valueFor(values, source.operands[index])}); coordinates.push_back(component); }
-				const std::uint32_t coordinate = dimensions == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)dimensions), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
+				for (std::size_t index = 0; index < extent; ++index) { const std::uint32_t component = id(); instruction(124, {typeInteger(32, true), component, valueFor(values, source.operands[index])}); coordinates.push_back(component); }
+				const std::uint32_t coordinate = extent == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)extent), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
 				const rtsl::ir::Type* resource_type = module.findType(resource.type);
-				const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)dimensions), image, resource_variable->second});
+				const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)extent), image, resource_variable->second});
 				const rtsl::ir::Type* texel = module.findType(resource_type->parameter_types[0]);
 				std::uint32_t value = valueFor(values, source.operands.back());
 				if (texel && texel->kind == rtsl::ir::TypeKind::type_floating && texel->bit_width == 32) { const std::uint32_t physical = id(); instruction(80, {typeVector(typeFloat(), 4), physical, value, constantFloat(0.0f), constantFloat(0.0f), constantFloat(1.0f)}); value = physical; }

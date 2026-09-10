@@ -171,77 +171,42 @@ rt::location* rt_program_t::allocate_location(bool zero_address) {
 	return nullptr;
 }
 
-static std::optional<u32> rtd3d12_type_byte_size(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
-	const rtsl::ir::Type* type = module.findType(type_id);
-	if (!type) {
-		return std::nullopt;
-	}
-	switch (type->kind) {
-	case rtsl::ir::TypeKind::type_boolean:
-	case rtsl::ir::TypeKind::type_signed_integer:
-	case rtsl::ir::TypeKind::type_unsigned_integer:
-	case rtsl::ir::TypeKind::type_floating:
-		return type->bit_width / 8u;
-	case rtsl::ir::TypeKind::type_vector: {
-		const std::optional<u32> element = rtd3d12_type_byte_size(module, type->element_type);
-		return element ? std::optional<u32>{ *element * type->element_count } : std::nullopt;
-	}
-	case rtsl::ir::TypeKind::type_matrix: {
-		const std::optional<u32> column = rtd3d12_type_byte_size(module, type->element_type);
-		return column ? std::optional<u32>{ *column * type->element_count } : std::nullopt;
-	}
-	case rtsl::ir::TypeKind::type_structure: {
-		u32 size = 0;
-		for (const rtsl::ir::StructMember& member : type->members) {
-			const std::optional<u32> member_size = rtd3d12_type_byte_size(module, member.type);
-			if (!member_size) {
-				return std::nullopt;
-			}
-			size += *member_size;
-		}
-		return size;
-	}
-	default:
-		return std::nullopt;
-	}
-}
+struct rtd3d12_buffer_layout { u32 alignment; u32 size; };
 
-struct rtd3d12_storage_layout { u32 alignment; u32 size; };
-
-static std::optional<rtd3d12_storage_layout> rtd3d12_storage_type_layout(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
+static std::optional<rtd3d12_buffer_layout> rtd3d12_buffer_type_layout(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
 	const rtsl::ir::Type* type = module.findType(type_id);
 	if (!type) return std::nullopt;
 	switch (type->kind) {
 	case rtsl::ir::TypeKind::type_boolean:
 	case rtsl::ir::TypeKind::type_signed_integer:
 	case rtsl::ir::TypeKind::type_unsigned_integer:
-	case rtsl::ir::TypeKind::type_floating: return rtd3d12_storage_layout{4, 4};
+	case rtsl::ir::TypeKind::type_floating: return rtd3d12_buffer_layout{4, 4};
 	case rtsl::ir::TypeKind::type_vector: {
-		auto element = rtd3d12_storage_type_layout(module, type->element_type);
+		auto element = rtd3d12_buffer_type_layout(module, type->element_type);
 		if (!element) return std::nullopt;
-		if (type->element_count == 2) return rtd3d12_storage_layout{8, element->size * 2};
-		if (type->element_count == 3 || type->element_count == 4) return rtd3d12_storage_layout{16, 16};
+		if (type->element_count == 2) return rtd3d12_buffer_layout{8, element->size * 2};
+		if (type->element_count == 3 || type->element_count == 4) return rtd3d12_buffer_layout{16, 16};
 		return std::nullopt;
 	}
-	case rtsl::ir::TypeKind::type_matrix: return rtd3d12_storage_layout{16, 16 * type->element_count};
+	case rtsl::ir::TypeKind::type_matrix: return rtd3d12_buffer_layout{16, 16 * type->element_count};
 	case rtsl::ir::TypeKind::type_array: {
-		auto element = rtd3d12_storage_type_layout(module, type->element_type);
+		auto element = rtd3d12_buffer_type_layout(module, type->element_type);
 		if (!element) return std::nullopt;
 		const u32 stride = (element->size + 15u) & ~u32(15u);
-		return rtd3d12_storage_layout{16, stride * type->element_count};
+		return rtd3d12_buffer_layout{16, stride * type->element_count};
 	}
 	case rtsl::ir::TypeKind::type_structure: {
 		u32 alignment = 16;
 		u32 offset{};
 		for (const rtsl::ir::StructMember& member : type->members) {
-			auto layout = rtd3d12_storage_type_layout(module, member.type);
+			auto layout = rtd3d12_buffer_type_layout(module, member.type);
 			if (!layout) return std::nullopt;
 			alignment = (std::max)(alignment, layout->alignment);
 			offset = (offset + layout->alignment - 1u) / layout->alignment * layout->alignment;
 			offset += layout->size;
 		}
 		offset = (offset + alignment - 1u) / alignment * alignment;
-		return rtd3d12_storage_layout{alignment, offset};
+		return rtd3d12_buffer_layout{alignment, offset};
 	}
 	default: return std::nullopt;
 	}
@@ -358,7 +323,8 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 	}
 	for (const rtsl::ir::Uniform& uniform : module.uniforms) {
 		const rtsl::ir::Symbol* symbol = module.findSymbol(uniform.symbol);
-		const std::optional<u32> byte_size = uniform.size ? uniform.size : rtd3d12_type_byte_size(module, uniform.type);
+		const auto layout = rtd3d12_buffer_type_layout(module, uniform.type);
+		const std::optional<u32> byte_size = uniform.size ? uniform.size : layout ? std::optional<u32>{layout->size} : std::nullopt;
 		if (!symbol || !byte_size || !*byte_size) {
 			rtd3d12_fail(rt::error::shader_link_failed, "cannot reflect RTSL uniform into a D3D12 constant buffer");
 			return false;
@@ -419,7 +385,7 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 		std::vector<usize> offsets;
 		offsets.reserve(storage_objects.size());
 		for (const rtsl::ir::StorageObject* object : storage_objects) {
-			const auto layout = rtd3d12_storage_type_layout(module, object->type);
+			const auto layout = rtd3d12_buffer_type_layout(module, object->type);
 			if (!layout || !layout->size) {
 				rtd3d12_fail(rt::error::shader_link_failed, "cannot reflect RTSL storage object into D3D12 storage data");
 				return false;
@@ -432,7 +398,7 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 		for (usize index = 0; index < storage_objects.size(); ++index) {
 			const rtsl::ir::StorageObject& object = *storage_objects[index];
 			const rtsl::ir::Symbol* symbol = module.findSymbol(object.symbol);
-			const auto layout = rtd3d12_storage_type_layout(module, object.type);
+			const auto layout = rtd3d12_buffer_type_layout(module, object.type);
 			if (!symbol || !layout) return false;
 			rt::location* location = program->allocate_location();
 			if (!location) return false;

@@ -127,7 +127,10 @@ public:
 			switch (resource.kind) {
 			case rtsl::ir::ResourceKind::resource_uniform_buffer: out << "ConstantBuffer<float4> " << name << " : register(b" << binding.binding << ", space" << binding.set << ");\n"; break;
 			case rtsl::ir::ResourceKind::resource_storage_buffer: out << "RWByteAddressBuffer " << name << " : register(u" << binding.binding << ", space" << binding.set << ");\n"; break;
-			case rtsl::ir::ResourceKind::resource_sampled_texture: out << "Texture2D<float4> " << name << " : register(t" << binding.binding << ", space" << binding.set << ");\n"; break;
+			case rtsl::ir::ResourceKind::resource_sampled_texture:
+				out << "Texture2D<float4> " << name << " : register(t" << binding.binding << ", space" << binding.set << ");\n";
+				out << "SamplerState " << name << "_sampler : register(s" << binding.binding << ", space" << binding.set << ");\n";
+				break;
 			case rtsl::ir::ResourceKind::resource_sampler: out << "SamplerState " << name << " : register(s" << binding.binding << ", space" << binding.set << ");\n"; break;
 			case rtsl::ir::ResourceKind::resource_storage_texture: {
 				const rtsl::ir::Type* type = module.findType(resource.type);
@@ -761,8 +764,8 @@ private:
 			if (!resource) return fail("instruction", "resource store references an unknown symbol");
 			const std::string name = symbolName(module, resource->symbol);
 			if (resource->kind == rtsl::ir::ResourceKind::resource_storage_texture) {
-				const std::size_t dimensions = ins.operands.size() - 1; if (dimensions < 1 || dimensions > 3) return fail("instruction", "image resource store has an invalid coordinate count");
-				out << pad << name << "["; if (dimensions == 1) out << valueName(ins.operands[0]); else { out << "uint" << dimensions << "("; for (std::size_t i = 0; i < dimensions; ++i) { if (i) out << ", "; out << valueName(ins.operands[i]); } out << ")"; } out << "] = " << valueName(ins.operands.back()) << ";\n"; return true;
+				const std::size_t extent = ins.operands.size() - 1; if (extent < 1 || extent > 3) return fail("instruction", "image resource store has an invalid coordinate count");
+				out << pad << name << "["; if (extent == 1) out << valueName(ins.operands[0]); else { out << "uint" << extent << "("; for (std::size_t i = 0; i < extent; ++i) { if (i) out << ", "; out << valueName(ins.operands[i]); } out << ")"; } out << "] = " << valueName(ins.operands.back()) << ";\n"; return true;
 			}
 			if (resource->kind == rtsl::ir::ResourceKind::resource_storage_buffer && ins.operands.size() == 2) {
 				const rtsl::ir::Type* resource_type = module.findType(resource->type);
@@ -783,16 +786,21 @@ private:
 			if (ins.immediates.size() != 1 || !ins.operands.empty()) return fail("instruction", "resource query is malformed");
 			const rtsl::ir::Resource* resource{}; for (const auto& candidate : module.resources) if (candidate.symbol.value() == ins.immediates[0]) { resource = &candidate; break; }
 			const std::string name = resource ? symbolName(module, resource->symbol) : std::string{};
-			const rtsl::ir::Type* result = module.findType(ins.type); const std::uint32_t dimensions = result && result->kind == rtsl::ir::TypeKind::type_vector ? result->element_count : 1;
-			if (!resource || resource->kind != rtsl::ir::ResourceKind::resource_storage_texture || dimensions < 1 || dimensions > 3) return fail("instruction", "resource query requires a storage image extent type");
+			const rtsl::ir::Type* result = module.findType(ins.type); const std::uint32_t extent = result && result->kind == rtsl::ir::TypeKind::type_vector ? result->element_count : 1;
+			if (!resource || resource->kind != rtsl::ir::ResourceKind::resource_storage_texture || extent < 1 || extent > 3) return fail("instruction", "resource query requires a storage image extent type");
 			out << pad << type << " " << valueName(ins.result) << "; ";
-			if (dimensions == 1) out << name << ".GetDimensions(" << valueName(ins.result) << ");\n";
-			else { out << name << ".GetDimensions("; for (std::uint32_t i = 0; i < dimensions; ++i) { if (i) out << ", "; out << valueName(ins.result) << "." << "xyz"[i]; } out << ");\n"; }
+			if (extent == 1) out << name << ".GetDimensions(" << valueName(ins.result) << ");\n";
+			else { out << name << ".GetDimensions("; for (std::uint32_t i = 0; i < extent; ++i) { if (i) out << ", "; out << valueName(ins.result) << "." << "xyz"[i]; } out << ");\n"; }
 			return true;
 		}
 		case rtsl::ir::Opcode::opcode_resource_sample: {
 			if (ins.immediates.size() != 1 || ins.operands.size() != 1) return fail("instruction", "resource sample is malformed");
 			const rtsl::ir::Resource* resource{}; for (const auto& candidate : module.resources) if (candidate.symbol.value() == ins.immediates[0]) { resource = &candidate; break; }
+			if (resource && resource->kind == rtsl::ir::ResourceKind::resource_sampled_texture) {
+				const std::string name = symbolName(module, resource->symbol);
+				out << pad << type << " " << valueName(ins.result) << " = " << name << ".Sample(" << name << "_sampler, " << valueName(ins.operands[0]) << ");\n";
+				return true;
+			}
 			if (!resource || resource->kind != rtsl::ir::ResourceKind::resource_storage_texture) return fail("instruction", "resource sample requires a storage image");
 			const rtsl::ir::Type* resource_type = module.findType(resource->type);
 			if (!resource_type || module.strings.get(resource_type->name) != "image_2d" || resource_type->parameter_types.size() != 1) return fail("instruction", "resource sample requires image_2d<T>");

@@ -41,6 +41,10 @@ target_sources(rutile-test PRIVATE "${program_source}")
 foreach(backend IN ITEMS rt-vulkan rt-d3d12 rt-opengl)
 	if(TARGET "${backend}")
 		add_dependencies(rutile-test "${backend}")
+		add_test(NAME "rutile.${backend}.uniform-upload"
+			COMMAND "$<TARGET_FILE:rutile-test>" "${backend}" --upload-only)
+		set_tests_properties("rutile.${backend}.uniform-upload" PROPERTIES
+			WORKING_DIRECTORY "$<TARGET_FILE_DIR:rutile-test>" TIMEOUT 30)
 		add_test(
 			NAME "rutile.${backend}.reflected-program-data"
 			COMMAND "$<TARGET_FILE:rutile-test>" "${backend}"

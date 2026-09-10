@@ -1404,6 +1404,41 @@ void rtvk_lower_begin_rendering(VkCommandBuffer command_buffer, const struct rtv
 	vkCmdBeginRendering(command_buffer, &info);
 }
 
+static VkResult rtvk_lower_grow_descriptor_pool(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_program* program) {
+	const u32 sets_per_pool = 128;
+	VkDescriptorPoolSize sizes[] = {
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 0 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 0 },
+	};
+	for (u32 location = 0; location < 256; ++location) {
+		if (!rtvk_program_descriptor_is_first(program, location)) { continue; }
+		const struct rtvk_program_descriptor_mapping* mapping = &program->descriptor_mappings[location];
+		const VkDescriptorType type = rtvk_program_descriptor_type(mapping->kind);
+		for (u32 index = 0; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
+			if (sizes[index].type == type) { sizes[index].descriptorCount += sets_per_pool; }
+		}
+		if (mapping->sampled_alias) { sizes[3].descriptorCount += sets_per_pool; }
+	}
+	u32 size_count = 0;
+	for (u32 index = 0; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
+		if (sizes[index].descriptorCount) { sizes[size_count++] = sizes[index]; }
+	}
+	struct rtvk_lowered_descriptor_pool* pool = calloc(1, sizeof(*pool));
+	if (!pool) { return VK_ERROR_OUT_OF_HOST_MEMORY; }
+	VkDescriptorPoolCreateInfo info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+	info.maxSets = sets_per_pool;
+	info.poolSizeCount = size_count;
+	info.pPoolSizes = sizes;
+	VkResult result = vkCreateDescriptorPool(ctx->vk_device, &info, VK_ALLOCATOR, &pool->vk_descriptor_pool);
+	if (result != VK_SUCCESS) { free(pool); return result; }
+	pool->next = lowered->descriptor_pools;
+	lowered->descriptor_pools = pool;
+	return VK_SUCCESS;
+}
+
 void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state) {
 	if (!state->descriptors_dirty) {
 		return;
@@ -1414,11 +1449,18 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 	}
 	VkDescriptorSetLayout layout = state->program->vk_descriptor_set_layout;
 	VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	allocate_info.descriptorPool = lowered->vk_descriptor_pool;
+	allocate_info.descriptorPool = lowered->descriptor_pools ? lowered->descriptor_pools->vk_descriptor_pool : VK_NULL_HANDLE;
 	allocate_info.descriptorSetCount = 1;
 	allocate_info.pSetLayouts = &layout;
 	VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-	VkResult result = vkAllocateDescriptorSets(ctx->vk_device, &allocate_info, &descriptor_set);
+	VkResult result = allocate_info.descriptorPool ? vkAllocateDescriptorSets(ctx->vk_device, &allocate_info, &descriptor_set) : VK_ERROR_OUT_OF_POOL_MEMORY;
+	if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
+		result = rtvk_lower_grow_descriptor_pool(ctx, lowered, state->program);
+		if (result == VK_SUCCESS) {
+			allocate_info.descriptorPool = lowered->descriptor_pools->vk_descriptor_pool;
+			result = vkAllocateDescriptorSets(ctx->vk_device, &allocate_info, &descriptor_set);
+		}
+	}
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
@@ -1971,16 +2013,35 @@ void rtvk_lower_program_data(struct rtvk_context* ctx, struct rtvk_lowered_comma
 	const usize copy_size = command->size < mapping->byte_size ? command->size : mapping->byte_size;
 	if (copy_size > mapping->block_size - mapping->byte_offset) return;
 	memcpy(block->bytes + mapping->byte_offset, command->bytes, copy_size);
-	const VkBufferUsageFlags usage = mapping->kind == RTVK_DATA_UNIFORM ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-	block->buffer = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, mapping->block_size, usage);
-	if (!block->buffer) {
-		return;
+	if (!lowered->program_data_alignment) {
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties(ctx->vk_physical_device, &properties);
+		lowered->program_data_alignment = properties.limits.minUniformBufferOffsetAlignment;
+		if (properties.limits.minStorageBufferOffsetAlignment > lowered->program_data_alignment) {
+			lowered->program_data_alignment = properties.limits.minStorageBufferOffsetAlignment;
+		}
 	}
+	const usize alignment = lowered->program_data_alignment;
+	usize offset = (lowered->program_data_used + alignment - 1) / alignment * alignment;
+	if (!lowered->program_data_buffer || offset > lowered->program_data_capacity || block->size > lowered->program_data_capacity - offset) {
+		const usize capacity = block->size > 65536 ? block->size : 65536;
+		struct rtvk_lowered_staging_buffer* buffer = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, capacity, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+		if (!buffer) { return; }
+		lowered->program_data_buffer = buffer;
+		lowered->program_data_capacity = capacity;
+		offset = 0;
+	}
+	block->buffer = lowered->program_data_buffer;
 	VmaAllocationInfo allocation_info;
 	vmaGetAllocationInfo(ctx->vma_allocator, block->buffer->vma_allocation, &allocation_info);
-	memcpy(allocation_info.pMappedData, block->bytes, block->size);
-	vmaFlushAllocation(ctx->vma_allocator, block->buffer->vma_allocation, 0, block->size);
-	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(state, command->address);
+	memcpy((u08*)allocation_info.pMappedData + offset, block->bytes, block->size);
+	vmaFlushAllocation(ctx->vma_allocator, block->buffer->vma_allocation, offset, block->size);
+	lowered->program_data_used = offset + block->size;
+	// Locations sharing a block must all bind its latest snapshot.
+	struct rtvk_bound_descriptor* descriptor = rtvk_lower_find_program_descriptor(state, &state->program->descriptor_mappings[command->address]);
+	if (!descriptor) {
+		descriptor = rtvk_lower_add_descriptor(state, command->address);
+	}
 	if (!descriptor) {
 		return;
 	}
@@ -1988,7 +2049,7 @@ void rtvk_lower_program_data(struct rtvk_context* ctx, struct rtvk_lowered_comma
 	descriptor->vk_buffer = block->buffer->vk_buffer;
 	descriptor->texture = (struct rtvk_ir_texture){ 0 };
 	descriptor->sampler = (struct rtvk_ir_sampler){ 0 };
-	descriptor->offset = 0;
+	descriptor->offset = offset;
 	descriptor->size = block->size;
 	state->descriptors_dirty = true;
 }
@@ -2303,7 +2364,12 @@ void rtvk_lowered_command_buffer_destroy(struct rtvk_context* ctx, struct rtvk_l
 		vkDestroyImageView(ctx->vk_device, image_view->vk_image_view, VK_ALLOCATOR);
 		free(image_view);
 	}
-	vkDestroyDescriptorPool(ctx->vk_device, lowered->vk_descriptor_pool, VK_ALLOCATOR);
+	while (lowered->descriptor_pools) {
+		struct rtvk_lowered_descriptor_pool* pool = lowered->descriptor_pools;
+		lowered->descriptor_pools = pool->next;
+		vkDestroyDescriptorPool(ctx->vk_device, pool->vk_descriptor_pool, VK_ALLOCATOR);
+		free(pool);
+	}
 	vkDestroyCommandPool(ctx->vk_device, lowered->vk_command_pool, VK_ALLOCATOR);
 	rtvk_lowered_command_buffer_release_resource_jobs(lowered);
 	free(lowered);

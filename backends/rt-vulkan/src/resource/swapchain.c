@@ -135,7 +135,9 @@ static void rtvk_swapchain_generation_retire(struct rtvk_context* ctx, struct rt
 		return;
 	}
 	if (generation->present_queue) {
+		rtvk_mutex_lock(&generation->present_queue->lock);
 		VkResult result = vkQueueWaitIdle(generation->present_queue->vk_queue);
+		rtvk_mutex_unlock(&generation->present_queue->lock);
 		if (result != VK_SUCCESS) {
 			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
@@ -242,7 +244,9 @@ static void rtvk_swapchain_release_acquired_image_locked(struct rtvk_swapchain* 
 	present_info.pSwapchains = &generation->vk_swapchain;
 	present_info.pImageIndices = &generation->acquired_image_index;
 	present_info.pResults = NULL;
+	rtvk_mutex_lock(&generation->present_queue->lock);
 	(void)vkQueuePresentKHR(generation->present_queue->vk_queue, &present_info);
+	rtvk_mutex_unlock(&generation->present_queue->lock);
 	rtvk_swapchain_mark_unacquired_locked(swapchain);
 }
 
@@ -276,7 +280,9 @@ static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swap
 	 * this frame slot's acquire semaphore, wait for the presentation queue so
 	 * Vulkan cannot observe an unfinished wait on that semaphore. */
 	if (reused && generation->present_queue) {
+		rtvk_mutex_lock(&generation->present_queue->lock);
 		VkResult result = vkQueueWaitIdle(generation->present_queue->vk_queue);
+		rtvk_mutex_unlock(&generation->present_queue->lock);
 		if (result != VK_SUCCESS) {
 			rtvk_throwf(rtvk_error_from_vk(result), "vkQueueWaitIdle before swapchain acquire returned %s", rtvk_vk_result_name(result));
 		}
@@ -774,7 +780,9 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 	present_info.pImageIndices = &generation->acquired_image_index;
 	present_info.pResults = NULL;
 
+	rtvk_mutex_lock(&generation->present_queue->lock);
 	VkResult result = vkQueuePresentKHR(generation->present_queue->vk_queue, &present_info);
+	rtvk_mutex_unlock(&generation->present_queue->lock);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;

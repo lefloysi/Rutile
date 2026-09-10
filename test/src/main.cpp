@@ -82,6 +82,11 @@ bool reflected_program_data_upload() {
 		succeeded = expect_success("rtCmdUniformData");
 	}
 	if (succeeded) {
+		const rt_location padded = rtProgramUniformLocation(program, "ui_layout");
+		rtCmdUniformData(command_buffer, padded, ui_draw_data.data(), ui_draw_data.size());
+		succeeded = expect_success("uploading padded vec2/vec2/scalar uniform");
+	}
+	if (succeeded) {
 		rtCommandBufferEnd(command_buffer);
 		succeeded = expect_success("rtCommandBufferEnd");
 	}
@@ -91,7 +96,7 @@ bool reflected_program_data_upload() {
 	return succeeded;
 }
 
-bool reflected_program_data_render() {
+bool reflected_program_data_render(u32 draw_count) {
 	struct Vertex {
 		float position[2];
 		float uv[2];
@@ -134,6 +139,8 @@ bool reflected_program_data_render() {
 			return false;
 		}
 		const rt_location uniform = rtProgramUniformLocation(program, "ui_draw");
+		const rt_location opacity_location = rtProgramUniformLocation(program, "opacity");
+		const rt_location padded_location = rtProgramUniformLocation(program, "ui_layout");
 		const rt_location vertex_input = rtProgramInputLocation(program, attributes.data(), attributes.size());
 		const rt_location output = rtProgramOutputLocation(program, nullptr);
 		if (!uniform || !vertex_input || !expect_success("querying render locations")) {
@@ -141,7 +148,7 @@ bool reflected_program_data_render() {
 		}
 
 		rtBufferResize(vertex_buffer, RT_DEVICE_MEMORY, sizeof(vertices));
-		rtBufferResize(readback_buffer, RT_DEVICE_MEMORY, image_byte_size);
+		rtBufferResize(readback_buffer, RT_HOST_MEMORY, image_byte_size);
 		rtTextureResize(image, RT_TEXTURE_2D, RT_RGBA8_UNORM, image_range.extent, 1);
 		rtTextureViewSetTexture(image_view, image);
 		rtFramebufferSetColorView(framebuffer, image_view, output);
@@ -155,8 +162,14 @@ bool reflected_program_data_render() {
 		rtCommandBufferContinueRendering(draws);
 		rtCmdUseProgram(draws, program);
 		rtCmdUniformData(draws, uniform, reinterpret_cast<const u08*>(uniforms.data()), sizeof(uniforms));
+		const std::array<float, 8> padded_uniform = {64.0f, 16.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
+		rtCmdUniformData(draws, padded_location, reinterpret_cast<const u08*>(padded_uniform.data()), sizeof(padded_uniform));
 		rtCmdVertexBuffer(draws, vertex_input, vertex_buffer, { sizeof(vertices), 0 });
-		rtCmdDraw(draws, vertices.size(), 0);
+		for (u32 index = 0; index < draw_count; ++index) {
+			const float opacity = index % 2 == 0 ? 1.0f : 0.5f;
+			rtCmdUniformData(draws, opacity_location, reinterpret_cast<const u08*>(&opacity), sizeof(opacity));
+			rtCmdDraw(draws, vertices.size(), 0);
+		}
 		rtCommandBufferEnd(draws);
 		rtCmdBeginRendering(commands, framebuffer);
 		rtCmdClearColor(commands, output, 0.0f, 0.0f, 0.0f, 1.0f);
@@ -209,8 +222,8 @@ bool reflected_program_data_render() {
 } // namespace
 
 int main(int argc, char** argv) {
-	if (argc != 2) {
-		std::cerr << "usage: rutile-test <backend>\n";
+	if (argc < 2 || argc > 3 || (argc == 3 && std::string_view{argv[2]} != "--upload-only")) {
+		std::cerr << "usage: rutile-test <backend> [--upload-only]\n";
 		return 2;
 	}
 
@@ -228,7 +241,7 @@ int main(int argc, char** argv) {
 	}
 
 	validation_errors.clear();
-	const bool succeeded = reflected_program_data_upload() && reflected_program_data_render();
+	const bool succeeded = reflected_program_data_upload() && (argc == 3 || (reflected_program_data_render(1) && reflected_program_data_render(1025)));
 	rtExit();
 	const bool exit_succeeded = expect_success("rtExit");
 	rtUnload();

@@ -4,6 +4,14 @@ struct UiDraw {
 }
 
 uniform UiDraw ui_draw;
+uniform f32 opacity;
+
+struct UiLayout {
+	vec2 viewport_size;
+	vec2 translation;
+	f32 texture_mode;
+}
+uniform UiLayout ui_layout;
 
 @stage : compute
 fn main<1, 1, 1>(usize x, usize y, usize z) {
@@ -43,6 +51,6 @@ fn draw(Vertex vertex{.uv : smooth}) -> vec4 {
 		scaled_product.x + signed_round_trip + 2.25,
 		scaled_product.y + unsigned_round_trip / 4.0,
 		ui_draw.first.z * ui_draw.second.z,
-		ui_draw.first.w * ui_draw.second.w
+		ui_draw.first.w * ui_draw.second.w * opacity * ui_layout.texture_mode
 	);
 }

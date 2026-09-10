@@ -912,7 +912,7 @@ void rt_command_buffer_t::uniform_data(rt::location* location, const u08* data, 
 	const rtd3d12_program_data_mapping* mapping = program && location && program->uniform_data_mappings[location->address]
 		? &*program->uniform_data_mappings[location->address] : nullptr;
 	if (!recording || !mapping || !data || size != mapping->byte_size) {
-		rtd3d12_fail(rt::error::improper_usage, "program data write does not match its reflected location");
+		rtd3d12_fail(rt::error::improper_usage, "program data write does not match reflected location: name={}, bytes={}, expected={}, recording={}", mapping ? mapping->name.c_str() : "<missing>", size, mapping ? mapping->byte_size : 0, recording);
 		return;
 	}
 	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::uniform_data));
@@ -934,7 +934,7 @@ void rt_command_buffer_t::storage_data(rt::location* location, const u08* data, 
 	const rtd3d12_program_data_mapping* mapping = program && location && program->storage_data_mappings[location->address]
 		? &*program->storage_data_mappings[location->address] : nullptr;
 	if (!recording || !mapping || !data || size != mapping->byte_size) {
-		rtd3d12_fail(rt::error::improper_usage, "program data write does not match its reflected location");
+		rtd3d12_fail(rt::error::improper_usage, "program data write does not match reflected location: name={}, bytes={}, expected={}, recording={}", mapping ? mapping->name.c_str() : "<missing>", size, mapping ? mapping->byte_size : 0, recording);
 		return;
 	}
 	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::storage_data));
