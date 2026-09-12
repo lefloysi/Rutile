@@ -299,12 +299,15 @@ bool rtvk_program_descriptor_is_first(const struct rtvk_program* program, u32 ad
 
 static void rtvk_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_program* program) {
 	u32 descriptor_count = 0;
+	program->descriptor_address_count = 0;
 	for (u32 index = 0; index < 256; index++) {
 		if (rtvk_program_descriptor_is_first(program, index)) {
+			program->descriptor_addresses[program->descriptor_address_count++] = (u08)index;
 			descriptor_count++;
 			if (program->descriptor_mappings[index].sampled_alias) descriptor_count++;
 		}
 	}
+	program->descriptor_write_count = descriptor_count;
 	if (descriptor_count == 0) {
 		return;
 	}

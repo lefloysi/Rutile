@@ -34,6 +34,7 @@ void rtgl_execution_unlock(struct rtgl_context* ctx);
 void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage);
 void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage);
 void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, usize size, const u08* bytes);
+void rtgl_execution_buffer_copy(struct rtgl_context* ctx, struct rtgl_buffer_storage* source, struct rtgl_buffer_storage* target);
 void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, const u08* bytes);
 void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, u08* bytes);
 
@@ -51,6 +52,7 @@ void rtgl_execution_texture_delete(struct rtgl_context* ctx, struct rtgl_image_b
 void rtgl_execution_texture_view_delete_sampler(struct rtgl_context* ctx, struct rtgl_texture_view* view);
 void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_base* image, const void* data);
 void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, const void* data);
+void rtgl_execution_buffer_to_texture(struct rtgl_context* ctx, struct rtgl_buffer_storage* source, usize offset, struct rtgl_image_base* image, rt_texture_range range);
 void rtgl_execution_texture_read(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, u08* data, usize data_size);
 
 struct gl_surface* rtgl_execution_glfw_surface_create(struct rtgl_context* ctx, struct GLFWwindow* window);

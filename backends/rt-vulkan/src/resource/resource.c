@@ -49,12 +49,14 @@ void rtvk_resource_retain(struct rtvk_resource_base* base) {
 void rtvk_resource_release(struct rtvk_resource_base* base) {
 	assert(base);
 	assert(rtvk_atomic_load(&base->ref_count) > 0);
-	rtvk_atomic_dec(&base->ref_count);
-	rtvk_resource_try_free(base);
+	if (rtvk_atomic_dec(&base->ref_count) == 0) {
+		rtvk_resource_try_free(base);
+	}
 }
 
 void rtvk_resource_job_begin(struct rtvk_resource_base* base) {
 	assert(base);
+	rtvk_resource_retain(base);
 	rtvk_atomic_inc(&base->job_count);
 }
 
@@ -62,7 +64,7 @@ void rtvk_resource_job_end(struct rtvk_resource_base* base) {
 	assert(base);
 	assert(rtvk_atomic_load(&base->job_count) > 0);
 	rtvk_atomic_dec(&base->job_count);
-	rtvk_resource_try_free(base);
+	rtvk_resource_release(base);
 }
 
 void rtvk_resource_retire(struct rtvk_resource_base* base) {

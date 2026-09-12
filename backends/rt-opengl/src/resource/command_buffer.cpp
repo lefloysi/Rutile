@@ -1588,7 +1588,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		case RTGL_RECORDED_COMMAND_BUFFER_DATA:
 			if (command->data.buffer_data.storage) {
 				if (command->data.buffer_data.copy_source) {
-					glMemoryBarrier(GL_ALL_BARRIER_BITS);
+					glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 					memcpy(command->data.buffer_data.storage->shadow_data, command->data.buffer_data.copy_source->shadow_data, command->data.buffer_data.storage->size);
 					glCopyNamedBufferSubData(command->data.buffer_data.copy_source->gl_buffer, command->data.buffer_data.storage->gl_buffer, 0, 0, (GLsizeiptr)command->data.buffer_data.storage->size);
 				}
@@ -1598,9 +1598,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			break;
 		case RTGL_RECORDED_COMMAND_BUFFER_COPY:
 			if (command->data.buffer_copy.src && command->data.buffer_copy.dst) {
-				glMemoryBarrier(GL_ALL_BARRIER_BITS);
+				glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 				if (command->data.buffer_copy.dst_copy_source) {
-					glMemoryBarrier(GL_ALL_BARRIER_BITS);
+					glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 					memcpy(command->data.buffer_copy.dst->shadow_data, command->data.buffer_copy.dst_copy_source->shadow_data, command->data.buffer_copy.dst->size);
 					glCopyNamedBufferSubData(command->data.buffer_copy.dst_copy_source->gl_buffer, command->data.buffer_copy.dst->gl_buffer, 0, 0, (GLsizeiptr)command->data.buffer_copy.dst->size);
 				}
@@ -1614,7 +1614,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				if (command->data.buffer_copy_to_texture.copy_source) {
 					rtgl_texture_image_copy(command->data.buffer_copy_to_texture.dst, command->data.buffer_copy_to_texture.copy_source);
 				}
-				rtgl_execution_texture_subdata(ctx, command->data.buffer_copy_to_texture.dst, range, command->data.buffer_copy_to_texture.src->shadow_data + command->data.buffer_copy_to_texture.src_range.offset);
+				rtgl_execution_buffer_to_texture(ctx, command->data.buffer_copy_to_texture.src, command->data.buffer_copy_to_texture.src_range.offset, command->data.buffer_copy_to_texture.dst, range);
 			}
 			break;
 		case RTGL_RECORDED_COMMAND_TEXTURE_DATA:
@@ -1639,9 +1639,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		case RTGL_RECORDED_COMMAND_TEXTURE_COPY_TO_BUFFER:
 			if (command->data.texture_copy_to_buffer.src && command->data.texture_copy_to_buffer.dst) {
 				const rt_texture_range range = command->data.texture_copy_to_buffer.src_range;
-				glMemoryBarrier(GL_ALL_BARRIER_BITS);
+				glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 				if (command->data.texture_copy_to_buffer.dst_copy_source) {
-					glMemoryBarrier(GL_ALL_BARRIER_BITS);
+					glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 					memcpy(command->data.texture_copy_to_buffer.dst->shadow_data, command->data.texture_copy_to_buffer.dst_copy_source->shadow_data, command->data.texture_copy_to_buffer.dst->size);
 					glCopyNamedBufferSubData(command->data.texture_copy_to_buffer.dst_copy_source->gl_buffer, command->data.texture_copy_to_buffer.dst->gl_buffer, 0, 0, (GLsizeiptr)command->data.texture_copy_to_buffer.dst->size);
 				}

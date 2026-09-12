@@ -563,7 +563,7 @@ void rtgl_texture_image_copy(struct rtgl_image_base* dst, const struct rtgl_imag
 	if (!dst || !src || !dst->gl_texture || !src->gl_texture) {
 		return;
 	}
-	glMemoryBarrier(GL_ALL_BARRIER_BITS);
+	glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
 	const u32 mip_levels = dst->mip_levels < src->mip_levels ? dst->mip_levels : src->mip_levels;
 	for (u32 mip = 0; mip < mip_levels; mip++) {
 		u32 width = src->width >> mip;

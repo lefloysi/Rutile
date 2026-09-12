@@ -47,7 +47,6 @@ struct rtvk_swapchain_generation {
 	VkSwapchainKHR vk_swapchain;
 	struct rtvk_swapchain_image** images;
 	VkSemaphore image_available[RTVK_MAX_FRAMES_IN_FLIGHT];
-	VkSemaphore present_ready[RTVK_MAX_FRAMES_IN_FLIGHT];
 	rt_timepoint acquire_wait[RTVK_MAX_FRAMES_IN_FLIGHT];
 	rt_timepoint present_done[RTVK_MAX_FRAMES_IN_FLIGHT];
 
@@ -60,6 +59,7 @@ struct rtvk_swapchain_generation {
 
 struct rtvk_swapchain_image {
 	struct rtvk_image_base base;
+	VkSemaphore present_ready;
 
 	struct rtvk_swapchain_generation* generation;
 	struct rtvk_texture_view* color_view;

@@ -140,7 +140,7 @@ static struct rtgl_buffer_storage* rtgl_buffer_copy_storage(struct rtgl_context*
 	}
 	if (source->size) {
 		memcpy(target->shadow_data, source->shadow_data, source->size);
-		rtgl_execution_buffer_data(ctx, target, target->size, target->shadow_data);
+		rtgl_execution_buffer_copy(ctx, source, target);
 	}
 	rtgl_buffer_recycle_storage(buffer, source);
 	buffer->storage = target;

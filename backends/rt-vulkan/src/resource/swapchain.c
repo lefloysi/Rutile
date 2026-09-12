@@ -16,8 +16,8 @@ const VkSurfaceFormatKHR rtvk_swapchain_format_preferences[] = {
 };
 const u32 rtvk_swapchain_format_preferences_count = (u32)(sizeof(rtvk_swapchain_format_preferences) / sizeof(rtvk_swapchain_format_preferences[0]));
 const VkPresentModeKHR rtvk_swapchain_present_mode_preferences[] = {
-	VK_PRESENT_MODE_MAILBOX_KHR,
 	VK_PRESENT_MODE_IMMEDIATE_KHR,
+	VK_PRESENT_MODE_MAILBOX_KHR,
 	VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 };
 const u32 rtvk_swapchain_present_mode_preferences_count = (u32)(sizeof(rtvk_swapchain_present_mode_preferences) / sizeof(rtvk_swapchain_present_mode_preferences[0]));
@@ -176,9 +176,6 @@ void rtvk_swapchain_generation_finish(struct rtvk_swapchain_generation* generati
 		if (generation->image_available[index]) {
 			vkDestroySemaphore(ctx->vk_device, generation->image_available[index], VK_ALLOCATOR);
 		}
-		if (generation->present_ready[index]) {
-			vkDestroySemaphore(ctx->vk_device, generation->present_ready[index], VK_ALLOCATOR);
-		}
 	}
 	if (generation->vk_swapchain) {
 		vkDestroySwapchainKHR(ctx->vk_device, generation->vk_swapchain, VK_ALLOCATOR);
@@ -225,7 +222,7 @@ static void rtvk_swapchain_release_acquired_image_locked(struct rtvk_swapchain* 
 		rt_timepoint release = rtvk_queue_signal_binary_after_timepoint(
 			generation->present_queue,
 			rtvk_timepoint_value(generation->acquire_wait[frame_index]),
-			generation->present_ready[frame_index]
+			generation->images[generation->acquired_image_index]->present_ready
 		);
 		if (release.value) {
 			rtvk_mutex_lock(&generation->present_queue->lock);
@@ -233,7 +230,7 @@ static void rtvk_swapchain_release_acquired_image_locked(struct rtvk_swapchain* 
 			rtvk_mutex_unlock(&generation->present_queue->lock);
 			if (rtvk_error() == RT_SUCCESS) {
 				generation->present_done[frame_index] = release;
-				present_wait = generation->present_ready[frame_index];
+				present_wait = generation->images[generation->acquired_image_index]->present_ready;
 			}
 		}
 	}
@@ -246,6 +243,11 @@ static void rtvk_swapchain_release_acquired_image_locked(struct rtvk_swapchain* 
 	present_info.pResults = NULL;
 	rtvk_mutex_lock(&generation->present_queue->lock);
 	(void)vkQueuePresentKHR(generation->present_queue->vk_queue, &present_info);
+	if (present_wait == generation->image_available[frame_index]) {
+		/* The error fallback presents directly from the frame's acquire
+		 * semaphore. Finish that wait before the frame slot can reuse it. */
+		(void)vkQueueWaitIdle(generation->present_queue->vk_queue);
+	}
 	rtvk_mutex_unlock(&generation->present_queue->lock);
 	rtvk_swapchain_mark_unacquired_locked(swapchain);
 }
@@ -262,30 +264,14 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 }
 
 static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swapchain_generation* generation, u32 frame_index) {
-	bool reused = false;
 	if (generation->acquire_wait[frame_index].value) {
 		rtvk_timepoint_wait(ctx, generation->acquire_wait[frame_index]);
 		generation->acquire_wait[frame_index] = (rt_timepoint){ 0 };
-		reused = true;
 	}
 
 	if (generation->present_done[frame_index].value) {
 		rtvk_timepoint_wait(ctx, generation->present_done[frame_index]);
 		generation->present_done[frame_index] = (rt_timepoint){ 0 };
-		reused = true;
-	}
-
-	/* A timeline signal from the render submission does not prove that
-	 * vkQueuePresentKHR has consumed its binary wait semaphore. Before reusing
-	 * this frame slot's acquire semaphore, wait for the presentation queue so
-	 * Vulkan cannot observe an unfinished wait on that semaphore. */
-	if (reused && generation->present_queue) {
-		rtvk_mutex_lock(&generation->present_queue->lock);
-		VkResult result = vkQueueWaitIdle(generation->present_queue->vk_queue);
-		rtvk_mutex_unlock(&generation->present_queue->lock);
-		if (result != VK_SUCCESS) {
-			rtvk_throwf(rtvk_error_from_vk(result), "vkQueueWaitIdle before swapchain acquire returned %s", rtvk_vk_result_name(result));
-		}
 	}
 }
 
@@ -302,6 +288,9 @@ void rtvk_swapchain_image_init(struct rtvk_context* ctx, struct rtvk_swapchain_i
 // VkImage itself belongs to VkSwapchainKHR and is destroyed by that API.
 void rtvk_swapchain_image_finish(struct rtvk_swapchain_image* image) {
 	struct rtvk_context* ctx = image->base.base.ctx;
+	if (image->present_ready) {
+		vkDestroySemaphore(ctx->vk_device, image->present_ready, VK_ALLOCATOR);
+	}
 	if (image->framebuffer) {
 		rtvk_framebuffer_destroy(ctx, image->framebuffer);
 	}
@@ -408,7 +397,12 @@ static void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rt
 			return;
 		}
 
-		result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &generation->present_ready[i]);
+	}
+	/* Reacquiring an image and waiting for acquisition completes its previous
+	 * presentation. Its present semaphore can then be signaled again without
+	 * waiting for unrelated submissions on the graphics queue. */
+	for (u32 i = 0; i < generation->image_count; i++) {
+		VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &generation->images[i]->present_ready);
 		if (result != VK_SUCCESS) {
 			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 			return;
@@ -757,7 +751,7 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 	generation->present_done[frame_index] = rtvk_queue_signal_binary_after_timepoint(
 		rendered_queue,
 		rtvk_timepoint_value(rendered),
-		generation->present_ready[frame_index]
+		generation->images[generation->acquired_image_index]->present_ready
 	);
 	if (!generation->present_done[frame_index].value) {
 		rtvk_swapchain_mark_unacquired(swapchain);
@@ -774,7 +768,7 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 	VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 	present_info.pNext = NULL;
 	present_info.waitSemaphoreCount = 1;
-	present_info.pWaitSemaphores = &generation->present_ready[frame_index];
+	present_info.pWaitSemaphores = &generation->images[generation->acquired_image_index]->present_ready;
 	present_info.swapchainCount = 1;
 	present_info.pSwapchains = &generation->vk_swapchain;
 	present_info.pImageIndices = &generation->acquired_image_index;

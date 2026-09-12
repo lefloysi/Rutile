@@ -1039,6 +1039,10 @@ struct rtvk_lower_state {
 	struct rtvk_bound_descriptor* bound_descriptors;
 	struct rtvk_buffer** vertex_buffers;
 	struct rtvk_program_data_block* program_data_blocks;
+	VkDescriptorBufferInfo* descriptor_buffer_infos;
+	VkDescriptorImageInfo* descriptor_image_infos;
+	VkWriteDescriptorSet* descriptor_writes;
+	usize descriptor_write_capacity;
 	VkDeviceSize* vertex_offsets;
 	const struct rtvk_framebuffer* framebuffer;
 	struct rtvk_program* program;
@@ -1134,6 +1138,9 @@ void rtvk_lower_reserve_vertex_buffers(struct rtvk_lower_state* state, usize cou
 }
 
 void rtvk_lower_state_finish(struct rtvk_lower_state* state) {
+	free(state->descriptor_buffer_infos);
+	free(state->descriptor_image_infos);
+	free(state->descriptor_writes);
 	free(state->bound_descriptors);
 	free(state->vertex_buffers);
 	free(state->vertex_offsets);
@@ -1170,36 +1177,51 @@ void rtvk_lower_reserve_program_data(struct rtvk_lower_state* state, usize count
 	state->program_data_capacity = count;
 }
 
-void rtvk_lowered_command_buffer_add_resource_job(struct rtvk_lowered_command_buffer* lowered, struct rtvk_resource_base* resource) {
-	if (!resource) {
-		return;
-	}
+static usize rtvk_resource_job_slot(struct rtvk_resource_base** jobs, usize capacity, struct rtvk_resource_base* resource) {
+	uintptr_t hash = (uintptr_t)resource;
+	hash ^= hash >> 33;
+	hash *= UINT64_C(0xff51afd7ed558ccd);
+	hash ^= hash >> 33;
+	usize slot = hash & (capacity - 1);
+	while (jobs[slot] && jobs[slot] != resource) { slot = (slot + 1) & (capacity - 1); }
+	return slot;
+}
 
-	for (struct rtvk_lowered_resource_job* job = lowered->resource_jobs; job; job = job->next) {
-		if (job->base.resource == resource) {
+void rtvk_lowered_command_buffer_add_resource_job(struct rtvk_lowered_command_buffer* lowered, struct rtvk_resource_base* resource) {
+	if (!resource) { return; }
+	if (lowered->resource_job_capacity) {
+		const usize slot = rtvk_resource_job_slot(lowered->resource_jobs, lowered->resource_job_capacity, resource);
+		if (lowered->resource_jobs[slot]) { return; }
+	}
+	if (lowered->resource_job_count * 2 >= lowered->resource_job_capacity) {
+		const usize capacity = lowered->resource_job_capacity ? lowered->resource_job_capacity * 2 : 64;
+		struct rtvk_resource_base** jobs = calloc(capacity, sizeof(*jobs));
+		if (!jobs) {
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate Vulkan resource job table");
 			return;
 		}
+		for (usize index = 0; index < lowered->resource_job_capacity; ++index) {
+			struct rtvk_resource_base* prior = lowered->resource_jobs[index];
+			if (prior) { jobs[rtvk_resource_job_slot(jobs, capacity, prior)] = prior; }
+		}
+		free(lowered->resource_jobs);
+		lowered->resource_jobs = jobs;
+		lowered->resource_job_capacity = capacity;
 	}
-
-	struct rtvk_lowered_resource_job* job = calloc(1, sizeof(*job));
-	if (!job) {
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for Vulkan resource job", sizeof(*job));
-		return;
-	}
-
-	job->base.resource = resource;
+	const usize slot = rtvk_resource_job_slot(lowered->resource_jobs, lowered->resource_job_capacity, resource);
+	lowered->resource_jobs[slot] = resource;
+	++lowered->resource_job_count;
 	rtvk_resource_job_begin(resource);
-	job->next = lowered->resource_jobs;
-	lowered->resource_jobs = job;
 }
 
 void rtvk_lowered_command_buffer_release_resource_jobs(struct rtvk_lowered_command_buffer* lowered) {
-	while (lowered->resource_jobs) {
-		struct rtvk_lowered_resource_job* job = lowered->resource_jobs;
-		lowered->resource_jobs = job->next;
-		rtvk_resource_job_end(job->base.resource);
-		free(job);
+	for (usize index = 0; index < lowered->resource_job_capacity; ++index) {
+		if (lowered->resource_jobs[index]) { rtvk_resource_job_end(lowered->resource_jobs[index]); }
 	}
+	free(lowered->resource_jobs);
+	lowered->resource_jobs = NULL;
+	lowered->resource_job_capacity = 0;
+	lowered->resource_job_count = 0;
 }
 
 struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_create_host_buffer(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, usize size, VkBufferUsageFlags usage) {
@@ -1413,8 +1435,8 @@ static VkResult rtvk_lower_grow_descriptor_pool(struct rtvk_context* ctx, struct
 		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 0 },
 	};
-	for (u32 location = 0; location < 256; ++location) {
-		if (!rtvk_program_descriptor_is_first(program, location)) { continue; }
+	for (u32 index = 0; index < program->descriptor_address_count; ++index) {
+		const u32 location = program->descriptor_addresses[index];
 		const struct rtvk_program_descriptor_mapping* mapping = &program->descriptor_mappings[location];
 		const VkDescriptorType type = rtvk_program_descriptor_type(mapping->kind);
 		for (u32 index = 0; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
@@ -1466,31 +1488,36 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 		return;
 	}
 
-	u32 descriptor_count = 0;
-	for (u32 location_index = 0; location_index < 256; location_index++) {
-		if (rtvk_program_descriptor_is_first(state->program, location_index)) {
-			descriptor_count++;
-			if (state->program->descriptor_mappings[location_index].sampled_alias) descriptor_count++;
+	const u32 descriptor_count = state->program->descriptor_write_count;
+
+	if (state->descriptor_write_capacity < descriptor_count) {
+		VkDescriptorBufferInfo* buffers = calloc(descriptor_count, sizeof(*buffers));
+		VkDescriptorImageInfo* images = calloc(descriptor_count, sizeof(*images));
+		VkWriteDescriptorSet* writes = calloc(descriptor_count, sizeof(*writes));
+		if (!buffers || !images || !writes) {
+			free(buffers);
+			free(images);
+			free(writes);
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate Vulkan descriptor scratch storage");
+			return;
 		}
+		free(state->descriptor_buffer_infos);
+		free(state->descriptor_image_infos);
+		free(state->descriptor_writes);
+		state->descriptor_buffer_infos = buffers;
+		state->descriptor_image_infos = images;
+		state->descriptor_writes = writes;
+		state->descriptor_write_capacity = descriptor_count;
 	}
-
-	VkDescriptorBufferInfo* buffer_infos = calloc(descriptor_count, sizeof(*buffer_infos));
-	VkDescriptorImageInfo* image_infos = calloc(descriptor_count, sizeof(*image_infos));
-	VkWriteDescriptorSet* writes = calloc(descriptor_count, sizeof(*writes));
-	if (!buffer_infos || !image_infos || !writes) {
-		free(buffer_infos);
-		free(image_infos);
-		free(writes);
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for descriptor writes", (usize)descriptor_count * (sizeof(*buffer_infos) + sizeof(*image_infos) + sizeof(*writes)));
-		return;
-	}
-
+	VkDescriptorBufferInfo* buffer_infos = state->descriptor_buffer_infos;
+	VkDescriptorImageInfo* image_infos = state->descriptor_image_infos;
+	VkWriteDescriptorSet* writes = state->descriptor_writes;
+	memset(buffer_infos, 0, descriptor_count * sizeof(*buffer_infos));
+	memset(image_infos, 0, descriptor_count * sizeof(*image_infos));
 	u32 descriptor_index = 0;
-	for (u32 location_index = 0; location_index < 256; location_index++) {
+	for (u32 index = 0; index < state->program->descriptor_address_count; ++index) {
+		const u32 location_index = state->program->descriptor_addresses[index];
 		struct rtvk_program_descriptor_mapping* mapping = &state->program->descriptor_mappings[location_index];
-		if (!rtvk_program_descriptor_is_first(state->program, location_index)) {
-			continue;
-		}
 		writes[descriptor_index] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 		writes[descriptor_index].dstSet = descriptor_set;
 		writes[descriptor_index].dstBinding = mapping->binding;
@@ -1499,9 +1526,6 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 		if (mapping->kind == RTVK_DESCRIPTOR_TEXTURE || mapping->kind == RTVK_DESCRIPTOR_STORAGE_TEXTURE) {
 			const struct rtvk_ir_texture* texture = descriptor ? &descriptor->texture : NULL;
 			if (!texture || !texture->vk_image_view) {
-				free(buffer_infos);
-				free(image_infos);
-				free(writes);
 				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a texture view", state->program->location_names[location_index]);
 				return;
 			}
@@ -1520,9 +1544,6 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 		} else if (mapping->kind == RTVK_DESCRIPTOR_SAMPLER) {
 			const struct rtvk_ir_sampler* sampler = descriptor ? &descriptor->sampler : NULL;
 			if (!sampler || !sampler->vk_sampler) {
-				free(buffer_infos);
-				free(image_infos);
-				free(writes);
 				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a sampler", state->program->location_names[location_index]);
 				return;
 			}
@@ -1546,9 +1567,6 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 				}
 			}
 			if (!buffer || !buffer_size) {
-				free(buffer_infos);
-				free(image_infos);
-				free(writes);
 				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a buffer range", state->program->location_names[location_index]);
 				return;
 			}
@@ -1575,9 +1593,6 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 
 	vkUpdateDescriptorSets(ctx->vk_device, descriptor_count, writes, 0, NULL);
 	vkCmdBindDescriptorSets(lowered->vk_command_buffer, state->program->compute_program ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, state->program->vk_pipeline_layout, 0, 1, &descriptor_set, 0, NULL);
-	free(buffer_infos);
-	free(image_infos);
-	free(writes);
 	state->descriptors_dirty = false;
 }
 
@@ -1615,9 +1630,28 @@ void rtvk_lower_buffer_copy_prior(struct rtvk_lowered_command_buffer* lowered, s
 		return;
 	}
 
+	// Version preservation is an internal read, so callers cannot synchronize it.
+	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.buffer = source->vk_buffer;
+	barrier.size = VK_WHOLE_SIZE;
+	vkCmdPipelineBarrier(lowered->vk_command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 1, &barrier, 0, NULL);
+
 	VkBufferCopy copy = { 0 };
 	copy.size = source->size;
 	vkCmdCopyBuffer(lowered->vk_command_buffer, source->vk_buffer, target->vk_buffer, 1, &copy);
+
+	// The following partial write must win over the preserved contents.
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.buffer = target->vk_buffer;
+	vkCmdPipelineBarrier(lowered->vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 1, &barrier, 0, NULL);
+
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(source));
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(target));
 }

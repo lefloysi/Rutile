@@ -13,10 +13,6 @@
 
 #include <string.h>
 
-static GLenum rtgl_buffer_gl_usage(void) {
-	return GL_DYNAMIC_DRAW;
-}
-
 void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage) {
 	rtgl_execution_submit_sync(ctx, [storage](struct rtgl_context*) {
 		glCreateBuffers(1, &storage->gl_buffer);
@@ -39,21 +35,42 @@ void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer_s
 
 void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, usize size, const u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, size, bytes](struct rtgl_context*) {
-		glMemoryBarrier(GL_ALL_BARRIER_BITS);
-		glNamedBufferData(storage->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage());
+		if (size) {
+			if (storage->memory_type == RT_HOST_MEMORY) {
+				glNamedBufferStorage(storage->gl_buffer, (GLsizeiptr)size, bytes, GL_DYNAMIC_STORAGE_BIT | GL_CLIENT_STORAGE_BIT);
+			} else {
+				glNamedBufferData(storage->gl_buffer, (GLsizeiptr)size, bytes, GL_STATIC_DRAW);
+			}
+		}
 	});
 }
 
 void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, const u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
-		glMemoryBarrier(GL_ALL_BARRIER_BITS);
-		glNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
+		if (!size) { return; }
+		glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+		if (storage->memory_type == RT_HOST_MEMORY) {
+			glNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
+		} else {
+			GLuint staging = 0;
+			glCreateBuffers(1, &staging);
+			glNamedBufferStorage(staging, (GLsizeiptr)size, bytes, 0);
+			glCopyNamedBufferSubData(staging, storage->gl_buffer, 0, (GLintptr)offset, (GLsizeiptr)size);
+			glDeleteBuffers(1, &staging);
+		}
+	});
+}
+
+void rtgl_execution_buffer_copy(struct rtgl_context* ctx, struct rtgl_buffer_storage* source, struct rtgl_buffer_storage* target) {
+	rtgl_execution_submit_sync(ctx, [source, target](struct rtgl_context*) {
+		glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+		glCopyNamedBufferSubData(source->gl_buffer, target->gl_buffer, 0, 0, (GLsizeiptr)source->size);
 	});
 }
 
 void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
-		glMemoryBarrier(GL_ALL_BARRIER_BITS);
+		glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 		glGetNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
@@ -546,15 +563,13 @@ static usize rtgl_execution_texture_range_bytes(const struct rtgl_image_base* im
 	return range.extent.width * range.extent.height * range.extent.depth * layers * bytes;
 }
 
-void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, const void* data) {
-	rtgl_execution_submit_sync(ctx, [image, range, data](struct rtgl_context*) {
-		glMemoryBarrier(GL_ALL_BARRIER_BITS);
+void rtgl_execution_texture_upload(struct rtgl_image_base* image, rt_texture_range range, GLuint buffer, usize offset) {
+		glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT | GL_PIXEL_BUFFER_BARRIER_BIT);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		const u08* bytes = (const u08*)data;
-		usize offset = 0;
 		for (usize level = 0; level < range.mip_count; level++) {
 			const rt_texture_range mip = rtgl_execution_texture_mip_range(range, level);
-			const void* mip_data = bytes + offset;
+			const void* mip_data = reinterpret_cast<const void*>(offset);
 			const GLenum format = rtgl_texture_upload_format_aspect(image->format, mip.aspects);
 			const GLenum type = rtgl_texture_upload_type_aspect(image->format, mip.aspects);
 			switch (image->type) {
@@ -579,12 +594,33 @@ void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_
 			offset += rtgl_execution_texture_range_bytes(image, mip);
 		}
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+}
+
+void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, const void* data) {
+	rtgl_execution_submit_sync(ctx, [image, range, data](struct rtgl_context*) {
+		usize size = 0;
+		for (usize level = 0; level < range.mip_count; ++level) {
+			size += rtgl_execution_texture_range_bytes(image, rtgl_execution_texture_mip_range(range, level));
+		}
+		if (!size) { return; }
+		GLuint staging = 0;
+		glCreateBuffers(1, &staging);
+		glNamedBufferStorage(staging, (GLsizeiptr)size, data, 0);
+		rtgl_execution_texture_upload(image, range, staging, 0);
+		glDeleteBuffers(1, &staging);
+	});
+}
+
+void rtgl_execution_buffer_to_texture(struct rtgl_context* ctx, struct rtgl_buffer_storage* source, usize offset, struct rtgl_image_base* image, rt_texture_range range) {
+	rtgl_execution_submit_sync(ctx, [source, offset, image, range](struct rtgl_context*) {
+		rtgl_execution_texture_upload(image, range, source->gl_buffer, offset);
 	});
 }
 
 void rtgl_execution_texture_read(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, u08* data, usize data_size) {
 	rtgl_execution_submit_sync(ctx, [image, range, data, data_size](struct rtgl_context*) {
-		glMemoryBarrier(GL_ALL_BARRIER_BITS);
+		glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
 		usize offset = 0;
 		for (usize level = 0; level < range.mip_count; level++) {
 			const rt_texture_range mip = rtgl_execution_texture_mip_range(range, level);

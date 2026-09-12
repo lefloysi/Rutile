@@ -104,6 +104,9 @@ struct rtvk_program {
 	struct rtvk_program_input_mapping input_mappings[256];
 	struct rtvk_program_output_mapping output_mappings[256];
 	struct rtvk_program_descriptor_mapping descriptor_mappings[256];
+	u08 descriptor_addresses[256];
+	u32 descriptor_address_count;
+	u32 descriptor_write_count;
 	struct rtvk_program_data_mapping data_mappings[256];
 	bool location_occupied[256];
 	bool input_mapping_occupied[256];

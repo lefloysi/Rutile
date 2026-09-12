@@ -889,6 +889,10 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, rt_timepoint timepoint) {
 	u64 value = rtvk_timepoint_value(timepoint);
 	rtvk_mutex_lock(&queue->lock);
 	if (value <= queue->completed_value) {
+		/* Polling can advance completed_value without reclaiming submissions.
+		 * A cached completion must still retire them, or the next upload wait
+		 * inherits every frame accumulated since the previous blocking wait. */
+		rtvk_queue_collect_to_value(ctx, queue, queue->completed_value);
 		rtvk_mutex_unlock(&queue->lock);
 		return;
 	}
@@ -903,10 +907,12 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, rt_timepoint timepoint) {
 	wait_info.pSemaphores = &queue->vk_timeline;
 	wait_info.pValues = &value;
 
+	rtvk_mutex_unlock(&queue->lock);
 	VkResult result = vkWaitSemaphores(ctx->vk_device, &wait_info, UINT64_MAX);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 	}
+	rtvk_mutex_lock(&queue->lock);
 	if (value > queue->completed_value) {
 		queue->completed_value = value;
 	}

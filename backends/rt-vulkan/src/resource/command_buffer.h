@@ -295,11 +295,6 @@ struct rtvk_lowered_staging_buffer {
 	VmaAllocation vma_allocation;
 };
 
-struct rtvk_lowered_resource_job {
-	struct rtvk_resource_job base;
-	struct rtvk_lowered_resource_job* next;
-};
-
 struct rtvk_lowered_image_view {
 	VkImageView vk_image_view;
 	struct rtvk_lowered_image_view* next;
@@ -311,7 +306,9 @@ struct rtvk_lowered_descriptor_pool {
 };
 
 struct rtvk_lowered_command_buffer {
-	struct rtvk_lowered_resource_job* resource_jobs;
+	struct rtvk_resource_base** resource_jobs;
+	usize resource_job_capacity;
+	usize resource_job_count;
 	struct rtvk_lowered_staging_buffer* staging_buffers;
 	struct rtvk_lowered_staging_buffer* program_data_buffer;
 	usize program_data_capacity;
