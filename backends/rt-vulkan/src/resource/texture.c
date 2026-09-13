@@ -107,17 +107,6 @@ void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod,
 /*                                                                                               */
 /*===============================================================================================*/
 
-static VkSamplerAddressMode rtvk_sampler_address_mode(enum rt_address_mode mode) {
-	switch (mode) {
-	case RT_ADDRESS_CLAMP: /***/
-		return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	case RT_ADDRESS_MIRROR: /**/
-		return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-	default: /*****************/
-		return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	}
-}
-
 static VkSampler rtvk_texture_view_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
 	VkSamplerCreateInfo sampler_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	sampler_info.magFilter = view->mag_filter == RT_FILTER_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;

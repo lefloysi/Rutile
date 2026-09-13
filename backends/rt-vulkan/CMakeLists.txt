@@ -40,6 +40,7 @@ target_sources(rt-vulkan PRIVATE
     "src/rutile.h"
 	"src/system/sync.h"
 	"src/system/atomic.h"
+	"src/system/atomic.cpp"
 	"src/transpiler/transpiler.cpp"
 	"src/transpiler/transpiler.h"
     "src/vma.cpp"
@@ -47,7 +48,6 @@ target_sources(rt-vulkan PRIVATE
 
 if(WIN32)
     target_sources(rt-vulkan PRIVATE
-		"src/system/windows/atomic.cpp"
 		"src/system/windows/sync.c"
     )
 else()

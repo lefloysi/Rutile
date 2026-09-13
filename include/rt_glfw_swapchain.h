@@ -15,6 +15,8 @@
 /*! @brief Version of the extension contract declared by this header. */
 #define RT_GLFW_SWAPCHAIN_VERSION RT_HEADER_VERSION
 
+struct GLFWwindow;
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */

@@ -15,6 +15,7 @@
 
 struct rtvk_context;
 struct rtvk_resource_base;
+struct rtvk_queue;
 
 typedef void (*rtvk_resource_destroy_proc)(void* resource);
 
@@ -33,6 +34,7 @@ struct rtvk_resource_job {
 };
 
 void* rtvk_alloc_resource(usize size);
+usize rtvk_bit_ceil(usize value);
 void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base, void* resource, rtvk_resource_destroy_proc destroy);
 void rtvk_resource_retain(struct rtvk_resource_base* base);
 void rtvk_resource_release(struct rtvk_resource_base* base);

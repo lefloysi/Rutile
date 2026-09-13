@@ -1,0 +1,36 @@
+uniform vec2 pixel;
+var texture_2d<f32> source;
+struct Input { vec2 point; };
+struct Vertex : Position {
+    vec2 uv;
+    fn Vertex(Input input) {
+        position = vec4(input.point.x, input.point.y, 0.0, 1.0);
+        uv = vec2(input.point.x * 0.5 + 0.5, 0.5 - input.point.y * 0.5);
+    }
+};
+fn luma(vec4 color) -> f32 { return color.x * 0.299 + color.y * 0.587 + color.z * 0.114; }
+fn absolute(f32 value) -> f32 { if (value < 0.0) { return -value; } return value; }
+@stage : vertex
+fn antialias(Input input) -> Vertex { return Vertex(input); }
+@stage : fragment
+fn antialias(Vertex vertex) -> vec4 {
+    var vec4 center = sample(source,vertex.uv);
+    var f32 m = luma(center);
+    var f32 n = luma(sample(source,vertex.uv + vec2(0.0,pixel.y)));
+    var f32 s = luma(sample(source,vertex.uv - vec2(0.0,pixel.y)));
+    var f32 e = luma(sample(source,vertex.uv + vec2(pixel.x,0.0)));
+    var f32 w = luma(sample(source,vertex.uv - vec2(pixel.x,0.0)));
+    var f32 low = m;
+    var f32 high = m;
+    if (n < low) { low = n; } if (s < low) { low = s; } if (e < low) { low = e; } if (w < low) { low = w; }
+    if (n > high) { high = n; } if (s > high) { high = s; } if (e > high) { high = e; } if (w > high) { high = w; }
+    var f32 threshold = high * 0.18;
+    if (threshold < 0.04) { threshold = 0.04; }
+    if (high - low < threshold) { return center; }
+    var vec2 direction = vec2(-(n-s),e-w);
+    var f32 scale = absolute(direction.x) + absolute(direction.y);
+    if (scale < 0.001) { return center; }
+    direction = direction / scale * pixel;
+    var vec4 edge = (sample(source,vertex.uv-direction*0.5) + sample(source,vertex.uv+direction*0.5)) * 0.5;
+    return center * 0.35 + edge * 0.65;
+}

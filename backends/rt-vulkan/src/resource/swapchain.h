@@ -17,6 +17,7 @@ RTVK_API void rtSwapchainDestroy(rt_swapchain swapchain);
 RTVK_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 RTVK_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTVK_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
+struct GLFWwindow;
 RTVK_API void rtSwapchainBindGLFW(rt_swapchain swapchain, struct GLFWwindow* window);
 
 /*===============================================================================================*/

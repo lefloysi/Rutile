@@ -4,7 +4,17 @@
 #include "queue.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stdlib.h>
+
+usize rtvk_bit_ceil(usize value) {
+	if (value <= 1) { return 1; }
+	--value;
+	for (usize shift = 1; shift < sizeof(value) * CHAR_BIT; shift *= 2) {
+		value |= value >> shift;
+	}
+	return value + 1;
+}
 
 void* rtvk_alloc_resource(usize size) {
 	void* resource = calloc(1, size);

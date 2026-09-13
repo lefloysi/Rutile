@@ -3,7 +3,6 @@
 #include "error.h"
 #include "resource/swapchain.h"
 #include <assert.h>
-#include <intrin.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -93,9 +92,7 @@ void rtvk_virtual_queue_wait(struct rtvk_context* ctx, struct rtvk_virtual_queue
 		if (capacity < 8) {
 			capacity = 8;
 		} else {
-			unsigned long most_significant_bit = 0;
-			_BitScanReverse64(&most_significant_bit, capacity - 1);
-			capacity = (usize)1 << (most_significant_bit + 1);
+			capacity = rtvk_bit_ceil(capacity);
 		}
 		rt_timepoint* wait_timepoints = realloc(virtual_queue->wait_timepoints, capacity * sizeof(*wait_timepoints));
 		if (!wait_timepoints) {
@@ -775,9 +772,7 @@ bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphor
 		if (capacity < 8) {
 			capacity = 8;
 		} else {
-			unsigned long most_significant_bit = 0;
-			_BitScanReverse64(&most_significant_bit, capacity - 1);
-			capacity = (usize)1 << (most_significant_bit + 1);
+			capacity = rtvk_bit_ceil(capacity);
 		}
 		VkSemaphore* binary_signals = realloc(batch->binary_signals, capacity * sizeof(*binary_signals));
 		if (!binary_signals) {

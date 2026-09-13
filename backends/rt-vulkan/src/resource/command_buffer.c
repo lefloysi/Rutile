@@ -4,7 +4,6 @@
 #include "queue.h"
 
 #include <assert.h>
-#include <intrin.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -354,9 +353,7 @@ void* rtvk_command_append(struct rtvk_command_buffer* command_buffer, rtvk_comma
 	const usize size = rtvk_command_record_size(opcode);
 	if (command_buffer->ir_capacity - command_buffer->ir_size < size) {
 		usize required_size = command_buffer->ir_size + size;
-		unsigned long most_significant_bit = 0;
-		_BitScanReverse64(&most_significant_bit, required_size - 1);
-		usize capacity = (usize)1 << (most_significant_bit + 1);
+		usize capacity = rtvk_bit_ceil(required_size);
 		if (capacity < 4096) {
 			capacity = 4096;
 		}
