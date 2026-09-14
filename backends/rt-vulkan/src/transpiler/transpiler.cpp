@@ -1462,6 +1462,11 @@ private:
 					}
 				}
 				if (incoming.size() == 2) throw std::runtime_error("RTIR block argument has no predecessor");
+				if (incoming.size() == 4) {
+					values[argument.value.value()] = incoming[2];
+					value_types[argument.value.value()] = argument.type;
+					continue;
+				}
 				instruction(245, incoming);
 				values[argument.value.value()] = incoming[1];
 				value_types[argument.value.value()] = argument.type;

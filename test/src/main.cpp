@@ -1,6 +1,7 @@
 #include "embedded_program.hpp"
 #include "rutile.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <iostream>
@@ -201,6 +202,15 @@ bool reflected_program_data_render(u32 draw_count) {
 			std::cerr << "conversion test produced unexpected pixel: " << static_cast<unsigned>(pixel[0]) << ", "
 					  << static_cast<unsigned>(pixel[1]) << ", " << static_cast<unsigned>(pixel[2]) << ", "
 					  << static_cast<unsigned>(pixel[3]) << "\n";
+			return false;
+		}
+		std::array<u08, image_byte_size> direct_read{};
+		rtTextureViewRead(image_view, image_range, direct_read.data(), direct_read.size());
+		if (!expect_success("reading rendered texture directly")) {
+			return false;
+		}
+		if (!std::equal(pixel.begin(), pixel.end(), direct_read.begin() + pixel_offset)) {
+			std::cerr << "direct texture readback did not match buffer readback\n";
 			return false;
 		}
 		return true;

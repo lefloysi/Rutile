@@ -311,11 +311,9 @@ void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08
 	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_buffer;
-	rtvk_mutex_lock(&queue->lock);
 	if (queue->pending_head) {
 		rtvk_queue_flush_locked(ctx, queue);
 		if (rtvk_error() != RT_SUCCESS) {
-			rtvk_mutex_unlock(&queue->lock);
 			goto finish;
 		}
 	}
@@ -323,7 +321,6 @@ void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08
 	if (result == VK_SUCCESS) {
 		result = vkWaitForFences(ctx->vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
 	}
-	rtvk_mutex_unlock(&queue->lock);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		goto finish;

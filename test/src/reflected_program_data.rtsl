@@ -37,6 +37,20 @@ fn draw(Point point) -> Vertex {
 	return Vertex(point);
 }
 
+struct ConditionalOpacity {
+	f32 value;
+
+	fn ConditionalOpacity(f32 source) {
+		value = 0.0;
+		if (source >= 0.0) { value = source; }
+	}
+}
+
+fn visible_opacity(f32 value) -> f32 {
+	if (value < 0.0) { return 0.0; }
+	return value;
+}
+
 @stage : fragment
 fn draw(Vertex vertex{.uv : smooth}) -> vec4 {
 	var f32 negative_fraction = -2.75;
@@ -47,10 +61,11 @@ fn draw(Vertex vertex{.uv : smooth}) -> vec4 {
 	var f32 unsigned_round_trip = f32(signed_from_unsigned);
 	var vec2 component_product = vec2(ui_draw.first.x, ui_draw.first.y) * vec2(ui_draw.second.x, ui_draw.second.y);
 	var vec2 scaled_product = component_product / 1.0;
+	var ConditionalOpacity conditional_opacity = ConditionalOpacity(opacity);
 	return vec4(
 		scaled_product.x + signed_round_trip + 2.25,
 		scaled_product.y + unsigned_round_trip / 4.0,
 		ui_draw.first.z * ui_draw.second.z,
-		ui_draw.first.w * ui_draw.second.w * opacity * ui_layout.texture_mode
+		ui_draw.first.w * ui_draw.second.w * visible_opacity(conditional_opacity.value) * ui_layout.texture_mode
 	);
 }
