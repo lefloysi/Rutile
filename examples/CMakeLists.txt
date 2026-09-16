@@ -23,6 +23,8 @@ function(rutile_embed_program target symbol source)
             "-DINPUT=${program_artifact}"
             "-DOUTPUT=${program_source}"
             "-DSYMBOL=${symbol}"
+			"-DHEADER=embedded_program"
+			"-DTYPE=rt_example_program"
             -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/embed_program.cmake"
         DEPENDS "${program_artifact}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/embed_program.cmake"
         VERBATIM

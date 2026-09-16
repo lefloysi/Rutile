@@ -78,6 +78,8 @@ std::string_view opcodeName(rtsl::ir::Opcode opcode) {
 	case rtsl::ir::Opcode::opcode_resource_query: return "resource_query";
 	case rtsl::ir::Opcode::opcode_derivative: return "derivative";
 	case rtsl::ir::Opcode::opcode_discard: return "discard";
+	case rtsl::ir::Opcode::opcode_sqrt: return "sqrt";
+	case rtsl::ir::Opcode::opcode_clamp: return "clamp";
 	}
 	return "unknown";
 }
@@ -155,6 +157,10 @@ public:
 			entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation)
 			instruction(17, {3});
 		if (entry.stage == rtsl::ir::Stage::stage_geometry) instruction(17, {2});
+		glsl_ext_inst_set = id();
+		std::vector<std::uint32_t> extension{glsl_ext_inst_set};
+		appendString(extension, "GLSL.std.450");
+		instruction(11, extension);
 		instruction(14, {0, 1});
 		const rtsl::ir::Function* stage_function = module.findFunction(entry.function);
 		if (!stage_function) throw std::runtime_error("entry point references an unknown RTIR function");
@@ -208,12 +214,12 @@ private:
 	}
 
 	std::vector<std::uint32_t>& section(std::uint16_t opcode) {
-		if (opcode == 17 || opcode == 14) return preamble;
+		if (opcode == 17 || opcode == 11 || opcode == 14) return preamble;
 		if (opcode == 15) return entry_points;
 		if (opcode == 16) return execution_modes;
 		if (opcode == 5) return debug;
 		if (opcode == 71 || opcode == 72) return annotations;
-		if ((opcode >= 54 && opcode <= 125) ||
+		if (opcode == 12 || (opcode >= 54 && opcode <= 125) ||
 			(opcode >= 126 && opcode <= 190) || opcode == 218 || opcode == 219 || opcode == 224 || (opcode >= 245 && opcode <= 254))
 			return functions;
 		return types_constants;
@@ -1303,6 +1309,16 @@ private:
 			instruction(57, encoded);
 			break;
 		}
+		case rtsl::ir::Opcode::opcode_sqrt:
+			if (operands.size() != 1) throw std::runtime_error("RTIR sqrt instruction is malformed");
+			result = id();
+			instruction(12, {typeFor(source.type), result, glsl_ext_inst_set, 31, operands[0]});
+			break;
+		case rtsl::ir::Opcode::opcode_clamp:
+			if (operands.size() != 3) throw std::runtime_error("RTIR clamp instruction is malformed");
+			result = id();
+			instruction(12, {typeFor(source.type), result, glsl_ext_inst_set, 43, operands[0], operands[1], operands[2]});
+			break;
 		case rtsl::ir::Opcode::opcode_resource_sample: {
 			if (source.immediates.empty() || operands.size() != 1) throw std::runtime_error("RTIR texture sample is malformed");
 			auto resource = resource_variables.find(source.immediates[0]);
@@ -1657,6 +1673,7 @@ private:
 	std::vector<InterfaceLeaf> output_leaves;
 	std::vector<std::uint32_t> interface_ids;
 	std::uint32_t next_id{1};
+	std::uint32_t glsl_ext_inst_set{};
 	std::uint32_t void_type{};
 	std::uint32_t float_type{};
 	std::uint32_t sampled_image_type{};

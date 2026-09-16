@@ -3,18 +3,20 @@ function(rtsl_add_program name)
 	if(NOT PROGRAM_SOURCES)
 		message(FATAL_ERROR "rtsl_add_program requires SOURCES")
 	endif()
-	list(LENGTH PROGRAM_SOURCES source_count)
-	if(NOT source_count EQUAL 1)
-		message(FATAL_ERROR "rtsl_add_program currently requires one aggregate RTSL source")
-	endif()
 	list(GET PROGRAM_SOURCES 0 source)
+	set(additional_sources "${PROGRAM_SOURCES}")
+	list(REMOVE_AT additional_sources 0)
+	set(source_arguments)
+	foreach(additional_source IN LISTS additional_sources)
+		list(APPEND source_arguments --source "${additional_source}")
+	endforeach()
 	set(program_artifact "${CMAKE_CURRENT_BINARY_DIR}/${name}.rtslp")
 	get_filename_component(module_name "${source}" NAME_WE)
 
 	add_custom_command(
 		OUTPUT "${program_artifact}"
-		COMMAND "$<TARGET_FILE:rtslc>" "${source}" --module "${module_name}" --emit-program -o "${program_artifact}"
-		DEPENDS rtslc "${source}"
+		COMMAND "$<TARGET_FILE:rtslc>" "${source}" ${source_arguments} --module "${module_name}" --emit-program -o "${program_artifact}"
+		DEPENDS rtslc ${PROGRAM_SOURCES}
 		VERBATIM
 	)
 	add_custom_target("${name}" DEPENDS "${program_artifact}")

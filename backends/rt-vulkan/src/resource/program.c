@@ -256,6 +256,8 @@ void rtvk_program_finish(struct rtvk_program* program) {
 	struct rtvk_context* ctx = program->base.ctx;
 	rtvk_program_destroy_pipeline_layout(ctx, program);
 	rtvk_program_clear_shaders(ctx, program);
+	free(program->vertex_attribute_names);
+	program->vertex_attribute_names = NULL;
 	free(program->entry_point);
 	program->entry_point = NULL;
 	free(program->program_bytes);
@@ -638,6 +640,8 @@ void rtvk_program_layout(struct rtvk_context* ctx, struct rtvk_program* program,
 	assert(ctx);
 	assert(program);
 	if (!layout || !layout->inputs || layout->input_count == 0) {
+		free(program->vertex_attribute_names);
+		program->vertex_attribute_names = NULL;
 		program->vertex_layout = (rt_vertex_layout){ 0 };
 		program->vertex_attribute_count = 0;
 		rtvk_program_destroy_pipeline_layout(ctx, program);
@@ -651,6 +655,7 @@ void rtvk_program_layout(struct rtvk_context* ctx, struct rtvk_program* program,
 	}
 
 	usize attribute_count = 0;
+	size_t names_size = 0;
 	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
 		const rt_vertex_input* input = &layout->inputs[input_index];
 		if (!input->attributes || input->attribute_count == 0 || input->stride == 0) {
@@ -662,16 +667,44 @@ void rtvk_program_layout(struct rtvk_context* ctx, struct rtvk_program* program,
 			return;
 		}
 		attribute_count += input->attribute_count;
+		for (usize index = 0; index < input->attribute_count; index++) {
+			const char* name = input->attributes[index].name;
+			if (!name || !name[0]) {
+				rtvk_throwf(RT_IMPROPER_USAGE, "vertex attribute name is empty");
+				return;
+			}
+			const size_t size = strlen(name) + 1;
+			if (size > SIZE_MAX - names_size) {
+				rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "vertex attribute names exceed addressable storage");
+				return;
+			}
+			names_size += size;
+		}
 	}
 
+	char* names = malloc(names_size);
+	if (!names) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate vertex attribute names");
+		return;
+	}
+	char* next_name = names;
 	usize attribute_offset = 0;
 	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
 		const rt_vertex_input* input = &layout->inputs[input_index];
 		program->vertex_inputs[input_index] = *input;
 		program->vertex_inputs[input_index].attributes = &program->vertex_attributes[attribute_offset];
 		memcpy(&program->vertex_attributes[attribute_offset], input->attributes, sizeof(*input->attributes) * input->attribute_count);
+		for (usize index = 0; index < input->attribute_count; index++) {
+			const char* name = input->attributes[index].name;
+			const size_t size = strlen(name) + 1;
+			memcpy(next_name, name, size);
+			program->vertex_attributes[attribute_offset + index].name = next_name;
+			next_name += size;
+		}
 		attribute_offset += input->attribute_count;
 	}
+	free(program->vertex_attribute_names);
+	program->vertex_attribute_names = names;
 	program->vertex_layout.inputs = program->vertex_inputs;
 	program->vertex_layout.input_count = layout->input_count;
 	program->vertex_attribute_count = attribute_count;

@@ -1448,12 +1448,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		}
 		case RTGL_RECORDED_COMMAND_SET_SCISSOR:
 			glEnable(GL_SCISSOR_TEST);
-			if (color_image) {
-				u32 height = color_image->height;
-				u32 y = command->data.set_scissor.y + command->data.set_scissor.height <= height ? height - command->data.set_scissor.y - command->data.set_scissor.height : 0;
-				glScissor((GLint)command->data.set_scissor.x, (GLint)y, (GLsizei)command->data.set_scissor.width, (GLsizei)command->data.set_scissor.height);
-			} else
-				glScissor((GLint)command->data.set_scissor.x, (GLint)command->data.set_scissor.y, (GLsizei)command->data.set_scissor.width, (GLsizei)command->data.set_scissor.height);
+			glScissor((GLint)command->data.set_scissor.x, (GLint)command->data.set_scissor.y, (GLsizei)command->data.set_scissor.width, (GLsizei)command->data.set_scissor.height);
 			break;
 		case RTGL_RECORDED_COMMAND_BIND_BUFFER:
 			if (program && program->location_occupied[command->data.bind_buffer.address] && command->data.bind_buffer.storage) {

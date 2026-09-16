@@ -53,7 +53,9 @@ void rtAntialiasBegin(rt_antialias aa, rt_command_buffer commands, usize width, 
     if (!aa || !width || !height) { return; }
     if (aa->width != width || aa->height != height) {
         aa->width = width; aa->height = height;
-        rtTextureResize(aa->texture,RT_TEXTURE_2D,RT_RGBA8_UNORM,(rt_extent_3d){width,height,1},1);
+        /* Keep fragment colors linear until the destination's output transform.
+         * Eight-bit linear storage visibly quantizes dark display gradients. */
+        rtTextureResize(aa->texture,RT_TEXTURE_2D,RT_RGBA16_SFLOAT,(rt_extent_3d){width,height,1},1);
         rtTextureViewSetTexture(aa->view,aa->texture);
         rtFramebufferSetColorView(aa->framebuffer,aa->view,NULL);
     }

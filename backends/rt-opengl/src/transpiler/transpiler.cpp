@@ -75,6 +75,8 @@ std::string_view opcodeName(rtsl::ir::Opcode opcode) {
 	case rtsl::ir::Opcode::opcode_resource_query: return "resource_query";
 	case rtsl::ir::Opcode::opcode_derivative: return "derivative";
 	case rtsl::ir::Opcode::opcode_discard: return "discard";
+	case rtsl::ir::Opcode::opcode_sqrt: return "sqrt";
+	case rtsl::ir::Opcode::opcode_clamp: return "clamp";
 	}
 	return "unknown";
 }
@@ -138,6 +140,10 @@ public:
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control || entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation)
 			instruction(17, {3}); // Tessellation
 		if (entry.stage == rtsl::ir::Stage::stage_geometry) instruction(17, {2}); // Geometry
+		glsl_ext_inst_set = id();
+		std::vector<std::uint32_t> extension{glsl_ext_inst_set};
+		appendString(extension, "GLSL.std.450");
+		instruction(11, extension);
 		instruction(14, {0, 1});
 		const rtsl::ir::Function* stage_function = module.findFunction(entry.function);
 		if (!stage_function) throw std::runtime_error("entry point references an unknown RTIR function");
@@ -198,12 +204,12 @@ private:
 	}
 
 	std::vector<std::uint32_t>& section(std::uint16_t opcode) {
-		if (opcode == 17 || opcode == 14) return preamble;
+		if (opcode == 17 || opcode == 11 || opcode == 14) return preamble;
 		if (opcode == 15) return entry_points;
 		if (opcode == 16) return execution_modes;
-		if (opcode == 5) return debug;
+		if (opcode == 5 || opcode == 6) return debug;
 		if (opcode == 71 || opcode == 72) return annotations;
-		if ((opcode >= 54 && opcode <= 125) ||
+		if (opcode == 12 || (opcode >= 54 && opcode <= 125) ||
 			(opcode >= 126 && opcode <= 190) || opcode == 218 || opcode == 219 || opcode == 224 || (opcode >= 245 && opcode <= 254))
 			return functions;
 		return types_constants;
@@ -268,6 +274,10 @@ private:
 			std::vector<std::uint32_t> operands{result};
 			for (const rtsl::ir::StructMember& member : type->members) operands.push_back(typeFor(member.type));
 			instruction(30, operands);
+			name(result, module.strings.get(type->name));
+			for (std::uint32_t index = 0; index < type->members.size(); ++index) {
+				memberName(result, index, module.strings.get(type->members[index].name));
+			}
 			break;
 		}
 		case rtsl::ir::TypeKind::type_patch:
@@ -421,6 +431,12 @@ private:
 		std::vector<std::uint32_t> operands{target};
 		appendString(operands, value);
 		instruction(5, operands);
+	}
+
+	void memberName(std::uint32_t target, std::uint32_t member, std::string_view value) {
+		std::vector<std::uint32_t> operands{target, member};
+		appendString(operands, value);
+		instruction(6, operands);
 	}
 
 	struct InterfaceLeaf {
@@ -582,9 +598,18 @@ private:
 	}
 
 	void declareResources() {
+		next_resource_binding = 0;
+		for (const rtsl::ir::Resource& resource : module.resources) {
+			if (resource.binding) {
+				next_resource_binding = std::max(next_resource_binding, resource.binding->binding + 1);
+			}
+		}
 		for (const rtsl::ir::Resource& resource : module.resources) {
 			resources.emplace(resource.symbol.value(), &resource);
+			const auto* symbol = module.findSymbol(resource.symbol);
+			const auto resource_name = std::string(module.strings.get(symbol->fully_qualified_name));
 			const std::uint32_t variable = id();
+			name(variable, resource_name);
 			if (resource.kind == rtsl::ir::ResourceKind::resource_sampled_texture) instruction(59, {pointerType(0, typeSampledImage2D()), variable, 0});
 			else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
 				const rtsl::ir::Type* type = module.findType(resource.type);
@@ -596,6 +621,9 @@ private:
 				if (has_header) { members.push_back(typeFor(type->parameter_types[0])); }
 				if (has_elements) { members.push_back(typeRuntimeArray(typeFor(type->parameter_types[1]), resourceStride(type->parameter_types[1]))); }
 				instruction(30, members);
+				name(block, resource_name + "_block");
+				if (has_header) { memberName(block, 0, "header"); }
+				if (has_elements) { memberName(block, has_header ? 1 : 0, "elements"); }
 				instruction(71, {block, 2});
 				instruction(72, {block, 0, 35, 0});
 				if (has_header && has_elements) { instruction(72, {block, 1, 35, resourceStride(type->parameter_types[0])}); }
@@ -631,6 +659,7 @@ private:
 		std::uint32_t offset{};
 		for (std::uint32_t index = 0; index < module.uniforms.size(); ++index) {
 			const rtsl::ir::Uniform& uniform = module.uniforms[index];
+			memberName(block_type, index, module.strings.get(module.findSymbol(uniform.symbol)->fully_qualified_name));
 			const UniformLayout layout = uniformLayout(module, uniform.type);
 			offset = uniform.offset ? *uniform.offset : roundUp(offset, layout.alignment);
 			instruction(72, {block_type, index, 35, offset});
@@ -639,6 +668,7 @@ private:
 			offset += uniform.size ? *uniform.size : layout.size;
 		}
 		uniform_block_variable = id();
+		name(block_type, "rutile_uniforms_block");
 		instruction(59, {pointerType(2, block_type), uniform_block_variable, 2});
 		name(uniform_block_variable, "rutile_uniforms");
 		instruction(71, {uniform_block_variable, 34, 0});
@@ -1277,6 +1307,16 @@ private:
 			instruction(57, encoded);
 			break;
 		}
+		case rtsl::ir::Opcode::opcode_sqrt:
+			if (operands.size() != 1) throw std::runtime_error("RTIR sqrt instruction is malformed");
+			result = id();
+			instruction(12, {typeFor(source.type), result, glsl_ext_inst_set, 31, operands[0]});
+			break;
+		case rtsl::ir::Opcode::opcode_clamp:
+			if (operands.size() != 3) throw std::runtime_error("RTIR clamp instruction is malformed");
+			result = id();
+			instruction(12, {typeFor(source.type), result, glsl_ext_inst_set, 43, operands[0], operands[1], operands[2]});
+			break;
 		case rtsl::ir::Opcode::opcode_resource_sample: {
 			if (source.immediates.empty() || operands.size() != 1) throw std::runtime_error("RTIR texture sample is malformed");
 			auto resource = resource_variables.find(source.immediates[0]);
@@ -1576,6 +1616,7 @@ private:
 	std::vector<InterfaceLeaf> patch_output_leaves;
 	std::vector<std::uint32_t> interface_ids;
 	std::uint32_t next_id{1};
+	std::uint32_t glsl_ext_inst_set{};
 	std::uint32_t void_type{};
 	std::uint32_t float_type{};
 	std::uint32_t sampled_image_type{};
@@ -1619,6 +1660,11 @@ std::size_t typeSize(const rtsl::ir::Module& module, rtsl::ir::TypeId id) {
 
 void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_spirv_program& program) {
 	std::uint32_t next_binding{};
+	for (const rtsl::ir::Resource& resource : module.resources) {
+		if (resource.binding) {
+			next_binding = std::max(next_binding, resource.binding->binding + 1);
+		}
+	}
 	for (const rtsl::ir::Resource& resource : module.resources) {
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, resource.symbol);

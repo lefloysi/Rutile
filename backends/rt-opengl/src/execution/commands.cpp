@@ -681,7 +681,7 @@ static void rtgl_execution_present_now(struct rtgl_context* ctx, struct rtgl_que
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, (GLsizei)width, (GLsizei)height);
 	glDrawBuffer(GL_BACK);
-	glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)width, (GLint)height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, (GLint)height, (GLint)width, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 	rtgl_swap_glsurface_buffers(swapchain->surface);
 	rtgl_make_glcontext_current(ctx->execution.gl_context, NULL);

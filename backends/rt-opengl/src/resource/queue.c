@@ -1,6 +1,7 @@
 #include "resource/queue.h"
 
 #include "context.h"
+#include "error.h"
 #include "execution/execution.h"
 #include "resource/command_buffer.h"
 #include "resource/framebuffer.h"

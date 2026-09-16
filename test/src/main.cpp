@@ -111,8 +111,6 @@ bool reflected_program_data_render(u32 draw_count) {
 		{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
 		{ "uv", offsetof(Vertex, uv), RT_RG32_SFLOAT },
 	} };
-	const rt_vertex_input input{ attributes.data(), attributes.size(), sizeof(Vertex), RT_VERTEX_RATE_VERTEX };
-	const rt_vertex_layout layout{ &input, 1 };
 	constexpr rt_texture_range image_range{ RT_TEXTURE_ASPECT_COLOR, 0, 1, 0, 1, { 64, 16, 1 }, {} };
 	constexpr usize image_byte_size = 64 * 16 * 4;
 	constexpr usize pixel_offset = (8 * 64 + 32) * 4;
@@ -133,7 +131,20 @@ bool reflected_program_data_render(u32 draw_count) {
 			return false;
 		}
 		rtProgramSource(program, "draw", reflected_program_data_rtslp.data, reflected_program_data_rtslp.size);
-		rtProgramSetLayout(program, &layout);
+		{
+			char position_name[] = "position";
+			char uv_name[] = "uv";
+			const rt_vertex_attribute temporary_attributes[] = {
+				{ position_name, offsetof(Vertex, position), RT_RG32_SFLOAT },
+				{ uv_name, offsetof(Vertex, uv), RT_RG32_SFLOAT },
+			};
+			const auto input = rt_vertex_input{ temporary_attributes, 2, sizeof(Vertex), RT_VERTEX_RATE_VERTEX };
+			const auto layout = rt_vertex_layout{ &input, 1 };
+			rtProgramSetLayout(program, &layout);
+			// The program must own names before the caller changes or releases them.
+			position_name[0] = 'X';
+			uv_name[0] = 'X';
+		}
 		rtProgramSetRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 		rtProgramFinalize(program);
 		if (!expect_success("finalizing uniform program")) {

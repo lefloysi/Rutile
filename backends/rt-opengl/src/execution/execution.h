@@ -9,6 +9,16 @@
 extern "C" {
 #endif
 
+struct rtgl_context;
+struct rtgl_buffer_storage;
+struct rtgl_framebuffer;
+struct rtgl_texture_view;
+struct rtgl_program;
+struct rtgl_image_base;
+struct rtgl_queue;
+struct rtgl_swapchain;
+struct GLFWwindow;
+
 struct rtgl_execution_context {
 	struct gl_context* gl_context;
 	struct rt_thread* thread;

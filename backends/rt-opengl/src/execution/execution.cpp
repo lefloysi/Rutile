@@ -180,6 +180,7 @@ static unsigned rtgl_execution_thread(void* arg) {
 		rtgl_printf("rt-opengl: GL debug callback enabled\n");
 	}
 
+	glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
 	rtgl_printf("rt-opengl: loaded OpenGL 4.6 entry points\n");
 	rtgl_release_current_context();
 	rt_event_signal(ctx->execution.ready_event);

@@ -641,6 +641,16 @@ private:
 				return fail("instruction", "negate has invalid operand count");
 			out << pad << type << " " << valueName(ins.result) << " = -" << valueName(ins.operands[0]) << ";\n";
 			return true;
+		case rtsl::ir::Opcode::opcode_sqrt:
+			if (ins.operands.size() != 1)
+				return fail("instruction", "sqrt instruction has invalid operand count");
+			out << pad << type << " " << valueName(ins.result) << " = sqrt(" << valueName(ins.operands[0]) << ");\n";
+			return true;
+		case rtsl::ir::Opcode::opcode_clamp:
+			if (ins.operands.size() != 3)
+				return fail("instruction", "clamp instruction has invalid operand count");
+			out << pad << type << " " << valueName(ins.result) << " = clamp(" << valueName(ins.operands[0]) << ", " << valueName(ins.operands[1]) << ", " << valueName(ins.operands[2]) << ");\n";
+			return true;
 		case rtsl::ir::Opcode::opcode_convert: {
 			if (ins.operands.size() != 1)
 				return fail("instruction", "convert has invalid operand count");
