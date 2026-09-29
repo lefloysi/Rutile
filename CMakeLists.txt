@@ -31,10 +31,8 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rt_antialias_program.inc"
     COMMAND "${CMAKE_COMMAND}" "-DINPUT=${antialias_artifact}" "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/rt_antialias_program.inc"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_raw_program.cmake"
     DEPENDS "${antialias_artifact}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_raw_program.cmake" VERBATIM)
-add_library(rutile-antialias STATIC src/rt_antialias.c "${CMAKE_CURRENT_BINARY_DIR}/rt_antialias_program.inc")
-add_library(Rutile::antialias ALIAS rutile-antialias)
-target_include_directories(rutile-antialias PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(rutile-antialias PUBLIC Rutile::rutile)
+target_sources(rutile PRIVATE src/rt_antialias.c "${CMAKE_CURRENT_BINARY_DIR}/rt_antialias_program.inc")
+target_include_directories(rutile PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_library(rutile-cpp INTERFACE)
 add_library(Rutile::cpp ALIAS rutile-cpp)

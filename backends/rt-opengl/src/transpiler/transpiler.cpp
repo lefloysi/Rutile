@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <new>
 #include <span>
@@ -171,13 +172,23 @@ public:
 		emitEntryPoint(wrapper_function, interface_ids);
 		emitExecutionModes(wrapper_function);
 		std::unordered_set<std::uint32_t> reachable_functions;
-		const auto collect_reachable = [&](const auto& self, rtsl::ir::FunctionId function_id) -> void {
-			if (!reachable_functions.insert(function_id.value()).second) return;
+		const auto collect_reachable = [&](const auto& visit, rtsl::ir::Function::ID function_id) -> void {
+			if (!reachable_functions.insert(function_id.value()).second) {
+				return;
+			}
+
 			const rtsl::ir::Function* function = module.findFunction(function_id);
-			if (!function) throw std::runtime_error("RTIR call references an unknown function");
-			for (const rtsl::ir::Block& block : function->blocks)
-				for (const rtsl::ir::Instruction& instruction : block.instructions)
-					if (instruction.opcode == rtsl::ir::Opcode::opcode_call) self(self, instruction.callee);
+			if (!function) {
+				throw std::runtime_error("RTIR call references an unknown function");
+			}
+
+			for (const rtsl::ir::Block& block : function->blocks) {
+				for (const rtsl::ir::Instruction& instruction : block.instructions) {
+					if (instruction.opcode == rtsl::ir::Opcode::opcode_call) {
+						visit(visit, instruction.callee);
+					}
+				}
+			}
 		};
 		collect_reachable(collect_reachable, stage_function->id);
 		for (const rtsl::ir::Function& function : module.functions)
@@ -1658,8 +1669,8 @@ std::size_t typeSize(const rtsl::ir::Module& module, rtsl::ir::TypeId id) {
 	}
 }
 
-void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_spirv_program& program) {
-	std::uint32_t next_binding{};
+void reflect(const rtsl::ir::Module& module, u32 selected_stages, rt_spirv_program& program) {
+	u32 next_binding{};
 	for (const rtsl::ir::Resource& resource : module.resources) {
 		if (resource.binding) {
 			next_binding = std::max(next_binding, resource.binding->binding + 1);
@@ -1668,17 +1679,17 @@ void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_s
 	for (const rtsl::ir::Resource& resource : module.resources) {
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, resource.symbol);
-		location.info.kind = static_cast<rt_spirv_location_kind>(static_cast<std::uint32_t>(resource.kind) + 2u);
+		location.info.kind = static_cast<rt_spirv_location_kind>(static_cast<u32>(resource.kind) + 2u);
 		location.info.stages = selected_stages;
 		location.info.descriptor_set = resource.binding ? resource.binding->set : 0;
 		location.info.binding = resource.binding ? resource.binding->binding : next_binding++;
 		program.locations.push_back(std::move(location));
 	}
-	const std::uint32_t uniform_binding = next_binding++;
-	std::size_t uniform_offset{};
+	const u32 uniform_binding = next_binding++;
+	usize uniform_offset{};
 	for (const rtsl::ir::Uniform& uniform : module.uniforms) {
 		const UniformLayout layout = uniformLayout(module, uniform.type);
-		uniform_offset = uniform.offset ? *uniform.offset : roundUp(static_cast<std::uint32_t>(uniform_offset), layout.alignment);
+		uniform_offset = uniform.offset ? *uniform.offset : roundUp(static_cast<u32>(uniform_offset), layout.alignment);
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, uniform.symbol);
 		location.info.kind = RT_SPIRV_UNIFORM_DATA;
@@ -1690,14 +1701,23 @@ void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_s
 		uniform_offset = location.info.offset + location.info.size;
 		program.locations.push_back(std::move(location));
 	}
-	const std::size_t uniform_block_size = roundUp(static_cast<std::uint32_t>(uniform_offset), 16);
-	for (rt_spirv_owned_location& location : program.locations) if (location.info.kind == RT_SPIRV_UNIFORM_DATA) location.info.block_size = uniform_block_size;
-	const std::uint32_t storage_binding = next_binding++;
-	std::size_t storage_offset{};
+
+	const usize uniform_block_size = roundUp(static_cast<u32>(uniform_offset), 16);
+	for (rt_spirv_owned_location& location : program.locations) {
+		if (location.info.kind == RT_SPIRV_UNIFORM_DATA) {
+			location.info.block_size = uniform_block_size;
+		}
+	}
+
+	const u32 storage_binding = next_binding++;
+	usize storage_offset{};
 	for (const rtsl::ir::StorageObject& object : module.storage_objects) {
-		if (object.address_space != rtsl::ir::AddressSpace::address_space_storage) continue;
+		if (object.address_space != rtsl::ir::AddressSpace::address_space_storage) {
+			continue;
+		}
+
 		const UniformLayout layout = uniformLayout(module, object.type);
-		storage_offset = roundUp(static_cast<std::uint32_t>(storage_offset), layout.alignment);
+		storage_offset = roundUp(static_cast<u32>(storage_offset), layout.alignment);
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, object.symbol);
 		location.info.kind = RT_SPIRV_STORAGE_DATA;
@@ -1709,23 +1729,26 @@ void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_s
 		storage_offset += location.info.size;
 		program.locations.push_back(std::move(location));
 	}
-	for (rt_spirv_owned_location& location : program.locations) if (location.info.kind == RT_SPIRV_STORAGE_DATA) location.info.block_size = storage_offset;
-	for (rt_spirv_owned_location& location : program.locations) location.info.name = location.name.c_str();
+
+	for (rt_spirv_owned_location& location : program.locations) {
+		if (location.info.kind == RT_SPIRV_STORAGE_DATA) {
+			location.info.block_size = storage_offset;
+		}
+	}
+
+	for (rt_spirv_owned_location& location : program.locations) {
+		location.info.name = location.name.c_str();
+	}
 }
 
 std::string artifactError(const rtsl::Error& artifact_error) {
-	std::string result{"RTSL program artifact"};
-	if (!artifact_error.context.empty()) {
-		result += " ";
-		result += artifact_error.context;
-		result += " at byte ";
-		result += std::to_string(artifact_error.offset);
-	}
-	if (!artifact_error.message.empty()) {
-		result += ": ";
-		result += artifact_error.message;
-	}
-	return result;
+	const std::string context = artifact_error.context.empty()
+		? std::string{}
+		: std::format(" {} at byte {}", artifact_error.context, artifact_error.offset);
+	const std::string message = artifact_error.message.empty()
+		? std::string{}
+		: std::format(": {}", artifact_error.message);
+	return std::format("RTSL program artifact{}{}", context, message);
 }
 
 bool linkedModule(std::span<const std::byte> bytes, rtsl::ir::Module& module, std::string& error) {
@@ -1743,7 +1766,7 @@ bool linkedModule(std::span<const std::byte> bytes, rtsl::ir::Module& module, st
 	return true;
 }
 
-bool structurallyValid(std::span<const std::uint32_t> words, std::string& error) {
+bool structurallyValid(std::span<const u32> words, std::string& error) {
 	if (words.size() < 5 || words[0] != 0x07230203u) {
 		error = "SPIR-V module header is invalid";
 		return false;
@@ -1752,11 +1775,11 @@ bool structurallyValid(std::span<const std::uint32_t> words, std::string& error)
 		error = "SPIR-V module declares a zero id bound";
 		return false;
 	}
-	std::vector<std::vector<std::uint32_t>> function_types;
-	for (std::size_t offset = 5; offset < words.size();) {
-		const std::uint32_t instruction = words[offset];
-		const std::uint16_t word_count = static_cast<std::uint16_t>(instruction >> 16);
-		const std::uint16_t opcode = static_cast<std::uint16_t>(instruction);
+	std::vector<std::vector<u32>> function_types;
+	for (usize offset = 5; offset < words.size();) {
+		const u32 instruction = words[offset];
+		const u16 word_count = static_cast<u16>(instruction >> 16);
+		const u16 opcode = static_cast<u16>(instruction);
 		if (!word_count || offset + word_count > words.size()) {
 			error = "SPIR-V instruction has an invalid word count";
 			return false;
@@ -1766,8 +1789,8 @@ bool structurallyValid(std::span<const std::uint32_t> words, std::string& error)
 				error = "SPIR-V function type is truncated";
 				return false;
 			}
-			std::vector<std::uint32_t> signature(words.begin() + offset + 2, words.begin() + offset + word_count);
-			for (const std::vector<std::uint32_t>& existing : function_types) {
+			std::vector<u32> signature(words.begin() + offset + 2, words.begin() + offset + word_count);
+			for (const std::vector<u32>& existing : function_types) {
 				if (existing == signature) {
 					error = "SPIR-V module contains a duplicate function type";
 					return false;
@@ -1788,9 +1811,9 @@ bool structurallyValid(std::span<const std::uint32_t> words, std::string& error)
 
 extern "C" {
 
-int rt_spirv_validate(const uint32_t* words, size_t word_count, char* message, size_t message_size) {
+int rt_spirv_validate(const u32* words, usize word_count, char* message, usize message_size) {
 	std::string error;
-	if (!words || !rutile::spirv::structurallyValid(std::span<const std::uint32_t>{words, word_count}, error)) {
+	if (!words || !rutile::spirv::structurallyValid(std::span<const u32>{words, word_count}, error)) {
 		if (message && message_size) {
 			if (error.empty()) error = "SPIR-V module is empty";
 			std::strncpy(message, error.c_str(), message_size - 1);
@@ -1822,7 +1845,7 @@ int rt_spirv_validate(const uint32_t* words, size_t word_count, char* message, s
 	return valid ? 1 : 0;
 }
 
-rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const char* entry_name, rt_spirv_program** program, char* message, size_t message_size) {
+rt_spirv_status rt_spirv_transpile(const u08* bytes, usize byte_size, const char* entry_name, rt_spirv_program** program, char* message, usize message_size) {
 	if (program) *program = nullptr;
 	if (!bytes || !byte_size || !entry_name || !entry_name[0] || !program) return RT_SPIRV_INVALID_ARTIFACT;
 	try {
@@ -1844,11 +1867,11 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 			return RT_SPIRV_INVALID_MODULE;
 		}
 		std::vector<const rtsl::ir::EntryPoint*> selected_entries;
-		std::uint32_t selected_stages{};
+		u32 selected_stages{};
 		for (const rtsl::ir::EntryPoint& entry : module.entry_points) {
 			if (module.strings.get(entry.source_name) != entry_name) continue;
 			const rt_spirv_stage output_stage = rutile::spirv::stage(entry.stage);
-			const std::uint32_t stage_bit = 1u << static_cast<std::uint32_t>(output_stage);
+			const u32 stage_bit = 1u << static_cast<u32>(output_stage);
 			if (selected_stages & stage_bit) {
 				if (message && message_size) {
 					std::strncpy(message, "requested entry name has more than one overload for the same shader stage", message_size - 1);
@@ -1935,7 +1958,7 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 
 void rt_spirv_program_destroy(rt_spirv_program* program) { delete program; }
 
-const uint32_t* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, size_t* word_count) {
+const u32* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, usize* word_count) {
 	if (word_count) *word_count = 0;
 	if (!program || stage >= RT_SPIRV_STAGE_COUNT) return nullptr;
 	if (word_count) *word_count = program->stages[stage].words.size();
@@ -1946,9 +1969,11 @@ const char* rt_spirv_stage_entry_point(const rt_spirv_program* program, rt_spirv
 	return program && stage < RT_SPIRV_STAGE_COUNT && !program->stages[stage].entry_point.empty() ? program->stages[stage].entry_point.c_str() : nullptr;
 }
 
-uint32_t rt_spirv_location_count(const rt_spirv_program* program) { return program ? static_cast<uint32_t>(program->locations.size()) : 0; }
+u32 rt_spirv_location_count(const rt_spirv_program* program) {
+	return program ? static_cast<u32>(program->locations.size()) : 0;
+}
 
-int rt_spirv_location(const rt_spirv_program* program, uint32_t index, rt_spirv_location_info* location) {
+int rt_spirv_location(const rt_spirv_program* program, u32 index, rt_spirv_location_info* location) {
 	if (!program || !location || index >= program->locations.size()) return 0;
 	*location = program->locations[index].info;
 	return 1;

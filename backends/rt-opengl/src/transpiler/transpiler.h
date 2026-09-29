@@ -2,6 +2,7 @@
 #define RTGL_SPIRV_TRANSPILER_H
 
 #include "../config.h"
+#include "../rutile.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -42,23 +43,23 @@ typedef enum rt_spirv_location_kind {
 typedef struct rt_spirv_location_info {
 	const char* name;
 	rt_spirv_location_kind kind;
-	uint32_t stages;
-	uint32_t descriptor_set;
-	uint32_t binding;
-	size_t offset;
-	size_t size;
-	size_t block_size;
+	u32 stages;
+	u32 descriptor_set;
+	u32 binding;
+	usize offset;
+	usize size;
+	usize block_size;
 } rt_spirv_location_info;
 
 typedef struct rt_spirv_program rt_spirv_program;
 
-RTGL_API rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const char* entry_name, rt_spirv_program** program, char* message, size_t message_size);
-RTGL_API int rt_spirv_validate(const uint32_t* words, size_t word_count, char* message, size_t message_size);
+RTGL_API rt_spirv_status rt_spirv_transpile(const u08* bytes, usize byte_size, const char* entry_name, rt_spirv_program** program, char* message, usize message_size);
+RTGL_API int rt_spirv_validate(const u32* words, usize word_count, char* message, usize message_size);
 RTGL_API void rt_spirv_program_destroy(rt_spirv_program* program);
-RTGL_API const uint32_t* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, size_t* word_count);
+RTGL_API const u32* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, usize* word_count);
 RTGL_API const char* rt_spirv_stage_entry_point(const rt_spirv_program* program, rt_spirv_stage stage);
-RTGL_API uint32_t rt_spirv_location_count(const rt_spirv_program* program);
-RTGL_API int rt_spirv_location(const rt_spirv_program* program, uint32_t index, rt_spirv_location_info* location);
+RTGL_API u32 rt_spirv_location_count(const rt_spirv_program* program);
+RTGL_API int rt_spirv_location(const rt_spirv_program* program, u32 index, rt_spirv_location_info* location);
 
 #ifdef __cplusplus
 }
