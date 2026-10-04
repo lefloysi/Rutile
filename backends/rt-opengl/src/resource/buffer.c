@@ -193,7 +193,8 @@ void rtgl_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_b
 		return;
 	}
 	rtgl_buffer_storage_wait(ctx, buffer->storage);
-	memcpy(data, buffer->storage->shadow_data + range.offset, range.size);
+	// Shader writes and GPU copies do not update the CPU shadow.
+	rtgl_execution_buffer_read(ctx, buffer->storage, range.offset, range.size, data);
 }
 
 u08* rtgl_buffer_map(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_buffer_range range) {
@@ -204,6 +205,7 @@ u08* rtgl_buffer_map(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_bu
 		return NULL;
 	}
 	rtgl_buffer_storage_wait(ctx, buffer->storage);
+	rtgl_execution_buffer_read(ctx, buffer->storage, range.offset, range.size, buffer->storage->shadow_data + range.offset);
 	buffer->mapped_range = range;
 	buffer->mapped = true;
 	return buffer->storage->shadow_data + range.offset;
