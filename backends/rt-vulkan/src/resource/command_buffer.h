@@ -112,6 +112,7 @@ struct rtvk_ir_buffer_copy {
 
 struct rtvk_ir_buffer_copy_to_texture {
 	struct rtvk_buffer* src;
+	struct rtvk_texture* copy_source;
 	struct rtvk_texture* dst;
 	rt_buffer_range src_range;
 	rt_texture_range dst_range;
@@ -274,11 +275,33 @@ struct rtvk_ir_dispatch {
 	u32 group_count_z;
 };
 
+// A command buffer owns one writable version of each texture it updates. Every
+// later write to that version is ordered in the same Vulkan command buffer, so
+// it must not create another full-image copy-on-write clone.
+struct rtvk_texture_write_owner {
+	struct rtvk_texture_write_owner* next;
+	struct rtvk_texture* texture;
+	struct rtvk_texture* target;
+	u32 write_references;
+};
+
+// TextureData accepts caller-owned CPU bytes while command buffers are
+// deferred. Keep bounded stable blocks until the commands have been lowered
+// instead of allocating one snapshot for every atlas rectangle.
+struct rtvk_texture_data_block {
+	struct rtvk_texture_data_block* next;
+	usize capacity;
+	usize used;
+	u08 bytes[];
+};
+
 struct rtvk_command_buffer {
 	struct rtvk_resource_base base;
 	u08* ir_data;
 	usize ir_size;
 	usize ir_capacity;
+	struct rtvk_texture_data_block* texture_data_blocks;
+	struct rtvk_texture_write_owner* texture_write_owners;
 	bool recording;
 	bool executable;
 	bool continuation;
@@ -291,8 +314,14 @@ RTVK_DECLARE_NEW_RESOURCE(command_buffer)
 
 struct rtvk_lowered_staging_buffer {
 	struct rtvk_lowered_staging_buffer* next;
+	struct rtvk_lowered_staging_buffer* next_texture_upload;
 	VkBuffer vk_buffer;
 	VmaAllocation vma_allocation;
+	u08* mapped_data;
+	usize capacity;
+	usize used;
+	usize flush_begin;
+	usize flush_end;
 };
 
 struct rtvk_lowered_image_view {
@@ -302,6 +331,7 @@ struct rtvk_lowered_image_view {
 
 struct rtvk_lowered_descriptor_pool {
 	VkDescriptorPool vk_descriptor_pool;
+	VkDescriptorSetLayout layout;
 	struct rtvk_lowered_descriptor_pool* next;
 };
 
@@ -310,6 +340,9 @@ struct rtvk_lowered_command_buffer {
 	usize resource_job_capacity;
 	usize resource_job_count;
 	struct rtvk_lowered_staging_buffer* staging_buffers;
+	struct rtvk_lowered_staging_buffer* texture_upload_buffers;
+	struct rtvk_lowered_staging_buffer* texture_upload_current;
+	usize texture_upload_alignment;
 	struct rtvk_lowered_staging_buffer* program_data_buffer;
 	usize program_data_capacity;
 	usize program_data_used;

@@ -4,6 +4,7 @@
 #include "queue.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -372,6 +373,92 @@ void* rtvk_command_append(struct rtvk_command_buffer* command_buffer, rtvk_comma
 	return header + 1;
 }
 
+#define RTVK_TEXTURE_DATA_BLOCK_BYTES (1u * 1024u * 1024u)
+
+static u08* rtvk_command_buffer_snapshot_texture_data(struct rtvk_command_buffer* command_buffer, const u08* data, usize size) {
+	if (!size) {
+		return NULL;
+	}
+	struct rtvk_texture_data_block* block = command_buffer->texture_data_blocks;
+	if (!block || size > block->capacity - block->used) {
+		const usize capacity = size > RTVK_TEXTURE_DATA_BLOCK_BYTES ? size : RTVK_TEXTURE_DATA_BLOCK_BYTES;
+		if (capacity > SIZE_MAX - sizeof(*block)) {
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "texture data snapshot size overflow");
+			return NULL;
+		}
+		block = malloc(sizeof(*block) + capacity);
+		if (!block) {
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for recorded texture data", capacity);
+			return NULL;
+		}
+		block->next = command_buffer->texture_data_blocks;
+		block->capacity = capacity;
+		block->used = 0;
+		command_buffer->texture_data_blocks = block;
+	}
+	u08* snapshot = block->bytes + block->used;
+	memcpy(snapshot, data, size);
+	block->used += size;
+	return snapshot;
+}
+
+static struct rtvk_texture_write rtvk_command_buffer_texture_write_begin(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* texture) {
+	struct rtvk_texture_write write = { 0 };
+	if (!command_buffer || !texture) {
+		return write;
+	}
+
+	struct rtvk_texture* active = rtvk_texture_active_node(texture);
+	for (struct rtvk_texture_write_owner* owner = command_buffer->texture_write_owners; owner; owner = owner->next) {
+		if (owner->texture == texture && owner->target == active) {
+			const u32 expected_references = 2 + owner->write_references;
+			if (rtvk_atomic_load(&active->base.base.ref_count) == expected_references && rtvk_atomic_load(&active->base.base.job_count) == 0) {
+				write.target = active;
+				return write;
+			}
+			break;
+		}
+	}
+
+	write = rtvk_texture_write_begin(rtvk_get_current_context(), texture);
+	if (!write.target) {
+		return write;
+	}
+
+	struct rtvk_texture_write_owner* owner = calloc(1, sizeof(*owner));
+	if (!owner) {
+		rtvk_texture_write_cancel(texture, &write);
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture write ownership");
+		return (struct rtvk_texture_write){ 0 };
+	}
+	owner->texture = texture;
+	owner->target = write.target;
+	rtvk_retain_resource(owner->texture);
+	rtvk_retain_resource(owner->target);
+	owner->next = command_buffer->texture_write_owners;
+	command_buffer->texture_write_owners = owner;
+	return write;
+}
+
+static void rtvk_command_buffer_retain_texture_write(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* texture, struct rtvk_texture* target) {
+	for (struct rtvk_texture_write_owner* owner = command_buffer->texture_write_owners; owner; owner = owner->next) {
+		if (owner->texture == texture && owner->target == target) {
+			++owner->write_references;
+			return;
+		}
+	}
+}
+
+static void rtvk_command_buffer_release_texture_write_owners(struct rtvk_command_buffer* command_buffer) {
+	while (command_buffer->texture_write_owners) {
+		struct rtvk_texture_write_owner* owner = command_buffer->texture_write_owners;
+		command_buffer->texture_write_owners = owner->next;
+		rtvk_release_resource(owner->texture);
+		rtvk_release_resource(owner->target);
+		free(owner);
+	}
+}
+
 void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_buffer) {
 	for (usize offset = 0; offset < command_buffer->ir_size; (void)0) {
 		struct rtvk_command_header* header = (struct rtvk_command_header*)(command_buffer->ir_data + offset);
@@ -394,6 +481,7 @@ void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_b
 		case RTVK_COMMAND_BUFFER_COPY_TO_TEXTURE: {
 			struct rtvk_ir_buffer_copy_to_texture* command = payload;
 			rtvk_release_resource(command->src);
+			rtvk_release_resource(command->copy_source);
 			rtvk_release_resource(command->dst);
 			break;
 		}
@@ -409,7 +497,6 @@ void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_b
 		}
 		case RTVK_COMMAND_TEXTURE_DATA: {
 			struct rtvk_ir_texture_data* command = payload;
-			free(command->data);
 			rtvk_release_resource(command->copy_source);
 			rtvk_release_resource(command->texture);
 			break;
@@ -476,6 +563,12 @@ void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_b
 	command_buffer->ir_data = NULL;
 	command_buffer->ir_size = 0;
 	command_buffer->ir_capacity = 0;
+	while (command_buffer->texture_data_blocks) {
+		struct rtvk_texture_data_block* block = command_buffer->texture_data_blocks;
+		command_buffer->texture_data_blocks = block->next;
+		free(block);
+	}
+	rtvk_command_buffer_release_texture_write_owners(command_buffer);
 }
 
 void rtvk_command_buffer_reset(struct rtvk_command_buffer* command_buffer) {
@@ -613,12 +706,21 @@ void rtvk_command_buffer_buffer_copy_to_texture(struct rtvk_command_buffer* comm
 	if (!command) {
 		return;
 	}
+	*command = (struct rtvk_ir_buffer_copy_to_texture){ 0 };
 	command->src = rtvk_buffer_active_node(src);
-	command->dst = rtvk_texture_active_node(dst);
+	struct rtvk_texture_write write = rtvk_command_buffer_texture_write_begin(command_buffer, dst);
+	if (!write.target) {
+		return;
+	}
+	command->copy_source = write.source;
+	command->dst = write.target;
 	command->src_range = src_range;
 	command->dst_range = dst_range;
 	rtvk_retain_resource(command->src);
+	rtvk_retain_resource(command->copy_source);
 	rtvk_retain_resource(command->dst);
+	rtvk_command_buffer_retain_texture_write(command_buffer, dst, command->dst);
+	rtvk_texture_write_commit(dst, &write);
 }
 
 void rtvk_command_buffer_buffer_barrier(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, rt_access src, rt_access dst) {
@@ -723,15 +825,20 @@ void rtvk_command_buffer_texture_copy(struct rtvk_command_buffer* command_buffer
 	if (!command) {
 		return;
 	}
+	*command = (struct rtvk_ir_texture_copy){ 0 };
 	command->src = rtvk_texture_active_node(src);
-	rtvk_retain_resource(command->src);
-	struct rtvk_texture_write write = rtvk_texture_write_begin(rtvk_get_current_context(), dst);
+	struct rtvk_texture_write write = rtvk_command_buffer_texture_write_begin(command_buffer, dst);
+	if (!write.target) {
+		return;
+	}
 	command->copy_source = write.source;
 	command->dst = write.target;
 	command->src_range = src_range;
 	command->dst_range = dst_range;
+	rtvk_retain_resource(command->src);
 	rtvk_retain_resource(command->copy_source);
 	rtvk_retain_resource(command->dst);
+	rtvk_command_buffer_retain_texture_write(command_buffer, dst, command->dst);
 	rtvk_texture_write_commit(dst, &write);
 }
 
@@ -742,22 +849,20 @@ void rtvk_command_buffer_texture_data(struct rtvk_command_buffer* command_buffer
 		return;
 	}
 
-	u08* snapshot = NULL;
-	if (data_size) {
-		snapshot = malloc(data_size);
-		if (!snapshot) {
-			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for recorded texture data", data_size);
-			return;
-		}
-		memcpy(snapshot, data, data_size);
+	u08* snapshot = rtvk_command_buffer_snapshot_texture_data(command_buffer, data, data_size);
+	if (data_size && !snapshot) {
+		return;
 	}
 
 	struct rtvk_ir_texture_data* command = rtvk_command_append(command_buffer, RTVK_COMMAND_TEXTURE_DATA);
 	if (!command) {
-		free(snapshot);
 		return;
 	}
-	struct rtvk_texture_write write = rtvk_texture_write_begin(rtvk_get_current_context(), texture);
+	*command = (struct rtvk_ir_texture_data){ 0 };
+	struct rtvk_texture_write write = rtvk_command_buffer_texture_write_begin(command_buffer, texture);
+	if (!write.target) {
+		return;
+	}
 	command->copy_source = write.source;
 	command->texture = write.target;
 	command->range = range;
@@ -765,6 +870,7 @@ void rtvk_command_buffer_texture_data(struct rtvk_command_buffer* command_buffer
 	command->data_size = data_size;
 	rtvk_retain_resource(command->copy_source);
 	rtvk_retain_resource(command->texture);
+	rtvk_command_buffer_retain_texture_write(command_buffer, texture, command->texture);
 	rtvk_texture_write_commit(texture, &write);
 }
 
@@ -1241,10 +1347,120 @@ struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_create_host_buff
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return NULL;
 	}
+	VmaAllocationInfo mapped_info;
+	vmaGetAllocationInfo(ctx->vma_allocator, staging->vma_allocation, &mapped_info);
+	if (!mapped_info.pMappedData) {
+		vmaDestroyBuffer(ctx->vma_allocator, staging->vk_buffer, staging->vma_allocation);
+		free(staging);
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to map %zu byte host upload buffer", size);
+		return NULL;
+	}
+	staging->mapped_data = mapped_info.pMappedData;
+	staging->capacity = size ? size : 1;
+	staging->flush_begin = staging->capacity;
 
 	staging->next = lowered->staging_buffers;
 	lowered->staging_buffers = staging;
 	return staging;
+}
+
+#define RTVK_TEXTURE_UPLOAD_CHUNK_BYTES (8u * 1024u * 1024u)
+
+static usize rtvk_align_upload_offset(usize offset, usize alignment) {
+	if (alignment <= 1) {
+		return offset;
+	}
+	const usize remainder = offset % alignment;
+	if (!remainder) {
+		return offset;
+	}
+	const usize padding = alignment - remainder;
+	if (offset > SIZE_MAX - padding) {
+		return SIZE_MAX;
+	}
+	return offset + padding;
+}
+
+static bool rtvk_lowered_command_buffer_prepare_texture_uploads(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_lowered_command_buffer* lowered) {
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(ctx->vk_physical_device, &properties);
+	lowered->texture_upload_alignment = properties.limits.optimalBufferCopyOffsetAlignment;
+	if (lowered->texture_upload_alignment < 4) {
+		lowered->texture_upload_alignment = 4;
+	}
+
+	usize total = 0;
+	for (usize offset = 0; offset < command_buffer->ir_size;) {
+		struct rtvk_command_header* header = (struct rtvk_command_header*)(command_buffer->ir_data + offset);
+		if ((rtvk_command_opcode)header->opcode == RTVK_COMMAND_TEXTURE_DATA) {
+			const struct rtvk_ir_texture_data* command = (const struct rtvk_ir_texture_data*)(header + 1);
+			if (command->data_size) {
+				total = rtvk_align_upload_offset(total, lowered->texture_upload_alignment);
+				if (total == SIZE_MAX || command->data_size > SIZE_MAX - total) {
+					rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "texture upload staging size overflow");
+					return false;
+				}
+				total += command->data_size;
+			}
+		}
+		offset += rtvk_command_record_size((rtvk_command_opcode)header->opcode);
+	}
+
+	// The common atlas path records at most one bounded upload batch. Preallocate
+	// that batch exactly once instead of making one Vulkan buffer per rectangle.
+	if (!total || total > RTVK_TEXTURE_UPLOAD_CHUNK_BYTES) {
+		return true;
+	}
+	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+	if (!staging) {
+		return false;
+	}
+	lowered->texture_upload_buffers = staging;
+	lowered->texture_upload_current = staging;
+	return true;
+}
+
+static struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_reserve_texture_upload(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, usize size, usize* upload_offset) {
+	struct rtvk_lowered_staging_buffer* staging = lowered->texture_upload_current;
+	usize offset = staging ? rtvk_align_upload_offset(staging->used, lowered->texture_upload_alignment) : SIZE_MAX;
+	if (staging && offset != SIZE_MAX && offset <= staging->capacity && size <= staging->capacity - offset) {
+		staging->used = offset + size;
+		*upload_offset = offset;
+		return staging;
+	}
+
+	const usize capacity = size > RTVK_TEXTURE_UPLOAD_CHUNK_BYTES ? size : RTVK_TEXTURE_UPLOAD_CHUNK_BYTES;
+	staging = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+	if (!staging) {
+		return NULL;
+	}
+	if (lowered->texture_upload_current) {
+		lowered->texture_upload_current->next_texture_upload = staging;
+	} else {
+		lowered->texture_upload_buffers = staging;
+	}
+	lowered->texture_upload_current = staging;
+	staging->used = size;
+	*upload_offset = 0;
+	return staging;
+}
+
+static void rtvk_lowered_command_buffer_write_texture_upload(struct rtvk_lowered_staging_buffer* staging, usize offset, const u08* data, usize size) {
+	memcpy(staging->mapped_data + offset, data, size);
+	if (offset < staging->flush_begin) {
+		staging->flush_begin = offset;
+	}
+	if (offset + size > staging->flush_end) {
+		staging->flush_end = offset + size;
+	}
+}
+
+static void rtvk_lowered_command_buffer_flush_texture_uploads(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered) {
+	for (struct rtvk_lowered_staging_buffer* staging = lowered->texture_upload_buffers; staging; staging = staging->next_texture_upload) {
+		if (staging->flush_begin < staging->flush_end) {
+			vmaFlushAllocation(ctx->vma_allocator, staging->vma_allocation, staging->flush_begin, staging->flush_end - staging->flush_begin);
+		}
+	}
 }
 
 VkPipelineStageFlags rtvk_access_stage_mask(enum rt_stage_flag stage, bool destination) {
@@ -1453,6 +1669,7 @@ static VkResult rtvk_lower_grow_descriptor_pool(struct rtvk_context* ctx, struct
 	info.pPoolSizes = sizes;
 	VkResult result = vkCreateDescriptorPool(ctx->vk_device, &info, VK_ALLOCATOR, &pool->vk_descriptor_pool);
 	if (result != VK_SUCCESS) { free(pool); return result; }
+	pool->layout = program->vk_descriptor_set_layout;
 	pool->next = lowered->descriptor_pools;
 	lowered->descriptor_pools = pool;
 	return VK_SUCCESS;
@@ -1467,8 +1684,10 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 		return;
 	}
 	VkDescriptorSetLayout layout = state->program->vk_descriptor_set_layout;
+	struct rtvk_lowered_descriptor_pool* pool = lowered->descriptor_pools;
+	while (pool && pool->layout != layout) { pool = pool->next; }
 	VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	allocate_info.descriptorPool = lowered->descriptor_pools ? lowered->descriptor_pools->vk_descriptor_pool : VK_NULL_HANDLE;
+	allocate_info.descriptorPool = pool ? pool->vk_descriptor_pool : VK_NULL_HANDLE;
 	allocate_info.descriptorSetCount = 1;
 	allocate_info.pSetLayouts = &layout;
 	VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
@@ -1694,11 +1913,14 @@ void rtvk_lower_buffer_copy(struct rtvk_lowered_command_buffer* lowered, const s
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->dst));
 }
 
+static void rtvk_lower_texture_copy_prior(struct rtvk_lowered_command_buffer* lowered, struct rtvk_texture* source, struct rtvk_texture* target);
+
 void rtvk_lower_buffer_copy_to_texture(struct rtvk_lowered_command_buffer* lowered, const struct rtvk_ir_buffer_copy_to_texture* command) {
 	if (!command->src || !command->dst || !command->src_range.size) {
 		return;
 	}
 
+	rtvk_lower_texture_copy_prior(lowered, command->copy_source, command->dst);
 	rtvk_image_transition_layout(lowered->vk_command_buffer, &command->dst->base, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 	usize region_size = command->dst_range.extent.width * command->dst_range.extent.height * command->dst_range.extent.depth * rtvk_texture_bytes_per_texel(command->dst->base.vk_format);
 	usize buffer_offset = command->src_range.offset;
@@ -1748,7 +1970,7 @@ void rtvk_lower_buffer_barrier(struct rtvk_lowered_command_buffer* lowered, cons
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->buffer));
 }
 
-void rtvk_lower_texture_copy_prior(struct rtvk_lowered_command_buffer* lowered, struct rtvk_texture* source, struct rtvk_texture* target) {
+static void rtvk_lower_texture_copy_prior(struct rtvk_lowered_command_buffer* lowered, struct rtvk_texture* source, struct rtvk_texture* target) {
 	if (!source || !target) {
 		return;
 	}
@@ -1820,19 +2042,16 @@ void rtvk_lower_texture_data(struct rtvk_context* ctx, struct rtvk_lowered_comma
 
 	rtvk_lower_texture_copy_prior(lowered, command->copy_source, command->texture);
 
-	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, command->data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+	usize staging_offset = 0;
+	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_reserve_texture_upload(ctx, lowered, command->data_size, &staging_offset);
 	if (!staging) {
 		return;
 	}
-
-	VmaAllocationInfo allocation_info;
-	vmaGetAllocationInfo(ctx->vma_allocator, staging->vma_allocation, &allocation_info);
-	memcpy(allocation_info.pMappedData, command->data, command->data_size);
-	vmaFlushAllocation(ctx->vma_allocator, staging->vma_allocation, 0, command->data_size);
+	rtvk_lowered_command_buffer_write_texture_upload(staging, staging_offset, command->data, command->data_size);
 
 	rtvk_image_transition_layout(lowered->vk_command_buffer, &command->texture->base, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 	usize region_size = command->range.extent.width * command->range.extent.height * command->range.extent.depth * rtvk_texture_bytes_per_texel(command->texture->base.vk_format);
-	usize buffer_offset = 0;
+	usize buffer_offset = staging_offset;
 	for (usize mip = 0; mip < command->range.mip_count; mip++) {
 		for (usize layer = 0; layer < command->range.layer_count; layer++) {
 			VkBufferImageCopy copy = { 0 };
@@ -2362,10 +2581,18 @@ void rtvk_command_buffer_lower(struct rtvk_context* ctx, struct rtvk_command_buf
 		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer lowering encountered an execution cycle");
 		return;
 	}
+	if (!rtvk_lowered_command_buffer_prepare_texture_uploads(ctx, command_buffer, lowered)) {
+		return;
+	}
 
 	command_buffer->lowering = true;
 	rtvk_command_buffer_lower_commands(ctx, command_buffer, lowered, &state);
 	command_buffer->lowering = false;
+	if (rtvk_error() != RT_SUCCESS) {
+		rtvk_lower_state_finish(&state);
+		return;
+	}
+	rtvk_lowered_command_buffer_flush_texture_uploads(ctx, lowered);
 	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_lower_state_finish(&state);
 		return;

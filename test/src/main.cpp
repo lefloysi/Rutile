@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 extern "C" const rt_example_program reflected_program_data_rtslp;
 
@@ -95,6 +96,86 @@ bool reflected_program_data_upload() {
 	rtCommandBufferDestroy(command_buffer);
 	rtProgramDestroy(program);
 	return succeeded;
+}
+
+bool sequential_texture_data_upload() {
+	constexpr u32 atlas_extent = 512;
+	constexpr u32 tile_extent = 64;
+	constexpr u32 tile_count = atlas_extent / tile_extent;
+	constexpr usize mip_levels = 4;
+	constexpr usize image_byte_size = atlas_extent * atlas_extent * 4;
+	const rt_texture_range image_range{ RT_TEXTURE_ASPECT_COLOR, 0, 1, 0, 1, { atlas_extent, atlas_extent, 1 }, {} };
+
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
+	rt_command_buffer commands = rtCommandBufferCreate();
+	rt_texture image = rtTextureCreate();
+	rt_buffer readback = rtBufferCreate();
+	bool succeeded = queue && commands && image && readback;
+	if (succeeded) {
+		rtTextureResize(image, RT_TEXTURE_2D, RT_RGBA8_UNORM, image_range.extent, mip_levels);
+		rtBufferResize(readback, RT_HOST_MEMORY, image_byte_size);
+		succeeded = expect_success("creating sequential texture upload resources");
+	}
+
+	std::array<u08, tile_extent * tile_extent * 4> pixels{};
+	if (succeeded) {
+		rtCommandBufferBegin(commands);
+		for (u32 tile_y = 0; tile_y < tile_count; ++tile_y) {
+			for (u32 tile_x = 0; tile_x < tile_count; ++tile_x) {
+				const u08 color = static_cast<u08>(tile_y * tile_count + tile_x);
+				for (u32 mip = 0; mip < mip_levels; ++mip) {
+					const u32 extent = tile_extent >> mip;
+					const usize byte_count = static_cast<usize>(extent) * extent * 4;
+					for (usize offset = 0; offset < byte_count; offset += 4) {
+						pixels[offset] = color;
+						pixels[offset + 1] = static_cast<u08>(255 - color);
+						pixels[offset + 2] = 0;
+						pixels[offset + 3] = 255;
+					}
+					const rt_texture_range range{ RT_TEXTURE_ASPECT_COLOR, mip, 1, 0, 1, { extent, extent, 1 }, { (tile_x * tile_extent) >> mip, (tile_y * tile_extent) >> mip, 0 } };
+					rtCmdTextureData(commands, image, range, pixels.data());
+				}
+			}
+		}
+		rtCmdTextureBarrier(commands, image, { RT_TEXTURE_ASPECT_COLOR, 0, mip_levels, 0, 1, { atlas_extent, atlas_extent, 1 }, {} }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_TRANSFER, RT_ACCESS_READ });
+		rtCmdTextureCopyToBuffer(commands, image, image_range, readback, { image_byte_size, 0 });
+		rtCommandBufferEnd(commands);
+		succeeded = expect_success("recording sequential texture upload");
+	}
+	if (succeeded) {
+		rtTimepointWait(rtQueueSubmit(queue, commands));
+		succeeded = expect_success("submitting sequential texture upload");
+	}
+	std::vector<u08> readback_data(image_byte_size);
+	if (succeeded) {
+		rtBufferRead(readback, { image_byte_size, 0 }, readback_data.data(), readback_data.size());
+		succeeded = expect_success("reading sequential texture upload");
+	}
+	if (succeeded) {
+		for (u32 tile_y = 0; tile_y < tile_count; ++tile_y) {
+			for (u32 tile_x = 0; tile_x < tile_count; ++tile_x) {
+				const usize offset = (static_cast<usize>(tile_y * tile_extent) * atlas_extent + tile_x * tile_extent) * 4;
+				const u08 color = static_cast<u08>(tile_y * tile_count + tile_x);
+				if (readback_data[offset] != color || readback_data[offset + 1] != static_cast<u08>(255 - color) || readback_data[offset + 2] != 0 || readback_data[offset + 3] != 255) {
+					std::cerr << "sequential texture upload lost tile " << tile_x << ", " << tile_y << "\n";
+					succeeded = false;
+					break;
+				}
+			}
+			if (!succeeded) {
+				break;
+			}
+		}
+	}
+
+	if (queue) {
+		rtTimepointWait(rtQueueFlush(queue));
+	}
+	rtBufferDestroy(readback);
+	rtTextureDestroy(image);
+	rtCommandBufferDestroy(commands);
+	rtQueueDestroy(queue);
+	return succeeded && expect_success("destroying sequential texture upload resources");
 }
 
 bool reflected_program_data_render(u32 draw_count) {
@@ -262,7 +343,7 @@ int main(int argc, char** argv) {
 	}
 
 	validation_errors.clear();
-	const bool succeeded = reflected_program_data_upload() && (argc == 3 || (reflected_program_data_render(1) && reflected_program_data_render(1025)));
+	const bool succeeded = reflected_program_data_upload() && sequential_texture_data_upload() && (argc == 3 || (reflected_program_data_render(1) && reflected_program_data_render(1025)));
 	rtExit();
 	const bool exit_succeeded = expect_success("rtExit");
 	rtUnload();
