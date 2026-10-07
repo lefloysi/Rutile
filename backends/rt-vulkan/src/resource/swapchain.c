@@ -455,8 +455,12 @@ static bool rtvk_swapchain_scaling(struct rtvk_context* ctx, VkSurfaceKHR surfac
 	surface_capabilities.pNext = &capabilities;
 	VkResult result = vkGetPhysicalDeviceSurfaceCapabilities2KHR(ctx->vk_physical_device, &info, &surface_capabilities);
 	if (result != VK_SUCCESS) { RTVK_THROW_VK("vkGetPhysicalDeviceSurfaceCapabilities2KHR", result); return false; }
-	if (!(capabilities.supportedPresentScaling & VK_PRESENT_SCALING_STRETCH_BIT_EXT)) { return false; }
-	scaling->scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT;
+	if (!(capabilities.supportedPresentScaling & VK_PRESENT_SCALING_ONE_TO_ONE_BIT_EXT) ||
+		!(capabilities.supportedPresentGravityX & VK_PRESENT_GRAVITY_MIN_BIT_EXT) ||
+		!(capabilities.supportedPresentGravityY & VK_PRESENT_GRAVITY_MIN_BIT_EXT)) { return false; }
+	scaling->scalingBehavior = VK_PRESENT_SCALING_ONE_TO_ONE_BIT_EXT;
+	scaling->presentGravityX = VK_PRESENT_GRAVITY_MIN_BIT_EXT;
+	scaling->presentGravityY = VK_PRESENT_GRAVITY_MIN_BIT_EXT;
 	return true;
 }
 
