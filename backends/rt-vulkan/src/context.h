@@ -27,6 +27,7 @@ struct rtvk_context {
 	struct rtvk_queue** queues;
 	u32 queue_count;
 	rtvk_context_flags flags;
+	bool surface_maintenance, swapchain_maintenance;
 };
 extern struct rtvk_context* current_context;
 

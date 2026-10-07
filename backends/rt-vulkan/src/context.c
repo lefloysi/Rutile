@@ -173,6 +173,19 @@ static bool rtvk_instance_extension_available(const VkExtensionProperties* avail
 	return false;
 }
 
+static bool rtvk_device_extension_available(VkPhysicalDevice device, const char* name) {
+	u32 count = 0;
+	VkResult result = vkEnumerateDeviceExtensionProperties(device, NULL, &count, NULL);
+	if (result != VK_SUCCESS) { RTVK_THROW_VK("vkEnumerateDeviceExtensionProperties", result); return false; }
+	VkExtensionProperties* extensions = calloc(count, sizeof(*extensions));
+	if (!extensions) { rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "device extension enumeration"); return false; }
+	result = vkEnumerateDeviceExtensionProperties(device, NULL, &count, extensions);
+	bool available = result == VK_SUCCESS && rtvk_instance_extension_available(extensions, count, name);
+	free(extensions);
+	if (result != VK_SUCCESS) { RTVK_THROW_VK("vkEnumerateDeviceExtensionProperties", result); }
+	return available;
+}
+
 static bool rtvk_instance_extension_enabled(const char* const* extensions, u32 extension_count, const char* name) {
 	for (u32 i = 0; i < extension_count; i++) {
 		if (strcmp(extensions[i], name) == 0) {
@@ -466,6 +479,16 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	features.geometryShader = supported_features.geometryShader;
 	features.fragmentStoresAndAtomics = supported_features.fragmentStoresAndAtomics;
 
+	VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT };
+	if (ctx->surface_maintenance && rtvk_device_extension_available(ctx->vk_physical_device, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME)) {
+		VkPhysicalDeviceFeatures2 supported = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+		supported.pNext = &maintenance;
+		vkGetPhysicalDeviceFeatures2(ctx->vk_physical_device, &supported);
+		ctx->swapchain_maintenance = maintenance.swapchainMaintenance1 == VK_TRUE;
+		if (ctx->swapchain_maintenance) { features13.pNext = &maintenance; }
+	}
+	if (rtvk_error() != RT_SUCCESS) { free(queue_families); free(queue_infos); free(priorities); return; }
+	const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME };
 	VkDeviceCreateInfo device_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	device_info.pNext = &features12;
 	device_info.flags = 0;
@@ -474,10 +497,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	device_info.enabledLayerCount = 0;
 	device_info.ppEnabledLayerNames = NULL;
 	if (ctx->flags.presentation) {
-		static const char* device_extensions[] = {
-			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		};
-		device_info.enabledExtensionCount = (u32)(sizeof(device_extensions) / sizeof(device_extensions[0]));
+		device_info.enabledExtensionCount = ctx->swapchain_maintenance ? 2 : 1;
 		device_info.ppEnabledExtensionNames = device_extensions;
 	} else {
 		device_info.enabledExtensionCount = 0;
@@ -617,6 +637,14 @@ void rtvk_context_init(struct rtvk_context* ctx) {
 			free(available_instance_extensions);
 			return;
 		}
+	}
+
+	if (ctx->flags.presentation &&
+		rtvk_instance_extension_available(available_instance_extensions, available_instance_extension_count, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
+		rtvk_instance_extension_available(available_instance_extensions, available_instance_extension_count, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME)) {
+		rtvk_add_instance_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, available_instance_extensions, available_instance_extension_count, instance_extensions, &instance_extension_count, 16);
+		rtvk_add_instance_extension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME, available_instance_extensions, available_instance_extension_count, instance_extensions, &instance_extension_count, 16);
+		ctx->surface_maintenance = true;
 	}
 
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)

@@ -35,6 +35,12 @@ struct rtvk_swapchain {
 	VkSurfaceKHR surface;
 	struct rtvk_swapchain_generation* generation;
 	bool frame_acquired;
+	bool resize_pending, resize_frame;
+	u32 requested_width, requested_height;
+	u64 builds_started, builds_published, presented_while_building;
+	void* pending_build;
+	struct rtvk_swapchain_generation* retired_generations;
+	u64 resize_started, resize_acquired, resize_presented, resize_rejected, resize_skipped, present_outdated;
 
 	struct rtvk_mutex frame_lock;
 	struct rtvk_condition frame_condition;
@@ -43,6 +49,7 @@ RTVK_DECLARE_NEW_RESOURCE(swapchain)
 
 struct rtvk_swapchain_generation {
 	struct rtvk_resource_base base;
+	struct rtvk_swapchain_generation* retired_next;
 
 	struct rtvk_queue* present_queue;
 	VkSwapchainKHR vk_swapchain;
@@ -52,6 +59,9 @@ struct rtvk_swapchain_generation {
 	rt_timepoint present_done[RTVK_MAX_FRAMES_IN_FLIGHT];
 
 	VkExtent2D extent;
+	bool scaled_present;
+	VkFence present_fences[RTVK_MAX_FRAMES_IN_FLIGHT];
+	bool present_fence_pending[RTVK_MAX_FRAMES_IN_FLIGHT];
 	VkFormat vk_format;
 	u32 image_count;
 	u32 acquired_image_index;
@@ -66,6 +76,11 @@ struct rtvk_swapchain_image {
 	struct rtvk_texture_view* color_view;
 	struct rtvk_framebuffer* framebuffer;
 };
+
+struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(struct rtvk_context* ctx, VkSurfaceKHR surface,
+	u32 width, u32 height, VkSwapchainKHR old_swapchain, struct rtvk_swapchain* old_owner);
+void* rtvk_swapchain_begin_build(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain);
+struct rtvk_swapchain_generation* rtvk_swapchain_finish_build(void* build);
 
 void rtvk_swapchain_image_init(struct rtvk_context* ctx, struct rtvk_swapchain_image* image);
 void rtvk_swapchain_image_finish(struct rtvk_swapchain_image* image);

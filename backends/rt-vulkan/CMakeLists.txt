@@ -34,6 +34,7 @@ target_sources(rt-vulkan PRIVATE
     "src/resource/sampler.c"
     "src/resource/sampler.h"
     "src/resource/swapchain.c"
+    "src/resource/swapchain_build.cpp"
     "src/resource/swapchain.h"
     "src/resource/texture.c"
     "src/resource/texture.h"

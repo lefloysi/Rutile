@@ -68,7 +68,9 @@ RT_API void rtSwapchainDestroy(rt_swapchain swapchain);
 ** @brief Set the presentation extent.
 **
 ** @p width and @p height must be non-zero. No frame may be acquired. The next
-** successful acquisition uses the new extent.
+** acquisitions may use the previous extent while a replacement is prepared.
+** Render using the extent of the acquired framebuffer color view; its extent
+** remains fixed until the matching presentation. Resize requests are coalesced.
 **
 ** @param swapchain Swapchain whose images are recreated.
 ** @param width     Width in pixels.

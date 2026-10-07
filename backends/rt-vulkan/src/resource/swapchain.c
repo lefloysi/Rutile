@@ -134,7 +134,7 @@ static void rtvk_swapchain_generation_retire(struct rtvk_context* ctx, struct rt
 	if (!generation) {
 		return;
 	}
-	if (generation->present_queue) {
+	if (generation->present_queue && !ctx->swapchain_maintenance) {
 		rtvk_mutex_lock(&generation->present_queue->lock);
 		VkResult result = vkQueueWaitIdle(generation->present_queue->vk_queue);
 		rtvk_mutex_unlock(&generation->present_queue->lock);
@@ -173,6 +173,7 @@ void rtvk_swapchain_generation_finish(struct rtvk_swapchain_generation* generati
 	struct rtvk_context* ctx = generation->base.ctx;
 	assert(!generation->images);
 	for (u32 index = 0; index < RTVK_MAX_FRAMES_IN_FLIGHT; index++) {
+		if (generation->present_fences[index]) { vkDestroyFence(ctx->vk_device, generation->present_fences[index], VK_ALLOCATOR); }
 		if (generation->image_available[index]) {
 			vkDestroySemaphore(ctx->vk_device, generation->image_available[index], VK_ALLOCATOR);
 		}
@@ -264,6 +265,13 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 }
 
 static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swapchain_generation* generation, u32 frame_index) {
+	if (generation->present_fence_pending[frame_index]) {
+		VkResult result = vkWaitForFences(ctx->vk_device, 1, &generation->present_fences[frame_index], VK_TRUE, UINT64_MAX);
+		if (result != VK_SUCCESS) { RTVK_THROW_VK("vkWaitForFences", result); return; }
+		result = vkResetFences(ctx->vk_device, 1, &generation->present_fences[frame_index]);
+		if (result != VK_SUCCESS) { RTVK_THROW_VK("vkResetFences", result); return; }
+		generation->present_fence_pending[frame_index] = false;
+	}
 	if (generation->acquire_wait[frame_index].value) {
 		rtvk_timepoint_wait(ctx, generation->acquire_wait[frame_index]);
 		generation->acquire_wait[frame_index] = (rt_timepoint){ 0 };
@@ -305,12 +313,31 @@ void rtvk_swapchain_image_finish(struct rtvk_swapchain_image* image) {
 	}
 }
 
+static void rtvk_swapchain_log_resize(const struct rtvk_swapchain* swapchain) {
+	rtvk_printf("[resize-vulkan] started=%llu acquired=%llu accepted=%llu rejected=%llu skipped=%llu all_present_outdated=%llu builds=%llu published=%llu overlap_presented=%llu\n",
+		(unsigned long long)swapchain->resize_started, (unsigned long long)swapchain->resize_acquired,
+		(unsigned long long)swapchain->resize_presented, (unsigned long long)swapchain->resize_rejected,
+		(unsigned long long)swapchain->resize_skipped, (unsigned long long)swapchain->present_outdated,
+		(unsigned long long)swapchain->builds_started, (unsigned long long)swapchain->builds_published, (unsigned long long)swapchain->presented_while_building);
+}
+
 void rtvk_swapchain_finish(struct rtvk_swapchain* swapchain) {
+	if (swapchain->resize_started || swapchain->present_outdated) { rtvk_swapchain_log_resize(swapchain); }
 	struct rtvk_context* ctx = swapchain->base.ctx;
 	rtvk_swapchain_force_unacquired(swapchain);
+	if (swapchain->pending_build) {
+		struct rtvk_swapchain_generation* prepared = rtvk_swapchain_finish_build(swapchain->pending_build);
+		swapchain->pending_build = NULL;
+		if (prepared) { rtvk_swapchain_generation_retire(ctx, prepared); }
+	}
 	if (swapchain->generation) {
 		rtvk_swapchain_generation_retire(ctx, swapchain->generation);
 		swapchain->generation = NULL;
+	}
+	while (swapchain->retired_generations) {
+		struct rtvk_swapchain_generation* retired = swapchain->retired_generations;
+		swapchain->retired_generations = retired->retired_next;
+		rtvk_swapchain_generation_retire(ctx, retired);
 	}
 	if (swapchain->surface) {
 		vkDestroySurfaceKHR(ctx->vk_instance, swapchain->surface, VK_ALLOCATOR);
@@ -391,6 +418,11 @@ static void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rt
 	semaphore_info.flags = 0;
 
 	for (u32 i = 0; i < RTVK_MAX_FRAMES_IN_FLIGHT; i++) {
+		if (ctx->swapchain_maintenance) {
+			VkFenceCreateInfo fence = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+			VkResult result = vkCreateFence(ctx->vk_device, &fence, VK_ALLOCATOR, &generation->present_fences[i]);
+			if (result != VK_SUCCESS) { RTVK_THROW_VK("vkCreateFence", result); return; }
+		}
 		VkResult result = vkCreateSemaphore(ctx->vk_device, &semaphore_info, VK_ALLOCATOR, &generation->image_available[i]);
 		if (result != VK_SUCCESS) {
 			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
@@ -408,6 +440,24 @@ static void rtvk_swapchain_create_frame_sync(struct rtvk_context* ctx, struct rt
 			return;
 		}
 	}
+}
+
+static bool rtvk_swapchain_scaling(struct rtvk_context* ctx, VkSurfaceKHR surface, VkPresentModeKHR mode,
+	VkSwapchainPresentScalingCreateInfoEXT* scaling) {
+	if (!ctx->swapchain_maintenance) { return false; }
+	VkSurfacePresentModeEXT present_mode = { VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_EXT };
+	present_mode.presentMode = mode;
+	VkPhysicalDeviceSurfaceInfo2KHR info = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR };
+	info.surface = surface;
+	info.pNext = &present_mode;
+	VkSurfacePresentScalingCapabilitiesEXT capabilities = { VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_EXT };
+	VkSurfaceCapabilities2KHR surface_capabilities = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR };
+	surface_capabilities.pNext = &capabilities;
+	VkResult result = vkGetPhysicalDeviceSurfaceCapabilities2KHR(ctx->vk_physical_device, &info, &surface_capabilities);
+	if (result != VK_SUCCESS) { RTVK_THROW_VK("vkGetPhysicalDeviceSurfaceCapabilities2KHR", result); return false; }
+	if (!(capabilities.supportedPresentScaling & VK_PRESENT_SCALING_STRETCH_BIT_EXT)) { return false; }
+	scaling->scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT;
+	return true;
 }
 
 static VkSurfaceFormatKHR rtvk_choose_swapchain_format(VkSurfaceFormatKHR* formats, u32 format_count) {
@@ -456,12 +506,24 @@ static VkExtent2D rtvk_swapchain_choose_extent(VkSurfaceCapabilitiesKHR capabili
 	return extent;
 }
 
-static struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(
+static bool rtvk_swapchain_wait_old_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+	while (swapchain->frame_acquired) { rtvk_condition_wait(&swapchain->frame_condition, &swapchain->frame_lock); }
+	struct rtvk_swapchain_generation* old = swapchain->generation;
+	const u32 index = (old->frame_index + RTVK_MAX_FRAMES_IN_FLIGHT - 1) % RTVK_MAX_FRAMES_IN_FLIGHT;
+	if (old->present_fence_pending[index]) {
+		VkResult result = vkWaitForFences(ctx->vk_device, 1, &old->present_fences[index], VK_TRUE, UINT64_MAX);
+		if (result != VK_SUCCESS) { RTVK_THROW_VK("vkWaitForFences", result); return false; }
+	}
+	return true;
+}
+
+struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(
 	struct rtvk_context* ctx,
 	VkSurfaceKHR surface,
 	u32 width,
 	u32 height,
-	VkSwapchainKHR old_swapchain
+	VkSwapchainKHR old_swapchain,
+	struct rtvk_swapchain* old_owner
 ) {
 	struct rtvk_swapchain_generation* generation;
 	generation = rtvk_swapchain_generation_create(ctx);
@@ -532,8 +594,11 @@ static struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(
 
 	VkSurfaceFormatKHR format = rtvk_choose_swapchain_format(formats, format_count);
 	VkPresentModeKHR present_mode = rtvk_choose_swapchain_present_mode(present_modes, present_mode_count);
+	VkSwapchainPresentScalingCreateInfoEXT scaling = { VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_EXT };
+	generation->scaled_present = rtvk_swapchain_scaling(ctx, surface, present_mode, &scaling);
 	free(formats);
 	free(present_modes);
+	if (rtvk_error() != RT_SUCCESS) { goto cleanup; }
 
 	u32 image_count = RTVK_MAX_FRAMES_IN_FLIGHT;
 	if (image_count < capabilities.minImageCount) {
@@ -582,8 +647,17 @@ static struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(
 	swapchain_info.presentMode = present_mode;
 	swapchain_info.clipped = VK_TRUE;
 	swapchain_info.oldSwapchain = old_swapchain;
+	if (generation->scaled_present) { swapchain_info.pNext = &scaling; }
 
+	if (old_owner) {
+		rtvk_mutex_lock(&old_owner->frame_lock);
+		if (!rtvk_swapchain_wait_old_present(ctx, old_owner)) {
+			rtvk_mutex_unlock(&old_owner->frame_lock);
+			goto cleanup;
+		}
+	}
 	result = vkCreateSwapchainKHR(ctx->vk_device, &swapchain_info, VK_ALLOCATOR, &generation->vk_swapchain);
+	if (old_owner) { rtvk_mutex_unlock(&old_owner->frame_lock); }
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		goto cleanup;
@@ -607,12 +681,14 @@ cleanup:
 }
 
 void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, VkSurfaceKHR surface, u32 width, u32 height) {
-	swapchain->generation = rtvk_swapchain_generation_build(ctx, surface, width, height, VK_NULL_HANDLE);
+	swapchain->generation = rtvk_swapchain_generation_build(ctx, surface, width, height, VK_NULL_HANDLE, NULL);
 	if (!swapchain->generation) {
 		vkDestroySurfaceKHR(ctx->vk_instance, surface, VK_ALLOCATOR);
 		return;
 	}
 	swapchain->surface = surface;
+	swapchain->requested_width = swapchain->generation->extent.width;
+	swapchain->requested_height = swapchain->generation->extent.height;
 }
 
 bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height) {
@@ -626,17 +702,26 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 
 	rtvk_swapchain_lock_unacquired(swapchain);
 	struct rtvk_swapchain_generation* old_generation = swapchain->generation;
+	swapchain->requested_width = width;
+	swapchain->requested_height = height;
+	if (old_generation->scaled_present) {
+		if (width != old_generation->extent.width || height != old_generation->extent.height) { swapchain->resize_pending = true; }
+		rtvk_swapchain_unlock(swapchain);
+		return true;
+	}
 	if (width == old_generation->extent.width && height == old_generation->extent.height) {
 		rtvk_swapchain_unlock(swapchain);
 		return true;
 	}
 
+	swapchain->resize_pending = true;
 	struct rtvk_swapchain_generation* new_generation = rtvk_swapchain_generation_build(
 		ctx,
 		swapchain->surface,
 		width,
 		height,
-		old_generation->vk_swapchain
+		old_generation->vk_swapchain,
+		NULL
 	);
 	if (new_generation) {
 		swapchain->generation = new_generation;
@@ -646,12 +731,51 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 	return new_generation != NULL;
 }
 
+static bool rtvk_swapchain_generation_ready(struct rtvk_context* ctx, struct rtvk_swapchain_generation* generation) {
+	for (u32 index = 0; index < RTVK_MAX_FRAMES_IN_FLIGHT; ++index) {
+		if (generation->acquire_wait[index].value && !rtvk_timepoint_complete(generation->acquire_wait[index])) { return false; }
+		if (generation->present_done[index].value && !rtvk_timepoint_complete(generation->present_done[index])) { return false; }
+		if (generation->present_fence_pending[index]) {
+			VkResult result = vkGetFenceStatus(ctx->vk_device, generation->present_fences[index]);
+			if (result == VK_NOT_READY) { return false; }
+			if (result != VK_SUCCESS) { RTVK_THROW_VK("vkGetFenceStatus", result); return false; }
+		}
+	}
+	return true;
+}
+
+static void rtvk_swapchain_collect_retired(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+	struct rtvk_swapchain_generation** link = &swapchain->retired_generations;
+	while (*link) {
+		struct rtvk_swapchain_generation* generation = *link;
+		if (!rtvk_swapchain_generation_ready(ctx, generation)) { link = &generation->retired_next; continue; }
+		*link = generation->retired_next;
+		rtvk_swapchain_generation_retire(ctx, generation);
+	}
+}
+
+static bool rtvk_swapchain_publish_build(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
+	if (!swapchain->pending_build) { return true; }
+	struct rtvk_swapchain_generation* generation = rtvk_swapchain_finish_build(swapchain->pending_build);
+	swapchain->pending_build = NULL;
+	if (!generation) { return false; }
+	struct rtvk_swapchain_generation* old = swapchain->generation;
+	swapchain->generation = generation;
+	++swapchain->builds_published;
+	swapchain->resize_pending = true;
+	old->retired_next = swapchain->retired_generations;
+	swapchain->retired_generations = old;
+	return rtvk_error() == RT_SUCCESS;
+}
+
 rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
 	rt_swapchain_acquire_result acquire = { 0 };
 	if (!swapchain) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return acquire;
 	}
+	if (!rtvk_swapchain_publish_build(ctx, swapchain)) { return acquire; }
+	rtvk_swapchain_collect_retired(ctx, swapchain);
 	rtvk_swapchain_lock_unacquired(swapchain);
 	struct rtvk_swapchain_generation* generation = swapchain->generation;
 	if (!generation || !generation->images || generation->image_count == 0) {
@@ -660,6 +784,7 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 	u32 frame_index = generation->frame_index;
+	if (swapchain->resize_pending) { ++swapchain->resize_started; }
 	rtvk_swapchain_wait_frame(ctx, generation, frame_index);
 
 	/* Comment ** finite timeout: the spec forbids UINT64_MAX when forward progress
@@ -675,6 +800,7 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		&generation->acquired_image_index
 	);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		if (swapchain->resize_pending) { ++swapchain->resize_skipped; }
 		/* Window resizing can invalidate the surface between the GLFW resize
 		 * callback and this acquire. This is a transient no-frame condition,
 		 * not an application error; the pending resize will rebuild the
@@ -683,6 +809,7 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 	if (result == VK_TIMEOUT || result == VK_NOT_READY) {
+		if (swapchain->resize_pending) { ++swapchain->resize_skipped; }
 		/* Occlusion and interactive resizing may temporarily make forward
 		 * progress unavailable. Match the out-of-date path and skip a frame. */
 		rtvk_swapchain_unlock(swapchain);
@@ -731,6 +858,18 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		rtvk_swapchain_unlock(swapchain);
 		return (rt_swapchain_acquire_result){ 0 };
 	}
+	if (generation->scaled_present && !swapchain->pending_build &&
+		(swapchain->requested_width != generation->extent.width || swapchain->requested_height != generation->extent.height)) {
+		swapchain->pending_build = rtvk_swapchain_begin_build(ctx, swapchain);
+		if (swapchain->pending_build) { ++swapchain->builds_started; }
+		if (!swapchain->pending_build) {
+			rtvk_swapchain_release_acquired_image_locked(swapchain, generation);
+			rtvk_swapchain_unlock(swapchain);
+			return (rt_swapchain_acquire_result){ 0 };
+		}
+	}
+	swapchain->resize_frame = swapchain->resize_pending;
+	if (swapchain->resize_frame) { ++swapchain->resize_acquired; }
 	rtvk_swapchain_unlock(swapchain);
 	return acquire;
 }
@@ -766,7 +905,10 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 	}
 
 	VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-	present_info.pNext = NULL;
+	VkSwapchainPresentFenceInfoEXT fence = { VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT };
+	fence.swapchainCount = 1;
+	fence.pFences = &generation->present_fences[frame_index];
+	present_info.pNext = ctx->swapchain_maintenance ? &fence : NULL;
 	present_info.waitSemaphoreCount = 1;
 	present_info.pWaitSemaphores = &generation->images[generation->acquired_image_index]->present_ready;
 	present_info.swapchainCount = 1;
@@ -774,10 +916,19 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 	present_info.pImageIndices = &generation->acquired_image_index;
 	present_info.pResults = NULL;
 
+	rtvk_mutex_lock(&swapchain->frame_lock);
 	rtvk_mutex_lock(&generation->present_queue->lock);
 	VkResult result = vkQueuePresentKHR(generation->present_queue->vk_queue, &present_info);
+	if (ctx->swapchain_maintenance && result == VK_ERROR_OUT_OF_DATE_KHR) {
+		VkResult drained = vkQueueWaitIdle(generation->present_queue->vk_queue);
+		if (drained != VK_SUCCESS) { RTVK_THROW_VK("vkQueueWaitIdle", drained); }
+	}
 	rtvk_mutex_unlock(&generation->present_queue->lock);
+	rtvk_mutex_unlock(&swapchain->frame_lock);
+	if (ctx->swapchain_maintenance && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)) { generation->present_fence_pending[frame_index] = true; }
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		++swapchain->present_outdated;
+		if (swapchain->resize_frame) { ++swapchain->resize_rejected; }
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;
 	}
@@ -787,5 +938,11 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		return;
 	}
 
+	if (swapchain->pending_build) { ++swapchain->presented_while_building; }
+	if (swapchain->resize_frame) {
+		++swapchain->resize_presented;
+		swapchain->resize_pending = false;
+		rtvk_swapchain_log_resize(swapchain);
+	}
 	rtvk_swapchain_mark_unacquired(swapchain);
 }
