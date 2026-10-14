@@ -109,6 +109,8 @@ enum SyntaxKind {
 	SYNTAX_CONTINUE,
 	SYNTAX_SIZEOF,
 	SYNTAX_CAST,
+	SYNTAX_BASE_REFERENCE,
+	SYNTAX_BASE_POINTER,
 };
 
 enum ParameterArity {
@@ -132,6 +134,7 @@ struct SignatureSyntax {
 struct DeclarationSyntax {
 	Token name;
 	Syntax* path;
+	BaseRelation* bases;
 	Syntax* type;
 	Syntax* body;
 };
@@ -162,10 +165,12 @@ struct CallSyntax {
 	Syntax* callable;
 	Syntax* arguments;
 	ReceiverBinding receiver;
+	Entity* qualified_owner;
 };
 
 struct MemberSyntax {
 	Syntax* object;
+	Syntax* qualifier;
 	Token name;
 };
 
@@ -202,6 +207,18 @@ struct StringSyntax {
 	usize length;
 };
 
+enum BaseDirection {
+	BASE_UP,
+	BASE_DOWN,
+};
+
+struct BaseConversionSyntax {
+	Syntax* value;
+	Type* target;
+	BasePath* path;
+	BaseDirection direction;
+};
+
 struct CastSyntax {
 	Syntax* type;
 	Syntax* value;
@@ -223,6 +240,7 @@ union SyntaxData {
 	CaseSyntax selection_case;
 	ArraySyntax array;
 	CastSyntax cast;
+	BaseConversionSyntax base_conversion;
 };
 
 struct Syntax {
@@ -329,6 +347,7 @@ struct RemovedBinding {
 };
 
 struct Scope {
+	Compiler* compiler;
 	Scope* parent;
 	Binding* bindings;
 	Binding* last_binding;
@@ -353,10 +372,29 @@ struct Field {
 	Field* next;
 };
 
+struct BaseRelation {
+	Syntax* name;
+	Entity* entity;
+	usize component;
+	BaseRelation* next;
+};
+
+struct BasePath {
+	BaseRelation* relation;
+	BasePath* next;
+};
+
+struct BaseSearch {
+	BasePath* path;
+	usize count;
+};
+
 struct AggregateEntity {
 	Type* type;
 	Scope* scope;
 	Field* fields;
+	BaseRelation* bases;
+	Resolution bases_resolution;
 	usize field_count;
 	void* llvm_type;
 };
@@ -560,6 +598,7 @@ fn scope_create(Compiler* compiler, Scope* parent, ContextKind context, Entity* 
 		return (Scope*)0;
 	};
 
+	scope->compiler := compiler;
 	scope->parent = parent;
 	scope->context = context;
 	scope->owner = owner;
@@ -602,6 +641,12 @@ fn scope_lookup(Scope* scope, Token name) -> Entity* {
 		Entity* entity = scope_local(scope, name);
 		if (entity) {
 			return entity;
+		};
+		if (scope->owner && scope->owner->kind == ENTITY_STRUCT) {
+			entity = associated_lookup(scope->compiler, scope->owner, name);
+			if (entity || scope->compiler->result == COMPILATION_FAILURE) {
+				return entity;
+			};
 		};
 		RemovedBinding* removed := scope->removed;
 		while (removed) {
@@ -858,6 +903,26 @@ fn declaration_entity(Compiler* compiler, Scope* scope, EntityKind kind, Token n
 	return entity;
 };
 
+fn parser_bases(Parser* parser) -> BaseRelation* {
+	BaseRelation* first = (BaseRelation*)0;
+	BaseRelation* last = (BaseRelation*)0;
+	while (true) {
+		BaseRelation* base = (BaseRelation*)memory_allocate(parser->compiler, sizeof(BaseRelation));
+		base->name = parser_name(parser);
+		if (last) {
+			last->next := base;
+		}
+		else {
+			first := base;
+		};
+		last = base;
+		if (!parser_take(parser, TOKEN_COMMA)) {
+			break;
+		};
+	};
+	return first;
+};
+
 fn namespace_define(Compiler* compiler, Scope* scope, Token name) -> Entity* {
 	Entity* entity = scope_local(scope, name);
 	if (entity) {
@@ -878,7 +943,23 @@ fn namespace_define(Compiler* compiler, Scope* scope, Token name) -> Entity* {
 	return entity;
 };
 
-fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
+enum DeclarationPhase {
+	DECLARATION_IDENTITIES,
+	DECLARATION_MEMBERS,
+};
+
+fn scope_identity_lookup(Scope* scope, Token name) -> Entity* {
+	while (scope) {
+		Entity* entity = scope_local(scope, name);
+		if (entity) {
+			return entity;
+		};
+		scope := scope->parent;
+	};
+	return (Entity*)0;
+};
+
+fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position, DeclarationPhase phase) {
 	while (*position + 1 < parser->count && parser->compiler->result != COMPILATION_FAILURE) {
 		Token token := parser->tokens[*position];
 		if (token.kind == TOKEN_RIGHT_BRACE || token.kind == TOKEN_END) {
@@ -909,7 +990,7 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				return;
 			};
 			*position = *position + 1;
-			parser_predeclare_range(parser, members, position);
+			parser_predeclare_range(parser, members, position, phase);
 			*position = *position + 1;
 		}
 		else {
@@ -922,7 +1003,12 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				while (name_position + 2 < parser->count && parser->tokens[name_position + 1].kind == TOKEN_SCOPE) {
 					Entity* entity = (Entity*)0;
 					if (owner) {
-						entity = scope_lookup(owner, name);
+						if (phase == DECLARATION_MEMBERS) {
+							entity = scope_lookup(owner, name);
+						}
+						else {
+							entity = scope_identity_lookup(owner, name);
+						};
 					};
 					owner = entity_members(entity);
 					name_position = name_position + 2;
@@ -930,6 +1016,15 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				};
 				if (owner) {
 					declared = declaration_entity(parser->compiler, owner, rule->entity, name);
+					if (declared && declared->kind == ENTITY_STRUCT && !declared->data.aggregate.bases && name_position + 1 < parser->count && parser->tokens[name_position + 1].kind == TOKEN_COLON) {
+						Parser inheritance;
+						inheritance.compiler := parser->compiler;
+						inheritance.scope := owner;
+						inheritance.tokens := parser->tokens;
+						inheritance.count := parser->count;
+						inheritance.offset = name_position + 2;
+						declared->data.aggregate.bases = parser_bases(&inheritance);
+					};
 				};
 			};
 			usize depth = 0;
@@ -940,7 +1035,7 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				};
 				if (!depth && kind == TOKEN_LEFT_BRACE && declared && (declared->kind == ENTITY_STRUCT || declared->kind == ENTITY_UNION)) {
 					*position = *position + 1;
-					parser_predeclare_range(parser, entity_members(declared), position);
+					parser_predeclare_range(parser, entity_members(declared), position, phase);
 					*position = *position + 1;
 					continue;
 				};
@@ -959,9 +1054,9 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 	};
 };
 
-fn parser_predeclare(Parser* parser) {
+fn parser_predeclare(Parser* parser, DeclarationPhase phase) {
 	usize position = 0;
-	parser_predeclare_range(parser, parser->scope, &position);
+	parser_predeclare_range(parser, parser->scope, &position, phase);
 };
 
 fn lexer_peek(Lexer* lexer, usize distance) -> char {
@@ -1387,6 +1482,120 @@ fn entity_members(Entity* entity) -> Scope* {
 	return (Scope*)0;
 };
 
+fn bases_resolve(Compiler* compiler, Entity* record) {
+	if (record->kind != ENTITY_STRUCT || record->data.aggregate.bases_resolution == RESOLUTION_READY) {
+		return;
+	};
+	if (record->data.aggregate.bases_resolution == RESOLUTION_ACTIVE) {
+		compiler_error(compiler, record->name, "cyclic base relationship\0");
+		return;
+	};
+	record->data.aggregate.bases_resolution = RESOLUTION_ACTIVE;
+	BaseRelation* base := record->data.aggregate.bases;
+	usize component = 0;
+	while (base && compiler->result != COMPILATION_FAILURE) {
+		base->entity = syntax_lookup(record->scope, base->name);
+		if (!base->entity || base->entity->kind != ENTITY_STRUCT) {
+			compiler_error(compiler, base->name->token, "base relationship requires a struct entity\0");
+			return;
+		};
+		BaseRelation* previous := record->data.aggregate.bases;
+		while (previous != base) {
+			if (previous->entity == base->entity) {
+				compiler_error(compiler, base->name->token, "duplicate direct base relationship\0");
+				return;
+			};
+			previous := previous->next;
+		};
+		base->component := component;
+		component = component + 1;
+		bases_resolve(compiler, base->entity);
+		base := base->next;
+	};
+	record->data.aggregate.bases_resolution = RESOLUTION_READY;
+};
+
+enum MemberLookupKind {
+	MEMBER_NONE,
+	MEMBER_FOUND,
+	MEMBER_AMBIGUOUS,
+};
+
+struct MemberLookup {
+	MemberLookupKind kind;
+	Entity* entity;
+};
+
+
+fn member_find(Compiler* compiler, Entity* owner, Token name) -> MemberLookup {
+	MemberLookup result;
+	result.entity = scope_local(entity_members(owner), name);
+	if (result.entity) {
+		result.kind = MEMBER_FOUND;
+		return result;
+	};
+	if (owner->kind != ENTITY_STRUCT) {
+		return result;
+	};
+	bases_resolve(compiler, owner);
+	BaseRelation* base := owner->data.aggregate.bases;
+	while (base && compiler->result != COMPILATION_FAILURE) {
+		MemberLookup inherited = member_find(compiler, base->entity, name);
+		if (inherited.kind == MEMBER_AMBIGUOUS || (inherited.kind == MEMBER_FOUND && result.entity && (inherited.entity != result.entity))) {
+			result.kind = MEMBER_AMBIGUOUS;
+			return result;
+		};
+		if (inherited.kind == MEMBER_FOUND) {
+			result = inherited;
+		};
+		base := base->next;
+	};
+	return result;
+};
+
+fn associated_lookup(Compiler* compiler, Entity* owner, Token name) -> Entity* {
+	MemberLookup result = member_find(compiler, owner, name);
+	if (result.kind == MEMBER_AMBIGUOUS) {
+		compiler_error(compiler, name, "ambiguous inherited declaration\0");
+		return (Entity*)0;
+	};
+	return result.entity;
+};
+
+fn base_paths(Compiler* compiler, Entity* source, Entity* target, BaseSearch* result) {
+	if (source == target) {
+		result->count = result->count + 1;
+		return;
+	};
+	if (source->kind != ENTITY_STRUCT || target->kind != ENTITY_STRUCT) {
+		return;
+	};
+	bases_resolve(compiler, source);
+	BaseRelation* base := source->data.aggregate.bases;
+	while (base && compiler->result != COMPILATION_FAILURE) {
+		BaseSearch child;
+		base_paths(compiler, base->entity, target, &child);
+		if (child.count) {
+			if (!result->count) {
+				BasePath* path = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
+				path->relation := base;
+				path->next := child.path;
+				result->path = path;
+			};
+			result->count = result->count + child.count;
+		};
+		base := base->next;
+	};
+};
+
+fn base_search(Compiler* compiler, Type* source, Type* target) -> BaseSearch {
+	BaseSearch result;
+	if (source && target && source->kind == TYPE_NAMED && target->kind == TYPE_NAMED) {
+		base_paths(compiler, source->data.entity, target->data.entity, &result);
+	};
+	return result;
+};
+
 fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
 	if (!syntax->data.expression) {
 		return scope_lookup(scope, syntax->token);
@@ -1395,7 +1604,7 @@ fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
 	if (!members) {
 		return (Entity*)0;
 	};
-	return scope_local(members, syntax->token);
+	return associated_lookup(scope->compiler, members->owner, syntax->token);
 };
 
 fn parser_name(Parser* parser) -> Syntax* {
@@ -1423,7 +1632,7 @@ fn parser_type_end(Parser* parser, usize offset) -> usize {
 			if (!members) {
 				return 0;
 			};
-			entity = scope_local(members, parser->tokens[offset + 1]);
+			entity = associated_lookup(parser->compiler, members->owner, parser->tokens[offset + 1]);
 			offset = offset + 2;
 		};
 		if (!entity) {
@@ -1749,7 +1958,9 @@ fn parser_unary(Parser* parser) -> Syntax* {
 		else if (parser_take(parser, TOKEN_DOT) || parser_take(parser, TOKEN_ARROW)) {
 			Syntax* member = syntax_new(parser, SYNTAX_MEMBER, operation);
 			member->data.member.object := value;
-			member->data.member.name = parser_require(parser, TOKEN_NAME, "expected member identifier\0");
+			Syntax* path = parser_name(parser);
+			member->data.member.name := path->token;
+			member->data.member.qualifier := path->data.expression;
 			value = member;
 		}
 		else {
@@ -1919,6 +2130,20 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 	node->entity = declaration_entity(parser->compiler, owner, rule->entity, node->data.declaration.name);
 	if (!node->entity) {
 		return node;
+	};
+	if (parser_take(parser, TOKEN_COLON)) {
+		if (token.kind != TOKEN_STRUCT) {
+			compiler_error(parser->compiler, token, "base relationships require a struct declaration\0");
+			return node;
+		};
+		node->data.declaration.bases = parser_bases(parser);
+		if (!node->entity->data.aggregate.bases) {
+			node->entity->data.aggregate.bases := node->data.declaration.bases;
+		};
+		if (!parser_at(parser, TOKEN_LEFT_BRACE)) {
+			compiler_error(parser->compiler, token, "base relationships require a struct definition\0");
+			return node;
+		};
 	};
 	if (token.kind == TOKEN_FN) {
 		node->data.declaration.type = parser_signature(parser, token);
@@ -2154,7 +2379,7 @@ fn prepare_source(Compiler* compiler, Source* source) -> i32 {
 		parser.count := source->token_count;
 		parser.offset = 0;
 	};
-	parser_predeclare(&parser);
+	parser_predeclare(&parser, DECLARATION_IDENTITIES);
 	return compiler->result == COMPILATION_SUCCESS;
 };
 
@@ -2173,7 +2398,7 @@ fn prepare_sources(Compiler* compiler) -> i32 {
 		parser.scope := compiler->module;
 		parser.tokens := source->tokens;
 		parser.count := source->token_count;
-		parser_predeclare(&parser);
+		parser_predeclare(&parser, DECLARATION_MEMBERS);
 		source := source->next;
 	};
 	return compiler->result == COMPILATION_SUCCESS;
@@ -2221,6 +2446,7 @@ fn LLVMCopyStringRepOfTargetData(void* layout) -> char*;
 fn LLVMPointerSize(void* layout) -> u32;
 fn LLVMABISizeOfType(void* layout, void* type) -> u64;
 fn LLVMABIAlignmentOfType(void* layout, void* type) -> u32;
+fn LLVMOffsetOfElement(void* layout, void* type, u32 index) -> u64;
 fn LLVMSetTarget(void* module, char* triple);
 fn LLVMSetDataLayout(void* module, char* layout);
 fn LLVMDisposeMessage(char* message);
@@ -2304,6 +2530,7 @@ fn LLVMBuildSIToFP(void* builder, void* value, void* type, char* name) -> void*;
 fn LLVMBuildUIToFP(void* builder, void* value, void* type, char* name) -> void*;
 fn LLVMBuildPtrToInt(void* builder, void* value, void* type, char* name) -> void*;
 fn LLVMBuildIntToPtr(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildSelect(void* builder, void* condition, void* first, void* second, char* name) -> void*;
 fn LLVMGetEnumAttributeKindForName(char* name, usize length) -> u32;
 fn LLVMCreateEnumAttribute(void* context, u32 kind, u64 value) -> void*;
 fn LLVMAddAttributeAtIndex(void* function, u32 index, void* attribute);
@@ -2850,6 +3077,20 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 				entity->data.aggregate.type = type;
 			};
 		};
+		bases_resolve(compiler, entity);
+		usize base_count = 0;
+		if (entity->kind == ENTITY_STRUCT) {
+			BaseRelation* base := entity->data.aggregate.bases;
+			while (base && compiler->result != COMPILATION_FAILURE) {
+				entity_resolve(compiler, base->entity);
+				if (!base->entity->declaration || !base->entity->declaration->data.declaration.body) {
+					compiler_error(compiler, base->name->token, "base struct requires a complete definition\0");
+					return;
+				};
+				base_count = base_count + 1;
+				base := base->next;
+			};
+		};
 		Syntax* body := declaration->data.declaration.body;
 		if (body) {
 			Syntax* field := body->data.statements;
@@ -2889,7 +3130,7 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 					};
 					variable->data.variable.storage = STORAGE_FIELD;
 					variable->data.variable.data.field.owner := entity;
-					variable->data.variable.data.field.index := index;
+					variable->data.variable.data.field.index = base_count + index;
 					Field* representation = (Field*)memory_allocate(compiler, sizeof(Field));
 					representation->entity := variable;
 					if (last_field) {
@@ -2928,6 +3169,9 @@ fn type_effective(Type* type) -> Type* {
 };
 
 fn syntax_storage_type(Syntax* syntax) -> Type* {
+	if (syntax->kind == SYNTAX_BASE_REFERENCE || syntax->kind == SYNTAX_BASE_POINTER) {
+		return syntax->data.base_conversion.target;
+	};
 	if (syntax->entity && syntax->entity->kind == ENTITY_VARIABLE) {
 		return entity_type(syntax->entity);
 	};
@@ -2958,7 +3202,7 @@ fn syntax_category(Syntax* syntax) -> ValueCategory {
 	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage != STORAGE_CONSTANT) {
 		return VALUE_STORAGE;
 	};
-	if ((syntax->kind == SYNTAX_CAST && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || syntax->kind == SYNTAX_MEMBER || syntax->kind == SYNTAX_INDEX || (syntax->kind == SYNTAX_CALL && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR)) {
+	if (syntax->kind == SYNTAX_BASE_REFERENCE || (syntax->kind == SYNTAX_CAST && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || syntax->kind == SYNTAX_MEMBER || syntax->kind == SYNTAX_INDEX || (syntax->kind == SYNTAX_CALL && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR)) {
 		return VALUE_STORAGE;
 	};
 	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind != ENTITY_VARIABLE) {
@@ -3047,6 +3291,7 @@ fn reference_initializer(Compiler* compiler, Syntax* body, Entity* variable, Tok
 };
 
 union ReferencePathData {
+	BaseRelation* base;
 	Entity* entity;
 	usize index;
 };
@@ -3057,6 +3302,55 @@ struct ReferencePath {
 	ReferencePathData data;
 };
 
+fn reference_path_type(ReferencePath* path) -> Type* {
+	if (path->kind == SYNTAX_BASE_REFERENCE) {
+		return entity_type(path->data.base->entity);
+	};
+	if (path->kind == SYNTAX_INDEX) {
+		return reference_path_type(path->parent)->data.array.element;
+	};
+	return type_effective(entity_type(path->data.entity));
+};
+
+fn reference_base_count(ReferencePath* path) -> usize {
+	if (path->kind != SYNTAX_BASE_REFERENCE) {
+		return 0;
+	};
+	return 1 + reference_base_count(path->parent);
+};
+
+fn reference_base_at(ReferencePath* path, usize index) -> BaseRelation* {
+	usize depth = reference_base_count(path);
+	if (!depth || index >= depth) {
+		return (BaseRelation*)0;
+	};
+	if (index + 1 == depth) {
+		return path->data.base;
+	};
+	return reference_base_at(path->parent, index);
+};
+
+fn reference_bases_match(ReferencePath* expected, BasePath* first, BasePath* second) -> bool {
+	usize index = 0;
+	BasePath* path := first;
+	while (path) {
+		if (path->relation != reference_base_at(expected, index)) {
+			return false;
+		};
+		index = index + 1;
+		path := path->next;
+	};
+	path = second;
+	while (path) {
+		if (path->relation != reference_base_at(expected, index)) {
+			return false;
+		};
+		index = index + 1;
+		path := path->next;
+	};
+	return index == reference_base_count(expected);
+};
+
 fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* storage) -> bool {
 	if (!storage || storage->kind != path->kind) {
 		return false;
@@ -3065,7 +3359,40 @@ fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path,
 		return token_same(storage->token, path->data.entity->name);
 	};
 	if (path->kind == SYNTAX_MEMBER) {
-		return storage->token.kind != TOKEN_ARROW && token_same(storage->data.member.name, path->data.entity->name) && reference_path_matches(compiler, scope, path->parent, storage->data.member.object);
+		if (storage->token.kind == TOKEN_ARROW || !token_same(storage->data.member.name, path->data.entity->name)) {
+			return false;
+		};
+		ReferencePath* object := path->parent;
+		while (object->kind == SYNTAX_BASE_REFERENCE) {
+			object := object->parent;
+		};
+		if (!reference_path_matches(compiler, scope, object, storage->data.member.object)) {
+			return false;
+		};
+		Type* source = reference_path_type(object);
+		Type* owner = entity_type(path->data.entity->data.variable.data.field.owner);
+		Type* visible := source;
+		if (storage->data.member.qualifier) {
+			visible = type_resolve(compiler, scope, storage->data.member.qualifier);
+		};
+		if (visible->kind != TYPE_NAMED || associated_lookup(compiler, visible->data.entity, storage->data.member.name) != path->data.entity) {
+			return false;
+		};
+		BaseSearch first = base_search(compiler, source, owner);
+		BaseSearch second;
+		if (storage->data.member.qualifier) {
+			Type* selected = type_resolve(compiler, scope, storage->data.member.qualifier);
+			first = base_search(compiler, source, selected);
+			second = base_search(compiler, selected, owner);
+			if (second.count != 1) {
+				return false;
+			};
+		};
+		if (first.count > 1 || second.count > 1) {
+			compiler_error(compiler, storage->token, "ambiguous inherited reference field subobject\0");
+			return false;
+		};
+		return first.count == 1 && reference_bases_match(path->parent, first.path, second.path);
 	};
 	if (path->kind == SYNTAX_INDEX) {
 		return reference_path_matches(compiler, scope, path->parent, storage->data.binary.left) && constant_integer(compiler, scope, storage->data.binary.right) == (u64)path->data.index;
@@ -3085,6 +3412,13 @@ fn type_has_reference(Type* type) -> bool {
 	};
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
 		return false;
+	};
+	BaseRelation* base := type->data.entity->data.aggregate.bases;
+	while (base) {
+		if (type_has_reference(entity_type(base->entity))) {
+			return true;
+		};
+		base := base->next;
 	};
 	Field* field := type->data.entity->data.aggregate.fields;
 	while (field) {
@@ -3132,6 +3466,15 @@ fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, Refere
 		return;
 	};
 	entity_resolve(compiler, type->data.entity);
+	BaseRelation* base := type->data.entity->data.aggregate.bases;
+	while (base && compiler->result != COMPILATION_FAILURE) {
+		ReferencePath inherited;
+		inherited.kind = SYNTAX_BASE_REFERENCE;
+		inherited.parent := path;
+		inherited.data.base := base;
+		reference_fields_prepare(compiler, scope, entity_type(base->entity), &inherited, body, token);
+		base := base->next;
+	};
 	Field* field := type->data.entity->data.aggregate.fields;
 	while (field && compiler->result != COMPILATION_FAILURE) {
 		ReferencePath member;
@@ -3167,8 +3510,65 @@ fn object_initializer_prepare(Compiler* compiler, Scope* scope, Entity* variable
 	reference_fields_prepare(compiler, scope, type, &root, body, token);
 };
 
+fn syntax_base_count(Syntax* syntax) -> usize {
+	if (syntax->kind != SYNTAX_BASE_REFERENCE) {
+		return 0;
+	};
+	usize count = syntax_base_count(syntax->data.base_conversion.value);
+	BasePath* path := syntax->data.base_conversion.path;
+	while (path) {
+		count = count + 1;
+		path := path->next;
+	};
+	return count;
+};
+
+fn syntax_base_at(Syntax* syntax, usize index) -> BaseRelation* {
+	if (syntax->kind != SYNTAX_BASE_REFERENCE) {
+		return (BaseRelation*)0;
+	};
+	usize before = syntax_base_count(syntax->data.base_conversion.value);
+	if (index < before) {
+		return syntax_base_at(syntax->data.base_conversion.value, index);
+	};
+	index = index - before;
+	BasePath* path := syntax->data.base_conversion.path;
+	while (path && index) {
+		path := path->next;
+		index = index - 1;
+	};
+	if (!path) {
+		return (BaseRelation*)0;
+	};
+	return path->relation;
+};
+
+fn syntax_base_root(Syntax* syntax) -> Syntax* {
+	while (syntax->kind == SYNTAX_BASE_REFERENCE) {
+		syntax := syntax->data.base_conversion.value;
+	};
+	return syntax;
+};
+
 fn reference_storage_same(Compiler* compiler, Scope* scope, Syntax* first, Syntax* second) -> bool {
-	if (!first || !second || first->kind != second->kind) {
+	if (!first || !second) {
+		return false;
+	};
+	if (first->kind == SYNTAX_BASE_REFERENCE || second->kind == SYNTAX_BASE_REFERENCE) {
+		usize count = syntax_base_count(first);
+		if (count != syntax_base_count(second)) {
+			return false;
+		};
+		usize index = 0;
+		while (index < count) {
+			if (syntax_base_at(first, index) != syntax_base_at(second, index)) {
+				return false;
+			};
+			index = index + 1;
+		};
+		return reference_storage_same(compiler, scope, syntax_base_root(first), syntax_base_root(second));
+	};
+	if (first->kind != second->kind) {
 		return false;
 	};
 	if (first->kind == SYNTAX_NAME) {
@@ -3188,7 +3588,11 @@ fn reference_read_validate(Semantic* semantic, Syntax* storage) {
 		return;
 	};
 	Syntax* object := storage->data.member.object;
-	while (object->kind == SYNTAX_MEMBER || object->kind == SYNTAX_INDEX || object->kind == SYNTAX_NAME) {
+	while (object->kind == SYNTAX_MEMBER || object->kind == SYNTAX_INDEX || object->kind == SYNTAX_NAME || object->kind == SYNTAX_BASE_REFERENCE) {
+		if (object->kind == SYNTAX_BASE_REFERENCE) {
+			object := object->data.base_conversion.value;
+			continue;
+		};
 		Type* type = syntax_storage_type(object);
 		if ((type && type->kind == TYPE_REFERENCE) || (object->kind == SYNTAX_MEMBER && object->token.kind == TOKEN_ARROW)) {
 			return;
@@ -3211,8 +3615,11 @@ fn reference_read_validate(Semantic* semantic, Syntax* storage) {
 				body := body->data.declaration.body;
 			};
 			Syntax* root := storage;
-			while (root->kind == SYNTAX_MEMBER || root->kind == SYNTAX_INDEX) {
-				if (root->kind == SYNTAX_MEMBER) {
+			while (root->kind == SYNTAX_MEMBER || root->kind == SYNTAX_INDEX || root->kind == SYNTAX_BASE_REFERENCE) {
+				if (root->kind == SYNTAX_BASE_REFERENCE) {
+					root := root->data.base_conversion.value;
+				}
+				else if (root->kind == SYNTAX_MEMBER) {
 					root := root->data.member.object;
 				}
 				else {
@@ -3244,8 +3651,13 @@ fn semantic_move(Semantic* semantic, Syntax* syntax) {
 		compiler_error(semantic->compiler, syntax->token, "cannot move a borrowed value\0");
 		return;
 	};
-	while (syntax->kind == SYNTAX_CAST) {
-		syntax := syntax->data.cast.value;
+	while (syntax->kind == SYNTAX_CAST || syntax->kind == SYNTAX_BASE_POINTER) {
+		if (syntax->kind == SYNTAX_BASE_POINTER) {
+			syntax := syntax->data.base_conversion.value;
+		}
+		else {
+			syntax := syntax->data.cast.value;
+		};
 	};
 	if (storage_borrowed(syntax)) {
 		compiler_error(semantic->compiler, syntax->token, "cannot move a borrowed value\0");
@@ -3259,6 +3671,49 @@ fn semantic_move(Semantic* semantic, Syntax* syntax) {
 	scope_remove(semantic->compiler, semantic->scope, syntax->entity);
 };
 
+fn syntax_base_conversion(Compiler* compiler, Syntax* syntax, Type* target, BasePath* path, BaseDirection direction) {
+	Syntax* original = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
+	*original := *syntax;
+	original->next = (Syntax*)0;
+	if (target->kind == TYPE_REFERENCE) {
+		syntax->kind = SYNTAX_BASE_REFERENCE;
+		syntax->type := target->data.element;
+	}
+	else {
+		syntax->kind = SYNTAX_BASE_POINTER;
+		syntax->type := target;
+	};
+	syntax->entity = (Entity*)0;
+	syntax->data.base_conversion.value = original;
+	syntax->data.base_conversion.target = target;
+	syntax->data.base_conversion.path = path;
+	syntax->data.base_conversion.direction = direction;
+};
+
+fn semantic_base_conversion(Semantic* semantic, Syntax* syntax, Type* actual, Type* expected) -> bool {
+	Type* source := actual;
+	Type* target := expected->data.element;
+	if (expected->kind == TYPE_POINTER) {
+		if (actual->kind != TYPE_POINTER) {
+			return false;
+		};
+		source := actual->data.element;
+	}
+	else if (syntax_category(syntax) != VALUE_STORAGE) {
+		return false;
+	};
+	BaseSearch result = base_search(semantic->compiler, source, target);
+	if (result.count > 1) {
+		compiler_error(semantic->compiler, syntax->token, "ambiguous base subobject conversion\0");
+		return false;
+	};
+	if (!result.count) {
+		return false;
+	};
+	syntax_base_conversion(semantic->compiler, syntax, expected, result.path, BASE_UP);
+	return true;
+};
+
 fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expected) -> Type* {
 	if (expected && actual && !type_equal(actual, expected)) {
 		if ((expected->kind == TYPE_BOOL && type_scalar(actual)) || (actual->kind == TYPE_BOOL && type_numeric(expected))) {
@@ -3267,12 +3722,97 @@ fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expec
 		if (expected->kind == TYPE_REFERENCE && type_equal(actual, expected->data.element) && (syntax_category(syntax) == VALUE_STORAGE || actual->kind == TYPE_FUNCTION)) {
 			return expected;
 		};
+		if ((expected->kind == TYPE_REFERENCE || expected->kind == TYPE_POINTER) && semantic_base_conversion(semantic, syntax, actual, expected)) {
+			return expected;
+		};
 		if (actual->kind == TYPE_POINTER && expected->kind == TYPE_POINTER && (actual->data.element->kind == TYPE_VOID || expected->data.element->kind == TYPE_VOID)) {
 			return expected;
 		};
 		compiler_error(semantic->compiler, syntax->token, "expression type does not match its destination\0");
 	};
 	return actual;
+};
+
+fn semantic_base_cast(Semantic* semantic, Syntax* syntax, Syntax* value, Type* source, Type* target) -> bool {
+	Type* actual := source;
+	if (target->kind == TYPE_POINTER) {
+		if (source->kind != TYPE_POINTER) {
+			return false;
+		};
+		actual := source->data.element;
+	}
+	else if (syntax_category(value) != VALUE_STORAGE) {
+		compiler_error(semantic->compiler, syntax->token, "reference cast requires an existing referent\0");
+		return false;
+	};
+	Type* destination := target->data.element;
+	BaseSearch up = base_search(semantic->compiler, actual, destination);
+	BaseSearch down;
+	if (!up.count) {
+		down = base_search(semantic->compiler, destination, actual);
+	};
+	if (up.count > 1 || down.count > 1) {
+		compiler_error(semantic->compiler, syntax->token, "ambiguous base subobject cast\0");
+		return false;
+	};
+	if (!up.count && !down.count) {
+		return false;
+	};
+	BaseDirection direction = BASE_UP;
+	BasePath* path := up.path;
+	if (down.count) {
+		direction = BASE_DOWN;
+		path := down.path;
+	};
+	syntax->data.base_conversion.value = value;
+	syntax->data.base_conversion.target := target;
+	syntax->data.base_conversion.path = path;
+	syntax->data.base_conversion.direction = direction;
+	if (target->kind == TYPE_REFERENCE) {
+		syntax->kind = SYNTAX_BASE_REFERENCE;
+		syntax->type := target->data.element;
+	}
+	else {
+		syntax->kind = SYNTAX_BASE_POINTER;
+		syntax->type = target;
+	};
+	return true;
+};
+
+fn semantic_member_project(Semantic* semantic, Syntax* member, Type* source, Type* target) -> Type* {
+	if (type_equal(source, target)) {
+		return source;
+	};
+	Type* expected = (Type*)0;
+	if (member->token.kind == TOKEN_ARROW) {
+		expected = type_pointer(semantic->compiler, target);
+	}
+	else {
+		expected = type_new(semantic->compiler, TYPE_REFERENCE);
+		expected->data.element = target;
+	};
+	semantic_expect(semantic, member->data.member.object, member->data.member.object->type, expected);
+	return expected->data.element;
+};
+
+fn semantic_member_object(Semantic* semantic, Syntax* member) -> Type* {
+	Type* object = semantic_expression(semantic, member->data.member.object, (Type*)0);
+	if (member->token.kind == TOKEN_ARROW) {
+		if (object->kind != TYPE_POINTER) {
+			compiler_error(semantic->compiler, member->token, "arrow member access requires a pointer\0");
+			return semantic->compiler->void_type;
+		};
+		object := object->data.element;
+	};
+	if (!member->data.member.qualifier) {
+		return object;
+	};
+	Type* owner = type_resolve(semantic->compiler, semantic->scope, member->data.member.qualifier);
+	if (owner->kind != TYPE_NAMED || (owner->data.entity->kind != ENTITY_STRUCT && owner->data.entity->kind != ENTITY_UNION)) {
+		compiler_error(semantic->compiler, member->token, "qualified instance access requires a record type\0");
+		return semantic->compiler->void_type;
+	};
+	return semantic_member_project(semantic, member, object, owner);
 };
 
 fn method_receiver(Semantic* semantic, Syntax* member) -> Syntax* {
@@ -3298,7 +3838,7 @@ fn receiver_callable(Semantic* semantic, Type* type, Token name) -> Entity* {
 	Entity* associated = (Entity*)0;
 	if (type->kind == TYPE_NAMED && (type->data.entity->kind == ENTITY_STRUCT || type->data.entity->kind == ENTITY_UNION)) {
 		entity_resolve(semantic->compiler, type->data.entity);
-		associated = scope_local(entity_members(type->data.entity), name);
+		associated = associated_lookup(semantic->compiler, type->data.entity, name);
 	};
 	if (associated) {
 		return associated;
@@ -3386,7 +3926,14 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case SYNTAX_CAST: {
 			type = type_resolve(compiler, semantic->scope, syntax->data.cast.type);
 			if (type->kind == TYPE_REFERENCE) {
-				semantic_expression(semantic, syntax->data.cast.value, type);
+				Syntax* value := syntax->data.cast.value;
+				Type* source = semantic_expression(semantic, value, (Type*)0);
+				if (semantic_base_cast(semantic, syntax, value, source, type)) {
+					type := syntax->type;
+				}
+				else {
+					semantic_expect(semantic, value, source, type);
+				};
 				break;
 			};
 			Type* source = (Type*)0;
@@ -3399,6 +3946,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			}
 			else {
 				source = semantic_expression(semantic, syntax->data.cast.value, (Type*)0);
+			};
+			if (type->kind == TYPE_POINTER && source->kind == TYPE_POINTER && semantic_base_cast(semantic, syntax, syntax->data.cast.value, source, type)) {
+				break;
 			};
 			if (!type_scalar(type) || !type_scalar(source)) {
 				compiler_error(compiler, syntax->token, "cast requires scalar types\0");
@@ -3434,17 +3984,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			break;
 		};
 		case SYNTAX_MEMBER: {
-			Type* object = semantic_expression(semantic, syntax->data.member.object, (Type*)0);
-			if (syntax->token.kind == TOKEN_ARROW) {
-				if (object->kind != TYPE_POINTER) {
-					compiler_error(compiler, syntax->token, "arrow member access requires a pointer\0");
-					return compiler->void_type;
-				};
-				object := object->data.element;
-			};
-			if (object->kind == TYPE_REFERENCE) {
-				object := object->data.element;
-			};
+			Type* object = semantic_member_object(semantic, syntax);
 			if (object->kind != TYPE_NAMED || (object->data.entity->kind != ENTITY_STRUCT && object->data.entity->kind != ENTITY_UNION)) {
 				compiler_error(compiler, syntax->token, "member access requires a record\0");
 				return compiler->void_type;
@@ -3454,10 +3994,13 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			if (compiler->result == COMPILATION_FAILURE) {
 				return compiler->void_type;
 			};
-			syntax->entity = scope_local(object->data.entity->data.aggregate.scope, syntax->data.member.name);
+			syntax->entity = associated_lookup(compiler, object->data.entity, syntax->data.member.name);
 			if (!syntax->entity) {
 				compiler_error(compiler, syntax->data.member.name, "unknown record field\0");
 				return compiler->void_type;
+			};
+			if (syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage == STORAGE_FIELD) {
+				semantic_member_project(semantic, syntax, object, entity_type(syntax->entity->data.variable.data.field.owner));
 			};
 			if (syntax->entity->kind != ENTITY_VARIABLE || syntax->entity->data.variable.storage != STORAGE_FIELD) {
 				compiler_error(compiler, syntax->token, "associated declaration is not instance field storage\0");
@@ -3568,7 +4111,8 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				if (syntax->kind == SYNTAX_INITIALIZE && left->entity && entity_type(left->entity) && entity_type(left->entity)->kind == TYPE_REFERENCE) {
 					Type* reference := entity_type(left->entity);
 					if (left->kind == SYNTAX_MEMBER) {
-						semantic_expression(semantic, left->data.member.object, (Type*)0);
+						Type* object = semantic_member_object(semantic, left);
+						semantic_member_project(semantic, left, object, entity_type(left->entity->data.variable.data.field.owner));
 					};
 					semantic_expression(semantic, right, reference);
 					if (left->entity->data.variable.storage != STORAGE_FIELD) {
@@ -3643,6 +4187,19 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			if (!b) {
 				b = semantic_expression(semantic, right, right_context);
 			};
+			if (a->kind == TYPE_POINTER && b->kind == TYPE_POINTER && (operation == TOKEN_EQUAL || operation == TOKEN_NOT_EQUAL || operation == TOKEN_LESS || operation == TOKEN_GREATER || operation == TOKEN_LESS_EQUAL || operation == TOKEN_GREATER_EQUAL) && !type_equal(a, b)) {
+				BaseSearch forward = base_search(compiler, b->data.element, a->data.element);
+				BaseSearch reverse = base_search(compiler, a->data.element, b->data.element);
+				if (forward.count == 1) {
+					semantic_expect(semantic, right, b, a);
+					b := a;
+				}
+				else if (reverse.count == 1) {
+					semantic_expect(semantic, left, a, b);
+					a := b;
+					right_context := b;
+				};
+			};
 			semantic_expect(semantic, right, b, right_context);
 			if (a->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
 				layout_validate(compiler, a->data.element, (LayoutVisit*)0, syntax->token);
@@ -3676,12 +4233,27 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			Syntax* callable_syntax := syntax->data.call.callable;
 			if (callable_syntax->kind == SYNTAX_MEMBER) {
 				Syntax* receiver = method_receiver(semantic, callable_syntax);
-				Entity* function = receiver_callable(semantic, receiver->type, callable_syntax->data.member.name);
+				Type* owner := receiver->type;
+				if (callable_syntax->data.member.qualifier) {
+					owner = type_resolve(compiler, semantic->scope, callable_syntax->data.member.qualifier);
+					BaseSearch path = base_search(compiler, receiver->type, owner);
+					if (!path.count) {
+						compiler_error(compiler, callable_syntax->token, "qualified callable owner is not a base of its receiver\0");
+						return compiler->void_type;
+					};
+					syntax->data.call.qualified_owner := owner->data.entity;
+				};
+				Entity* function = receiver_callable(semantic, owner, callable_syntax->data.member.name);
 				if (function && function->kind == ENTITY_FUNCTION) {
 					entity_resolve(compiler, function);
 					Parameter* first := function->data.function.type->data.function.parameters;
 					syntax->data.call.receiver.value := receiver;
 					if (first && token_is(first->name, "this\0")) {
+						if (callable_syntax->data.member.qualifier && !type_equal(receiver->type, owner)) {
+							Type* reference = type_new(compiler, TYPE_REFERENCE);
+							reference->data.element = owner;
+							semantic_expect(semantic, receiver, receiver->type, reference);
+						};
 						semantic_expect(semantic, receiver, receiver->type, first->type);
 						syntax->data.call.receiver.kind = RECEIVER_BIND;
 					}
@@ -3842,9 +4414,20 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 				return record;
 			};
 			usize count := entity->data.aggregate.field_count;
+			BaseRelation* base := entity->data.aggregate.bases;
+			while (base) {
+				count = count + 1;
+				base := base->next;
+			};
 			void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
-			Field* binding := entity->data.aggregate.fields;
 			usize index = 0;
+			base := entity->data.aggregate.bases;
+			while (base) {
+				fields[index] = llvm_type(compiler, entity_type(base->entity));
+				index = index + 1;
+				base := base->next;
+			};
+			Field* binding := entity->data.aggregate.fields;
 			u64 maximum_size = 0;
 			u32 maximum_alignment = 0;
 			void* aligned = (void*)0;
@@ -3911,10 +4494,60 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void*;
 
 fn emit_address(Emitter* emitter, Syntax* syntax) -> void*;
 
+fn emit_base_address(Emitter* emitter, void* address, Entity* derived, BasePath* path, BaseDirection direction) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void* builder := compiler->llvm_builder;
+	u64 offset = 0;
+	while (path) {
+		BaseRelation* relation := path->relation;
+		if (direction == BASE_UP) {
+			address = LLVMBuildStructGEP2(builder, llvm_type(compiler, entity_type(derived)), address, (u32)relation->component, "base\0");
+		}
+		else {
+			offset = offset + LLVMOffsetOfElement(compiler->llvm_layout, llvm_type(compiler, entity_type(derived)), (u32)relation->component);
+		};
+		derived := relation->entity;
+		path := path->next;
+	};
+	if (direction == BASE_DOWN && offset) {
+		void* integer = LLVMBuildPtrToInt(builder, address, llvm_type(compiler, compiler->usize_type), "base.address\0");
+		integer = LLVMBuildSub(builder, integer, LLVMConstInt(llvm_type(compiler, compiler->usize_type), offset, 0), "derived.address\0");
+		address = LLVMBuildIntToPtr(builder, integer, LLVMPointerTypeInContext(compiler->llvm_context, 0), "derived\0");
+	};
+	return address;
+};
+
+fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
+	Compiler* compiler := emitter->compiler;
+	Syntax* value := syntax->data.base_conversion.value;
+	Type* source := value->type;
+	void* address = (void*)0;
+	if (syntax->kind == SYNTAX_BASE_POINTER) {
+		address = emit_expression(emitter, value);
+		source := source->data.element;
+	}
+	else {
+		address = emit_address(emitter, value);
+	};
+	Entity* derived := source->data.entity;
+	if (syntax->data.base_conversion.direction == BASE_DOWN) {
+		derived := syntax->data.base_conversion.target->data.element->data.entity;
+	};
+	void* result = emit_base_address(emitter, address, derived, syntax->data.base_conversion.path, syntax->data.base_conversion.direction);
+	if (syntax->kind == SYNTAX_BASE_POINTER) {
+		void* null = LLVMConstNull(LLVMTypeOf(address));
+		void* empty = LLVMBuildICmp(compiler->llvm_builder, 32, address, null, "base.null\0");
+		return LLVMBuildSelect(compiler->llvm_builder, empty, null, result, "base.pointer\0");
+	};
+	return result;
+};
+
 fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
 	switch (syntax->kind) {
+		case SYNTAX_BASE_REFERENCE:
+			return emit_base_conversion(emitter, syntax);
 		case SYNTAX_NAME:
 			if (syntax->entity->kind == ENTITY_FUNCTION) {
 				return syntax->entity->data.function.llvm_value;
@@ -3940,6 +4573,12 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 			else {
 				address = emit_slot(compiler, type);
 				LLVMBuildStore(builder, emit_expression(emitter, object), address);
+			};
+			Entity* owner := syntax->entity->data.variable.data.field.owner;
+			if (type->data.entity != owner) {
+				BaseSearch path = base_search(compiler, type, entity_type(owner));
+				address = emit_base_address(emitter, address, type->data.entity, path.path, BASE_UP);
+				type = entity_type(owner);
 			};
 			if (type->data.entity->kind == ENTITY_UNION) {
 				return address;
@@ -3976,7 +4615,7 @@ fn emit_truth(Emitter* emitter, void* value, Type* type) -> void* {
 fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
 	void* address = emit_storage_address(emitter, syntax);
 	Type* storage = syntax_storage_type(syntax);
-	if (storage && storage->kind == TYPE_REFERENCE && syntax->kind != SYNTAX_CALL && syntax->kind != SYNTAX_CAST) {
+	if (storage && storage->kind == TYPE_REFERENCE && syntax->kind != SYNTAX_CALL && syntax->kind != SYNTAX_CAST && syntax->kind != SYNTAX_BASE_REFERENCE) {
 		return LLVMBuildLoad2(emitter->compiler->llvm_builder, llvm_type(emitter->compiler, storage), address, "referent\0");
 	};
 	return address;
@@ -4238,6 +4877,10 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 	void* builder := compiler->llvm_builder;
 	void* type = llvm_type(compiler, syntax->type);
 	switch (syntax->kind) {
+		case SYNTAX_BASE_POINTER:
+			return emit_base_conversion(emitter, syntax);
+		case SYNTAX_BASE_REFERENCE:
+			return LLVMBuildLoad2(builder, type, emit_base_conversion(emitter, syntax), "base.value\0");
 		case SYNTAX_NUMBER:
 			if (syntax->type->kind == TYPE_BOOL) {
 				return LLVMConstInt(type, number_truth(compiler, syntax->token), 0);
@@ -4647,8 +5290,13 @@ fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token to
 
 	Field* binding := entity->data.aggregate.fields;
 	LayoutVisit visit;
-	visit.entity = entity;
+	visit.entity := entity;
 	visit.parent = parent;
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base && compiler->result != COMPILATION_FAILURE) {
+		layout_validate(compiler, entity_type(base->entity), &visit, base->name->token);
+		base := base->next;
+	};
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		layout_validate(compiler, entity_type(binding->entity), &visit, binding->entity->name);
 		binding := binding->next;

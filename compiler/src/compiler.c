@@ -53,6 +53,7 @@ enum NamespaceKind {
 	UNRESOLVED_NAMESPACE,
 	DECLARED_NAMESPACE,
 	ASSOCIATED_NAMESPACE,
+	ALIASED_NAMESPACE,
 };
 
 struct Namespace {
@@ -63,6 +64,7 @@ struct Namespace {
 	struct Record* record;
 	enum NamespaceKind kind;
 	const char* source_path;
+	struct Namespace* canonical;
 };
 
 struct Token {
@@ -180,6 +182,8 @@ enum NodeKind {
 	REFERENCE_BINDING_EXPRESSION,
 	REFERENCE_CAST_EXPRESSION,
 	REFERENCE_INITIALIZATION_EXPRESSION,
+	BASE_VALUE_EXPRESSION,
+	BASE_POINTER_EXPRESSION,
 	DEREFERENCE_EXPRESSION,
 	INDEX_EXPRESSION,
 	FIELD_EXPRESSION,
@@ -218,6 +222,11 @@ enum ReceiverKind {
 	EVALUATE_RECEIVER,
 };
 
+enum BaseConversionKind {
+	DERIVED_TO_BASE,
+	BASE_TO_DERIVED,
+};
+
 struct TypeNode {
 	enum TypeSyntaxKind kind;
 	struct Span span;
@@ -249,7 +258,13 @@ struct Expression {
 			struct Function* function;
 			struct Expression* receiver;
 			enum ReceiverKind kind;
+			struct Record* qualified_owner;
 		} bound_function;
+		struct {
+			struct Expression* value;
+			struct BasePath* path;
+			enum BaseConversionKind kind;
+		} base;
 		struct {
 			struct TypeNode* syntax;
 			struct Expression* value;
@@ -265,6 +280,7 @@ struct Expression {
 			struct Expression* object;
 			struct Token name;
 			struct Member* binding;
+			struct BasePath* base_path;
 			struct Statement* initialization;
 		} member;
 		struct {
@@ -281,6 +297,7 @@ struct Expression {
 			struct Function* binding;
 			struct Expression* callee;
 			struct Expression* receiver_evaluation;
+			struct Record* qualified_owner;
 			struct Argument* arguments;
 		} call;
 		struct Expression* operand;
@@ -380,6 +397,7 @@ struct Member {
 	struct Type type;
 	struct Token name;
 	unsigned index;
+	struct Record* owner;
 	struct Member* next;
 };
 
@@ -397,12 +415,32 @@ struct Enumerator {
 	struct Enumerator* next;
 };
 
+struct BaseRelation {
+	struct TypeNode* syntax;
+	struct Record* record;
+	unsigned index;
+	struct BaseRelation* next;
+};
+
+struct BasePath {
+	struct BaseRelation* relation;
+	struct BasePath* next;
+};
+
+enum BaseResolution {
+	UNRESOLVED_BASES,
+	RESOLVING_BASES,
+	RESOLVED_BASES,
+};
+
 struct Record {
 	enum TypeKind kind;
 	enum RecordState state;
 	struct Token name;
 	struct Span span;
 	struct Namespace* associated;
+	struct BaseRelation* bases;
+	enum BaseResolution base_resolution;
 	union {
 		struct Member* members;
 		struct Enumerator* enumerators;
@@ -934,6 +972,127 @@ struct QualifiedName {
 	struct Token name;
 };
 
+enum MemberLookupKind {
+	NO_MEMBER,
+	FIELD_MEMBER,
+	FUNCTION_MEMBER,
+	NAMESPACE_MEMBER,
+	ENUMERATOR_MEMBER,
+	AMBIGUOUS_MEMBER,
+};
+
+struct MemberLookup {
+	enum MemberLookupKind kind;
+	union {
+		struct Member* field;
+		struct Function* function;
+		struct Namespace* space;
+		struct Enumerator* enumerator;
+	} entity;
+	struct BasePath* path;
+};
+
+void resolve_bases(struct Compiler* compiler, struct Record* record);
+
+struct Token unqualified_token(struct Token name) {
+	for (size_t index = 0; index + 1 < name.length; index++) {
+		if (name.start[index] == ':' && name.start[index + 1] == ':') {
+			name.start += index + 2;
+			name.length -= index + 2;
+			index = 0;
+		}
+	}
+	return name;
+}
+
+struct MemberLookup record_member(struct Compiler* compiler, struct Record* record, struct Token name) {
+	struct MemberLookup result = { 0 };
+	for (struct Member* field = record->kind == ENUM_TYPE ? NULL : record->data.members; field; field = field->next) {
+		if (name_equal(field->name, name)) {
+			result.kind = FIELD_MEMBER;
+			result.entity.field = field;
+			return result;
+		}
+	}
+	for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+		if (symbol->function->owner == record->associated && name_equal(symbol->function->local_name, name)) {
+			result.kind = FUNCTION_MEMBER;
+			result.entity.function = symbol->function;
+			return result;
+		}
+	}
+	for (struct Record* enumeration = compiler->records; enumeration; enumeration = enumeration->next) {
+		if (enumeration->kind != ENUM_TYPE || enumeration->associated->parent != record->associated) {
+			continue;
+		}
+		for (struct Enumerator* value = enumeration->data.enumerators; value; value = value->next) {
+			if (name_equal(unqualified_token(value->name), name)) {
+				result.kind = ENUMERATOR_MEMBER;
+				result.entity.enumerator = value;
+				return result;
+			}
+		}
+	}
+	struct Namespace* space = namespace_local(compiler, record->associated, name);
+	if (space && space->kind != UNRESOLVED_NAMESPACE) {
+		result.kind = NAMESPACE_MEMBER;
+		result.entity.space = space->canonical ? space->canonical : space;
+		return result;
+	}
+
+	resolve_bases(compiler, record);
+	for (struct BaseRelation* base = record->bases; base && !compiler->failed; base = base->next) {
+		struct MemberLookup inherited = record_member(compiler, base->record, name);
+		if (inherited.kind == NO_MEMBER) {
+			continue;
+		}
+		if (inherited.kind == AMBIGUOUS_MEMBER) {
+			return inherited;
+		}
+		struct BasePath* path = allocate(compiler, sizeof(struct BasePath));
+		if (!path) {
+			return result;
+		}
+		path->relation = base;
+		path->next = inherited.path;
+		inherited.path = path;
+		if (result.kind == NO_MEMBER) {
+			result = inherited;
+			continue;
+		}
+		if (result.kind == NAMESPACE_MEMBER && inherited.kind == NAMESPACE_MEMBER && result.entity.space == inherited.entity.space) {
+			continue;
+		}
+		if (result.kind == ENUMERATOR_MEMBER && inherited.kind == ENUMERATOR_MEMBER && result.entity.enumerator == inherited.entity.enumerator) {
+			continue;
+		}
+		if (result.kind == FUNCTION_MEMBER && inherited.kind == FUNCTION_MEMBER && result.entity.function == inherited.entity.function) {
+			continue;
+		}
+		if (result.kind == FIELD_MEMBER && inherited.kind == FIELD_MEMBER && result.entity.field == inherited.entity.field) {
+			continue;
+		}
+		result.kind = AMBIGUOUS_MEMBER;
+		return result;
+	}
+	return result;
+}
+
+struct Namespace* namespace_child(struct Compiler* compiler, struct Namespace* owner, struct Token name) {
+	while (owner && owner->canonical) {
+		owner = owner->canonical;
+	}
+	if (!owner || !owner->record) {
+		return namespace_local(compiler, owner, name);
+	}
+	struct MemberLookup member = record_member(compiler, owner->record, name);
+	if (member.kind == AMBIGUOUS_MEMBER) {
+		diagnostic(compiler, name, "ambiguous inherited name");
+		return NULL;
+	}
+	return member.kind == NAMESPACE_MEMBER ? member.entity.space : NULL;
+}
+
 struct QualifiedName declaration_name(struct Compiler* compiler, struct Token name) {
 	struct QualifiedName result = { name.owner, name };
 	size_t begin = 0;
@@ -971,6 +1130,9 @@ struct QualifiedName declaration_name(struct Compiler* compiler, struct Token na
 }
 
 struct QualifiedName lookup_name(struct Compiler* compiler, struct Token name) {
+	while (name.owner && name.owner->canonical) {
+		name.owner = name.owner->canonical;
+	}
 	struct QualifiedName result = { name.owner, name };
 	size_t begin = 0;
 	for (size_t index = 0; index + 1 < name.length; index++) {
@@ -983,14 +1145,14 @@ struct QualifiedName lookup_name(struct Compiler* compiler, struct Token name) {
 		struct Namespace* space = NULL;
 		if (!begin) {
 			for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
-				space = namespace_local(compiler, owner, part);
+				space = namespace_child(compiler, owner, part);
 				if (space || !owner) {
 					break;
 				}
 			}
 		}
 		else {
-			space = namespace_local(compiler, result.owner, part);
+			space = namespace_child(compiler, result.owner, part);
 		}
 		if (!space) {
 			diagnostic(compiler, name, "qualified name owner was not found");
@@ -1132,7 +1294,7 @@ struct Record* find_record(struct Compiler* compiler, struct Token name) {
 		return NULL;
 	}
 	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
-		struct Namespace* associated = namespace_local(compiler, owner, lookup.name);
+		struct Namespace* associated = namespace_child(compiler, owner, lookup.name);
 		for (struct TagSymbol* tag = compiler->tags; tag; tag = tag->next) {
 			if (associated && tag->record == associated->record) {
 				return tag->record;
@@ -1327,6 +1489,121 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 	return type;
 }
 
+void resolve_bases(struct Compiler* compiler, struct Record* record) {
+	if (compiler->failed || record->base_resolution == RESOLVED_BASES) {
+		return;
+	}
+	if (record->base_resolution == RESOLVING_BASES) {
+		diagnostic(compiler, record->name, "cyclic inheritance");
+		return;
+	}
+	record->base_resolution = RESOLVING_BASES;
+	unsigned index = 0;
+	for (struct BaseRelation* base = record->bases; base; base = base->next) {
+		struct Type type = resolve_type(compiler, base->syntax);
+		if (compiler->failed) {
+			return;
+		}
+		if (type.kind != STRUCT_TYPE || type.data.record->state == FORWARD_RECORD) {
+			diagnostic(compiler, base->syntax->span.first, "base must be a complete struct");
+			return;
+		}
+		base->record = type.data.record;
+		for (struct BaseRelation* previous = record->bases; previous != base; previous = previous->next) {
+			if (previous->record == base->record) {
+				diagnostic(compiler, base->syntax->span.first, "duplicate direct base");
+				return;
+			}
+		}
+		base->index = index++;
+		resolve_bases(compiler, base->record);
+		if (compiler->failed) {
+			return;
+		}
+	}
+	record->base_resolution = RESOLVED_BASES;
+}
+
+enum BaseSearchKind {
+	NO_BASE_PATH,
+	ONE_BASE_PATH,
+	MULTIPLE_BASE_PATHS,
+};
+
+struct BaseSearch {
+	enum BaseSearchKind kind;
+	struct BasePath* path;
+};
+
+struct BaseSearch find_base_path(struct Compiler* compiler, struct Record* derived, struct Record* base) {
+	if (derived == base) {
+		return (struct BaseSearch){ ONE_BASE_PATH, NULL };
+	}
+	struct BaseSearch result = { 0 };
+	for (struct BaseRelation* relation = derived->bases; relation && !compiler->failed; relation = relation->next) {
+		struct BaseSearch inherited = find_base_path(compiler, relation->record, base);
+		if (inherited.kind == NO_BASE_PATH) {
+			continue;
+		}
+		if (inherited.kind == MULTIPLE_BASE_PATHS || result.kind != NO_BASE_PATH) {
+			return (struct BaseSearch){ MULTIPLE_BASE_PATHS, NULL };
+		}
+		struct BasePath* path = allocate(compiler, sizeof(struct BasePath));
+		if (!path) {
+			return result;
+		}
+		path->relation = relation;
+		path->next = inherited.path;
+		result.kind = ONE_BASE_PATH;
+		result.path = path;
+	}
+	return result;
+}
+
+struct BasePath* concatenate_base_path(struct Compiler* compiler, struct BasePath* first, struct BasePath* second) {
+	if (!first) {
+		return second;
+	}
+	struct BasePath* path = allocate(compiler, sizeof(struct BasePath));
+	if (!path) {
+		return NULL;
+	}
+	path->relation = first->relation;
+	path->next = concatenate_base_path(compiler, first->next, second);
+	return path;
+}
+
+struct MemberLookup qualified_record_member(struct Compiler* compiler, struct Record* record, struct Token name, struct Record** qualified_owner) {
+	struct QualifiedName lookup = lookup_name(compiler, name);
+	if (lookup.name.kind != QUALIFY) {
+		struct MemberLookup member = record_member(compiler, record, name);
+		if (member.kind == FIELD_MEMBER && member.entity.field->owner && find_base_path(compiler, record, member.entity.field->owner).kind == MULTIPLE_BASE_PATHS) {
+			diagnostic(compiler, name, "ambiguous field base subobject");
+			return (struct MemberLookup){ 0 };
+		}
+		return member;
+	}
+	struct Record* owner = lookup.owner ? lookup.owner->record : NULL;
+	if (!owner) {
+		diagnostic(compiler, name, "member qualifier must name a base struct");
+		return (struct MemberLookup){ 0 };
+	}
+	struct BaseSearch selection = find_base_path(compiler, record, owner);
+	struct MemberLookup member = record_member(compiler, owner, lookup.name);
+	struct Variable* receiver = member.kind == FUNCTION_MEMBER ? member.entity.function->parameters : NULL;
+	if (selection.kind == NO_BASE_PATH || (selection.kind == MULTIPLE_BASE_PATHS && (member.kind != FUNCTION_MEMBER || (receiver && token_text(receiver->name, "this"))))) {
+		diagnostic(compiler, name, selection.kind == MULTIPLE_BASE_PATHS ? "ambiguous base qualifier" : "member qualifier is not a base of the object");
+		return (struct MemberLookup){ 0 };
+	}
+	member.path = concatenate_base_path(compiler, selection.path, member.path);
+	if (member.kind == FIELD_MEMBER && member.entity.field->owner && find_base_path(compiler, owner, member.entity.field->owner).kind == MULTIPLE_BASE_PATHS) {
+		diagnostic(compiler, name, "ambiguous field base subobject");
+		return (struct MemberLookup){ 0 };
+	}
+	*qualified_owner = owner;
+	return member;
+}
+
 struct Expression* new_expression(struct Compiler* compiler, enum NodeKind kind, struct Token token) {
 	struct Expression* expression = allocate(compiler, sizeof(struct Expression));
 	if (expression) {
@@ -1347,7 +1624,7 @@ bool known_type_name(struct Compiler* compiler, struct Token name) {
 	for (size_t index = 0; index + 2 < compiler->token_count; index++) {
 		int kind = compiler->tokens[index].kind;
 		int following = compiler->tokens[index + 2].kind;
-		if ((kind == STRUCT || kind == UNION || kind == ENUM) && compiler->tokens[index + 1].kind == NAME && (following == '{' || following == ';') && name_equal(name, compiler->tokens[index + 1])) {
+		if ((kind == STRUCT || kind == UNION || kind == ENUM) && compiler->tokens[index + 1].kind == NAME && (following == '{' || following == ';' || following == ':') && name_equal(name, compiler->tokens[index + 1])) {
 			return true;
 		}
 	}
@@ -1687,8 +1964,7 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 				return NULL;
 			}
 			field->data.member.object = expression;
-			field->data.member.name = compiler->token;
-			expect(compiler, NAME, "a field name");
+			field->data.member.name = parse_name(compiler);
 			field->span.last = previous_token(compiler);
 			expression = field;
 		}
@@ -1990,7 +2266,7 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 			statement_tail = &statement->next;
 		}
 		expect(compiler, '}', "'}'");
-		take(compiler, ';');
+		expect(compiler, ';', "';' after function definition");
 	}
 	function->span.last = previous_token(compiler);
 	if (compiler->last_function) {
@@ -2037,6 +2313,29 @@ void parse_record(struct Compiler* compiler) {
 			compiler->records = record;
 		}
 		compiler->last_record = record;
+	}
+	if (take(compiler, ':')) {
+		if (kind != STRUCT_TYPE) {
+			diagnostic(compiler, declared.name, "only structs can inherit");
+			return;
+		}
+		struct BaseRelation** tail = &record->bases;
+		while (!compiler->failed) {
+			struct BaseRelation* base = allocate(compiler, sizeof(struct BaseRelation));
+			if (!base) {
+				return;
+			}
+			base->syntax = parse_type(compiler);
+			*tail = base;
+			tail = &base->next;
+			if (!take(compiler, ',')) {
+				break;
+			}
+		}
+		if (compiler->token.kind != '{') {
+			diagnostic(compiler, declared.name, "base relationships require a struct definition");
+			return;
+		}
 	}
 	if (take(compiler, '{')) {
 		if (record->state != FORWARD_RECORD) {
@@ -2161,6 +2460,16 @@ struct Function* find_function(struct Compiler* compiler, struct Token name) {
 		return NULL;
 	}
 	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
+		if (owner && owner->record) {
+			struct MemberLookup member = record_member(compiler, owner->record, lookup.name);
+			if (member.kind == AMBIGUOUS_MEMBER) {
+				diagnostic(compiler, name, "ambiguous inherited function");
+				return NULL;
+			}
+			if (member.kind != NO_MEMBER) {
+				return member.kind == FUNCTION_MEMBER ? member.entity.function : NULL;
+			}
+		}
 		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
 			if (symbol->function->owner == owner && name_equal(symbol->function->local_name, lookup.name)) {
 				return symbol->function;
@@ -2182,30 +2491,32 @@ struct Variable* find_variable(struct Variable* scope, struct Token name) {
 }
 
 struct Enumerator* find_enumerator(struct Compiler* compiler, struct Token name) {
-	name = resolve_symbol(compiler, name);
-	for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
-		for (struct TagSymbol* tag = compiler->tags; tag; tag = tag->next) {
-			if (tag->record->kind != ENUM_TYPE) {
+	struct QualifiedName lookup = lookup_name(compiler, name);
+	if (lookup.name.kind == END) {
+		return NULL;
+	}
+	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
+		if (owner && owner->record && owner->record->kind != ENUM_TYPE) {
+			struct MemberLookup member = record_member(compiler, owner->record, lookup.name);
+			if (member.kind == AMBIGUOUS_MEMBER) {
+				diagnostic(compiler, name, "ambiguous inherited enumerator");
+				return NULL;
+			}
+			if (member.kind != NO_MEMBER) {
+				return member.kind == ENUMERATOR_MEMBER ? member.entity.enumerator : NULL;
+			}
+		}
+		for (struct Record* enumeration = compiler->records; enumeration; enumeration = enumeration->next) {
+			if (enumeration->kind != ENUM_TYPE || (enumeration->associated != owner && enumeration->associated->parent != owner)) {
 				continue;
 			}
-			for (struct Enumerator* value = tag->record->data.enumerators; value; value = value->next) {
-				if (namespace_name_equal(value->name, owner, name)) {
-					return value;
-				}
-				struct Token local = value->name;
-				for (size_t index = 0; index + 1 < value->name.length; index++) {
-					if (value->name.start[index] == ':' && value->name.start[index + 1] == ':') {
-						local.start = value->name.start + index + 2;
-						local.length = value->name.length - index - 2;
-					}
-				}
-				struct Namespace enum_scope = { tag->record->name.start, tag->record->name.length, NULL, NULL };
-				if (!owner && namespace_name_equal(name, &enum_scope, local)) {
+			for (struct Enumerator* value = enumeration->data.enumerators; value; value = value->next) {
+				if (name_equal(unqualified_token(value->name), lookup.name)) {
 					return value;
 				}
 			}
 		}
-		if (!owner) {
+		if (!owner || lookup.name.kind == QUALIFY) {
 			return NULL;
 		}
 	}
@@ -2395,6 +2706,13 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	uint64_t maximum_size = 0;
 	unsigned maximum_alignment = 0;
 	struct Member* storage = NULL;
+	for (struct BaseRelation* base = record->bases; base; base = base->next) {
+		resolve_record(compiler, base->record);
+		if (compiler->failed) {
+			return;
+		}
+		base->index = count++;
+	}
 	for (struct Member* member = record->data.members; member && !compiler->failed; member = member->next) {
 		for (struct Function* function = compiler->functions; function; function = function->next) {
 			if (function->owner == record->associated && name_equal(function->local_name, member->name)) {
@@ -2421,6 +2739,7 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 		if (compiler->failed) {
 			return;
 		}
+		member->owner = record;
 		member->index = count++;
 		LLVMTypeRef type = llvm_type(compiler, member->type);
 		uint64_t size = LLVMABISizeOfType(compiler->layout, type);
@@ -2445,6 +2764,9 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	}
 	if (record->kind == STRUCT_TYPE) {
 		unsigned index = 0;
+		for (struct BaseRelation* base = record->bases; base; base = base->next) {
+			members[index++] = base->record->llvm_type;
+		}
 		for (struct Member* member = record->data.members; member; member = member->next) {
 			members[index++] = llvm_type(compiler, member->type);
 		}
@@ -2548,6 +2870,13 @@ void register_functions(struct Compiler* compiler) {
 		if (function->kind != FUNCTION_DECLARATION) {
 			continue;
 		}
+		struct Namespace* associated = function->owner;
+		while (associated && !associated->record) {
+			associated = associated->parent;
+		}
+		if (associated) {
+			continue;
+		}
 		if (function->result.kind == STRUCT_TYPE || function->result.kind == UNION_TYPE || function->result.kind == ARRAY_TYPE) {
 			diagnostic(compiler, function->name, "C bindings returning aggregates by value are not supported");
 		}
@@ -2647,6 +2976,7 @@ bool borrowed_storage(struct Expression* expression) {
 	switch (expression->kind) {
 	case DEREFERENCE_EXPRESSION:
 	case REFERENCE_CAST_EXPRESSION:
+	case BASE_VALUE_EXPRESSION:
 	case POINTER_FIELD_EXPRESSION:
 	case FIELD_EXPRESSION:
 	case INDEX_EXPRESSION:
@@ -2685,15 +3015,26 @@ unsigned analyze_statements(struct Compiler* compiler, struct Function* function
 void prepare_reference_fields(struct Compiler* compiler, struct Variable* variable, struct Statement* initialization);
 
 struct Function* receiver_function(struct Compiler* compiler, struct Type object, struct Token name) {
-	for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
-		if (symbol->function->owner == object.data.record->associated && name_equal(symbol->function->local_name, name)) {
-			return symbol->function;
-		}
+	struct Record* qualified_owner = NULL;
+	struct MemberLookup member = qualified_record_member(compiler, object.data.record, name, &qualified_owner);
+	if (member.kind == AMBIGUOUS_MEMBER) {
+		diagnostic(compiler, name, "ambiguous inherited member");
+		return NULL;
+	}
+	if (member.kind != NO_MEMBER) {
+		return member.kind == FUNCTION_MEMBER ? member.entity.function : NULL;
 	}
 
 	struct Function* function = find_function(compiler, name);
 	struct Variable* receiver = function ? function->parameters : NULL;
-	if (!receiver || !token_text(receiver->name, "this") || receiver->type.kind != REFERENCE_TYPE || !type_equal(*receiver->type.data.element, object)) {
+	if (!receiver || !token_text(receiver->name, "this") || receiver->type.kind != REFERENCE_TYPE || receiver->type.data.element->kind != STRUCT_TYPE || object.kind != STRUCT_TYPE) {
+		return NULL;
+	}
+	struct BaseSearch path = find_base_path(compiler, object.data.record, receiver->type.data.element->data.record);
+	if (path.kind != ONE_BASE_PATH) {
+		if (path.kind == MULTIPLE_BASE_PATHS) {
+			diagnostic(compiler, name, "ambiguous receiver base");
+		}
 		return NULL;
 	}
 	return function;
@@ -2733,12 +3074,10 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			if (receiver_binding && receiver_binding->variable && receiver_binding->variable->type.kind == REFERENCE_TYPE) {
 				struct Type object = *receiver_binding->variable->type.data.element;
 				if (object.kind == STRUCT_TYPE || object.kind == UNION_TYPE) {
-					struct Member* field = object.data.record->data.members;
-					while (field && !name_equal(field->name, name)) {
-						field = field->next;
-					}
+					struct MemberLookup member = record_member(compiler, object.data.record, name);
+					struct Member* field = member.kind == FIELD_MEMBER ? member.entity.field : NULL;
 					struct Function* method = receiver_function(compiler, object, name);
-					if (field || (method && method->owner == object.data.record->associated && method->parameters && token_text(method->parameters->name, "this"))) {
+					if (field || (method && method->owner && method->owner->record && method->parameters && token_text(method->parameters->name, "this"))) {
 						struct Expression* receiver = new_expression(compiler, NAME_EXPRESSION, receiver_name);
 						if (!receiver) {
 							break;
@@ -2751,6 +3090,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 							expression->data.member.object = receiver;
 							expression->data.member.name = name;
 							expression->data.member.binding = field;
+							expression->data.member.base_path = member.path;
 							expression->data.member.initialization = NULL;
 							expression->type = field->type.kind == REFERENCE_TYPE ? *field->type.data.element : field->type;
 						}
@@ -2796,6 +3136,10 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		}
 		break;
 	}
+	case BASE_VALUE_EXPRESSION:
+	case BASE_POINTER_EXPRESSION:
+		bind_expression(compiler, expression->data.base.value, scope);
+		break;
 	case CALL_EXPRESSION:
 		bind_expression(compiler, expression->data.call.callee, scope);
 		if (compiler->failed) {
@@ -2806,6 +3150,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			struct Expression* callee = expression->data.call.callee;
 			struct Function* function = callee->data.bound_function.function;
 			struct Expression* receiver = callee->data.bound_function.receiver;
+			expression->data.call.qualified_owner = callee->data.bound_function.qualified_owner;
 			if (callee->data.bound_function.kind == BIND_RECEIVER) {
 				receiver_argument = allocate(compiler, sizeof(struct Argument));
 				if (!receiver_argument) {
@@ -2947,14 +3292,18 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			diagnostic(compiler, expression->span.first, "field access requires a struct or union");
 			break;
 		}
-		for (struct Member* field = object.data.record->data.members; field; field = field->next) {
-			if (name_equal(field->name, expression->data.member.name)) {
-				expression->data.member.binding = field;
-				expression->type = field->type;
-				if (expression->type.kind == REFERENCE_TYPE) {
-					expression->type = *expression->type.data.element;
-				}
-				break;
+		struct Record* qualified_owner = NULL;
+		struct MemberLookup member = qualified_record_member(compiler, object.data.record, expression->data.member.name, &qualified_owner);
+		if (member.kind == AMBIGUOUS_MEMBER) {
+			diagnostic(compiler, expression->data.member.name, "ambiguous inherited member");
+			break;
+		}
+		if (member.kind == FIELD_MEMBER) {
+			expression->data.member.binding = member.entity.field;
+			expression->data.member.base_path = member.path;
+			expression->type = member.entity.field->type;
+			if (expression->type.kind == REFERENCE_TYPE) {
+				expression->type = *expression->type.data.element;
 			}
 		}
 		if (!expression->data.member.binding) {
@@ -2976,17 +3325,37 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 					pointee->type = object;
 					receiver = pointee;
 				}
+				if (qualified_owner && qualified_owner != object.data.record) {
+					struct BaseSearch selection = find_base_path(compiler, object.data.record, qualified_owner);
+					struct Expression* projection = new_expression(compiler, BASE_VALUE_EXPRESSION, receiver->span.first);
+					if (!projection) {
+						break;
+					}
+					projection->data.base.value = receiver;
+					projection->data.base.path = selection.path;
+					projection->type = (struct Type){ STRUCT_TYPE, { .record = qualified_owner } };
+					receiver = projection;
+				}
 			}
 			expression->kind = BOUND_FUNCTION_EXPRESSION;
 			expression->data.bound_function.function = function;
 			expression->data.bound_function.receiver = receiver;
 			expression->data.bound_function.kind = receiver_kind;
+			expression->data.bound_function.qualified_owner = qualified_owner;
 			expression->type = (struct Type){ FUNCTION_TYPE, { .function = function } };
 			break;
 		}
 		struct Expression* root = expression;
-		while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION) {
-			root = root->kind == FIELD_EXPRESSION ? root->data.member.object : root->data.binary.left;
+		while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION || root->kind == BASE_VALUE_EXPRESSION || root->kind == REFERENCE_CAST_EXPRESSION) {
+			if (root->kind == FIELD_EXPRESSION) {
+				root = root->data.member.object;
+			}
+			else if (root->kind == INDEX_EXPRESSION) {
+				root = root->data.binary.left;
+			}
+			else {
+				root = root->kind == BASE_VALUE_EXPRESSION ? root->data.base.value : root->data.operand;
+			}
 		}
 		for (struct Scope* context = scope; context; context = context->parent) {
 			if (context->initialization && root->kind == NAME_EXPRESSION && context->initialization->data.declaration.variable == root->data.variable.binding) {
@@ -3169,7 +3538,57 @@ void check_integer(struct Compiler* compiler, struct Expression* expression, str
 }
 
 bool lvalue_expression(struct Expression* expression) {
+	if (expression->kind == BASE_VALUE_EXPRESSION) {
+		return lvalue_expression(expression->data.base.value);
+	}
 	return expression->kind == REFERENCE_CAST_EXPRESSION || (expression->kind == CALL_EXPRESSION && expression->data.call.binding->result.kind == REFERENCE_TYPE) || expression->kind == NAME_EXPRESSION || expression->kind == DEREFERENCE_EXPRESSION || (expression->kind == INDEX_EXPRESSION && (expression->data.binary.left->type.kind == POINTER_TYPE || lvalue_expression(expression->data.binary.left))) || expression->kind == POINTER_FIELD_EXPRESSION || (expression->kind == FIELD_EXPRESSION && lvalue_expression(expression->data.member.object));
+}
+
+enum BaseConversionRequest {
+	IMPLICIT_BASE_CONVERSION,
+	EXPLICIT_BASE_CONVERSION,
+};
+
+bool convert_base_expression(struct Compiler* compiler, struct Expression* expression, struct Type target, enum BaseConversionRequest request) {
+	struct Type source = expression->type;
+	if (type_equal(source, target)) {
+		return true;
+	}
+	enum NodeKind kind = BASE_VALUE_EXPRESSION;
+	struct Type source_object = source;
+	struct Type target_object = target;
+	if (source.kind == POINTER_TYPE && target.kind == POINTER_TYPE) {
+		kind = BASE_POINTER_EXPRESSION;
+		source_object = *source.data.element;
+		target_object = *target.data.element;
+	}
+	if (source_object.kind != STRUCT_TYPE || target_object.kind != STRUCT_TYPE) {
+		return false;
+	}
+	struct BaseSearch selection = find_base_path(compiler, source_object.data.record, target_object.data.record);
+	enum BaseConversionKind direction = DERIVED_TO_BASE;
+	if (selection.kind == NO_BASE_PATH && request == EXPLICIT_BASE_CONVERSION) {
+		selection = find_base_path(compiler, target_object.data.record, source_object.data.record);
+		direction = BASE_TO_DERIVED;
+	}
+	if (selection.kind == MULTIPLE_BASE_PATHS) {
+		diagnostic(compiler, expression->span.first, "ambiguous base conversion");
+		return false;
+	}
+	if (selection.kind != ONE_BASE_PATH) {
+		return false;
+	}
+	struct Expression* value = allocate(compiler, sizeof(struct Expression));
+	if (!value) {
+		return false;
+	}
+	*value = *expression;
+	expression->kind = kind;
+	expression->data.base.value = value;
+	expression->data.base.path = selection.path;
+	expression->data.base.kind = direction;
+	expression->type = target;
+	return true;
 }
 
 bool contains_reference_fields(struct Type type);
@@ -3181,8 +3600,16 @@ void validate_reference_field_read(struct Compiler* compiler, struct Expression*
 		return;
 	}
 	struct Expression* root = expression;
-	while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION) {
-		root = root->kind == FIELD_EXPRESSION ? root->data.member.object : root->data.binary.left;
+	while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION || root->kind == BASE_VALUE_EXPRESSION || root->kind == REFERENCE_CAST_EXPRESSION) {
+		if (root->kind == FIELD_EXPRESSION) {
+			root = root->data.member.object;
+		}
+		else if (root->kind == INDEX_EXPRESSION) {
+			root = root->data.binary.left;
+		}
+		else {
+			root = root->kind == BASE_VALUE_EXPRESSION ? root->data.base.value : root->data.operand;
+		}
 		if (root->kind == FIELD_EXPRESSION && root->data.member.binding->type.kind == REFERENCE_TYPE) {
 			return;
 		}
@@ -3214,6 +3641,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		return;
 	}
 	if (expected && expected->kind == REFERENCE_TYPE) {
+		convert_base_expression(compiler, expression, *expected->data.element, IMPLICIT_BASE_CONVERSION);
 		check_expression(compiler, expression, expected->data.element);
 		if (compiler->failed) {
 			return;
@@ -3250,6 +3678,10 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		goto contextual_conversion;
 	}
 	switch (expression->kind) {
+	case BASE_VALUE_EXPRESSION:
+	case BASE_POINTER_EXPRESSION:
+		check_expression(compiler, expression->data.base.value, NULL);
+		break;
 	case REFERENCE_INITIALIZATION_EXPRESSION: {
 		struct Expression* target = expression->data.binary.left;
 		if (target->kind != NAME_EXPRESSION) {
@@ -3332,6 +3764,16 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		struct Expression* left = expression->data.binary.left;
 		struct Expression* right = expression->data.binary.right;
 		struct Type type = !is_void(left->type) ? left->type : right->type;
+		if ((operation->kind == COMPARISON_OPERATOR || operation->token == '-') && left->type.kind == POINTER_TYPE && right->type.kind == POINTER_TYPE && left->type.data.element->kind == STRUCT_TYPE && right->type.data.element->kind == STRUCT_TYPE) {
+			struct BaseSearch common = find_base_path(compiler, left->type.data.element->data.record, right->type.data.element->data.record);
+			if (common.kind == MULTIPLE_BASE_PATHS) {
+				diagnostic(compiler, expression->span.first, "ambiguous pointer base conversion");
+				break;
+			}
+			if (common.kind == ONE_BASE_PATH) {
+				type = right->type;
+			}
+		}
 		if (is_void(type) && expected && operation->kind != COMPARISON_OPERATOR && operation->kind != LOGICAL_OPERATOR) {
 			type = *expected;
 		}
@@ -3357,7 +3799,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 				break;
 			}
 			complete_type(compiler, *type.data.element, expression->span.first);
-			check_expression(compiler, left, NULL);
+			check_expression(compiler, left, &type);
 			if (right->type.kind == POINTER_TYPE && operation->token == '-') {
 				check_expression(compiler, right, &type);
 				expression->type = (struct Type){ SIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } };
@@ -3400,6 +3842,10 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			source = target;
 		}
 		check_expression(compiler, value, &source);
+		if (source.kind == POINTER_TYPE && target.kind == POINTER_TYPE) {
+			convert_base_expression(compiler, value, target, EXPLICIT_BASE_CONVERSION);
+			source = value->type;
+		}
 		if ((source.kind == FLOAT_TYPE && target.kind == POINTER_TYPE) || (source.kind == POINTER_TYPE && target.kind == FLOAT_TYPE)) {
 			diagnostic(compiler, expression->span.first, "cannot cast between floating-point and pointer types");
 		}
@@ -3409,6 +3855,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		break;
 	}
 	case REFERENCE_CAST_EXPRESSION:
+		convert_base_expression(compiler, expression->data.operand, expression->type, EXPLICIT_BASE_CONVERSION);
 		check_expression(compiler, expression->data.operand, &expression->type);
 		if (!lvalue_expression(expression->data.operand) && expression->data.operand->kind != FUNCTION_EXPRESSION) {
 			diagnostic(compiler, expression->span.first, "reference cast requires an existing object of the referent type");
@@ -3522,6 +3969,9 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		break;
 	}
 contextual_conversion:
+	if (expected && expected->kind == POINTER_TYPE && !type_equal(expression->type, *expected)) {
+		convert_base_expression(compiler, expression, *expected, IMPLICIT_BASE_CONVERSION);
+	}
 	if (expected && !type_equal(expression->type, *expected) && ((expected->kind == BOOL_TYPE && (numeric_type(expression->type) || expression->type.kind == POINTER_TYPE)) || (expression->type.kind == BOOL_TYPE && numeric_type(*expected)))) {
 		struct Expression* source = allocate(compiler, sizeof(struct Expression));
 		if (!source) {
@@ -3686,22 +4136,173 @@ void check_condition(struct Compiler* compiler, struct Expression* expression, s
 
 unsigned analyze_statements(struct Compiler* compiler, struct Function* function, struct Statement* statements, struct Scope* scope, struct Flow* flow);
 
+enum StorageStepKind {
+	BASE_STORAGE_STEP,
+	FIELD_STORAGE_STEP,
+	INDEX_STORAGE_STEP,
+};
+
+struct StorageStep {
+	enum StorageStepKind kind;
+	union {
+		struct BaseRelation* base;
+		struct Member* field;
+		uint64_t index;
+	} data;
+	struct StorageStep* next;
+};
+
+struct StoragePath {
+	struct Expression* root;
+	struct StorageStep* steps;
+};
+
+void storage_step_append(struct Compiler* compiler, struct StoragePath* path, struct StorageStep step) {
+	struct StorageStep* stored = allocate(compiler, sizeof(struct StorageStep));
+	if (!stored) {
+		return;
+	}
+	*stored = step;
+	struct StorageStep** tail = &path->steps;
+	while (*tail) {
+		tail = &(*tail)->next;
+	}
+	*tail = stored;
+}
+
+struct StoragePath initialization_storage_path(struct Compiler* compiler, struct Expression* expression) {
+	struct StoragePath path = { 0 };
+	if (!expression) {
+		return path;
+	}
+	if (expression->kind == NAME_EXPRESSION) {
+		path.root = expression;
+		return path;
+	}
+	if (expression->kind == REFERENCE_CAST_EXPRESSION) {
+		return initialization_storage_path(compiler, expression->data.operand);
+	}
+	struct BasePath* bases = NULL;
+	if (expression->kind == BASE_VALUE_EXPRESSION && expression->data.base.kind == DERIVED_TO_BASE) {
+		path = initialization_storage_path(compiler, expression->data.base.value);
+		bases = expression->data.base.path;
+	}
+	else if (expression->kind == FIELD_EXPRESSION && expression->data.member.binding) {
+		path = initialization_storage_path(compiler, expression->data.member.object);
+		bases = expression->data.member.base_path;
+	}
+	else if (expression->kind == INDEX_EXPRESSION) {
+		path = initialization_storage_path(compiler, expression->data.binary.left);
+		uint64_t index;
+		if (!case_integer(compiler, expression->data.binary.right, (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } }, &index)) {
+			path.root = NULL;
+			return path;
+		}
+		storage_step_append(compiler, &path, (struct StorageStep){ INDEX_STORAGE_STEP, { .index = index }, NULL });
+		return path;
+	}
+	else {
+		return path;
+	}
+	for (; bases; bases = bases->next) {
+		storage_step_append(compiler, &path, (struct StorageStep){ BASE_STORAGE_STEP, { .base = bases->relation }, NULL });
+	}
+	if (expression->kind == FIELD_EXPRESSION) {
+		storage_step_append(compiler, &path, (struct StorageStep){ FIELD_STORAGE_STEP, { .field = expression->data.member.binding }, NULL });
+	}
+	return path;
+}
+
 bool initialization_path_equal(struct Compiler* compiler, struct Expression* left, struct Expression* right) {
-	if (!left || !right || left->kind != right->kind) {
+	struct StoragePath first = initialization_storage_path(compiler, left);
+	struct StoragePath second = initialization_storage_path(compiler, right);
+	if (!first.root || !second.root || !name_equal(first.root->data.variable.name, second.root->data.variable.name)) {
 		return false;
 	}
-	if (left->kind == NAME_EXPRESSION) {
-		return name_equal(left->data.variable.name, right->data.variable.name);
+	if (first.root->data.variable.binding && second.root->data.variable.binding && first.root->data.variable.binding != second.root->data.variable.binding) {
+		return false;
 	}
-	if (left->kind == FIELD_EXPRESSION) {
-		return name_equal(left->data.member.name, right->data.member.name) && initialization_path_equal(compiler, left->data.member.object, right->data.member.object);
+	struct StorageStep* a = first.steps;
+	struct StorageStep* b = second.steps;
+	for (; a && b; a = a->next, b = b->next) {
+		if (a->kind != b->kind) {
+			return false;
+		}
+		switch (a->kind) {
+		case BASE_STORAGE_STEP:
+			if (a->data.base != b->data.base) {
+				return false;
+			}
+			break;
+		case FIELD_STORAGE_STEP:
+			if (a->data.field != b->data.field) {
+				return false;
+			}
+			break;
+		case INDEX_STORAGE_STEP:
+			if (a->data.index != b->data.index) {
+				return false;
+			}
+			break;
+		}
 	}
-	if (left->kind == INDEX_EXPRESSION) {
-		uint64_t first;
-		uint64_t second;
-		return case_integer(compiler, left->data.binary.right, (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } }, &first) && case_integer(compiler, right->data.binary.right, (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } }, &second) && first == second && initialization_path_equal(compiler, left->data.binary.left, right->data.binary.left);
+	return !a && !b;
+}
+
+bool normalize_initialization_storage(struct Compiler* compiler, struct Expression* expression, struct Variable* owner) {
+	if (!expression) {
+		return false;
 	}
-	return false;
+	if (expression->kind == NAME_EXPRESSION) {
+		if (!name_equal(expression->data.variable.name, owner->name)) {
+			return false;
+		}
+		expression->data.variable.binding = owner;
+		expression->type = owner->type.kind == REFERENCE_TYPE ? *owner->type.data.element : owner->type;
+		return true;
+	}
+	if (expression->kind == CAST_EXPRESSION) {
+		struct Expression* value = expression->data.cast.value;
+		if (!normalize_initialization_storage(compiler, value, owner)) {
+			return false;
+		}
+		struct Type target = resolve_type(compiler, expression->data.cast.syntax);
+		if (target.kind != REFERENCE_TYPE || target.data.element->kind != STRUCT_TYPE) {
+			return false;
+		}
+		if (!convert_base_expression(compiler, value, *target.data.element, EXPLICIT_BASE_CONVERSION)) {
+			return false;
+		}
+		*expression = *value;
+		return true;
+	}
+	if (expression->kind == INDEX_EXPRESSION) {
+		if (!normalize_initialization_storage(compiler, expression->data.binary.left, owner) || expression->data.binary.left->type.kind != ARRAY_TYPE) {
+			return false;
+		}
+		expression->type = *expression->data.binary.left->type.data.array.element;
+		return true;
+	}
+	if (expression->kind != FIELD_EXPRESSION || !normalize_initialization_storage(compiler, expression->data.member.object, owner)) {
+		return false;
+	}
+	struct Type object = expression->data.member.object->type;
+	if (object.kind != STRUCT_TYPE && object.kind != UNION_TYPE) {
+		return false;
+	}
+	struct Record* qualified_owner = NULL;
+	struct MemberLookup member = qualified_record_member(compiler, object.data.record, expression->data.member.name, &qualified_owner);
+	if (member.kind == AMBIGUOUS_MEMBER) {
+		diagnostic(compiler, expression->span.first, "ambiguous inherited field initialization");
+		return false;
+	}
+	if (member.kind != FIELD_MEMBER) {
+		return false;
+	}
+	expression->data.member.binding = member.entity.field;
+	expression->data.member.base_path = member.path;
+	expression->type = member.entity.field->type.kind == REFERENCE_TYPE ? *member.entity.field->type.data.element : member.entity.field->type;
+	return true;
 }
 
 bool contains_reference_fields(struct Type type) {
@@ -3712,6 +4313,11 @@ bool contains_reference_fields(struct Type type) {
 		return contains_reference_fields(*type.data.array.element);
 	}
 	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
+		for (struct BaseRelation* base = type.data.record->bases; base; base = base->next) {
+			if (contains_reference_fields((struct Type){ STRUCT_TYPE, { .record = base->record } })) {
+				return true;
+			}
+		}
 		for (struct Member* member = type.data.record->data.members; member; member = member->next) {
 			if (contains_reference_fields(member->type)) {
 				return true;
@@ -3722,6 +4328,7 @@ bool contains_reference_fields(struct Type type) {
 }
 
 void prepare_reference_path(struct Compiler* compiler, struct Type type, struct Expression* path, struct Statement* initialization) {
+	path->type = type;
 	if (compiler->failed || !contains_reference_fields(type)) {
 		return;
 	}
@@ -3740,6 +4347,18 @@ void prepare_reference_path(struct Compiler* compiler, struct Type type, struct 
 		return;
 	}
 	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
+		for (struct BaseRelation* base = type.data.record->bases; base; base = base->next) {
+			struct Expression* projection = new_expression(compiler, BASE_VALUE_EXPRESSION, path->span.first);
+			struct BasePath* selection = allocate(compiler, sizeof(struct BasePath));
+			if (!projection || !selection) {
+				return;
+			}
+			selection->relation = base;
+			projection->data.base.value = path;
+			projection->data.base.path = selection;
+			projection->type = (struct Type){ STRUCT_TYPE, { .record = base->record } };
+			prepare_reference_path(compiler, projection->type, projection, initialization);
+		}
 		for (struct Member* member = type.data.record->data.members; member; member = member->next) {
 			struct Expression* field = new_expression(compiler, FIELD_EXPRESSION, member->name);
 			if (!field) {
@@ -3747,6 +4366,7 @@ void prepare_reference_path(struct Compiler* compiler, struct Type type, struct 
 			}
 			field->data.member.object = path;
 			field->data.member.name = member->name;
+			field->data.member.binding = member;
 			prepare_reference_path(compiler, member->type, field, initialization);
 		}
 		return;
@@ -3782,11 +4402,18 @@ void prepare_reference_path(struct Compiler* compiler, struct Type type, struct 
 }
 
 void prepare_reference_fields(struct Compiler* compiler, struct Variable* variable, struct Statement* initialization) {
+	for (struct Statement* statement = initialization ? initialization->data.block : NULL; statement; statement = statement->next) {
+		struct Expression* expression = statement->kind == EXPRESSION_STATEMENT ? statement->data.expression : NULL;
+		if (expression && expression->kind == ASSIGNMENT_EXPRESSION) {
+			normalize_initialization_storage(compiler, expression->data.binary.left, variable);
+		}
+	}
 	struct Expression* path = new_expression(compiler, NAME_EXPRESSION, variable->name);
 	if (!path) {
 		return;
 	}
 	path->data.variable.name = variable->name;
+	path->data.variable.binding = variable;
 	prepare_reference_path(compiler, variable->type, path, initialization);
 }
 
@@ -4117,9 +4744,39 @@ void check_namespace_names(struct Compiler* compiler) {
 	}
 }
 
+void resolve_namespace_prefix(struct Compiler* compiler, struct Namespace* space) {
+	if (!space || space->kind != UNRESOLVED_NAMESPACE || compiler->failed) {
+		return;
+	}
+	resolve_namespace_prefix(compiler, space->parent);
+	struct Namespace* parent = space->parent;
+	while (parent && parent->canonical) {
+		parent = parent->canonical;
+	}
+	struct Token name = { NAME, space->name, space->length, 1, 1, space->source_path, NULL };
+	name = unqualified_token(name);
+	struct Namespace* canonical = namespace_child(compiler, parent, name);
+	if (canonical && canonical != space && canonical->kind != UNRESOLVED_NAMESPACE) {
+		space->canonical = canonical;
+		space->kind = ALIASED_NAMESPACE;
+	}
+}
+
 void analyze(struct Compiler* compiler) {
-	check_namespace_names(compiler);
 	register_tags(compiler);
+	for (struct TagSymbol* tag = compiler->tags; tag && !compiler->failed; tag = tag->next) {
+		resolve_bases(compiler, tag->record);
+	}
+	for (struct Namespace* space = compiler->namespaces; space && !compiler->failed; space = space->next) {
+		resolve_namespace_prefix(compiler, space);
+	}
+	for (struct Function* function = compiler->functions; function && !compiler->failed; function = function->next) {
+		if (function->owner && function->owner->canonical) {
+			function->owner = function->owner->canonical;
+			function->name = qualify_name(compiler, function->owner, function->local_name);
+		}
+	}
+	check_namespace_names(compiler);
 	check_enumerator_names(compiler);
 	for (struct TagSymbol* tag = compiler->tags; tag && !compiler->failed; tag = tag->next) {
 		if (tag->record->state != FORWARD_RECORD) {
@@ -4398,6 +5055,24 @@ LLVMValueRef emit_call(struct Compiler* compiler, struct Expression* expression)
 
 LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression);
 
+LLVMValueRef emit_base_address(struct Compiler* compiler, LLVMValueRef address, struct Record* derived, struct BasePath* path) {
+	for (; path; path = path->next) {
+		address = LLVMBuildStructGEP2(compiler->builder, derived->llvm_type, address, path->relation->index, "base");
+		derived = path->relation->record;
+	}
+	return address;
+}
+
+LLVMValueRef emit_inverse_base_address(struct Compiler* compiler, LLVMValueRef address, struct Record* derived, struct BasePath* path) {
+	uint64_t offset = 0;
+	for (; path; path = path->next) {
+		offset += LLVMOffsetOfElement(compiler->layout, derived->llvm_type, path->relation->index);
+		derived = path->relation->record;
+	}
+	LLVMValueRef index = LLVMConstInt(LLVMIntTypeInContext(compiler->llvm_context, LLVMPointerSize(compiler->layout) * CHAR_BIT), 0 - offset, true);
+	return LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), address, &index, 1, "derived");
+}
+
 LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expression) {
 
 	struct Expression* object = expression->data.member.object;
@@ -4421,7 +5096,9 @@ LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expre
 	if (!address) {
 		return NULL;
 	}
-	return type.kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, llvm_type(compiler, type), address, expression->data.member.binding->index, "field");
+	address = emit_base_address(compiler, address, type.data.record, expression->data.member.base_path);
+	struct Member* field = expression->data.member.binding;
+	return field->owner->kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, field->owner->llvm_type, address, field->index, "field");
 }
 
 LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression) {
@@ -4436,6 +5113,21 @@ LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expressi
 	}
 	case REFERENCE_CAST_EXPRESSION:
 		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
+	case BASE_VALUE_EXPRESSION: {
+		struct Expression* value = expression->data.base.value;
+		LLVMValueRef address;
+		if (lvalue_expression(value)) {
+			address = emit_address(compiler, value);
+		}
+		else {
+			address = entry_alloca(compiler, value->type);
+			LLVMBuildStore(compiler->builder, emit_expression(compiler, value), address);
+		}
+		if (expression->data.base.kind == BASE_TO_DERIVED) {
+			return emit_inverse_base_address(compiler, address, expression->type.data.record, expression->data.base.path);
+		}
+		return emit_base_address(compiler, address, value->type.data.record, expression->data.base.path);
+	}
 	case CALL_EXPRESSION:
 		return emit_call(compiler, expression);
 	case NAME_EXPRESSION:
@@ -4654,6 +5346,16 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 			return emit_address(compiler, expression);
 		}
 		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "reference_value");
+	case BASE_VALUE_EXPRESSION:
+		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "base_value");
+	case BASE_POINTER_EXPRESSION: {
+		struct Expression* source = expression->data.base.value;
+		LLVMValueRef value = emit_expression(compiler, source);
+		LLVMValueRef adjusted = expression->data.base.kind == BASE_TO_DERIVED ? emit_inverse_base_address(compiler, value, expression->type.data.element->data.record, expression->data.base.path) : emit_base_address(compiler, value, source->type.data.element->data.record, expression->data.base.path);
+		LLVMValueRef null = LLVMConstNull(llvm_type(compiler, expression->type));
+		LLVMValueRef empty = LLVMBuildICmp(compiler->builder, LLVMIntEQ, value, null, "null_base");
+		return LLVMBuildSelect(compiler->builder, empty, null, adjusted, "base_pointer");
+	}
 	case REFERENCE_INITIALIZATION_EXPRESSION: {
 		LLVMValueRef value = emit_expression(compiler, expression->data.binary.right);
 		struct Expression* target = expression->data.binary.left;
