@@ -97,6 +97,8 @@ enum SyntaxKind {
 	SYNTAX_INDEX,
 	SYNTAX_UNARY,
 	SYNTAX_BINARY,
+	SYNTAX_INITIALIZE,
+	SYNTAX_BIND_REFERENCE,
 	SYNTAX_RETURN,
 	SYNTAX_IF,
 	SYNTAX_WHILE,
@@ -1734,7 +1736,7 @@ fn parser_variable(Parser* parser) -> Syntax* {
 		parser_take(parser, operation.kind);
 		Syntax* block = syntax_new(parser, SYNTAX_BLOCK, operation);
 		block->scope = scope_create(parser->compiler, parser->scope, CONTEXT_INITIALIZATION, node->entity);
-		Syntax* assignment = syntax_new(parser, SYNTAX_BINARY, operation);
+		Syntax* assignment = syntax_new(parser, SYNTAX_INITIALIZE, operation);
 		assignment->data.binary.operation := operation.kind;
 		assignment->data.binary.left = syntax_new(parser, SYNTAX_NAME, node->data.declaration.name);
 		assignment->data.binary.left->entity := node->entity;
@@ -2452,13 +2454,16 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 			};
 			type = type_new(compiler, kind);
 			type->data.element = type_resolve(compiler, scope, syntax->data.expression);
+			if ((kind == TYPE_POINTER && type->data.element->kind == TYPE_REFERENCE) || (kind == TYPE_REFERENCE && (type->data.element->kind == TYPE_VOID || type->data.element->kind == TYPE_REFERENCE))) {
+				compiler_error(compiler, syntax->token, "reference requires an object or function referent type\0");
+			};
 			break;
 		};
 		case SYNTAX_ARRAY:
 			type = type_new(compiler, TYPE_ARRAY);
 			type->data.array.count = integer_spelling(compiler, syntax->data.array.count, (u64)18446744073709551615);
 			type->data.array.element = type_resolve(compiler, scope, syntax->data.array.element);
-			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_FUNCTION) {
+			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_FUNCTION || type->data.array.element->kind == TYPE_REFERENCE) {
 				compiler_error(compiler, syntax->token, "array requires a positive length and a storage element type\0");
 			};
 			break;
@@ -2740,6 +2745,9 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 				}
 				else {
 					variable->data.variable.type = type_resolve(compiler, body->scope, field->data.declaration.type);
+					if (entity->kind == ENTITY_UNION && variable->data.variable.type->kind == TYPE_REFERENCE) {
+						compiler_error(compiler, field->token, "union cannot contain a reference field\0");
+					};
 					variable->data.variable.storage = STORAGE_FIELD;
 					variable->data.variable.data.field.owner := entity;
 					variable->data.variable.data.field.index := index;
@@ -2766,11 +2774,45 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 	entity->resolution = RESOLUTION_READY;
 };
 
+fn type_effective(Type* type) -> Type* {
+	if (type && type->kind == TYPE_REFERENCE) {
+		return type->data.element;
+	};
+	return type;
+};
+
+fn syntax_storage_type(Syntax* syntax) -> Type* {
+	if (syntax->entity && syntax->entity->kind == ENTITY_VARIABLE) {
+		return entity_type(syntax->entity);
+	};
+	if (syntax->kind == SYNTAX_CAST && syntax->data.cast.type->type && syntax->data.cast.type->type->kind == TYPE_REFERENCE) {
+		return syntax->data.cast.type->type;
+	};
+	if (syntax->kind == SYNTAX_INDEX) {
+		Type* object := syntax->data.binary.left->type;
+		if (object->kind == TYPE_ARRAY) {
+			return object->data.array.element;
+		};
+		return object->data.element;
+	};
+	if (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR) {
+		return syntax->data.unary.value->type->data.element;
+	};
+	if (syntax->kind == SYNTAX_CALL) {
+		Type* callable := syntax->data.call.callable->type;
+		if (callable->kind == TYPE_POINTER) {
+			callable := callable->data.element;
+		};
+		return callable->data.function.result;
+	};
+	return syntax->type;
+};
+
 fn syntax_category(Syntax* syntax) -> ValueCategory {
 	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage != STORAGE_CONSTANT) {
 		return VALUE_STORAGE;
 	};
-	if (syntax->kind == SYNTAX_MEMBER || syntax->kind == SYNTAX_INDEX || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR)) {
+	if ((syntax->kind == SYNTAX_CAST && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || syntax->kind == SYNTAX_MEMBER || syntax->kind == SYNTAX_INDEX || (syntax->kind == SYNTAX_CALL && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR)) {
 		return VALUE_STORAGE;
 	};
 	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind != ENTITY_VARIABLE) {
@@ -2800,7 +2842,7 @@ fn storage_borrowed(Syntax* syntax) -> i32 {
 	if (!syntax) {
 		return 0;
 	};
-	if (syntax->type && syntax->type->kind == TYPE_REFERENCE) {
+	if (syntax_storage_type(syntax) && syntax_storage_type(syntax)->kind == TYPE_REFERENCE) {
 		return 1;
 	};
 	switch (syntax->kind) {
@@ -2842,7 +2884,220 @@ fn semantic_scope(Semantic* semantic, Scope* parsed) -> Scope* {
 	return scope;
 };
 
+fn reference_initializer(Compiler* compiler, Syntax* body, Entity* variable, Token token) {
+	Syntax* statement = (Syntax*)0;
+	if (body) {
+		statement := body->data.statements;
+	};
+	while (statement) {
+		if ((statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) && (statement->data.binary.operation == TOKEN_ASSIGN || statement->data.binary.operation == TOKEN_COPY) && statement->data.binary.left->kind == SYNTAX_NAME && token_same(statement->data.binary.left->token, variable->name)) {
+			statement->kind = SYNTAX_INITIALIZE;
+			statement->data.binary.left->entity := variable;
+			return;
+		};
+		statement := statement->next;
+	};
+	compiler_error(compiler, token, "reference requires a bound initializer\0");
+};
+
+union ReferencePathData {
+	Entity* entity;
+	usize index;
+};
+
+struct ReferencePath {
+	ReferencePath* parent;
+	SyntaxKind kind;
+	ReferencePathData data;
+};
+
+fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* storage) -> bool {
+	if (!storage || storage->kind != path->kind) {
+		return false;
+	};
+	if (path->kind == SYNTAX_NAME) {
+		return token_same(storage->token, path->data.entity->name);
+	};
+	if (path->kind == SYNTAX_MEMBER) {
+		return storage->token.kind != TOKEN_ARROW && token_same(storage->data.member.name, path->data.entity->name) && reference_path_matches(compiler, scope, path->parent, storage->data.member.object);
+	};
+	if (path->kind == SYNTAX_INDEX) {
+		return reference_path_matches(compiler, scope, path->parent, storage->data.binary.left) && constant_integer(compiler, scope, storage->data.binary.right) == (u64)path->data.index;
+	};
+	return false;
+};
+
+fn type_has_reference(Type* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == TYPE_REFERENCE) {
+		return true;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		return type_has_reference(type->data.array.element);
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return false;
+	};
+	Binding* field := type->data.entity->data.aggregate.fields;
+	while (field) {
+		if (type_has_reference(entity_type(field->entity))) {
+			return true;
+		};
+		field := field->next;
+	};
+	return false;
+};
+
+fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, ReferencePath* path, Syntax* body, Token token) {
+	if (!type || compiler->result == COMPILATION_FAILURE || !type_has_reference(type)) {
+		return;
+	};
+	if (type->kind == TYPE_REFERENCE) {
+		Syntax* statement = (Syntax*)0;
+		if (body) {
+			statement := body->data.statements;
+		};
+		while (statement) {
+			if ((statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) && (statement->data.binary.operation == TOKEN_ASSIGN || statement->data.binary.operation == TOKEN_COPY) && reference_path_matches(compiler, scope, path, statement->data.binary.left)) {
+				statement->kind = SYNTAX_INITIALIZE;
+				statement->data.binary.left->entity := path->data.entity;
+				return;
+			};
+			statement := statement->next;
+		};
+		compiler_error(compiler, token, "object requires an initializer binding every reference field\0");
+		return;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		ReferencePath element;
+		element.kind = SYNTAX_INDEX;
+		element.parent := path;
+		usize index = 0;
+		while (index < type->data.array.count && compiler->result != COMPILATION_FAILURE) {
+			element.data.index := index;
+			reference_fields_prepare(compiler, scope, type->data.array.element, &element, body, token);
+			index = index + 1;
+		};
+		return;
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return;
+	};
+	entity_resolve(compiler, type->data.entity);
+	Binding* field := type->data.entity->data.aggregate.fields;
+	while (field && compiler->result != COMPILATION_FAILURE) {
+		ReferencePath member;
+		member.kind = SYNTAX_MEMBER;
+		member.parent := path;
+		member.data.entity := field->entity;
+		reference_fields_prepare(compiler, scope, entity_type(field->entity), &member, body, token);
+		field := field->next;
+	};
+};
+
+fn object_initializer_prepare(Compiler* compiler, Scope* scope, Entity* variable, Syntax* body, Token token) {
+	Type* type := entity_type(variable);
+	layout_validate(compiler, type, (LayoutVisit*)0, token);
+	if (compiler->result == COMPILATION_FAILURE || !type_has_reference(type)) {
+		return;
+	};
+	Syntax* whole = (Syntax*)0;
+	if (body) {
+		whole := body->data.statements;
+	};
+	while (whole) {
+		if ((whole->kind == SYNTAX_BINARY || whole->kind == SYNTAX_INITIALIZE) && (whole->data.binary.operation == TOKEN_ASSIGN || whole->data.binary.operation == TOKEN_COPY) && whole->data.binary.left->kind == SYNTAX_NAME && token_same(whole->data.binary.left->token, variable->name)) {
+			whole->kind = SYNTAX_INITIALIZE;
+			whole->data.binary.left->entity := variable;
+			return;
+		};
+		whole := whole->next;
+	};
+	ReferencePath root;
+	root.kind = SYNTAX_NAME;
+	root.data.entity = variable;
+	reference_fields_prepare(compiler, scope, type, &root, body, token);
+};
+
+fn reference_storage_same(Compiler* compiler, Scope* scope, Syntax* first, Syntax* second) -> bool {
+	if (!first || !second || first->kind != second->kind) {
+		return false;
+	};
+	if (first->kind == SYNTAX_NAME) {
+		return first->entity == second->entity;
+	};
+	if (first->kind == SYNTAX_MEMBER) {
+		return first->entity == second->entity && reference_storage_same(compiler, scope, first->data.member.object, second->data.member.object);
+	};
+	if (first->kind == SYNTAX_INDEX) {
+		return constant_integer(compiler, scope, first->data.binary.right) == constant_integer(compiler, scope, second->data.binary.right) && reference_storage_same(compiler, scope, first->data.binary.left, second->data.binary.left);
+	};
+	return false;
+};
+
+fn reference_read_validate(Semantic* semantic, Syntax* storage) {
+	if (storage->token.kind == TOKEN_ARROW) {
+		return;
+	};
+	Syntax* object := storage->data.member.object;
+	while (object->kind == SYNTAX_MEMBER || object->kind == SYNTAX_INDEX || object->kind == SYNTAX_NAME) {
+		Type* type = syntax_storage_type(object);
+		if ((type && type->kind == TYPE_REFERENCE) || (object->kind == SYNTAX_MEMBER && object->token.kind == TOKEN_ARROW)) {
+			return;
+		};
+		if (object->kind == SYNTAX_MEMBER) {
+			object := object->data.member.object;
+		}
+		else if (object->kind == SYNTAX_INDEX) {
+			object := object->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	Scope* scope := semantic->scope;
+	while (scope) {
+		if ((scope->context == CONTEXT_INITIALIZATION || scope->context == CONTEXT_ARGUMENTS) && scope->owner && scope->owner->kind == ENTITY_VARIABLE && scope->owner->declaration) {
+			Syntax* body := scope->owner->declaration;
+			if (body->kind == SYNTAX_DECLARATION) {
+				body := body->data.declaration.body;
+			};
+			Syntax* root := storage;
+			while (root->kind == SYNTAX_MEMBER || root->kind == SYNTAX_INDEX) {
+				if (root->kind == SYNTAX_MEMBER) {
+					root := root->data.member.object;
+				}
+				else {
+					root := root->data.binary.left;
+				};
+			};
+			if (root->kind != SYNTAX_NAME || root->entity != scope->owner) {
+				return;
+			};
+			Syntax* statement := body->data.statements;
+			while (statement) {
+				if (statement->kind == SYNTAX_BIND_REFERENCE && reference_storage_same(semantic->compiler, semantic->scope, statement->data.binary.left, storage)) {
+					return;
+				};
+				if (statement->kind == SYNTAX_INITIALIZE && statement->type && statement->data.binary.left->kind == SYNTAX_NAME && statement->data.binary.left->entity == scope->owner) {
+					return;
+				};
+				statement := statement->next;
+			};
+			compiler_error(semantic->compiler, storage->token, "reference field must be bound before use\0");
+			return;
+		};
+		scope := scope->parent;
+	};
+};
+
 fn semantic_move(Semantic* semantic, Syntax* syntax) {
+	if (storage_borrowed(syntax)) {
+		compiler_error(semantic->compiler, syntax->token, "cannot move a borrowed value\0");
+		return;
+	};
 	while (syntax->kind == SYNTAX_CAST) {
 		syntax := syntax->data.cast.value;
 	};
@@ -2863,7 +3118,7 @@ fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expec
 		if ((expected->kind == TYPE_BOOL && type_scalar(actual)) || (actual->kind == TYPE_BOOL && type_numeric(expected))) {
 			return expected;
 		};
-		if (expected->kind == TYPE_REFERENCE && type_equal(actual, expected->data.element) && syntax_category(syntax) == VALUE_STORAGE) {
+		if (expected->kind == TYPE_REFERENCE && type_equal(actual, expected->data.element) && (syntax_category(syntax) == VALUE_STORAGE || actual->kind == TYPE_FUNCTION)) {
 			return expected;
 		};
 		if (actual->kind == TYPE_POINTER && expected->kind == TYPE_POINTER && (actual->data.element->kind == TYPE_VOID || expected->data.element->kind == TYPE_VOID)) {
@@ -2894,7 +3149,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return compiler->void_type;
 			};
 			entity_resolve(compiler, syntax->entity);
-			type = entity_type(syntax->entity);
+			type = type_effective(entity_type(syntax->entity));
 			break;
 		case SYNTAX_NUMBER:
 			if (!expected || !type_numeric(expected)) {
@@ -2925,6 +3180,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			break;
 		case SYNTAX_CAST: {
 			type = type_resolve(compiler, semantic->scope, syntax->data.cast.type);
+			if (type->kind == TYPE_REFERENCE) {
+				semantic_expression(semantic, syntax->data.cast.value, type);
+				break;
+			};
 			Type* source = (Type*)0;
 			if (syntax_number_expression(syntax->data.cast.value)) {
 				Type* context := type;
@@ -2961,6 +3220,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			else {
 				semantic_expression(semantic, operand, (Type*)0);
 			};
+			operand->type = type_effective(operand->type);
 			if (!operand->type || operand->type->kind == TYPE_VOID || operand->type->kind == TYPE_FUNCTION) {
 				compiler_error(compiler, syntax->token, "sizeof requires a storage type\0");
 			};
@@ -2970,7 +3230,11 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		};
 		case SYNTAX_MEMBER: {
 			Type* object = semantic_expression(semantic, syntax->data.member.object, (Type*)0);
-			if (syntax->token.kind == TOKEN_ARROW && object->kind == TYPE_POINTER) {
+			if (syntax->token.kind == TOKEN_ARROW) {
+				if (object->kind != TYPE_POINTER) {
+					compiler_error(compiler, syntax->token, "arrow member access requires a pointer\0");
+					return compiler->void_type;
+				};
 				object := object->data.element;
 			};
 			if (object->kind == TYPE_REFERENCE) {
@@ -2990,7 +3254,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				compiler_error(compiler, syntax->data.member.name, "unknown record field\0");
 				return compiler->void_type;
 			};
-			type = entity_type(syntax->entity);
+			if (entity_type(syntax->entity)->kind == TYPE_REFERENCE) {
+				reference_read_validate(semantic, syntax);
+			};
+			type = type_effective(entity_type(syntax->entity));
 			break;
 		};
 		case SYNTAX_INDEX: {
@@ -3083,11 +3350,27 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			};
 			break;
 		};
+		case SYNTAX_INITIALIZE:
 		case SYNTAX_BINARY: {
 			TokenKind operation := syntax->data.binary.operation;
 			Syntax* left := syntax->data.binary.left;
 			Syntax* right := syntax->data.binary.right;
 			if (operation == TOKEN_ASSIGN || operation == TOKEN_COPY) {
+				if (syntax->kind == SYNTAX_INITIALIZE && left->entity && entity_type(left->entity) && entity_type(left->entity)->kind == TYPE_REFERENCE) {
+					Type* reference := entity_type(left->entity);
+					if (left->kind == SYNTAX_MEMBER) {
+						semantic_expression(semantic, left->data.member.object, (Type*)0);
+					};
+					semantic_expression(semantic, right, reference);
+					if (left->entity->data.variable.storage != STORAGE_FIELD) {
+						scope_define(compiler, semantic->scope, left->entity);
+					};
+					left->type := reference->data.element;
+					syntax->kind = SYNTAX_BIND_REFERENCE;
+					type := reference->data.element;
+					break;
+				};
+
 				Type* destination = semantic_expression(semantic, left, (Type*)0);
 				Type* source_type = (Type*)0;
 				if (left->entity && left->entity->kind == ENTITY_VARIABLE && !left->entity->data.variable.type) {
@@ -3103,6 +3386,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					source_type = semantic_expression(semantic, right, destination);
 				};
 				semantic_expect(semantic, right, source_type, destination);
+				if (syntax->kind != SYNTAX_INITIALIZE && type_has_reference(destination)) {
+					compiler_error(compiler, syntax->token, "assignment cannot replace an object containing reference fields\0");
+				};
 				if (operation == TOKEN_ASSIGN) {
 					semantic_move(semantic, right);
 				};
@@ -3227,7 +3513,15 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 						storage->resolution = RESOLUTION_READY;
 						storage->data.variable.type := destination;
 						storage->data.variable.storage = STORAGE_ARGUMENT;
-						scope_define(compiler, argument->scope, storage);
+						storage->declaration := argument;
+						argument->scope->owner := storage;
+						if (destination->kind == TYPE_REFERENCE) {
+							reference_initializer(compiler, argument, storage, argument->token);
+						}
+						else {
+							scope_define(compiler, argument->scope, storage);
+							object_initializer_prepare(compiler, semantic->scope, storage, argument, argument->token);
+						};
 						argument->entity = storage;
 						semantic_statement(semantic, argument);
 						argument->type = destination;
@@ -3247,7 +3541,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			if (parameter) {
 				compiler_error(compiler, syntax->token, "too few arguments\0");
 			};
-			type := callable->data.function.result;
+			type = type_effective(callable->data.function.result);
 			break;
 		};
 		case SYNTAX_BLOCK:
@@ -3259,6 +3553,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			type := compiler->void_type;
 			break;
 	};
+	type = type_effective(type);
 	syntax->type := type;
 	return semantic_expect(semantic, syntax, type, expected);
 };
@@ -3381,19 +3676,30 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void*;
 fn emit_statement(Emitter* emitter, Syntax* syntax);
 fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void*;
 
-fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_call(Emitter* emitter, Syntax* syntax) -> void*;
+
+fn emit_address(Emitter* emitter, Syntax* syntax) -> void*;
+
+fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
 	switch (syntax->kind) {
 		case SYNTAX_NAME:
+			if (syntax->entity->kind == ENTITY_FUNCTION) {
+				return syntax->entity->data.function.llvm_value;
+			};
 			return syntax->entity->data.variable.data.address;
+		case SYNTAX_CAST:
+			return emit_address(emitter, syntax->data.cast.value);
+		case SYNTAX_CALL:
+			return emit_call(emitter, syntax);
 		case SYNTAX_UNARY:
 			return emit_expression(emitter, syntax->data.unary.value);
 		case SYNTAX_MEMBER: {
 			Syntax* object := syntax->data.member.object;
 			Type* type := object->type;
 			void* address = (void*)0;
-			if (syntax->token.kind == TOKEN_ARROW || type->kind == TYPE_REFERENCE) {
+			if (syntax->token.kind == TOKEN_ARROW) {
 				address = emit_expression(emitter, object);
 				type := type->data.element;
 			}
@@ -3407,7 +3713,8 @@ fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
 			if (type->data.entity->kind == ENTITY_UNION) {
 				return address;
 			};
-			return LLVMBuildStructGEP2(builder, llvm_type(compiler, type), address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
+			void* field = LLVMBuildStructGEP2(builder, llvm_type(compiler, type), address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
+			return field;
 		};
 		case SYNTAX_INDEX: {
 			Syntax* object := syntax->data.binary.left;
@@ -3434,6 +3741,16 @@ fn emit_truth(Emitter* emitter, void* value, Type* type) -> void* {
 	};
 	return LLVMBuildICmp(emitter->compiler->llvm_builder, 33, value, zero, "truth\0");
 };
+
+fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
+	void* address = emit_storage_address(emitter, syntax);
+	Type* storage = syntax_storage_type(syntax);
+	if (storage && storage->kind == TYPE_REFERENCE && syntax->kind != SYNTAX_CALL && syntax->kind != SYNTAX_CAST) {
+		return LLVMBuildLoad2(emitter->compiler->llvm_builder, llvm_type(emitter->compiler, storage), address, "referent\0");
+	};
+	return address;
+};
+
 
 fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void* {
 	void* builder := emitter->compiler->llvm_builder;
@@ -3588,6 +3905,94 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 	return (void*)0;
 };
 
+fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void* builder := compiler->llvm_builder;
+	Syntax* callee := syntax->data.call.callable;
+	Type* signature := callee->type;
+	if (signature->kind == TYPE_POINTER) {
+		signature := signature->data.element;
+	};
+	u32 count = 0;
+	if (syntax->data.call.receiver) {
+		count = 1;
+	};
+	Syntax* argument := syntax->data.call.arguments;
+	while (argument) {
+		count = count + 1;
+		argument := argument->next;
+	};
+	void** values = (void**)memory_allocate(compiler, (usize)count * sizeof(void*));
+	Parameter* parameter := signature->data.function.parameters;
+	argument := syntax->data.call.arguments;
+	u32 index = 0;
+	if (syntax->data.call.receiver) {
+		Syntax* receiver := syntax->data.call.receiver;
+		if (parameter->type->kind == TYPE_REFERENCE) {
+			values[0] = emit_address(emitter, receiver);
+		}
+		else {
+			values[0] = emit_expression(emitter, receiver);
+		};
+		parameter := parameter->next;
+		index = 1;
+	};
+	while (argument) {
+		void* value = (void*)0;
+		if (argument->kind == SYNTAX_BLOCK) {
+			argument->entity->data.variable.data.address = emit_slot(compiler, argument->type);
+			emit_statement(emitter, argument);
+			value = LLVMBuildLoad2(builder, llvm_type(compiler, argument->type), argument->entity->data.variable.data.address, "argument\0");
+		}
+		else if (parameter && parameter->type->kind == TYPE_REFERENCE) {
+			value = emit_address(emitter, argument);
+		}
+		else {
+			value = emit_expression(emitter, argument);
+		};
+		if (parameter && parameter->type->kind != TYPE_REFERENCE) {
+			value = emit_cast(emitter, value, argument->type, parameter->type);
+		};
+		if (!parameter) {
+			Type* promoted := argument->type;
+			if (promoted->kind == TYPE_FLOAT && promoted->data.bits == 32) {
+				promoted = type_new(compiler, TYPE_FLOAT);
+				promoted->data.bits = 64;
+			}
+			else if (type_integer(promoted) && type_bits(promoted) < 32) {
+				promoted := compiler->i32_type;
+			};
+			value = emit_cast(emitter, value, argument->type, promoted);
+		};
+		values[index] = value;
+		index = index + 1;
+		argument := argument->next;
+		if (parameter) {
+			parameter := parameter->next;
+		};
+	};
+	char* name = "call\0";
+	if (signature->data.function.result->kind == TYPE_VOID) {
+		name = "\0";
+	};
+	void* call = LLVMBuildCall2(builder, llvm_type(compiler, signature), emit_expression(emitter, callee), values, count, name);
+	void* extension = emit_extension(compiler, signature->data.function.result);
+	if (extension) {
+		LLVMAddCallSiteAttribute(call, 0, extension);
+	};
+	index = 1;
+	parameter := signature->data.function.parameters;
+	while (parameter) {
+		extension = emit_extension(compiler, parameter->type);
+		if (extension) {
+			LLVMAddCallSiteAttribute(call, index, extension);
+		};
+		index = index + 1;
+		parameter := parameter->next;
+	};
+	return call;
+};
+
 fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
@@ -3620,9 +4025,15 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			if (syntax->entity->data.variable.storage == STORAGE_CONSTANT) {
 				return LLVMConstInt(type, syntax->entity->data.variable.data.integer, 0);
 			};
+			if (syntax->type->kind == TYPE_FUNCTION) {
+				return emit_address(emitter, syntax);
+			};
 			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
 		case SYNTAX_MEMBER:
 		case SYNTAX_INDEX:
+			if (syntax->type->kind == TYPE_FUNCTION) {
+				return emit_address(emitter, syntax);
+			};
 			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
 		case SYNTAX_SIZEOF:
 			return LLVMConstInt(type, LLVMABISizeOfType(compiler->llvm_layout, llvm_type(compiler, syntax->data.expression->type)), 0);
@@ -3660,6 +4071,13 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			};
 			return value;
 		};
+		case SYNTAX_BIND_REFERENCE: {
+			Syntax* left := syntax->data.binary.left;
+			void* referent = emit_address(emitter, syntax->data.binary.right);
+			LLVMBuildStore(builder, referent, emit_storage_address(emitter, left));
+			return referent;
+		};
+		case SYNTAX_INITIALIZE:
 		case SYNTAX_BINARY: {
 			TokenKind operation := syntax->data.binary.operation;
 			Syntax* left := syntax->data.binary.left;
@@ -3711,87 +4129,9 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			return emit_binary(emitter, syntax, first, second);
 		};
 		case SYNTAX_CALL: {
-			Syntax* callee := syntax->data.call.callable;
-			Type* signature := callee->type;
-			if (signature->kind == TYPE_POINTER) {
-				signature := signature->data.element;
-			};
-			u32 count = 0;
-			if (syntax->data.call.receiver) {
-				count = 1;
-			};
-			Syntax* argument := syntax->data.call.arguments;
-			while (argument) {
-				count = count + 1;
-				argument := argument->next;
-			};
-			void** values = (void**)memory_allocate(compiler, (usize)count * sizeof(void*));
-			Parameter* parameter := signature->data.function.parameters;
-			argument := syntax->data.call.arguments;
-			u32 index = 0;
-			if (syntax->data.call.receiver) {
-				Syntax* receiver := syntax->data.call.receiver;
-				if (parameter->type->kind == TYPE_REFERENCE && receiver->type->kind != TYPE_REFERENCE) {
-					values[0] = emit_address(emitter, receiver);
-				}
-				else {
-					values[0] = emit_expression(emitter, receiver);
-				};
-				parameter := parameter->next;
-				index = 1;
-			};
-			while (argument) {
-				void* value = (void*)0;
-				if (argument->kind == SYNTAX_BLOCK) {
-					argument->entity->data.variable.data.address = emit_slot(compiler, argument->type);
-					emit_statement(emitter, argument);
-					value = LLVMBuildLoad2(builder, llvm_type(compiler, argument->type), argument->entity->data.variable.data.address, "argument\0");
-				}
-				else if (parameter && parameter->type->kind == TYPE_REFERENCE && argument->type->kind != TYPE_REFERENCE) {
-					value = emit_address(emitter, argument);
-				}
-				else {
-					value = emit_expression(emitter, argument);
-				};
-				if (parameter && parameter->type->kind != TYPE_REFERENCE) {
-					value = emit_cast(emitter, value, argument->type, parameter->type);
-				};
-				if (!parameter) {
-					Type* promoted := argument->type;
-					if (promoted->kind == TYPE_FLOAT && promoted->data.bits == 32) {
-						promoted = type_new(compiler, TYPE_FLOAT);
-						promoted->data.bits = 64;
-					}
-					else if (type_integer(promoted) && type_bits(promoted) < 32) {
-						promoted := compiler->i32_type;
-					};
-					value = emit_cast(emitter, value, argument->type, promoted);
-				};
-				values[index] = value;
-				index = index + 1;
-				argument := argument->next;
-				if (parameter) {
-					parameter := parameter->next;
-				};
-			};
-			char* name = "call\0";
-			if (signature->data.function.result->kind == TYPE_VOID) {
-				name = "\0";
-			};
-			void* call = LLVMBuildCall2(builder, llvm_type(compiler, signature), emit_expression(emitter, callee), values, count, name);
-			void* extension = emit_extension(compiler, signature->data.function.result);
-			if (extension) {
-				LLVMAddCallSiteAttribute(call, 0, extension);
-			};
-			index = 1;
-			parameter := signature->data.function.parameters;
-			while (parameter) {
-				extension = emit_extension(compiler, parameter->type);
-				if (extension) {
-					LLVMAddCallSiteAttribute(call, index, extension);
-				};
-				index = index + 1;
-				parameter := parameter->next;
+			void* call = emit_call(emitter, syntax);
+			if (syntax_storage_type(syntax)->kind == TYPE_REFERENCE && syntax->type->kind != TYPE_FUNCTION) {
+				return LLVMBuildLoad2(builder, type, call, "referent.value\0");
 			};
 			return call;
 		};
@@ -3860,8 +4200,15 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 		case SYNTAX_RETURN:
 			if (syntax->data.expression) {
 				Syntax* expression := syntax->data.expression;
-				void* value = emit_expression(emitter, expression);
-				value = emit_cast(emitter, value, expression->type, emitter->function->data.function.type->data.function.result);
+				Type* result := emitter->function->data.function.type->data.function.result;
+				void* value = (void*)0;
+				if (result->kind == TYPE_REFERENCE) {
+					value = emit_address(emitter, expression);
+				}
+				else {
+					value = emit_expression(emitter, expression);
+					value = emit_cast(emitter, value, expression->type, result);
+				};
 				LLVMBuildRet(builder, value);
 			}
 			else {
@@ -4416,12 +4763,26 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 		case SYNTAX_DECLARATION:
 			if (syntax->entity->kind == ENTITY_VARIABLE) {
 				Entity* variable := syntax->entity;
-				scope_define(compiler, semantic->scope, variable);
 				if (syntax->data.declaration.type) {
 					variable->data.variable.type = type_resolve(compiler, semantic->scope, syntax->data.declaration.type);
 				};
 				variable->resolution = RESOLUTION_READY;
+				if (variable->data.variable.type && variable->data.variable.type->kind == TYPE_REFERENCE) {
+					reference_initializer(compiler, syntax->data.declaration.body, variable, syntax->token);
+					if (compiler->result == COMPILATION_FAILURE) {
+						return;
+					};
+				}
+				else {
+					scope_define(compiler, semantic->scope, variable);
+					if (variable->data.variable.type) {
+						object_initializer_prepare(compiler, semantic->scope, variable, syntax->data.declaration.body, syntax->token);
+					};
+				};
 				semantic_statement(semantic, syntax->data.declaration.body);
+				if (variable->data.variable.type && variable->data.variable.type->kind == TYPE_REFERENCE) {
+					scope_define(compiler, semantic->scope, variable);
+				};
 				if (!variable->data.variable.type || variable->data.variable.type->kind == TYPE_VOID || variable->data.variable.type->kind == TYPE_FUNCTION) {
 					compiler_error(compiler, syntax->token, "variable requires a resolved storage type\0");
 				};

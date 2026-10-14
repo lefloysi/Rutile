@@ -27,6 +27,7 @@ enum TypeKind {
 	UNSIGNED_INTEGER_TYPE,
 	FLOAT_TYPE,
 	POINTER_TYPE,
+	REFERENCE_TYPE,
 	ARRAY_TYPE,
 	STRUCT_TYPE,
 	UNION_TYPE,
@@ -89,6 +90,9 @@ struct Function;
 
 struct Argument {
 	struct Expression* expression;
+	struct Expression* initializer;
+	struct Statement* initialization;
+	struct Variable* variable;
 	struct Type passed_type;
 	struct Argument* next;
 };
@@ -163,6 +167,9 @@ enum NodeKind {
 	PREFIX_UPDATE_EXPRESSION,
 	POSTFIX_UPDATE_EXPRESSION,
 	ADDRESS_EXPRESSION,
+	REFERENCE_BINDING_EXPRESSION,
+	REFERENCE_CAST_EXPRESSION,
+	REFERENCE_INITIALIZATION_EXPRESSION,
 	DEREFERENCE_EXPRESSION,
 	INDEX_EXPRESSION,
 	FIELD_EXPRESSION,
@@ -190,6 +197,7 @@ enum NodeKind {
 enum TypeSyntaxKind {
 	BUILTIN_SYNTAX,
 	POINTER_SYNTAX,
+	REFERENCE_SYNTAX,
 	ARRAY_SYNTAX,
 	NAMED_SYNTAX,
 	FUNCTION_SYNTAX,
@@ -237,6 +245,7 @@ struct Expression {
 			struct Expression* object;
 			struct Token name;
 			struct Member* binding;
+			struct Statement* initialization;
 		} member;
 		struct {
 			unsigned char* bytes;
@@ -245,6 +254,7 @@ struct Expression {
 		struct {
 			struct Token name;
 			struct Variable* binding;
+			struct Statement* initialization;
 		} variable;
 		struct {
 			struct Token name;
@@ -315,6 +325,7 @@ struct ScopeBinding {
 struct Scope {
 	struct ScopeBinding* bindings;
 	struct Scope* parent;
+	struct Statement* initialization;
 };
 
 enum FlowKind {
@@ -588,6 +599,7 @@ bool type_equal(struct Type a, struct Type b) {
 	}
 	switch (a.kind) {
 	case POINTER_TYPE:
+	case REFERENCE_TYPE:
 		return type_equal(*a.data.element, *b.data.element);
 	case ARRAY_TYPE:
 		return a.data.array.count == b.data.array.count && type_equal(*a.data.array.element, *b.data.array.element);
@@ -1089,14 +1101,15 @@ struct TypeNode* parse_type(struct Compiler* compiler) {
 	}
 
 suffixes:
-	while (compiler->token.kind == '*' || compiler->token.kind == '[') {
+	while (compiler->token.kind == '*' || compiler->token.kind == '&' || compiler->token.kind == '[') {
 		struct TypeNode* modifier = allocate(compiler, sizeof(struct TypeNode));
 		if (!modifier) {
 			return syntax;
 		}
 		modifier->span.first = syntax->span.first;
-		if (take(compiler, '*')) {
-			modifier->kind = POINTER_SYNTAX;
+		if (compiler->token.kind == '*' || compiler->token.kind == '&') {
+			modifier->kind = compiler->token.kind == '*' ? POINTER_SYNTAX : REFERENCE_SYNTAX;
+			next_token(compiler);
 			modifier->data.element = syntax;
 		}
 		else {
@@ -1136,7 +1149,21 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 	case BUILTIN_SYNTAX:
 		return syntax->data.builtin->type;
 	case POINTER_SYNTAX:
-		return pointer_type(compiler, resolve_type(compiler, syntax->data.element));
+		type = pointer_type(compiler, resolve_type(compiler, syntax->data.element));
+		if (type.data.element && type.data.element->kind == REFERENCE_TYPE) {
+			diagnostic(compiler, syntax->span.first, "pointer cannot point to a reference");
+		}
+		return type;
+	case REFERENCE_SYNTAX:
+		type = pointer_type(compiler, resolve_type(compiler, syntax->data.element));
+		if (!type.data.element) {
+			return type;
+		}
+		if (type.data.element->kind == VOID_TYPE || type.data.element->kind == REFERENCE_TYPE) {
+			diagnostic(compiler, syntax->span.first, "reference requires a non-reference value type");
+		}
+		type.kind = REFERENCE_TYPE;
+		return type;
 	case FUNCTION_SYNTAX:
 		type.kind = FUNCTION_TYPE;
 		type.data.function = syntax->data.function;
@@ -1164,8 +1191,8 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 		type.data.array.element = allocate(compiler, sizeof(struct Type));
 		if (type.data.array.element) {
 			*type.data.array.element = resolve_type(compiler, syntax->data.array.element);
-			if (is_void(*type.data.array.element)) {
-				diagnostic(compiler, syntax->span.first, "array elements cannot have void type");
+			if (is_void(*type.data.array.element) || type.data.array.element->kind == REFERENCE_TYPE) {
+				diagnostic(compiler, syntax->span.first, "array elements cannot have void or reference type");
 			}
 		}
 		return type;
@@ -1185,6 +1212,7 @@ struct Expression* new_expression(struct Compiler* compiler, enum NodeKind kind,
 }
 
 struct Expression* parse_expression(struct Compiler* compiler, int minimum);
+struct Statement* parse_statement(struct Compiler* compiler);
 
 bool known_type_name(struct Compiler* compiler, struct Token name) {
 	if (find_builtin(name)) {
@@ -1265,7 +1293,7 @@ bool scan_type(struct Compiler* compiler, size_t* position) {
 
 suffixes:
 	while (index < compiler->token_count) {
-		if (compiler->tokens[index].kind == '*') {
+		if (compiler->tokens[index].kind == '*' || compiler->tokens[index].kind == '&') {
 			index++;
 			continue;
 		}
@@ -1499,7 +1527,12 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 				if (!argument) {
 					return NULL;
 				}
-				argument->expression = parse_expression(compiler, 0);
+				if (compiler->token.kind == '{') {
+					argument->initialization = parse_statement(compiler);
+				}
+				else {
+					argument->expression = parse_expression(compiler, 0);
+				}
 				*tail = argument;
 				tail = &argument->next;
 				if (!take(compiler, ',')) {
@@ -2178,6 +2211,10 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 			}
 		}
 		member->type = resolve_type(compiler, member->syntax);
+		if (record->kind == UNION_TYPE && member->type.kind == REFERENCE_TYPE) {
+			diagnostic(compiler, member->name, "union cannot contain a reference field");
+			return;
+		}
 		complete_type(compiler, member->type, member->name);
 		if (compiler->failed) {
 			return;
@@ -2360,6 +2397,7 @@ struct Scope* scope_snapshot(struct Compiler* compiler, struct Scope* scope) {
 		return NULL;
 	}
 	snapshot->parent = scope_snapshot(compiler, scope->parent);
+	snapshot->initialization = scope->initialization;
 	struct ScopeBinding** next = &snapshot->bindings;
 	for (struct ScopeBinding* binding = scope->bindings; binding; binding = binding->next) {
 		struct ScopeBinding* copy = allocate(compiler, sizeof(struct ScopeBinding));
@@ -2392,10 +2430,15 @@ bool borrowed_storage(struct Expression* expression) {
 
 	switch (expression->kind) {
 	case DEREFERENCE_EXPRESSION:
+	case REFERENCE_CAST_EXPRESSION:
 	case POINTER_FIELD_EXPRESSION:
 	case FIELD_EXPRESSION:
 	case INDEX_EXPRESSION:
 		return true;
+	case NAME_EXPRESSION:
+		return expression->data.variable.binding && expression->data.variable.binding->type.kind == REFERENCE_TYPE;
+	case CALL_EXPRESSION:
+		return expression->data.call.binding && expression->data.call.binding->result.kind == REFERENCE_TYPE;
 	case CAST_EXPRESSION:
 		return borrowed_storage(expression->data.cast.value);
 	default:
@@ -2421,6 +2464,9 @@ void move_expression(struct Compiler* compiler, struct Expression* expression, s
 
 	scope_remove(scope, expression->data.variable.binding);
 }
+
+unsigned analyze_statements(struct Compiler* compiler, struct Function* function, struct Statement* statements, struct Scope* scope, struct Flow* flow);
+void prepare_reference_fields(struct Compiler* compiler, struct Variable* variable, struct Statement* initialization);
 
 void bind_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
 	if (!expression || compiler->failed) {
@@ -2467,6 +2513,15 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		}
 		else {
 			expression->type = expression->data.variable.binding->type;
+			if (expression->type.kind == REFERENCE_TYPE) {
+				expression->type = *expression->type.data.element;
+			}
+			for (struct Scope* context = scope; context; context = context->parent) {
+				if (context->initialization && context->initialization->data.declaration.variable == expression->data.variable.binding) {
+					expression->data.variable.initialization = context->initialization;
+					break;
+				}
+			}
 		}
 		break;
 	}
@@ -2482,13 +2537,80 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		}
 		expression->data.call.binding = callable.data.function;
 		expression->type = expression->data.call.binding->result;
+		if (expression->type.kind == REFERENCE_TYPE) {
+			expression->type = *expression->type.data.element;
+		}
+		struct Variable* parameter = callable.data.function->parameters;
 		for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
+			if (argument->initialization) {
+				if (!parameter || !parameter->name.length) {
+					diagnostic(compiler, expression->span.first, "argument block requires a named parameter");
+					break;
+				}
+				argument->variable = allocate(compiler, sizeof(struct Variable));
+				if (!argument->variable) {
+					break;
+				}
+				argument->variable->name = parameter->name;
+				argument->variable->type = parameter->type;
+				struct Scope argument_scope = { NULL, scope };
+				struct Statement* argument_context = allocate(compiler, sizeof(struct Statement));
+				if (!argument_context) {
+					break;
+				}
+				argument_context->kind = DECLARATION_STATEMENT;
+				argument_context->data.declaration.variable = argument->variable;
+				argument_context->data.declaration.initialization = argument->initialization;
+				argument_scope.initialization = argument_context;
+				if (parameter->type.kind != REFERENCE_TYPE) {
+					struct Statement* first = argument->initialization->data.block;
+					struct Expression* binding = first && first->kind == EXPRESSION_STATEMENT ? first->data.expression : NULL;
+					if (binding && binding->kind == ASSIGNMENT_EXPRESSION && (binding->data.binary.operation == '=' || binding->data.binary.operation == COPY_ASSIGN) && binding->data.binary.left->kind == NAME_EXPRESSION && name_equal(binding->data.binary.left->data.variable.name, parameter->name)) {
+						argument->initializer = binding->data.binary.right;
+						argument_context->data.declaration.initializer = argument->initializer;
+						argument->initialization->data.block = first->next;
+						bind_expression(compiler, argument->initializer, scope);
+						if (binding->data.binary.operation == '=') {
+							move_expression(compiler, argument->initializer, scope);
+						}
+					}
+				}
+				scope_declare(compiler, &argument_scope, argument->variable);
+				argument->expression = new_expression(compiler, NAME_EXPRESSION, parameter->name);
+				if (!argument->expression) {
+					break;
+				}
+				argument->expression->data.variable.name = parameter->name;
+				bind_expression(compiler, argument->expression, &argument_scope);
+				if (!argument->initializer) {
+					prepare_reference_fields(compiler, argument->variable, argument->initialization);
+				}
+				unsigned exits = analyze_statements(compiler, callable.data.function, argument->initialization->data.block, &argument_scope, NULL);
+				if (exits != NORMAL_EXIT) {
+					diagnostic(compiler, expression->span.first, "argument block must yield its parameter normally");
+				}
+				struct ScopeBinding* result = scope_binding(&argument_scope, parameter->name);
+				if (!result || result->variable != argument->variable) {
+					diagnostic(compiler, expression->span.first, "argument block moved its result parameter");
+				}
+			}
+			else {
 			bind_expression(compiler, argument->expression, scope);
+			}
+			if (parameter) {
+				parameter = parameter->next;
+			}
 		}
 		break;
 	case CAST_EXPRESSION:
 		bind_expression(compiler, expression->data.cast.value, scope);
 		expression->type = resolve_type(compiler, expression->data.cast.syntax);
+		if (expression->type.kind == REFERENCE_TYPE) {
+			struct Expression* referent = expression->data.cast.value;
+			expression->type = *expression->type.data.element;
+			expression->kind = REFERENCE_CAST_EXPRESSION;
+			expression->data.operand = referent;
+		}
 		break;
 	case SIZEOF_TYPE_EXPRESSION:
 	case SIZEOF_VALUE_EXPRESSION: {
@@ -2501,6 +2623,10 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			type = expression->data.size.operand.value->type;
 		}
 		complete_type(compiler, type, expression->span.first);
+		if (type.kind == REFERENCE_TYPE) {
+			type = *type.data.element;
+			complete_type(compiler, type, expression->span.first);
+		}
 		if (!compiler->failed) {
 			expression->data.size.size = LLVMABISizeOfType(compiler->layout, llvm_type(compiler, type));
 		}
@@ -2529,11 +2655,24 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			if (name_equal(field->name, expression->data.member.name)) {
 				expression->data.member.binding = field;
 				expression->type = field->type;
+				if (expression->type.kind == REFERENCE_TYPE) {
+					expression->type = *expression->type.data.element;
+				}
 				break;
 			}
 		}
 		if (!expression->data.member.binding) {
 			diagnostic(compiler, expression->data.member.name, "unknown field '%.*s'", (int)expression->data.member.name.length, expression->data.member.name.start);
+		}
+		struct Expression* root = expression;
+		while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION) {
+			root = root->kind == FIELD_EXPRESSION ? root->data.member.object : root->data.binary.left;
+		}
+		for (struct Scope* context = scope; context; context = context->parent) {
+			if (context->initialization && root->kind == NAME_EXPRESSION && context->initialization->data.declaration.variable == root->data.variable.binding) {
+				expression->data.member.initialization = context->initialization;
+				break;
+			}
 		}
 		break;
 	}
@@ -2596,6 +2735,13 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			if (operation->kind == COMPARISON_OPERATOR || operation->kind == LOGICAL_OPERATOR) {
 				expression->type = (struct Type){ BOOL_TYPE, { 0 } };
 			}
+		}
+		break;
+	case REFERENCE_INITIALIZATION_EXPRESSION:
+		bind_expression(compiler, expression->data.binary.left, scope);
+		bind_expression(compiler, expression->data.binary.right, scope);
+		if (compiler->failed) {
+			break;
 		}
 		break;
 	case STRING_EXPRESSION:
@@ -2703,13 +2849,71 @@ void check_integer(struct Compiler* compiler, struct Expression* expression, str
 }
 
 bool lvalue_expression(struct Expression* expression) {
-	return expression->kind == NAME_EXPRESSION || expression->kind == DEREFERENCE_EXPRESSION || (expression->kind == INDEX_EXPRESSION && (expression->data.binary.left->type.kind == POINTER_TYPE || lvalue_expression(expression->data.binary.left))) || expression->kind == POINTER_FIELD_EXPRESSION || (expression->kind == FIELD_EXPRESSION && lvalue_expression(expression->data.member.object));
+	return expression->kind == REFERENCE_CAST_EXPRESSION || (expression->kind == CALL_EXPRESSION && expression->data.call.binding->result.kind == REFERENCE_TYPE) || expression->kind == NAME_EXPRESSION || expression->kind == DEREFERENCE_EXPRESSION || (expression->kind == INDEX_EXPRESSION && (expression->data.binary.left->type.kind == POINTER_TYPE || lvalue_expression(expression->data.binary.left))) || expression->kind == POINTER_FIELD_EXPRESSION || (expression->kind == FIELD_EXPRESSION && lvalue_expression(expression->data.member.object));
+}
+
+bool contains_reference_fields(struct Type type);
+bool initialization_path_equal(struct Compiler* compiler, struct Expression* left, struct Expression* right);
+
+void validate_reference_field_read(struct Compiler* compiler, struct Expression* expression) {
+	struct Statement* context = expression->data.member.initialization;
+	if (!context || expression->data.member.binding->type.kind != REFERENCE_TYPE) {
+		return;
+	}
+	struct Expression* root = expression;
+	while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION) {
+		root = root->kind == FIELD_EXPRESSION ? root->data.member.object : root->data.binary.left;
+		if (root->kind == FIELD_EXPRESSION && root->data.member.binding->type.kind == REFERENCE_TYPE) {
+			return;
+		}
+	}
+	if (root->kind != NAME_EXPRESSION || root->data.variable.binding != context->data.declaration.variable) {
+		return;
+	}
+	if (root->data.variable.binding->type.kind == REFERENCE_TYPE) {
+		return;
+	}
+	if (context->data.declaration.initializer) {
+		return;
+	}
+	for (struct Statement* statement = context->data.declaration.initialization->data.block; statement; statement = statement->next) {
+		if (statement->kind != EXPRESSION_STATEMENT) {
+			continue;
+		}
+		struct Expression* binding = statement->data.expression;
+		if (binding->kind == REFERENCE_INITIALIZATION_EXPRESSION && binding->type.kind == REFERENCE_TYPE && initialization_path_equal(compiler, binding->data.binary.left, expression)) {
+			return;
+		}
+	}
+
+	diagnostic(compiler, expression->span.first, "reference field used before binding");
 }
 
 void check_expression(struct Compiler* compiler, struct Expression* expression, struct Type* expected) {
 	if (!expression || compiler->failed) {
 		return;
 	}
+	if (expected && expected->kind == REFERENCE_TYPE) {
+		check_expression(compiler, expression, expected->data.element);
+		if (compiler->failed) {
+			return;
+		}
+		if (!lvalue_expression(expression) && expression->kind != FUNCTION_EXPRESSION) {
+			diagnostic(compiler, expression->span.first, "reference binding requires an existing object");
+			return;
+		}
+
+		struct Expression* referent = allocate(compiler, sizeof(struct Expression));
+		if (!referent) {
+			return;
+		}
+		*referent = *expression;
+		expression->kind = REFERENCE_BINDING_EXPRESSION;
+		expression->data.operand = referent;
+		expression->type = *expected;
+		return;
+	}
+
 	uint64_t magnitude;
 	bool negative;
 	if (integer_constant(expression, &magnitude, &negative)) {
@@ -2726,9 +2930,25 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		goto contextual_conversion;
 	}
 	switch (expression->kind) {
+	case REFERENCE_INITIALIZATION_EXPRESSION: {
+		struct Expression* target = expression->data.binary.left;
+		if (target->kind != NAME_EXPRESSION) {
+			check_expression(compiler, target->data.member.object, NULL);
+		}
+		struct Type reference = target->kind == NAME_EXPRESSION ? target->data.variable.binding->type : target->data.member.binding->type;
+		check_expression(compiler, expression->data.binary.right, &reference);
+		if (!compiler->failed) {
+			expression->type = reference;
+		}
+		break;
+	}
 	case ASSIGNMENT_EXPRESSION: {
 		struct Expression* left = expression->data.binary.left;
 		check_expression(compiler, left, NULL);
+		if (left->type.kind != REFERENCE_TYPE && contains_reference_fields(left->type)) {
+			diagnostic(compiler, expression->span.first, "aggregate assignment cannot rebind reference fields");
+			break;
+		}
 		if (!lvalue_expression(left) || left->type.kind == ARRAY_TYPE) {
 			diagnostic(compiler, expression->span.first, "assignment requires an assignable non-array expression");
 			break;
@@ -2868,6 +3088,12 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		break;
 	}
+	case REFERENCE_CAST_EXPRESSION:
+		check_expression(compiler, expression->data.operand, &expression->type);
+		if (!lvalue_expression(expression->data.operand) && expression->data.operand->kind != FUNCTION_EXPRESSION) {
+			diagnostic(compiler, expression->span.first, "reference cast requires an existing object of the referent type");
+		}
+		break;
 	case SIZEOF_VALUE_EXPRESSION:
 		check_expression(compiler, expression->data.size.operand.value, NULL);
 		break;
@@ -2876,6 +3102,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	case FIELD_EXPRESSION:
 	case POINTER_FIELD_EXPRESSION:
 		check_expression(compiler, expression->data.member.object, NULL);
+		validate_reference_field_read(compiler, expression);
 		break;
 	case ENUMERATOR_EXPRESSION:
 		break;
@@ -2916,6 +3143,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		struct Variable* parameter = expression->data.call.binding->parameters;
 		for (struct Argument* argument = expression->data.call.arguments; argument && !compiler->failed; argument = argument->next) {
 			if (parameter) {
+				check_expression(compiler, argument->initializer, &parameter->type);
 				check_expression(compiler, argument->expression, &parameter->type);
 				argument->passed_type = parameter->type;
 				parameter = parameter->next;
@@ -2949,6 +3177,20 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	case STRING_EXPRESSION:
 	case NAME_EXPRESSION:
 	case FUNCTION_EXPRESSION:
+		if (expression->kind == NAME_EXPRESSION && expression->data.variable.initialization && expression->data.variable.binding->type.kind == REFERENCE_TYPE) {
+			struct Statement* context = expression->data.variable.initialization;
+			struct Statement* statement = context->data.declaration.initialization->data.block;
+			while (statement) {
+				struct Expression* binding = statement->kind == EXPRESSION_STATEMENT ? statement->data.expression : NULL;
+				if (binding && binding->kind == REFERENCE_INITIALIZATION_EXPRESSION && binding->type.kind == REFERENCE_TYPE && binding->data.binary.left->kind == NAME_EXPRESSION && binding->data.binary.left->data.variable.binding == expression->data.variable.binding) {
+					break;
+				}
+				statement = statement->next;
+			}
+			if (!statement) {
+				diagnostic(compiler, expression->span.first, "reference used before binding");
+			}
+		}
 		break;
 	default:
 		diagnostic(compiler, expression->span.first, "invalid expression node");
@@ -3119,6 +3361,110 @@ void check_condition(struct Compiler* compiler, struct Expression* expression, s
 
 unsigned analyze_statements(struct Compiler* compiler, struct Function* function, struct Statement* statements, struct Scope* scope, struct Flow* flow);
 
+bool initialization_path_equal(struct Compiler* compiler, struct Expression* left, struct Expression* right) {
+	if (!left || !right || left->kind != right->kind) {
+		return false;
+	}
+	if (left->kind == NAME_EXPRESSION) {
+		return name_equal(left->data.variable.name, right->data.variable.name);
+	}
+	if (left->kind == FIELD_EXPRESSION) {
+		return name_equal(left->data.member.name, right->data.member.name) && initialization_path_equal(compiler, left->data.member.object, right->data.member.object);
+	}
+	if (left->kind == INDEX_EXPRESSION) {
+		uint64_t first;
+		uint64_t second;
+		return case_integer(compiler, left->data.binary.right, (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } }, &first) && case_integer(compiler, right->data.binary.right, (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } }, &second) && first == second && initialization_path_equal(compiler, left->data.binary.left, right->data.binary.left);
+	}
+	return false;
+}
+
+bool contains_reference_fields(struct Type type) {
+	if (type.kind == REFERENCE_TYPE) {
+		return true;
+	}
+	if (type.kind == ARRAY_TYPE) {
+		return contains_reference_fields(*type.data.array.element);
+	}
+	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
+		for (struct Member* member = type.data.record->data.members; member; member = member->next) {
+			if (contains_reference_fields(member->type)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void prepare_reference_path(struct Compiler* compiler, struct Type type, struct Expression* path, struct Statement* initialization) {
+	if (compiler->failed || !contains_reference_fields(type)) {
+		return;
+	}
+	if (type.kind == ARRAY_TYPE) {
+		for (uint64_t index = 0; index < type.data.array.count; index++) {
+			struct Expression* element = new_expression(compiler, INDEX_EXPRESSION, path->span.first);
+			struct Expression* subscript = new_expression(compiler, INTEGER_EXPRESSION, path->span.first);
+			if (!element || !subscript) {
+				return;
+			}
+			subscript->data.integer = index;
+			element->data.binary.left = path;
+			element->data.binary.right = subscript;
+			prepare_reference_path(compiler, *type.data.array.element, element, initialization);
+		}
+		return;
+	}
+	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
+		for (struct Member* member = type.data.record->data.members; member; member = member->next) {
+			struct Expression* field = new_expression(compiler, FIELD_EXPRESSION, member->name);
+			if (!field) {
+				return;
+			}
+			field->data.member.object = path;
+			field->data.member.name = member->name;
+			prepare_reference_path(compiler, member->type, field, initialization);
+		}
+		return;
+	}
+	if (type.kind != REFERENCE_TYPE) {
+		return;
+	}
+
+	struct Expression* binding = NULL;
+	for (struct Statement* statement = initialization ? initialization->data.block : NULL; statement; statement = statement->next) {
+		if (statement->kind != EXPRESSION_STATEMENT) {
+			continue;
+		}
+		struct Expression* expression = statement->data.expression;
+		if ((expression->kind != ASSIGNMENT_EXPRESSION && expression->kind != REFERENCE_INITIALIZATION_EXPRESSION) || expression->data.binary.operation != '=') {
+			continue;
+		}
+		if (initialization_path_equal(compiler, expression->data.binary.left, path)) {
+			binding = expression;
+			break;
+		}
+	}
+	if (!binding) {
+		diagnostic(compiler, path->span.first, "reference field must be bound in the initialization block");
+		return;
+	}
+	if (initialization_path_equal(compiler, binding->data.binary.right, path)) {
+		diagnostic(compiler, path->span.first, "reference cannot bind to itself");
+		return;
+	}
+
+	binding->kind = REFERENCE_INITIALIZATION_EXPRESSION;
+}
+
+void prepare_reference_fields(struct Compiler* compiler, struct Variable* variable, struct Statement* initialization) {
+	struct Expression* path = new_expression(compiler, NAME_EXPRESSION, variable->name);
+	if (!path) {
+		return;
+	}
+	path->data.variable.name = variable->name;
+	prepare_reference_path(compiler, variable->type, path, initialization);
+}
+
 unsigned analyze_statement(struct Compiler* compiler, struct Function* function, struct Statement* statement, struct Scope* scope, struct Flow* flow) {
 	unsigned exits = NORMAL_EXIT;
 	switch (statement->kind) {
@@ -3140,12 +3486,31 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 			diagnostic(compiler, variable->name, "duplicate variable");
 			break;
 		}
-		scope_declare(compiler, scope, variable);
+		if (variable->type.kind != REFERENCE_TYPE && contains_reference_fields(variable->type) && statement->data.declaration.initialization) {
+			struct Statement* body = statement->data.declaration.initialization;
+			struct Statement* first = body->data.block;
+			struct Expression* binding = first && first->kind == EXPRESSION_STATEMENT ? first->data.expression : NULL;
+			if (binding && binding->kind == ASSIGNMENT_EXPRESSION && (binding->data.binary.operation == '=' || binding->data.binary.operation == COPY_ASSIGN) && binding->data.binary.left->kind == NAME_EXPRESSION && name_equal(binding->data.binary.left->data.variable.name, variable->name)) {
+				statement->data.declaration.initializer = binding->data.binary.right;
+				statement->data.declaration.operation = binding->data.binary.operation;
+				body->data.block = first->next;
+			}
+		}
+		if (variable->type.kind == REFERENCE_TYPE && !statement->data.declaration.initializer && !statement->data.declaration.initialization) {
+			diagnostic(compiler, variable->name, "reference must be bound when declared");
+			break;
+		}
+		if (variable->type.kind != REFERENCE_TYPE) {
+			scope_declare(compiler, scope, variable);
+		}
 		bind_expression(compiler, statement->data.declaration.initializer, scope);
-		if (statement->data.declaration.operation == '=') {
+		if (statement->data.declaration.operation == '=' && variable->type.kind != REFERENCE_TYPE) {
 			move_expression(compiler, statement->data.declaration.initializer, scope);
 		}
 		check_expression(compiler, statement->data.declaration.initializer, variable->syntax ? &variable->type : NULL);
+		if (variable->type.kind == REFERENCE_TYPE) {
+			scope_declare(compiler, scope, variable);
+		}
 		if (!variable->syntax && statement->data.declaration.initializer) {
 			variable->type = statement->data.declaration.initializer->type;
 		}
@@ -3155,8 +3520,12 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		if (variable->type.kind == FUNCTION_TYPE) {
 			diagnostic(compiler, variable->name, "function entities require explicit address-of to obtain a pointer");
 		}
+		if (!statement->data.declaration.initializer) {
+			prepare_reference_fields(compiler, variable, statement->data.declaration.initialization);
+		}
 		if (statement->data.declaration.initialization) {
-			exits = analyze_statement(compiler, function, statement->data.declaration.initialization, scope, flow);
+			struct Scope initialization_scope = { NULL, scope, statement };
+			exits = analyze_statement(compiler, function, statement->data.declaration.initialization, &initialization_scope, flow);
 		}
 		break;
 	}
@@ -3480,6 +3849,7 @@ LLVMTypeRef llvm_type(struct Compiler* compiler, struct Type type) {
 	case VOID_TYPE:
 		return LLVMVoidTypeInContext(compiler->llvm_context);
 	case POINTER_TYPE:
+	case REFERENCE_TYPE:
 		return LLVMPointerTypeInContext(compiler->llvm_context, 0);
 	case STRUCT_TYPE:
 	case UNION_TYPE:
@@ -3593,6 +3963,7 @@ void declare_llvm_functions(struct Compiler* compiler) {
 }
 
 LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expression);
+void emit_statements(struct Compiler* compiler, struct Statement* statements, struct Flow* flow);
 
 LLVMValueRef entry_alloca(struct Compiler* compiler, struct Type type) {
 	LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(compiler->builder));
@@ -3623,34 +3994,117 @@ LLVMValueRef pointer_index(struct Compiler* compiler, LLVMValueRef value, struct
 	return value;
 }
 
+LLVMValueRef emit_call(struct Compiler* compiler, struct Expression* expression) {
+	unsigned count = 0;
+	for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
+		if (count == UINT_MAX) {
+			diagnostic(compiler, expression->span.first, "too many arguments for LLVM");
+			return NULL;
+		}
+		count++;
+	}
+	LLVMValueRef* values = count ? allocate(compiler, count * sizeof(LLVMValueRef)) : NULL;
+	if (count && !values) {
+		return NULL;
+	}
+	unsigned index = 0;
+	for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
+		LLVMValueRef value;
+		if (argument->variable) {
+			argument->variable->slot = entry_alloca(compiler, argument->variable->type);
+			if (argument->variable->type.kind != REFERENCE_TYPE) {
+				LLVMValueRef initial = argument->initializer ? emit_expression(compiler, argument->initializer) : LLVMConstNull(llvm_type(compiler, argument->variable->type));
+				LLVMBuildStore(compiler->builder, initial, argument->variable->slot);
+			}
+			emit_statements(compiler, argument->initialization->data.block, NULL);
+			value = emit_expression(compiler, argument->expression);
+		}
+		else {
+			value = emit_expression(compiler, argument->expression);
+		}
+		if (!value) {
+			return NULL;
+		}
+		if (!type_equal(argument->expression->type, argument->passed_type)) {
+			LLVMTypeRef target = llvm_type(compiler, argument->passed_type);
+			if (argument->expression->type.kind == FLOAT_TYPE) {
+				value = LLVMBuildFPExt(compiler->builder, value, target, "promoted");
+			}
+			else if (zero_extended_type(argument->expression->type)) {
+				value = LLVMBuildZExt(compiler->builder, value, target, "promoted");
+			}
+			else {
+				value = LLVMBuildSExt(compiler->builder, value, target, "promoted");
+			}
+		}
+		values[index++] = value;
+	}
+	struct Function* function = expression->data.call.binding;
+	LLVMTypeRef signature = llvm_type(compiler, (struct Type){ FUNCTION_TYPE, { .function = function } });
+	LLVMValueRef callee = emit_expression(compiler, expression->data.call.callee);
+	LLVMValueRef call = LLVMBuildCall2(compiler->builder, signature, callee, values, count, is_void(function->result) ? "" : "call");
+	LLVMSetInstructionCallConv(call, LLVMCCallConv);
+	LLVMAttributeRef extension = abi_extension(compiler, function->result);
+	if (extension) {
+		LLVMAddCallSiteAttribute(call, LLVMAttributeReturnIndex, extension);
+	}
+	index = 1;
+	for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
+		extension = abi_extension(compiler, argument->passed_type);
+		if (extension) {
+			LLVMAddCallSiteAttribute(call, index, extension);
+		}
+		index++;
+	}
+	return call;
+}
+
+LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression);
+
+LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expression) {
+
+	struct Expression* object = expression->data.member.object;
+	struct Type type = object->type;
+	LLVMValueRef address;
+	if (expression->kind == POINTER_FIELD_EXPRESSION) {
+		address = emit_expression(compiler, object);
+		type = *type.data.element;
+	}
+	else if (lvalue_expression(object)) {
+		address = emit_address(compiler, object);
+	}
+	else {
+		LLVMValueRef value = emit_expression(compiler, object);
+		if (!value) {
+			return NULL;
+		}
+		address = entry_alloca(compiler, type);
+		LLVMBuildStore(compiler->builder, value, address);
+	}
+	if (!address) {
+		return NULL;
+	}
+	return type.kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, llvm_type(compiler, type), address, expression->data.member.binding->index, "field");
+}
+
 LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression) {
 	switch (expression->kind) {
 	case FIELD_EXPRESSION:
 	case POINTER_FIELD_EXPRESSION: {
-		struct Expression* object = expression->data.member.object;
-		struct Type type = object->type;
-		LLVMValueRef address;
-		if (expression->kind == POINTER_FIELD_EXPRESSION) {
-			address = emit_expression(compiler, object);
-			type = *type.data.element;
+		LLVMValueRef slot = emit_field_slot(compiler, expression);
+		if (slot && expression->data.member.binding->type.kind == REFERENCE_TYPE) {
+			return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->data.member.binding->type), slot, "field_referent");
 		}
-		else if (lvalue_expression(object)) {
-			address = emit_address(compiler, object);
-		}
-		else {
-			LLVMValueRef value = emit_expression(compiler, object);
-			if (!value) {
-				return NULL;
-			}
-			address = entry_alloca(compiler, type);
-			LLVMBuildStore(compiler->builder, value, address);
-		}
-		if (!address) {
-			return NULL;
-		}
-		return type.kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, llvm_type(compiler, type), address, expression->data.member.binding->index, "field");
+		return slot;
 	}
+	case REFERENCE_CAST_EXPRESSION:
+		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
+	case CALL_EXPRESSION:
+		return emit_call(compiler, expression);
 	case NAME_EXPRESSION:
+		if (expression->data.variable.binding->type.kind == REFERENCE_TYPE) {
+			return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->data.variable.binding->type), expression->data.variable.binding->slot, "referent");
+		}
 		return expression->data.variable.binding->slot;
 	case DEREFERENCE_EXPRESSION:
 		return emit_expression(compiler, expression->data.operand);
@@ -3836,6 +4290,9 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 	case FIELD_EXPRESSION:
 	case POINTER_FIELD_EXPRESSION: {
 		LLVMValueRef address = emit_address(compiler, expression);
+		if (expression->type.kind == FUNCTION_TYPE) {
+			return address;
+		}
 		return address ? LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), address, "field_value") : NULL;
 	}
 	case ADDRESS_EXPRESSION:
@@ -3851,7 +4308,24 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return address ? LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), address, "value") : NULL;
 	}
 	case NAME_EXPRESSION:
-		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), expression->data.variable.binding->slot, "value");
+		if (expression->type.kind == FUNCTION_TYPE) {
+			return emit_address(compiler, expression);
+		}
+		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "value");
+	case REFERENCE_CAST_EXPRESSION:
+		if (expression->type.kind == FUNCTION_TYPE) {
+			return emit_address(compiler, expression);
+		}
+		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "reference_value");
+	case REFERENCE_INITIALIZATION_EXPRESSION: {
+		LLVMValueRef value = emit_expression(compiler, expression->data.binary.right);
+		struct Expression* target = expression->data.binary.left;
+		LLVMValueRef slot = target->kind == NAME_EXPRESSION ? target->data.variable.binding->slot : emit_field_slot(compiler, target);
+		LLVMBuildStore(compiler->builder, value, slot);
+		return value;
+	}
+	case REFERENCE_BINDING_EXPRESSION:
+		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
 	case NEGATE_EXPRESSION: {
 		LLVMValueRef operand = emit_expression(compiler, expression->data.operand);
 		if (!operand) {
@@ -3919,54 +4393,9 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return emit_binary(compiler, operation->token, left, right, expression->data.binary.left->type, expression->data.binary.right->type);
 	}
 	case CALL_EXPRESSION: {
-		unsigned count = 0;
-		for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
-			if (count == UINT_MAX) {
-				diagnostic(compiler, expression->span.first, "too many arguments for LLVM");
-				return NULL;
-			}
-			count++;
-		}
-		LLVMValueRef* values = count ? allocate(compiler, count * sizeof(LLVMValueRef)) : NULL;
-		if (count && !values) {
-			return NULL;
-		}
-		unsigned index = 0;
-		for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
-			LLVMValueRef value = emit_expression(compiler, argument->expression);
-			if (!value) {
-				return NULL;
-			}
-			if (!type_equal(argument->expression->type, argument->passed_type)) {
-				LLVMTypeRef target = llvm_type(compiler, argument->passed_type);
-				if (argument->expression->type.kind == FLOAT_TYPE) {
-					value = LLVMBuildFPExt(compiler->builder, value, target, "promoted");
-				}
-				else if (zero_extended_type(argument->expression->type)) {
-					value = LLVMBuildZExt(compiler->builder, value, target, "promoted");
-				}
-				else {
-					value = LLVMBuildSExt(compiler->builder, value, target, "promoted");
-				}
-			}
-			values[index++] = value;
-		}
-		struct Function* function = expression->data.call.binding;
-		LLVMTypeRef signature = llvm_type(compiler, (struct Type){ FUNCTION_TYPE, { .function = function } });
-		LLVMValueRef callee = emit_expression(compiler, expression->data.call.callee);
-		LLVMValueRef call = LLVMBuildCall2(compiler->builder, signature, callee, values, count, is_void(function->result) ? "" : "call");
-		LLVMSetInstructionCallConv(call, LLVMCCallConv);
-		LLVMAttributeRef extension = abi_extension(compiler, function->result);
-		if (extension) {
-			LLVMAddCallSiteAttribute(call, LLVMAttributeReturnIndex, extension);
-		}
-		index = 1;
-		for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
-			extension = abi_extension(compiler, argument->passed_type);
-			if (extension) {
-				LLVMAddCallSiteAttribute(call, index, extension);
-			}
-			index++;
+		LLVMValueRef call = emit_call(compiler, expression);
+		if (call && expression->data.call.binding->result.kind == REFERENCE_TYPE && expression->type.kind != FUNCTION_TYPE) {
+			return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), call, "reference_result");
 		}
 		return call;
 	}
