@@ -265,6 +265,7 @@ struct Statement {
 			struct Variable* variable;
 			struct Expression* initializer;
 			struct Statement* initialization;
+			int operation;
 		} declaration;
 		struct Expression* expression;
 		struct Statement* block;
@@ -295,8 +296,14 @@ struct Case {
 	struct Case* next;
 };
 
+struct ScopeBinding {
+	struct Token name;
+	struct Variable* variable;
+	struct ScopeBinding* next;
+};
+
 struct Scope {
-	struct Variable* variables;
+	struct ScopeBinding* bindings;
 	struct Scope* parent;
 };
 
@@ -1533,7 +1540,9 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 				}
 				variable->name = compiler->token;
 				expect(compiler, NAME, "variable name");
-				if (take(compiler, '=') || take(compiler, COPY_ASSIGN)) {
+				if (compiler->token.kind == '=' || compiler->token.kind == COPY_ASSIGN) {
+					statement->data.declaration.operation = compiler->token.kind;
+					next_token(compiler);
 					statement->data.declaration.initializer = parse_expression(compiler, 0);
 				}
 				else if (compiler->token.kind == '{') {
@@ -2043,14 +2052,120 @@ void register_functions(struct Compiler* compiler) {
 	}
 }
 
-struct Variable* scope_variable(struct Scope* scope, struct Token name) {
-	for (; scope; scope = scope->parent) {
-		struct Variable* variable = find_variable(scope->variables, name);
-		if (variable) {
-			return variable;
+struct ScopeBinding* scope_local(struct Scope* scope, struct Token name) {
+	for (struct ScopeBinding* binding = scope->bindings; binding; binding = binding->next) {
+		if (name_equal(binding->name, name)) {
+			return binding;
 		}
 	}
 	return NULL;
+}
+
+struct ScopeBinding* scope_binding(struct Scope* scope, struct Token name) {
+	for (; scope; scope = scope->parent) {
+		struct ScopeBinding* binding = scope_local(scope, name);
+		if (binding) {
+			return binding;
+		}
+	}
+	return NULL;
+}
+
+void scope_remove(struct Scope* scope, struct Variable* variable) {
+	for (; scope; scope = scope->parent) {
+		for (struct ScopeBinding* binding = scope->bindings; binding; binding = binding->next) {
+			if (binding->variable == variable) {
+				binding->variable = NULL;
+				return;
+			}
+		}
+	}
+}
+
+void scope_declare(struct Compiler* compiler, struct Scope* scope, struct Variable* variable) {
+	struct ScopeBinding* binding = scope_local(scope, variable->name);
+	if (!binding) {
+		binding = allocate(compiler, sizeof(struct ScopeBinding));
+		if (!binding) {
+			return;
+		}
+		binding->name = variable->name;
+		binding->next = scope->bindings;
+		scope->bindings = binding;
+	}
+
+	binding->variable = variable;
+}
+
+struct Scope* scope_snapshot(struct Compiler* compiler, struct Scope* scope) {
+	if (!scope) {
+		return NULL;
+	}
+	struct Scope* snapshot = allocate(compiler, sizeof(struct Scope));
+	if (!snapshot) {
+		return NULL;
+	}
+	snapshot->parent = scope_snapshot(compiler, scope->parent);
+	struct ScopeBinding** next = &snapshot->bindings;
+	for (struct ScopeBinding* binding = scope->bindings; binding; binding = binding->next) {
+		struct ScopeBinding* copy = allocate(compiler, sizeof(struct ScopeBinding));
+		if (!copy) {
+			return NULL;
+		}
+		copy->name = binding->name;
+		copy->variable = binding->variable;
+		*next = copy;
+		next = &copy->next;
+	}
+	return snapshot;
+}
+
+void scope_merge(struct Scope* scope, struct Scope* snapshot) {
+	for (; scope && snapshot; scope = scope->parent, snapshot = snapshot->parent) {
+		for (struct ScopeBinding* binding = scope->bindings; binding; binding = binding->next) {
+			struct ScopeBinding* branch = scope_local(snapshot, binding->name);
+			if (branch && !branch->variable) {
+				binding->variable = NULL;
+			}
+		}
+	}
+}
+
+bool borrowed_storage(struct Expression* expression) {
+	if (!expression) {
+		return false;
+	}
+
+	switch (expression->kind) {
+	case DEREFERENCE_EXPRESSION:
+	case POINTER_FIELD_EXPRESSION:
+	case FIELD_EXPRESSION:
+	case INDEX_EXPRESSION:
+		return true;
+	case CAST_EXPRESSION:
+		return borrowed_storage(expression->data.cast.value);
+	default:
+		return false;
+	}
+}
+
+void move_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
+	if (!expression) {
+		return;
+	}
+	if (borrowed_storage(expression)) {
+		diagnostic(compiler, expression->span.first, "cannot move borrowed storage; use ':=' to copy");
+		return;
+	}
+
+	while (expression->kind == CAST_EXPRESSION) {
+		expression = expression->data.cast.value;
+	}
+	if (expression->kind != NAME_EXPRESSION || !expression->data.variable.binding) {
+		return;
+	}
+
+	scope_remove(scope, expression->data.variable.binding);
 }
 
 void bind_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
@@ -2058,8 +2173,13 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		return;
 	}
 	switch (expression->kind) {
-	case NAME_EXPRESSION:
-		expression->data.variable.binding = scope_variable(scope, expression->data.variable.name);
+	case NAME_EXPRESSION: {
+		struct ScopeBinding* binding = scope_binding(scope, expression->data.variable.name);
+		if (binding && !binding->variable) {
+			diagnostic(compiler, expression->span.first, "undeclared variable '%.*s'", (int)binding->name.length, binding->name.start);
+			break;
+		}
+		expression->data.variable.binding = binding ? binding->variable : NULL;
 		if (!expression->data.variable.binding) {
 			struct Function* function = find_function(compiler, expression->data.variable.name);
 			if (function) {
@@ -2082,6 +2202,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			expression->type = expression->data.variable.binding->type;
 		}
 		break;
+	}
 	case CALL_EXPRESSION:
 		bind_expression(compiler, expression->data.call.callee, scope);
 		struct Type callable = expression->data.call.callee->type;
@@ -2197,6 +2318,9 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		bind_expression(compiler, expression->data.binary.left, scope);
 		bind_expression(compiler, expression->data.binary.right, scope);
 		expression->type = !is_void(expression->data.binary.left->type) ? expression->data.binary.left->type : expression->data.binary.right->type;
+		if (expression->kind == ASSIGNMENT_EXPRESSION && expression->data.binary.operation == '=') {
+			move_expression(compiler, expression->data.binary.right, scope);
+		}
 		if (expression->kind == BINARY_EXPRESSION) {
 			const struct Operator* operation = find_operator(expression->data.binary.operation);
 			if (operation->token == '-' && expression->data.binary.left->type.kind == POINTER_TYPE && expression->data.binary.right->type.kind == POINTER_TYPE) {
@@ -2744,11 +2868,16 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		if (variable->syntax) {
 			complete_type(compiler, variable->type, variable->name);
 		}
-		if (find_variable(scope->variables, variable->name)) {
+		struct ScopeBinding* existing = scope_local(scope, variable->name);
+		if (existing && existing->variable) {
 			diagnostic(compiler, variable->name, "duplicate variable");
 			break;
 		}
+		scope_declare(compiler, scope, variable);
 		bind_expression(compiler, statement->data.declaration.initializer, scope);
+		if (statement->data.declaration.operation == '=') {
+			move_expression(compiler, statement->data.declaration.initializer, scope);
+		}
 		check_expression(compiler, statement->data.declaration.initializer, variable->syntax ? &variable->type : NULL);
 		if (!variable->syntax && statement->data.declaration.initializer) {
 			variable->type = statement->data.declaration.initializer->type;
@@ -2759,8 +2888,6 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		if (variable->type.kind == FUNCTION_TYPE) {
 			diagnostic(compiler, variable->name, "function entities require explicit address-of to obtain a pointer");
 		}
-		variable->scope_next = scope->variables;
-		scope->variables = variable;
 		if (statement->data.declaration.initialization) {
 			exits = analyze_statement(compiler, function, statement->data.declaration.initialization, scope, flow);
 		}
@@ -2787,9 +2914,16 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		break;
 	case IF_STATEMENT: {
 		check_condition(compiler, statement->data.branch.condition, scope);
-		struct Scope first = { NULL, scope }, second = { NULL, scope };
+		struct Scope* first_snapshot = scope_snapshot(compiler, scope);
+		struct Scope* second_snapshot = scope_snapshot(compiler, scope);
+		if (compiler->failed) {
+			break;
+		}
+		struct Scope first = { NULL, first_snapshot }, second = { NULL, second_snapshot };
 		exits = analyze_statement(compiler, function, statement->data.branch.first, &first, flow);
 		exits |= statement->data.branch.second ? analyze_statement(compiler, function, statement->data.branch.second, &second, flow) : NORMAL_EXIT;
+		scope_merge(scope, first_snapshot);
+		scope_merge(scope, second_snapshot);
 		break;
 	}
 	case WHILE_STATEMENT:
@@ -2802,12 +2936,12 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		if (statement->data.loop.condition) {
 			check_condition(compiler, statement->data.loop.condition, &child);
 		}
+		struct Scope body = { NULL, &child };
+		unsigned body_exits = analyze_statement(compiler, function, statement->data.loop.body, &body, &loop);
 		if (statement->data.loop.step) {
 			bind_expression(compiler, statement->data.loop.step, &child);
 			check_expression(compiler, statement->data.loop.step, NULL);
 		}
-		struct Scope body = { NULL, &child };
-		unsigned body_exits = analyze_statement(compiler, function, statement->data.loop.body, &body, &loop);
 		uint64_t magnitude = 0;
 		bool negative = false;
 		unsigned infinite = !statement->data.loop.condition || (integer_constant(statement->data.loop.condition, &magnitude, &negative) && magnitude);
@@ -2844,6 +2978,7 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		}
 		struct Scope child = { NULL, scope };
 		struct Flow selection = { SWITCH_FLOW, flow, NULL, NULL };
+		struct Scope* removals = scope_snapshot(compiler, scope);
 		struct Case* default_case = NULL;
 		for (struct Case* item = statement->data.selection.cases; item && !compiler->failed; item = item->next) {
 			if (item->value) {
@@ -2862,8 +2997,15 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 				}
 				default_case = item;
 			}
+			struct Scope* snapshot = scope_snapshot(compiler, scope);
+			if (compiler->failed) {
+				break;
+			}
+			child.parent = snapshot;
 			item->exits = analyze_statements(compiler, function, item->statements, &child, &selection);
+			scope_merge(removals, snapshot);
 		}
+		scope_merge(scope, removals);
 		exits = default_case ? 0 : NORMAL_EXIT;
 		// Cases can fall through into every following case.
 		for (struct Case* item = statement->data.selection.cases; item; item = item->next) {
@@ -2907,8 +3049,7 @@ void analyze_function(struct Compiler* compiler, struct Function* function) {
 	}
 	struct Scope scope = { NULL, NULL };
 	for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
-		parameter->scope_next = scope.variables;
-		scope.variables = parameter;
+		scope_declare(compiler, &scope, parameter);
 	}
 	unsigned exits = analyze_statements(compiler, function, function->statements, &scope, NULL);
 	if ((exits & NORMAL_EXIT) && !is_void(function->result)) {

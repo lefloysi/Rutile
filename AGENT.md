@@ -57,6 +57,14 @@ Always use goals and subagents when performing work.
 - Continue through intermediate results until the requested goal is complete. Do not treat a plan,
   partial implementation, or subagent report as proof of completion.
 
+## Versioning and commits
+
+- Commit completed, verified changes as work progresses.
+- Keep the release version in version/release.txt as the single source of truth.
+- Increment the patch component for each completed change batch: 0.0.2, 0.0.3, and onward.
+- Keep the major and minor components at zero until the user explicitly authorizes 0.1.0.
+- Keep the communication protocol version separate; change it only for protocol changes.
+
 ## Source formatting
 
 - Indent with tabs displayed at four columns.
