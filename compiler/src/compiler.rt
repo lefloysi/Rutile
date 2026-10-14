@@ -1,0 +1,4442 @@
+enum TokenKind {
+	TOKEN_NAME,
+	TOKEN_NUMBER,
+	TOKEN_STRING,
+	TOKEN_FN,
+	TOKEN_VAR,
+	TOKEN_STRUCT,
+	TOKEN_UNION,
+	TOKEN_ENUM,
+	TOKEN_RETURN,
+	TOKEN_IF,
+	TOKEN_ELSE,
+	TOKEN_WHILE,
+	TOKEN_FOR,
+	TOKEN_SWITCH,
+	TOKEN_CASE,
+	TOKEN_DEFAULT,
+	TOKEN_BREAK,
+	TOKEN_CONTINUE,
+	TOKEN_SIZEOF,
+	TOKEN_ARROW,
+	TOKEN_COPY,
+	TOKEN_EQUAL,
+	TOKEN_NOT_EQUAL,
+	TOKEN_LESS_EQUAL,
+	TOKEN_GREATER_EQUAL,
+	TOKEN_AND,
+	TOKEN_OR,
+	TOKEN_SHIFT_LEFT,
+	TOKEN_SHIFT_RIGHT,
+	TOKEN_ELLIPSIS,
+	TOKEN_LEFT_PAREN,
+	TOKEN_RIGHT_PAREN,
+	TOKEN_LEFT_BRACKET,
+	TOKEN_RIGHT_BRACKET,
+	TOKEN_LEFT_BRACE,
+	TOKEN_RIGHT_BRACE,
+	TOKEN_SEMICOLON,
+	TOKEN_COMMA,
+	TOKEN_COLON,
+	TOKEN_DOT,
+	TOKEN_ASSIGN,
+	TOKEN_PLUS,
+	TOKEN_MINUS,
+	TOKEN_STAR,
+	TOKEN_SLASH,
+	TOKEN_REMAINDER,
+	TOKEN_AMPERSAND,
+	TOKEN_PIPE,
+	TOKEN_CARET,
+	TOKEN_BANG,
+	TOKEN_TILDE,
+	TOKEN_LESS,
+	TOKEN_GREATER,
+	TOKEN_END,
+};
+
+struct Source {
+	char* path;
+	char* bytes;
+	usize length;
+	Token* tokens;
+	usize token_count;
+	Source* next;
+};
+
+struct Token {
+	TokenKind kind;
+	Source* source;
+	usize begin;
+	usize length;
+	usize line;
+	usize column;
+};
+
+struct Lexer {
+	Source* source;
+	usize offset;
+	usize line;
+	usize column;
+};
+
+enum SyntaxKind {
+	SYNTAX_NAME,
+	SYNTAX_NUMBER,
+	SYNTAX_STRING,
+	SYNTAX_BLOCK,
+	SYNTAX_POINTER,
+	SYNTAX_REFERENCE,
+	SYNTAX_ARRAY,
+	SYNTAX_SIGNATURE,
+	SYNTAX_DECLARATION,
+	SYNTAX_CALL,
+	SYNTAX_MEMBER,
+	SYNTAX_INDEX,
+	SYNTAX_UNARY,
+	SYNTAX_BINARY,
+	SYNTAX_RETURN,
+	SYNTAX_IF,
+	SYNTAX_WHILE,
+	SYNTAX_FOR,
+	SYNTAX_SWITCH,
+	SYNTAX_CASE,
+	SYNTAX_BREAK,
+	SYNTAX_CONTINUE,
+	SYNTAX_SIZEOF,
+	SYNTAX_CAST,
+};
+
+enum ParameterArity {
+	PARAMETERS_FIXED,
+	PARAMETERS_VARIADIC,
+};
+
+struct ParameterSyntax {
+	Token name;
+	Syntax* type;
+	Entity* entity;
+	ParameterSyntax* next;
+};
+
+struct SignatureSyntax {
+	ParameterSyntax* parameters;
+	Syntax* result;
+	ParameterArity arity;
+};
+
+struct DeclarationSyntax {
+	Token name;
+	Syntax* type;
+	Syntax* body;
+};
+
+struct BinarySyntax {
+	TokenKind operation;
+	Syntax* left;
+	Syntax* right;
+};
+
+struct UnarySyntax {
+	TokenKind operation;
+	Syntax* value;
+};
+
+struct CallSyntax {
+	Syntax* callable;
+	Syntax* arguments;
+	Syntax* receiver;
+};
+
+struct MemberSyntax {
+	Syntax* object;
+	Token name;
+};
+
+struct BranchSyntax {
+	Syntax* condition;
+	Syntax* first;
+	Syntax* second;
+};
+
+struct LoopSyntax {
+	Syntax* initializer;
+	Syntax* condition;
+	Syntax* step;
+	Syntax* body;
+};
+
+struct SelectionSyntax {
+	Syntax* value;
+	Syntax* cases;
+};
+
+struct CaseSyntax {
+	Syntax* value;
+	Syntax* body;
+};
+
+struct ArraySyntax {
+	Token count;
+	Syntax* element;
+};
+
+struct StringSyntax {
+	char* bytes;
+	usize length;
+};
+
+struct CastSyntax {
+	Syntax* type;
+	Syntax* value;
+};
+
+union SyntaxData {
+	StringSyntax string;
+	Syntax* expression;
+	Syntax* statements;
+	SignatureSyntax signature;
+	DeclarationSyntax declaration;
+	BinarySyntax binary;
+	UnarySyntax unary;
+	CallSyntax call;
+	MemberSyntax member;
+	BranchSyntax branch;
+	LoopSyntax loop;
+	SelectionSyntax selection;
+	CaseSyntax selection_case;
+	ArraySyntax array;
+	CastSyntax cast;
+};
+
+struct Syntax {
+	SyntaxKind kind;
+	Token token;
+	Syntax* next;
+	Entity* entity;
+	Type* type;
+	Scope* scope;
+	SyntaxData data;
+};
+
+enum TypeKind {
+	TYPE_VOID,
+	TYPE_BOOL,
+	TYPE_CHAR,
+	TYPE_SIGNED,
+	TYPE_UNSIGNED,
+	TYPE_FLOAT,
+	TYPE_NAMED,
+	TYPE_POINTER,
+	TYPE_REFERENCE,
+	TYPE_ARRAY,
+	TYPE_FUNCTION,
+};
+
+struct ArrayType {
+	Type* element;
+	u64 count;
+};
+
+struct Parameter {
+	Token name;
+	Type* type;
+	Entity* entity;
+	Parameter* next;
+};
+
+struct FunctionType {
+	Parameter* parameters;
+	Type* result;
+	ParameterArity arity;
+};
+
+union TypeData {
+	i32 bits;
+	Entity* entity;
+	Type* element;
+	ArrayType array;
+	FunctionType function;
+};
+
+struct Type {
+	TypeKind kind;
+	TypeData data;
+};
+
+enum EntityKind {
+	ENTITY_PRIMITIVE,
+	ENTITY_STRUCT,
+	ENTITY_UNION,
+	ENTITY_ENUM,
+	ENTITY_FUNCTION,
+	ENTITY_VARIABLE,
+	ENTITY_NUMBER,
+};
+
+enum Resolution {
+	RESOLUTION_PENDING,
+	RESOLUTION_ACTIVE,
+	RESOLUTION_READY,
+};
+
+enum ContextKind {
+	CONTEXT_MODULE,
+	CONTEXT_STRUCT,
+	CONTEXT_UNION,
+	CONTEXT_ENUM,
+	CONTEXT_FUNCTION,
+	CONTEXT_LOCAL,
+	CONTEXT_INITIALIZATION,
+	CONTEXT_ARGUMENTS,
+};
+
+struct Binding {
+	Entity* entity;
+	Binding* next;
+	Binding* hash_next;
+};
+
+struct DeclarationRule {
+	TokenKind keyword;
+	EntityKind entity;
+	ContextKind context;
+};
+
+struct Scope {
+	Scope* parent;
+	Binding* bindings;
+	Binding* last_binding;
+	Binding** buckets;
+	usize bucket_count;
+	usize binding_count;
+	ContextKind context;
+	Entity* owner;
+};
+
+struct PrimitiveEntity {
+	Type* type;
+};
+
+struct NumberEntity {
+	Token spelling;
+};
+
+struct AggregateEntity {
+	Type* type;
+	Scope* scope;
+	Binding* fields;
+	usize field_count;
+	void* llvm_type;
+};
+
+struct EnumEntity {
+	Type* type;
+	Binding* values;
+};
+
+struct FunctionEntity {
+	Type* type;
+	Scope* scope;
+	Syntax* body;
+	void* llvm_value;
+	void* llvm_type;
+};
+
+enum StorageKind {
+	STORAGE_LOCAL,
+	STORAGE_PARAMETER,
+	STORAGE_ARGUMENT,
+	STORAGE_FIELD,
+	STORAGE_CONSTANT,
+};
+
+struct FieldStorage {
+	Entity* owner;
+	usize index;
+};
+
+union StorageData {
+	void* address;
+	FieldStorage field;
+	u64 integer;
+};
+
+struct VariableEntity {
+	Type* type;
+	StorageKind storage;
+	StorageData data;
+};
+
+union EntityData {
+	NumberEntity number;
+	PrimitiveEntity primitive;
+	AggregateEntity aggregate;
+	EnumEntity enumeration;
+	FunctionEntity function;
+	VariableEntity variable;
+};
+
+struct Entity {
+	EntityKind kind;
+	Resolution resolution;
+	Token name;
+	Scope* scope;
+	Syntax* declaration;
+	EntityData data;
+};
+
+struct Allocation {
+	void* memory;
+	Allocation* next;
+};
+
+enum CompilationResult {
+	COMPILATION_SUCCESS,
+	COMPILATION_FAILURE,
+};
+
+enum OutputKind {
+	OUTPUT_EXECUTABLE,
+	OUTPUT_LIBRARY,
+};
+
+struct Compiler {
+	CompilationResult result;
+	Allocation* allocations;
+	Source* sources;
+	Syntax* declarations;
+	Scope* module;
+	DeclarationRule[4] declaration_rules;
+	((char* path, char* mode) -> void*)* open_file;
+	void* diagnostics;
+	void* llvm_context;
+	void* llvm_module;
+	void* llvm_builder;
+	void* llvm_machine;
+	void* llvm_layout;
+	OutputKind output;
+	char* entry;
+	i32 optimization;
+	Type* void_type;
+	Type* bool_type;
+	Type* i32_type;
+	Type* usize_type;
+	Type* char_type;
+};
+
+struct Parser {
+	Compiler* compiler;
+	Scope* scope;
+	Token* tokens;
+	usize count;
+	usize offset;
+};
+
+enum FlowKind {
+	FLOW_FUNCTION,
+	FLOW_LOOP,
+	FLOW_SWITCH,
+};
+
+struct Flow {
+	FlowKind kind;
+	Flow* parent;
+	void* break_block;
+	void* continue_block;
+};
+
+fn malloc(usize size) -> void*;
+fn calloc(usize count, usize size) -> void*;
+fn realloc(void* memory, usize size) -> void*;
+fn free(void* memory);
+fn memcpy(void* destination, void* source, usize size) -> void*;
+fn memset(void* destination, i32 value, usize size) -> void*;
+fn memcmp(void* first, void* second, usize size) -> i32;
+fn strlen(char* text) -> usize;
+fn strtod(char* text, char** end) -> f64;
+fn fopen(char* path, char* mode) -> void*;
+fn fclose(void* file) -> i32;
+fn fread(void* destination, usize size, usize count, void* file) -> usize;
+fn fwrite(void* source, usize size, usize count, void* file) -> usize;
+fn ferror(void* file) -> i32;
+fn fputs(char* text, void* file) -> i32;
+fn fprintf(void* file, char* format, ...) -> i32;
+fn strcmp(char* first, char* second) -> i32;
+fn platform_standard_error() -> void*;
+
+fn memory_allocate(Compiler* compiler, usize size) -> void* {
+	void* memory = calloc(1, size);
+	if (!memory) {
+		compiler->result = COMPILATION_FAILURE;
+		return (void*)0;
+	};
+
+	Allocation* allocation = (Allocation*)malloc(sizeof(Allocation));
+	if (!allocation) {
+		free(memory);
+		compiler->result = COMPILATION_FAILURE;
+		return (void*)0;
+	};
+
+	allocation->memory := memory;
+	allocation->next = compiler->allocations;
+	compiler->allocations = allocation;
+
+	return memory;
+};
+
+fn memory_text(Compiler* compiler, char* text, usize length) -> char* {
+	char* copy = (char*)memory_allocate(compiler, length + 1);
+	if (!copy) {
+		return (char*)0;
+	};
+
+	memcpy((void*)copy, (void*)text, length);
+
+	return copy;
+};
+
+fn token_is(Token token, char* text) -> i32 {
+	usize length = strlen(text);
+
+	return token.source && token.length == length && !memcmp((void*)(token.source->bytes + token.begin), (void*)text, length);
+};
+
+fn token_same(Token first, Token second) -> i32 {
+	return first.source && second.source && first.length == second.length && !memcmp((void*)(first.source->bytes + first.begin), (void*)(second.source->bytes + second.begin), first.length);
+};
+
+fn compiler_error(Compiler* compiler, Token token, char* message) {
+	compiler->result = COMPILATION_FAILURE;
+	if (compiler->diagnostics) {
+		char* path = "<compiler>\0";
+		if (token.source && token.source->path) {
+			path := token.source->path;
+		};
+		fprintf(compiler->diagnostics, "%s:%llu:%llu: error: %s\n\0", path, (u64)token.line, (u64)token.column, message);
+	};
+};
+
+fn scope_create(Compiler* compiler, Scope* parent, ContextKind context, Entity* owner) -> Scope* {
+	Scope* scope = (Scope*)memory_allocate(compiler, sizeof(Scope));
+	if (!scope) {
+		return (Scope*)0;
+	};
+
+	scope->parent = parent;
+	scope->context = context;
+	scope->owner = owner;
+	scope->bucket_count = 64;
+	scope->buckets = (Binding**)memory_allocate(compiler, scope->bucket_count * sizeof(Binding*));
+	if (!scope->buckets) {
+		return (Scope*)0;
+	};
+
+	return scope;
+};
+
+fn token_hash(Token token) -> usize {
+	usize hash = 5381;
+	usize index = 0;
+
+	while (index < token.length) {
+		hash = hash * 33 + (usize)token.source->bytes[token.begin + index];
+		index = index + 1;
+	};
+
+	return hash;
+};
+
+fn scope_local(Scope* scope, Token name) -> Entity* {
+	Binding* binding := scope->buckets[token_hash(name) % scope->bucket_count];
+
+	while (binding) {
+		if (token_same(binding->entity->name, name)) {
+			return binding->entity;
+		};
+		binding := binding->hash_next;
+	};
+
+	return (Entity*)0;
+};
+
+fn scope_lookup(Scope* scope, Token name) -> Entity* {
+	while (scope) {
+		Entity* entity = scope_local(scope, name);
+		if (entity) {
+			return entity;
+		};
+		scope := scope->parent;
+	};
+
+	return (Entity*)0;
+};
+
+fn scope_define(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
+	if (scope_local(scope, entity->name)) {
+		compiler_error(compiler, entity->name, "duplicate declaration\0");
+		return 0;
+	};
+
+	Binding* binding = (Binding*)memory_allocate(compiler, sizeof(Binding));
+	if (!binding) {
+		return 0;
+	};
+
+	usize bucket = token_hash(entity->name) % scope->bucket_count;
+	binding->entity := entity;
+	binding->hash_next = scope->buckets[bucket];
+	scope->buckets[bucket] := binding;
+	if (scope->last_binding) {
+		scope->last_binding->next := binding;
+	}
+	else {
+		scope->bindings := binding;
+	};
+	scope->last_binding = binding;
+	scope->binding_count = scope->binding_count + 1;
+	if (!entity->scope) {
+		entity->scope = scope;
+	};
+
+	return 1;
+};
+
+fn entity_create(Compiler* compiler, EntityKind kind, Token name) -> Entity* {
+	Entity* entity = (Entity*)memory_allocate(compiler, sizeof(Entity));
+	if (!entity) {
+		return (Entity*)0;
+	};
+
+	entity->kind = kind;
+	entity->name = name;
+
+	return entity;
+};
+
+fn primitive_define(Compiler* compiler, char* name, TypeKind kind, i32 bits) -> Type* {
+	Source* source = (Source*)memory_allocate(compiler, sizeof(Source));
+	if (!source) {
+		return (Type*)0;
+	};
+
+	source->path = "<builtins>\0";
+	source->length = strlen(name);
+	source->bytes = name;
+	Token token;
+	token.kind = TOKEN_NAME;
+	token.length := source->length;
+	token.source = source;
+	Type* type = (Type*)memory_allocate(compiler, sizeof(Type));
+	if (!type) {
+		return (Type*)0;
+	};
+
+	type->kind = kind;
+	if (kind == TYPE_SIGNED || kind == TYPE_UNSIGNED || kind == TYPE_FLOAT) {
+		type->data.bits = bits;
+	};
+	Entity* entity = entity_create(compiler, ENTITY_PRIMITIVE, token);
+	if (!entity) {
+		return (Type*)0;
+	};
+
+	entity->resolution = RESOLUTION_READY;
+	entity->data.primitive.type := type;
+	scope_define(compiler, compiler->module, entity);
+
+	return type;
+};
+
+fn boolean_define(Compiler* compiler, char* name, bool value) {
+	Source* source = (Source*)memory_allocate(compiler, sizeof(Source));
+	if (!source) {
+		return;
+	};
+
+	source->path = "<builtins>\0";
+	source->length = strlen(name);
+	source->bytes = name;
+	Token token;
+	token.kind = TOKEN_NAME;
+	token.length := source->length;
+	token.source = source;
+	Entity* entity = entity_create(compiler, ENTITY_VARIABLE, token);
+	if (!entity) {
+		return;
+	};
+
+	entity->resolution = RESOLUTION_READY;
+	entity->data.variable.storage = STORAGE_CONSTANT;
+	entity->data.variable.type := compiler->bool_type;
+	entity->data.variable.data.integer = (u64)value;
+	scope_define(compiler, compiler->module, entity);
+};
+
+fn compiler_builtins(Compiler* compiler, i32 pointer_bits) {
+	declaration_rule_define(&compiler->declaration_rules[0], TOKEN_FN, ENTITY_FUNCTION, CONTEXT_FUNCTION);
+	declaration_rule_define(&compiler->declaration_rules[1], TOKEN_STRUCT, ENTITY_STRUCT, CONTEXT_STRUCT);
+	declaration_rule_define(&compiler->declaration_rules[2], TOKEN_UNION, ENTITY_UNION, CONTEXT_UNION);
+	declaration_rule_define(&compiler->declaration_rules[3], TOKEN_ENUM, ENTITY_ENUM, CONTEXT_ENUM);
+
+	compiler->module = scope_create(compiler, (Scope*)0, CONTEXT_MODULE, (Entity*)0);
+	compiler->void_type = primitive_define(compiler, "void\0", TYPE_VOID, 0);
+	compiler->bool_type = primitive_define(compiler, "bool\0", TYPE_BOOL, 0);
+	boolean_define(compiler, "false\0", false);
+	boolean_define(compiler, "true\0", true);
+	compiler->char_type = primitive_define(compiler, "char\0", TYPE_CHAR, 0);
+	primitive_define(compiler, "i08\0", TYPE_SIGNED, 8);
+	primitive_define(compiler, "i16\0", TYPE_SIGNED, 16);
+	compiler->i32_type = primitive_define(compiler, "i32\0", TYPE_SIGNED, 32);
+	primitive_define(compiler, "i64\0", TYPE_SIGNED, 64);
+	primitive_define(compiler, "u08\0", TYPE_UNSIGNED, 8);
+	primitive_define(compiler, "u16\0", TYPE_UNSIGNED, 16);
+	primitive_define(compiler, "u32\0", TYPE_UNSIGNED, 32);
+	primitive_define(compiler, "u64\0", TYPE_UNSIGNED, 64);
+	compiler->usize_type = primitive_define(compiler, "usize\0", TYPE_UNSIGNED, pointer_bits);
+	primitive_define(compiler, "f32\0", TYPE_FLOAT, 32);
+	primitive_define(compiler, "f64\0", TYPE_FLOAT, 64);
+};
+
+fn declaration_rule_define(DeclarationRule* rule, TokenKind keyword, EntityKind entity, ContextKind context) {
+	rule->keyword = keyword;
+	rule->entity = entity;
+	rule->context = context;
+};
+
+fn declaration_rule(Compiler* compiler, TokenKind token_kind) -> DeclarationRule* {
+	usize count = sizeof(compiler->declaration_rules) / sizeof(DeclarationRule);
+	usize index = 0;
+
+	while (index < count) {
+		if (compiler->declaration_rules[index].keyword == token_kind) {
+			return &compiler->declaration_rules[index];
+		};
+
+		index = index + 1;
+	};
+
+	return (DeclarationRule*)0;
+};
+
+fn parser_predeclare(Parser* parser) {
+	usize index = 0;
+	usize depth = 0;
+	while (index + 1 < parser->count) {
+		Token token := parser->tokens[index];
+		DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
+
+		if (!depth && rule) {
+			Token name := parser->tokens[index + 1];
+			if (name.kind == TOKEN_NAME) {
+				Entity* existing = scope_local(parser->scope, name);
+				EntityKind kind := rule->entity;
+				if (existing) {
+					if (existing->kind != kind) {
+						compiler_error(parser->compiler, name, "conflicting declaration kind\0");
+					};
+				}
+				else {
+					scope_define(parser->compiler, parser->scope, entity_create(parser->compiler, kind, name));
+				};
+			};
+		};
+		if (token.kind == TOKEN_LEFT_BRACE) {
+			depth = depth + 1;
+		};
+		if (token.kind == TOKEN_RIGHT_BRACE && depth) {
+			depth = depth - 1;
+		};
+		index = index + 1;
+	};
+};
+
+fn lexer_peek(Lexer* lexer, usize distance) -> char {
+	if (lexer->offset + distance >= lexer->source->length) {
+		return 0;
+	};
+	return lexer->source->bytes[lexer->offset + distance];
+};
+
+fn lexer_advance(Lexer* lexer) -> char {
+	char value = lexer_peek(lexer, 0);
+	if (!value) {
+		return 0;
+	};
+
+	lexer->offset = lexer->offset + 1;
+	if (value == '\n') {
+		lexer->line = lexer->line + 1;
+		lexer->column = 1;
+	}
+	else {
+		lexer->column = lexer->column + 1;
+	};
+
+	return value;
+};
+
+fn lexer_alpha(char value) -> i32 {
+	return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || value == '_';
+};
+
+fn lexer_digit(char value) -> i32 {
+	return value >= '0' && value <= '9';
+};
+
+struct Keyword {
+	char* text;
+	TokenKind kind;
+};
+
+fn lexer_keywords(Keyword* keywords) {
+	keywords[0].text = "fn\0";
+	keywords[0].kind = TOKEN_FN;
+	keywords[1].text = "var\0";
+	keywords[1].kind = TOKEN_VAR;
+	keywords[2].text = "struct\0";
+	keywords[2].kind = TOKEN_STRUCT;
+	keywords[3].text = "union\0";
+	keywords[3].kind = TOKEN_UNION;
+	keywords[4].text = "enum\0";
+	keywords[4].kind = TOKEN_ENUM;
+	keywords[5].text = "return\0";
+	keywords[5].kind = TOKEN_RETURN;
+	keywords[6].text = "if\0";
+	keywords[6].kind = TOKEN_IF;
+	keywords[7].text = "else\0";
+	keywords[7].kind = TOKEN_ELSE;
+	keywords[8].text = "while\0";
+	keywords[8].kind = TOKEN_WHILE;
+	keywords[9].text = "for\0";
+	keywords[9].kind = TOKEN_FOR;
+	keywords[10].text = "switch\0";
+	keywords[10].kind = TOKEN_SWITCH;
+	keywords[11].text = "case\0";
+	keywords[11].kind = TOKEN_CASE;
+	keywords[12].text = "default\0";
+	keywords[12].kind = TOKEN_DEFAULT;
+	keywords[13].text = "break\0";
+	keywords[13].kind = TOKEN_BREAK;
+	keywords[14].text = "continue\0";
+	keywords[14].kind = TOKEN_CONTINUE;
+	keywords[15].text = "sizeof\0";
+	keywords[15].kind = TOKEN_SIZEOF;
+};
+
+fn lexer_keyword(Token token, Keyword* keywords, usize count) -> TokenKind {
+	usize index = 0;
+
+	while (index < count) {
+		if (token_is(token, keywords[index].text)) {
+			return keywords[index].kind;
+		};
+		index = index + 1;
+	};
+
+	return TOKEN_NAME;
+};
+
+fn lexer_operators(Keyword* operators) {
+	operators[0].text = "...\0";
+	operators[0].kind = TOKEN_ELLIPSIS;
+	operators[1].text = "->\0";
+	operators[1].kind = TOKEN_ARROW;
+	operators[2].text = ":=\0";
+	operators[2].kind = TOKEN_COPY;
+	operators[3].text = "==\0";
+	operators[3].kind = TOKEN_EQUAL;
+	operators[4].text = "!=\0";
+	operators[4].kind = TOKEN_NOT_EQUAL;
+	operators[5].text = "<=\0";
+	operators[5].kind = TOKEN_LESS_EQUAL;
+	operators[6].text = ">=\0";
+	operators[6].kind = TOKEN_GREATER_EQUAL;
+	operators[7].text = "&&\0";
+	operators[7].kind = TOKEN_AND;
+	operators[8].text = "||\0";
+	operators[8].kind = TOKEN_OR;
+	operators[9].text = "<<\0";
+	operators[9].kind = TOKEN_SHIFT_LEFT;
+	operators[10].text = ">>\0";
+	operators[10].kind = TOKEN_SHIFT_RIGHT;
+	operators[11].text = "(\0";
+	operators[11].kind = TOKEN_LEFT_PAREN;
+	operators[12].text = ")\0";
+	operators[12].kind = TOKEN_RIGHT_PAREN;
+	operators[13].text = "[\0";
+	operators[13].kind = TOKEN_LEFT_BRACKET;
+	operators[14].text = "]\0";
+	operators[14].kind = TOKEN_RIGHT_BRACKET;
+	operators[15].text = "{\0";
+	operators[15].kind = TOKEN_LEFT_BRACE;
+	operators[16].text = "}\0";
+	operators[16].kind = TOKEN_RIGHT_BRACE;
+	operators[17].text = ";\0";
+	operators[17].kind = TOKEN_SEMICOLON;
+	operators[18].text = ",\0";
+	operators[18].kind = TOKEN_COMMA;
+	operators[19].text = ":\0";
+	operators[19].kind = TOKEN_COLON;
+	operators[20].text = ".\0";
+	operators[20].kind = TOKEN_DOT;
+	operators[21].text = "=\0";
+	operators[21].kind = TOKEN_ASSIGN;
+	operators[22].text = "+\0";
+	operators[22].kind = TOKEN_PLUS;
+	operators[23].text = "-\0";
+	operators[23].kind = TOKEN_MINUS;
+	operators[24].text = "*\0";
+	operators[24].kind = TOKEN_STAR;
+	operators[25].text = "/\0";
+	operators[25].kind = TOKEN_SLASH;
+	operators[26].text = "%\0";
+	operators[26].kind = TOKEN_REMAINDER;
+	operators[27].text = "&\0";
+	operators[27].kind = TOKEN_AMPERSAND;
+	operators[28].text = "|\0";
+	operators[28].kind = TOKEN_PIPE;
+	operators[29].text = "^\0";
+	operators[29].kind = TOKEN_CARET;
+	operators[30].text = "!\0";
+	operators[30].kind = TOKEN_BANG;
+	operators[31].text = "~\0";
+	operators[31].kind = TOKEN_TILDE;
+	operators[32].text = "<\0";
+	operators[32].kind = TOKEN_LESS;
+	operators[33].text = ">\0";
+	operators[33].kind = TOKEN_GREATER;
+};
+
+fn lexer_operator(Lexer* lexer, Token* token, Keyword* operators, usize count) -> i32 {
+	usize index = 0;
+	usize longest = 0;
+	while (index < count) {
+		usize length = strlen(operators[index].text);
+		if (length > longest && length <= lexer->source->length - token->begin && !memcmp((void*)(lexer->source->bytes + token->begin), (void*)operators[index].text, length)) {
+			longest = length;
+			token->kind := operators[index].kind;
+		};
+		index = index + 1;
+	};
+	if (!longest) {
+		return 0;
+	};
+	while (lexer->offset < token->begin + longest) {
+		lexer_advance(lexer);
+	};
+	return 1;
+};
+
+fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) -> i32 {
+	Lexer lexer {
+		lexer.source := source;
+		lexer.offset = 0;
+		lexer.line = 1;
+		lexer.column = 1;
+	};
+	Token* tokens = (Token*)memory_allocate(compiler, (source->length + 1) * sizeof(Token));
+	usize used = 0;
+	Keyword[16] keywords {};
+	lexer_keywords(&keywords[0]);
+	Keyword[34] operators {};
+	lexer_operators(&operators[0]);
+	usize operator_count = sizeof(operators) / sizeof(Keyword);
+	while (true) {
+		char value = lexer_peek(&lexer, 0);
+		if (value == ' ' || value == '\t' || value == '\n' || value == '\r') {
+			lexer_advance(&lexer);
+			continue;
+		};
+		if (value == '/' && lexer_peek(&lexer, 1) == '/') {
+			while (lexer_peek(&lexer, 0) && lexer_peek(&lexer, 0) != '\n') {
+				lexer_advance(&lexer);
+			};
+			continue;
+		};
+		Token token {
+			token.kind = TOKEN_NAME;
+			token.length = 0;
+			token.source := source;
+			token.begin := lexer.offset;
+			token.line := lexer.line;
+			token.column := lexer.column;
+		};
+		if (value == '/' && lexer_peek(&lexer, 1) == '*') {
+			lexer_advance(&lexer);
+			lexer_advance(&lexer);
+			while (lexer_peek(&lexer, 0) && !(lexer_peek(&lexer, 0) == '*' && lexer_peek(&lexer, 1) == '/')) {
+				lexer_advance(&lexer);
+			};
+			if (!lexer_peek(&lexer, 0)) {
+				compiler_error(compiler, token, "unterminated comment\0");
+				return 0;
+			};
+			lexer_advance(&lexer);
+			lexer_advance(&lexer);
+			continue;
+		};
+		if (!value) {
+			if (lexer.offset < source->length) {
+				compiler_error(compiler, token, "NUL byte in source\0");
+				return 0;
+			};
+			token.kind = TOKEN_END;
+			tokens[used] = token;
+			*result = tokens;
+			*count = used + 1;
+			return 1;
+		};
+		lexer_advance(&lexer);
+		if (lexer_alpha(value)) {
+			while (lexer_alpha(lexer_peek(&lexer, 0)) || lexer_digit(lexer_peek(&lexer, 0))) {
+				lexer_advance(&lexer);
+			};
+			token.length = lexer.offset - token.begin;
+			token.kind = lexer_keyword(token, &keywords[0], 16);
+		}
+		else if (lexer_digit(value)) {
+			token.kind = TOKEN_NUMBER;
+			while (lexer_digit(lexer_peek(&lexer, 0))) {
+				lexer_advance(&lexer);
+			};
+			if (lexer_peek(&lexer, 0) == '.' && lexer_digit(lexer_peek(&lexer, 1))) {
+				lexer_advance(&lexer);
+				while (lexer_digit(lexer_peek(&lexer, 0))) {
+					lexer_advance(&lexer);
+				};
+			};
+			if (lexer_peek(&lexer, 0) == 'e' || lexer_peek(&lexer, 0) == 'E') {
+				lexer_advance(&lexer);
+				if (lexer_peek(&lexer, 0) == '+' || lexer_peek(&lexer, 0) == '-') {
+					lexer_advance(&lexer);
+				};
+				if (!lexer_digit(lexer_peek(&lexer, 0))) {
+					compiler_error(compiler, token, "expected exponent digits\0");
+					return 0;
+				};
+				while (lexer_digit(lexer_peek(&lexer, 0))) {
+					lexer_advance(&lexer);
+				};
+			};
+		}
+		else if (value == '"') {
+			token.kind = TOKEN_STRING;
+			while (lexer_peek(&lexer, 0) && lexer_peek(&lexer, 0) != '"') {
+				if (lexer_peek(&lexer, 0) == '\n') {
+					compiler_error(compiler, token, "newline in string literal\0");
+					return 0;
+				};
+				if (lexer_advance(&lexer) == '\\' && lexer_peek(&lexer, 0)) {
+					lexer_advance(&lexer);
+				};
+			};
+			if (!lexer_peek(&lexer, 0)) {
+				compiler_error(compiler, token, "unterminated string literal\0");
+				return 0;
+			};
+			lexer_advance(&lexer);
+		}
+		else if (value == '\'') {
+			token.kind = TOKEN_NUMBER;
+			char character = lexer_advance(&lexer);
+
+			if (!character || character == '\'' || character == '\n' || character == '\r') {
+				compiler_error(compiler, token, "expected one character in literal\0");
+				return 0;
+			};
+
+			if (character == '\\') {
+				char escaped = lexer_advance(&lexer);
+
+				if (!escaped || escaped == '\n' || escaped == '\r') {
+					compiler_error(compiler, token, "unterminated character escape\0");
+					return 0;
+				};
+			};
+
+			if (lexer_advance(&lexer) != '\'') {
+				compiler_error(compiler, token, "expected closing quote after character\0");
+				return 0;
+			};
+		}
+		else {
+			if (!lexer_operator(&lexer, &token, &operators[0], operator_count)) {
+				compiler_error(compiler, token, "unknown source character\0");
+				return 0;
+			};
+		};
+		token.length = lexer.offset - token.begin;
+		tokens[used] = token;
+		used = used + 1;
+	};
+	return 0;
+};
+
+fn parser_token(Parser* parser) -> Token {
+	return parser->tokens[parser->offset];
+};
+
+fn parser_at(Parser* parser, TokenKind kind) -> i32 {
+	return parser_token(parser).kind == kind;
+};
+
+fn parser_take(Parser* parser, TokenKind kind) -> i32 {
+	if (!parser_at(parser, kind)) {
+		return 0;
+	};
+
+	if (parser->offset + 1 < parser->count) {
+		parser->offset = parser->offset + 1;
+	};
+
+	return 1;
+};
+
+fn parser_require(Parser* parser, TokenKind kind, char* message) -> Token {
+	Token token = parser_token(parser);
+
+	if (!parser_take(parser, kind)) {
+		compiler_error(parser->compiler, token, message);
+	};
+
+	return token;
+};
+
+fn syntax_new(Parser* parser, SyntaxKind kind, Token token) -> Syntax* {
+	Syntax* syntax = (Syntax*)memory_allocate(parser->compiler, sizeof(Syntax));
+	if (!syntax) {
+		return (Syntax*)0;
+	};
+
+	syntax->kind = kind;
+	syntax->token = token;
+
+	return syntax;
+};
+
+fn syntax_append(Syntax** first, Syntax** last, Syntax* node) {
+	if (!node) {
+		return;
+	};
+
+	if (*last) {
+		(*last)->next := node;
+	}
+	else {
+		*first := node;
+	};
+	*last = node;
+};
+
+fn parser_type(Parser* parser) -> Syntax*;
+fn parser_expression(Parser* parser, i32 minimum) -> Syntax*;
+fn parser_statement(Parser* parser) -> Syntax*;
+fn parser_block(Parser* parser) -> Syntax*;
+
+fn parser_signature_arrow(Parser* parser, usize offset) -> usize {
+	usize depth = 0;
+	while (offset < parser->count) {
+		TokenKind kind := parser->tokens[offset].kind;
+		if (kind == TOKEN_LEFT_PAREN) {
+			depth = depth + 1;
+		};
+		if (kind == TOKEN_RIGHT_PAREN) {
+			depth = depth - 1;
+			if (!depth) {
+				if (offset + 1 < parser->count && parser->tokens[offset + 1].kind == TOKEN_ARROW) {
+					return offset + 1;
+				};
+				return 0;
+			};
+		};
+		offset = offset + 1;
+	};
+	return 0;
+};
+
+fn parser_type_end(Parser* parser, usize offset) -> usize {
+	if (offset >= parser->count) {
+		return 0;
+	};
+	TokenKind kind := parser->tokens[offset].kind;
+	if (kind == TOKEN_NAME) {
+		Entity* entity = scope_lookup(parser->scope, parser->tokens[offset]);
+		if (!entity) {
+			return 0;
+		};
+		if (entity->kind == ENTITY_PRIMITIVE || entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION || entity->kind == ENTITY_ENUM) {
+			return parser_type_suffix_end(parser, offset + 1);
+		};
+		return 0;
+	};
+	if (kind != TOKEN_LEFT_PAREN) {
+		return 0;
+	};
+
+	usize arrow = parser_signature_arrow(parser, offset);
+	if (!arrow) {
+		usize end = parser_type_end(parser, offset + 1);
+		if (!end || end >= parser->count || parser->tokens[end].kind != TOKEN_RIGHT_PAREN) {
+			return 0;
+		};
+		return parser_type_suffix_end(parser, end + 1);
+	};
+
+	offset = offset + 1;
+	while (offset < arrow - 1) {
+		if (parser->tokens[offset].kind == TOKEN_ELLIPSIS) {
+			offset = offset + 1;
+			break;
+		};
+		offset = parser_type_end(parser, offset);
+		if (!offset || offset >= parser->count) {
+			return 0;
+		};
+		if (parser->tokens[offset].kind == TOKEN_NAME) {
+			offset = offset + 1;
+		};
+		if (offset == arrow - 1) {
+			break;
+		};
+		if (offset >= parser->count || parser->tokens[offset].kind != TOKEN_COMMA) {
+			return 0;
+		};
+		offset = offset + 1;
+	};
+	if (offset != arrow - 1) {
+		return 0;
+	};
+	return parser_type_end(parser, arrow + 1);
+};
+
+fn parser_type_suffix_end(Parser* parser, usize offset) -> usize {
+	while (offset < parser->count) {
+		TokenKind kind := parser->tokens[offset].kind;
+		if (kind == TOKEN_STAR || kind == TOKEN_AMPERSAND) {
+			offset = offset + 1;
+			continue;
+		};
+
+		if (kind != TOKEN_LEFT_BRACKET) {
+			break;
+		};
+		if (offset + 2 >= parser->count || parser->tokens[offset + 1].kind != TOKEN_NUMBER || parser->tokens[offset + 2].kind != TOKEN_RIGHT_BRACKET) {
+			return 0;
+		};
+
+		offset = offset + 3;
+	};
+	return offset;
+};
+
+fn parser_signature(Parser* parser, Token token) -> Syntax* {
+	Syntax* node = syntax_new(parser, SYNTAX_SIGNATURE, token);
+	ParameterSyntax* last = (ParameterSyntax*)0;
+	parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' in signature\0");
+	while (!parser_at(parser, TOKEN_RIGHT_PAREN) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+		if (parser_take(parser, TOKEN_ELLIPSIS)) {
+			node->data.signature.arity = PARAMETERS_VARIADIC;
+			break;
+		};
+		ParameterSyntax* parameter = (ParameterSyntax*)memory_allocate(parser->compiler, sizeof(ParameterSyntax));
+		parameter->type = parser_type(parser);
+		if (parser_at(parser, TOKEN_NAME)) {
+			parameter->name = parser_require(parser, TOKEN_NAME, "expected parameter name\0");
+		};
+		if (last) {
+			last->next := parameter;
+		}
+		else {
+			node->data.signature.parameters := parameter;
+		};
+		last = parameter;
+		if (!parser_take(parser, TOKEN_COMMA)) {
+			break;
+		};
+	};
+	parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after signature\0");
+	if (parser_take(parser, TOKEN_ARROW)) {
+		node->data.signature.result = parser_type(parser);
+	};
+	return node;
+};
+
+fn parser_type(Parser* parser) -> Syntax* {
+	Token token = parser_token(parser);
+	Syntax* node;
+	if (parser_at(parser, TOKEN_LEFT_PAREN)) {
+		if (parser_signature_arrow(parser, parser->offset)) {
+			return parser_signature(parser, token);
+		};
+
+		parser_take(parser, TOKEN_LEFT_PAREN);
+		node = parser_type(parser);
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after grouped type\0");
+	}
+	else {
+		parser_require(parser, TOKEN_NAME, "expected type expression\0");
+		node = syntax_new(parser, SYNTAX_NAME, token);
+	};
+
+	while (true) {
+		Token modifier = parser_token(parser);
+		if (parser_take(parser, TOKEN_STAR) || parser_take(parser, TOKEN_AMPERSAND)) {
+			SyntaxKind kind = SYNTAX_POINTER;
+			if (modifier.kind == TOKEN_AMPERSAND) {
+				kind = SYNTAX_REFERENCE;
+			};
+
+			Syntax* modified = syntax_new(parser, kind, modifier);
+			modified->data.expression = node;
+			node = modified;
+			continue;
+		};
+
+		if (!parser_take(parser, TOKEN_LEFT_BRACKET)) {
+			break;
+		};
+
+		Syntax* modified = syntax_new(parser, SYNTAX_ARRAY, modifier);
+		modified->data.array.count = parser_require(parser, TOKEN_NUMBER, "array requires an explicit length\0");
+		parser_require(parser, TOKEN_RIGHT_BRACKET, "expected ']' after array length\0");
+		modified->data.array.element = node;
+		node = modified;
+	};
+	return node;
+};
+
+fn literal_escape(Compiler* compiler, Token token, char value) -> char {
+	switch (value) {
+		case '0':
+			return '\0';
+
+		case 'n':
+			return '\n';
+
+		case 'r':
+			return '\r';
+
+		case 't':
+			return '\t';
+
+		case '\\':
+		case '"':
+		case '\'':
+			return value;
+
+		default:
+			compiler_error(compiler, token, "unsupported literal escape\0");
+			return '\0';
+	};
+};
+
+fn parser_string(Parser* parser, Token token) -> Syntax* {
+	Syntax* node = syntax_new(parser, SYNTAX_STRING, token);
+	node->data.string.bytes = (char*)memory_allocate(parser->compiler, token.length);
+	usize index = 1;
+	usize length = 0;
+
+	while (index + 1 < token.length) {
+		char value := token.source->bytes[token.begin + index];
+		index = index + 1;
+
+		if (value == '\\') {
+			value = literal_escape(parser->compiler, token, token.source->bytes[token.begin + index]);
+			index = index + 1;
+		};
+
+		node->data.string.bytes[length] = value;
+		length = length + 1;
+	};
+
+	node->data.string.length = length;
+	return node;
+};
+
+fn parser_precedence(TokenKind operation) -> i32 {
+	switch (operation) {
+		case TOKEN_ASSIGN:
+			return 1;
+		case TOKEN_COPY:
+			return 1;
+		case TOKEN_OR:
+			return 2;
+		case TOKEN_AND:
+			return 3;
+		case TOKEN_PIPE:
+			return 4;
+		case TOKEN_CARET:
+			return 5;
+		case TOKEN_AMPERSAND:
+			return 6;
+		case TOKEN_EQUAL:
+			return 7;
+		case TOKEN_NOT_EQUAL:
+			return 7;
+		case TOKEN_LESS:
+			return 8;
+		case TOKEN_GREATER:
+			return 8;
+		case TOKEN_LESS_EQUAL:
+			return 8;
+		case TOKEN_GREATER_EQUAL:
+			return 8;
+		case TOKEN_SHIFT_LEFT:
+			return 9;
+		case TOKEN_SHIFT_RIGHT:
+			return 9;
+		case TOKEN_PLUS:
+			return 10;
+		case TOKEN_MINUS:
+			return 10;
+		case TOKEN_STAR:
+			return 11;
+		case TOKEN_SLASH:
+			return 11;
+		case TOKEN_REMAINDER:
+			return 11;
+		default:
+			return 0;
+	};
+};
+
+fn parser_primary(Parser* parser) -> Syntax* {
+	Token token = parser_token(parser);
+	if (parser_take(parser, TOKEN_NAME)) {
+		return syntax_new(parser, SYNTAX_NAME, token);
+	};
+	if (parser_take(parser, TOKEN_NUMBER)) {
+		Syntax* node = syntax_new(parser, SYNTAX_NUMBER, token);
+		node->entity = entity_create(parser->compiler, ENTITY_NUMBER, token);
+		node->entity->data.number.spelling = token;
+		return node;
+	};
+	if (parser_take(parser, TOKEN_STRING)) {
+		return parser_string(parser, token);
+	};
+	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
+		return parser_block(parser);
+	};
+	if (parser_take(parser, TOKEN_LEFT_PAREN)) {
+		Syntax* node = parser_expression(parser, 1);
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after expression\0");
+		return node;
+	};
+	compiler_error(parser->compiler, token, "expected expression\0");
+	return syntax_new(parser, SYNTAX_NUMBER, token);
+};
+
+fn parser_type_at(Parser* parser, usize offset) -> i32 {
+	return !!parser_type_end(parser, offset);
+};
+
+fn parser_unary(Parser* parser) -> Syntax* {
+	Token token = parser_token(parser);
+	if (parser_take(parser, TOKEN_SIZEOF)) {
+		Syntax* node = syntax_new(parser, SYNTAX_SIZEOF, token);
+		parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' after sizeof\0");
+		if (parser_type_at(parser, parser->offset)) {
+			node->data.expression = parser_type(parser);
+		}
+		else {
+			node->data.expression = parser_expression(parser, 1);
+		};
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after sizeof operand\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_PLUS) || parser_take(parser, TOKEN_MINUS) || parser_take(parser, TOKEN_BANG) || parser_take(parser, TOKEN_TILDE) || parser_take(parser, TOKEN_STAR) || parser_take(parser, TOKEN_AMPERSAND)) {
+		Syntax* node = syntax_new(parser, SYNTAX_UNARY, token);
+		node->data.unary.operation = token.kind;
+		node->data.unary.value = parser_unary(parser);
+		return node;
+	};
+	if (parser_at(parser, TOKEN_LEFT_PAREN) && parser_type_at(parser, parser->offset + 1)) {
+		parser_take(parser, TOKEN_LEFT_PAREN);
+		Syntax* node = syntax_new(parser, SYNTAX_CAST, token);
+		node->data.cast.type = parser_type(parser);
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after cast type\0");
+		node->data.cast.value = parser_unary(parser);
+		return node;
+	};
+	Syntax* value = parser_primary(parser);
+	while (parser->compiler->result != COMPILATION_FAILURE) {
+		Token operation = parser_token(parser);
+		if (parser_take(parser, TOKEN_LEFT_PAREN)) {
+			Syntax* call = syntax_new(parser, SYNTAX_CALL, operation);
+			call->data.call.callable = value;
+			Syntax* last = (Syntax*)0;
+			while (!parser_at(parser, TOKEN_RIGHT_PAREN) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+				Syntax* argument = parser_expression(parser, 1);
+				syntax_append(&call->data.call.arguments, &last, argument);
+				if (!parser_take(parser, TOKEN_COMMA)) {
+					break;
+				};
+			};
+			parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after arguments\0");
+			value = call;
+		}
+		else if (parser_take(parser, TOKEN_LEFT_BRACKET)) {
+			Syntax* index = syntax_new(parser, SYNTAX_INDEX, operation);
+			index->data.binary.left = value;
+			index->data.binary.right = parser_expression(parser, 1);
+			parser_require(parser, TOKEN_RIGHT_BRACKET, "expected ']' after index\0");
+			value = index;
+		}
+		else if (parser_take(parser, TOKEN_DOT) || parser_take(parser, TOKEN_ARROW)) {
+			Syntax* member = syntax_new(parser, SYNTAX_MEMBER, operation);
+			member->data.member.object = value;
+			member->data.member.name = parser_require(parser, TOKEN_NAME, "expected member identifier\0");
+			value = member;
+		}
+		else {
+			break;
+		};
+	};
+	return value;
+};
+
+fn parser_expression(Parser* parser, i32 minimum) -> Syntax* {
+	Syntax* left = parser_unary(parser);
+	while (parser->compiler->result != COMPILATION_FAILURE) {
+		Token operation = parser_token(parser);
+		i32 precedence = parser_precedence(operation.kind);
+		if (precedence < minimum) {
+			break;
+		};
+		parser_take(parser, operation.kind);
+		i32 next = precedence + 1;
+		if (operation.kind == TOKEN_ASSIGN || operation.kind == TOKEN_COPY) {
+			next = precedence;
+		};
+		Syntax* node = syntax_new(parser, SYNTAX_BINARY, operation);
+		node->data.binary.operation = operation.kind;
+		node->data.binary.left = left;
+		node->data.binary.right = parser_expression(parser, next);
+		left = node;
+	};
+	return left;
+};
+
+fn parser_variable(Parser* parser) -> Syntax* {
+	Token token = parser_token(parser);
+	Syntax* node = syntax_new(parser, SYNTAX_DECLARATION, token);
+	if (!parser_take(parser, TOKEN_VAR)) {
+		node->data.declaration.type = parser_type(parser);
+	};
+	node->data.declaration.name = parser_require(parser, TOKEN_NAME, "expected declaration identifier\0");
+	node->entity = entity_create(parser->compiler, ENTITY_VARIABLE, node->data.declaration.name);
+	node->entity->declaration := node;
+	scope_define(parser->compiler, parser->scope, node->entity);
+	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
+		node->data.declaration.body = parser_block(parser);
+		node->data.declaration.body->scope->context = CONTEXT_INITIALIZATION;
+		node->data.declaration.body->scope->owner := node->entity;
+	};
+	if (parser_at(parser, TOKEN_COPY) || parser_at(parser, TOKEN_ASSIGN)) {
+		Token operation = parser_token(parser);
+		parser_take(parser, operation.kind);
+		Syntax* block = syntax_new(parser, SYNTAX_BLOCK, operation);
+		block->scope = scope_create(parser->compiler, parser->scope, CONTEXT_INITIALIZATION, node->entity);
+		Syntax* assignment = syntax_new(parser, SYNTAX_BINARY, operation);
+		assignment->data.binary.operation = operation.kind;
+		assignment->data.binary.left = syntax_new(parser, SYNTAX_NAME, node->data.declaration.name);
+		assignment->data.binary.left->entity := node->entity;
+		assignment->data.binary.right = parser_expression(parser, 1);
+		block->data.statements = assignment;
+		node->data.declaration.body = block;
+	};
+	parser_require(parser, TOKEN_SEMICOLON, "expected ';' after variable declaration\0");
+	return node;
+};
+
+fn parser_declaration_start(Parser* parser) -> i32 {
+	if (parser_at(parser, TOKEN_VAR)) {
+		return 1;
+	};
+
+	usize end = parser_type_end(parser, parser->offset);
+	return end && end < parser->count && parser->tokens[end].kind == TOKEN_NAME;
+};
+
+fn parser_enum_block(Parser* parser) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_LEFT_BRACE, "expected '{' after enum name\0");
+	Syntax* block = syntax_new(parser, SYNTAX_BLOCK, token);
+	block->scope := parser->scope;
+	Syntax* last = (Syntax*)0;
+	while (!parser_at(parser, TOKEN_RIGHT_BRACE) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+		Token name = parser_require(parser, TOKEN_NAME, "expected enum member identifier\0");
+		Syntax* node = syntax_new(parser, SYNTAX_DECLARATION, name);
+		node->data.declaration.name := name;
+		node->entity = entity_create(parser->compiler, ENTITY_VARIABLE, name);
+		node->entity->data.variable.storage = STORAGE_CONSTANT;
+		node->entity->declaration := node;
+		scope_define(parser->compiler, parser->scope, node->entity);
+		scope_define(parser->compiler, parser->scope->parent, node->entity);
+		if (parser_take(parser, TOKEN_ASSIGN)) {
+			node->data.declaration.body = parser_expression(parser, 2);
+		};
+		syntax_append(&block->data.statements, &last, node);
+		if (!parser_take(parser, TOKEN_COMMA)) {
+			break;
+		};
+	};
+	parser_require(parser, TOKEN_RIGHT_BRACE, "expected '}' after enum members\0");
+	return block;
+};
+
+fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
+	Token token = parser_token(parser);
+	parser_take(parser, token.kind);
+	Syntax* node = syntax_new(parser, SYNTAX_DECLARATION, token);
+	node->data.declaration.name = parser_require(parser, TOKEN_NAME, "expected declaration identifier\0");
+	node->entity = scope_local(parser->scope, node->data.declaration.name);
+
+	if (!node->entity) {
+		node->entity = entity_create(parser->compiler, rule->entity, node->data.declaration.name);
+		scope_define(parser->compiler, parser->scope, node->entity);
+	};
+
+	if (node->entity->kind != rule->entity) {
+		compiler_error(parser->compiler, node->data.declaration.name, "conflicting declaration kind\0");
+	};
+
+	if (token.kind == TOKEN_FN) {
+		node->data.declaration.type = parser_signature(parser, token);
+	};
+
+	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
+		Scope* outer = parser->scope;
+		ContextKind context := rule->context;
+
+		parser->scope = scope_create(parser->compiler, outer, context, node->entity);
+
+		if (token.kind == TOKEN_FN) {
+			ParameterSyntax* parameter := node->data.declaration.type->data.signature.parameters;
+			while (parameter) {
+				if (parameter->name.source) {
+					Entity* entity = entity_create(parser->compiler, ENTITY_VARIABLE, parameter->name);
+					entity->data.variable.storage = STORAGE_PARAMETER;
+					parameter->entity := entity;
+					scope_define(parser->compiler, parser->scope, entity);
+				};
+				parameter := parameter->next;
+			};
+		};
+
+		if (token.kind == TOKEN_ENUM) {
+			node->data.declaration.body = parser_enum_block(parser);
+		}
+		else {
+			node->data.declaration.body = parser_block(parser);
+		};
+
+		node->data.declaration.body->scope->context = context;
+		node->data.declaration.body->scope->owner := node->entity;
+		parser->scope = outer;
+	};
+
+	if (!node->entity->declaration || node->data.declaration.body) {
+		node->entity->declaration := node;
+	};
+
+	parser_require(parser, TOKEN_SEMICOLON, "expected ';' after declaration\0");
+	return node;
+};
+
+fn parser_control_body(Parser* parser) -> Syntax* {
+	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
+		return parser_block(parser);
+	};
+
+	return parser_statement(parser);
+};
+
+fn parser_conditional(Parser* parser) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_IF, "expected if\0");
+	Syntax* node = syntax_new(parser, SYNTAX_IF, token);
+	parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' after if\0");
+	node->data.branch.condition = parser_expression(parser, 1);
+	parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after condition\0");
+	node->data.branch.first = parser_control_body(parser);
+
+	if (!parser_take(parser, TOKEN_ELSE)) {
+		return node;
+	};
+
+	if (parser_at(parser, TOKEN_IF)) {
+		node->data.branch.second = parser_conditional(parser);
+		return node;
+	};
+
+	node->data.branch.second = parser_control_body(parser);
+	return node;
+};
+
+fn parser_statement(Parser* parser) -> Syntax* {
+	Token token = parser_token(parser);
+	DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
+
+	if (rule) {
+		return parser_named_declaration(parser, rule);
+	};
+	if (parser_declaration_start(parser)) {
+		return parser_variable(parser);
+	};
+	if (parser_take(parser, TOKEN_SEMICOLON)) {
+		return syntax_new(parser, SYNTAX_BLOCK, token);
+	};
+	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
+		Syntax* node = parser_block(parser);
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after block expression\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_RETURN)) {
+		Syntax* node = syntax_new(parser, SYNTAX_RETURN, token);
+		if (!parser_at(parser, TOKEN_SEMICOLON)) {
+			node->data.expression = parser_expression(parser, 1);
+		};
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after return\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_BREAK) || parser_take(parser, TOKEN_CONTINUE)) {
+		SyntaxKind kind = SYNTAX_BREAK;
+		if (token.kind == TOKEN_CONTINUE) {
+			kind = SYNTAX_CONTINUE;
+		};
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after flow statement\0");
+		return syntax_new(parser, kind, token);
+	};
+	if (parser_at(parser, TOKEN_IF)) {
+		Syntax* node = parser_conditional(parser);
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after if statement\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_WHILE)) {
+		Syntax* node = syntax_new(parser, SYNTAX_WHILE, token);
+		parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' after while\0");
+		node->data.loop.condition = parser_expression(parser, 1);
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after condition\0");
+		node->data.loop.body = parser_control_body(parser);
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after loop statement\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_FOR)) {
+		Syntax* node = syntax_new(parser, SYNTAX_FOR, token);
+		Scope* outer = parser->scope;
+		node->scope = scope_create(parser->compiler, outer, CONTEXT_LOCAL, (Entity*)0);
+		parser->scope := node->scope;
+		parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' after for\0");
+		if (parser_declaration_start(parser)) {
+			node->data.loop.initializer = parser_variable(parser);
+		}
+		else {
+			if (!parser_at(parser, TOKEN_SEMICOLON)) {
+				node->data.loop.initializer = parser_expression(parser, 1);
+			};
+			parser_require(parser, TOKEN_SEMICOLON, "expected ';' after for initializer\0");
+		};
+		if (!parser_at(parser, TOKEN_SEMICOLON)) {
+			node->data.loop.condition = parser_expression(parser, 1);
+		};
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after for condition\0");
+		if (!parser_at(parser, TOKEN_RIGHT_PAREN)) {
+			node->data.loop.step = parser_expression(parser, 1);
+		};
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after for step\0");
+		node->data.loop.body = parser_control_body(parser);
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after loop statement\0");
+		parser->scope = outer;
+		return node;
+	};
+	if (parser_take(parser, TOKEN_SWITCH)) {
+		Syntax* node = syntax_new(parser, SYNTAX_SWITCH, token);
+		parser_require(parser, TOKEN_LEFT_PAREN, "expected '(' after switch\0");
+		node->data.selection.value = parser_expression(parser, 1);
+		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after switch value\0");
+		node->data.selection.cases = parser_block(parser);
+		parser_require(parser, TOKEN_SEMICOLON, "expected ';' after switch block\0");
+		return node;
+	};
+	if (parser_take(parser, TOKEN_CASE) || parser_take(parser, TOKEN_DEFAULT)) {
+		Syntax* node = syntax_new(parser, SYNTAX_CASE, token);
+		if (token.kind == TOKEN_CASE) {
+			node->data.selection_case.value = parser_expression(parser, 2);
+		};
+		parser_require(parser, TOKEN_COLON, "expected ':' after case label\0");
+		return node;
+	};
+	Syntax* node = parser_expression(parser, 1);
+	parser_require(parser, TOKEN_SEMICOLON, "expected ';' after expression\0");
+	return node;
+};
+
+fn parser_block(Parser* parser) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_LEFT_BRACE, "expected '{'\0");
+	Syntax* node = syntax_new(parser, SYNTAX_BLOCK, token);
+	Scope* outer = parser->scope;
+	node->scope = scope_create(parser->compiler, outer, CONTEXT_LOCAL, (Entity*)0);
+	parser->scope := node->scope;
+	Syntax* last = (Syntax*)0;
+	while (!parser_at(parser, TOKEN_RIGHT_BRACE) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+		Syntax* statement = parser_statement(parser);
+		syntax_append(&node->data.statements, &last, statement);
+	};
+	parser_require(parser, TOKEN_RIGHT_BRACE, "expected '}' after block\0");
+	parser->scope = outer;
+	return node;
+};
+
+fn prepare_source(Compiler* compiler, Source* source) -> i32 {
+	if (source->tokens) {
+		return compiler->result == COMPILATION_SUCCESS;
+	};
+	if (!tokenize(compiler, source, &source->tokens, &source->token_count)) {
+		return 0;
+	};
+	Parser parser {
+		parser.compiler := compiler;
+		parser.scope := compiler->module;
+		parser.tokens := source->tokens;
+		parser.count := source->token_count;
+		parser.offset = 0;
+	};
+	parser_predeclare(&parser);
+	return compiler->result == COMPILATION_SUCCESS;
+};
+
+fn prepare_sources(Compiler* compiler) -> i32 {
+	Source* source := compiler->sources;
+	while (source) {
+		if (!prepare_source(compiler, source)) {
+			return 0;
+		};
+		source := source->next;
+	};
+	return 1;
+};
+
+fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
+	if (!prepare_source(compiler, source)) {
+		return (Syntax*)0;
+	};
+	Parser parser {
+		parser.compiler := compiler;
+		parser.scope := compiler->module;
+		parser.tokens := source->tokens;
+		parser.count := source->token_count;
+		parser.offset = 0;
+	};
+	Token token = parser_token(&parser);
+	Syntax* module = syntax_new(&parser, SYNTAX_BLOCK, token);
+	module->scope := compiler->module;
+	Syntax* last = (Syntax*)0;
+	while (!parser_at(&parser, TOKEN_END) && compiler->result != COMPILATION_FAILURE) {
+		Syntax* statement = parser_statement(&parser);
+		syntax_append(&module->data.statements, &last, statement);
+	};
+	return module;
+};
+
+fn LLVMContextCreate() -> void*;
+fn LLVMContextDispose(void* context);
+fn LLVMModuleCreateWithNameInContext(char* name, void* context) -> void*;
+fn LLVMDisposeModule(void* module);
+fn LLVMCreateBuilderInContext(void* context) -> void*;
+fn LLVMDisposeBuilder(void* builder);
+fn LLVMInitializeX86TargetInfo();
+fn LLVMInitializeX86Target();
+fn LLVMInitializeX86TargetMC();
+fn LLVMInitializeX86AsmPrinter();
+fn LLVMGetDefaultTargetTriple() -> char*;
+fn LLVMGetHostCPUName() -> char*;
+fn LLVMGetHostCPUFeatures() -> char*;
+fn LLVMGetTargetFromTriple(char* triple, void** target, char** message) -> i32;
+fn LLVMCreateTargetMachine(void* target, char* triple, char* cpu, char* features, i32 level, i32 relocation, i32 model) -> void*;
+fn LLVMDisposeTargetMachine(void* machine);
+fn LLVMCreateTargetDataLayout(void* machine) -> void*;
+fn LLVMDisposeTargetData(void* layout);
+fn LLVMCopyStringRepOfTargetData(void* layout) -> char*;
+fn LLVMPointerSize(void* layout) -> u32;
+fn LLVMABISizeOfType(void* layout, void* type) -> u64;
+fn LLVMABIAlignmentOfType(void* layout, void* type) -> u32;
+fn LLVMSetTarget(void* module, char* triple);
+fn LLVMSetDataLayout(void* module, char* layout);
+fn LLVMDisposeMessage(char* message);
+fn LLVMVoidTypeInContext(void* context) -> void*;
+fn LLVMIntTypeInContext(void* context, u32 bits) -> void*;
+fn LLVMFloatTypeInContext(void* context) -> void*;
+fn LLVMDoubleTypeInContext(void* context) -> void*;
+fn LLVMPointerTypeInContext(void* context, u32 address_space) -> void*;
+fn LLVMArrayType2(void* element, u64 count) -> void*;
+fn LLVMFunctionType(void* result, void** parameters, u32 count, i32 variadic) -> void*;
+fn LLVMStructCreateNamed(void* context, char* name) -> void*;
+fn LLVMStructSetBody(void* type, void** fields, u32 count, i32 packed);
+fn LLVMConstInt(void* type, u64 value, i32 sign_extend) -> void*;
+fn LLVMConstReal(void* type, f64 value) -> void*;
+fn LLVMConstNull(void* type) -> void*;
+fn LLVMConstStringInContext2(void* context, char* bytes, usize length, i32 no_terminator) -> void*;
+fn LLVMTypeOf(void* value) -> void*;
+fn LLVMAddGlobal(void* module, void* type, char* name) -> void*;
+fn LLVMSetInitializer(void* global, void* value);
+fn LLVMSetGlobalConstant(void* global, i32 constant);
+fn LLVMSetLinkage(void* value, i32 linkage);
+fn LLVMAddFunction(void* module, char* name, void* type) -> void*;
+fn LLVMGetParam(void* function, u32 index) -> void*;
+fn LLVMAppendBasicBlockInContext(void* context, void* function, char* name) -> void*;
+fn LLVMPositionBuilderAtEnd(void* builder, void* block);
+fn LLVMPositionBuilderBefore(void* builder, void* instruction);
+fn LLVMGetInsertBlock(void* builder) -> void*;
+fn LLVMGetBasicBlockParent(void* block) -> void*;
+fn LLVMGetEntryBasicBlock(void* function) -> void*;
+fn LLVMGetFirstBasicBlock(void* function) -> void*;
+fn LLVMGetNextBasicBlock(void* block) -> void*;
+fn LLVMGetNumSuccessors(void* instruction) -> u32;
+fn LLVMGetSuccessor(void* instruction, u32 index) -> void*;
+fn LLVMGetFirstInstruction(void* block) -> void*;
+fn LLVMGetBasicBlockTerminator(void* block) -> void*;
+fn LLVMBuildAlloca(void* builder, void* type, char* name) -> void*;
+fn LLVMBuildLoad2(void* builder, void* type, void* address, char* name) -> void*;
+fn LLVMBuildStore(void* builder, void* value, void* address) -> void*;
+fn LLVMBuildStructGEP2(void* builder, void* type, void* address, u32 index, char* name) -> void*;
+fn LLVMBuildGEP2(void* builder, void* type, void* address, void** indices, u32 count, char* name) -> void*;
+fn LLVMBuildCall2(void* builder, void* type, void* callable, void** arguments, u32 count, char* name) -> void*;
+fn LLVMBuildRet(void* builder, void* value) -> void*;
+fn LLVMBuildRetVoid(void* builder) -> void*;
+fn LLVMBuildBr(void* builder, void* block) -> void*;
+fn LLVMBuildCondBr(void* builder, void* value, void* first, void* second) -> void*;
+fn LLVMBuildUnreachable(void* builder) -> void*;
+fn LLVMBuildSwitch(void* builder, void* value, void* fallback, u32 count) -> void*;
+fn LLVMAddCase(void* instruction, void* value, void* block);
+fn LLVMBuildPhi(void* builder, void* type, char* name) -> void*;
+fn LLVMAddIncoming(void* phi, void** values, void** blocks, u32 count);
+fn LLVMBuildAdd(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildSub(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildMul(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildSDiv(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildUDiv(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildSRem(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildURem(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildFAdd(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildFSub(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildFMul(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildFDiv(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildAnd(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildOr(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildXor(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildShl(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildAShr(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildLShr(void* builder, void* first, void* second, char* name) -> void*;
+fn LLVMBuildNeg(void* builder, void* value, char* name) -> void*;
+fn LLVMBuildFNeg(void* builder, void* value, char* name) -> void*;
+fn LLVMBuildNot(void* builder, void* value, char* name) -> void*;
+fn LLVMBuildICmp(void* builder, i32 predicate, void* first, void* second, char* name) -> void*;
+fn LLVMBuildFCmp(void* builder, i32 predicate, void* first, void* second, char* name) -> void*;
+fn LLVMBuildZExt(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildIntCast2(void* builder, void* value, void* type, i32 signed_value, char* name) -> void*;
+fn LLVMBuildFPCast(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildFPToSI(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildFPToUI(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildSIToFP(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildUIToFP(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildPtrToInt(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMBuildIntToPtr(void* builder, void* value, void* type, char* name) -> void*;
+fn LLVMGetEnumAttributeKindForName(char* name, usize length) -> u32;
+fn LLVMCreateEnumAttribute(void* context, u32 kind, u64 value) -> void*;
+fn LLVMAddAttributeAtIndex(void* function, u32 index, void* attribute);
+fn LLVMAddCallSiteAttribute(void* call, u32 index, void* attribute);
+fn LLVMVerifyModule(void* module, i32 action, char** message) -> i32;
+fn LLVMCreatePassBuilderOptions() -> void*;
+fn LLVMDisposePassBuilderOptions(void* options);
+fn LLVMPassBuilderOptionsSetVerifyEach(void* options, i32 enabled);
+fn LLVMRunPasses(void* module, char* passes, void* machine, void* options) -> void*;
+fn LLVMGetErrorMessage(void* error) -> char*;
+fn LLVMDisposeErrorMessage(char* message);
+fn LLVMTargetMachineEmitToMemoryBuffer(void* machine, void* module, i32 kind, char** message, void** buffer) -> i32;
+fn LLVMGetBufferStart(void* buffer) -> char*;
+fn LLVMGetBufferSize(void* buffer) -> usize;
+fn LLVMDisposeMemoryBuffer(void* buffer);
+
+enum ValueCategory {
+	VALUE_ENTITY,
+	VALUE_STORAGE,
+	VALUE_TEMPORARY,
+};
+
+struct Semantic {
+	Compiler* compiler;
+	Scope* scope;
+	Entity* function;
+	Flow* flow;
+	Type* selection_type;
+};
+
+struct Emitter {
+	Compiler* compiler;
+	Entity* function;
+	Flow* flow;
+	CaseBlock* cases;
+};
+
+struct CaseBlock {
+	Syntax* syntax;
+	void* block;
+	CaseBlock* next;
+};
+
+struct CaseValue {
+	u64 value;
+	CaseValue* next;
+};
+
+fn entity_type(Entity* entity) -> Type* {
+	switch (entity->kind) {
+		case ENTITY_PRIMITIVE:
+			return entity->data.primitive.type;
+		case ENTITY_STRUCT:
+		case ENTITY_UNION:
+			return entity->data.aggregate.type;
+		case ENTITY_ENUM:
+			return entity->data.enumeration.type;
+		case ENTITY_FUNCTION:
+			return entity->data.function.type;
+		case ENTITY_VARIABLE:
+			return entity->data.variable.type;
+		default:
+			return (Type*)0;
+	};
+};
+
+fn type_new(Compiler* compiler, TypeKind kind) -> Type* {
+	Type* type = (Type*)memory_allocate(compiler, sizeof(Type));
+	if (!type) {
+		return (Type*)0;
+	};
+
+	type->kind = kind;
+
+	return type;
+};
+
+fn type_pointer(Compiler* compiler, Type* element) -> Type* {
+	Type* type = type_new(compiler, TYPE_POINTER);
+	if (!type) {
+		return (Type*)0;
+	};
+
+	type->data.element = element;
+
+	return type;
+};
+
+fn type_equal(Type* first, Type* second) -> i32 {
+	if (first == second) {
+		return 1;
+	};
+	if (!first || !second || first->kind != second->kind) {
+		return 0;
+	};
+	switch (first->kind) {
+		case TYPE_VOID:
+		case TYPE_BOOL:
+		case TYPE_CHAR:
+			return 1;
+		case TYPE_SIGNED:
+		case TYPE_UNSIGNED:
+		case TYPE_FLOAT:
+			return first->data.bits == second->data.bits;
+		case TYPE_NAMED:
+			return first->data.entity == second->data.entity;
+		case TYPE_POINTER:
+		case TYPE_REFERENCE:
+			return type_equal(first->data.element, second->data.element);
+		case TYPE_ARRAY:
+			return first->data.array.count == second->data.array.count && type_equal(first->data.array.element, second->data.array.element);
+		case TYPE_FUNCTION: {
+			if (first->data.function.arity != second->data.function.arity || !type_equal(first->data.function.result, second->data.function.result)) {
+				return 0;
+			};
+			Parameter* a := first->data.function.parameters;
+			Parameter* b := second->data.function.parameters;
+			while (a && b) {
+				if (!type_equal(a->type, b->type)) {
+					return 0;
+				};
+				a := a->next;
+				b := b->next;
+			};
+			return !a && !b;
+		};
+	};
+	return 0;
+};
+
+fn type_numeric(Type* type) -> i32 {
+	return type && (type->kind == TYPE_CHAR || type->kind == TYPE_BOOL || type->kind == TYPE_SIGNED || type->kind == TYPE_UNSIGNED || type->kind == TYPE_FLOAT || (type->kind == TYPE_NAMED && type->data.entity->kind == ENTITY_ENUM));
+};
+
+fn type_integer(Type* type) -> i32 {
+	return type_numeric(type) && type->kind != TYPE_FLOAT;
+};
+
+fn type_scalar(Type* type) -> i32 {
+	return type_numeric(type) || (type && (type->kind == TYPE_POINTER || type->kind == TYPE_REFERENCE));
+};
+
+fn type_aggregate(Type* type) -> i32 {
+	if (!type) {
+		return 0;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		return 1;
+	};
+	return type->kind == TYPE_NAMED && (type->data.entity->kind == ENTITY_STRUCT || type->data.entity->kind == ENTITY_UNION);
+};
+
+fn type_bits(Type* type) -> i32 {
+	if (type->kind == TYPE_BOOL) {
+		return 1;
+	};
+	if (type->kind == TYPE_CHAR) {
+		return 8;
+	};
+	if (type->kind == TYPE_NAMED) {
+		return 32;
+	};
+	return type->data.bits;
+};
+
+fn type_unsigned(Type* type) -> i32 {
+	return type->kind == TYPE_UNSIGNED || type->kind == TYPE_BOOL;
+};
+
+fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type*;
+fn entity_resolve(Compiler* compiler, Entity* entity);
+fn llvm_type(Compiler* compiler, Type* type) -> void*;
+
+fn integer_spelling(Compiler* compiler, Token token, u64 maximum) -> u64 {
+	if (token.length && token.source->bytes[token.begin] == '\'') {
+		char character := token.source->bytes[token.begin + 1];
+
+		if (character == '\\') {
+			character = literal_escape(compiler, token, token.source->bytes[token.begin + 2]);
+		};
+
+		u64 value = (u64)character;
+
+		if (value > maximum) {
+			compiler_error(compiler, token, "character literal is outside the destination range\0");
+			return 0;
+		};
+
+		return value;
+	};
+
+	u64 result = 0;
+	usize index = 0;
+	while (index < token.length) {
+		char character := token.source->bytes[token.begin + index];
+
+		if (!lexer_digit(character)) {
+			compiler_error(compiler, token, "expected a decimal integer literal\0");
+			return 0;
+		};
+
+		u64 digit = (u64)(character - '0');
+
+		if (result > maximum / 10 || (result == maximum / 10 && digit > maximum % 10)) {
+			compiler_error(compiler, token, "integer literal is outside the destination range\0");
+			return 0;
+		};
+
+		result = result * 10 + digit;
+		index = index + 1;
+	};
+	return result;
+};
+
+fn number_truth(Compiler* compiler, Token token) -> u64 {
+	if (token.source->bytes[token.begin] == '\'') {
+		return integer_spelling(compiler, token, 255) != 0;
+	};
+
+	usize index = 0;
+	while (index < token.length) {
+		char character := token.source->bytes[token.begin + index];
+		if (character == 'e' || character == 'E') {
+			break;
+		};
+		if (character >= '1' && character <= '9') {
+			return 1;
+		};
+
+		index = index + 1;
+	};
+
+	return 0;
+};
+
+fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
+	if (!syntax) {
+		return compiler->void_type;
+	};
+	if (syntax->type) {
+		return syntax->type;
+	};
+	Type* type = (Type*)0;
+	switch (syntax->kind) {
+		case SYNTAX_NAME: {
+			Entity* entity = scope_lookup(scope, syntax->token);
+			if (!entity || (entity->kind != ENTITY_PRIMITIVE && entity->kind != ENTITY_STRUCT && entity->kind != ENTITY_UNION && entity->kind != ENTITY_ENUM)) {
+				compiler_error(compiler, syntax->token, "identifier does not name a type entity\0");
+				return compiler->void_type;
+			};
+			syntax->entity := entity;
+			if (!entity_type(entity) && entity->kind != ENTITY_PRIMITIVE) {
+				Type* named = type_new(compiler, TYPE_NAMED);
+				named->data.entity := entity;
+				if (entity->kind == ENTITY_ENUM) {
+					entity->data.enumeration.type = named;
+				}
+				else {
+					entity->data.aggregate.type = named;
+				};
+			};
+			type = entity_type(entity);
+			break;
+		};
+		case SYNTAX_POINTER:
+		case SYNTAX_REFERENCE: {
+			TypeKind kind = TYPE_POINTER;
+			if (syntax->kind == SYNTAX_REFERENCE) {
+				kind = TYPE_REFERENCE;
+			};
+			type = type_new(compiler, kind);
+			type->data.element = type_resolve(compiler, scope, syntax->data.expression);
+			break;
+		};
+		case SYNTAX_ARRAY:
+			type = type_new(compiler, TYPE_ARRAY);
+			type->data.array.count = integer_spelling(compiler, syntax->data.array.count, (u64)18446744073709551615);
+			type->data.array.element = type_resolve(compiler, scope, syntax->data.array.element);
+			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_FUNCTION) {
+				compiler_error(compiler, syntax->token, "array requires a positive length and a storage element type\0");
+			};
+			break;
+		case SYNTAX_SIGNATURE: {
+			type = type_new(compiler, TYPE_FUNCTION);
+			type->data.function.result = type_resolve(compiler, scope, syntax->data.signature.result);
+			type->data.function.arity := syntax->data.signature.arity;
+			Parameter* last = (Parameter*)0;
+			ParameterSyntax* input := syntax->data.signature.parameters;
+			while (input) {
+				Parameter* parameter = (Parameter*)memory_allocate(compiler, sizeof(Parameter));
+				parameter->name := input->name;
+				parameter->type = type_resolve(compiler, scope, input->type);
+				if (parameter->type->kind == TYPE_VOID || parameter->type->kind == TYPE_FUNCTION) {
+					compiler_error(compiler, input->type->token, "parameter requires a storage type\0");
+				};
+				if (last) {
+					last->next := parameter;
+				}
+				else {
+					type->data.function.parameters := parameter;
+				};
+				last = parameter;
+				input := input->next;
+			};
+			break;
+		};
+		default:
+			compiler_error(compiler, syntax->token, "expected type expression\0");
+			type := compiler->void_type;
+			break;
+	};
+	syntax->type := type;
+	return type;
+};
+
+fn constant_selector(u64 value, Type* type) -> u64;
+
+fn constant_integer(Compiler* compiler, Scope* scope, Syntax* syntax) -> u64 {
+	if (syntax->kind == SYNTAX_NUMBER) {
+		return integer_spelling(compiler, syntax->token, (u64)18446744073709551615);
+	};
+
+	if (syntax->kind == SYNTAX_NAME) {
+		Entity* entity = scope_lookup(scope, syntax->token);
+		if (entity && entity->kind == ENTITY_VARIABLE && entity->data.variable.storage == STORAGE_CONSTANT && entity->resolution == RESOLUTION_PENDING && entity->scope && entity->scope->owner && entity->scope->owner->kind == ENTITY_ENUM) {
+			entity_resolve(compiler, entity->scope->owner);
+		};
+		if (entity && entity->kind == ENTITY_VARIABLE && entity->data.variable.storage == STORAGE_CONSTANT && entity->resolution == RESOLUTION_READY) {
+			return entity->data.variable.data.integer;
+		};
+	};
+
+	if (syntax->kind == SYNTAX_UNARY) {
+		u64 value = constant_integer(compiler, scope, syntax->data.unary.value);
+		if (syntax->data.unary.operation == TOKEN_MINUS) {
+			return (u64)0 - value;
+		};
+		if (syntax->data.unary.operation == TOKEN_PLUS) {
+			return value;
+		};
+		if (syntax->data.unary.operation == TOKEN_BANG) {
+			return (u64)!value;
+		};
+		if (syntax->data.unary.operation == TOKEN_TILDE) {
+			return ~value;
+		};
+	};
+
+	if (syntax->kind == SYNTAX_CAST) {
+		Type* target = type_resolve(compiler, scope, syntax->data.cast.type);
+		if (!type_integer(target)) {
+			compiler_error(compiler, syntax->token, "constant cast requires an integer destination\0");
+			return 0;
+		};
+
+		u64 value = constant_integer(compiler, scope, syntax->data.cast.value);
+		value = constant_selector(value, target);
+		i32 bits = type_bits(target);
+		if (!type_unsigned(target) && bits < 64) {
+			u64 width = (u64)(64 - bits);
+			u64 mask = (u64)18446744073709551615 >> width;
+			if (value > mask / 2) {
+				value = value | ~mask;
+			};
+		};
+		return value;
+	};
+
+	if (syntax->kind == SYNTAX_BINARY) {
+		u64 first = constant_integer(compiler, scope, syntax->data.binary.left);
+		u64 second = constant_integer(compiler, scope, syntax->data.binary.right);
+		if (compiler->result == COMPILATION_FAILURE) {
+			return 0;
+		};
+		i64 signed_first = (i64)first;
+		i64 signed_second = (i64)second;
+		if ((syntax->data.binary.operation == TOKEN_SLASH || syntax->data.binary.operation == TOKEN_REMAINDER) && (!second || (signed_first == (i64)-9223372036854775808 && signed_second == (i64)-1))) {
+			compiler_error(compiler, syntax->token, "invalid constant division\0");
+			return 0;
+		};
+		if ((syntax->data.binary.operation == TOKEN_SHIFT_LEFT || syntax->data.binary.operation == TOKEN_SHIFT_RIGHT) && second >= 64) {
+			compiler_error(compiler, syntax->token, "constant shift count is outside the integer width\0");
+			return 0;
+		};
+		switch (syntax->data.binary.operation) {
+			case TOKEN_PLUS:
+				return first + second;
+			case TOKEN_MINUS:
+				return first - second;
+			case TOKEN_STAR:
+				return first * second;
+			case TOKEN_AMPERSAND:
+				return first & second;
+			case TOKEN_PIPE:
+				return first | second;
+			case TOKEN_CARET:
+				return first ^ second;
+			case TOKEN_SHIFT_LEFT:
+				return first << second;
+			case TOKEN_SHIFT_RIGHT:
+				return (u64)(signed_first >> signed_second);
+			case TOKEN_SLASH:
+				if (second) {
+					return (u64)(signed_first / signed_second);
+				};
+				break;
+			case TOKEN_REMAINDER:
+				if (second) {
+					return (u64)(signed_first % signed_second);
+				};
+				break;
+			case TOKEN_EQUAL:
+				return (u64)(first == second);
+			case TOKEN_NOT_EQUAL:
+				return (u64)(first != second);
+			case TOKEN_LESS:
+				return (u64)(signed_first < signed_second);
+			case TOKEN_GREATER:
+				return (u64)(signed_first > signed_second);
+			case TOKEN_LESS_EQUAL:
+				return (u64)(signed_first <= signed_second);
+			case TOKEN_GREATER_EQUAL:
+				return (u64)(signed_first >= signed_second);
+			case TOKEN_AND:
+				return (u64)(first && second);
+			case TOKEN_OR:
+				return (u64)(first || second);
+		};
+	};
+
+	compiler_error(compiler, syntax->token, "expected an integer constant expression\0");
+	return 0;
+};
+
+fn constant_selector(u64 value, Type* type) -> u64 {
+	i32 bits = type_bits(type);
+	if (bits >= 64) {
+		return value;
+	};
+
+	u64 maximum = (u64)18446744073709551615;
+	u64 shift = (u64)(64 - bits);
+	return value & (maximum >> shift);
+};
+
+fn selection_validate(Semantic* semantic, Syntax* syntax, Type* type) {
+	Syntax* statement := syntax->data.selection.cases->data.statements;
+	CaseValue* values = (CaseValue*)0;
+	Syntax* fallback = (Syntax*)0;
+	while (statement && semantic->compiler->result != COMPILATION_FAILURE) {
+		if (statement->kind != SYNTAX_CASE) {
+			statement := statement->next;
+			continue;
+		};
+
+		Syntax* expression := statement->data.selection_case.value;
+		if (!expression) {
+			if (fallback) {
+				compiler_error(semantic->compiler, statement->token, "duplicate default label\0");
+				return;
+			};
+			fallback = statement;
+			statement := statement->next;
+			continue;
+		};
+
+		expression->type := type;
+		expression->scope := syntax->data.selection.cases->scope;
+		u64 value = constant_integer(semantic->compiler, expression->scope, expression);
+		value = constant_selector(value, type);
+		CaseValue* previous := values;
+		while (previous) {
+			if (previous->value == value) {
+				compiler_error(semantic->compiler, statement->token, "duplicate case value after conversion to the selector type\0");
+				return;
+			};
+			previous := previous->next;
+		};
+
+		CaseValue* selected = (CaseValue*)memory_allocate(semantic->compiler, sizeof(CaseValue));
+		if (!selected) {
+			return;
+		};
+		selected->value = value;
+		selected->next = values;
+		values = selected;
+		statement := statement->next;
+	};
+};
+
+fn entity_resolve(Compiler* compiler, Entity* entity) {
+	if (!entity || entity->resolution == RESOLUTION_READY) {
+		return;
+	};
+	if (entity->resolution == RESOLUTION_ACTIVE) {
+		compiler_error(compiler, entity->name, "cyclic entity definition\0");
+		return;
+	};
+	entity->resolution = RESOLUTION_ACTIVE;
+	Syntax* declaration := entity->declaration;
+	if (!declaration) {
+		compiler_error(compiler, entity->name, "entity has no declaration\0");
+		return;
+	};
+	if (entity->kind == ENTITY_FUNCTION) {
+		entity->data.function.type = type_resolve(compiler, entity->scope, declaration->data.declaration.type);
+		entity->data.function.body := declaration->data.declaration.body;
+		if (entity->data.function.body) {
+			entity->data.function.scope := entity->data.function.body->scope;
+			Parameter* parameter := entity->data.function.type->data.function.parameters;
+			while (parameter) {
+				if (!parameter->name.source) {
+					compiler_error(compiler, entity->name, "function definition requires named parameters\0");
+					break;
+				};
+				parameter->entity = scope_lookup(entity->data.function.scope, parameter->name);
+				if (parameter->entity && parameter->entity->kind == ENTITY_VARIABLE) {
+					parameter->entity->data.variable.type := parameter->type;
+					parameter->entity->resolution = RESOLUTION_READY;
+				};
+				parameter := parameter->next;
+			};
+		};
+	}
+	else if (entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION || entity->kind == ENTITY_ENUM) {
+		if (!entity_type(entity)) {
+			Type* type = type_new(compiler, TYPE_NAMED);
+			type->data.entity := entity;
+			if (entity->kind == ENTITY_ENUM) {
+				entity->data.enumeration.type = type;
+			}
+			else {
+				entity->data.aggregate.type = type;
+			};
+		};
+		Syntax* body := declaration->data.declaration.body;
+		if (body) {
+			Syntax* field := body->data.statements;
+			usize index = 0;
+			u64 next_value = 0;
+			while (field) {
+				if (field->kind != SYNTAX_DECLARATION || field->entity->kind != ENTITY_VARIABLE) {
+					compiler_error(compiler, field->token, "aggregate context requires variable declarations\0");
+					break;
+				};
+				Entity* variable := field->entity;
+				if (entity->kind == ENTITY_ENUM) {
+					variable->data.variable.type = entity_type(entity);
+					variable->data.variable.storage = STORAGE_CONSTANT;
+					if (field->data.declaration.body) {
+						next_value = constant_integer(compiler, body->scope, field->data.declaration.body);
+					};
+					if ((i64)next_value < (i64)-2147483648 || (i64)next_value > (i64)2147483647) {
+						compiler_error(compiler, field->token, "enum value is outside the i32 range\0");
+					};
+					variable->data.variable.data.integer := next_value;
+					next_value = next_value + 1;
+				}
+				else {
+					variable->data.variable.type = type_resolve(compiler, body->scope, field->data.declaration.type);
+					variable->data.variable.storage = STORAGE_FIELD;
+					variable->data.variable.data.field.owner := entity;
+					variable->data.variable.data.field.index := index;
+					index = index + 1;
+				};
+				variable->resolution = RESOLUTION_READY;
+				field := field->next;
+			};
+			if (entity->kind == ENTITY_ENUM) {
+				entity->data.enumeration.values := body->scope->bindings;
+			}
+			else {
+				entity->data.aggregate.scope := body->scope;
+				entity->data.aggregate.fields := body->scope->bindings;
+				entity->data.aggregate.field_count = index;
+			};
+		};
+	}
+	else if (entity->kind == ENTITY_VARIABLE) {
+		if (declaration->data.declaration.type) {
+			entity->data.variable.type = type_resolve(compiler, entity->scope, declaration->data.declaration.type);
+		};
+	};
+	entity->resolution = RESOLUTION_READY;
+};
+
+fn syntax_category(Syntax* syntax) -> ValueCategory {
+	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage != STORAGE_CONSTANT) {
+		return VALUE_STORAGE;
+	};
+	if (syntax->kind == SYNTAX_MEMBER || syntax->kind == SYNTAX_INDEX || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR)) {
+		return VALUE_STORAGE;
+	};
+	if (syntax->kind == SYNTAX_NAME && syntax->entity && syntax->entity->kind != ENTITY_VARIABLE) {
+		return VALUE_ENTITY;
+	};
+	return VALUE_TEMPORARY;
+};
+
+fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Type*;
+fn semantic_statement(Semantic* semantic, Syntax* syntax);
+fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token token);
+
+fn syntax_number_expression(Syntax* syntax) -> i32 {
+	if (syntax->kind == SYNTAX_NUMBER) {
+		return 1;
+	};
+	if (syntax->kind == SYNTAX_UNARY && (syntax->data.unary.operation == TOKEN_PLUS || syntax->data.unary.operation == TOKEN_MINUS)) {
+		return syntax_number_expression(syntax->data.unary.value);
+	};
+	if (syntax->kind == SYNTAX_BINARY && syntax->data.binary.operation != TOKEN_ASSIGN && syntax->data.binary.operation != TOKEN_COPY) {
+		return syntax_number_expression(syntax->data.binary.left) && syntax_number_expression(syntax->data.binary.right);
+	};
+	return 0;
+};
+
+fn storage_borrowed(Syntax* syntax) -> i32 {
+	if (!syntax) {
+		return 0;
+	};
+	if (syntax->type && syntax->type->kind == TYPE_REFERENCE) {
+		return 1;
+	};
+	switch (syntax->kind) {
+		case SYNTAX_MEMBER:
+			return storage_borrowed(syntax->data.member.object);
+		case SYNTAX_INDEX:
+			return storage_borrowed(syntax->data.binary.left);
+		default:
+			return 0;
+	};
+};
+
+fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expected) -> Type* {
+	if (expected && actual && !type_equal(actual, expected)) {
+		if ((expected->kind == TYPE_BOOL && type_scalar(actual)) || (actual->kind == TYPE_BOOL && type_numeric(expected))) {
+			return expected;
+		};
+		if (expected->kind == TYPE_REFERENCE && type_equal(actual, expected->data.element) && syntax_category(syntax) == VALUE_STORAGE) {
+			return expected;
+		};
+		if (actual->kind == TYPE_POINTER && expected->kind == TYPE_POINTER && (actual->data.element->kind == TYPE_VOID || expected->data.element->kind == TYPE_VOID)) {
+			return expected;
+		};
+		compiler_error(semantic->compiler, syntax->token, "expression type does not match its destination\0");
+	};
+	return actual;
+};
+
+fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Type* {
+	Compiler* compiler := semantic->compiler;
+	if (!syntax) {
+		return compiler->void_type;
+	};
+	Type* type = (Type*)0;
+	switch (syntax->kind) {
+		case SYNTAX_NAME:
+			if (!syntax->entity) {
+				syntax->entity = scope_lookup(semantic->scope, syntax->token);
+			};
+			if (!syntax->entity) {
+				compiler_error(compiler, syntax->token, "unknown identifier\0");
+				return compiler->void_type;
+			};
+			if (syntax->entity->kind != ENTITY_VARIABLE && syntax->entity->kind != ENTITY_FUNCTION) {
+				compiler_error(compiler, syntax->token, "type entity is not a runtime value\0");
+				return compiler->void_type;
+			};
+			entity_resolve(compiler, syntax->entity);
+			type = entity_type(syntax->entity);
+			break;
+		case SYNTAX_NUMBER:
+			if (!expected || !type_numeric(expected)) {
+				compiler_error(compiler, syntax->token, "number literal requires a numeric destination type\0");
+				return compiler->void_type;
+			};
+			type := expected;
+			if (type_integer(type) && type->kind != TYPE_BOOL) {
+				u64 maximum = (u64)18446744073709551615;
+				i32 bits = type_bits(type);
+				if (bits < 64) {
+					maximum = 1;
+					i32 bit = 0;
+					while (bit < bits) {
+						maximum = maximum * 2;
+						bit = bit + 1;
+					};
+					maximum = maximum - 1;
+				};
+				if (!type_unsigned(type) && type->kind != TYPE_CHAR) {
+					maximum = maximum / 2;
+				};
+				integer_spelling(compiler, syntax->token, maximum);
+			};
+			break;
+		case SYNTAX_STRING:
+			type = type_pointer(compiler, compiler->char_type);
+			break;
+		case SYNTAX_CAST: {
+			type = type_resolve(compiler, semantic->scope, syntax->data.cast.type);
+			Type* source = (Type*)0;
+			if (syntax_number_expression(syntax->data.cast.value)) {
+				Type* context := type;
+				if (type->kind == TYPE_POINTER) {
+					context := compiler->usize_type;
+				};
+				source = semantic_expression(semantic, syntax->data.cast.value, context);
+			}
+			else {
+				source = semantic_expression(semantic, syntax->data.cast.value, (Type*)0);
+			};
+			if (!type_scalar(type) || !type_scalar(source)) {
+				compiler_error(compiler, syntax->token, "cast requires scalar types\0");
+			};
+			if (((type->kind == TYPE_POINTER || type->kind == TYPE_REFERENCE) && source->kind == TYPE_FLOAT) || ((source->kind == TYPE_POINTER || source->kind == TYPE_REFERENCE) && type->kind == TYPE_FLOAT)) {
+				compiler_error(compiler, syntax->token, "pointer casts require an integer or pointer counterpart\0");
+			};
+			break;
+		};
+		case SYNTAX_SIZEOF: {
+			Syntax* operand := syntax->data.expression;
+			if (operand->kind == SYNTAX_NAME) {
+				Entity* entity = scope_lookup(semantic->scope, operand->token);
+				if (entity && (entity->kind == ENTITY_PRIMITIVE || entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION || entity->kind == ENTITY_ENUM)) {
+					operand->type = type_resolve(compiler, semantic->scope, operand);
+				}
+				else {
+					semantic_expression(semantic, operand, (Type*)0);
+				};
+			}
+			else if (operand->kind == SYNTAX_POINTER || operand->kind == SYNTAX_REFERENCE || operand->kind == SYNTAX_ARRAY || operand->kind == SYNTAX_SIGNATURE) {
+				operand->type = type_resolve(compiler, semantic->scope, operand);
+			}
+			else {
+				semantic_expression(semantic, operand, (Type*)0);
+			};
+			if (!operand->type || operand->type->kind == TYPE_VOID || operand->type->kind == TYPE_FUNCTION) {
+				compiler_error(compiler, syntax->token, "sizeof requires a storage type\0");
+			};
+			layout_validate(compiler, operand->type, (LayoutVisit*)0, syntax->token);
+			type := compiler->usize_type;
+			break;
+		};
+		case SYNTAX_MEMBER: {
+			Type* object = semantic_expression(semantic, syntax->data.member.object, (Type*)0);
+			if (syntax->token.kind == TOKEN_ARROW && object->kind == TYPE_POINTER) {
+				object := object->data.element;
+			};
+			if (object->kind == TYPE_REFERENCE) {
+				object := object->data.element;
+			};
+			if (object->kind != TYPE_NAMED || (object->data.entity->kind != ENTITY_STRUCT && object->data.entity->kind != ENTITY_UNION)) {
+				compiler_error(compiler, syntax->token, "member access requires a record\0");
+				return compiler->void_type;
+			};
+			entity_resolve(compiler, object->data.entity);
+			layout_validate(compiler, object, (LayoutVisit*)0, syntax->token);
+			if (compiler->result == COMPILATION_FAILURE) {
+				return compiler->void_type;
+			};
+			syntax->entity = scope_local(object->data.entity->data.aggregate.scope, syntax->data.member.name);
+			if (!syntax->entity) {
+				compiler_error(compiler, syntax->data.member.name, "unknown record field\0");
+				return compiler->void_type;
+			};
+			type = entity_type(syntax->entity);
+			break;
+		};
+		case SYNTAX_INDEX: {
+			Type* object = semantic_expression(semantic, syntax->data.binary.left, (Type*)0);
+			Type* index_context = (Type*)0;
+			if (syntax_number_expression(syntax->data.binary.right)) {
+				index_context := compiler->usize_type;
+			};
+			Type* index = semantic_expression(semantic, syntax->data.binary.right, index_context);
+			if (!type_integer(index)) {
+				compiler_error(compiler, syntax->token, "index requires an integer\0");
+			};
+			if (object->kind == TYPE_ARRAY) {
+				type := object->data.array.element;
+			}
+			else if (object->kind == TYPE_POINTER) {
+				type := object->data.element;
+			}
+			else {
+				compiler_error(compiler, syntax->token, "index requires an array or pointer\0");
+				type := compiler->void_type;
+			};
+			layout_validate(compiler, type, (LayoutVisit*)0, syntax->token);
+			break;
+		};
+		case SYNTAX_UNARY: {
+			TokenKind operation := syntax->data.unary.operation;
+			Type* context := expected;
+			if (context && context->kind == TYPE_BOOL && !syntax_number_expression(syntax->data.unary.value) && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
+				context = type_new(compiler, TYPE_FLOAT);
+				context->data.bits = 64;
+			};
+			if (operation == TOKEN_AMPERSAND || operation == TOKEN_STAR) {
+				context = (Type*)0;
+			};
+			if (operation == TOKEN_BANG) {
+				context := compiler->bool_type;
+			};
+			Type* operand = (Type*)0;
+			if (operation == TOKEN_MINUS && syntax->data.unary.value->kind == SYNTAX_NUMBER && context && context->kind == TYPE_SIGNED) {
+				Type* magnitude = type_new(compiler, TYPE_UNSIGNED);
+				magnitude->data.bits := context->data.bits;
+				semantic_expression(semantic, syntax->data.unary.value, magnitude);
+
+				u64 maximum = 1;
+				i32 bit = 1;
+				while (bit < context->data.bits) {
+					maximum = maximum * 2;
+					bit = bit + 1;
+				};
+				integer_spelling(compiler, syntax->data.unary.value->token, maximum);
+				syntax->data.unary.value->type := context;
+				operand = context;
+			}
+			else {
+				operand = semantic_expression(semantic, syntax->data.unary.value, context);
+			};
+			if (operation == TOKEN_AMPERSAND) {
+				if (syntax_category(syntax->data.unary.value) != VALUE_STORAGE && operand->kind != TYPE_FUNCTION) {
+					compiler_error(compiler, syntax->token, "address-of requires storage or a function entity\0");
+				};
+				type = type_pointer(compiler, operand);
+			}
+			else if (operation == TOKEN_STAR) {
+				if (operand->kind != TYPE_POINTER) {
+					compiler_error(compiler, syntax->token, "dereference requires a pointer\0");
+					type := compiler->void_type;
+				}
+				else {
+					type := operand->data.element;
+					if (type->kind != TYPE_FUNCTION) {
+						layout_validate(compiler, type, (LayoutVisit*)0, syntax->token);
+					};
+				};
+			}
+			else if (operation == TOKEN_BANG) {
+				if (!type_scalar(operand)) {
+					compiler_error(compiler, syntax->token, "logical negation requires a scalar\0");
+				};
+				type := compiler->bool_type;
+			}
+			else {
+				if (!type_numeric(operand) || (operation == TOKEN_TILDE && !type_integer(operand))) {
+					compiler_error(compiler, syntax->token, "unary operation requires a numeric operand\0");
+				};
+				type = operand;
+				if (type->kind == TYPE_BOOL && !syntax_number_expression(syntax->data.unary.value)) {
+					type := compiler->i32_type;
+				};
+			};
+			break;
+		};
+		case SYNTAX_BINARY: {
+			TokenKind operation := syntax->data.binary.operation;
+			Syntax* left := syntax->data.binary.left;
+			Syntax* right := syntax->data.binary.right;
+			if (operation == TOKEN_ASSIGN || operation == TOKEN_COPY) {
+				Type* destination = semantic_expression(semantic, left, (Type*)0);
+				Type* source_type = (Type*)0;
+				if (left->entity && left->entity->kind == ENTITY_VARIABLE && !left->entity->data.variable.type) {
+					source_type = semantic_expression(semantic, right, (Type*)0);
+					destination := source_type;
+					left->entity->data.variable.type := destination;
+					left->type := destination;
+				};
+				if (syntax_category(left) != VALUE_STORAGE) {
+					compiler_error(compiler, left->token, "assignment requires writable storage\0");
+				};
+				if (!source_type) {
+					source_type = semantic_expression(semantic, right, destination);
+				};
+				semantic_expect(semantic, right, source_type, destination);
+				if (operation == TOKEN_ASSIGN && syntax_category(right) == VALUE_STORAGE) {
+					if (storage_borrowed(right)) {
+						compiler_error(compiler, right->token, "cannot move a borrowed value\0");
+					};
+				};
+				type = destination;
+				break;
+			};
+			if (operation == TOKEN_AND || operation == TOKEN_OR) {
+				Type* a = semantic_expression(semantic, left, compiler->bool_type);
+				Type* b = semantic_expression(semantic, right, compiler->bool_type);
+				if (!type_scalar(a) || !type_scalar(b)) {
+					compiler_error(compiler, syntax->token, "logical operation requires scalars\0");
+				};
+				type := compiler->bool_type;
+				break;
+			};
+
+			Type* operand := expected;
+			if (operand && operand->kind == TYPE_BOOL && syntax_number_expression(left) && syntax_number_expression(right)) {
+				operand = type_new(compiler, TYPE_FLOAT);
+				operand->data.bits = 64;
+			};
+			Type* a = (Type*)0;
+			Type* b = (Type*)0;
+			if (!syntax_number_expression(left)) {
+				a = semantic_expression(semantic, left, (Type*)0);
+				operand := a;
+			}
+			else if (!syntax_number_expression(right)) {
+				b = semantic_expression(semantic, right, (Type*)0);
+				operand := b;
+			};
+			if (!a) {
+				a = semantic_expression(semantic, left, operand);
+			};
+
+			Type* right_context := operand;
+			if (a->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
+				right_context = (Type*)0;
+				if (syntax_number_expression(right)) {
+					right_context := compiler->usize_type;
+				};
+			};
+			if (!b) {
+				b = semantic_expression(semantic, right, right_context);
+			};
+			semantic_expect(semantic, right, b, right_context);
+			if (a->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
+				layout_validate(compiler, a->data.element, (LayoutVisit*)0, syntax->token);
+				if (!type_integer(b)) {
+					compiler_error(compiler, right->token, "pointer offset requires an integer\0");
+				};
+				type = a;
+				break;
+			};
+			if (operation == TOKEN_EQUAL || operation == TOKEN_NOT_EQUAL || operation == TOKEN_LESS || operation == TOKEN_GREATER || operation == TOKEN_LESS_EQUAL || operation == TOKEN_GREATER_EQUAL) {
+				if (!type_scalar(a) || !type_scalar(b)) {
+					compiler_error(compiler, syntax->token, "comparison requires scalar operands\0");
+				};
+				type := compiler->bool_type;
+			}
+			else {
+				if (!type_numeric(a) || !type_equal(a, b)) {
+					compiler_error(compiler, syntax->token, "arithmetic requires matching numeric operands\0");
+				};
+				if ((operation == TOKEN_REMAINDER || operation == TOKEN_AMPERSAND || operation == TOKEN_PIPE || operation == TOKEN_CARET || operation == TOKEN_SHIFT_LEFT || operation == TOKEN_SHIFT_RIGHT) && !type_integer(a)) {
+					compiler_error(compiler, syntax->token, "operation requires integer operands\0");
+				};
+				type = a;
+				if (type->kind == TYPE_BOOL) {
+					type := compiler->i32_type;
+				};
+			};
+			break;
+		};
+		case SYNTAX_CALL: {
+			Syntax* callable_syntax := syntax->data.call.callable;
+			if (callable_syntax->kind == SYNTAX_MEMBER) {
+				Entity* function = scope_lookup(semantic->scope, callable_syntax->data.member.name);
+				if (function && function->kind == ENTITY_FUNCTION) {
+					entity_resolve(compiler, function);
+					Parameter* receiver := function->data.function.type->data.function.parameters;
+					if (receiver && token_is(receiver->name, "this\0")) {
+						syntax->data.call.receiver = callable_syntax->data.member.object;
+						semantic_expression(semantic, syntax->data.call.receiver, receiver->type);
+						Syntax* direct = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
+						direct->kind = SYNTAX_NAME;
+						direct->token = callable_syntax->data.member.name;
+						direct->entity = function;
+						syntax->data.call.callable = direct;
+					};
+				};
+			};
+			Type* callable = semantic_expression(semantic, syntax->data.call.callable, (Type*)0);
+			if (callable->kind == TYPE_POINTER) {
+				callable := callable->data.element;
+			};
+			if (callable->kind != TYPE_FUNCTION) {
+				compiler_error(compiler, syntax->token, "call requires a function entity or function pointer\0");
+				return compiler->void_type;
+			};
+			Parameter* parameter := callable->data.function.parameters;
+			if (syntax->data.call.receiver) {
+				parameter := parameter->next;
+			};
+			Syntax* argument := syntax->data.call.arguments;
+			while (argument) {
+				if (!parameter && callable->data.function.arity != PARAMETERS_VARIADIC) {
+					compiler_error(compiler, argument->token, "too many arguments\0");
+					break;
+				};
+				Type* destination = (Type*)0;
+				if (parameter) {
+					destination := parameter->type;
+				};
+				if (argument->kind == SYNTAX_BLOCK) {
+					if (!parameter || !parameter->name.source) {
+						compiler_error(compiler, argument->token, "argument block requires a named parameter\0");
+					}
+					else {
+						argument->scope->context = CONTEXT_ARGUMENTS;
+						Entity* storage = entity_create(compiler, ENTITY_VARIABLE, parameter->name);
+						storage->resolution = RESOLUTION_READY;
+						storage->data.variable.type := destination;
+						storage->data.variable.storage = STORAGE_ARGUMENT;
+						scope_define(compiler, argument->scope, storage);
+						argument->entity = storage;
+						semantic_statement(semantic, argument);
+						argument->type = destination;
+					};
+				}
+				else {
+					Type* actual = semantic_expression(semantic, argument, destination);
+					if (!parameter && type_aggregate(actual)) {
+						compiler_error(compiler, argument->token, "aggregate C variadic arguments require ABI lowering that is not supported yet\0");
+					};
+				};
+				if (parameter) {
+					parameter := parameter->next;
+				};
+				argument := argument->next;
+			};
+			if (parameter) {
+				compiler_error(compiler, syntax->token, "too few arguments\0");
+			};
+			type := callable->data.function.result;
+			break;
+		};
+		case SYNTAX_BLOCK:
+			semantic_statement(semantic, syntax);
+			type := compiler->void_type;
+			break;
+		default:
+			compiler_error(compiler, syntax->token, "expected value expression\0");
+			type := compiler->void_type;
+			break;
+	};
+	syntax->type := type;
+	return semantic_expect(semantic, syntax, type, expected);
+};
+
+fn llvm_type(Compiler* compiler, Type* type) -> void* {
+	if (!type) {
+		return LLVMVoidTypeInContext(compiler->llvm_context);
+	};
+	switch (type->kind) {
+		case TYPE_VOID:
+			return LLVMVoidTypeInContext(compiler->llvm_context);
+		case TYPE_CHAR:
+			return LLVMIntTypeInContext(compiler->llvm_context, 8);
+		case TYPE_BOOL:
+			return LLVMIntTypeInContext(compiler->llvm_context, 1);
+		case TYPE_SIGNED:
+		case TYPE_UNSIGNED:
+			return LLVMIntTypeInContext(compiler->llvm_context, (u32)type->data.bits);
+		case TYPE_FLOAT:
+			if (type->data.bits == 32) {
+				return LLVMFloatTypeInContext(compiler->llvm_context);
+			};
+			return LLVMDoubleTypeInContext(compiler->llvm_context);
+		case TYPE_POINTER:
+		case TYPE_REFERENCE:
+			return LLVMPointerTypeInContext(compiler->llvm_context, 0);
+		case TYPE_ARRAY:
+			return LLVMArrayType2(llvm_type(compiler, type->data.array.element), type->data.array.count);
+		case TYPE_FUNCTION: {
+			u32 count = 0;
+			Parameter* parameter := type->data.function.parameters;
+			while (parameter) {
+				count = count + 1;
+				parameter := parameter->next;
+			};
+			void** parameters = (void**)memory_allocate(compiler, (usize)count * sizeof(void*));
+			parameter := type->data.function.parameters;
+			u32 index = 0;
+			while (parameter) {
+				parameters[index] = llvm_type(compiler, parameter->type);
+				index = index + 1;
+				parameter := parameter->next;
+			};
+			return LLVMFunctionType(llvm_type(compiler, type->data.function.result), parameters, count, type->data.function.arity == PARAMETERS_VARIADIC);
+		};
+		case TYPE_NAMED: {
+			Entity* entity := type->data.entity;
+			if (entity->kind == ENTITY_ENUM) {
+				return LLVMIntTypeInContext(compiler->llvm_context, 32);
+			};
+			if (entity->data.aggregate.llvm_type) {
+				return entity->data.aggregate.llvm_type;
+			};
+			entity_resolve(compiler, entity);
+			char* name = memory_text(compiler, entity->name.source->bytes + entity->name.begin, entity->name.length);
+			void* record = LLVMStructCreateNamed(compiler->llvm_context, name);
+			entity->data.aggregate.llvm_type := record;
+			if (!entity->data.aggregate.scope) {
+				return record;
+			};
+			usize count := entity->data.aggregate.field_count;
+			void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
+			Binding* binding := entity->data.aggregate.fields;
+			usize index = 0;
+			u64 maximum_size = 0;
+			u32 maximum_alignment = 0;
+			void* aligned = (void*)0;
+			while (binding) {
+				Type* field_type = entity_type(binding->entity);
+				if (field_type && binding->entity->data.variable.storage == STORAGE_FIELD) {
+					void* field = llvm_type(compiler, field_type);
+					fields[index] := field;
+					index = index + 1;
+					if (entity->kind == ENTITY_UNION) {
+						u64 size = LLVMABISizeOfType(compiler->llvm_layout, field);
+						u32 alignment = LLVMABIAlignmentOfType(compiler->llvm_layout, field);
+						if (size > maximum_size) {
+							maximum_size = size;
+						};
+						if (alignment > maximum_alignment) {
+							maximum_alignment = alignment;
+							aligned = field;
+						};
+					};
+				};
+				binding := binding->next;
+			};
+			if (entity->kind == ENTITY_UNION && aligned) {
+				fields[0] := aligned;
+				u64 size = LLVMABISizeOfType(compiler->llvm_layout, aligned);
+				index = 1;
+				if (maximum_size > size) {
+					fields[1] = LLVMArrayType2(LLVMIntTypeInContext(compiler->llvm_context, 8), maximum_size - size);
+					index = 2;
+				};
+			};
+			LLVMStructSetBody(record, fields, (u32)index, 0);
+			return record;
+		};
+	};
+	return LLVMVoidTypeInContext(compiler->llvm_context);
+};
+
+fn emit_slot(Compiler* compiler, Type* type) -> void* {
+	void* block = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(LLVMGetInsertBlock(compiler->llvm_builder)));
+	void* builder = LLVMCreateBuilderInContext(compiler->llvm_context);
+	void* first = LLVMGetFirstInstruction(block);
+	if (first) {
+		LLVMPositionBuilderBefore(builder, first);
+	}
+	else {
+		LLVMPositionBuilderAtEnd(builder, block);
+	};
+	void* slot = LLVMBuildAlloca(builder, llvm_type(compiler, type), "storage\0");
+	LLVMDisposeBuilder(builder);
+	return slot;
+};
+
+fn emit_expression(Emitter* emitter, Syntax* syntax) -> void*;
+fn emit_statement(Emitter* emitter, Syntax* syntax);
+fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void*;
+
+fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void* builder := compiler->llvm_builder;
+	switch (syntax->kind) {
+		case SYNTAX_NAME:
+			return syntax->entity->data.variable.data.address;
+		case SYNTAX_UNARY:
+			return emit_expression(emitter, syntax->data.unary.value);
+		case SYNTAX_MEMBER: {
+			Syntax* object := syntax->data.member.object;
+			Type* type := object->type;
+			void* address = (void*)0;
+			if (syntax->token.kind == TOKEN_ARROW || type->kind == TYPE_REFERENCE) {
+				address = emit_expression(emitter, object);
+				type := type->data.element;
+			}
+			else if (syntax_category(object) == VALUE_STORAGE) {
+				address = emit_address(emitter, object);
+			}
+			else {
+				address = emit_slot(compiler, type);
+				LLVMBuildStore(builder, emit_expression(emitter, object), address);
+			};
+			if (type->data.entity->kind == ENTITY_UNION) {
+				return address;
+			};
+			return LLVMBuildStructGEP2(builder, llvm_type(compiler, type), address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
+		};
+		case SYNTAX_INDEX: {
+			Syntax* object := syntax->data.binary.left;
+			void* index = emit_expression(emitter, syntax->data.binary.right);
+			index = emit_cast(emitter, index, syntax->data.binary.right->type, compiler->usize_type);
+			void*[2] indices {};
+			if (object->type->kind == TYPE_ARRAY) {
+				indices[0] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), 0, 0);
+				indices[1] = index;
+				return LLVMBuildGEP2(builder, llvm_type(compiler, object->type), emit_address(emitter, object), &indices[0], 2, "element\0");
+			};
+			indices[0] = index;
+			return LLVMBuildGEP2(builder, llvm_type(compiler, object->type->data.element), emit_expression(emitter, object), &indices[0], 1, "element\0");
+		};
+	};
+	compiler_error(compiler, syntax->token, "expression has no storage address\0");
+	return (void*)0;
+};
+
+fn emit_truth(Emitter* emitter, void* value, Type* type) -> void* {
+	void* zero = LLVMConstNull(llvm_type(emitter->compiler, type));
+	if (type->kind == TYPE_FLOAT) {
+		return LLVMBuildFCmp(emitter->compiler->llvm_builder, 14, value, zero, "truth\0");
+	};
+	return LLVMBuildICmp(emitter->compiler->llvm_builder, 33, value, zero, "truth\0");
+};
+
+fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void* {
+	void* builder := emitter->compiler->llvm_builder;
+	void* type = llvm_type(emitter->compiler, target);
+	if (target->kind == TYPE_BOOL && source->kind != TYPE_BOOL) {
+		return emit_truth(emitter, value, source);
+	};
+	if (type_equal(source, target)) {
+		return value;
+	};
+	if (source->kind == TYPE_POINTER || source->kind == TYPE_REFERENCE) {
+		if (target->kind == TYPE_POINTER || target->kind == TYPE_REFERENCE) {
+			return value;
+		};
+		return LLVMBuildPtrToInt(builder, value, type, "cast\0");
+	};
+	if (target->kind == TYPE_POINTER || target->kind == TYPE_REFERENCE) {
+		return LLVMBuildIntToPtr(builder, value, type, "cast\0");
+	};
+	if (source->kind == TYPE_FLOAT && target->kind == TYPE_FLOAT) {
+		return LLVMBuildFPCast(builder, value, type, "cast\0");
+	};
+	if (source->kind == TYPE_FLOAT) {
+		if (type_unsigned(target)) {
+			return LLVMBuildFPToUI(builder, value, type, "cast\0");
+		};
+		return LLVMBuildFPToSI(builder, value, type, "cast\0");
+	};
+	if (target->kind == TYPE_FLOAT) {
+		if (type_unsigned(source) || source->kind == TYPE_CHAR) {
+			return LLVMBuildUIToFP(builder, value, type, "cast\0");
+		};
+		return LLVMBuildSIToFP(builder, value, type, "cast\0");
+	};
+	return LLVMBuildIntCast2(builder, value, type, !(type_unsigned(source) || source->kind == TYPE_CHAR), "cast\0");
+};
+
+fn emit_extension(Compiler* compiler, Type* type) -> void* {
+	if (!type_integer(type) || type_bits(type) >= 32) {
+		return (void*)0;
+	};
+	char* name = "signext\0";
+	if (type_unsigned(type) || type->kind == TYPE_CHAR) {
+		name = "zeroext\0";
+	};
+	return LLVMCreateEnumAttribute(compiler->llvm_context, LLVMGetEnumAttributeKindForName(name, strlen(name)), 0);
+};
+
+fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> void* {
+	void* builder := emitter->compiler->llvm_builder;
+	Type* type := syntax->data.binary.left->type;
+	TokenKind operation := syntax->data.binary.operation;
+	if (operation != TOKEN_EQUAL && operation != TOKEN_NOT_EQUAL && operation != TOKEN_LESS && operation != TOKEN_GREATER && operation != TOKEN_LESS_EQUAL && operation != TOKEN_GREATER_EQUAL) {
+		type := syntax->type;
+	};
+	if (type->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
+		second = emit_cast(emitter, second, syntax->data.binary.right->type, emitter->compiler->usize_type);
+		if (operation == TOKEN_MINUS) {
+			second = LLVMBuildNeg(builder, second, "negative\0");
+		};
+		return LLVMBuildGEP2(builder, llvm_type(emitter->compiler, type->data.element), first, &second, 1, "offset\0");
+	};
+	if (operation == TOKEN_EQUAL || operation == TOKEN_NOT_EQUAL || operation == TOKEN_LESS || operation == TOKEN_GREATER || operation == TOKEN_LESS_EQUAL || operation == TOKEN_GREATER_EQUAL) {
+		i32 predicate = 32;
+		if (operation == TOKEN_NOT_EQUAL) {
+			predicate = 33;
+		};
+		if (operation == TOKEN_GREATER) {
+			predicate = 38;
+		};
+		if (operation == TOKEN_GREATER_EQUAL) {
+			predicate = 39;
+		};
+		if (operation == TOKEN_LESS) {
+			predicate = 40;
+		};
+		if (operation == TOKEN_LESS_EQUAL) {
+			predicate = 41;
+		};
+		void* result = (void*)0;
+		if (type->kind == TYPE_FLOAT) {
+			predicate = 1;
+			if (operation == TOKEN_NOT_EQUAL) {
+				predicate = 14;
+			};
+			if (operation == TOKEN_GREATER) {
+				predicate = 2;
+			};
+			if (operation == TOKEN_GREATER_EQUAL) {
+				predicate = 3;
+			};
+			if (operation == TOKEN_LESS) {
+				predicate = 4;
+			};
+			if (operation == TOKEN_LESS_EQUAL) {
+				predicate = 5;
+			};
+			result = LLVMBuildFCmp(builder, predicate, first, second, "compare\0");
+		}
+		else {
+			if ((type_unsigned(type) || type->kind == TYPE_CHAR || type->kind == TYPE_POINTER) && predicate >= 38) {
+				predicate = predicate - 4;
+			};
+			result = LLVMBuildICmp(builder, predicate, first, second, "compare\0");
+		};
+		return result;
+	};
+	if (type->kind == TYPE_FLOAT) {
+		switch (operation) {
+			case TOKEN_PLUS:
+				return LLVMBuildFAdd(builder, first, second, "sum\0");
+			case TOKEN_MINUS:
+				return LLVMBuildFSub(builder, first, second, "difference\0");
+			case TOKEN_STAR:
+				return LLVMBuildFMul(builder, first, second, "product\0");
+			case TOKEN_SLASH:
+				return LLVMBuildFDiv(builder, first, second, "quotient\0");
+		};
+	};
+	switch (operation) {
+		case TOKEN_PLUS:
+			return LLVMBuildAdd(builder, first, second, "sum\0");
+		case TOKEN_MINUS:
+			return LLVMBuildSub(builder, first, second, "difference\0");
+		case TOKEN_STAR:
+			return LLVMBuildMul(builder, first, second, "product\0");
+		case TOKEN_SLASH:
+			if (type_unsigned(type)) {
+				return LLVMBuildUDiv(builder, first, second, "quotient\0");
+			};
+			return LLVMBuildSDiv(builder, first, second, "quotient\0");
+		case TOKEN_REMAINDER:
+			if (type_unsigned(type)) {
+				return LLVMBuildURem(builder, first, second, "remainder\0");
+			};
+			return LLVMBuildSRem(builder, first, second, "remainder\0");
+		case TOKEN_AMPERSAND:
+			return LLVMBuildAnd(builder, first, second, "and\0");
+		case TOKEN_PIPE:
+			return LLVMBuildOr(builder, first, second, "or\0");
+		case TOKEN_CARET:
+			return LLVMBuildXor(builder, first, second, "xor\0");
+		case TOKEN_SHIFT_LEFT:
+			return LLVMBuildShl(builder, first, second, "shift\0");
+		case TOKEN_SHIFT_RIGHT:
+			if (type_unsigned(type)) {
+				return LLVMBuildLShr(builder, first, second, "shift\0");
+			};
+			return LLVMBuildAShr(builder, first, second, "shift\0");
+	};
+	compiler_error(emitter->compiler, syntax->token, "unsupported numeric operation\0");
+	return (void*)0;
+};
+
+fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void* builder := compiler->llvm_builder;
+	void* type = llvm_type(compiler, syntax->type);
+	switch (syntax->kind) {
+		case SYNTAX_NUMBER:
+			if (syntax->type->kind == TYPE_BOOL) {
+				return LLVMConstInt(type, number_truth(compiler, syntax->token), 0);
+			};
+			if (syntax->type->kind == TYPE_FLOAT) {
+				if (syntax->token.source->bytes[syntax->token.begin] == '\'') {
+					return LLVMConstReal(type, (f64)integer_spelling(compiler, syntax->token, (u64)18446744073709551615));
+				};
+				char* text = memory_text(compiler, syntax->token.source->bytes + syntax->token.begin, syntax->token.length);
+				return LLVMConstReal(type, strtod(text, (char**)0));
+			};
+			return LLVMConstInt(type, integer_spelling(compiler, syntax->token, (u64)18446744073709551615), 0);
+		case SYNTAX_STRING: {
+			void* value = LLVMConstStringInContext2(compiler->llvm_context, syntax->data.string.bytes, syntax->data.string.length, 1);
+			void* global = LLVMAddGlobal(compiler->llvm_module, LLVMTypeOf(value), "string\0");
+			LLVMSetInitializer(global, value);
+			LLVMSetGlobalConstant(global, 1);
+			LLVMSetLinkage(global, 9);
+			return global;
+		};
+		case SYNTAX_NAME:
+			if (syntax->entity->kind == ENTITY_FUNCTION) {
+				return syntax->entity->data.function.llvm_value;
+			};
+			if (syntax->entity->data.variable.storage == STORAGE_CONSTANT) {
+				return LLVMConstInt(type, syntax->entity->data.variable.data.integer, 0);
+			};
+			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
+		case SYNTAX_MEMBER:
+		case SYNTAX_INDEX:
+			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
+		case SYNTAX_SIZEOF:
+			return LLVMConstInt(type, LLVMABISizeOfType(compiler->llvm_layout, llvm_type(compiler, syntax->data.expression->type)), 0);
+		case SYNTAX_CAST:
+			return emit_cast(emitter, emit_expression(emitter, syntax->data.cast.value), syntax->data.cast.value->type, syntax->type);
+		case SYNTAX_UNARY: {
+			TokenKind operation := syntax->data.unary.operation;
+			Syntax* operand := syntax->data.unary.value;
+			if (operation == TOKEN_AMPERSAND) {
+				if (operand->type->kind == TYPE_FUNCTION) {
+					return emit_expression(emitter, operand);
+				};
+				return emit_address(emitter, operand);
+			};
+			if (operation == TOKEN_STAR) {
+				if (syntax->type->kind == TYPE_FUNCTION) {
+					return emit_expression(emitter, operand);
+				};
+				return LLVMBuildLoad2(builder, type, emit_expression(emitter, operand), "value\0");
+			};
+			void* value = emit_expression(emitter, operand);
+			if (operation == TOKEN_BANG) {
+				value = LLVMBuildNot(builder, emit_truth(emitter, value, operand->type), "not\0");
+				return value;
+			};
+			value = emit_cast(emitter, value, operand->type, syntax->type);
+			if (operation == TOKEN_TILDE) {
+				return LLVMBuildNot(builder, value, "complement\0");
+			};
+			if (operation == TOKEN_MINUS) {
+				if (syntax->type->kind == TYPE_FLOAT) {
+					return LLVMBuildFNeg(builder, value, "negative\0");
+				};
+				return LLVMBuildNeg(builder, value, "negative\0");
+			};
+			return value;
+		};
+		case SYNTAX_BINARY: {
+			TokenKind operation := syntax->data.binary.operation;
+			Syntax* left := syntax->data.binary.left;
+			Syntax* right := syntax->data.binary.right;
+			if (operation == TOKEN_ASSIGN || operation == TOKEN_COPY) {
+				void* value = emit_expression(emitter, right);
+				value = emit_cast(emitter, value, right->type, left->type);
+				LLVMBuildStore(builder, value, emit_address(emitter, left));
+				return value;
+			};
+			if (operation == TOKEN_AND || operation == TOKEN_OR) {
+				void* initial = LLVMGetInsertBlock(builder);
+				void* function = LLVMGetBasicBlockParent(initial);
+				void* rhs = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "logical.right\0");
+				void* merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "logical.end\0");
+				void* first = emit_truth(emitter, emit_expression(emitter, left), left->type);
+				initial = LLVMGetInsertBlock(builder);
+				if (operation == TOKEN_AND) {
+					LLVMBuildCondBr(builder, first, rhs, merge);
+				}
+				else {
+					LLVMBuildCondBr(builder, first, merge, rhs);
+				};
+				LLVMPositionBuilderAtEnd(builder, rhs);
+				void* second = emit_truth(emitter, emit_expression(emitter, right), right->type);
+				rhs = LLVMGetInsertBlock(builder);
+				LLVMBuildBr(builder, merge);
+				LLVMPositionBuilderAtEnd(builder, merge);
+				void* phi = LLVMBuildPhi(builder, LLVMIntTypeInContext(compiler->llvm_context, 1), "logical\0");
+				void*[2] values {};
+				void*[2] blocks {};
+				values[0] = LLVMConstInt(LLVMIntTypeInContext(compiler->llvm_context, 1), (u64)(operation == TOKEN_OR), 0);
+				values[1] = second;
+				blocks[0] = initial;
+				blocks[1] = rhs;
+				LLVMAddIncoming(phi, &values[0], &blocks[0], 2);
+				return phi;
+			};
+			void* first = emit_expression(emitter, left);
+			void* second = emit_expression(emitter, right);
+			if (left->type->kind != TYPE_POINTER) {
+				Type* operand := left->type;
+				if (operation != TOKEN_EQUAL && operation != TOKEN_NOT_EQUAL && operation != TOKEN_LESS && operation != TOKEN_GREATER && operation != TOKEN_LESS_EQUAL && operation != TOKEN_GREATER_EQUAL) {
+					operand := syntax->type;
+				};
+				first = emit_cast(emitter, first, left->type, operand);
+				second = emit_cast(emitter, second, right->type, operand);
+			};
+			return emit_binary(emitter, syntax, first, second);
+		};
+		case SYNTAX_CALL: {
+			Syntax* callee := syntax->data.call.callable;
+			Type* signature := callee->type;
+			if (signature->kind == TYPE_POINTER) {
+				signature := signature->data.element;
+			};
+			u32 count = 0;
+			if (syntax->data.call.receiver) {
+				count = 1;
+			};
+			Syntax* argument := syntax->data.call.arguments;
+			while (argument) {
+				count = count + 1;
+				argument := argument->next;
+			};
+			void** values = (void**)memory_allocate(compiler, (usize)count * sizeof(void*));
+			Parameter* parameter := signature->data.function.parameters;
+			argument := syntax->data.call.arguments;
+			u32 index = 0;
+			if (syntax->data.call.receiver) {
+				Syntax* receiver := syntax->data.call.receiver;
+				if (parameter->type->kind == TYPE_REFERENCE && receiver->type->kind != TYPE_REFERENCE) {
+					values[0] = emit_address(emitter, receiver);
+				}
+				else {
+					values[0] = emit_expression(emitter, receiver);
+				};
+				parameter := parameter->next;
+				index = 1;
+			};
+			while (argument) {
+				void* value = (void*)0;
+				if (argument->kind == SYNTAX_BLOCK) {
+					argument->entity->data.variable.data.address = emit_slot(compiler, argument->type);
+					emit_statement(emitter, argument);
+					value = LLVMBuildLoad2(builder, llvm_type(compiler, argument->type), argument->entity->data.variable.data.address, "argument\0");
+				}
+				else if (parameter && parameter->type->kind == TYPE_REFERENCE && argument->type->kind != TYPE_REFERENCE) {
+					value = emit_address(emitter, argument);
+				}
+				else {
+					value = emit_expression(emitter, argument);
+				};
+				if (parameter && parameter->type->kind != TYPE_REFERENCE) {
+					value = emit_cast(emitter, value, argument->type, parameter->type);
+				};
+				if (!parameter) {
+					Type* promoted := argument->type;
+					if (promoted->kind == TYPE_FLOAT && promoted->data.bits == 32) {
+						promoted = type_new(compiler, TYPE_FLOAT);
+						promoted->data.bits = 64;
+					}
+					else if (type_integer(promoted) && type_bits(promoted) < 32) {
+						promoted := compiler->i32_type;
+					};
+					value = emit_cast(emitter, value, argument->type, promoted);
+				};
+				values[index] = value;
+				index = index + 1;
+				argument := argument->next;
+				if (parameter) {
+					parameter := parameter->next;
+				};
+			};
+			char* name = "call\0";
+			if (signature->data.function.result->kind == TYPE_VOID) {
+				name = "\0";
+			};
+			void* call = LLVMBuildCall2(builder, llvm_type(compiler, signature), emit_expression(emitter, callee), values, count, name);
+			void* extension = emit_extension(compiler, signature->data.function.result);
+			if (extension) {
+				LLVMAddCallSiteAttribute(call, 0, extension);
+			};
+			index = 1;
+			parameter := signature->data.function.parameters;
+			while (parameter) {
+				extension = emit_extension(compiler, parameter->type);
+				if (extension) {
+					LLVMAddCallSiteAttribute(call, index, extension);
+				};
+				index = index + 1;
+				parameter := parameter->next;
+			};
+			return call;
+		};
+	};
+	compiler_error(compiler, syntax->token, "expression cannot be emitted\0");
+	return (void*)0;
+};
+
+fn emit_jump(Emitter* emitter, void* block) {
+	void* current = LLVMGetInsertBlock(emitter->compiler->llvm_builder);
+	if (!LLVMGetBasicBlockTerminator(current)) {
+		LLVMBuildBr(emitter->compiler->llvm_builder, block);
+	};
+};
+
+fn emit_has_predecessor(void* target) -> i32 {
+	void* block = LLVMGetFirstBasicBlock(LLVMGetBasicBlockParent(target));
+	while (block) {
+		void* instruction = LLVMGetBasicBlockTerminator(block);
+		if (instruction) {
+			u32 count = LLVMGetNumSuccessors(instruction);
+			u32 index = 0;
+			while (index < count) {
+				if (LLVMGetSuccessor(instruction, index) == target) {
+					return 1;
+				};
+				index = index + 1;
+			};
+		};
+		block = LLVMGetNextBasicBlock(block);
+	};
+	return 0;
+};
+
+fn emit_statement(Emitter* emitter, Syntax* syntax) {
+	Compiler* compiler := emitter->compiler;
+	if (!syntax || compiler->result == COMPILATION_FAILURE) {
+		return;
+	};
+	void* builder := compiler->llvm_builder;
+	if (syntax->kind != SYNTAX_CASE && syntax->kind != SYNTAX_BLOCK && syntax->kind != SYNTAX_DECLARATION && LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder))) {
+		return;
+	};
+	switch (syntax->kind) {
+		case SYNTAX_BLOCK: {
+			Syntax* statement := syntax->data.statements;
+			while (statement) {
+				emit_statement(emitter, statement);
+				statement := statement->next;
+			};
+			break;
+		};
+		case SYNTAX_DECLARATION:
+			if (syntax->entity->kind == ENTITY_VARIABLE) {
+				Entity* variable := syntax->entity;
+				variable->data.variable.data.address = emit_slot(compiler, variable->data.variable.type);
+				if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder))) {
+					break;
+				};
+				if (!syntax->data.declaration.body) {
+					LLVMBuildStore(builder, LLVMConstNull(llvm_type(compiler, variable->data.variable.type)), variable->data.variable.data.address);
+				};
+				emit_statement(emitter, syntax->data.declaration.body);
+			};
+			break;
+		case SYNTAX_RETURN:
+			if (syntax->data.expression) {
+				Syntax* expression := syntax->data.expression;
+				void* value = emit_expression(emitter, expression);
+				value = emit_cast(emitter, value, expression->type, emitter->function->data.function.type->data.function.result);
+				LLVMBuildRet(builder, value);
+			}
+			else {
+				LLVMBuildRetVoid(builder);
+			};
+			break;
+		case SYNTAX_BREAK:
+			LLVMBuildBr(builder, emitter->flow->break_block);
+			break;
+		case SYNTAX_CONTINUE: {
+			Flow* flow := emitter->flow;
+			while (flow && flow->kind != FLOW_LOOP) {
+				flow := flow->parent;
+			};
+			LLVMBuildBr(builder, flow->continue_block);
+			break;
+		};
+		case SYNTAX_IF: {
+			void* function := emitter->function->data.function.llvm_value;
+			void* first = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.then\0");
+			void* second = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.else\0");
+			void* merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.end\0");
+			Syntax* condition := syntax->data.branch.condition;
+			LLVMBuildCondBr(builder, emit_truth(emitter, emit_expression(emitter, condition), condition->type), first, second);
+			LLVMPositionBuilderAtEnd(builder, first);
+			emit_statement(emitter, syntax->data.branch.first);
+			i32 first_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder)) != (void*)0;
+			emit_jump(emitter, merge);
+			LLVMPositionBuilderAtEnd(builder, second);
+			emit_statement(emitter, syntax->data.branch.second);
+			i32 second_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder)) != (void*)0;
+			emit_jump(emitter, merge);
+			LLVMPositionBuilderAtEnd(builder, merge);
+			if (first_stops && second_stops) {
+				LLVMBuildUnreachable(builder);
+			};
+			break;
+		};
+		case SYNTAX_FOR:
+		case SYNTAX_WHILE: {
+			void* function := emitter->function->data.function.llvm_value;
+			void* test = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.test\0");
+			void* body = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.body\0");
+			void* step = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.step\0");
+			void* end = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.end\0");
+			emit_statement(emitter, syntax->data.loop.initializer);
+			emit_jump(emitter, test);
+			LLVMPositionBuilderAtEnd(builder, test);
+			Syntax* condition := syntax->data.loop.condition;
+			if (condition) {
+				LLVMBuildCondBr(builder, emit_truth(emitter, emit_expression(emitter, condition), condition->type), body, end);
+			}
+			else {
+				LLVMBuildBr(builder, body);
+			};
+			Flow flow;
+			flow.kind = FLOW_LOOP;
+			flow.parent = emitter->flow;
+			flow.break_block := end;
+			flow.continue_block := step;
+			emitter->flow = &flow;
+			LLVMPositionBuilderAtEnd(builder, body);
+			emit_statement(emitter, syntax->data.loop.body);
+			emit_jump(emitter, step);
+			LLVMPositionBuilderAtEnd(builder, step);
+			if (syntax->data.loop.step) {
+				emit_expression(emitter, syntax->data.loop.step);
+			};
+			emit_jump(emitter, test);
+			emitter->flow = flow.parent;
+			LLVMPositionBuilderAtEnd(builder, end);
+			break;
+		};
+		case SYNTAX_SWITCH: {
+			void* function := emitter->function->data.function.llvm_value;
+			void* end = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "switch.end\0");
+			void* fallback := end;
+			Syntax* statement := syntax->data.selection.cases->data.statements;
+			CaseBlock* previous = emitter->cases;
+			CaseBlock* cases = (CaseBlock*)0;
+			u32 count = 0;
+			while (statement) {
+				if (statement->kind == SYNTAX_CASE) {
+					CaseBlock* selection = (CaseBlock*)memory_allocate(compiler, sizeof(CaseBlock));
+					selection->syntax := statement;
+					selection->block = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "switch.case\0");
+					selection->next = cases;
+					if (!statement->data.selection_case.value) {
+						fallback := selection->block;
+					}
+					else {
+						count = count + 1;
+					};
+					cases = selection;
+				};
+				statement := statement->next;
+			};
+			void* instruction = LLVMBuildSwitch(builder, emit_expression(emitter, syntax->data.selection.value), fallback, count);
+			CaseBlock* selection := cases;
+			while (selection) {
+				if (selection->syntax->data.selection_case.value) {
+					Syntax* expression := selection->syntax->data.selection_case.value;
+					u64 value = constant_integer(compiler, expression->scope, expression);
+					value = constant_selector(value, expression->type);
+					LLVMAddCase(instruction, LLVMConstInt(llvm_type(compiler, expression->type), value, 0), selection->block);
+				};
+				selection := selection->next;
+			};
+			Flow flow;
+			flow.kind = FLOW_SWITCH;
+			flow.parent = emitter->flow;
+			flow.break_block := end;
+			emitter->flow = &flow;
+			emitter->cases = cases;
+			emit_statement(emitter, syntax->data.selection.cases);
+			emit_jump(emitter, end);
+			emitter->flow = flow.parent;
+			emitter->cases = previous;
+			LLVMPositionBuilderAtEnd(builder, end);
+			if (!emit_has_predecessor(end)) {
+				LLVMBuildUnreachable(builder);
+			};
+			break;
+		};
+		case SYNTAX_CASE: {
+			CaseBlock* selection := emitter->cases;
+			while (selection && selection->syntax != syntax) {
+				selection := selection->next;
+			};
+			if (selection) {
+				emit_jump(emitter, selection->block);
+				LLVMPositionBuilderAtEnd(builder, selection->block);
+			};
+			break;
+		};
+		default:
+			emit_expression(emitter, syntax);
+			break;
+	};
+};
+
+struct LayoutVisit {
+	Entity* entity;
+	LayoutVisit* parent;
+};
+
+fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token token) {
+	if (!type) {
+		return;
+	};
+	if (type->kind == TYPE_VOID || type->kind == TYPE_FUNCTION) {
+		compiler_error(compiler, token, "type has no value storage layout\0");
+		return;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		layout_validate(compiler, type->data.array.element, parent, token);
+		if (compiler->result == COMPILATION_FAILURE) {
+			return;
+		};
+
+		u64 size = LLVMABISizeOfType(compiler->llvm_layout, llvm_type(compiler, type->data.array.element));
+		u64 maximum = (u64)18446744073709551615;
+		if (compiler->usize_type->data.bits < 64) {
+			maximum = 1;
+			i32 bit = 0;
+			while (bit < compiler->usize_type->data.bits) {
+				maximum = maximum * 2;
+				bit = bit + 1;
+			};
+			maximum = maximum - 1;
+		};
+		if (size && type->data.array.count > maximum / size) {
+			compiler_error(compiler, token, "array storage exceeds the native address range\0");
+		};
+		return;
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return;
+	};
+
+	Entity* entity := type->data.entity;
+	LayoutVisit* previous := parent;
+	while (previous) {
+		if (previous->entity == entity) {
+			compiler_error(compiler, token, "record contains itself by value\0");
+			return;
+		};
+		previous := previous->parent;
+	};
+
+	entity_resolve(compiler, entity);
+	if (!entity->data.aggregate.scope) {
+		compiler_error(compiler, token, "incomplete record has no storage layout\0");
+		return;
+	};
+
+	Binding* binding := entity->data.aggregate.fields;
+	LayoutVisit visit;
+	visit.entity = entity;
+	visit.parent = parent;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		layout_validate(compiler, entity_type(binding->entity), &visit, binding->entity->name);
+		binding := binding->next;
+	};
+};
+
+fn declarations_validate(Compiler* compiler) {
+	Syntax* module := compiler->declarations;
+	while (module && compiler->result != COMPILATION_FAILURE) {
+		Syntax* statement := module->data.statements;
+		while (statement && compiler->result != COMPILATION_FAILURE) {
+			if (statement->kind != SYNTAX_DECLARATION) {
+				compiler_error(compiler, statement->token, "module context requires declarations\0");
+				break;
+			};
+
+			Entity* entity := statement->entity;
+			if (entity->kind == ENTITY_FUNCTION) {
+				Type* declared = type_resolve(compiler, compiler->module, statement->data.declaration.type);
+				if (!type_equal(declared, entity->data.function.type)) {
+					compiler_error(compiler, statement->token, "conflicting function signature\0");
+				};
+				if (statement->data.declaration.body && statement != entity->declaration) {
+					compiler_error(compiler, statement->token, "duplicate function definition\0");
+				};
+			}
+			else if (entity->kind == ENTITY_VARIABLE) {
+				compiler_error(compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
+			}
+			else if (statement->data.declaration.body && statement != entity->declaration) {
+				compiler_error(compiler, statement->token, "duplicate type definition\0");
+			};
+			statement := statement->next;
+		};
+		module := module->next;
+	};
+};
+
+fn backend_analyze(Compiler* compiler) {
+	Binding* binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		if (binding->entity->kind != ENTITY_VARIABLE) {
+			entity_resolve(compiler, binding->entity);
+		};
+		binding := binding->next;
+	};
+
+	declarations_validate(compiler);
+	binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		Entity* entity := binding->entity;
+		if ((entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION) && entity->data.aggregate.scope) {
+			layout_validate(compiler, entity_type(entity), (LayoutVisit*)0, entity->name);
+		};
+		if (entity->kind == ENTITY_FUNCTION) {
+			Type* signature := entity->data.function.type;
+			if (!entity->data.function.body && type_aggregate(signature->data.function.result)) {
+				compiler_error(compiler, entity->name, "external aggregate return requires C ABI lowering that is not supported yet\0");
+			};
+			if (signature->data.function.result->kind != TYPE_VOID) {
+				layout_validate(compiler, signature->data.function.result, (LayoutVisit*)0, entity->name);
+			};
+			Parameter* parameter := signature->data.function.parameters;
+			while (parameter && compiler->result != COMPILATION_FAILURE) {
+				if (!entity->data.function.body && type_aggregate(parameter->type)) {
+					compiler_error(compiler, entity->name, "external aggregate parameter requires C ABI lowering that is not supported yet\0");
+					break;
+				};
+				layout_validate(compiler, parameter->type, (LayoutVisit*)0, entity->name);
+				parameter := parameter->next;
+			};
+		};
+		if (entity->kind == ENTITY_FUNCTION && entity->data.function.body) {
+			Semantic semantic;
+			semantic.compiler := compiler;
+			semantic.scope := entity->data.function.scope;
+			semantic.function := entity;
+			semantic_statement(&semantic, entity->data.function.body);
+		};
+		binding := binding->next;
+	};
+};
+
+fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
+	char* prefix = "\0";
+	if (compiler->output == OUTPUT_EXECUTABLE && (entity->data.function.body || token_is(entity->name, "main\0"))) {
+		prefix = "rt.function.\0";
+	};
+	usize prefix_length = strlen(prefix);
+	char* name = (char*)memory_allocate(compiler, prefix_length + entity->name.length + 1);
+	memcpy((void*)name, (void*)prefix, prefix_length);
+	memcpy((void*)(name + prefix_length), (void*)(entity->name.source->bytes + entity->name.begin), entity->name.length);
+	return name;
+};
+
+fn emit_function(Compiler* compiler, Entity* entity) {
+	if (!entity->data.function.body) {
+		return;
+	};
+	void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, entity->data.function.llvm_value, "entry\0");
+	LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
+	Parameter* parameter := entity->data.function.type->data.function.parameters;
+	u32 index = 0;
+	while (parameter) {
+		parameter->entity->data.variable.data.address = emit_slot(compiler, parameter->type);
+		LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), parameter->entity->data.variable.data.address);
+		index = index + 1;
+		parameter := parameter->next;
+	};
+	Emitter emitter;
+	emitter.compiler := compiler;
+	emitter.function := entity;
+	emit_statement(&emitter, entity->data.function.body);
+	if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(compiler->llvm_builder))) {
+		if (entity->data.function.type->data.function.result->kind == TYPE_VOID) {
+			LLVMBuildRetVoid(compiler->llvm_builder);
+		}
+		else {
+			compiler_error(compiler, entity->name, "function can finish without returning a value\0");
+		};
+	};
+};
+
+fn emit_entry(Compiler* compiler) {
+	Binding* binding := compiler->module->bindings;
+	Entity* entry = (Entity*)0;
+	while (binding) {
+		if (binding->entity->kind == ENTITY_FUNCTION && token_is(binding->entity->name, compiler->entry)) {
+			entry := binding->entity;
+			break;
+		};
+		binding := binding->next;
+	};
+	if (!entry || !entry->data.function.body) {
+		Token token;
+		if (compiler->declarations) {
+			token := compiler->declarations->token;
+		};
+		compiler_error(compiler, token, "entry function is missing or has no definition\0");
+		return;
+	};
+	Type* signature := entry->data.function.type;
+	if (signature->data.function.result->kind != TYPE_VOID && !type_equal(signature->data.function.result, compiler->i32_type)) {
+		compiler_error(compiler, entry->name, "entry function must return i32 or void\0");
+		return;
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	void*[2] arguments {};
+	void*[2] parameter_types {};
+	parameter_types[0] = llvm_type(compiler, compiler->i32_type);
+	parameter_types[1] = LLVMPointerTypeInContext(compiler->llvm_context, 0);
+	if (parameter && (!parameter->next || parameter->next->next || !type_equal(parameter->type, compiler->i32_type) || !type_equal(parameter->next->type, type_pointer(compiler, type_pointer(compiler, compiler->char_type))))) {
+		compiler_error(compiler, entry->name, "entry parameters must be empty or (i32, char**)\0");
+		return;
+	};
+	void* main_type = LLVMFunctionType(parameter_types[0], &parameter_types[0], 2, 0);
+	void* main_function = LLVMAddFunction(compiler->llvm_module, "main\0", main_type);
+	void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, main_function, "entry\0");
+	LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
+	arguments[0] = LLVMGetParam(main_function, 0);
+	arguments[1] = LLVMGetParam(main_function, 1);
+	u32 count = 0;
+	if (parameter) {
+		count = 2;
+	};
+	char* name = "entry.result\0";
+	if (signature->data.function.result->kind == TYPE_VOID) {
+		name = "\0";
+	};
+	void* result = LLVMBuildCall2(compiler->llvm_builder, entry->data.function.llvm_type, entry->data.function.llvm_value, &arguments[0], count, name);
+	if (signature->data.function.result->kind == TYPE_VOID) {
+		result = LLVMConstInt(parameter_types[0], 0, 0);
+	};
+	LLVMBuildRet(compiler->llvm_builder, result);
+};
+
+fn backend_emit(Compiler* compiler) {
+	Binding* binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		Entity* entity := binding->entity;
+		if (entity->kind == ENTITY_FUNCTION) {
+			Type* signature := entity->data.function.type;
+			entity->data.function.llvm_type = llvm_type(compiler, signature);
+			entity->data.function.llvm_value = LLVMAddFunction(compiler->llvm_module, emit_symbol(compiler, entity), entity->data.function.llvm_type);
+			void* extension = emit_extension(compiler, signature->data.function.result);
+			if (extension) {
+				LLVMAddAttributeAtIndex(entity->data.function.llvm_value, 0, extension);
+			};
+			Parameter* parameter := signature->data.function.parameters;
+			u32 index = 1;
+			while (parameter) {
+				extension = emit_extension(compiler, parameter->type);
+				if (extension) {
+					LLVMAddAttributeAtIndex(entity->data.function.llvm_value, index, extension);
+				};
+				index = index + 1;
+				parameter := parameter->next;
+			};
+		};
+		binding := binding->next;
+	};
+	binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		if (binding->entity->kind == ENTITY_FUNCTION) {
+			emit_function(compiler, binding->entity);
+		};
+		binding := binding->next;
+	};
+	if (compiler->output == OUTPUT_EXECUTABLE && compiler->result != COMPILATION_FAILURE) {
+		emit_entry(compiler);
+	};
+};
+
+fn semantic_statement(Semantic* semantic, Syntax* syntax) {
+	Compiler* compiler := semantic->compiler;
+	if (!syntax || compiler->result == COMPILATION_FAILURE) {
+		return;
+	};
+	switch (syntax->kind) {
+		case SYNTAX_BLOCK: {
+			Scope* outer := semantic->scope;
+			if (syntax->scope) {
+				semantic->scope := syntax->scope;
+			};
+			Syntax* statement := syntax->data.statements;
+			while (statement && compiler->result != COMPILATION_FAILURE) {
+				semantic_statement(semantic, statement);
+				statement := statement->next;
+			};
+			semantic->scope = outer;
+			break;
+		};
+		case SYNTAX_DECLARATION:
+			if (syntax->entity->kind == ENTITY_VARIABLE) {
+				Entity* variable := syntax->entity;
+				if (syntax->data.declaration.type) {
+					variable->data.variable.type = type_resolve(compiler, semantic->scope, syntax->data.declaration.type);
+				};
+				variable->resolution = RESOLUTION_READY;
+				semantic_statement(semantic, syntax->data.declaration.body);
+				if (!variable->data.variable.type || variable->data.variable.type->kind == TYPE_VOID || variable->data.variable.type->kind == TYPE_FUNCTION) {
+					compiler_error(compiler, syntax->token, "variable requires a resolved storage type\0");
+				};
+				layout_validate(compiler, variable->data.variable.type, (LayoutVisit*)0, syntax->token);
+			}
+			else {
+				entity_resolve(compiler, syntax->entity);
+			};
+			break;
+		case SYNTAX_RETURN:
+			if (!semantic->function) {
+				compiler_error(compiler, syntax->token, "return requires a function context\0");
+			}
+			else {
+				Type* result := semantic->function->data.function.type->data.function.result;
+				if (syntax->data.expression) {
+					semantic_expression(semantic, syntax->data.expression, result);
+				}
+				else if (result->kind != TYPE_VOID) {
+					compiler_error(compiler, syntax->token, "return requires a result value\0");
+				};
+			};
+			break;
+		case SYNTAX_IF:
+			if (!type_scalar(semantic_expression(semantic, syntax->data.branch.condition, compiler->bool_type))) {
+				compiler_error(compiler, syntax->token, "condition requires a scalar value\0");
+			};
+			semantic_statement(semantic, syntax->data.branch.first);
+			semantic_statement(semantic, syntax->data.branch.second);
+			break;
+		case SYNTAX_FOR:
+		case SYNTAX_WHILE: {
+			Flow flow;
+			flow.kind = FLOW_LOOP;
+			flow.parent = semantic->flow;
+			semantic->flow = &flow;
+			Scope* outer := semantic->scope;
+			if (syntax->scope) {
+				semantic->scope := syntax->scope;
+			};
+			semantic_statement(semantic, syntax->data.loop.initializer);
+			if (syntax->data.loop.condition) {
+				if (!type_scalar(semantic_expression(semantic, syntax->data.loop.condition, compiler->bool_type))) {
+					compiler_error(compiler, syntax->token, "condition requires a scalar value\0");
+				};
+			};
+			if (syntax->data.loop.step) {
+				semantic_expression(semantic, syntax->data.loop.step, (Type*)0);
+			};
+			semantic_statement(semantic, syntax->data.loop.body);
+			semantic->scope = outer;
+			semantic->flow = flow.parent;
+			break;
+		};
+		case SYNTAX_SWITCH: {
+			Type* type = semantic_expression(semantic, syntax->data.selection.value, (Type*)0);
+			if (!type_integer(type)) {
+				compiler_error(compiler, syntax->token, "switch requires an integer value\0");
+				break;
+			};
+			selection_validate(semantic, syntax, type);
+			Flow flow;
+			flow.kind = FLOW_SWITCH;
+			flow.parent = semantic->flow;
+			semantic->flow = &flow;
+			Type* outer = semantic->selection_type;
+			semantic->selection_type = type;
+			semantic_statement(semantic, syntax->data.selection.cases);
+			semantic->selection_type = outer;
+			semantic->flow = flow.parent;
+			break;
+		};
+		case SYNTAX_CASE:
+			if (!semantic->flow || semantic->flow->kind != FLOW_SWITCH) {
+				compiler_error(compiler, syntax->token, "case requires a switch context\0");
+			};
+			if (syntax->data.selection_case.value) {
+				constant_integer(compiler, semantic->scope, syntax->data.selection_case.value);
+			};
+			break;
+		case SYNTAX_BREAK:
+		case SYNTAX_CONTINUE: {
+			Flow* flow := semantic->flow;
+			if (syntax->kind == SYNTAX_CONTINUE) {
+				while (flow && flow->kind != FLOW_LOOP) {
+					flow := flow->parent;
+				};
+			};
+			if (!flow) {
+				compiler_error(compiler, syntax->token, "flow statement has no enclosing target\0");
+			};
+			break;
+		};
+		default:
+			semantic_expression(semantic, syntax, (Type*)0);
+			break;
+	};
+};
+
+fn LLVMGetVersion(u32* major, u32* minor, u32* patch);
+
+fn backend_initialize(Compiler* compiler) -> i32 {
+	Token token;
+	u32 major;
+	u32 minor;
+	u32 patch;
+	LLVMGetVersion(&major, &minor, &patch);
+	if (major != 21 || minor != 1 || patch != 0) {
+		compiler_error(compiler, token, "LLVM runtime version must be 21.1.0\0");
+		return 0;
+	};
+
+	LLVMInitializeX86TargetInfo();
+	LLVMInitializeX86Target();
+	LLVMInitializeX86TargetMC();
+	LLVMInitializeX86AsmPrinter();
+	compiler->llvm_context = LLVMContextCreate();
+	compiler->llvm_module = LLVMModuleCreateWithNameInContext("rutile\0", compiler->llvm_context);
+	compiler->llvm_builder = LLVMCreateBuilderInContext(compiler->llvm_context);
+
+	char* triple = LLVMGetDefaultTargetTriple();
+	char* cpu = LLVMGetHostCPUName();
+	char* features = LLVMGetHostCPUFeatures();
+	char* message;
+	void* target;
+	i32 target_failure = LLVMGetTargetFromTriple(triple, &target, &message);
+	if (target_failure) {
+		compiler_error(compiler, token, message);
+		LLVMDisposeMessage(message);
+	}
+	else {
+		compiler->llvm_machine = LLVMCreateTargetMachine(target, triple, cpu, features, compiler->optimization, 2, 0);
+		if (!compiler->llvm_machine) {
+			compiler_error(compiler, token, "cannot create LLVM target machine\0");
+		}
+		else {
+			compiler->llvm_layout = LLVMCreateTargetDataLayout(compiler->llvm_machine);
+			char* layout = LLVMCopyStringRepOfTargetData(compiler->llvm_layout);
+			LLVMSetTarget(compiler->llvm_module, triple);
+			LLVMSetDataLayout(compiler->llvm_module, layout);
+			LLVMDisposeMessage(layout);
+		};
+	};
+
+	LLVMDisposeMessage(triple);
+	LLVMDisposeMessage(cpu);
+	LLVMDisposeMessage(features);
+	return compiler->result == COMPILATION_SUCCESS;
+};
+
+fn backend_verify(Compiler* compiler) -> i32 {
+	char* message;
+	i32 invalid = LLVMVerifyModule(compiler->llvm_module, 2, &message);
+	if (invalid) {
+		Token token;
+		compiler_error(compiler, token, message);
+	};
+	if (message) {
+		LLVMDisposeMessage(message);
+	};
+	return !invalid;
+};
+
+fn backend_optimize(Compiler* compiler) -> i32 {
+	if (!backend_verify(compiler)) {
+		return 0;
+	};
+
+	char*[4] pipelines {};
+	pipelines[0] = "default<O0>\0";
+	pipelines[1] = "default<O1>\0";
+	pipelines[2] = "default<O2>\0";
+	pipelines[3] = "default<O3>\0";
+	void* options = LLVMCreatePassBuilderOptions();
+	LLVMPassBuilderOptionsSetVerifyEach(options, 1);
+	void* error = LLVMRunPasses(compiler->llvm_module, pipelines[compiler->optimization], compiler->llvm_machine, options);
+	LLVMDisposePassBuilderOptions(options);
+	if (error) {
+		char* message = LLVMGetErrorMessage(error);
+		Token token;
+		compiler_error(compiler, token, message);
+		LLVMDisposeErrorMessage(message);
+		return 0;
+	};
+
+	return backend_verify(compiler);
+};
+
+fn backend_publish(Compiler* compiler, char* output_path) -> i32 {
+	char* message;
+	void* buffer;
+	if (LLVMTargetMachineEmitToMemoryBuffer(compiler->llvm_machine, compiler->llvm_module, 1, &message, &buffer)) {
+		Token token;
+		compiler_error(compiler, token, message);
+		LLVMDisposeMessage(message);
+		return 0;
+	};
+
+	void* file = compiler->open_file(output_path, "wb\0");
+	if (!file) {
+		Token token;
+		compiler_error(compiler, token, "cannot open native object output\0");
+		LLVMDisposeMemoryBuffer(buffer);
+		return 0;
+	};
+
+	usize size = LLVMGetBufferSize(buffer);
+	usize written = fwrite((void*)LLVMGetBufferStart(buffer), 1, size, file);
+	i32 closed = fclose(file);
+	LLVMDisposeMemoryBuffer(buffer);
+	if (written != size || closed) {
+		Token token;
+		compiler_error(compiler, token, "cannot write native object output\0");
+		return 0;
+	};
+	return 1;
+};
+
+fn source_read(Compiler* compiler, char* path) -> Source* {
+	Source* source = (Source*)memory_allocate(compiler, sizeof(Source));
+	if (!source) {
+		return (Source*)0;
+	};
+	source->path = memory_text(compiler, path, strlen(path));
+	Token token;
+	token.source := source;
+	token.line = 1;
+	token.column = 1;
+	void* file = compiler->open_file(path, "rb\0");
+	if (!file) {
+		compiler_error(compiler, token, "cannot open source\0");
+		return (Source*)0;
+	};
+
+	usize capacity = 4096;
+	char* bytes = (char*)memory_allocate(compiler, capacity);
+	usize maximum = (usize)(u64)18446744073709551615 / sizeof(Token) - 1;
+	char[4096] chunk {};
+	while (bytes) {
+		usize count = fread((void*)&chunk[0], 1, sizeof(chunk), file);
+		if (!count) {
+			break;
+		};
+		if (count > maximum - source->length) {
+			compiler_error(compiler, token, "source exceeds compiler address limits\0");
+			break;
+		};
+
+		usize required = source->length + count + 1;
+		if (required > capacity) {
+			usize next_capacity = capacity;
+			while (next_capacity < required) {
+				if (next_capacity > maximum / 2) {
+			next_capacity = required;
+					break;
+				};
+				next_capacity = next_capacity * 2;
+			};
+			char* next = (char*)memory_allocate(compiler, next_capacity);
+			if (!next) {
+				break;
+			};
+			memcpy((void*)next, (void*)bytes, source->length);
+			bytes = next;
+			capacity = next_capacity;
+		};
+
+		memcpy((void*)(bytes + source->length), (void*)&chunk[0], count);
+		source->length = source->length + count;
+	};
+
+	i32 failed = ferror(file);
+	i32 closed = fclose(file);
+	if (failed || closed || !bytes) {
+		compiler_error(compiler, token, "cannot read source\0");
+	};
+	if (compiler->result == COMPILATION_FAILURE) {
+		return (Source*)0;
+	};
+	bytes[source->length] = 0;
+	source->bytes = bytes;
+	return source;
+};
+
+fn backend_clear(Compiler* compiler) {
+	if (compiler->llvm_layout) {
+		LLVMDisposeTargetData(compiler->llvm_layout);
+	};
+	if (compiler->llvm_builder) {
+		LLVMDisposeBuilder(compiler->llvm_builder);
+	};
+	if (compiler->llvm_module) {
+		LLVMDisposeModule(compiler->llvm_module);
+	};
+	if (compiler->llvm_machine) {
+		LLVMDisposeTargetMachine(compiler->llvm_machine);
+	};
+	if (compiler->llvm_context) {
+		LLVMContextDispose(compiler->llvm_context);
+	};
+
+	while (compiler->allocations) {
+		Allocation* allocation = compiler->allocations;
+		compiler->allocations = allocation->next;
+		free(allocation->memory);
+		free((void*)allocation);
+	};
+	memset((void*)compiler, 0, sizeof(Compiler));
+};
+
+fn rutile_compiler_create() -> Compiler* {
+	return (Compiler*)calloc(1, sizeof(Compiler));
+};
+
+fn rutile_compiler_destroy(Compiler* compiler) {
+	if (!compiler) {
+		return;
+	};
+
+	backend_clear(compiler);
+	free((void*)compiler);
+};
+
+fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics, OutputKind output) -> i32 {
+	if (!diagnostics) {
+		diagnostics = platform_standard_error();
+	};
+	if (!compiler) {
+		fputs("error: compiler context unavailable\n\0", diagnostics);
+		return 1;
+	};
+
+	backend_clear(compiler);
+	compiler->diagnostics = diagnostics;
+	compiler->open_file = open_file;
+	if (!compiler->open_file) {
+		compiler->open_file = &fopen;
+	};
+	compiler->output = output;
+	compiler->optimization := optimization;
+	compiler->entry = "main\0";
+	if (entry) {
+		compiler->entry = memory_text(compiler, entry, strlen(entry));
+	};
+	Token token;
+	if (optimization < 0 || optimization > 3) {
+		compiler_error(compiler, token, "optimization level must be between 0 and 3\0");
+	};
+	if (!source_paths || !source_count) {
+		compiler_error(compiler, token, "no source files\0");
+	};
+	if (!output_path) {
+		compiler_error(compiler, token, "native object output path is required\0");
+	};
+
+	usize index = 0;
+	Source* last;
+	while (index < source_count && compiler->result != COMPILATION_FAILURE) {
+		if (!source_paths[index] || !strcmp(source_paths[index], output_path)) {
+			compiler_error(compiler, token, "output cannot overwrite a source file\0");
+			break;
+		};
+		Source* source = source_read(compiler, source_paths[index]);
+		if (!source) {
+			break;
+		};
+		if (last) {
+			last->next := source;
+		}
+		else {
+			compiler->sources := source;
+		};
+		last = source;
+		index = index + 1;
+	};
+
+	if (compiler->result != COMPILATION_FAILURE && backend_initialize(compiler)) {
+		compiler_builtins(compiler, (i32)(LLVMPointerSize(compiler->llvm_layout) * 8));
+		if (prepare_sources(compiler)) {
+			Source* source = compiler->sources;
+			Syntax* last_module;
+			while (source && compiler->result != COMPILATION_FAILURE) {
+				Syntax* module = parse_source(compiler, source);
+				if (last_module) {
+					last_module->next := module;
+				}
+				else {
+					compiler->declarations := module;
+				};
+				last_module = module;
+				source = source->next;
+			};
+		};
+	};
+	if (compiler->result != COMPILATION_FAILURE) {
+		backend_analyze(compiler);
+	};
+	if (compiler->result != COMPILATION_FAILURE) {
+		backend_emit(compiler);
+	};
+	if (compiler->result != COMPILATION_FAILURE && backend_optimize(compiler)) {
+		backend_publish(compiler, output_path);
+	};
+
+	compiler->diagnostics = (void*)0;
+	compiler->open_file = (((char*, char*) -> void*)*)0;
+	return (i32)compiler->result;
+};
+
+fn rutile_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics) -> i32 {
+	return backend_compile(compiler, source_paths, source_count, output_path, open_file, entry, optimization, diagnostics, OUTPUT_EXECUTABLE);
+};
+
+fn rutile_compile_library(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, i32 optimization, void* diagnostics) -> i32 {
+	return backend_compile(compiler, source_paths, source_count, output_path, open_file, (char*)0, optimization, diagnostics, OUTPUT_LIBRARY);
+};
+
+
+

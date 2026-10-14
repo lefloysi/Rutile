@@ -1,0 +1,40 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdio>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+struct PlatformLock;
+struct PlatformServer;
+
+extern "C" std::FILE* platform_standard_error();
+
+bool platform_current_directory(char* path, std::size_t capacity);
+bool platform_executable_path(char* path, std::size_t capacity);
+bool platform_directory_exists(const char* path);
+bool platform_file_exists(const char* path);
+bool platform_create_directory(const char* path);
+std::FILE* platform_open_file(const std::filesystem::path& path, const char* mode);
+bool platform_read_file(const char* path, char* data, std::size_t capacity);
+bool platform_write_file(const char* path, const char* data);
+bool platform_replace_file(const std::filesystem::path& source, const std::filesystem::path& destination);
+bool platform_endpoint(const char* root, char* endpoint, std::size_t capacity);
+bool platform_spawn(const char* executable, const char* root, const char* endpoint);
+int platform_run(const std::filesystem::path& executable, const std::vector<std::string>& arguments, const std::filesystem::path& diagnostics = {});
+void platform_sleep(unsigned int milliseconds);
+
+struct PlatformLock* platform_lock_acquire(const char* path);
+void platform_lock_release(struct PlatformLock* lock);
+
+bool platform_request(const char* endpoint, const char* command, char* response, std::size_t capacity, unsigned int timeout_ms = 1000);
+struct PlatformServer* platform_server_open(const char* endpoint);
+bool platform_server_accept(struct PlatformServer* server);
+bool platform_server_read(struct PlatformServer* server, char* command, std::size_t capacity);
+bool platform_server_write(struct PlatformServer* server, const char* response);
+void platform_server_disconnect(struct PlatformServer* server);
+void platform_server_close(struct PlatformServer* server);
+
+
+

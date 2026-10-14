@@ -1,0 +1,10 @@
+add_library("base" STATIC)
+target_include_directories("base" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+if(WIN32)
+	target_sources("base" PRIVATE "src/windows.cpp")
+elseif(UNIX)
+	target_sources("base" PRIVATE "src/posix.cpp")
+else()
+	message(FATAL_ERROR "This platform has no process implementation yet.")
+endif()
