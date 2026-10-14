@@ -61,6 +61,19 @@ bool configuration_name(std::string_view name, bool target) {
 	return true;
 }
 
+bool configuration_entry(std::string_view name) {
+	while (true) {
+		auto separator = name.find("::");
+		if (!configuration_name(name.substr(0, separator), false)) {
+			return false;
+		}
+		if (separator == std::string_view::npos) {
+			return true;
+		}
+		name.remove_prefix(separator + 2);
+	}
+}
+
 bool configuration_mapping(const std::filesystem::path& path, const YAML::Node& node, std::initializer_list<std::string_view> fields, bool unrestricted, std::string& diagnostics) {
 	if (!node.IsMap()) {
 		return configuration_failure(path, node, "expected a mapping", diagnostics);
@@ -136,8 +149,8 @@ bool project_configuration_read(const std::filesystem::path& root, struct Projec
 			if (!configuration_string(path, item.second["source"], "source", source, diagnostics) || !configuration_string(path, item.second["entry"], "entry", target.entry, diagnostics)) {
 				return false;
 			}
-			if (!configuration_name(target.entry, false)) {
-				return configuration_failure(path, item.second["entry"], "entry must be a Rutile identifier", diagnostics);
+			if (!configuration_entry(target.entry)) {
+				return configuration_failure(path, item.second["entry"], "entry must be a Rutile identifier or a namespace-qualified identifier", diagnostics);
 			}
 			target.source = (root / std::filesystem::u8path(source)).lexically_normal();
 			std::error_code error;

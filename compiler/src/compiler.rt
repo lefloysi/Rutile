@@ -7,6 +7,7 @@ enum TokenKind {
 	TOKEN_STRUCT,
 	TOKEN_UNION,
 	TOKEN_ENUM,
+	TOKEN_NAMESPACE,
 	TOKEN_RETURN,
 	TOKEN_IF,
 	TOKEN_ELSE,
@@ -38,6 +39,7 @@ enum TokenKind {
 	TOKEN_SEMICOLON,
 	TOKEN_COMMA,
 	TOKEN_COLON,
+	TOKEN_SCOPE,
 	TOKEN_DOT,
 	TOKEN_ASSIGN,
 	TOKEN_PLUS,
@@ -272,6 +274,7 @@ enum EntityKind {
 	ENTITY_FUNCTION,
 	ENTITY_VARIABLE,
 	ENTITY_NUMBER,
+	ENTITY_NAMESPACE,
 };
 
 enum Resolution {
@@ -374,7 +377,12 @@ struct VariableEntity {
 	StorageData data;
 };
 
+struct NamespaceEntity {
+	Scope* scope;
+};
+
 union EntityData {
+	NamespaceEntity namespace_entity;
 	NumberEntity number;
 	PrimitiveEntity primitive;
 	AggregateEntity aggregate;
@@ -795,36 +803,96 @@ fn declaration_rule(Compiler* compiler, TokenKind token_kind) -> DeclarationRule
 	return (DeclarationRule*)0;
 };
 
-fn parser_predeclare(Parser* parser) {
-	usize index = 0;
-	usize depth = 0;
-	while (index + 1 < parser->count) {
-		Token token := parser->tokens[index];
-		DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
+fn namespace_define(Compiler* compiler, Scope* scope, Token name) -> Entity* {
+	Entity* entity = scope_local(scope, name);
+	if (entity) {
+		if (entity->kind != ENTITY_NAMESPACE) {
+			compiler_error(compiler, name, "namespace conflicts with another declaration\0");
+			return (Entity*)0;
+		};
+		return entity;
+	};
 
-		if (!depth && rule) {
-			Token name := parser->tokens[index + 1];
-			if (name.kind == TOKEN_NAME) {
-				Entity* existing = scope_local(parser->scope, name);
-				EntityKind kind := rule->entity;
-				if (existing) {
-					if (existing->kind != kind) {
-						compiler_error(parser->compiler, name, "conflicting declaration kind\0");
-					};
-				}
-				else {
-					scope_define(parser->compiler, parser->scope, entity_create(parser->compiler, kind, name));
+	entity = entity_create(compiler, ENTITY_NAMESPACE, name);
+	if (!entity) {
+		return (Entity*)0;
+	};
+	entity->data.namespace_entity.scope = scope_create(compiler, scope, CONTEXT_MODULE, entity);
+	entity->resolution = RESOLUTION_READY;
+	scope_define(compiler, scope, entity);
+	return entity;
+};
+
+fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
+	while (*position + 1 < parser->count && parser->compiler->result != COMPILATION_FAILURE) {
+		Token token := parser->tokens[*position];
+		if (token.kind == TOKEN_RIGHT_BRACE || token.kind == TOKEN_END) {
+			return;
+		};
+		if (token.kind == TOKEN_NAMESPACE) {
+			*position = *position + 1;
+			Scope* members := scope;
+			while (*position < parser->count) {
+				Token name := parser->tokens[*position];
+				if (name.kind != TOKEN_NAME) {
+					compiler_error(parser->compiler, name, "expected namespace identifier\0");
+					return;
+				};
+				Entity* entity = namespace_define(parser->compiler, members, name);
+				if (!entity) {
+					return;
+				};
+				members := entity->data.namespace_entity.scope;
+				*position = *position + 1;
+				if (parser->tokens[*position].kind != TOKEN_SCOPE) {
+					break;
+				};
+				*position = *position + 1;
+			};
+			if (parser->tokens[*position].kind != TOKEN_LEFT_BRACE) {
+				compiler_error(parser->compiler, parser->tokens[*position], "expected namespace body\0");
+				return;
+			};
+			*position = *position + 1;
+			parser_predeclare_range(parser, members, position);
+			*position = *position + 1;
+		}
+		else {
+			DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
+			if (rule && parser->tokens[*position + 1].kind == TOKEN_NAME) {
+				Token name := parser->tokens[*position + 1];
+				Entity* existing = scope_local(scope, name);
+				if (existing && existing->kind != rule->entity) {
+					compiler_error(parser->compiler, name, "conflicting declaration kind\0");
+				};
+				if (!existing) {
+					scope_define(parser->compiler, scope, entity_create(parser->compiler, rule->entity, name));
 				};
 			};
+			usize depth = 0;
+			while (*position < parser->count) {
+				TokenKind kind := parser->tokens[*position].kind;
+				if (!depth && (kind == TOKEN_SEMICOLON || kind == TOKEN_END || kind == TOKEN_RIGHT_BRACE)) {
+					break;
+				};
+				if (kind == TOKEN_LEFT_BRACE) {
+					depth = depth + 1;
+				};
+				if (kind == TOKEN_RIGHT_BRACE && depth) {
+					depth = depth - 1;
+				};
+				*position = *position + 1;
+			};
 		};
-		if (token.kind == TOKEN_LEFT_BRACE) {
-			depth = depth + 1;
+		if (parser->tokens[*position].kind == TOKEN_SEMICOLON) {
+			*position = *position + 1;
 		};
-		if (token.kind == TOKEN_RIGHT_BRACE && depth) {
-			depth = depth - 1;
-		};
-		index = index + 1;
 	};
+};
+
+fn parser_predeclare(Parser* parser) {
+	usize position = 0;
+	parser_predeclare_range(parser, parser->scope, &position);
 };
 
 fn lexer_peek(Lexer* lexer, usize distance) -> char {
@@ -868,6 +936,8 @@ struct Keyword {
 };
 
 fn lexer_keywords(Keyword* keywords) {
+	keywords[16].text = "namespace\0";
+	keywords[16].kind = TOKEN_NAMESPACE;
 	keywords[0].text = "fn\0";
 	keywords[0].kind = TOKEN_FN;
 	keywords[1].text = "var\0";
@@ -916,6 +986,8 @@ fn lexer_keyword(Token token, Keyword* keywords, usize count) -> TokenKind {
 };
 
 fn lexer_operators(Keyword* operators) {
+	operators[34].text = ":\0";
+	operators[34].kind = TOKEN_COLON;
 	operators[0].text = "...\0";
 	operators[0].kind = TOKEN_ELLIPSIS;
 	operators[1].text = "->\0";
@@ -954,8 +1026,8 @@ fn lexer_operators(Keyword* operators) {
 	operators[17].kind = TOKEN_SEMICOLON;
 	operators[18].text = ",\0";
 	operators[18].kind = TOKEN_COMMA;
-	operators[19].text = ":\0";
-	operators[19].kind = TOKEN_COLON;
+	operators[19].text = "::\0";
+	operators[19].kind = TOKEN_SCOPE;
 	operators[20].text = ".\0";
 	operators[20].kind = TOKEN_DOT;
 	operators[21].text = "=\0";
@@ -1015,14 +1087,14 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate(compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[16] keywords {};
+	Keyword[17] keywords {};
 	lexer_keywords(&keywords[0]);
-	Keyword[34] operators {};
+	Keyword[35] operators {};
 	lexer_operators(&operators[0]);
 	usize operator_count = sizeof(operators) / sizeof(Keyword);
 	while (true) {
 		char value = lexer_peek(&lexer, 0);
-		if (value == ' ' || value == '\t' || value == '\n' || value == '\r') {
+		if (value == ' ' || value == '	' || value == '\n' || value == '\r') {
 			lexer_advance(&lexer);
 			continue;
 		};
@@ -1071,7 +1143,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 				lexer_advance(&lexer);
 			};
 			token.length = lexer.offset - token.begin;
-			token.kind = lexer_keyword(token, &keywords[0], 16);
+			token.kind = lexer_keyword(token, &keywords[0], sizeof(keywords) / sizeof(Keyword));
 		}
 		else if (lexer_digit(value)) {
 			token.kind = TOKEN_NUMBER;
@@ -1233,6 +1305,39 @@ fn parser_signature_arrow(Parser* parser, usize offset) -> usize {
 	return 0;
 };
 
+fn entity_members(Entity* entity) -> Scope* {
+	if (entity && entity->kind == ENTITY_NAMESPACE) {
+		return entity->data.namespace_entity.scope;
+	};
+	if (entity && entity->kind == ENTITY_ENUM && entity->declaration && entity->declaration->data.declaration.body) {
+		return entity->declaration->data.declaration.body->scope;
+	};
+	return (Scope*)0;
+};
+
+fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
+	if (!syntax->data.expression) {
+		return scope_lookup(scope, syntax->token);
+	};
+	Scope* members = entity_members(syntax_lookup(scope, syntax->data.expression));
+	if (!members) {
+		return (Entity*)0;
+	};
+	return scope_local(members, syntax->token);
+};
+
+fn parser_name(Parser* parser) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_NAME, "expected identifier\0");
+	Syntax* name = syntax_new(parser, SYNTAX_NAME, token);
+	while (parser_take(parser, TOKEN_SCOPE)) {
+		Token member = parser_require(parser, TOKEN_NAME, "expected qualified identifier\0");
+		Syntax* qualified = syntax_new(parser, SYNTAX_NAME, member);
+		qualified->data.expression := name;
+		name = qualified;
+	};
+	return name;
+};
+
 fn parser_type_end(Parser* parser, usize offset) -> usize {
 	if (offset >= parser->count) {
 		return 0;
@@ -1240,11 +1345,20 @@ fn parser_type_end(Parser* parser, usize offset) -> usize {
 	TokenKind kind := parser->tokens[offset].kind;
 	if (kind == TOKEN_NAME) {
 		Entity* entity = scope_lookup(parser->scope, parser->tokens[offset]);
+		offset = offset + 1;
+		while (entity && offset + 1 < parser->count && parser->tokens[offset].kind == TOKEN_SCOPE && parser->tokens[offset + 1].kind == TOKEN_NAME) {
+			Scope* members = entity_members(entity);
+			if (!members) {
+				return 0;
+			};
+			entity = scope_local(members, parser->tokens[offset + 1]);
+			offset = offset + 2;
+		};
 		if (!entity) {
 			return 0;
 		};
 		if (entity->kind == ENTITY_PRIMITIVE || entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION || entity->kind == ENTITY_ENUM) {
-			return parser_type_suffix_end(parser, offset + 1);
+			return parser_type_suffix_end(parser, offset);
 		};
 		return 0;
 	};
@@ -1353,8 +1467,7 @@ fn parser_type(Parser* parser) -> Syntax* {
 		parser_require(parser, TOKEN_RIGHT_PAREN, "expected ')' after grouped type\0");
 	}
 	else {
-		parser_require(parser, TOKEN_NAME, "expected type expression\0");
-		node = syntax_new(parser, SYNTAX_NAME, token);
+		node = parser_name(parser);
 	};
 
 	while (true) {
@@ -1396,7 +1509,7 @@ fn literal_escape(Compiler* compiler, Token token, char value) -> char {
 			return '\r';
 
 		case 't':
-			return '\t';
+			return '	';
 
 		case '\\':
 		case '"':
@@ -1481,8 +1594,8 @@ fn parser_precedence(TokenKind operation) -> i32 {
 
 fn parser_primary(Parser* parser) -> Syntax* {
 	Token token = parser_token(parser);
-	if (parser_take(parser, TOKEN_NAME)) {
-		return syntax_new(parser, SYNTAX_NAME, token);
+	if (parser_at(parser, TOKEN_NAME)) {
+		return parser_name(parser);
 	};
 	if (parser_take(parser, TOKEN_NUMBER)) {
 		Syntax* node = syntax_new(parser, SYNTAX_NUMBER, token);
@@ -1756,7 +1869,48 @@ fn parser_conditional(Parser* parser) -> Syntax* {
 	return node;
 };
 
+fn parser_namespace(Parser* parser) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_NAMESPACE, "expected namespace\0");
+	if (parser->scope->context != CONTEXT_MODULE) {
+		compiler_error(parser->compiler, token, "namespace requires module context\0");
+		return (Syntax*)0;
+	};
+
+	Scope* outer := parser->scope;
+	Entity* entity = (Entity*)0;
+	while (true) {
+		Token name = parser_require(parser, TOKEN_NAME, "expected namespace identifier\0");
+		entity = namespace_define(parser->compiler, parser->scope, name);
+		if (!entity) {
+			return (Syntax*)0;
+		};
+		parser->scope := entity->data.namespace_entity.scope;
+		if (!parser_take(parser, TOKEN_SCOPE)) {
+			break;
+		};
+	};
+
+	Syntax* node = syntax_new(parser, SYNTAX_DECLARATION, token);
+	node->entity = entity;
+	parser_require(parser, TOKEN_LEFT_BRACE, "expected namespace body\0");
+	Syntax* body = syntax_new(parser, SYNTAX_BLOCK, token);
+	body->scope := parser->scope;
+	Syntax* last = (Syntax*)0;
+	while (!parser_at(parser, TOKEN_RIGHT_BRACE) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+		Syntax* statement = parser_statement(parser);
+		syntax_append(&body->data.statements, &last, statement);
+	};
+	parser_require(parser, TOKEN_RIGHT_BRACE, "expected '}' after namespace\0");
+	parser_require(parser, TOKEN_SEMICOLON, "expected ';' after namespace\0");
+	parser->scope = outer;
+	node->data.declaration.body = body;
+	return node;
+};
+
 fn parser_statement(Parser* parser) -> Syntax* {
+	if (parser_at(parser, TOKEN_NAMESPACE)) {
+		return parser_namespace(parser);
+	};
 	Token token = parser_token(parser);
 	DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
 
@@ -1960,6 +2114,8 @@ fn LLVMConstReal(void* type, f64 value) -> void*;
 fn LLVMConstNull(void* type) -> void*;
 fn LLVMConstStringInContext2(void* context, char* bytes, usize length, i32 no_terminator) -> void*;
 fn LLVMTypeOf(void* value) -> void*;
+fn LLVMGetNamedFunction(void* module, char* name) -> void*;
+fn LLVMGlobalGetValueType(void* value) -> void*;
 fn LLVMAddGlobal(void* module, void* type, char* name) -> void*;
 fn LLVMSetInitializer(void* global, void* value);
 fn LLVMSetGlobalConstant(void* global, i32 constant);
@@ -2269,7 +2425,7 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 	Type* type = (Type*)0;
 	switch (syntax->kind) {
 		case SYNTAX_NAME: {
-			Entity* entity = scope_lookup(scope, syntax->token);
+			Entity* entity = syntax_lookup(scope, syntax);
 			if (!entity || (entity->kind != ENTITY_PRIMITIVE && entity->kind != ENTITY_STRUCT && entity->kind != ENTITY_UNION && entity->kind != ENTITY_ENUM)) {
 				compiler_error(compiler, syntax->token, "identifier does not name a type entity\0");
 				return compiler->void_type;
@@ -2347,7 +2503,7 @@ fn constant_integer(Compiler* compiler, Scope* scope, Syntax* syntax) -> u64 {
 	};
 
 	if (syntax->kind == SYNTAX_NAME) {
-		Entity* entity = scope_lookup(scope, syntax->token);
+		Entity* entity = syntax_lookup(scope, syntax);
 		if (entity && entity->kind == ENTITY_VARIABLE && entity->data.variable.storage == STORAGE_CONSTANT && entity->resolution == RESOLUTION_PENDING && entity->scope && entity->scope->owner && entity->scope->owner->kind == ENTITY_ENUM) {
 			entity_resolve(compiler, entity->scope->owner);
 		};
@@ -2727,7 +2883,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	switch (syntax->kind) {
 		case SYNTAX_NAME:
 			if (!syntax->entity) {
-				syntax->entity = scope_lookup(semantic->scope, syntax->token);
+				syntax->entity = syntax_lookup(semantic->scope, syntax);
 			};
 			if (!syntax->entity) {
 				compiler_error(compiler, syntax->token, "unknown identifier\0");
@@ -2791,7 +2947,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case SYNTAX_SIZEOF: {
 			Syntax* operand := syntax->data.expression;
 			if (operand->kind == SYNTAX_NAME) {
-				Entity* entity = scope_lookup(semantic->scope, operand->token);
+				Entity* entity = syntax_lookup(semantic->scope, operand);
 				if (entity && (entity->kind == ENTITY_PRIMITIVE || entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION || entity->kind == ENTITY_ENUM)) {
 					operand->type = type_resolve(compiler, semantic->scope, operand);
 				}
@@ -3157,7 +3313,7 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 				return entity->data.aggregate.llvm_type;
 			};
 			entity_resolve(compiler, entity);
-			char* name = memory_text(compiler, entity->name.source->bytes + entity->name.begin, entity->name.length);
+			char* name = entity_name(compiler, entity);
 			void* record = LLVMStructCreateNamed(compiler->llvm_context, name);
 			entity->data.aggregate.llvm_type := record;
 			if (!entity->data.aggregate.scope) {
@@ -3912,48 +4068,101 @@ fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token to
 	};
 };
 
+struct DeclarationIterator {
+	Scope* scope;
+};
+
+fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding* {
+	if (binding->entity->kind == ENTITY_NAMESPACE && binding->entity->data.namespace_entity.scope->bindings) {
+		iterator->scope := binding->entity->data.namespace_entity.scope;
+		return iterator->scope->bindings;
+	};
+	while (!binding->next) {
+		Entity* owner := iterator->scope->owner;
+		if (!owner || owner->kind != ENTITY_NAMESPACE) {
+			return (Binding*)0;
+		};
+		iterator->scope := iterator->scope->parent;
+		binding := iterator->scope->bindings;
+		while (binding && binding->entity != owner) {
+			binding := binding->next;
+		};
+		if (!binding) {
+			return (Binding*)0;
+		};
+	};
+	return binding->next;
+};
+
+fn declarations_validate_block(Compiler* compiler, Syntax* module) {
+	Syntax* statement := module->data.statements;
+	while (statement && compiler->result != COMPILATION_FAILURE) {
+		if (statement->kind != SYNTAX_DECLARATION) {
+			compiler_error(compiler, statement->token, "module context requires declarations\0");
+			return;
+		};
+
+		Entity* entity := statement->entity;
+		if (entity->kind == ENTITY_NAMESPACE) {
+			declarations_validate_block(compiler, statement->data.declaration.body);
+		}
+		else if (entity->kind == ENTITY_FUNCTION) {
+			Type* declared = type_resolve(compiler, entity->scope, statement->data.declaration.type);
+			if (!type_equal(declared, entity->data.function.type)) {
+				compiler_error(compiler, statement->token, "conflicting function signature\0");
+			};
+			if (statement->data.declaration.body && statement != entity->declaration) {
+				compiler_error(compiler, statement->token, "duplicate function definition\0");
+			};
+		}
+		else if (entity->kind == ENTITY_VARIABLE) {
+			compiler_error(compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
+		}
+		else if (statement->data.declaration.body && statement != entity->declaration) {
+			compiler_error(compiler, statement->token, "duplicate type definition\0");
+		};
+		statement := statement->next;
+	};
+};
+
 fn declarations_validate(Compiler* compiler) {
 	Syntax* module := compiler->declarations;
 	while (module && compiler->result != COMPILATION_FAILURE) {
-		Syntax* statement := module->data.statements;
-		while (statement && compiler->result != COMPILATION_FAILURE) {
-			if (statement->kind != SYNTAX_DECLARATION) {
-				compiler_error(compiler, statement->token, "module context requires declarations\0");
-				break;
-			};
-
-			Entity* entity := statement->entity;
-			if (entity->kind == ENTITY_FUNCTION) {
-				Type* declared = type_resolve(compiler, compiler->module, statement->data.declaration.type);
-				if (!type_equal(declared, entity->data.function.type)) {
-					compiler_error(compiler, statement->token, "conflicting function signature\0");
-				};
-				if (statement->data.declaration.body && statement != entity->declaration) {
-					compiler_error(compiler, statement->token, "duplicate function definition\0");
-				};
-			}
-			else if (entity->kind == ENTITY_VARIABLE) {
-				compiler_error(compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
-			}
-			else if (statement->data.declaration.body && statement != entity->declaration) {
-				compiler_error(compiler, statement->token, "duplicate type definition\0");
-			};
-			statement := statement->next;
-		};
+		declarations_validate_block(compiler, module);
 		module := module->next;
 	};
 };
 
+fn external_validate(Compiler* compiler, Entity* entity) {
+	if (entity->data.function.body) {
+		return;
+	};
+	DeclarationIterator iterator;
+	iterator.scope := compiler->module;
+	Binding* binding := compiler->module->bindings;
+	while (binding && binding->entity != entity) {
+		Entity* previous := binding->entity;
+		if (previous->kind == ENTITY_FUNCTION && !previous->data.function.body && token_same(previous->name, entity->name) && !type_equal(previous->data.function.type, entity->data.function.type)) {
+			compiler_error(compiler, entity->name, "conflicting external C function signature\0");
+			return;
+		};
+		binding = declaration_next(&iterator, binding);
+	};
+};
+
 fn backend_analyze(Compiler* compiler) {
+	DeclarationIterator iterator;
+	iterator.scope := compiler->module;
 	Binding* binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		if (binding->entity->kind != ENTITY_VARIABLE) {
 			entity_resolve(compiler, binding->entity);
 		};
-		binding := binding->next;
+		binding = declaration_next(&iterator, binding);
 	};
 
 	declarations_validate(compiler);
+	iterator.scope := compiler->module;
 	binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		Entity* entity := binding->entity;
@@ -3961,6 +4170,7 @@ fn backend_analyze(Compiler* compiler) {
 			layout_validate(compiler, entity_type(entity), (LayoutVisit*)0, entity->name);
 		};
 		if (entity->kind == ENTITY_FUNCTION) {
+			external_validate(compiler, entity);
 			Type* signature := entity->data.function.type;
 			if (!entity->data.function.body && type_aggregate(signature->data.function.result)) {
 				compiler_error(compiler, entity->name, "external aggregate return requires C ABI lowering that is not supported yet\0");
@@ -3981,23 +4191,55 @@ fn backend_analyze(Compiler* compiler) {
 		if (entity->kind == ENTITY_FUNCTION && entity->data.function.body) {
 			Semantic semantic;
 			semantic.compiler := compiler;
-			semantic.scope := compiler->module;
+			semantic.scope := entity->scope;
 			semantic.function := entity;
 			semantic_statement(&semantic, entity->data.function.body);
 		};
-		binding := binding->next;
+		binding = declaration_next(&iterator, binding);
 	};
 };
 
-fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
-	char* prefix = "\0";
-	if (compiler->output == OUTPUT_EXECUTABLE && (entity->data.function.body || token_is(entity->name, "main\0"))) {
-		prefix = "rt.function.\0";
+fn entity_name(Compiler* compiler, Entity* entity) -> char* {
+	Scope* scope := entity->scope;
+	char* parent = "\0";
+	if (scope && scope->owner && scope->owner->kind == ENTITY_NAMESPACE) {
+		parent = entity_name(compiler, scope->owner);
 	};
+	usize length = strlen(parent);
+	usize separator = 0;
+	if (length) {
+		separator = 2;
+	};
+	char* name = (char*)memory_allocate(compiler, length + separator + entity->name.length + 1);
+	if (!name) {
+		return (char*)0;
+	};
+	memcpy((void*)name, (void*)parent, length);
+	if (separator) {
+		name[length] = ':';
+		name[length + 1] = ':';
+	};
+	memcpy((void*)(name + length + separator), (void*)(entity->name.source->bytes + entity->name.begin), entity->name.length);
+	return name;
+};
+
+fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
+	if (!entity->data.function.body) {
+		return memory_text(compiler, entity->name.source->bytes + entity->name.begin, entity->name.length);
+	};
+	char* qualified = entity_name(compiler, entity);
+	if (compiler->output == OUTPUT_LIBRARY) {
+		return qualified;
+	};
+	char* prefix = "rt.function.\0";
 	usize prefix_length = strlen(prefix);
-	char* name = (char*)memory_allocate(compiler, prefix_length + entity->name.length + 1);
+	usize length = strlen(qualified);
+	char* name = (char*)memory_allocate(compiler, prefix_length + length + 1);
+	if (!name) {
+		return (char*)0;
+	};
 	memcpy((void*)name, (void*)prefix, prefix_length);
-	memcpy((void*)(name + prefix_length), (void*)(entity->name.source->bytes + entity->name.begin), entity->name.length);
+	memcpy((void*)(name + prefix_length), (void*)qualified, length);
 	return name;
 };
 
@@ -4029,17 +4271,37 @@ fn emit_function(Compiler* compiler, Entity* entity) {
 	};
 };
 
-fn emit_entry(Compiler* compiler) {
-	Binding* binding := compiler->module->bindings;
-	Entity* entry = (Entity*)0;
-	while (binding) {
-		if (binding->entity->kind == ENTITY_FUNCTION && token_is(binding->entity->name, compiler->entry)) {
-			entry := binding->entity;
-			break;
+fn entry_lookup(Compiler* compiler) -> Entity* {
+	Source source;
+	source.bytes := compiler->entry;
+	source.length = strlen(compiler->entry);
+	Token name;
+	name.source = &source;
+	Scope* scope := compiler->module;
+	while (name.begin < source.length) {
+		name.length = 0;
+		while (name.begin + name.length < source.length && source.bytes[name.begin + name.length] != ':') {
+			name.length = name.length + 1;
 		};
-		binding := binding->next;
+		Entity* entity = scope_local(scope, name);
+		if (!entity) {
+			return (Entity*)0;
+		};
+		if (name.begin + name.length == source.length) {
+			return entity;
+		};
+		scope = entity_members(entity);
+		if (!scope || name.begin + name.length + 1 >= source.length || source.bytes[name.begin + name.length + 1] != ':') {
+			return (Entity*)0;
+		};
+		name.begin = name.begin + name.length + 2;
 	};
-	if (!entry || !entry->data.function.body) {
+	return (Entity*)0;
+};
+
+fn emit_entry(Compiler* compiler) {
+	Entity* entry = entry_lookup(compiler);
+	if (!entry || entry->kind != ENTITY_FUNCTION || !entry->data.function.body) {
 		Token token;
 		if (compiler->declarations) {
 			token := compiler->declarations->token;
@@ -4083,13 +4345,24 @@ fn emit_entry(Compiler* compiler) {
 };
 
 fn backend_emit(Compiler* compiler) {
+	DeclarationIterator iterator;
+	iterator.scope := compiler->module;
 	Binding* binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		Entity* entity := binding->entity;
 		if (entity->kind == ENTITY_FUNCTION) {
 			Type* signature := entity->data.function.type;
 			entity->data.function.llvm_type = llvm_type(compiler, signature);
-			entity->data.function.llvm_value = LLVMAddFunction(compiler->llvm_module, emit_symbol(compiler, entity), entity->data.function.llvm_type);
+			char* symbol = emit_symbol(compiler, entity);
+			void* existing = LLVMGetNamedFunction(compiler->llvm_module, symbol);
+			if (existing && LLVMGlobalGetValueType(existing) != entity->data.function.llvm_type) {
+				compiler_error(compiler, entity->name, "conflicting native function signature\0");
+				return;
+			};
+			if (!existing) {
+				existing = LLVMAddFunction(compiler->llvm_module, symbol, entity->data.function.llvm_type);
+			};
+			entity->data.function.llvm_value = existing;
 			void* extension = emit_extension(compiler, signature->data.function.result);
 			if (extension) {
 				LLVMAddAttributeAtIndex(entity->data.function.llvm_value, 0, extension);
@@ -4105,14 +4378,15 @@ fn backend_emit(Compiler* compiler) {
 				parameter := parameter->next;
 			};
 		};
-		binding := binding->next;
+		binding = declaration_next(&iterator, binding);
 	};
+	iterator.scope := compiler->module;
 	binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		if (binding->entity->kind == ENTITY_FUNCTION) {
 			emit_function(compiler, binding->entity);
 		};
-		binding := binding->next;
+		binding = declaration_next(&iterator, binding);
 	};
 	if (compiler->output == OUTPUT_EXECUTABLE && compiler->result != COMPILATION_FAILURE) {
 		emit_entry(compiler);
