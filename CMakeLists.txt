@@ -34,20 +34,40 @@ add_subdirectory("base")
 include("cmake/llvm.cmake")
 include("cmake/linker.cmake")
 
-add_library("rutile-bootstrap-compiler" STATIC)
-target_sources("rutile-bootstrap-compiler" PRIVATE "compiler/src/compiler.c")
-target_include_directories("rutile-bootstrap-compiler" PUBLIC "compiler/include")
-set_target_properties("rutile-bootstrap-compiler" PROPERTIES C_STANDARD "17" C_STANDARD_REQUIRED "ON" C_EXTENSIONS "OFF")
-rutile_configure_llvm("rutile-bootstrap-compiler")
-if(MSVC)
-	target_compile_definitions("rutile-bootstrap-compiler" PRIVATE "_CRT_SECURE_NO_WARNINGS")
-endif()
+add_library("rutile-compiler" STATIC)
+rutile_configure_llvm("rutile-compiler")
 
-add_executable("rutile-bootstrap")
-target_sources("rutile-bootstrap" PRIVATE "compiler/bootstrap.cpp")
-target_link_libraries("rutile-bootstrap" PRIVATE "rutile-bootstrap-compiler" "base" "CLI11::CLI11")
-if(WIN32)
-	add_custom_command(TARGET "rutile-bootstrap" POST_BUILD COMMAND "${CMAKE_COMMAND}" "-E" "copy_if_different" "$<TARGET_FILE:rutile-llvm>" "$<TARGET_FILE_DIR:rutile-bootstrap>" VERBATIM)
+option(RUTILE_BOOTSTRAP_FROM_C "Use the historical C compiler instead of the distributed compiler" OFF)
+set(RUTILE_BOOTSTRAP_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" CACHE FILEPATH "Native bootstrap compiler")
+
+if(RUTILE_BOOTSTRAP_FROM_C)
+	add_library("rutile-bootstrap-compiler" STATIC)
+	target_sources("rutile-bootstrap-compiler" PRIVATE "compiler/src/compiler.c")
+	target_include_directories("rutile-bootstrap-compiler" PUBLIC "compiler/include")
+	set_target_properties("rutile-bootstrap-compiler" PROPERTIES C_STANDARD "17" C_STANDARD_REQUIRED "ON" C_EXTENSIONS "OFF")
+	target_link_libraries("rutile-bootstrap-compiler" PRIVATE "rutile-llvm")
+	if(MSVC)
+		target_compile_definitions("rutile-bootstrap-compiler" PRIVATE "_CRT_SECURE_NO_WARNINGS")
+	endif()
+
+	add_executable("rutile-bootstrap")
+	target_sources("rutile-bootstrap" PRIVATE "compiler/bootstrap.cpp")
+	target_link_libraries("rutile-bootstrap" PRIVATE "rutile-bootstrap-compiler" "rutile-version" "base" "CLI11::CLI11")
+	if(WIN32)
+		add_custom_command(TARGET "rutile-bootstrap" POST_BUILD COMMAND "${CMAKE_COMMAND}" "-E" "copy_if_different" "$<TARGET_FILE:rutile-llvm>" "$<TARGET_FILE_DIR:rutile-bootstrap>" VERBATIM)
+	endif()
+
+	set(rutile_seed_target "rutile-bootstrap")
+else()
+	if(NOT EXISTS "${RUTILE_BOOTSTRAP_COMPILER}")
+		message(FATAL_ERROR "Missing distributed compiler: ${RUTILE_BOOTSTRAP_COMPILER}. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
+	endif()
+	if(RUTILE_BOOTSTRAP_COMPILER STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" AND (NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL "8" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$"))
+		message(FATAL_ERROR "The bundled compiler requires Windows x64. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
+	endif()
+	add_executable("rutile-distro-compiler" IMPORTED GLOBAL)
+	set_target_properties("rutile-distro-compiler" PROPERTIES IMPORTED_LOCATION "${RUTILE_BOOTSTRAP_COMPILER}")
+	set(rutile_seed_target "rutile-distro-compiler")
 endif()
 
 if(CMAKE_CROSSCOMPILING)
@@ -59,11 +79,10 @@ else()
 	set(rutile_compiler_object "${CMAKE_BINARY_DIR}/compiler/compiler.o")
 endif()
 add_custom_command(OUTPUT "${rutile_compiler_object}"
-	COMMAND "$<TARGET_FILE:rutile-bootstrap>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-bootstrap" "compiler/src/compiler.rt"
+	COMMAND "$<TARGET_FILE:${rutile_seed_target}>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "${rutile_seed_target}" "$<TARGET_FILE:${rutile_seed_target}>" "compiler/src/compiler.rt"
 	VERBATIM)
 set_source_files_properties("${rutile_compiler_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
-add_library("rutile-compiler" STATIC)
 target_sources("rutile-compiler" PRIVATE "${rutile_compiler_object}")
 target_include_directories("rutile-compiler" PUBLIC "compiler/include")
 target_link_libraries("rutile-compiler" PRIVATE "rutile-llvm")
@@ -71,7 +90,7 @@ set_target_properties("rutile-compiler" PROPERTIES LINKER_LANGUAGE "C")
 
 add_executable("rutile-selfhost" EXCLUDE_FROM_ALL)
 target_sources("rutile-selfhost" PRIVATE "compiler/bootstrap.cpp")
-target_link_libraries("rutile-selfhost" PRIVATE "rutile-compiler" "base" "CLI11::CLI11")
+target_link_libraries("rutile-selfhost" PRIVATE "rutile-compiler" "rutile-version" "base" "CLI11::CLI11")
 
 if(WIN32)
 	set(rutile_selfhost_object "${CMAKE_BINARY_DIR}/compiler/selfhost.obj")
@@ -88,7 +107,7 @@ set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
 target_sources("rutile-stage2" PRIVATE "compiler/bootstrap.cpp" "${rutile_selfhost_object}")
 target_include_directories("rutile-stage2" PRIVATE "compiler/include")
-target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "base" "CLI11::CLI11")
+target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
 
 add_custom_command(OUTPUT "${rutile_stage3_object}"
 	COMMAND "$<TARGET_FILE:rutile-stage2>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_stage3_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
@@ -98,6 +117,14 @@ add_custom_target("rutile-bootstrap-check"
 	COMMAND "${CMAKE_COMMAND}" "-E" "compare_files" "${rutile_selfhost_object}" "${rutile_stage3_object}"
 	DEPENDS "${rutile_stage3_object}"
 	VERBATIM)
+
+if(WIN32)
+	foreach(compiler_target IN ITEMS "rutile-selfhost" "rutile-stage2")
+		add_custom_command(TARGET "${compiler_target}" POST_BUILD COMMAND "${CMAKE_COMMAND}" "-E" "copy_if_different" "$<TARGET_FILE:rutile-llvm>" "$<TARGET_FILE_DIR:${compiler_target}>" VERBATIM)
+	endforeach()
+endif()
+include("cmake/distro.cmake")
+rutile_configure_distro("rutile-stage2")
 
 add_library("rutile-version" STATIC)
 target_sources("rutile-version" PRIVATE "version/runtime.cpp")

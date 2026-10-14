@@ -49,11 +49,20 @@ struct Type {
 	} data;
 };
 
+enum NamespaceKind {
+	UNRESOLVED_NAMESPACE,
+	DECLARED_NAMESPACE,
+	ASSOCIATED_NAMESPACE,
+};
+
 struct Namespace {
 	const char* name;
 	size_t length;
 	struct Namespace* parent;
 	struct Namespace* next;
+	struct Record* record;
+	enum NamespaceKind kind;
+	const char* source_path;
 };
 
 struct Token {
@@ -158,6 +167,7 @@ enum NodeKind {
 	STRING_EXPRESSION,
 	NAME_EXPRESSION,
 	FUNCTION_EXPRESSION,
+	BOUND_FUNCTION_EXPRESSION,
 	CALL_EXPRESSION,
 	NEGATE_EXPRESSION,
 	BINARY_EXPRESSION,
@@ -203,6 +213,11 @@ enum TypeSyntaxKind {
 	FUNCTION_SYNTAX,
 };
 
+enum ReceiverKind {
+	BIND_RECEIVER,
+	EVALUATE_RECEIVER,
+};
+
 struct TypeNode {
 	enum TypeSyntaxKind kind;
 	struct Span span;
@@ -230,6 +245,11 @@ struct Expression {
 		double decimal;
 		struct Enumerator* enumerator;
 		struct Function* function;
+		struct {
+			struct Function* function;
+			struct Expression* receiver;
+			enum ReceiverKind kind;
+		} bound_function;
 		struct {
 			struct TypeNode* syntax;
 			struct Expression* value;
@@ -260,6 +280,7 @@ struct Expression {
 			struct Token name;
 			struct Function* binding;
 			struct Expression* callee;
+			struct Expression* receiver_evaluation;
 			struct Argument* arguments;
 		} call;
 		struct Expression* operand;
@@ -381,6 +402,7 @@ struct Record {
 	enum RecordState state;
 	struct Token name;
 	struct Span span;
+	struct Namespace* associated;
 	union {
 		struct Member* members;
 		struct Enumerator* enumerators;
@@ -406,6 +428,8 @@ struct Function {
 	enum NodeKind kind;
 	struct Span span;
 	struct Token name;
+	struct Namespace* owner;
+	struct Token local_name;
 	struct Type result;
 	struct Variable* parameters;
 	struct Statement* statements;
@@ -886,6 +910,104 @@ struct Namespace* namespace_local(struct Compiler* compiler, struct Namespace* o
 	return NULL;
 }
 
+struct Namespace* namespace_ensure(struct Compiler* compiler, struct Namespace* owner, struct Token name) {
+	struct Namespace* space = namespace_local(compiler, owner, name);
+	if (space) {
+		return space;
+	}
+	space = allocate(compiler, sizeof(struct Namespace));
+	if (!space) {
+		return NULL;
+	}
+	struct Token full_name = qualify_name(compiler, owner, name);
+	space->name = full_name.start;
+	space->length = full_name.length;
+	space->parent = owner;
+	space->source_path = name.path;
+	space->next = compiler->namespaces;
+	compiler->namespaces = space;
+	return space;
+}
+
+struct QualifiedName {
+	struct Namespace* owner;
+	struct Token name;
+};
+
+struct QualifiedName declaration_name(struct Compiler* compiler, struct Token name) {
+	struct QualifiedName result = { name.owner, name };
+	size_t begin = 0;
+	for (size_t index = 0; index + 1 < name.length; index++) {
+		if (name.start[index] != ':' || name.start[index + 1] != ':') {
+			continue;
+		}
+		struct Token part = name;
+		part.start += begin;
+		part.length = index - begin;
+		struct Namespace* space = NULL;
+		if (!begin) {
+			for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
+				space = namespace_local(compiler, owner, part);
+				if (space || !owner) {
+					break;
+				}
+			}
+		}
+		if (!space) {
+			space = namespace_ensure(compiler, result.owner, part);
+		}
+		if (!space) {
+			return result;
+		}
+		result.owner = space;
+		begin = index + 2;
+		index++;
+	}
+	result.name.start += begin;
+	result.name.length -= begin;
+	result.name.kind = NAME;
+	result.name.owner = result.owner;
+	return result;
+}
+
+struct QualifiedName lookup_name(struct Compiler* compiler, struct Token name) {
+	struct QualifiedName result = { name.owner, name };
+	size_t begin = 0;
+	for (size_t index = 0; index + 1 < name.length; index++) {
+		if (name.start[index] != ':' || name.start[index + 1] != ':') {
+			continue;
+		}
+		struct Token part = name;
+		part.start += begin;
+		part.length = index - begin;
+		struct Namespace* space = NULL;
+		if (!begin) {
+			for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
+				space = namespace_local(compiler, owner, part);
+				if (space || !owner) {
+					break;
+				}
+			}
+		}
+		else {
+			space = namespace_local(compiler, result.owner, part);
+		}
+		if (!space) {
+			diagnostic(compiler, name, "qualified name owner was not found");
+			result.name.kind = END;
+			return result;
+		}
+		result.owner = space;
+		begin = index + 2;
+		index++;
+	}
+	result.name.start += begin;
+	result.name.length -= begin;
+	result.name.kind = begin ? QUALIFY : NAME;
+	result.name.owner = result.owner;
+	return result;
+}
+
 struct Token parse_name(struct Compiler* compiler) {
 	struct Token name = compiler->token;
 	if (!expect(compiler, NAME, "an identifier")) {
@@ -1005,14 +1127,18 @@ struct Token resolve_symbol(struct Compiler* compiler, struct Token name) {
 }
 
 struct Record* find_record(struct Compiler* compiler, struct Token name) {
-	name = resolve_symbol(compiler, name);
-	for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
+	struct QualifiedName lookup = lookup_name(compiler, name);
+	if (lookup.name.kind == END) {
+		return NULL;
+	}
+	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
+		struct Namespace* associated = namespace_local(compiler, owner, lookup.name);
 		for (struct TagSymbol* tag = compiler->tags; tag; tag = tag->next) {
-			if (namespace_name_equal(tag->record->name, owner, name)) {
+			if (associated && tag->record == associated->record) {
 				return tag->record;
 			}
 		}
-		if (!owner) {
+		if (!owner || lookup.name.kind == QUALIFY) {
 			return NULL;
 		}
 	}
@@ -1782,18 +1908,141 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 	return statement;
 }
 
-void parse_record(struct Compiler* compiler) {
+void parse_declarations(struct Compiler* compiler);
+void parse_namespace(struct Compiler* compiler);
+
+void parse_function(struct Compiler* compiler, struct Record* receiver) {
 	struct Token first = compiler->token;
-	struct Record* record = allocate(compiler, sizeof(struct Record));
-	if (!record) {
+	if (!expect(compiler, FN, "'fn' (imports and global declarations are not supported yet)")) {
 		return;
 	}
-	record->kind = first.kind == STRUCT ? STRUCT_TYPE : (first.kind == UNION ? UNION_TYPE : ENUM_TYPE);
-	record->span.first = first;
+	struct Function* function = allocate(compiler, sizeof(struct Function));
+	if (!function) {
+		return;
+	}
+	function->kind = FUNCTION_DECLARATION;
+	function->span.first = first;
+	struct Namespace* previous_scope = compiler->namespace_scope;
+	struct QualifiedName declared = declaration_name(compiler, parse_name(compiler));
+	function->owner = declared.owner;
+	function->local_name = declared.name;
+	function->name = qualify_name(compiler, declared.owner, declared.name);
+	compiler->namespace_scope = declared.owner;
+	expect(compiler, '(', "'('");
+	struct Variable** parameter_tail = &function->parameters;
+	while (compiler->token.kind != ')' && !compiler->failed) {
+		if (take(compiler, ELLIPSIS)) {
+			function->arity = VARIADIC_PARAMETERS;
+			break;
+		}
+		struct Variable* parameter = allocate(compiler, sizeof(struct Variable));
+		if (!parameter) {
+			break;
+		}
+		parameter->syntax = parse_type(compiler);
+		parameter->name = compiler->token;
+		expect(compiler, NAME, "parameter name");
+		*parameter_tail = parameter;
+		parameter_tail = &parameter->next;
+		if (!take(compiler, ',')) {
+			break;
+		}
+	}
+	expect(compiler, ')', "')'");
+	if (receiver && (!function->parameters || !token_text(function->parameters->name, "this"))) {
+		struct Variable* parameter = allocate(compiler, sizeof(struct Variable));
+		struct TypeNode* reference = allocate(compiler, sizeof(struct TypeNode));
+		struct TypeNode* object = allocate(compiler, sizeof(struct TypeNode));
+		if (!parameter || !reference || !object) {
+			return;
+		}
+		parameter->name = declared.name;
+		parameter->name.start = "this";
+		parameter->name.length = 4;
+		object->kind = NAMED_SYNTAX;
+		object->span.first = receiver->name;
+		object->data.named.kind = receiver->kind;
+		object->data.named.name = receiver->name;
+		reference->kind = REFERENCE_SYNTAX;
+		reference->span.first = declared.name;
+		reference->data.element = object;
+		parameter->syntax = reference;
+		parameter->next = function->parameters;
+		function->parameters = parameter;
+	}
+	if (take(compiler, ARROW)) {
+		function->result_syntax = parse_type(compiler);
+	}
+	function->kind = take(compiler, ';') ? FUNCTION_DECLARATION : FUNCTION_DEFINITION;
+	if (function->kind == FUNCTION_DEFINITION) {
+		expect(compiler, '{', "function body or ';'");
+		struct Statement** statement_tail = &function->statements;
+		while (compiler->token.kind != '}' && !compiler->failed) {
+			if (compiler->token.kind == END) {
+				diagnostic(compiler, compiler->token, "unterminated function body");
+				break;
+			}
+			struct Statement* statement = parse_statement(compiler);
+			if (!statement) {
+				break;
+			}
+			*statement_tail = statement;
+			statement_tail = &statement->next;
+		}
+		expect(compiler, '}', "'}'");
+		take(compiler, ';');
+	}
+	function->span.last = previous_token(compiler);
+	if (compiler->last_function) {
+		compiler->last_function->next = function;
+	}
+	else {
+		compiler->functions = function;
+	}
+	compiler->last_function = function;
+	compiler->namespace_scope = previous_scope;
+	compiler->token.owner = previous_scope;
+}
+
+void parse_record(struct Compiler* compiler) {
+	struct Token first = compiler->token;
+	enum TypeKind kind = first.kind == STRUCT ? STRUCT_TYPE : (first.kind == UNION ? UNION_TYPE : ENUM_TYPE);
 	next_token(compiler);
-	record->name = qualify_name(compiler, compiler->namespace_scope, compiler->token);
-	expect(compiler, NAME, "a type tag");
+	struct Namespace* previous_scope = compiler->namespace_scope;
+	struct QualifiedName declared = declaration_name(compiler, parse_name(compiler));
+	struct Namespace* associated = namespace_ensure(compiler, declared.owner, declared.name);
+	if (!associated) {
+		return;
+	}
+	struct Record* record = associated->record;
+	if (record && record->kind != kind) {
+		diagnostic(compiler, declared.name, "conflicting type tags");
+		return;
+	}
+	if (!record) {
+		record = allocate(compiler, sizeof(struct Record));
+		if (!record) {
+			return;
+		}
+		record->kind = kind;
+		record->span.first = first;
+		record->name = qualify_name(compiler, declared.owner, declared.name);
+		record->associated = associated;
+		associated->record = record;
+		associated->kind = ASSOCIATED_NAMESPACE;
+		if (compiler->last_record) {
+			compiler->last_record->next = record;
+		}
+		else {
+			compiler->records = record;
+		}
+		compiler->last_record = record;
+	}
 	if (take(compiler, '{')) {
+		if (record->state != FORWARD_RECORD) {
+			diagnostic(compiler, declared.name, "duplicate type definition");
+			return;
+		}
 		record->state = DEFINED_RECORD;
 		if (record->kind == ENUM_TYPE) {
 			struct Enumerator** tail = &record->data.enumerators;
@@ -1816,8 +2065,22 @@ void parse_record(struct Compiler* compiler) {
 			}
 		}
 		else {
+			compiler->namespace_scope = associated;
+			compiler->token.owner = associated;
 			struct Member** tail = &record->data.members;
 			while (compiler->token.kind != '}' && !compiler->failed) {
+				if (compiler->token.kind == FN) {
+					parse_function(compiler, record);
+					continue;
+				}
+				if (compiler->token.kind == NAMESPACE) {
+					parse_namespace(compiler);
+					continue;
+				}
+				if (compiler->token.kind == STRUCT || compiler->token.kind == UNION || compiler->token.kind == ENUM) {
+					parse_record(compiler);
+					continue;
+				}
 				struct Member* member = allocate(compiler, sizeof(struct Member));
 				if (!member) {
 					return;
@@ -1830,17 +2093,11 @@ void parse_record(struct Compiler* compiler) {
 				tail = &member->next;
 			}
 		}
+		compiler->namespace_scope = previous_scope;
 		expect(compiler, '}', "'}'");
 	}
 	expect(compiler, ';', "';'");
 	record->span.last = previous_token(compiler);
-	if (compiler->last_record) {
-		compiler->last_record->next = record;
-	}
-	else {
-		compiler->records = record;
-	}
-	compiler->last_record = record;
 }
 
 void parse_declarations(struct Compiler* compiler);
@@ -1854,18 +2111,12 @@ void parse_namespace(struct Compiler* compiler) {
 		if (!expect(compiler, NAME, "a namespace name")) {
 			return;
 		}
-		struct Namespace* space = namespace_local(compiler, owner, name);
+		struct Namespace* space = namespace_ensure(compiler, owner, name);
 		if (!space) {
-			space = allocate(compiler, sizeof(struct Namespace));
-			if (!space) {
-				return;
-			}
-			struct Token full_name = qualify_name(compiler, owner, name);
-			space->name = full_name.start;
-			space->length = full_name.length;
-			space->parent = owner;
-			space->next = compiler->namespaces;
-			compiler->namespaces = space;
+			return;
+		}
+		if (space->kind == UNRESOLVED_NAMESPACE) {
+			space->kind = DECLARED_NAMESPACE;
 		}
 		owner = space;
 		if (!take(compiler, QUALIFY)) {
@@ -1890,69 +2141,7 @@ void parse_declarations(struct Compiler* compiler) {
 			parse_record(compiler);
 			continue;
 		}
-		struct Token first = compiler->token;
-		if (!expect(compiler, FN, "'fn' (imports and global declarations are not supported yet)")) {
-			break;
-		}
-		struct Function* function = allocate(compiler, sizeof(struct Function));
-		if (!function) {
-			break;
-		}
-		function->kind = FUNCTION_DECLARATION;
-		function->span.first = first;
-		function->name = qualify_name(compiler, compiler->namespace_scope, compiler->token);
-		expect(compiler, NAME, "function name");
-		expect(compiler, '(', "'('");
-		struct Variable** parameter_tail = &function->parameters;
-		while (compiler->token.kind != ')' && !compiler->failed) {
-			if (take(compiler, ELLIPSIS)) {
-				function->arity = VARIADIC_PARAMETERS;
-				break;
-			}
-			struct Variable* parameter = allocate(compiler, sizeof(struct Variable));
-			if (!parameter) {
-				break;
-			}
-			parameter->syntax = parse_type(compiler);
-			parameter->name = compiler->token;
-			expect(compiler, NAME, "parameter name");
-			*parameter_tail = parameter;
-			parameter_tail = &parameter->next;
-			if (!take(compiler, ',')) {
-				break;
-			}
-		}
-		expect(compiler, ')', "')'");
-		if (take(compiler, ARROW)) {
-			function->result_syntax = parse_type(compiler);
-		}
-		function->kind = take(compiler, ';') ? FUNCTION_DECLARATION : FUNCTION_DEFINITION;
-		if (function->kind == FUNCTION_DEFINITION) {
-			expect(compiler, '{', "function body or ';'");
-			struct Statement** statement_tail = &function->statements;
-			while (compiler->token.kind != '}' && !compiler->failed) {
-				if (compiler->token.kind == END) {
-					diagnostic(compiler, compiler->token, "unterminated function body");
-					break;
-				}
-				struct Statement* statement = parse_statement(compiler);
-				if (!statement) {
-					break;
-				}
-				*statement_tail = statement;
-				statement_tail = &statement->next;
-			}
-			expect(compiler, '}', "'}'");
-			take(compiler, ';');
-		}
-		function->span.last = previous_token(compiler);
-		if (compiler->last_function) {
-			compiler->last_function->next = function;
-		}
-		else {
-			compiler->functions = function;
-		}
-		compiler->last_function = function;
+		parse_function(compiler, NULL);
 	}
 }
 
@@ -1967,14 +2156,17 @@ void parse_functions(struct Compiler* compiler, size_t first_token) {
 }
 
 struct Function* find_function(struct Compiler* compiler, struct Token name) {
-	name = resolve_symbol(compiler, name);
-	for (struct Namespace* owner = name.owner; ; owner = owner->parent) {
+	struct QualifiedName lookup = lookup_name(compiler, name);
+	if (lookup.name.kind == END) {
+		return NULL;
+	}
+	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
 		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
-			if (namespace_name_equal(symbol->function->name, owner, name)) {
+			if (symbol->function->owner == owner && name_equal(symbol->function->local_name, lookup.name)) {
 				return symbol->function;
 			}
 		}
-		if (!owner) {
+		if (!owner || lookup.name.kind == QUALIFY) {
 			return NULL;
 		}
 	}
@@ -2204,6 +2396,16 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	unsigned maximum_alignment = 0;
 	struct Member* storage = NULL;
 	for (struct Member* member = record->data.members; member && !compiler->failed; member = member->next) {
+		for (struct Function* function = compiler->functions; function; function = function->next) {
+			if (function->owner == record->associated && name_equal(function->local_name, member->name)) {
+				diagnostic(compiler, member->name, "field conflicts with an associated function");
+				return;
+			}
+		}
+		if (namespace_local(compiler, record->associated, member->name)) {
+			diagnostic(compiler, member->name, "field conflicts with an associated declaration");
+			return;
+		}
 		for (struct Member* previous = record->data.members; previous != member; previous = previous->next) {
 			if (name_equal(previous->name, member->name)) {
 				diagnostic(compiler, member->name, "duplicate field");
@@ -2232,7 +2434,9 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 		}
 	}
 	if (!count) {
-		diagnostic(compiler, record->name, "record must contain at least one field");
+		LLVMTypeRef byte = LLVMInt8TypeInContext(compiler->llvm_context);
+		LLVMStructSetBody(record->llvm_type, &byte, 1, false);
+		record->state = RESOLVED_RECORD;
 		return;
 	}
 	LLVMTypeRef* members = allocate(compiler, (count + 1) * sizeof(LLVMTypeRef));
@@ -2283,10 +2487,24 @@ void register_functions(struct Compiler* compiler) {
 			parameter->scope_next = scope;
 			scope = parameter;
 		}
+		if (function->owner && function->owner->record && function->parameters && token_text(function->parameters->name, "this")) {
+			struct Type receiver = function->parameters->type;
+			struct Record* owner = function->owner->record;
+			if (receiver.kind != REFERENCE_TYPE || receiver.data.element->kind != owner->kind || receiver.data.element->data.record != owner) {
+				diagnostic(compiler, function->parameters->name, "associated receiver must reference its owning type");
+				return;
+			}
+		}
 		if (function->arity == VARIADIC_PARAMETERS && function->kind == FUNCTION_DEFINITION) {
 			diagnostic(compiler, function->name, "variadic function definitions are not supported yet");
 		}
-		struct Function* previous = find_function(compiler, function->name);
+		struct Function* previous = NULL;
+		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+			if (symbol->function->owner == function->owner && name_equal(symbol->function->local_name, function->local_name)) {
+				previous = symbol->function;
+				break;
+			}
+		}
 		if (previous) {
 			bool compatible = type_equal(previous->result, function->result) && previous->arity == function->arity;
 			struct Variable* a = previous->parameters;
@@ -2304,12 +2522,10 @@ void register_functions(struct Compiler* compiler) {
 					diagnostic(compiler, function->name, "duplicate function definition");
 				}
 				else {
-					for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
-						if (symbol->function == previous) {
-							symbol->function = function;
-							break;
-						}
-					}
+					previous->kind = FUNCTION_DEFINITION;
+					previous->span = function->span;
+					previous->parameters = function->parameters;
+					previous->statements = function->statements;
 				}
 			}
 			continue;
@@ -2468,6 +2684,21 @@ void move_expression(struct Compiler* compiler, struct Expression* expression, s
 unsigned analyze_statements(struct Compiler* compiler, struct Function* function, struct Statement* statements, struct Scope* scope, struct Flow* flow);
 void prepare_reference_fields(struct Compiler* compiler, struct Variable* variable, struct Statement* initialization);
 
+struct Function* receiver_function(struct Compiler* compiler, struct Type object, struct Token name) {
+	for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+		if (symbol->function->owner == object.data.record->associated && name_equal(symbol->function->local_name, name)) {
+			return symbol->function;
+		}
+	}
+
+	struct Function* function = find_function(compiler, name);
+	struct Variable* receiver = function ? function->parameters : NULL;
+	if (!receiver || !token_text(receiver->name, "this") || receiver->type.kind != REFERENCE_TYPE || !type_equal(*receiver->type.data.element, object)) {
+		return NULL;
+	}
+	return function;
+}
+
 void bind_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
 	if (!expression || compiler->failed) {
 		return;
@@ -2494,6 +2725,46 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		}
 		expression->data.variable.binding = binding ? binding->variable : NULL;
 		if (!expression->data.variable.binding) {
+			struct Token name = expression->data.variable.name;
+			struct Token receiver_name = name;
+			receiver_name.start = "this";
+			receiver_name.length = 4;
+			struct ScopeBinding* receiver_binding = name.kind == QUALIFY ? NULL : scope_binding(scope, receiver_name);
+			if (receiver_binding && receiver_binding->variable && receiver_binding->variable->type.kind == REFERENCE_TYPE) {
+				struct Type object = *receiver_binding->variable->type.data.element;
+				if (object.kind == STRUCT_TYPE || object.kind == UNION_TYPE) {
+					struct Member* field = object.data.record->data.members;
+					while (field && !name_equal(field->name, name)) {
+						field = field->next;
+					}
+					struct Function* method = receiver_function(compiler, object, name);
+					if (field || (method && method->owner == object.data.record->associated && method->parameters && token_text(method->parameters->name, "this"))) {
+						struct Expression* receiver = new_expression(compiler, NAME_EXPRESSION, receiver_name);
+						if (!receiver) {
+							break;
+						}
+						receiver->data.variable.name = receiver_name;
+						receiver->data.variable.binding = receiver_binding->variable;
+						receiver->type = object;
+						if (field) {
+							expression->kind = FIELD_EXPRESSION;
+							expression->data.member.object = receiver;
+							expression->data.member.name = name;
+							expression->data.member.binding = field;
+							expression->data.member.initialization = NULL;
+							expression->type = field->type.kind == REFERENCE_TYPE ? *field->type.data.element : field->type;
+						}
+						else {
+							expression->kind = BOUND_FUNCTION_EXPRESSION;
+							expression->data.bound_function.function = method;
+							expression->data.bound_function.receiver = receiver;
+							expression->data.bound_function.kind = BIND_RECEIVER;
+							expression->type = (struct Type){ FUNCTION_TYPE, { .function = method } };
+						}
+						break;
+					}
+				}
+			}
 			struct Function* function = find_function(compiler, expression->data.variable.name);
 			if (function) {
 				expression->kind = FUNCTION_EXPRESSION;
@@ -2527,6 +2798,29 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 	}
 	case CALL_EXPRESSION:
 		bind_expression(compiler, expression->data.call.callee, scope);
+		if (compiler->failed) {
+			break;
+		}
+		struct Argument* receiver_argument = NULL;
+		if (expression->data.call.callee->kind == BOUND_FUNCTION_EXPRESSION) {
+			struct Expression* callee = expression->data.call.callee;
+			struct Function* function = callee->data.bound_function.function;
+			struct Expression* receiver = callee->data.bound_function.receiver;
+			if (callee->data.bound_function.kind == BIND_RECEIVER) {
+				receiver_argument = allocate(compiler, sizeof(struct Argument));
+				if (!receiver_argument) {
+					break;
+				}
+				receiver_argument->expression = receiver;
+				receiver_argument->next = expression->data.call.arguments;
+				expression->data.call.arguments = receiver_argument;
+			}
+			else {
+				expression->data.call.receiver_evaluation = receiver;
+			}
+			callee->kind = FUNCTION_EXPRESSION;
+			callee->data.function = function;
+		}
 		struct Type callable = expression->data.call.callee->type;
 		if (callable.kind == POINTER_TYPE) {
 			callable = *callable.data.element;
@@ -2595,7 +2889,9 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 				}
 			}
 			else {
-			bind_expression(compiler, argument->expression, scope);
+				if (argument != receiver_argument) {
+					bind_expression(compiler, argument->expression, scope);
+				}
 			}
 			if (parameter) {
 				parameter = parameter->next;
@@ -2662,7 +2958,31 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			}
 		}
 		if (!expression->data.member.binding) {
-			diagnostic(compiler, expression->data.member.name, "unknown field '%.*s'", (int)expression->data.member.name.length, expression->data.member.name.start);
+			struct Function* function = receiver_function(compiler, object, expression->data.member.name);
+			if (!function) {
+				diagnostic(compiler, expression->data.member.name, "unknown field or associated function '%.*s'", (int)expression->data.member.name.length, expression->data.member.name.start);
+				break;
+			}
+			struct Expression* receiver = expression->data.member.object;
+			enum ReceiverKind receiver_kind = EVALUATE_RECEIVER;
+			if (function->parameters && token_text(function->parameters->name, "this")) {
+				receiver_kind = BIND_RECEIVER;
+				if (expression->kind == POINTER_FIELD_EXPRESSION) {
+					struct Expression* pointee = new_expression(compiler, DEREFERENCE_EXPRESSION, receiver->span.first);
+					if (!pointee) {
+						break;
+					}
+					pointee->data.operand = receiver;
+					pointee->type = object;
+					receiver = pointee;
+				}
+			}
+			expression->kind = BOUND_FUNCTION_EXPRESSION;
+			expression->data.bound_function.function = function;
+			expression->data.bound_function.receiver = receiver;
+			expression->data.bound_function.kind = receiver_kind;
+			expression->type = (struct Type){ FUNCTION_TYPE, { .function = function } };
+			break;
 		}
 		struct Expression* root = expression;
 		while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION) {
@@ -3140,6 +3460,8 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		break;
 	case CALL_EXPRESSION: {
+		check_expression(compiler, expression->data.call.callee, NULL);
+		check_expression(compiler, expression->data.call.receiver_evaluation, NULL);
 		struct Variable* parameter = expression->data.call.binding->parameters;
 		for (struct Argument* argument = expression->data.call.arguments; argument && !compiler->failed; argument = argument->next) {
 			if (parameter) {
@@ -3191,6 +3513,9 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 				diagnostic(compiler, expression->span.first, "reference used before binding");
 			}
 		}
+		break;
+	case BOUND_FUNCTION_EXPRESSION:
+		diagnostic(compiler, expression->span.first, "receiver-bound function must be called; take the qualified function address instead");
 		break;
 	default:
 		diagnostic(compiler, expression->span.first, "invalid expression node");
@@ -3757,13 +4082,17 @@ void check_namespace_names(struct Compiler* compiler) {
 		}
 	}
 	for (struct Namespace* space = compiler->namespaces; space && !compiler->failed; space = space->next) {
-		struct Token name = { NAME, space->name, space->length, 1, 1, NULL, NULL };
+		struct Token name = { NAME, space->name, space->length, 1, 1, space->source_path, NULL };
+		if (space->kind == UNRESOLVED_NAMESPACE) {
+			diagnostic(compiler, name, "qualified declaration owner was not declared");
+			return;
+		}
 		if (find_builtin(name)) {
 			diagnostic(compiler, name, "namespace conflicts with a built-in type");
 			return;
 		}
 		for (struct Record* record = compiler->records; record; record = record->next) {
-			if (name_equal(name, record->name)) {
+			if (name_equal(name, record->name) && space->record != record) {
 				diagnostic(compiler, record->name, "type conflicts with a namespace");
 				return;
 			}
@@ -3877,9 +4206,13 @@ LLVMAttributeRef abi_extension(struct Compiler* compiler, struct Type type) {
 }
 
 char* function_symbol(struct Compiler* compiler, struct Function* function) {
-	const char* prefix = compiler->mode == EXECUTABLE_COMPILATION && (function->kind == FUNCTION_DEFINITION || token_text(function->name, "main")) ? "rt.function." : "";
+	struct Namespace* associated = function->owner;
+	while (associated && !associated->record) {
+		associated = associated->parent;
+	}
+	const char* prefix = compiler->mode == EXECUTABLE_COMPILATION && (function->kind == FUNCTION_DEFINITION || associated || token_text(function->name, "main")) ? "rt.function." : "";
 	struct Token symbol_name = function->name;
-	if (function->kind == FUNCTION_DECLARATION) {
+	if (function->kind == FUNCTION_DECLARATION && !associated) {
 		for (size_t index = 0; index + 1 < symbol_name.length; index++) {
 			if (symbol_name.start[index] == ':' && symbol_name.start[index + 1] == ':') {
 				symbol_name.start += index + 2;
@@ -3995,6 +4328,10 @@ LLVMValueRef pointer_index(struct Compiler* compiler, LLVMValueRef value, struct
 }
 
 LLVMValueRef emit_call(struct Compiler* compiler, struct Expression* expression) {
+	if (expression->data.call.receiver_evaluation && !emit_expression(compiler, expression->data.call.receiver_evaluation)) {
+		return NULL;
+	}
+
 	unsigned count = 0;
 	for (struct Argument* argument = expression->data.call.arguments; argument; argument = argument->next) {
 		if (count == UINT_MAX) {
@@ -4619,12 +4956,8 @@ void initialize_backend(struct Compiler* compiler) {
 		LLVMDisposeMessage(triple);
 		return;
 	}
-	char* cpu = LLVMGetHostCPUName();
-	char* features = LLVMGetHostCPUFeatures();
 	const LLVMCodeGenOptLevel levels[] = { LLVMCodeGenLevelNone, LLVMCodeGenLevelLess, LLVMCodeGenLevelDefault, LLVMCodeGenLevelAggressive };
-	compiler->machine = LLVMCreateTargetMachine(target, triple, cpu, features, levels[compiler->optimization], LLVMRelocPIC, LLVMCodeModelDefault);
-	LLVMDisposeMessage(cpu);
-	LLVMDisposeMessage(features);
+	compiler->machine = LLVMCreateTargetMachine(target, triple, "generic", "", levels[compiler->optimization], LLVMRelocPIC, LLVMCodeModelDefault);
 	if (!compiler->machine) {
 		diagnostic(compiler, compiler->functions ? compiler->functions->name : compiler->token, "LLVM could not create a native target machine");
 		LLVMDisposeMessage(triple);
@@ -4744,11 +5077,7 @@ void parse_source(struct Compiler* compiler, const char* path) {
 		diagnostic(compiler, compiler->token, "source contains a NUL byte");
 		return;
 	}
-	size_t first_token = compiler->token_count;
 	tokenize(compiler, path, bytes);
-	if (!compiler->failed) {
-		parse_functions(compiler, first_token);
-	}
 }
 
 void rutile_compiler_clear(struct Compiler* compiler) {
@@ -4824,6 +5153,9 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 	}
 	for (size_t i = 0; i < source_count && !compiler->failed; i++) {
 		parse_source(compiler, source_paths[i]);
+	}
+	for (size_t first = 0; first < compiler->token_count && !compiler->failed; first = compiler->token_index) {
+		parse_functions(compiler, first);
 	}
 	if (!compiler->failed) {
 		initialize_backend(compiler);

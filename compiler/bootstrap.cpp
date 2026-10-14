@@ -1,5 +1,6 @@
 #include "rutile/compiler.hpp"
 #include "platform.hpp"
+#include "version.hpp"
 
 #include <CLI/CLI.hpp>
 #include <cstdio>
@@ -14,6 +15,7 @@ extern "C" std::FILE* bootstrap_open_file(const char* path, const char* mode) {
 
 int main(int argc, char* argv[]) {
 	CLI::App app{ "Build a native library object for bootstrapping." };
+	app.set_version_flag("--version", std::string(software_version));
 	argv = app.ensure_utf8(argv);
 	std::vector<std::string> sources;
 	std::string output;

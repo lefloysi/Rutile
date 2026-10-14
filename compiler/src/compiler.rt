@@ -131,6 +131,7 @@ struct SignatureSyntax {
 
 struct DeclarationSyntax {
 	Token name;
+	Syntax* path;
 	Syntax* type;
 	Syntax* body;
 };
@@ -146,10 +147,21 @@ struct UnarySyntax {
 	Syntax* value;
 };
 
+enum ReceiverKind {
+	RECEIVER_NONE,
+	RECEIVER_BIND,
+	RECEIVER_EVALUATE,
+};
+
+struct ReceiverBinding {
+	ReceiverKind kind;
+	Syntax* value;
+};
+
 struct CallSyntax {
 	Syntax* callable;
 	Syntax* arguments;
-	Syntax* receiver;
+	ReceiverBinding receiver;
 };
 
 struct MemberSyntax {
@@ -297,7 +309,10 @@ enum ContextKind {
 };
 
 struct Binding {
+	Token name;
 	Entity* entity;
+	Scope* declaration_scope;
+	Source* source;
 	Binding* next;
 	Binding* hash_next;
 };
@@ -333,10 +348,15 @@ struct NumberEntity {
 	Token spelling;
 };
 
+struct Field {
+	Entity* entity;
+	Field* next;
+};
+
 struct AggregateEntity {
 	Type* type;
 	Scope* scope;
-	Binding* fields;
+	Field* fields;
 	usize field_count;
 	void* llvm_type;
 };
@@ -568,7 +588,7 @@ fn scope_local(Scope* scope, Token name) -> Entity* {
 	Binding* binding := scope->buckets[token_hash(name) % scope->bucket_count];
 
 	while (binding) {
-		if (token_same(binding->entity->name, name)) {
+		if (token_same(binding->name, name)) {
 			return binding->entity;
 		};
 		binding := binding->hash_next;
@@ -596,16 +616,19 @@ fn scope_lookup(Scope* scope, Token name) -> Entity* {
 	return (Entity*)0;
 };
 
-fn scope_bind(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
+fn scope_bind_named(Compiler* compiler, Scope* scope, Token name, Entity* entity, Scope* declaration_scope, Source* source) -> i32 {
 	Binding* binding = (Binding*)memory_allocate(compiler, sizeof(Binding));
 	if (!binding) {
 		return 0;
 	};
 
-	usize bucket = token_hash(entity->name) % scope->bucket_count;
+	usize bucket = token_hash(name) % scope->bucket_count;
 	if (!entity->scope) {
 		entity->scope := scope;
 	};
+	binding->name = name;
+	binding->declaration_scope = declaration_scope;
+	binding->source = source;
 	binding->entity = entity;
 	binding->hash_next := scope->buckets[bucket];
 	scope->buckets[bucket] := binding;
@@ -618,6 +641,10 @@ fn scope_bind(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
 	scope->last_binding = binding;
 	scope->binding_count = scope->binding_count + 1;
 	return 1;
+};
+
+fn scope_bind(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
+	return scope_bind_named(compiler, scope, entity->name, entity, scope, entity->name.source);
 };
 
 fn scope_define(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
@@ -668,7 +695,7 @@ fn scope_snapshot(Compiler* compiler, Scope* source) -> Scope* {
 	while (bucket < source->bucket_count) {
 		Binding* binding := source->buckets[bucket];
 		while (binding) {
-			scope_bind(compiler, scope, binding->entity);
+			scope_bind_named(compiler, scope, binding->name, binding->entity, binding->declaration_scope, binding->source);
 			binding := binding->hash_next;
 		};
 		bucket = bucket + 1;
@@ -805,10 +832,36 @@ fn declaration_rule(Compiler* compiler, TokenKind token_kind) -> DeclarationRule
 	return (DeclarationRule*)0;
 };
 
+fn declaration_entity(Compiler* compiler, Scope* scope, EntityKind kind, Token name) -> Entity* {
+	Entity* entity = scope_local(scope, name);
+	if (entity && entity->kind == ENTITY_NAMESPACE && (kind == ENTITY_STRUCT || kind == ENTITY_UNION)) {
+		Scope* members = entity_members(entity);
+		entity->kind := kind;
+		entity->resolution = RESOLUTION_PENDING;
+		entity->data.aggregate.type = (Type*)0;
+		entity->data.aggregate.scope = members;
+	};
+	if (entity && entity->kind != kind) {
+		compiler_error(compiler, name, "conflicting declaration kind\0");
+		return (Entity*)0;
+	};
+	if (!entity) {
+		entity = entity_create(compiler, kind, name);
+		if (!entity) {
+			return (Entity*)0;
+		};
+		scope_define(compiler, scope, entity);
+	};
+	if ((kind == ENTITY_STRUCT || kind == ENTITY_UNION) && !entity->data.aggregate.scope) {
+		entity->data.aggregate.scope = scope_create(compiler, scope, CONTEXT_MODULE, entity);
+	};
+	return entity;
+};
+
 fn namespace_define(Compiler* compiler, Scope* scope, Token name) -> Entity* {
 	Entity* entity = scope_local(scope, name);
 	if (entity) {
-		if (entity->kind != ENTITY_NAMESPACE) {
+		if (entity->kind != ENTITY_NAMESPACE && entity->kind != ENTITY_STRUCT && entity->kind != ENTITY_UNION) {
 			compiler_error(compiler, name, "namespace conflicts with another declaration\0");
 			return (Entity*)0;
 		};
@@ -844,7 +897,7 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				if (!entity) {
 					return;
 				};
-				members := entity->data.namespace_entity.scope;
+				members = entity_members(entity);
 				*position = *position + 1;
 				if (parser->tokens[*position].kind != TOKEN_SCOPE) {
 					break;
@@ -861,14 +914,22 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 		}
 		else {
 			DeclarationRule* rule = declaration_rule(parser->compiler, token.kind);
+			Entity* declared = (Entity*)0;
 			if (rule && parser->tokens[*position + 1].kind == TOKEN_NAME) {
-				Token name := parser->tokens[*position + 1];
-				Entity* existing = scope_local(scope, name);
-				if (existing && existing->kind != rule->entity) {
-					compiler_error(parser->compiler, name, "conflicting declaration kind\0");
+				usize name_position = *position + 1;
+				Token name := parser->tokens[name_position];
+				Scope* owner := scope;
+				while (name_position + 2 < parser->count && parser->tokens[name_position + 1].kind == TOKEN_SCOPE) {
+					Entity* entity = (Entity*)0;
+					if (owner) {
+						entity = scope_lookup(owner, name);
+					};
+					owner = entity_members(entity);
+					name_position = name_position + 2;
+					name := parser->tokens[name_position];
 				};
-				if (!existing) {
-					scope_define(parser->compiler, scope, entity_create(parser->compiler, rule->entity, name));
+				if (owner) {
+					declared = declaration_entity(parser->compiler, owner, rule->entity, name);
 				};
 			};
 			usize depth = 0;
@@ -876,6 +937,12 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position) {
 				TokenKind kind := parser->tokens[*position].kind;
 				if (!depth && (kind == TOKEN_SEMICOLON || kind == TOKEN_END || kind == TOKEN_RIGHT_BRACE)) {
 					break;
+				};
+				if (!depth && kind == TOKEN_LEFT_BRACE && declared && (declared->kind == ENTITY_STRUCT || declared->kind == ENTITY_UNION)) {
+					*position = *position + 1;
+					parser_predeclare_range(parser, entity_members(declared), position);
+					*position = *position + 1;
+					continue;
 				};
 				if (kind == TOKEN_LEFT_BRACE) {
 					depth = depth + 1;
@@ -1311,6 +1378,9 @@ fn entity_members(Entity* entity) -> Scope* {
 	if (entity && entity->kind == ENTITY_NAMESPACE) {
 		return entity->data.namespace_entity.scope;
 	};
+	if (entity && (entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION)) {
+		return entity->data.aggregate.scope;
+	};
 	if (entity && entity->kind == ENTITY_ENUM && entity->declaration && entity->declaration->data.declaration.body) {
 		return entity->declaration->data.declaration.body->scope;
 	};
@@ -1720,6 +1790,9 @@ fn parser_variable(Parser* parser) -> Syntax* {
 	node->data.declaration.name = parser_require(parser, TOKEN_NAME, "expected declaration identifier\0");
 	node->entity = entity_create(parser->compiler, ENTITY_VARIABLE, node->data.declaration.name);
 	node->entity->declaration := node;
+	if (parser->scope->context == CONTEXT_STRUCT || parser->scope->context == CONTEXT_UNION) {
+		node->entity->data.variable.storage = STORAGE_FIELD;
+	};
 	if (parser->scope->context == CONTEXT_MODULE || parser->scope->context == CONTEXT_STRUCT || parser->scope->context == CONTEXT_UNION) {
 		scope_define(parser->compiler, parser->scope, node->entity);
 	}
@@ -1783,61 +1856,113 @@ fn parser_enum_block(Parser* parser) -> Syntax* {
 	return block;
 };
 
+fn token_synthetic(Compiler* compiler, Token location, char* spelling) -> Token {
+	Source* source = (Source*)memory_allocate(compiler, sizeof(Source));
+	if (!source) {
+		return location;
+	};
+	source->path := location.source->path;
+	source->length = strlen(spelling);
+	source->bytes = spelling;
+	location.source = source;
+	location.begin = 0;
+	location.length := location.source->length;
+	location.kind = TOKEN_NAME;
+	return location;
+};
+
+fn parser_receiver(Parser* parser, Syntax* signature, Entity* owner) {
+	ParameterSyntax* first := signature->data.signature.parameters;
+	if (first && token_is(first->name, "this\0")) {
+		return;
+	};
+	ParameterSyntax* receiver = (ParameterSyntax*)memory_allocate(parser->compiler, sizeof(ParameterSyntax));
+	receiver->name = token_synthetic(parser->compiler, signature->token, "this\0");
+	Syntax* reference = syntax_new(parser, SYNTAX_REFERENCE, owner->name);
+	reference->data.expression = syntax_new(parser, SYNTAX_NAME, owner->name);
+	reference->data.expression->entity := owner;
+	receiver->type = reference;
+	receiver->next = first;
+	signature->data.signature.parameters = receiver;
+};
+
+fn parser_block_scope(Parser* parser, Scope* scope) -> Syntax* {
+	Token token = parser_require(parser, TOKEN_LEFT_BRACE, "expected '{'\0");
+	Syntax* node = syntax_new(parser, SYNTAX_BLOCK, token);
+	Scope* outer := parser->scope;
+	node->scope := scope;
+	parser->scope = scope;
+	Syntax* last = (Syntax*)0;
+	while (!parser_at(parser, TOKEN_RIGHT_BRACE) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+		Syntax* statement = parser_statement(parser);
+		syntax_append(&node->data.statements, &last, statement);
+	};
+	parser_require(parser, TOKEN_RIGHT_BRACE, "expected '}' after block\0");
+	parser->scope = outer;
+	return node;
+};
+
 fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 	Token token = parser_token(parser);
 	parser_take(parser, token.kind);
 	Syntax* node = syntax_new(parser, SYNTAX_DECLARATION, token);
-	node->data.declaration.name = parser_require(parser, TOKEN_NAME, "expected declaration identifier\0");
-	node->entity = scope_local(parser->scope, node->data.declaration.name);
-
+	node->data.declaration.path = parser_name(parser);
+	node->data.declaration.name := node->data.declaration.path->token;
+	Scope* owner := parser->scope;
+	if (node->data.declaration.path->data.expression) {
+		owner = entity_members(syntax_lookup(parser->scope, node->data.declaration.path->data.expression));
+		if (!owner) {
+			compiler_error(parser->compiler, node->data.declaration.name, "qualified declaration owner has no associated scope\0");
+			return node;
+		};
+	};
+	node->entity = declaration_entity(parser->compiler, owner, rule->entity, node->data.declaration.name);
 	if (!node->entity) {
-		node->entity = entity_create(parser->compiler, rule->entity, node->data.declaration.name);
-		scope_define(parser->compiler, parser->scope, node->entity);
+		return node;
 	};
-
-	if (node->entity->kind != rule->entity) {
-		compiler_error(parser->compiler, node->data.declaration.name, "conflicting declaration kind\0");
-	};
-
 	if (token.kind == TOKEN_FN) {
 		node->data.declaration.type = parser_signature(parser, token);
+		if ((parser->scope->context == CONTEXT_STRUCT || parser->scope->context == CONTEXT_UNION) && !node->data.declaration.path->data.expression) {
+			parser_receiver(parser, node->data.declaration.type, parser->scope->owner);
+		};
 	};
-
 	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
 		Scope* outer := parser->scope;
 		ContextKind context := rule->context;
-
-		parser->scope = scope_create(parser->compiler, outer, context, node->entity);
-
-		if (token.kind == TOKEN_FN) {
-			ParameterSyntax* parameter := node->data.declaration.type->data.signature.parameters;
-			while (parameter) {
-				if (parameter->name.source) {
-					Entity* entity = entity_create(parser->compiler, ENTITY_VARIABLE, parameter->name);
-					entity->data.variable.storage = STORAGE_PARAMETER;
-					scope_define(parser->compiler, parser->scope, entity);
-					parameter->entity = entity;
-				};
-				parameter := parameter->next;
-			};
-		};
-
-		if (token.kind == TOKEN_ENUM) {
-			node->data.declaration.body = parser_enum_block(parser);
+		if (token.kind == TOKEN_STRUCT || token.kind == TOKEN_UNION) {
+			Scope* members = entity_members(node->entity);
+			members->context := context;
+			node->data.declaration.body = parser_block_scope(parser, members);
+			members->context = CONTEXT_MODULE;
 		}
 		else {
-			node->data.declaration.body = parser_block(parser);
+			parser->scope = scope_create(parser->compiler, owner, context, node->entity);
+			if (token.kind == TOKEN_FN) {
+				ParameterSyntax* parameter := node->data.declaration.type->data.signature.parameters;
+				while (parameter) {
+					if (parameter->name.source) {
+						Entity* entity = entity_create(parser->compiler, ENTITY_VARIABLE, parameter->name);
+						entity->data.variable.storage = STORAGE_PARAMETER;
+						scope_define(parser->compiler, parser->scope, entity);
+						parameter->entity = entity;
+					};
+					parameter := parameter->next;
+				};
+			};
+			if (token.kind == TOKEN_ENUM) {
+				node->data.declaration.body = parser_enum_block(parser);
+			}
+			else {
+				node->data.declaration.body = parser_block(parser);
+			};
+			node->data.declaration.body->scope->context := context;
+			node->data.declaration.body->scope->owner := node->entity;
 		};
-
-		node->data.declaration.body->scope->context = context;
-		node->data.declaration.body->scope->owner := node->entity;
 		parser->scope = outer;
 	};
-
 	if (!node->entity->declaration || node->data.declaration.body) {
 		node->entity->declaration := node;
 	};
-
 	parser_require(parser, TOKEN_SEMICOLON, "expected ';' after declaration\0");
 	return node;
 };
@@ -1886,7 +2011,7 @@ fn parser_namespace(Parser* parser) -> Syntax* {
 		if (!entity) {
 			return (Syntax*)0;
 		};
-		parser->scope := entity->data.namespace_entity.scope;
+		parser->scope = entity_members(entity);
 		if (!parser_take(parser, TOKEN_SCOPE)) {
 			break;
 		};
@@ -2011,19 +2136,8 @@ fn parser_statement(Parser* parser) -> Syntax* {
 };
 
 fn parser_block(Parser* parser) -> Syntax* {
-	Token token = parser_require(parser, TOKEN_LEFT_BRACE, "expected '{'\0");
-	Syntax* node = syntax_new(parser, SYNTAX_BLOCK, token);
-	Scope* outer := parser->scope;
-	node->scope = scope_create(parser->compiler, outer, CONTEXT_LOCAL, (Entity*)0);
-	parser->scope := node->scope;
-	Syntax* last = (Syntax*)0;
-	while (!parser_at(parser, TOKEN_RIGHT_BRACE) && !parser_at(parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
-		Syntax* statement = parser_statement(parser);
-		syntax_append(&node->data.statements, &last, statement);
-	};
-	parser_require(parser, TOKEN_RIGHT_BRACE, "expected '}' after block\0");
-	parser->scope = outer;
-	return node;
+	Scope* scope = scope_create(parser->compiler, parser->scope, CONTEXT_LOCAL, (Entity*)0);
+	return parser_block_scope(parser, scope);
 };
 
 fn prepare_source(Compiler* compiler, Source* source) -> i32 {
@@ -2052,7 +2166,17 @@ fn prepare_sources(Compiler* compiler) -> i32 {
 		};
 		source := source->next;
 	};
-	return 1;
+	source := compiler->sources;
+	while (source) {
+		Parser parser;
+		parser.compiler := compiler;
+		parser.scope := compiler->module;
+		parser.tokens := source->tokens;
+		parser.count := source->token_count;
+		parser_predeclare(&parser);
+		source := source->next;
+	};
+	return compiler->result == COMPILATION_SUCCESS;
 };
 
 fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
@@ -2088,8 +2212,6 @@ fn LLVMInitializeX86Target();
 fn LLVMInitializeX86TargetMC();
 fn LLVMInitializeX86AsmPrinter();
 fn LLVMGetDefaultTargetTriple() -> char*;
-fn LLVMGetHostCPUName() -> char*;
-fn LLVMGetHostCPUFeatures() -> char*;
 fn LLVMGetTargetFromTriple(char* triple, void** target, char** message) -> i32;
 fn LLVMCreateTargetMachine(void* target, char* triple, char* cpu, char* features, i32 level, i32 relocation, i32 model) -> void*;
 fn LLVMDisposeTargetMachine(void* machine);
@@ -2691,6 +2813,14 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 	};
 	if (entity->kind == ENTITY_FUNCTION) {
 		entity->data.function.type = type_resolve(compiler, entity->scope, declaration->data.declaration.type);
+		Parameter* receiver := entity->data.function.type->data.function.parameters;
+		Entity* owner = (Entity*)0;
+		if (entity->scope) {
+			owner := entity->scope->owner;
+		};
+		if (owner && (owner->kind == ENTITY_STRUCT || owner->kind == ENTITY_UNION) && receiver && token_is(receiver->name, "this\0") && (receiver->type->kind != TYPE_REFERENCE || receiver->type->data.element->kind != TYPE_NAMED || receiver->type->data.element->data.entity != owner)) {
+			compiler_error(compiler, receiver->name, "associated receiver must reference its owning type\0");
+		};
 		entity->data.function.body := declaration->data.declaration.body;
 		if (entity->data.function.body) {
 			entity->data.function.scope := entity->data.function.body->scope;
@@ -2724,11 +2854,20 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 		if (body) {
 			Syntax* field := body->data.statements;
 			usize index = 0;
+			Field* last_field = (Field*)0;
 			u64 next_value = 0;
 			while (field) {
-				if (field->kind != SYNTAX_DECLARATION || field->entity->kind != ENTITY_VARIABLE) {
-					compiler_error(compiler, field->token, "aggregate context requires variable declarations\0");
+				if (field->kind != SYNTAX_DECLARATION) {
+					compiler_error(compiler, field->token, "aggregate context requires declarations\0");
 					break;
+				};
+				if (field->entity->kind != ENTITY_VARIABLE) {
+					if (entity->kind == ENTITY_ENUM) {
+						compiler_error(compiler, field->token, "enum context requires enumerator declarations\0");
+						break;
+					};
+					field := field->next;
+					continue;
 				};
 				Entity* variable := field->entity;
 				if (entity->kind == ENTITY_ENUM) {
@@ -2751,6 +2890,15 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 					variable->data.variable.storage = STORAGE_FIELD;
 					variable->data.variable.data.field.owner := entity;
 					variable->data.variable.data.field.index := index;
+					Field* representation = (Field*)memory_allocate(compiler, sizeof(Field));
+					representation->entity := variable;
+					if (last_field) {
+						last_field->next := representation;
+					}
+					else {
+						entity->data.aggregate.fields := representation;
+					};
+					last_field = representation;
 					index = index + 1;
 				};
 				variable->resolution = RESOLUTION_READY;
@@ -2760,8 +2908,6 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 				entity->data.enumeration.values := body->scope->bindings;
 			}
 			else {
-				entity->data.aggregate.scope := body->scope;
-				entity->data.aggregate.fields := body->scope->bindings;
 				entity->data.aggregate.field_count = index;
 			};
 		};
@@ -2940,7 +3086,7 @@ fn type_has_reference(Type* type) -> bool {
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
 		return false;
 	};
-	Binding* field := type->data.entity->data.aggregate.fields;
+	Field* field := type->data.entity->data.aggregate.fields;
 	while (field) {
 		if (type_has_reference(entity_type(field->entity))) {
 			return true;
@@ -2986,7 +3132,7 @@ fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, Refere
 		return;
 	};
 	entity_resolve(compiler, type->data.entity);
-	Binding* field := type->data.entity->data.aggregate.fields;
+	Field* field := type->data.entity->data.aggregate.fields;
 	while (field && compiler->result != COMPILATION_FAILURE) {
 		ReferencePath member;
 		member.kind = SYNTAX_MEMBER;
@@ -3129,10 +3275,53 @@ fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expec
 	return actual;
 };
 
+fn method_receiver(Semantic* semantic, Syntax* member) -> Syntax* {
+	Syntax* receiver := member->data.member.object;
+	Type* type = semantic_expression(semantic, receiver, (Type*)0);
+	if (member->token.kind != TOKEN_ARROW) {
+		return receiver;
+	};
+	if (type->kind != TYPE_POINTER) {
+		compiler_error(semantic->compiler, member->token, "arrow member access requires a pointer\0");
+		return receiver;
+	};
+	Syntax* object = (Syntax*)memory_allocate(semantic->compiler, sizeof(Syntax));
+	object->kind = SYNTAX_UNARY;
+	object->token := member->token;
+	object->data.unary.operation = TOKEN_STAR;
+	object->data.unary.value = receiver;
+	object->type = type_effective(type->data.element);
+	return object;
+};
+
+fn receiver_callable(Semantic* semantic, Type* type, Token name) -> Entity* {
+	Entity* associated = (Entity*)0;
+	if (type->kind == TYPE_NAMED && (type->data.entity->kind == ENTITY_STRUCT || type->data.entity->kind == ENTITY_UNION)) {
+		entity_resolve(semantic->compiler, type->data.entity);
+		associated = scope_local(entity_members(type->data.entity), name);
+	};
+	if (associated) {
+		return associated;
+	};
+	Entity* lexical = scope_lookup(semantic->scope, name);
+	if (!lexical || lexical->kind != ENTITY_FUNCTION) {
+		return (Entity*)0;
+	};
+	entity_resolve(semantic->compiler, lexical);
+	Parameter* first := lexical->data.function.type->data.function.parameters;
+	if (!first || !token_is(first->name, "this\0")) {
+		return (Entity*)0;
+	};
+	return lexical;
+};
+
 fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Type* {
 	Compiler* compiler := semantic->compiler;
 	if (!syntax) {
 		return compiler->void_type;
+	};
+	if (syntax->type) {
+		return semantic_expect(semantic, syntax, syntax->type, expected);
 	};
 	Type* type = (Type*)0;
 	switch (syntax->kind) {
@@ -3149,6 +3338,22 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return compiler->void_type;
 			};
 			entity_resolve(compiler, syntax->entity);
+			if (syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage == STORAGE_FIELD) {
+				Token name := syntax->token;
+				Entity* receiver = scope_lookup(semantic->scope, token_synthetic(compiler, name, "this\0"));
+				if (!receiver || receiver->kind != ENTITY_VARIABLE) {
+					compiler_error(compiler, name, "field access requires an instance receiver\0");
+					return compiler->void_type;
+				};
+				Syntax* object = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
+				object->kind = SYNTAX_NAME;
+				object->token := receiver->name;
+				object->entity = receiver;
+				syntax->kind = SYNTAX_MEMBER;
+				syntax->data.member.object = object;
+				syntax->data.member.name = name;
+				return semantic_expression(semantic, syntax, expected);
+			};
 			type = type_effective(entity_type(syntax->entity));
 			break;
 		case SYNTAX_NUMBER:
@@ -3252,6 +3457,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			syntax->entity = scope_local(object->data.entity->data.aggregate.scope, syntax->data.member.name);
 			if (!syntax->entity) {
 				compiler_error(compiler, syntax->data.member.name, "unknown record field\0");
+				return compiler->void_type;
+			};
+			if (syntax->entity->kind != ENTITY_VARIABLE || syntax->entity->data.variable.storage != STORAGE_FIELD) {
+				compiler_error(compiler, syntax->token, "associated declaration is not instance field storage\0");
 				return compiler->void_type;
 			};
 			if (entity_type(syntax->entity)->kind == TYPE_REFERENCE) {
@@ -3466,19 +3675,24 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case SYNTAX_CALL: {
 			Syntax* callable_syntax := syntax->data.call.callable;
 			if (callable_syntax->kind == SYNTAX_MEMBER) {
-				Entity* function = scope_lookup(semantic->scope, callable_syntax->data.member.name);
+				Syntax* receiver = method_receiver(semantic, callable_syntax);
+				Entity* function = receiver_callable(semantic, receiver->type, callable_syntax->data.member.name);
 				if (function && function->kind == ENTITY_FUNCTION) {
 					entity_resolve(compiler, function);
-					Parameter* receiver := function->data.function.type->data.function.parameters;
-					if (receiver && token_is(receiver->name, "this\0")) {
-						syntax->data.call.receiver := callable_syntax->data.member.object;
-						semantic_expression(semantic, syntax->data.call.receiver, receiver->type);
-						Syntax* direct = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
-						direct->kind = SYNTAX_NAME;
-						direct->token := callable_syntax->data.member.name;
-						direct->entity = function;
-						syntax->data.call.callable = direct;
+					Parameter* first := function->data.function.type->data.function.parameters;
+					syntax->data.call.receiver.value := receiver;
+					if (first && token_is(first->name, "this\0")) {
+						semantic_expect(semantic, receiver, receiver->type, first->type);
+						syntax->data.call.receiver.kind = RECEIVER_BIND;
+					}
+					else {
+						syntax->data.call.receiver.kind = RECEIVER_EVALUATE;
 					};
+					Syntax* direct = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
+					direct->kind = SYNTAX_NAME;
+					direct->token := callable_syntax->data.member.name;
+					direct->entity = function;
+					syntax->data.call.callable = direct;
 				};
 			};
 			Type* callable = semantic_expression(semantic, syntax->data.call.callable, (Type*)0);
@@ -3490,7 +3704,20 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return compiler->void_type;
 			};
 			Parameter* parameter := callable->data.function.parameters;
-			if (syntax->data.call.receiver) {
+			Syntax* direct := syntax->data.call.callable;
+			if (syntax->data.call.receiver.kind == RECEIVER_NONE && direct->kind == SYNTAX_NAME && !direct->data.expression && direct->entity && direct->entity->scope && direct->entity->scope->owner && (direct->entity->scope->owner->kind == ENTITY_STRUCT || direct->entity->scope->owner->kind == ENTITY_UNION) && parameter && token_is(parameter->name, "this\0")) {
+				Entity* current = scope_lookup(semantic->scope, token_synthetic(compiler, direct->token, "this\0"));
+				if (current) {
+					Syntax* receiver = (Syntax*)memory_allocate(compiler, sizeof(Syntax));
+					receiver->kind = SYNTAX_NAME;
+					receiver->token := current->name;
+					receiver->entity = current;
+					semantic_expression(semantic, receiver, parameter->type);
+					syntax->data.call.receiver.value = receiver;
+					syntax->data.call.receiver.kind = RECEIVER_BIND;
+				};
+			};
+			if (syntax->data.call.receiver.kind == RECEIVER_BIND) {
 				parameter := parameter->next;
 			};
 			Syntax* argument := syntax->data.call.arguments;
@@ -3611,12 +3838,12 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 			char* name = entity_name(compiler, entity);
 			void* record = LLVMStructCreateNamed(compiler->llvm_context, name);
 			entity->data.aggregate.llvm_type := record;
-			if (!entity->data.aggregate.scope) {
+			if (!entity->declaration || !entity->declaration->data.declaration.body) {
 				return record;
 			};
 			usize count := entity->data.aggregate.field_count;
 			void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
-			Binding* binding := entity->data.aggregate.fields;
+			Field* binding := entity->data.aggregate.fields;
 			usize index = 0;
 			u64 maximum_size = 0;
 			u32 maximum_alignment = 0;
@@ -3649,6 +3876,10 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 					fields[1] = LLVMArrayType2(LLVMIntTypeInContext(compiler->llvm_context, 8), maximum_size - size);
 					index = 2;
 				};
+			};
+			if (!index) {
+				fields[0] = LLVMIntTypeInContext(compiler->llvm_context, 8);
+				index = 1;
 			};
 			LLVMStructSetBody(record, fields, (u32)index, 0);
 			return record;
@@ -3908,13 +4139,22 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
+	if (syntax->data.call.receiver.kind == RECEIVER_EVALUATE) {
+		Syntax* object := syntax->data.call.receiver.value;
+		if (syntax_category(object) == VALUE_STORAGE) {
+			emit_address(emitter, object);
+		}
+		else {
+			emit_expression(emitter, object);
+		};
+	};
 	Syntax* callee := syntax->data.call.callable;
 	Type* signature := callee->type;
 	if (signature->kind == TYPE_POINTER) {
 		signature := signature->data.element;
 	};
 	u32 count = 0;
-	if (syntax->data.call.receiver) {
+	if (syntax->data.call.receiver.kind == RECEIVER_BIND) {
 		count = 1;
 	};
 	Syntax* argument := syntax->data.call.arguments;
@@ -3926,8 +4166,8 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	Parameter* parameter := signature->data.function.parameters;
 	argument := syntax->data.call.arguments;
 	u32 index = 0;
-	if (syntax->data.call.receiver) {
-		Syntax* receiver := syntax->data.call.receiver;
+	if (syntax->data.call.receiver.kind == RECEIVER_BIND) {
+		Syntax* receiver := syntax->data.call.receiver.value;
 		if (parameter->type->kind == TYPE_REFERENCE) {
 			values[0] = emit_address(emitter, receiver);
 		}
@@ -4400,12 +4640,12 @@ fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token to
 	};
 
 	entity_resolve(compiler, entity);
-	if (!entity->data.aggregate.scope) {
+	if (!entity->declaration || !entity->declaration->data.declaration.body) {
 		compiler_error(compiler, token, "incomplete record has no storage layout\0");
 		return;
 	};
 
-	Binding* binding := entity->data.aggregate.fields;
+	Field* binding := entity->data.aggregate.fields;
 	LayoutVisit visit;
 	visit.entity = entity;
 	visit.parent = parent;
@@ -4420,13 +4660,17 @@ struct DeclarationIterator {
 };
 
 fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding* {
-	if (binding->entity->kind == ENTITY_NAMESPACE && binding->entity->data.namespace_entity.scope->bindings) {
-		iterator->scope := binding->entity->data.namespace_entity.scope;
+	Scope* members = (Scope*)0;
+	if (binding->entity->kind == ENTITY_NAMESPACE || binding->entity->kind == ENTITY_STRUCT || binding->entity->kind == ENTITY_UNION) {
+		members = entity_members(binding->entity);
+	};
+	if (members && members->bindings) {
+		iterator->scope = members;
 		return iterator->scope->bindings;
 	};
 	while (!binding->next) {
 		Entity* owner := iterator->scope->owner;
-		if (!owner || owner->kind != ENTITY_NAMESPACE) {
+		if (!owner || (owner->kind != ENTITY_NAMESPACE && owner->kind != ENTITY_STRUCT && owner->kind != ENTITY_UNION)) {
 			return (Binding*)0;
 		};
 		iterator->scope := iterator->scope->parent;
@@ -4450,7 +4694,7 @@ fn declarations_validate_block(Compiler* compiler, Syntax* module) {
 		};
 
 		Entity* entity := statement->entity;
-		if (entity->kind == ENTITY_NAMESPACE) {
+		if (statement->token.kind == TOKEN_NAMESPACE) {
 			declarations_validate_block(compiler, statement->data.declaration.body);
 		}
 		else if (entity->kind == ENTITY_FUNCTION) {
@@ -4463,10 +4707,15 @@ fn declarations_validate_block(Compiler* compiler, Syntax* module) {
 			};
 		}
 		else if (entity->kind == ENTITY_VARIABLE) {
-			compiler_error(compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
+			if (entity->data.variable.storage != STORAGE_FIELD) {
+				compiler_error(compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
+			};
 		}
 		else if (statement->data.declaration.body && statement != entity->declaration) {
 			compiler_error(compiler, statement->token, "duplicate type definition\0");
+		}
+		else if ((entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION) && statement->data.declaration.body) {
+			declarations_validate_block(compiler, statement->data.declaration.body);
 		};
 		statement := statement->next;
 	};
@@ -4481,7 +4730,7 @@ fn declarations_validate(Compiler* compiler) {
 };
 
 fn external_validate(Compiler* compiler, Entity* entity) {
-	if (entity->data.function.body) {
+	if (entity->data.function.body || (entity->scope && entity->scope->owner && (entity->scope->owner->kind == ENTITY_STRUCT || entity->scope->owner->kind == ENTITY_UNION))) {
 		return;
 	};
 	DeclarationIterator iterator;
@@ -4489,7 +4738,7 @@ fn external_validate(Compiler* compiler, Entity* entity) {
 	Binding* binding := compiler->module->bindings;
 	while (binding && binding->entity != entity) {
 		Entity* previous := binding->entity;
-		if (previous->kind == ENTITY_FUNCTION && !previous->data.function.body && token_same(previous->name, entity->name) && !type_equal(previous->data.function.type, entity->data.function.type)) {
+		if (previous->kind == ENTITY_FUNCTION && !previous->data.function.body && (!previous->scope || !previous->scope->owner || (previous->scope->owner->kind != ENTITY_STRUCT && previous->scope->owner->kind != ENTITY_UNION)) && token_same(previous->name, entity->name) && !type_equal(previous->data.function.type, entity->data.function.type)) {
 			compiler_error(compiler, entity->name, "conflicting external C function signature\0");
 			return;
 		};
@@ -4513,7 +4762,7 @@ fn backend_analyze(Compiler* compiler) {
 	binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		Entity* entity := binding->entity;
-		if ((entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION) && entity->data.aggregate.scope) {
+		if ((entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION) && entity->declaration && entity->declaration->data.declaration.body) {
 			layout_validate(compiler, entity_type(entity), (LayoutVisit*)0, entity->name);
 		};
 		if (entity->kind == ENTITY_FUNCTION) {
@@ -4549,7 +4798,7 @@ fn backend_analyze(Compiler* compiler) {
 fn entity_name(Compiler* compiler, Entity* entity) -> char* {
 	Scope* scope := entity->scope;
 	char* parent = "\0";
-	if (scope && scope->owner && scope->owner->kind == ENTITY_NAMESPACE) {
+	if (scope && scope->owner && (scope->owner->kind == ENTITY_NAMESPACE || scope->owner->kind == ENTITY_STRUCT || scope->owner->kind == ENTITY_UNION)) {
 		parent = entity_name(compiler, scope->owner);
 	};
 	usize length = strlen(parent);
@@ -4571,7 +4820,7 @@ fn entity_name(Compiler* compiler, Entity* entity) -> char* {
 };
 
 fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
-	if (!entity->data.function.body) {
+	if (!entity->data.function.body && (!entity->scope || !entity->scope->owner || (entity->scope->owner->kind != ENTITY_STRUCT && entity->scope->owner->kind != ENTITY_UNION))) {
 		return memory_text(compiler, entity->name.source->bytes + entity->name.begin, entity->name.length);
 	};
 	char* qualified = entity_name(compiler, entity);
@@ -4932,8 +5181,6 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 	compiler->llvm_builder = LLVMCreateBuilderInContext(compiler->llvm_context);
 
 	char* triple = LLVMGetDefaultTargetTriple();
-	char* cpu = LLVMGetHostCPUName();
-	char* features = LLVMGetHostCPUFeatures();
 	char* message;
 	void* target;
 	i32 target_failure = LLVMGetTargetFromTriple(triple, &target, &message);
@@ -4942,7 +5189,7 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 		LLVMDisposeMessage(message);
 	}
 	else {
-		compiler->llvm_machine = LLVMCreateTargetMachine(target, triple, cpu, features, compiler->optimization, 2, 0);
+		compiler->llvm_machine = LLVMCreateTargetMachine(target, triple, "generic\0", "\0", compiler->optimization, 2, 0);
 		if (!compiler->llvm_machine) {
 			compiler_error(compiler, token, "cannot create LLVM target machine\0");
 		}
@@ -4956,8 +5203,6 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 	};
 
 	LLVMDisposeMessage(triple);
-	LLVMDisposeMessage(cpu);
-	LLVMDisposeMessage(features);
 	return compiler->result == COMPILATION_SUCCESS;
 };
 
