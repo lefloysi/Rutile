@@ -9,6 +9,8 @@ enum TokenKind {
 	TOKEN_ENUM,
 	TOKEN_NAMESPACE,
 	TOKEN_VIRTUAL,
+	TOKEN_OVERRIDE,
+	TOKEN_FINAL,
 	TOKEN_RETURN,
 	TOKEN_IF,
 	TOKEN_ELSE,
@@ -132,9 +134,17 @@ struct SignatureSyntax {
 	ParameterArity arity;
 };
 
+enum FunctionModification {
+	FUNCTION_ORDINARY,
+	FUNCTION_VIRTUAL,
+	FUNCTION_OVERRIDE,
+	FUNCTION_FINAL,
+};
+
 struct DeclarationSyntax {
 	Token name;
 	Syntax* path;
+	FunctionModification modification;
 	BaseRelation* bases;
 	Syntax* type;
 	Syntax* body;
@@ -416,6 +426,19 @@ struct CompleteGraph {
 	Subobject* last_virtual;
 };
 
+struct RuntimeThunk {
+	Subobject* receiver;
+	VirtualCallable* callable;
+	VirtualTarget target;
+	void* function;
+	RuntimeThunk* next;
+};
+
+struct RuntimeWrapper {
+	Entity* entity;
+	RuntimeWrapper* next;
+};
+
 struct RuntimeView {
 	CompleteGraph* graph;
 	Subobject* object;
@@ -447,6 +470,7 @@ struct AggregateEntity {
 	BaseRelation* bases;
 	Resolution bases_resolution;
 	VirtualType* virtual_types;
+	VirtualCallable* virtual_callables;
 	CompleteGraph* complete_graph;
 	usize field_count;
 	void* llvm_body;
@@ -458,7 +482,29 @@ struct EnumEntity {
 	Binding* values;
 };
 
+struct OverrideLink {
+	Entity* function;
+	OverrideLink* next;
+};
+
+struct VirtualCallable {
+	Entity* function;
+	usize index;
+	VirtualCallable* next;
+};
+
+struct VirtualTarget {
+	Entity* function;
+	Subobject* object;
+};
+
 struct FunctionEntity {
+	Entity* interface_owner;
+	FunctionModification modification;
+	Resolution virtual_resolution;
+	OverrideLink* overrides;
+	VirtualCallable* callable;
+	void* wrapper;
 	Type* type;
 	Scope* scope;
 	Syntax* body;
@@ -544,6 +590,8 @@ struct Compiler {
 	void* llvm_machine;
 	void* llvm_layout;
 	RuntimeView* runtime_views;
+	RuntimeThunk* runtime_thunks;
+	RuntimeWrapper* runtime_wrappers;
 	OutputKind output;
 	char* entry;
 	i32 optimization;
@@ -1160,6 +1208,10 @@ struct Keyword {
 fn lexer_keywords(Keyword* keywords) {
 	keywords[17].text = "virtual\0";
 	keywords[17].kind = TOKEN_VIRTUAL;
+	keywords[18].text = "override\0";
+	keywords[18].kind = TOKEN_OVERRIDE;
+	keywords[19].text = "final\0";
+	keywords[19].kind = TOKEN_FINAL;
 	keywords[16].text = "namespace\0";
 	keywords[16].kind = TOKEN_NAMESPACE;
 	keywords[0].text = "fn\0";
@@ -1311,7 +1363,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate(compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[18] keywords {};
+	Keyword[20] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[35] operators {};
 	lexer_operators(&operators[0]);
@@ -1542,6 +1594,10 @@ fn entity_members(Entity* entity) -> Scope* {
 	return (Scope*)0;
 };
 
+fn aggregate_header(Entity* entity) -> bool {
+	return entity->data.aggregate.virtual_types || entity->data.aggregate.virtual_callables;
+};
+
 fn virtual_type_add(Compiler* compiler, Entity* owner, Entity* target) {
 	VirtualType* current := owner->data.aggregate.virtual_types;
 	VirtualType* last = (VirtualType*)0;
@@ -1612,7 +1668,7 @@ fn bases_resolve(Compiler* compiler, Entity* record) {
 		};
 		base := base->next;
 	};
-	if (record->data.aggregate.virtual_types) {
+	if (aggregate_header(record)) {
 		component = 1;
 	};
 	base := record->data.aggregate.bases;
@@ -2509,6 +2565,42 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 			parser_receiver(parser, node->data.declaration.type, parser->scope->owner);
 		};
 	};
+	if (token.kind == TOKEN_FN) {
+		if (parser_take(parser, TOKEN_COLON)) {
+			Token modifier = parser_token(parser);
+			if (parser_take(parser, TOKEN_VIRTUAL)) {
+				node->data.declaration.modification = FUNCTION_VIRTUAL;
+			}
+			else if (parser_take(parser, TOKEN_OVERRIDE)) {
+				node->data.declaration.modification = FUNCTION_OVERRIDE;
+			}
+			else if (parser_take(parser, TOKEN_FINAL)) {
+				node->data.declaration.modification = FUNCTION_FINAL;
+			}
+			else {
+				compiler_error(parser->compiler, modifier, "expected virtual, override, or final relationship\0");
+				return node;
+			};
+		};
+		if (parser->scope->context == CONTEXT_STRUCT && !node->data.declaration.path->data.expression) {
+			node->entity->data.function.interface_owner := parser->scope->owner;
+			if (node->entity->data.function.modification != FUNCTION_ORDINARY && node->entity->data.function.modification != node->data.declaration.modification) {
+				compiler_error(parser->compiler, token, "conflicting virtual relationship declarations\0");
+			};
+			node->entity->data.function.modification := node->data.declaration.modification;
+			if (node->data.declaration.modification != FUNCTION_ORDINARY && !node->entity->data.function.callable) {
+				VirtualCallable* callable = (VirtualCallable*)memory_allocate(parser->compiler, sizeof(VirtualCallable));
+				callable->function := node->entity;
+				VirtualCallable** link = &parser->scope->owner->data.aggregate.virtual_callables;
+				while (*link) {
+					callable->index = callable->index + 1;
+					link = &(*link)->next;
+				};
+				node->entity->data.function.callable := callable;
+				*link = callable;
+			};
+		};
+	};
 	if (parser_at(parser, TOKEN_LEFT_BRACE)) {
 		Scope* outer := parser->scope;
 		ContextKind context := rule->context;
@@ -2831,6 +2923,10 @@ fn LLVMSetGlobalConstant(void* global, i32 constant);
 fn LLVMSetLinkage(void* value, i32 linkage);
 fn LLVMAddFunction(void* module, char* name, void* type) -> void*;
 fn LLVMGetParam(void* function, u32 index) -> void*;
+fn LLVMSetTailCallKind(void* call, u32 kind);
+fn LLVMCreateStringAttribute(void* context, char* key, u32 key_length, char* value, u32 value_length) -> void*;
+fn LLVMStructTypeInContext(void* context, void** elements, u32 count, i32 packed) -> void*;
+fn LLVMConstStructInContext(void* context, void** values, u32 count, i32 packed) -> void*;
 fn LLVMAppendBasicBlockInContext(void* context, void* function, char* name) -> void*;
 fn LLVMPositionBuilderAtEnd(void* builder, void* block);
 fn LLVMPositionBuilderBefore(void* builder, void* instruction);
@@ -2921,6 +3017,8 @@ struct Semantic {
 };
 
 struct Emitter {
+	void* llvm_function;
+	Type* return_type;
 	Compiler* compiler;
 	Entity* function;
 	Flow* flow;
@@ -3384,6 +3482,17 @@ fn selection_validate(Semantic* semantic, Syntax* syntax, Type* type) {
 	};
 };
 
+fn interface_receiver_validate(Compiler* compiler, Entity* entity, Type* signature, Token token) {
+	Entity* owner := entity->data.function.interface_owner;
+	if (!owner) {
+		return;
+	};
+	Parameter* receiver := signature->data.function.parameters;
+	if (!receiver || !token_is(receiver->name, "this\0") || receiver->type->kind != TYPE_REFERENCE || receiver->type->data.element->kind != TYPE_NAMED || receiver->type->data.element->data.entity != owner) {
+		compiler_error(compiler, token, "struct interface function requires its owning reference receiver named this\0");
+	};
+};
+
 fn entity_resolve(Compiler* compiler, Entity* entity) {
 	if (!entity || entity->resolution == RESOLUTION_READY) {
 		return;
@@ -3400,6 +3509,7 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 	};
 	if (entity->kind == ENTITY_FUNCTION) {
 		entity->data.function.type = type_resolve(compiler, entity->scope, declaration->data.declaration.type);
+		interface_receiver_validate(compiler, entity, entity->data.function.type, declaration->token);
 		Parameter* receiver := entity->data.function.type->data.function.parameters;
 		Entity* owner = (Entity*)0;
 		if (entity->scope) {
@@ -3439,8 +3549,17 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 		};
 		bases_resolve(compiler, entity);
 		usize base_count = 0;
-		if (entity->data.aggregate.virtual_types) {
+		if (aggregate_header(entity)) {
 			base_count = 1;
+		};
+		usize component := base_count;
+		BaseRelation* layout_base := entity->data.aggregate.bases;
+		while (layout_base) {
+			if (layout_base->kind == BASE_NONVIRTUAL) {
+				layout_base->component := component;
+				component = component + 1;
+			};
+			layout_base := layout_base->next;
 		};
 		if (entity->kind == ENTITY_STRUCT) {
 			BaseRelation* base := entity->data.aggregate.bases;
@@ -4924,7 +5043,7 @@ fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
 		return record;
 	};
 	usize count := entity->data.aggregate.field_count;
-	if (entity->data.aggregate.virtual_types) {
+	if (aggregate_header(entity)) {
 		count = count + 1;
 	};
 	BaseRelation* base := entity->data.aggregate.bases;
@@ -4936,7 +5055,7 @@ fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
 	};
 	void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
 	usize index = 0;
-	if (entity->data.aggregate.virtual_types) {
+	if (aggregate_header(entity)) {
 		fields[index] = LLVMPointerTypeInContext(compiler->llvm_context, 0);
 		index = index + 1;
 	};
@@ -5109,18 +5228,38 @@ fn complete_offsets(Compiler* compiler, CompleteGraph* graph) {
 	};
 };
 
+fn virtual_callable_count(Entity* entity) -> usize {
+	usize count = 0;
+	VirtualCallable* callable := entity->data.aggregate.virtual_callables;
+	while (callable) {
+		count = count + 1;
+		callable := callable->next;
+	};
+	return count;
+};
+
+fn virtual_base_count(Entity* entity) -> usize {
+	usize count = 0;
+	VirtualType* type := entity->data.aggregate.virtual_types;
+	while (type) {
+		count = count + 1;
+		type := type->next;
+	};
+	return count;
+};
+
+fn runtime_view_type(Compiler* compiler, Entity* entity) -> void* {
+	void*[2] fields {};
+	fields[0] = LLVMArrayType2(llvm_type(compiler, compiler->usize_type), (u64)virtual_base_count(entity));
+	fields[1] = LLVMArrayType2(LLVMPointerTypeInContext(compiler->llvm_context, 0), (u64)virtual_callable_count(entity));
+	return LLVMStructTypeInContext(compiler->llvm_context, &fields[0], 2, 0);
+};
+
 fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* object) -> void* {
 	if (object->view) {
 		return object->view;
 	};
-	usize count = 0;
-	VirtualType* target := object->entity->data.aggregate.virtual_types;
-	while (target) {
-		count = count + 1;
-		target := target->next;
-	};
-	void* type = LLVMArrayType2(llvm_type(compiler, compiler->usize_type), (u64)count);
-	void* view = LLVMAddGlobal(compiler->llvm_module, type, "rt.view\0");
+	void* view = LLVMAddGlobal(compiler->llvm_module, runtime_view_type(compiler, object->entity), "rt.view\0");
 	LLVMSetLinkage(view, 9);
 	LLVMSetGlobalConstant(view, 1);
 	object->view := view;
@@ -5132,28 +5271,67 @@ fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* obj
 	return view;
 };
 
-fn runtime_views_emit(Compiler* compiler) {
-	RuntimeView* view := compiler->runtime_views;
-	while (view) {
-		complete_offsets(compiler, view->graph);
-		VirtualType* target := view->object->entity->data.aggregate.virtual_types;
-		usize count = 0;
-		while (target) {
-			count = count + 1;
-			target := target->next;
+fn emit_function_attributes(Compiler* compiler, void* function, Type* signature) {
+	void* extension = emit_extension(compiler, signature->data.function.result);
+	if (extension) {
+		LLVMAddAttributeAtIndex(function, 0, extension);
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	u32 index = 1;
+	while (parameter) {
+		extension = emit_extension(compiler, parameter->type);
+		if (extension) {
+			LLVMAddAttributeAtIndex(function, index, extension);
 		};
-		void** values = (void**)memory_allocate(compiler, count * sizeof(void*));
-		target := view->object->entity->data.aggregate.virtual_types;
+		index = index + 1;
+		parameter := parameter->next;
+	};
+};
+
+fn runtime_thunk_request(Compiler* compiler, CompleteGraph* graph, Subobject* receiver, VirtualCallable* callable) -> void* {
+	VirtualTarget target = virtual_target(compiler, graph, receiver, callable->function);
+	if (target.function == callable->function && target.object == receiver) {
+		return target.function->data.function.llvm_value;
+	};
+	RuntimeThunk* thunk = (RuntimeThunk*)memory_allocate(compiler, sizeof(RuntimeThunk));
+	thunk->receiver = receiver;
+	thunk->callable := callable;
+	thunk->target = target;
+	thunk->function = LLVMAddFunction(compiler->llvm_module, "rt.virtual.thunk\0", llvm_type(compiler, callable->function->data.function.type));
+	LLVMSetLinkage(thunk->function, 9);
+	emit_function_attributes(compiler, thunk->function, callable->function->data.function.type);
+	thunk->next := compiler->runtime_thunks;
+	compiler->runtime_thunks := thunk;
+	return thunk->function;
+};
+
+fn runtime_views_emit(Compiler* compiler) {
+	while (compiler->runtime_views && compiler->result != COMPILATION_FAILURE) {
+		RuntimeView* view := compiler->runtime_views;
+		compiler->runtime_views := view->next;
+		complete_offsets(compiler, view->graph);
+		usize count = virtual_base_count(view->object->entity);
+		void** offsets = (void**)memory_allocate(compiler, count * sizeof(void*));
+		VirtualType* target := view->object->entity->data.aggregate.virtual_types;
 		while (target) {
 			Subobject* storage := view->graph->virtuals;
 			while (storage && storage->entity != target->entity) {
 				storage := storage->virtual_next;
 			};
-			values[target->index] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), storage->offset - view->object->offset, 0);
+			offsets[target->index] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), storage->offset - view->object->offset, 0);
 			target := target->next;
 		};
-		LLVMSetInitializer(view->object->view, LLVMConstArray2(llvm_type(compiler, compiler->usize_type), values, (u64)count));
-		view := view->next;
+		void*[2] fields {};
+		fields[0] = LLVMConstArray2(llvm_type(compiler, compiler->usize_type), offsets, (u64)count);
+		count = virtual_callable_count(view->object->entity);
+		void** functions = (void**)memory_allocate(compiler, count * sizeof(void*));
+		VirtualCallable* callable := view->object->entity->data.aggregate.virtual_callables;
+		while (callable) {
+			functions[callable->index] = runtime_thunk_request(compiler, view->graph, view->object, callable);
+			callable := callable->next;
+		};
+		fields[1] = LLVMConstArray2(LLVMPointerTypeInContext(compiler->llvm_context, 0), functions, (u64)count);
+		LLVMSetInitializer(view->object->view, LLVMConstStructInContext(compiler->llvm_context, &fields[0], 2, 0));
 	};
 };
 
@@ -5172,8 +5350,9 @@ fn emit_base_address(Emitter* emitter, void* address, Entity* derived, BasePath*
 		if (direction == BASE_UP && relation->kind == BASE_VIRTUAL) {
 			void* header = LLVMBuildStructGEP2(builder, llvm_body(compiler, derived), address, 0, "view.storage\0");
 			void* view = LLVMBuildLoad2(builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), header, "view\0");
+			void* offsets = LLVMBuildStructGEP2(builder, runtime_view_type(compiler, derived), view, 0, "virtual.offsets\0");
 			void* index = LLVMConstInt(llvm_type(compiler, compiler->usize_type), (u64)relation->component, 0);
-			void* slot = LLVMBuildGEP2(builder, llvm_type(compiler, compiler->usize_type), view, &index, 1, "virtual.offset.storage\0");
+			void* slot = LLVMBuildGEP2(builder, llvm_type(compiler, compiler->usize_type), offsets, &index, 1, "virtual.offset.storage\0");
 			void* displacement = LLVMBuildLoad2(builder, llvm_type(compiler, compiler->usize_type), slot, "virtual.offset\0");
 			address = LLVMBuildGEP2(builder, LLVMIntTypeInContext(compiler->llvm_context, 8), address, &displacement, 1, "virtual.base\0");
 		}
@@ -5242,6 +5421,86 @@ fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
 	return result;
 };
 
+fn runtime_callable(Compiler* compiler, Entity* entity) -> void* {
+	if (!entity->data.function.callable) {
+		return entity->data.function.llvm_value;
+	};
+	if (entity->data.function.wrapper) {
+		return entity->data.function.wrapper;
+	};
+	void* function = LLVMAddFunction(compiler->llvm_module, "rt.virtual.callable\0", llvm_type(compiler, entity->data.function.type));
+	LLVMSetLinkage(function, 9);
+	emit_function_attributes(compiler, function, entity->data.function.type);
+	entity->data.function.wrapper := function;
+	RuntimeWrapper* wrapper = (RuntimeWrapper*)memory_allocate(compiler, sizeof(RuntimeWrapper));
+	wrapper->entity = entity;
+	wrapper->next := compiler->runtime_wrappers;
+	compiler->runtime_wrappers = wrapper;
+	return function;
+};
+
+fn emit_dispatch_target(Emitter* emitter, Entity* entity, void* receiver) -> void* {
+	Compiler* compiler := emitter->compiler;
+	Entity* owner := entity->data.function.interface_owner;
+	void* header = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, owner), receiver, 0, "virtual.header\0");
+	void* view = LLVMBuildLoad2(compiler->llvm_builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), header, "virtual.view\0");
+	void* functions = LLVMBuildStructGEP2(compiler->llvm_builder, runtime_view_type(compiler, owner), view, 1, "virtual.functions\0");
+	void* index = LLVMConstInt(llvm_type(compiler, compiler->usize_type), (u64)entity->data.function.callable->index, 0);
+	void* slot = LLVMBuildGEP2(compiler->llvm_builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), functions, &index, 1, "virtual.slot\0");
+	return LLVMBuildLoad2(compiler->llvm_builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), slot, "virtual.target\0");
+};
+
+fn emit_covariant_result(Emitter* emitter, void* value, Type* source, Type* target) -> void* {
+	if (type_equal(source, target)) {
+		return value;
+	};
+	Compiler* compiler := emitter->compiler;
+	BaseSearch path = base_search(compiler, source->data.element, target->data.element);
+	if (source->kind == TYPE_REFERENCE) {
+		return emit_base_address(emitter, value, source->data.element->data.entity, path.path, BASE_UP);
+	};
+	void* initial = LLVMGetInsertBlock(compiler->llvm_builder);
+	void* function = LLVMGetBasicBlockParent(initial);
+	void* live = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "return.nonnull\0");
+	void* merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "return.end\0");
+	void* null = LLVMConstNull(LLVMPointerTypeInContext(compiler->llvm_context, 0));
+	void* empty = LLVMBuildICmp(compiler->llvm_builder, 32, value, null, "return.null\0");
+	LLVMBuildCondBr(compiler->llvm_builder, empty, merge, live);
+	LLVMPositionBuilderAtEnd(compiler->llvm_builder, live);
+	void* adjusted = emit_base_address(emitter, value, source->data.element->data.entity, path.path, BASE_UP);
+	live = LLVMGetInsertBlock(compiler->llvm_builder);
+	LLVMBuildBr(compiler->llvm_builder, merge);
+	LLVMPositionBuilderAtEnd(compiler->llvm_builder, merge);
+	void* result = LLVMBuildPhi(compiler->llvm_builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), "return.base\0");
+	void*[2] values {};
+	void*[2] blocks {};
+	values[0] = null;
+	values[1] = adjusted;
+	blocks[0] = initial;
+	blocks[1] = live;
+	LLVMAddIncoming(result, &values[0], &blocks[0], 2);
+	return result;
+};
+
+fn covariance_adjustment_required(Compiler* compiler, Type* source, Type* target) -> bool {
+	if (type_equal(source, target)) {
+		return false;
+	};
+	BaseSearch conversion = base_search(compiler, source->data.element, target->data.element);
+	Entity* current := source->data.element->data.entity;
+	BasePath* path := conversion.path;
+	u64 offset = 0;
+	while (path) {
+		if (path->relation->kind == BASE_VIRTUAL) {
+			return true;
+		};
+		offset = offset + LLVMOffsetOfElement(compiler->llvm_layout, llvm_body(compiler, current), (u32)path->relation->component);
+		current := path->relation->entity;
+		path := path->next;
+	};
+	return offset != 0;
+};
+
 fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
@@ -5250,7 +5509,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 			return emit_base_conversion(emitter, syntax);
 		case SYNTAX_NAME:
 			if (syntax->entity->kind == ENTITY_FUNCTION) {
-				return syntax->entity->data.function.llvm_value;
+				return runtime_callable(compiler, syntax->entity);
 			};
 			return syntax->entity->data.variable.data.address;
 		case SYNTAX_CAST:
@@ -5315,7 +5574,7 @@ fn type_has_views(Type* type) -> bool {
 		return false;
 	};
 	Entity* entity := type->data.entity;
-	if (entity->data.aggregate.virtual_types) {
+	if (aggregate_header(entity)) {
 		return true;
 	};
 	BaseRelation* base := entity->data.aggregate.bases;
@@ -5414,7 +5673,7 @@ fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
 	Subobject* object := graph->objects;
 	while (object) {
 		void* storage = emit_byte_offset(emitter, address, object->offset);
-		if (object->entity->data.aggregate.virtual_types) {
+		if (aggregate_header(object->entity)) {
 			void* header = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, object->entity), storage, 0, "view.storage\0");
 			LLVMBuildStore(compiler->llvm_builder, runtime_view_request(compiler, graph, object), header);
 		};
@@ -5740,7 +5999,20 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	if (signature->data.function.result->kind == TYPE_VOID) {
 		name = "\0";
 	};
-	void* call = LLVMBuildCall2(builder, llvm_type(compiler, signature), emit_expression(emitter, callee), values, count, name);
+	void* target = (void*)0;
+	if (callee->kind == SYNTAX_NAME && callee->entity && callee->entity->kind == ENTITY_FUNCTION) {
+		Entity* function := callee->entity;
+		if (function->data.function.callable && !syntax->data.call.qualified_owner && !callee->data.expression) {
+			target = emit_dispatch_target(emitter, function, values[0]);
+		}
+		else {
+			target := function->data.function.llvm_value;
+		};
+	}
+	else {
+		target = emit_expression(emitter, callee);
+	};
+	void* call = LLVMBuildCall2(builder, llvm_type(compiler, signature), target, values, count, name);
 	void* extension = emit_extension(compiler, signature->data.function.result);
 	if (extension) {
 		LLVMAddCallSiteAttribute(call, 0, extension);
@@ -5789,7 +6061,7 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 		};
 		case SYNTAX_NAME:
 			if (syntax->entity->kind == ENTITY_FUNCTION) {
-				return syntax->entity->data.function.llvm_value;
+				return runtime_callable(compiler, syntax->entity);
 			};
 			if (syntax->entity->data.variable.storage == STORAGE_CONSTANT) {
 				return LLVMConstInt(type, syntax->entity->data.variable.data.integer, 0);
@@ -5998,6 +6270,9 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 					value = emit_expression(emitter, expression);
 					value = emit_cast(emitter, value, expression->type, result);
 				};
+				if (emitter->return_type && !type_equal(result, emitter->return_type)) {
+					value = emit_covariant_result(emitter, value, result, emitter->return_type);
+				};
 				LLVMBuildRet(builder, value);
 			}
 			else {
@@ -6016,7 +6291,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			break;
 		};
 		case SYNTAX_IF: {
-			void* function := emitter->function->data.function.llvm_value;
+			void* function := emitter->llvm_function;
 			void* first = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.then\0");
 			void* second = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.else\0");
 			void* merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "if.end\0");
@@ -6038,7 +6313,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 		};
 		case SYNTAX_FOR:
 		case SYNTAX_WHILE: {
-			void* function := emitter->function->data.function.llvm_value;
+			void* function := emitter->llvm_function;
 			void* test = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.test\0");
 			void* body = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.body\0");
 			void* step = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "loop.step\0");
@@ -6072,7 +6347,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			break;
 		};
 		case SYNTAX_SWITCH: {
-			void* function := emitter->function->data.function.llvm_value;
+			void* function := emitter->llvm_function;
 			void* end = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "switch.end\0");
 			void* fallback := end;
 			Syntax* statement := syntax->data.selection.cases->data.statements;
@@ -6253,6 +6528,10 @@ fn declarations_validate_block(Compiler* compiler, Syntax* module) {
 		}
 		else if (entity->kind == ENTITY_FUNCTION) {
 			Type* declared = type_resolve(compiler, entity->scope, statement->data.declaration.type);
+			interface_receiver_validate(compiler, entity, declared, statement->token);
+			if (statement->data.declaration.modification != FUNCTION_ORDINARY && (!entity->data.function.interface_owner || statement->data.declaration.modification != entity->data.function.modification)) {
+				compiler_error(compiler, statement->token, "virtual relationships require a matching struct interface declaration\0");
+			};
 			if (!type_equal(declared, entity->data.function.type)) {
 				compiler_error(compiler, statement->token, "conflicting function signature\0");
 			};
@@ -6300,6 +6579,186 @@ fn external_validate(Compiler* compiler, Entity* entity) {
 	};
 };
 
+fn virtual_signature_equal(Entity* first, Entity* second) -> bool {
+	if (!token_same(first->name, second->name)) {
+		return false;
+	};
+	Type* left := first->data.function.type;
+	Type* right := second->data.function.type;
+	if (!left || !right || left->data.function.arity != right->data.function.arity) {
+		return false;
+	};
+	Parameter* a := left->data.function.parameters;
+	Parameter* b := right->data.function.parameters;
+	if (!a || !b || !token_is(a->name, "this\0") || !token_is(b->name, "this\0")) {
+		return false;
+	};
+	a := a->next;
+	b := b->next;
+	while (a && b) {
+		if (!type_equal(a->type, b->type)) {
+			return false;
+		};
+		a := a->next;
+		b := b->next;
+	};
+	return !a && !b;
+};
+
+fn virtual_result_compatible(Compiler* compiler, Type* derived, Type* base) -> bool {
+	if (type_equal(derived, base)) {
+		return true;
+	};
+	if (derived->kind != base->kind || (derived->kind != TYPE_POINTER && derived->kind != TYPE_REFERENCE)) {
+		return false;
+	};
+	return base_search(compiler, derived->data.element, base->data.element).count == 1;
+};
+
+fn virtual_relationships(Compiler* compiler, Entity* function) {
+	if (function->data.function.virtual_resolution == RESOLUTION_READY) {
+		return;
+	};
+	function->data.function.virtual_resolution = RESOLUTION_ACTIVE;
+	Entity* owner = (Entity*)0;
+	if (function->scope) {
+		owner := function->scope->owner;
+	};
+	if (!owner || owner->kind != ENTITY_STRUCT) {
+		function->data.function.virtual_resolution = RESOLUTION_READY;
+		return;
+	};
+	CompleteGraph* graph = complete_graph(compiler, owner);
+	Subobject* object := graph->objects;
+	while (object) {
+		if (object != graph->root) {
+			VirtualCallable* callable := object->entity->data.aggregate.virtual_callables;
+			while (callable) {
+				Entity* inherited := callable->function;
+				entity_resolve(compiler, inherited);
+				if (virtual_signature_equal(function, inherited)) {
+					OverrideLink* existing := function->data.function.overrides;
+					while (existing && existing->function != inherited) {
+						existing := existing->next;
+					};
+					if (!existing) {
+						OverrideLink* relation = (OverrideLink*)memory_allocate(compiler, sizeof(OverrideLink));
+						relation->function := inherited;
+						relation->next := function->data.function.overrides;
+						function->data.function.overrides = relation;
+					};
+					if (inherited->data.function.modification == FUNCTION_FINAL) {
+						compiler_error(compiler, function->name, "cannot override a final operation\0");
+					};
+					if (!virtual_result_compatible(compiler, function->data.function.type->data.function.result, inherited->data.function.type->data.function.result)) {
+						compiler_error(compiler, function->name, "override has an incompatible return type\0");
+					};
+				};
+				callable := callable->next;
+			};
+		};
+		object := object->next;
+	};
+	FunctionModification modification := function->data.function.modification;
+	if (function->data.function.overrides && modification != FUNCTION_OVERRIDE && modification != FUNCTION_FINAL) {
+		compiler_error(compiler, function->name, "matching inherited virtual operation requires explicit override or final\0");
+	};
+	if ((modification == FUNCTION_OVERRIDE || modification == FUNCTION_FINAL) && !function->data.function.overrides) {
+		compiler_error(compiler, function->name, "override requires a matching inherited virtual operation\0");
+	};
+	if (modification != FUNCTION_ORDINARY && !function->data.function.interface_owner) {
+		compiler_error(compiler, function->name, "virtual relationships require a struct interface declaration\0");
+	};
+	function->data.function.virtual_resolution = RESOLUTION_READY;
+};
+
+fn virtual_overrides(Entity* function, Entity* operation) -> bool {
+	if (function == operation) {
+		return true;
+	};
+	OverrideLink* relation := function->data.function.overrides;
+	while (relation) {
+		if (virtual_overrides(relation->function, operation)) {
+			return true;
+		};
+		relation := relation->next;
+	};
+	return false;
+};
+
+struct VirtualCandidate {
+	VirtualTarget target;
+	VirtualCandidate* next;
+};
+
+fn virtual_target(Compiler* compiler, CompleteGraph* graph, Subobject* receiver, Entity* operation) -> VirtualTarget {
+	VirtualCandidate* candidates = (VirtualCandidate*)0;
+	Subobject* object := graph->objects;
+	while (object) {
+		if (subobject_contains(object, receiver)) {
+			VirtualCallable* callable := object->entity->data.aggregate.virtual_callables;
+			while (callable) {
+				if (virtual_overrides(callable->function, operation)) {
+					VirtualCandidate* candidate = (VirtualCandidate*)memory_allocate(compiler, sizeof(VirtualCandidate));
+					candidate->target.function := callable->function;
+					candidate->target.object := object;
+					candidate->next := candidates;
+					candidates = candidate;
+				};
+				callable := callable->next;
+			};
+		};
+		object := object->next;
+	};
+	VirtualTarget result;
+	VirtualCandidate* candidate := candidates;
+	while (candidate) {
+		VirtualCandidate* other := candidates;
+		while (other && (other->target.object == candidate->target.object || !subobject_contains(other->target.object, candidate->target.object))) {
+			other := other->next;
+		};
+		if (!other) {
+			if (result.object && (result.object != candidate->target.object || result.function != candidate->target.function)) {
+				compiler_error(compiler, graph->entity->name, "virtual operation has multiple final overriders\0");
+				return result;
+			};
+			result := candidate->target;
+		};
+		candidate := candidate->next;
+	};
+	return result;
+};
+
+fn virtual_validate(Compiler* compiler) {
+	DeclarationIterator iterator;
+	iterator.scope := compiler->module;
+	Binding* binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		if (binding->entity->kind == ENTITY_FUNCTION) {
+			virtual_relationships(compiler, binding->entity);
+		};
+		binding = declaration_next(&iterator, binding);
+	};
+	iterator.scope := compiler->module;
+	binding := compiler->module->bindings;
+	while (binding && compiler->result != COMPILATION_FAILURE) {
+		Entity* entity := binding->entity;
+		if (entity->kind == ENTITY_STRUCT && entity->declaration && entity->declaration->data.declaration.body) {
+			CompleteGraph* graph = complete_graph(compiler, entity);
+			Subobject* object := graph->objects;
+			while (object && compiler->result != COMPILATION_FAILURE) {
+				VirtualCallable* callable := object->entity->data.aggregate.virtual_callables;
+				while (callable && compiler->result != COMPILATION_FAILURE) {
+					virtual_target(compiler, graph, object, callable->function);
+					callable := callable->next;
+				};
+				object := object->next;
+			};
+		};
+		binding = declaration_next(&iterator, binding);
+	};
+};
+
 fn backend_analyze(Compiler* compiler) {
 	DeclarationIterator iterator;
 	iterator.scope := compiler->module;
@@ -6312,6 +6771,7 @@ fn backend_analyze(Compiler* compiler) {
 	};
 
 	declarations_validate(compiler);
+	virtual_validate(compiler);
 	iterator.scope := compiler->module;
 	binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
@@ -6393,27 +6853,33 @@ fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
 	return name;
 };
 
-fn emit_function(Compiler* compiler, Entity* entity) {
+fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 receiver_offset, Type* return_type) {
 	if (!entity->data.function.body) {
 		return;
 	};
-	void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, entity->data.function.llvm_value, "entry\0");
+	void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "entry\0");
 	LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
 	Emitter emitter;
+	emitter.llvm_function := function;
+	emitter.return_type = return_type;
 	emitter.compiler := compiler;
 	emitter.function := entity;
 	Parameter* parameter := entity->data.function.type->data.function.parameters;
 	u32 index = 0;
 	while (parameter) {
+		void* value = LLVMGetParam(function, index);
+		if (!index && receiver_offset) {
+			value = emit_byte_offset(&emitter, value, receiver_offset);
+		};
 		parameter->entity->data.variable.data.address = emit_slot(compiler, parameter->type);
 		if (type_has_views(parameter->type) && (parameter->type->kind != TYPE_NAMED || parameter->type->data.entity->kind != ENTITY_UNION)) {
 			void* incoming = emit_slot(compiler, parameter->type);
-			LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), incoming);
+			LLVMBuildStore(compiler->llvm_builder, value, incoming);
 			emit_initialize_type(&emitter, parameter->type, parameter->entity->data.variable.data.address);
 			emit_payload_copy(&emitter, parameter->type, parameter->entity->data.variable.data.address, incoming);
 		}
 		else {
-			LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), parameter->entity->data.variable.data.address);
+			LLVMBuildStore(compiler->llvm_builder, value, parameter->entity->data.variable.data.address);
 		};
 		index = index + 1;
 		parameter := parameter->next;
@@ -6426,6 +6892,142 @@ fn emit_function(Compiler* compiler, Entity* entity) {
 		else {
 			compiler_error(compiler, entity->name, "function can finish without returning a value\0");
 		};
+	};
+};
+
+fn emit_function(Compiler* compiler, Entity* entity) {
+	emit_function_body(compiler, entity, entity->data.function.llvm_value, 0, (Type*)0);
+};
+
+fn emit_forward_attributes(Compiler* compiler, void* call, Type* signature) {
+	void* extension = emit_extension(compiler, signature->data.function.result);
+	if (extension) {
+		LLVMAddCallSiteAttribute(call, 0, extension);
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	u32 index = 1;
+	while (parameter) {
+		extension = emit_extension(compiler, parameter->type);
+		if (extension) {
+			LLVMAddCallSiteAttribute(call, index, extension);
+		};
+		index = index + 1;
+		parameter := parameter->next;
+	};
+};
+
+fn emit_variadic_tail(Compiler* compiler, void* function, void* call) {
+	void* attribute = LLVMCreateStringAttribute(compiler->llvm_context, "thunk\0", 5, "\0", 0);
+	LLVMAddAttributeAtIndex(function, (u32)4294967295, attribute);
+	LLVMSetTailCallKind(call, 2);
+};
+
+fn emit_forward_return(Compiler* compiler, Type* result, void* call) {
+	if (result->kind == TYPE_VOID) {
+		LLVMBuildRetVoid(compiler->llvm_builder);
+	}
+	else {
+		LLVMBuildRet(compiler->llvm_builder, call);
+	};
+};
+
+fn runtime_wrappers_emit(Compiler* compiler) {
+	while (compiler->runtime_wrappers && compiler->result != COMPILATION_FAILURE) {
+		RuntimeWrapper* wrapper := compiler->runtime_wrappers;
+		compiler->runtime_wrappers := wrapper->next;
+		Entity* entity := wrapper->entity;
+		void* function := entity->data.function.wrapper;
+		Type* signature := entity->data.function.type;
+		void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "entry\0");
+		LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
+		Emitter emitter;
+		emitter.llvm_function := function;
+		emitter.compiler := compiler;
+		emitter.function := entity;
+		usize count = 0;
+		Parameter* parameter := signature->data.function.parameters;
+		while (parameter) {
+			count = count + 1;
+			parameter := parameter->next;
+		};
+		void** arguments = (void**)memory_allocate(compiler, count * sizeof(void*));
+		usize index = 0;
+		while (index < count) {
+			arguments[index] = LLVMGetParam(function, (u32)index);
+			index = index + 1;
+		};
+		void* target = emit_dispatch_target(&emitter, entity, arguments[0]);
+		char* name = "virtual.call\0";
+		if (signature->data.function.result->kind == TYPE_VOID) {
+			name = "\0";
+		};
+		void* call = LLVMBuildCall2(compiler->llvm_builder, llvm_type(compiler, signature), target, arguments, (u32)count, name);
+		emit_forward_attributes(compiler, call, signature);
+		if (signature->data.function.arity == PARAMETERS_VARIADIC) {
+			emit_variadic_tail(compiler, function, call);
+		};
+		emit_forward_return(compiler, signature->data.function.result, call);
+	};
+};
+
+fn runtime_thunks_emit(Compiler* compiler) {
+	while (compiler->runtime_thunks && compiler->result != COMPILATION_FAILURE) {
+		RuntimeThunk* thunk := compiler->runtime_thunks;
+		compiler->runtime_thunks := thunk->next;
+		Entity* implementation := thunk->target.function;
+		Type* signature := thunk->callable->function->data.function.type;
+		Type* result := implementation->data.function.type->data.function.result;
+		u64 offset = thunk->target.object->offset - thunk->receiver->offset;
+		if (signature->data.function.arity == PARAMETERS_VARIADIC && covariance_adjustment_required(compiler, result, signature->data.function.result)) {
+			if (!implementation->data.function.body) {
+				compiler_error(compiler, implementation->name, "covariant variadic override requires an available implementation body\0");
+				return;
+			};
+			emit_function_body(compiler, implementation, thunk->function, offset, signature->data.function.result);
+			continue;
+		};
+		void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, thunk->function, "entry\0");
+		LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
+		Emitter emitter;
+		emitter.llvm_function := thunk->function;
+		emitter.compiler := compiler;
+		emitter.function := implementation;
+		usize count = 0;
+		Parameter* parameter := signature->data.function.parameters;
+		while (parameter) {
+			count = count + 1;
+			parameter := parameter->next;
+		};
+		void** arguments = (void**)memory_allocate(compiler, count * sizeof(void*));
+		usize index = 0;
+		while (index < count) {
+			arguments[index] = LLVMGetParam(thunk->function, (u32)index);
+			index = index + 1;
+		};
+		arguments[0] = emit_byte_offset(&emitter, arguments[0], offset);
+		char* name = "override.call\0";
+		if (result->kind == TYPE_VOID) {
+			name = "\0";
+		};
+		void* call = LLVMBuildCall2(compiler->llvm_builder, implementation->data.function.llvm_type, implementation->data.function.llvm_value, arguments, (u32)count, name);
+		emit_forward_attributes(compiler, call, implementation->data.function.type);
+		if (signature->data.function.arity == PARAMETERS_VARIADIC) {
+			emit_variadic_tail(compiler, thunk->function, call);
+			emit_forward_return(compiler, signature->data.function.result, call);
+			continue;
+		};
+		if (!type_equal(result, signature->data.function.result)) {
+			call = emit_covariant_result(&emitter, call, result, signature->data.function.result);
+		};
+		emit_forward_return(compiler, signature->data.function.result, call);
+	};
+};
+
+fn runtime_metadata_emit(Compiler* compiler) {
+	while ((compiler->runtime_views || compiler->runtime_thunks || compiler->runtime_wrappers) && compiler->result != COMPILATION_FAILURE) {
+		runtime_wrappers_emit(compiler);
+		runtime_views_emit(compiler);
+		runtime_thunks_emit(compiler);
 	};
 };
 
@@ -6550,7 +7152,7 @@ fn backend_emit(Compiler* compiler) {
 		emit_entry(compiler);
 	};
 	if (compiler->result == COMPILATION_SUCCESS) {
-		runtime_views_emit(compiler);
+		runtime_metadata_emit(compiler);
 	};
 };
 

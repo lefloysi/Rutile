@@ -161,6 +161,8 @@ enum TokenKind {
 	NAMESPACE,
 	QUALIFY,
 	VIRTUAL,
+	OVERRIDE,
+	FINAL,
 };
 
 enum NodeKind {
@@ -447,6 +449,30 @@ struct VirtualBase {
 	struct VirtualBase* next;
 };
 
+enum VirtualModification {
+	ORDINARY_FUNCTION,
+	VIRTUAL_FUNCTION,
+	OVERRIDE_FUNCTION,
+	FINAL_FUNCTION,
+};
+
+enum VirtualResolution {
+	UNRESOLVED_VIRTUAL,
+	RESOLVING_VIRTUAL,
+	RESOLVED_VIRTUAL,
+};
+
+struct VirtualCallable {
+	struct Function* function;
+	unsigned index;
+	struct VirtualCallable* next;
+};
+
+struct OverrideRelation {
+	struct Function* function;
+	struct OverrideRelation* next;
+};
+
 enum SubobjectKind {
 	ROOT_SUBOBJECT,
 	ORDINARY_SUBOBJECT,
@@ -477,6 +503,7 @@ struct Record {
 	struct Namespace* associated;
 	struct BaseRelation* bases;
 	struct VirtualBase* virtual_bases;
+	struct VirtualCallable* callables;
 	struct Subobject* subobjects;
 	enum BaseResolution base_resolution;
 	union {
@@ -510,6 +537,11 @@ struct Function {
 	struct Type result;
 	struct Variable* parameters;
 	struct Statement* statements;
+	struct Record* interface;
+	enum VirtualModification modification;
+	enum VirtualResolution virtual_resolution;
+	struct OverrideRelation* overrides;
+	LLVMValueRef dispatch;
 	enum ParameterArity arity;
 	struct Function* next;
 };
@@ -517,6 +549,15 @@ struct Function {
 struct FunctionSymbol {
 	struct Function* function;
 	struct FunctionSymbol* next;
+};
+
+struct DispatchThunk {
+	struct Record* complete;
+	struct Subobject* origin;
+	struct VirtualCallable* callable;
+	struct FinalOverrider* target;
+	LLVMValueRef value;
+	struct DispatchThunk* next;
 };
 
 struct Keyword {
@@ -572,6 +613,10 @@ struct Compiler {
 	struct Function* entry;
 	struct FunctionSymbol* symbols;
 	struct FunctionSymbol* last_symbol;
+	struct DispatchThunk* thunks;
+	struct DispatchThunk* last_thunk;
+	struct Function* emitted_function;
+	struct Function* emitted_signature;
 	bool failed;
 	LLVMContextRef llvm_context;
 	LLVMModuleRef module;
@@ -589,7 +634,7 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL } };
+const struct Keyword keywords[] = { { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
 
 const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } } };
 
@@ -1353,6 +1398,10 @@ struct TypeNode* parse_type(struct Compiler* compiler) {
 		}
 		struct Variable** tail = &signature->parameters;
 		while (compiler->token.kind != ')' && !compiler->failed) {
+			if (take(compiler, ELLIPSIS)) {
+				signature->arity = VARIADIC_PARAMETERS;
+				break;
+			}
 			struct Variable* parameter = allocate(compiler, sizeof(struct Variable));
 			if (!parameter) {
 				return syntax;
@@ -1821,7 +1870,10 @@ bool scan_type(struct Compiler* compiler, size_t* position) {
 	}
 	int kind = compiler->tokens[index++].kind;
 	if (kind == '(') {
-		if (index < compiler->token_count && compiler->tokens[index].kind == ')') {
+		if (index + 1 < compiler->token_count && compiler->tokens[index].kind == ELLIPSIS && compiler->tokens[index + 1].kind == ')') {
+			index += 2;
+		}
+		else if (index < compiler->token_count && compiler->tokens[index].kind == ')') {
 			index++;
 		}
 		else {
@@ -1843,7 +1895,14 @@ bool scan_type(struct Compiler* compiler, size_t* position) {
 						index++;
 						break;
 					}
-					if (index >= compiler->token_count || compiler->tokens[index++].kind != ',' || !scan_type(compiler, &index)) {
+					if (index >= compiler->token_count || compiler->tokens[index++].kind != ',') {
+						return false;
+					}
+					if (index + 1 < compiler->token_count && compiler->tokens[index].kind == ELLIPSIS && compiler->tokens[index + 1].kind == ')') {
+						index += 2;
+						break;
+					}
+					if (!scan_type(compiler, &index)) {
 						return false;
 					}
 				}
@@ -2449,6 +2508,35 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 	if (take(compiler, ARROW)) {
 		function->result_syntax = parse_type(compiler);
 	}
+	function->interface = receiver;
+	if (take(compiler, ':')) {
+		if (take(compiler, VIRTUAL)) {
+			function->modification = VIRTUAL_FUNCTION;
+		}
+		else if (take(compiler, OVERRIDE)) {
+			function->modification = OVERRIDE_FUNCTION;
+		}
+		else if (take(compiler, FINAL)) {
+			function->modification = FINAL_FUNCTION;
+		}
+		else {
+			diagnostic(compiler, compiler->token, "expected virtual, override, or final relationship");
+		}
+		if (!receiver || receiver->kind != STRUCT_TYPE) {
+			diagnostic(compiler, function->name, "virtual relationships must originate in a struct interface");
+			return;
+		}
+		struct VirtualCallable* callable = allocate(compiler, sizeof(struct VirtualCallable));
+		if (!callable) {
+			return;
+		}
+		callable->function = function;
+		struct VirtualCallable** tail = &receiver->callables;
+		while (*tail) {
+			tail = &(*tail)->next;
+		}
+		*tail = callable;
+	}
 	function->kind = take(compiler, ';') ? FUNCTION_DECLARATION : FUNCTION_DEFINITION;
 	if (function->kind == FUNCTION_DEFINITION) {
 		expect(compiler, '{', "function body or ';'");
@@ -2911,7 +2999,7 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	if (record->virtual_bases) {
 		record->llvm_body = LLVMStructCreateNamed(compiler->llvm_context, "rt.body");
 	}
-	unsigned count = record->virtual_bases ? 1 : 0;
+	unsigned count = record->virtual_bases || record->callables ? 1 : 0;
 	uint64_t maximum_size = 0;
 	unsigned maximum_alignment = 0;
 	struct Member* storage = NULL;
@@ -2983,7 +3071,7 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	}
 	if (record->kind == STRUCT_TYPE) {
 		unsigned index = 0;
-		if (record->virtual_bases) {
+		if (record->virtual_bases || record->callables) {
 			members[index++] = LLVMPointerTypeInContext(compiler->llvm_context, 0);
 		}
 		for (struct BaseRelation* base = record->bases; base; base = base->next) {
@@ -3049,6 +3137,16 @@ void register_functions(struct Compiler* compiler) {
 			parameter->scope_next = scope;
 			scope = parameter;
 		}
+		struct Record* interface = function->interface;
+		for (struct Function* declaration = compiler->functions; !interface && declaration; declaration = declaration->next) {
+			if (declaration->interface && declaration->owner == function->owner && name_equal(declaration->local_name, function->local_name)) {
+				interface = declaration->interface;
+			}
+		}
+		if (interface && (!function->parameters || !token_text(function->parameters->name, "this"))) {
+			diagnostic(compiler, function->name, "struct interface function requires an owning reference receiver named this");
+			return;
+		}
 		if (function->owner && function->owner->record && function->parameters && token_text(function->parameters->name, "this")) {
 			struct Type receiver = function->parameters->type;
 			struct Record* owner = function->owner->record;
@@ -3056,9 +3154,6 @@ void register_functions(struct Compiler* compiler) {
 				diagnostic(compiler, function->parameters->name, "associated receiver must reference its owning type");
 				return;
 			}
-		}
-		if (function->arity == VARIADIC_PARAMETERS && function->kind == FUNCTION_DEFINITION) {
-			diagnostic(compiler, function->name, "variadic function definitions are not supported yet");
 		}
 		struct Function* previous = NULL;
 		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
@@ -3068,6 +3163,16 @@ void register_functions(struct Compiler* compiler) {
 			}
 		}
 		if (previous) {
+			if (previous->modification != ORDINARY_FUNCTION && function->modification != ORDINARY_FUNCTION && previous->modification != function->modification) {
+				diagnostic(compiler, function->name, "conflicting virtual relationships");
+				return;
+			}
+			if (function->modification != ORDINARY_FUNCTION) {
+				previous->modification = function->modification;
+			}
+			if (function->interface) {
+				previous->interface = function->interface;
+			}
 			bool compatible = type_equal(previous->result, function->result) && previous->arity == function->arity;
 			struct Variable* a = previous->parameters;
 			struct Variable* b = function->parameters;
@@ -3123,6 +3228,177 @@ void register_functions(struct Compiler* compiler) {
 		for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
 			if (parameter->type.kind == STRUCT_TYPE || parameter->type.kind == UNION_TYPE || parameter->type.kind == ARRAY_TYPE) {
 				diagnostic(compiler, parameter->name, "C bindings taking aggregates by value are not supported");
+			}
+		}
+	}
+}
+
+bool virtual_parameters_equal(struct Function* first, struct Function* second) {
+	if (first->arity != second->arity || !first->parameters || !second->parameters || !token_text(first->parameters->name, "this") || !token_text(second->parameters->name, "this")) {
+		return false;
+	}
+	struct Variable* a = first->parameters->next;
+	struct Variable* b = second->parameters->next;
+	while (a && b) {
+		if (!type_equal(a->type, b->type)) {
+			return false;
+		}
+		a = a->next;
+		b = b->next;
+	}
+	return !a && !b;
+}
+
+bool covariant_result(struct Compiler* compiler, struct Type derived, struct Type base) {
+	if (type_equal(derived, base)) {
+		return true;
+	}
+	if (derived.kind != base.kind || (derived.kind != POINTER_TYPE && derived.kind != REFERENCE_TYPE) || derived.data.element->kind != STRUCT_TYPE || base.data.element->kind != STRUCT_TYPE) {
+		return false;
+	}
+	return find_base_path(compiler, derived.data.element->data.record, base.data.element->data.record).kind == ONE_BASE_PATH;
+}
+
+void resolve_virtual_function(struct Compiler* compiler, struct Function* function) {
+	if (compiler->failed || function->virtual_resolution == RESOLVED_VIRTUAL) {
+		return;
+	}
+	if (function->virtual_resolution == RESOLVING_VIRTUAL) {
+		diagnostic(compiler, function->name, "cyclic virtual relationship");
+		return;
+	}
+	function->virtual_resolution = RESOLVING_VIRTUAL;
+	struct Record* owner = function->owner ? function->owner->record : NULL;
+	if (!owner || owner->kind != STRUCT_TYPE) {
+		function->virtual_resolution = RESOLVED_VIRTUAL;
+		return;
+	}
+	if (function->modification != ORDINARY_FUNCTION && (!function->interface || !function->parameters || !token_text(function->parameters->name, "this"))) {
+		diagnostic(compiler, function->name, "virtual operation requires a struct interface receiver");
+		return;
+	}
+	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
+		struct Function* base = symbol->function;
+		struct Record* base_owner = base->owner ? base->owner->record : NULL;
+		if (!base_owner || base_owner == owner || !name_equal(base->local_name, function->local_name) || !virtual_parameters_equal(function, base) || find_base_path(compiler, owner, base_owner).kind == NO_BASE_PATH) {
+			continue;
+		}
+		resolve_virtual_function(compiler, base);
+		if (base->modification == ORDINARY_FUNCTION) {
+			continue;
+		}
+		if (function->modification == ORDINARY_FUNCTION || function->modification == VIRTUAL_FUNCTION) {
+			diagnostic(compiler, function->name, "matching inherited virtual operation requires explicit override or final");
+			return;
+		}
+		if (base->modification == FINAL_FUNCTION) {
+			diagnostic(compiler, function->name, "cannot override a final operation");
+			return;
+		}
+		if (!covariant_result(compiler, function->result, base->result)) {
+			diagnostic(compiler, function->name, "override result is not signature-compatible or covariant");
+			return;
+		}
+		struct OverrideRelation* relation = allocate(compiler, sizeof(struct OverrideRelation));
+		if (!relation) {
+			return;
+		}
+		relation->function = base;
+		relation->next = function->overrides;
+		function->overrides = relation;
+	}
+	if ((function->modification == OVERRIDE_FUNCTION || function->modification == FINAL_FUNCTION) && !function->overrides) {
+		diagnostic(compiler, function->name, "override requires a matching inherited virtual operation");
+		return;
+	}
+	function->virtual_resolution = RESOLVED_VIRTUAL;
+}
+
+bool function_overrides(struct Function* implementation, struct Function* declaration) {
+	if (implementation == declaration) {
+		return true;
+	}
+	for (struct OverrideRelation* relation = implementation->overrides; relation; relation = relation->next) {
+		if (function_overrides(relation->function, declaration)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+struct FinalOverrider {
+	struct Function* function;
+	struct Subobject* object;
+};
+
+struct FinalOverrider final_overrider(struct Compiler* compiler, struct Record* complete, struct Subobject* origin, struct Function* declaration) {
+	struct FinalOverrider result = { 0 };
+	for (struct Subobject* object = complete->subobjects; object; object = object->next) {
+		if (!subobject_contains(object, origin)) {
+			continue;
+		}
+		for (struct VirtualCallable* callable = object->record->callables; callable; callable = callable->next) {
+			if (!function_overrides(callable->function, declaration)) {
+				continue;
+			}
+			struct Subobject* dominant = complete->subobjects;
+			while (dominant) {
+				if (dominant != object && subobject_contains(dominant, object)) {
+					struct VirtualCallable* candidate = dominant->record->callables;
+					while (candidate && !function_overrides(candidate->function, declaration)) {
+						candidate = candidate->next;
+					}
+					if (candidate) {
+						break;
+					}
+				}
+				dominant = dominant->next;
+			}
+			if (dominant) {
+				continue;
+			}
+			if (result.object && (result.object != object || result.function != callable->function)) {
+				diagnostic(compiler, complete->name, "virtual operation has no unique final overrider");
+				return result;
+			}
+			result.function = callable->function;
+			result.object = object;
+		}
+	}
+	return result;
+}
+
+void resolve_virtual_functions(struct Compiler* compiler) {
+	for (struct Record* record = compiler->records; record; record = record->next) {
+		struct VirtualCallable** entry = &record->callables;
+		unsigned index = 0;
+		while (*entry) {
+			struct VirtualCallable* callable = *entry;
+			for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+				if (symbol->function->owner == callable->function->owner && name_equal(symbol->function->local_name, callable->function->local_name)) {
+					callable->function = symbol->function;
+					break;
+				}
+			}
+			struct VirtualCallable* previous = record->callables;
+			while (previous != callable && previous->function != callable->function) {
+				previous = previous->next;
+			}
+			if (previous != callable) {
+				*entry = callable->next;
+				continue;
+			}
+			callable->index = index++;
+			entry = &callable->next;
+		}
+	}
+	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
+		resolve_virtual_function(compiler, symbol->function);
+	}
+	for (struct Record* record = compiler->records; record && !compiler->failed; record = record->next) {
+		for (struct Subobject* object = record->subobjects; object && !compiler->failed; object = object->next) {
+			for (struct VirtualCallable* callable = object->record->callables; callable && !compiler->failed; callable = callable->next) {
+				final_overrider(compiler, record, object, callable->function);
 			}
 		}
 	}
@@ -3339,6 +3615,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 							expression->data.bound_function.function = method;
 							expression->data.bound_function.receiver = receiver;
 							expression->data.bound_function.kind = BIND_RECEIVER;
+							expression->data.bound_function.qualified_owner = NULL;
 							expression->type = (struct Type){ FUNCTION_TYPE, { .function = method } };
 						}
 						break;
@@ -3381,6 +3658,13 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		bind_expression(compiler, expression->data.base.value, scope);
 		break;
 	case CALL_EXPRESSION:
+		if (expression->data.call.callee->kind == NAME_EXPRESSION) {
+			struct Token name = expression->data.call.callee->data.variable.name;
+			if (unqualified_token(name).length != name.length) {
+				struct QualifiedName qualified = lookup_name(compiler, name);
+				expression->data.call.qualified_owner = qualified.owner ? qualified.owner->record : NULL;
+			}
+		}
 		bind_expression(compiler, expression->data.call.callee, scope);
 		if (compiler->failed) {
 			break;
@@ -5225,6 +5509,7 @@ void analyze(struct Compiler* compiler) {
 		}
 	}
 	register_functions(compiler);
+	resolve_virtual_functions(compiler);
 	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
 		analyze_function(compiler, symbol->function);
 	}
@@ -5394,6 +5679,7 @@ void declare_llvm_functions(struct Compiler* compiler) {
 }
 
 LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expression);
+LLVMValueRef function_address(struct Compiler* compiler, struct Function* function);
 void emit_statements(struct Compiler* compiler, struct Statement* statements, struct Flow* flow);
 void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRef address);
 void emit_store_value(struct Compiler* compiler, struct Type type, LLVMValueRef address, LLVMValueRef value);
@@ -5483,7 +5769,7 @@ LLVMValueRef emit_call(struct Compiler* compiler, struct Expression* expression)
 	}
 	struct Function* function = expression->data.call.binding;
 	LLVMTypeRef signature = llvm_type(compiler, (struct Type){ FUNCTION_TYPE, { .function = function } });
-	LLVMValueRef callee = emit_expression(compiler, expression->data.call.callee);
+	LLVMValueRef callee = expression->data.call.qualified_owner && expression->data.call.callee->kind == FUNCTION_EXPRESSION ? function->llvm_value : emit_expression(compiler, expression->data.call.callee);
 	LLVMValueRef call = LLVMBuildCall2(compiler->builder, signature, callee, values, count, is_void(function->result) ? "" : "call");
 	LLVMSetInstructionCallConv(call, LLVMCCallConv);
 	LLVMAttributeRef extension = abi_extension(compiler, function->result);
@@ -5560,10 +5846,13 @@ bool type_has_views(struct Type type) {
 	if (type.kind != STRUCT_TYPE && type.kind != UNION_TYPE) {
 		return false;
 	}
-	if (type.data.record->virtual_bases) {
+	if (type.data.record->virtual_bases || type.data.record->callables) {
 		return true;
 	}
 	for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+		if (object->record->callables) {
+			return true;
+		}
 		for (struct Member* field = object->record->data.members; field; field = field->next) {
 			if (type_has_views(field->type)) {
 				return true;
@@ -5577,6 +5866,124 @@ LLVMValueRef emit_array_element(struct Compiler* compiler, struct Type type, LLV
 	LLVMTypeRef integer = LLVMInt64TypeInContext(compiler->llvm_context);
 	LLVMValueRef indices[] = { LLVMConstNull(integer), LLVMConstInt(integer, index, false) };
 	return LLVMBuildGEP2(compiler->builder, llvm_type(compiler, type), address, indices, 2, "element");
+}
+
+unsigned virtual_base_count(struct Record* record) {
+	unsigned count = 0;
+	for (struct VirtualBase* base = record->virtual_bases; base; base = base->next) {
+		count++;
+	}
+	return count;
+}
+
+unsigned virtual_callable_count(struct Record* record) {
+	unsigned count = 0;
+	for (struct VirtualCallable* callable = record->callables; callable; callable = callable->next) {
+		count++;
+	}
+	return count;
+}
+
+LLVMTypeRef runtime_view_type(struct Compiler* compiler, struct Record* record) {
+	LLVMTypeRef fields[] = { LLVMArrayType2(LLVMInt64TypeInContext(compiler->llvm_context), virtual_base_count(record)), LLVMArrayType2(LLVMPointerTypeInContext(compiler->llvm_context, 0), virtual_callable_count(record)) };
+	return LLVMStructTypeInContext(compiler->llvm_context, fields, 2, false);
+}
+
+void apply_signature_attributes(struct Compiler* compiler, LLVMValueRef value, struct Function* function, bool call) {
+	LLVMAttributeRef extension = abi_extension(compiler, function->result);
+	if (extension) {
+		if (call) {
+			LLVMAddCallSiteAttribute(value, LLVMAttributeReturnIndex, extension);
+		}
+		else {
+			LLVMAddAttributeAtIndex(value, LLVMAttributeReturnIndex, extension);
+		}
+	}
+	unsigned index = 1;
+	for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
+		extension = abi_extension(compiler, parameter->type);
+		if (extension && call) {
+			LLVMAddCallSiteAttribute(value, index, extension);
+		}
+		else if (extension) {
+			LLVMAddAttributeAtIndex(value, index, extension);
+		}
+		index++;
+	}
+}
+
+LLVMValueRef function_address(struct Compiler* compiler, struct Function* function) {
+	if (function->modification == ORDINARY_FUNCTION) {
+		return function->llvm_value;
+	}
+	if (!function->dispatch) {
+		function->dispatch = LLVMAddFunction(compiler->module, "rt.dispatch", function->llvm_type);
+		LLVMSetLinkage(function->dispatch, LLVMPrivateLinkage);
+		LLVMSetFunctionCallConv(function->dispatch, LLVMGetFunctionCallConv(function->llvm_value));
+		apply_signature_attributes(compiler, function->dispatch, function, false);
+		LLVMAddAttributeAtIndex(function->dispatch, LLVMAttributeFunctionIndex, LLVMCreateStringAttribute(compiler->llvm_context, "thunk", 5, "", 0));
+	}
+	return function->dispatch;
+}
+
+LLVMValueRef request_dispatch_thunk(struct Compiler* compiler, struct Record* complete, struct Subobject* origin, struct VirtualCallable* callable) {
+	for (struct DispatchThunk* thunk = compiler->thunks; thunk; thunk = thunk->next) {
+		if (thunk->complete == complete && thunk->origin == origin && thunk->callable == callable) {
+			return thunk->value;
+		}
+	}
+	struct DispatchThunk* thunk = allocate(compiler, sizeof(struct DispatchThunk));
+	struct FinalOverrider* target = allocate(compiler, sizeof(struct FinalOverrider));
+	if (!thunk || !target) {
+		return NULL;
+	}
+	*target = final_overrider(compiler, complete, origin, callable->function);
+	if (compiler->failed || !target->function) {
+		return NULL;
+	}
+	thunk->complete = complete;
+	thunk->origin = origin;
+	thunk->callable = callable;
+	thunk->target = target;
+	thunk->value = LLVMAddFunction(compiler->module, "rt.virtual", callable->function->llvm_type);
+	LLVMSetLinkage(thunk->value, LLVMPrivateLinkage);
+	LLVMSetFunctionCallConv(thunk->value, LLVMGetFunctionCallConv(callable->function->llvm_value));
+	apply_signature_attributes(compiler, thunk->value, callable->function, false);
+	LLVMAddAttributeAtIndex(thunk->value, LLVMAttributeFunctionIndex, LLVMCreateStringAttribute(compiler->llvm_context, "thunk", 5, "", 0));
+	if (compiler->last_thunk) {
+		compiler->last_thunk->next = thunk;
+	}
+	else {
+		compiler->thunks = thunk;
+	}
+	compiler->last_thunk = thunk;
+	return thunk->value;
+}
+
+LLVMValueRef emit_covariant_result(struct Compiler* compiler, LLVMValueRef value, struct Type source, struct Type target) {
+	if (type_equal(source, target)) {
+		return value;
+	}
+	struct BaseSearch selection = find_base_path(compiler, source.data.element->data.record, target.data.element->data.record);
+	if (source.kind == REFERENCE_TYPE) {
+		return emit_base_address(compiler, value, source.data.element->data.record, selection.path);
+	}
+	LLVMValueRef null = LLVMConstNull(llvm_type(compiler, target));
+	LLVMValueRef empty = LLVMBuildICmp(compiler->builder, LLVMIntEQ, value, null, "null_result");
+	LLVMBasicBlockRef previous = LLVMGetInsertBlock(compiler->builder);
+	LLVMValueRef function = LLVMGetBasicBlockParent(previous);
+	LLVMBasicBlockRef adjust = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "result.adjust");
+	LLVMBasicBlockRef merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "result.end");
+	LLVMBuildCondBr(compiler->builder, empty, merge, adjust);
+	LLVMPositionBuilderAtEnd(compiler->builder, adjust);
+	LLVMValueRef result = emit_base_address(compiler, value, source.data.element->data.record, selection.path);
+	LLVMBuildBr(compiler->builder, merge);
+	LLVMPositionBuilderAtEnd(compiler->builder, merge);
+	LLVMValueRef phi = LLVMBuildPhi(compiler->builder, llvm_type(compiler, target), "covariant_result");
+	LLVMValueRef values[] = { null, result };
+	LLVMBasicBlockRef blocks[] = { previous, adjust };
+	LLVMAddIncoming(phi, values, blocks, 2);
+	return phi;
 }
 
 void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRef address) {
@@ -5594,13 +6001,9 @@ void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRe
 		object->offset = subobject_offset(compiler, complete, object->path);
 		LLVMValueRef offset = LLVMConstInt(LLVMInt64TypeInContext(compiler->llvm_context), object->offset, false);
 		LLVMValueRef slot = LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), address, &offset, 1, "subobject");
-		if (object->record->virtual_bases) {
+		if (object->record->virtual_bases || object->record->callables) {
 			if (!object->view) {
-				unsigned count = 0;
-				for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
-					count++;
-				}
-				object->view = LLVMAddGlobal(compiler->module, LLVMArrayType2(LLVMInt64TypeInContext(compiler->llvm_context), count), "rt.view");
+				object->view = LLVMAddGlobal(compiler->module, runtime_view_type(compiler, object->record), "rt.view");
 				LLVMSetGlobalConstant(object->view, true);
 				LLVMSetLinkage(object->view, LLVMPrivateLinkage);
 			}
@@ -5616,15 +6019,15 @@ void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRe
 void define_runtime_views(struct Compiler* compiler) {
 	for (struct Record* complete = compiler->records; complete; complete = complete->next) {
 		for (struct Subobject* object = complete->subobjects; object; object = object->next) {
-			if (!object->view) {
+			if (!object->view || LLVMGetInitializer(object->view)) {
 				continue;
 			}
 			unsigned count = 0;
 			for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
 				count++;
 			}
-			LLVMValueRef* offsets = allocate(compiler, count * sizeof(LLVMValueRef));
-			if (!offsets) {
+			LLVMValueRef* offsets = count ? allocate(compiler, count * sizeof(LLVMValueRef)) : NULL;
+			if (count && !offsets) {
 				return;
 			}
 			for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
@@ -5636,7 +6039,19 @@ void define_runtime_views(struct Compiler* compiler) {
 					}
 				}
 			}
-			LLVMSetInitializer(object->view, LLVMConstArray2(LLVMInt64TypeInContext(compiler->llvm_context), offsets, count));
+			unsigned functions_count = virtual_callable_count(object->record);
+			LLVMValueRef* functions = functions_count ? allocate(compiler, functions_count * sizeof(LLVMValueRef)) : NULL;
+			if (functions_count && !functions) {
+				return;
+			}
+			for (struct VirtualCallable* callable = object->record->callables; callable && !compiler->failed; callable = callable->next) {
+				functions[callable->index] = request_dispatch_thunk(compiler, complete, object, callable);
+			}
+			if (compiler->failed) {
+				return;
+			}
+			LLVMValueRef fields[] = { LLVMConstArray2(LLVMInt64TypeInContext(compiler->llvm_context), offsets, count), LLVMConstArray2(LLVMPointerTypeInContext(compiler->llvm_context, 0), functions, functions_count) };
+			LLVMSetInitializer(object->view, LLVMConstStructInContext(compiler->llvm_context, fields, 2, false));
 		}
 	}
 }
@@ -5722,7 +6137,7 @@ LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expressi
 		return slot;
 	}
 	case REFERENCE_CAST_EXPRESSION:
-		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
+		return expression->data.operand->kind == FUNCTION_EXPRESSION ? function_address(compiler, expression->data.operand->data.function) : emit_address(compiler, expression->data.operand);
 	case BASE_VALUE_EXPRESSION: {
 		struct Expression* value = expression->data.base.value;
 		LLVMValueRef address;
@@ -5935,9 +6350,9 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return address ? emit_read_value(compiler, expression->type, address) : NULL;
 	}
 	case ADDRESS_EXPRESSION:
-		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
+		return expression->data.operand->kind == FUNCTION_EXPRESSION ? function_address(compiler, expression->data.operand->data.function) : emit_address(compiler, expression->data.operand);
 	case FUNCTION_EXPRESSION:
-		return expression->data.function->llvm_value;
+		return function_address(compiler, expression->data.function);
 	case DEREFERENCE_EXPRESSION:
 		if (expression->type.kind == FUNCTION_TYPE) {
 			return emit_expression(compiler, expression->data.operand);
@@ -5986,7 +6401,7 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return value;
 	}
 	case REFERENCE_BINDING_EXPRESSION:
-		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
+		return expression->data.operand->kind == FUNCTION_EXPRESSION ? function_address(compiler, expression->data.operand->data.function) : emit_address(compiler, expression->data.operand);
 	case NEGATE_EXPRESSION: {
 		LLVMValueRef operand = emit_expression(compiler, expression->data.operand);
 		if (!operand) {
@@ -6111,7 +6526,11 @@ void emit_statement(struct Compiler* compiler, struct Statement* statement, stru
 		break;
 	case RETURN_STATEMENT:
 		if (statement->data.expression) {
-			LLVMBuildRet(compiler->builder, emit_expression(compiler, statement->data.expression));
+			LLVMValueRef value = emit_expression(compiler, statement->data.expression);
+			if (compiler->emitted_function && compiler->emitted_signature) {
+				value = emit_covariant_result(compiler, value, compiler->emitted_function->result, compiler->emitted_signature->result);
+			}
+			LLVMBuildRet(compiler->builder, value);
 		}
 		else {
 			LLVMBuildRetVoid(compiler->builder);
@@ -6232,21 +6651,168 @@ void emit_statements(struct Compiler* compiler, struct Statement* statements, st
 	}
 }
 
-void emit_function(struct Compiler* compiler, struct Function* function) {
+void emit_function_body(struct Compiler* compiler, struct Function* function, struct Function* signature, LLVMValueRef target, uint64_t receiver_offset) {
 	if (function->kind == FUNCTION_DECLARATION) {
 		return;
 	}
-	LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(compiler->llvm_context, function->llvm_value, "entry");
+	compiler->emitted_function = function;
+	compiler->emitted_signature = signature;
+	LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(compiler->llvm_context, target, "entry");
 	LLVMPositionBuilderAtEnd(compiler->builder, block);
 	unsigned index = 0;
 	for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
+		LLVMValueRef value = LLVMGetParam(target, index);
+		if (!index && receiver_offset) {
+			LLVMValueRef offset = LLVMConstInt(LLVMInt64TypeInContext(compiler->llvm_context), receiver_offset, true);
+			value = LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), value, &offset, 1, "receiver");
+		}
+		index++;
 		parameter->slot = entry_alloca(compiler, parameter->type);
 		emit_install_views(compiler, parameter->type, parameter->slot);
-		emit_store_value(compiler, parameter->type, parameter->slot, LLVMGetParam(function->llvm_value, index++));
+		emit_store_value(compiler, parameter->type, parameter->slot, value);
 	}
 	emit_statements(compiler, function->statements, NULL);
 	if (!compiler->failed && !LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(compiler->builder))) {
 		LLVMBuildRetVoid(compiler->builder);
+	}
+	compiler->emitted_function = NULL;
+	compiler->emitted_signature = NULL;
+}
+
+void emit_function(struct Compiler* compiler, struct Function* function) {
+	emit_function_body(compiler, function, function, function->llvm_value, 0);
+}
+
+unsigned function_parameter_count(struct Function* function) {
+	unsigned count = 0;
+	for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
+		count++;
+	}
+	return count;
+}
+
+void emit_dispatch_wrapper(struct Compiler* compiler, struct Function* function) {
+	LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(compiler->llvm_context, function->dispatch, "entry");
+	LLVMPositionBuilderAtEnd(compiler->builder, entry);
+	struct Record* owner = function->interface;
+	struct VirtualCallable* callable = owner->callables;
+	while (callable && callable->function != function) {
+		callable = callable->next;
+	}
+	if (!callable) {
+		diagnostic(compiler, function->name, "virtual callable has no owning interface slot");
+		return;
+	}
+	unsigned count = function_parameter_count(function);
+	LLVMValueRef* arguments = allocate(compiler, count * sizeof(LLVMValueRef));
+	if (!arguments) {
+		return;
+	}
+	for (unsigned index = 0; index < count; index++) {
+		arguments[index] = LLVMGetParam(function->dispatch, index);
+	}
+	LLVMTypeRef pointer = LLVMPointerTypeInContext(compiler->llvm_context, 0);
+	LLVMValueRef header = LLVMBuildStructGEP2(compiler->builder, owner->llvm_body, arguments[0], 0, "view_slot");
+	LLVMValueRef view = LLVMBuildLoad2(compiler->builder, pointer, header, "view");
+	LLVMValueRef functions = LLVMBuildStructGEP2(compiler->builder, runtime_view_type(compiler, owner), view, 1, "functions");
+	LLVMTypeRef array = LLVMArrayType2(pointer, virtual_callable_count(owner));
+	LLVMTypeRef integer = LLVMInt64TypeInContext(compiler->llvm_context);
+	LLVMValueRef indices[] = { LLVMConstNull(integer), LLVMConstInt(integer, callable->index, false) };
+	LLVMValueRef slot = LLVMBuildGEP2(compiler->builder, array, functions, indices, 2, "callable_slot");
+	LLVMValueRef callee = LLVMBuildLoad2(compiler->builder, pointer, slot, "implementation");
+	LLVMValueRef call = LLVMBuildCall2(compiler->builder, function->llvm_type, callee, arguments, count, is_void(function->result) ? "" : "result");
+	LLVMSetInstructionCallConv(call, LLVMGetFunctionCallConv(function->llvm_value));
+	apply_signature_attributes(compiler, call, function, true);
+	if (function->arity == VARIADIC_PARAMETERS) {
+		LLVMSetTailCallKind(call, LLVMTailCallKindMustTail);
+	}
+	if (is_void(function->result)) {
+		LLVMBuildRetVoid(compiler->builder);
+		return;
+	}
+	LLVMBuildRet(compiler->builder, call);
+}
+
+bool covariant_result_needs_adjustment(struct Compiler* compiler, struct Type source, struct Type target) {
+	if (type_equal(source, target)) {
+		return false;
+	}
+	struct BaseSearch selection = find_base_path(compiler, source.data.element->data.record, target.data.element->data.record);
+	struct Record* record = source.data.element->data.record;
+	uint64_t offset = 0;
+	for (struct BasePath* path = selection.path; path; path = path->next) {
+		if (path->relation->kind == VIRTUAL_BASE) {
+			return true;
+		}
+		offset += LLVMOffsetOfElement(compiler->layout, record->llvm_body, path->relation->index);
+		record = path->relation->record;
+	}
+	return offset != 0;
+}
+
+void emit_dispatch_thunk(struct Compiler* compiler, struct DispatchThunk* thunk) {
+	struct Function* signature = thunk->callable->function;
+	struct Function* implementation = thunk->target->function;
+	uint64_t offset = subobject_offset(compiler, thunk->complete, thunk->target->object->path) - subobject_offset(compiler, thunk->complete, thunk->origin->path);
+	if (signature->arity == VARIADIC_PARAMETERS && covariant_result_needs_adjustment(compiler, implementation->result, signature->result)) {
+		if (implementation->kind != FUNCTION_DEFINITION) {
+			diagnostic(compiler, implementation->name, "covariant variadic thunk requires the implementation body");
+			return;
+		}
+		emit_function_body(compiler, implementation, signature, thunk->value, offset);
+		return;
+	}
+	LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(compiler->llvm_context, thunk->value, "entry");
+	LLVMPositionBuilderAtEnd(compiler->builder, entry);
+	unsigned count = function_parameter_count(signature);
+	LLVMValueRef* arguments = allocate(compiler, count * sizeof(LLVMValueRef));
+	if (!arguments) {
+		return;
+	}
+	for (unsigned index = 0; index < count; index++) {
+		arguments[index] = LLVMGetParam(thunk->value, index);
+	}
+	if (offset) {
+		LLVMValueRef adjustment = LLVMConstInt(LLVMInt64TypeInContext(compiler->llvm_context), offset, true);
+		arguments[0] = LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), arguments[0], &adjustment, 1, "receiver");
+	}
+	LLVMValueRef call = LLVMBuildCall2(compiler->builder, implementation->llvm_type, implementation->llvm_value, arguments, count, is_void(implementation->result) ? "" : "result");
+	LLVMSetInstructionCallConv(call, LLVMGetFunctionCallConv(implementation->llvm_value));
+	apply_signature_attributes(compiler, call, implementation, true);
+	if (signature->arity == VARIADIC_PARAMETERS) {
+		LLVMSetTailCallKind(call, LLVMTailCallKindMustTail);
+	}
+	if (is_void(signature->result)) {
+		LLVMBuildRetVoid(compiler->builder);
+		return;
+	}
+	LLVMValueRef result = signature->arity == VARIADIC_PARAMETERS ? call : emit_covariant_result(compiler, call, implementation->result, signature->result);
+	LLVMBuildRet(compiler->builder, result);
+}
+
+void emit_runtime_dispatch(struct Compiler* compiler) {
+	define_runtime_views(compiler);
+	while (true) {
+		if (compiler->failed) {
+			break;
+		}
+		struct DispatchThunk* thunk = compiler->thunks;
+		while (thunk && LLVMCountBasicBlocks(thunk->value)) {
+			thunk = thunk->next;
+		}
+		if (thunk) {
+			emit_dispatch_thunk(compiler, thunk);
+			define_runtime_views(compiler);
+			continue;
+		}
+		struct FunctionSymbol* symbol = compiler->symbols;
+		while (symbol && (!symbol->function->dispatch || LLVMCountBasicBlocks(symbol->function->dispatch))) {
+			symbol = symbol->next;
+		}
+		if (!symbol) {
+			break;
+		}
+		emit_dispatch_wrapper(compiler, symbol->function);
 	}
 }
 
@@ -6506,7 +7072,7 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 		for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
 			emit_function(compiler, symbol->function);
 		}
-		define_runtime_views(compiler);
+		emit_runtime_dispatch(compiler);
 		if (!compiler->failed && mode == EXECUTABLE_COMPILATION) {
 			emit_entry(compiler);
 		}
