@@ -987,7 +987,7 @@ bool type_equal(struct Type a, struct Type b) {
 }
 
 bool numeric_type(struct Type type) {
-	return type.kind == BOOL_TYPE || type.kind == CHAR_TYPE || type.kind == SIGNED_INTEGER_TYPE || type.kind == UNSIGNED_INTEGER_TYPE || type.kind == FLOAT_TYPE || type.kind == ENUM_TYPE;
+	return type.kind == BOOL_TYPE || type.kind == CHAR_TYPE || type.kind == SIGNED_INTEGER_TYPE || type.kind == UNSIGNED_INTEGER_TYPE || type.kind == FLOAT_TYPE;
 }
 
 bool is_null_pointer_type(struct Type type) {
@@ -1346,7 +1346,7 @@ struct MemberLookup record_local_member(struct Compiler* compiler, struct Record
 		}
 	}
 	for (struct Record* enumeration = compiler->records; enumeration; enumeration = enumeration->next) {
-		if (enumeration->kind != ENUM_TYPE || enumeration->associated->parent != record->associated) {
+		if (enumeration->kind != ENUM_TYPE || enumeration != record) {
 			continue;
 		}
 		for (struct Enumerator* value = enumeration->data.enumerators; value; value = value->next) {
@@ -3101,6 +3101,8 @@ void parse_record(struct Compiler* compiler) {
 			return;
 		}
 		record->state = DEFINED_RECORD;
+		compiler->namespace_scope = associated;
+		compiler->token.owner = associated;
 		if (record->kind == ENUM_TYPE) {
 			struct Enumerator** tail = &record->data.enumerators;
 			while (compiler->token.kind != '}' && !compiler->failed) {
@@ -3116,7 +3118,7 @@ void parse_record(struct Compiler* compiler) {
 				}
 				*tail = value;
 				tail = &value->next;
-				if (!take(compiler, ',')) {
+				if (!take(compiler, ',') && !take(compiler, ';')) {
 					break;
 				}
 			}
@@ -3576,7 +3578,7 @@ void parse_template(struct Compiler* compiler) {
 		else {
 			parameter->kind = VALUE_PARAMETER;
 			parameter->value_type = template_type(compiler, parse_type(compiler));
-			if (!numeric_type(parameter->value_type) || parameter->value_type.kind == FLOAT_TYPE) {
+			if ((!numeric_type(parameter->value_type) && parameter->value_type.kind != ENUM_TYPE) || parameter->value_type.kind == FLOAT_TYPE) {
 				diagnostic(compiler, compiler->token, "template value parameter requires an integral type");
 				return;
 			}
@@ -3975,7 +3977,7 @@ struct Enumerator* find_enumerator(struct Compiler* compiler, struct Token name)
 			}
 		}
 		for (struct Record* enumeration = compiler->records; enumeration; enumeration = enumeration->next) {
-			if (enumeration->kind != ENUM_TYPE || (enumeration->associated != owner && enumeration->associated->parent != owner)) {
+			if (enumeration->kind != ENUM_TYPE || enumeration->associated != owner) {
 				continue;
 			}
 			for (struct Enumerator* value = enumeration->data.enumerators; value; value = value->next) {
@@ -6016,7 +6018,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			context = (struct Type){ SIGNED_INTEGER_TYPE, { 32 } };
 		}
 		check_expression(compiler, expression->data.operand, &context);
-		if (!numeric_type(context) && context.kind != POINTER_TYPE && context.kind != ENUM_TYPE) {
+		if (!numeric_type(context) && context.kind != POINTER_TYPE) {
 			diagnostic(compiler, expression->span.first, "logical operation requires a scalar operand");
 		}
 		expression->type = (struct Type){ BOOL_TYPE, { 0 } };
@@ -6025,7 +6027,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	case COMPLEMENT_EXPRESSION:
 		check_expression(compiler, expression->data.operand, expected);
 		expression->type = expression->data.operand->type;
-		if (expression->type.kind != SIGNED_INTEGER_TYPE && expression->type.kind != UNSIGNED_INTEGER_TYPE && expression->type.kind != CHAR_TYPE && expression->type.kind != BOOL_TYPE && expression->type.kind != ENUM_TYPE) {
+		if (expression->type.kind != SIGNED_INTEGER_TYPE && expression->type.kind != UNSIGNED_INTEGER_TYPE && expression->type.kind != CHAR_TYPE && expression->type.kind != BOOL_TYPE) {
 			diagnostic(compiler, expression->span.first, "bitwise complement requires an integer");
 		}
 		break;
@@ -6074,7 +6076,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			}
 			check_expression(compiler, left, &first);
 			check_expression(compiler, right, &second);
-			if ((!numeric_type(first) && first.kind != POINTER_TYPE && first.kind != ENUM_TYPE) || (!numeric_type(second) && second.kind != POINTER_TYPE && second.kind != ENUM_TYPE)) {
+			if ((!numeric_type(first) && first.kind != POINTER_TYPE) || (!numeric_type(second) && second.kind != POINTER_TYPE)) {
 				diagnostic(compiler, expression->span.first, "logical operations require scalar operands");
 			}
 			expression->type = (struct Type){ BOOL_TYPE, { 0 } };
@@ -6108,7 +6110,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		if (is_void(type) && operation->kind == COMPARISON_OPERATOR) {
 			type = (struct Type){ SIGNED_INTEGER_TYPE, { 32 } };
 		}
-		if (!numeric_type(type) && type.kind != ENUM_TYPE && !(type.kind == POINTER_TYPE && operation->kind == COMPARISON_OPERATOR)) {
+		if (!numeric_type(type) && !((type.kind == ENUM_TYPE || type.kind == POINTER_TYPE) && operation->kind == COMPARISON_OPERATOR)) {
 			diagnostic(compiler, expression->span.first, "operation requires a numeric type context or typed operands");
 			break;
 		}
@@ -6129,7 +6131,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			complete_type(compiler, source, value->span.first);
 		}
 		if (is_void(source)) {
-			source = target;
+			source = target.kind == ENUM_TYPE ? (struct Type){ SIGNED_INTEGER_TYPE, { 32 } } : target;
 		}
 		check_expression(compiler, value, &source);
 		if (source.kind == POINTER_TYPE && target.kind == POINTER_TYPE) {
@@ -6139,7 +6141,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		if ((source.kind == FLOAT_TYPE && target.kind == POINTER_TYPE) || (source.kind == POINTER_TYPE && target.kind == FLOAT_TYPE)) {
 			diagnostic(compiler, expression->span.first, "cannot cast between floating-point and pointer types");
 		}
-		if (!is_void(target) && ((!numeric_type(source) && source.kind != POINTER_TYPE) || (!numeric_type(target) && target.kind != POINTER_TYPE))) {
+		if (!is_void(target) && ((!numeric_type(source) && source.kind != ENUM_TYPE && source.kind != POINTER_TYPE) || (!numeric_type(target) && target.kind != ENUM_TYPE && target.kind != POINTER_TYPE))) {
 			diagnostic(compiler, expression->span.first, "cast requires scalar types");
 		}
 		break;
@@ -6182,7 +6184,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		if (is_void(index)) {
 			index = (struct Type){ UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } };
 		}
-		if (index.kind != SIGNED_INTEGER_TYPE && index.kind != UNSIGNED_INTEGER_TYPE && index.kind != CHAR_TYPE && index.kind != BOOL_TYPE && index.kind != ENUM_TYPE) {
+		if (index.kind != SIGNED_INTEGER_TYPE && index.kind != UNSIGNED_INTEGER_TYPE && index.kind != CHAR_TYPE && index.kind != BOOL_TYPE) {
 			diagnostic(compiler, expression->span.first, "index must have integer type");
 			break;
 		}
@@ -6501,7 +6503,7 @@ void check_condition(struct Compiler* compiler, struct Expression* expression, s
 		type = (struct Type){ SIGNED_INTEGER_TYPE, { 32 } };
 	}
 	check_expression(compiler, expression, &type);
-	if (!numeric_type(type) && type.kind != ENUM_TYPE && type.kind != POINTER_TYPE) {
+	if (!numeric_type(type) && type.kind != POINTER_TYPE) {
 		diagnostic(compiler, expression->span.first, "condition requires a scalar expression");
 	}
 }

@@ -102,6 +102,8 @@ Always use goals and subagents when performing work.
 - Follow the naming convention of the relevant type or API family. Do not force one capitalization
   scheme onto families with different established conventions.
 - Use uppercase names with underscores for macros.
+- Use snake_case names for enums and their scoped members. Do not repeat the enum's name in its
+  members. Use role prefixes where they distinguish categories, such as keywords and operators.
 - Express nested namespaces with qualified declarations where appropriate.
 
 ## Data representation
@@ -131,7 +133,7 @@ Always use goals and subagents when performing work.
   move when its value is consumed, including a parameter's final use.
 - Apply declaration qualifiers when they express an actual contract.
 - Use named casts in C++. Follow the language's own conversion syntax in C source.
-- Give enum entries a trailing comma.
+- End Rutile enum entries with a semicolon. Use trailing commas in C and C++ enums.
 
 ## File organization
 
