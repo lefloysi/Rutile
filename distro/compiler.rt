@@ -1,3 +1,17 @@
+struct LLVMOpaqueAttributeRef;
+struct LLVMOpaqueBasicBlock;
+struct LLVMOpaqueBuilder;
+struct LLVMOpaqueContext;
+struct LLVMOpaqueError;
+struct LLVMOpaqueMemoryBuffer;
+struct LLVMOpaqueModule;
+struct LLVMOpaquePassBuilderOptions;
+struct LLVMOpaqueTargetData;
+struct LLVMOpaqueTargetMachine;
+struct LLVMOpaqueType;
+struct LLVMOpaqueValue;
+struct LLVMTarget;
+
 enum TokenKind {
 	TOKEN_NAME,
 	TOKEN_NUMBER,
@@ -276,7 +290,7 @@ struct ConstructionSyntax {
 	Type* target;
 	Entity* constructor;
 	Syntax* arguments;
-	void* slot;
+	LLVMOpaqueValue* slot;
 };
 
 union SyntaxData {
@@ -313,7 +327,7 @@ struct Syntax {
 	Scope* scope;
 	LifetimeCleanup* cleanup;
 	ValueUse use;
-	void* address;
+	LLVMOpaqueValue* address;
 	SyntaxData data;
 	TemplateArgument* template_arguments;
 };
@@ -576,7 +590,7 @@ struct Subobject {
 	Subobject* virtual_next;
 	u64 offset;
 	usize component;
-	void* view;
+	LLVMOpaqueValue* view;
 };
 
 struct CompleteGraph {
@@ -592,7 +606,7 @@ struct RuntimeThunk {
 	Subobject* receiver;
 	VirtualCallable* callable;
 	VirtualTarget target;
-	void* function;
+	LLVMOpaqueValue* function;
 	RuntimeThunk* next;
 };
 
@@ -635,8 +649,8 @@ struct AggregateEntity {
 	VirtualCallable* virtual_callables;
 	CompleteGraph* complete_graph;
 	usize field_count;
-	void* llvm_body;
-	void* llvm_type;
+	LLVMOpaqueType* llvm_body;
+	LLVMOpaqueType* llvm_type;
 	Entity* constructors;
 	Entity* assignments;
 	Entity* destructor;
@@ -689,12 +703,12 @@ struct FunctionEntity {
 	Resolution virtual_resolution;
 	OverrideLink* overrides;
 	VirtualCallable* callable;
-	void* wrapper;
+	LLVMOpaqueValue* wrapper;
 	Type* type;
 	Scope* scope;
 	Syntax* body;
-	void* llvm_value;
-	void* llvm_type;
+	LLVMOpaqueValue* llvm_value;
+	LLVMOpaqueType* llvm_type;
 };
 
 enum StorageKind {
@@ -711,7 +725,7 @@ struct FieldStorage {
 };
 
 union StorageData {
-	void* address;
+	LLVMOpaqueValue* address;
 	FieldStorage field;
 	u64 integer;
 };
@@ -831,49 +845,49 @@ struct Arena {
 };
 
 struct LLVMContextOwner {
-	void* handle;
+	LLVMOpaqueContext* handle;
 
 	fn ~LLVMContextOwner(LLVMContextOwner& this) {
-		LLVMContextDispose(void*(this.handle));
+		LLVMContextDispose(LLVMOpaqueContext*(this.handle));
 	};
 };
 
 struct LLVMTargetMachineOwner {
-	void* handle;
+	LLVMOpaqueTargetMachine* handle;
 
 	fn ~LLVMTargetMachineOwner(LLVMTargetMachineOwner& this) {
-		LLVMDisposeTargetMachine(void*(this.handle));
+		LLVMDisposeTargetMachine(LLVMOpaqueTargetMachine*(this.handle));
 	};
 };
 
 struct LLVMModuleOwner {
-	void* handle;
+	LLVMOpaqueModule* handle;
 
 	fn ~LLVMModuleOwner(LLVMModuleOwner& this) {
-		LLVMDisposeModule(void*(this.handle));
+		LLVMDisposeModule(LLVMOpaqueModule*(this.handle));
 	};
 };
 
 struct LLVMBuilderOwner {
-	void* handle;
+	LLVMOpaqueBuilder* handle;
 
 	fn LLVMBuilderOwner(LLVMBuilderOwner& this) {
 	};
 
-	fn LLVMBuilderOwner(LLVMBuilderOwner& this, void* handle) {
+	fn LLVMBuilderOwner(LLVMBuilderOwner& this, LLVMOpaqueBuilder* handle) {
 		@this.handle = $handle;
 	};
 
 	fn ~LLVMBuilderOwner(LLVMBuilderOwner& this) {
-		LLVMDisposeBuilder(void*(this.handle));
+		LLVMDisposeBuilder(LLVMOpaqueBuilder*(this.handle));
 	};
 };
 
 struct LLVMLayoutOwner {
-	void* handle;
+	LLVMOpaqueTargetData* handle;
 
 	fn ~LLVMLayoutOwner(LLVMLayoutOwner& this) {
-		LLVMDisposeTargetData(void*(this.handle));
+		LLVMDisposeTargetData(LLVMOpaqueTargetData*(this.handle));
 	};
 };
 
@@ -908,25 +922,25 @@ struct LLVMErrorMessageOwner {
 };
 
 struct LLVMMemoryBufferOwner {
-	void* handle;
+	LLVMOpaqueMemoryBuffer* handle;
 
 	fn ~LLVMMemoryBufferOwner(LLVMMemoryBufferOwner& this) {
-		LLVMDisposeMemoryBuffer(void*(this.handle));
+		LLVMDisposeMemoryBuffer(LLVMOpaqueMemoryBuffer*(this.handle));
 	};
 };
 
 struct LLVMPassOptionsOwner {
-	void* handle;
+	LLVMOpaquePassBuilderOptions* handle;
 
 	fn LLVMPassOptionsOwner(LLVMPassOptionsOwner& this) {
 	};
 
-	fn LLVMPassOptionsOwner(LLVMPassOptionsOwner& this, void* handle) {
+	fn LLVMPassOptionsOwner(LLVMPassOptionsOwner& this, LLVMOpaquePassBuilderOptions* handle) {
 		@this.handle = $handle;
 	};
 
 	fn ~LLVMPassOptionsOwner(LLVMPassOptionsOwner& this) {
-		LLVMDisposePassBuilderOptions(void*(this.handle));
+		LLVMDisposePassBuilderOptions(LLVMOpaquePassBuilderOptions*(this.handle));
 	};
 };
 
@@ -1045,8 +1059,8 @@ enum FlowKind {
 struct Flow {
 	FlowKind kind;
 	Flow* parent;
-	void* break_block;
-	void* continue_block;
+	LLVMOpaqueBasicBlock* break_block;
+	LLVMOpaqueBasicBlock* continue_block;
 };
 
 fn malloc(usize size) -> void*;
@@ -1061,7 +1075,7 @@ fn strtod(char* text, char** end) -> f64;
 fn fopen(char* path, char* mode) -> void*;
 fn fclose(void* file) -> i32;
 fn fread(void* destination, usize size, usize count, void* file) -> usize;
-fn fwrite(void* source, usize size, usize count, void* file) -> usize;
+fn fwrite(const void* source, usize size, usize count, void* file) -> usize;
 fn ferror(void* file) -> i32;
 fn fputs(char* text, void* file) -> i32;
 fn fprintf(void* file, char* format, ...) -> i32;
@@ -4173,131 +4187,131 @@ fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
 	return $module;
 };
 
-fn LLVMContextCreate() -> void*;
-fn LLVMContextDispose(void* context);
-fn LLVMModuleCreateWithNameInContext(char* name, void* context) -> void*;
-fn LLVMDisposeModule(void* module);
-fn LLVMCreateBuilderInContext(void* context) -> void*;
-fn LLVMDisposeBuilder(void* builder);
+fn LLVMContextCreate() -> LLVMOpaqueContext*;
+fn LLVMContextDispose(LLVMOpaqueContext* context);
+fn LLVMModuleCreateWithNameInContext(const char* name, LLVMOpaqueContext* context) -> LLVMOpaqueModule*;
+fn LLVMDisposeModule(LLVMOpaqueModule* module);
+fn LLVMCreateBuilderInContext(LLVMOpaqueContext* context) -> LLVMOpaqueBuilder*;
+fn LLVMDisposeBuilder(LLVMOpaqueBuilder* builder);
 fn LLVMInitializeX86TargetInfo();
 fn LLVMInitializeX86Target();
 fn LLVMInitializeX86TargetMC();
 fn LLVMInitializeX86AsmPrinter();
 fn LLVMGetDefaultTargetTriple() -> char*;
-fn LLVMGetTargetFromTriple(char* triple, void** target, char** message) -> i32;
-fn LLVMCreateTargetMachine(void* target, char* triple, char* cpu, char* features, i32 level, i32 relocation, i32 model) -> void*;
-fn LLVMDisposeTargetMachine(void* machine);
-fn LLVMCreateTargetDataLayout(void* machine) -> void*;
-fn LLVMDisposeTargetData(void* layout);
-fn LLVMCopyStringRepOfTargetData(void* layout) -> char*;
-fn LLVMPointerSize(void* layout) -> u32;
-fn LLVMABISizeOfType(void* layout, void* type) -> u64;
-fn LLVMABIAlignmentOfType(void* layout, void* type) -> u32;
-fn LLVMOffsetOfElement(void* layout, void* type, u32 index) -> u64;
-fn LLVMSetTarget(void* module, char* triple);
-fn LLVMSetDataLayout(void* module, char* layout);
+fn LLVMGetTargetFromTriple(const char* triple, LLVMTarget** target, char** message) -> i32;
+fn LLVMCreateTargetMachine(LLVMTarget* target, const char* triple, const char* cpu, const char* features, i32 level, i32 relocation, i32 model) -> LLVMOpaqueTargetMachine*;
+fn LLVMDisposeTargetMachine(LLVMOpaqueTargetMachine* machine);
+fn LLVMCreateTargetDataLayout(LLVMOpaqueTargetMachine* machine) -> LLVMOpaqueTargetData*;
+fn LLVMDisposeTargetData(LLVMOpaqueTargetData* layout);
+fn LLVMCopyStringRepOfTargetData(LLVMOpaqueTargetData* layout) -> char*;
+fn LLVMPointerSize(LLVMOpaqueTargetData* layout) -> u32;
+fn LLVMABISizeOfType(LLVMOpaqueTargetData* layout, LLVMOpaqueType* type) -> u64;
+fn LLVMABIAlignmentOfType(LLVMOpaqueTargetData* layout, LLVMOpaqueType* type) -> u32;
+fn LLVMOffsetOfElement(LLVMOpaqueTargetData* layout, LLVMOpaqueType* type, u32 index) -> u64;
+fn LLVMSetTarget(LLVMOpaqueModule* module, const char* triple);
+fn LLVMSetDataLayout(LLVMOpaqueModule* module, const char* layout);
 fn LLVMDisposeMessage(char* message);
-fn LLVMVoidTypeInContext(void* context) -> void*;
-fn LLVMIntTypeInContext(void* context, u32 bits) -> void*;
-fn LLVMFloatTypeInContext(void* context) -> void*;
-fn LLVMDoubleTypeInContext(void* context) -> void*;
-fn LLVMPointerTypeInContext(void* context, u32 address_space) -> void*;
-fn LLVMArrayType2(void* element, u64 count) -> void*;
-fn LLVMFunctionType(void* result, void** parameters, u32 count, i32 variadic) -> void*;
-fn LLVMStructCreateNamed(void* context, char* name) -> void*;
-fn LLVMStructSetBody(void* type, void** fields, u32 count, i32 packed);
-fn LLVMConstInt(void* type, u64 value, i32 sign_extend) -> void*;
-fn LLVMConstReal(void* type, f64 value) -> void*;
-fn LLVMConstNull(void* type) -> void*;
-fn LLVMConstArray2(void* element_type, void** values, u64 count) -> void*;
-fn LLVMConstStringInContext2(void* context, char* bytes, usize length, i32 no_terminator) -> void*;
-fn LLVMTypeOf(void* value) -> void*;
-fn LLVMGetNamedFunction(void* module, char* name) -> void*;
-fn LLVMGlobalGetValueType(void* value) -> void*;
-fn LLVMAddGlobal(void* module, void* type, char* name) -> void*;
-fn LLVMSetInitializer(void* global, void* value);
-fn LLVMSetGlobalConstant(void* global, i32 constant);
-fn LLVMSetLinkage(void* value, i32 linkage);
-fn LLVMAddFunction(void* module, char* name, void* type) -> void*;
-fn LLVMGetParam(void* function, u32 index) -> void*;
-fn LLVMSetTailCallKind(void* call, u32 kind);
-fn LLVMCreateStringAttribute(void* context, char* key, u32 key_length, char* value, u32 value_length) -> void*;
-fn LLVMStructTypeInContext(void* context, void** elements, u32 count, i32 packed) -> void*;
-fn LLVMConstStructInContext(void* context, void** values, u32 count, i32 packed) -> void*;
-fn LLVMAppendBasicBlockInContext(void* context, void* function, char* name) -> void*;
-fn LLVMPositionBuilderAtEnd(void* builder, void* block);
-fn LLVMPositionBuilderBefore(void* builder, void* instruction);
-fn LLVMGetInsertBlock(void* builder) -> void*;
-fn LLVMGetBasicBlockParent(void* block) -> void*;
-fn LLVMGetEntryBasicBlock(void* function) -> void*;
-fn LLVMGetFirstBasicBlock(void* function) -> void*;
-fn LLVMGetNextBasicBlock(void* block) -> void*;
-fn LLVMGetNumSuccessors(void* instruction) -> u32;
-fn LLVMGetSuccessor(void* instruction, u32 index) -> void*;
-fn LLVMGetFirstInstruction(void* block) -> void*;
-fn LLVMGetBasicBlockTerminator(void* block) -> void*;
-fn LLVMBuildAlloca(void* builder, void* type, char* name) -> void*;
-fn LLVMBuildLoad2(void* builder, void* type, void* address, char* name) -> void*;
-fn LLVMBuildStore(void* builder, void* value, void* address) -> void*;
-fn LLVMBuildStructGEP2(void* builder, void* type, void* address, u32 index, char* name) -> void*;
-fn LLVMBuildGEP2(void* builder, void* type, void* address, void** indices, u32 count, char* name) -> void*;
-fn LLVMBuildCall2(void* builder, void* type, void* callable, void** arguments, u32 count, char* name) -> void*;
-fn LLVMBuildRet(void* builder, void* value) -> void*;
-fn LLVMBuildRetVoid(void* builder) -> void*;
-fn LLVMBuildBr(void* builder, void* block) -> void*;
-fn LLVMBuildCondBr(void* builder, void* value, void* first, void* second) -> void*;
-fn LLVMBuildUnreachable(void* builder) -> void*;
-fn LLVMBuildSwitch(void* builder, void* value, void* fallback, u32 count) -> void*;
-fn LLVMAddCase(void* instruction, void* value, void* block);
-fn LLVMBuildPhi(void* builder, void* type, char* name) -> void*;
-fn LLVMAddIncoming(void* phi, void** values, void** blocks, u32 count);
-fn LLVMBuildAdd(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildSub(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildMul(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildSDiv(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildUDiv(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildSRem(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildURem(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildFAdd(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildFSub(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildFMul(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildFDiv(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildAnd(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildOr(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildXor(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildShl(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildAShr(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildLShr(void* builder, void* first, void* second, char* name) -> void*;
-fn LLVMBuildNeg(void* builder, void* value, char* name) -> void*;
-fn LLVMBuildFNeg(void* builder, void* value, char* name) -> void*;
-fn LLVMBuildNot(void* builder, void* value, char* name) -> void*;
-fn LLVMBuildICmp(void* builder, i32 predicate, void* first, void* second, char* name) -> void*;
-fn LLVMBuildFCmp(void* builder, i32 predicate, void* first, void* second, char* name) -> void*;
-fn LLVMBuildZExt(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildIntCast2(void* builder, void* value, void* type, i32 signed_value, char* name) -> void*;
-fn LLVMBuildFPCast(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildFPToSI(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildFPToUI(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildSIToFP(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildUIToFP(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildPtrToInt(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildIntToPtr(void* builder, void* value, void* type, char* name) -> void*;
-fn LLVMBuildSelect(void* builder, void* condition, void* first, void* second, char* name) -> void*;
-fn LLVMGetEnumAttributeKindForName(char* name, usize length) -> u32;
-fn LLVMCreateEnumAttribute(void* context, u32 kind, u64 value) -> void*;
-fn LLVMAddAttributeAtIndex(void* function, u32 index, void* attribute);
-fn LLVMAddCallSiteAttribute(void* call, u32 index, void* attribute);
-fn LLVMVerifyModule(void* module, i32 action, char** message) -> i32;
-fn LLVMCreatePassBuilderOptions() -> void*;
-fn LLVMDisposePassBuilderOptions(void* options);
-fn LLVMPassBuilderOptionsSetVerifyEach(void* options, i32 enabled);
-fn LLVMRunPasses(void* module, char* passes, void* machine, void* options) -> void*;
-fn LLVMGetErrorMessage(void* error) -> char*;
+fn LLVMVoidTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+fn LLVMIntTypeInContext(LLVMOpaqueContext* context, u32 bits) -> LLVMOpaqueType*;
+fn LLVMFloatTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+fn LLVMDoubleTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+fn LLVMPointerTypeInContext(LLVMOpaqueContext* context, u32 address_space) -> LLVMOpaqueType*;
+fn LLVMArrayType2(LLVMOpaqueType* element, u64 count) -> LLVMOpaqueType*;
+fn LLVMFunctionType(LLVMOpaqueType* result, LLVMOpaqueType** parameters, u32 count, i32 variadic) -> LLVMOpaqueType*;
+fn LLVMStructCreateNamed(LLVMOpaqueContext* context, const char* name) -> LLVMOpaqueType*;
+fn LLVMStructSetBody(LLVMOpaqueType* type, LLVMOpaqueType** fields, u32 count, i32 packed);
+fn LLVMConstInt(LLVMOpaqueType* type, u64 value, i32 sign_extend) -> LLVMOpaqueValue*;
+fn LLVMConstReal(LLVMOpaqueType* type, f64 value) -> LLVMOpaqueValue*;
+fn LLVMConstNull(LLVMOpaqueType* type) -> LLVMOpaqueValue*;
+fn LLVMConstArray2(LLVMOpaqueType* element_type, LLVMOpaqueValue** values, u64 count) -> LLVMOpaqueValue*;
+fn LLVMConstStringInContext2(LLVMOpaqueContext* context, const char* bytes, usize length, i32 no_terminator) -> LLVMOpaqueValue*;
+fn LLVMTypeOf(LLVMOpaqueValue* value) -> LLVMOpaqueType*;
+fn LLVMGetNamedFunction(LLVMOpaqueModule* module, const char* name) -> LLVMOpaqueValue*;
+fn LLVMGlobalGetValueType(LLVMOpaqueValue* value) -> LLVMOpaqueType*;
+fn LLVMAddGlobal(LLVMOpaqueModule* module, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMSetInitializer(LLVMOpaqueValue* global, LLVMOpaqueValue* value);
+fn LLVMSetGlobalConstant(LLVMOpaqueValue* global, i32 constant);
+fn LLVMSetLinkage(LLVMOpaqueValue* value, i32 linkage);
+fn LLVMAddFunction(LLVMOpaqueModule* module, const char* name, LLVMOpaqueType* type) -> LLVMOpaqueValue*;
+fn LLVMGetParam(LLVMOpaqueValue* function, u32 index) -> LLVMOpaqueValue*;
+fn LLVMSetTailCallKind(LLVMOpaqueValue* call, u32 kind);
+fn LLVMCreateStringAttribute(LLVMOpaqueContext* context, const char* key, u32 key_length, const char* value, u32 value_length) -> LLVMOpaqueAttributeRef*;
+fn LLVMStructTypeInContext(LLVMOpaqueContext* context, LLVMOpaqueType** elements, u32 count, i32 packed) -> LLVMOpaqueType*;
+fn LLVMConstStructInContext(LLVMOpaqueContext* context, LLVMOpaqueValue** values, u32 count, i32 packed) -> LLVMOpaqueValue*;
+fn LLVMAppendBasicBlockInContext(LLVMOpaqueContext* context, LLVMOpaqueValue* function, const char* name) -> LLVMOpaqueBasicBlock*;
+fn LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder* builder, LLVMOpaqueBasicBlock* block);
+fn LLVMPositionBuilderBefore(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* instruction);
+fn LLVMGetInsertBlock(LLVMOpaqueBuilder* builder) -> LLVMOpaqueBasicBlock*;
+fn LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+fn LLVMGetEntryBasicBlock(LLVMOpaqueValue* function) -> LLVMOpaqueBasicBlock*;
+fn LLVMGetFirstBasicBlock(LLVMOpaqueValue* function) -> LLVMOpaqueBasicBlock*;
+fn LLVMGetNextBasicBlock(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueBasicBlock*;
+fn LLVMGetNumSuccessors(LLVMOpaqueValue* instruction) -> u32;
+fn LLVMGetSuccessor(LLVMOpaqueValue* instruction, u32 index) -> LLVMOpaqueBasicBlock*;
+fn LLVMGetFirstInstruction(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+fn LLVMGetBasicBlockTerminator(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+fn LLVMBuildAlloca(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildLoad2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* address, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildStore(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueValue* address) -> LLVMOpaqueValue*;
+fn LLVMBuildStructGEP2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* address, u32 index, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildGEP2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* address, LLVMOpaqueValue** indices, u32 count, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildCall2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* callable, LLVMOpaqueValue** arguments, u32 count, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildRet(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value) -> LLVMOpaqueValue*;
+fn LLVMBuildRetVoid(LLVMOpaqueBuilder* builder) -> LLVMOpaqueValue*;
+fn LLVMBuildBr(LLVMOpaqueBuilder* builder, LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+fn LLVMBuildCondBr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* first, LLVMOpaqueBasicBlock* second) -> LLVMOpaqueValue*;
+fn LLVMBuildUnreachable(LLVMOpaqueBuilder* builder) -> LLVMOpaqueValue*;
+fn LLVMBuildSwitch(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* fallback, u32 count) -> LLVMOpaqueValue*;
+fn LLVMAddCase(LLVMOpaqueValue* instruction, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* block);
+fn LLVMBuildPhi(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMAddIncoming(LLVMOpaqueValue* phi, LLVMOpaqueValue** values, LLVMOpaqueBasicBlock** blocks, u32 count);
+fn LLVMBuildAdd(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildSub(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildMul(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildSDiv(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildUDiv(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildSRem(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildURem(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFAdd(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFSub(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFMul(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFDiv(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildAnd(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildOr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildXor(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildShl(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildAShr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildLShr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildNeg(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFNeg(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildNot(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildICmp(LLVMOpaqueBuilder* builder, i32 predicate, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFCmp(LLVMOpaqueBuilder* builder, i32 predicate, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildZExt(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildIntCast2(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, i32 signed_value, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFPCast(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFPToSI(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFPToUI(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildSIToFP(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildUIToFP(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildPtrToInt(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildIntToPtr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildSelect(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* condition, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
+fn LLVMGetEnumAttributeKindForName(const char* name, usize length) -> u32;
+fn LLVMCreateEnumAttribute(LLVMOpaqueContext* context, u32 kind, u64 value) -> LLVMOpaqueAttributeRef*;
+fn LLVMAddAttributeAtIndex(LLVMOpaqueValue* function, u32 index, LLVMOpaqueAttributeRef* attribute);
+fn LLVMAddCallSiteAttribute(LLVMOpaqueValue* call, u32 index, LLVMOpaqueAttributeRef* attribute);
+fn LLVMVerifyModule(LLVMOpaqueModule* module, i32 action, char** message) -> i32;
+fn LLVMCreatePassBuilderOptions() -> LLVMOpaquePassBuilderOptions*;
+fn LLVMDisposePassBuilderOptions(LLVMOpaquePassBuilderOptions* options);
+fn LLVMPassBuilderOptionsSetVerifyEach(LLVMOpaquePassBuilderOptions* options, i32 enabled);
+fn LLVMRunPasses(LLVMOpaqueModule* module, const char* passes, LLVMOpaqueTargetMachine* machine, LLVMOpaquePassBuilderOptions* options) -> LLVMOpaqueError*;
+fn LLVMGetErrorMessage(LLVMOpaqueError* error) -> char*;
 fn LLVMDisposeErrorMessage(char* message);
-fn LLVMTargetMachineEmitToMemoryBuffer(void* machine, void* module, i32 kind, char** message, void** buffer) -> i32;
-fn LLVMGetBufferStart(void* buffer) -> char*;
-fn LLVMGetBufferSize(void* buffer) -> usize;
-fn LLVMDisposeMemoryBuffer(void* buffer);
+fn LLVMTargetMachineEmitToMemoryBuffer(LLVMOpaqueTargetMachine* machine, LLVMOpaqueModule* module, i32 kind, char** message, LLVMOpaqueMemoryBuffer** buffer) -> i32;
+fn LLVMGetBufferStart(LLVMOpaqueMemoryBuffer* buffer) -> const char*;
+fn LLVMGetBufferSize(LLVMOpaqueMemoryBuffer* buffer) -> usize;
+fn LLVMDisposeMemoryBuffer(LLVMOpaqueMemoryBuffer* buffer);
 
 enum ValueCategory {
 	VALUE_ENTITY,
@@ -4314,7 +4328,7 @@ struct Semantic {
 };
 
 struct Emitter {
-	void* llvm_function;
+	LLVMOpaqueValue* llvm_function;
 	Type* return_type;
 	Compiler* compiler;
 	Entity* function;
@@ -4325,14 +4339,14 @@ struct Emitter {
 
 struct Temporary {
 	Type* type;
-	void* address;
-	void* guard;
+	LLVMOpaqueValue* address;
+	LLVMOpaqueValue* guard;
 	Temporary* next;
 };
 
 struct CaseBlock {
 	Syntax* syntax;
-	void* block;
+	LLVMOpaqueBasicBlock* block;
 	Temporary* temporaries;
 	CaseBlock* next;
 };
@@ -4504,8 +4518,8 @@ fn type_unsigned(Type* type) -> i32 {
 
 fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type*;
 fn entity_resolve(Compiler* compiler, Entity* entity);
-fn llvm_body(Compiler* compiler, Entity* entity) -> void*;
-fn llvm_type(Compiler* compiler, Type* type) -> void*;
+fn llvm_body(Compiler* compiler, Entity* entity) -> LLVMOpaqueType*;
+fn llvm_type(Compiler* compiler, Type* type) -> LLVMOpaqueType*;
 
 fn integer_spelling(Compiler* compiler, Token token, u64 maximum) -> u64 {
 	if (token.length && token.source->bytes[token.begin] == '\'') {
@@ -6530,6 +6544,31 @@ fn template_deduce(Semantic* semantic, Entity* pattern, Syntax* callable, Syntax
 	return template_specialize((Compiler*)compiler, (Entity*)pattern, (TemplateArgument*)arguments, Token(callable->token));
 };
 
+fn semantic_address(Semantic* semantic, Syntax* syntax) -> Type* {
+	if (syntax->kind == SYNTAX_ACCESS) {
+		Type* type = semantic_address((Semantic*)semantic, (Syntax*)syntax->data.expression);
+		if (syntax_category((Syntax*)syntax->data.expression) != VALUE_STORAGE || type->qualifier == CONST_TYPE) {
+			compiler_error((Compiler*)semantic->compiler, Token(syntax->token), "mutable access requires mutable storage\0");
+		};
+		@syntax->type := type;
+		return $type;
+	};
+	if (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR) {
+		Type* pointer = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.unary.value, nullptr);
+		if (pointer->kind != TYPE_POINTER) {
+			compiler_error((Compiler*)semantic->compiler, Token(syntax->token), "dereference requires a pointer\0");
+			return (Type*)semantic->compiler->void_type;
+		};
+		Type* type := pointer->data.element;
+		if (type->kind == TYPE_VOID || type->kind == TYPE_NULL) {
+			compiler_error((Compiler*)semantic->compiler, Token(syntax->token), "dereference requires an object or function type\0");
+		};
+		@syntax->type := type;
+		return $type;
+	};
+	return semantic_expression($semantic, $syntax, nullptr);
+};
+
 fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Type* {
 	Compiler* compiler := semantic->compiler;
 	if (!syntax) {
@@ -6538,6 +6577,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	if (expected && expected->kind == TYPE_REFERENCE && syntax_number_expression((Syntax*)syntax)) {
 		Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)expected->data.element);
 		return semantic_expect((Semantic*)semantic, (Syntax*)syntax, $actual, (Type*)expected);
+	};
+	if (expected && expected->kind == TYPE_REFERENCE && (syntax->kind == SYNTAX_ACCESS || (syntax->kind == SYNTAX_UNARY && syntax->data.unary.operation == TOKEN_STAR))) {
+		Type* actual = semantic_address((Semantic*)semantic, (Syntax*)syntax);
+		return semantic_expect((Semantic*)semantic, (Syntax*)syntax, $actual, $expected);
 	};
 	if (syntax->type) {
 		return semantic_expect((Semantic*)semantic, (Syntax*)syntax, (Type*)syntax->type, (Type*)expected);
@@ -6718,6 +6761,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			else {
 				@source = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.cast.value, nullptr);
 			};
+			if (source->kind == TYPE_NAMED || source->kind == TYPE_ARRAY) {
+				layout_validate((Compiler*)compiler, (Type*)source, nullptr, Token(syntax->token));
+			};
 			if (type->kind == TYPE_POINTER && source->kind == TYPE_POINTER && semantic_base_cast((Semantic*)semantic, (Syntax*)syntax, (Syntax*)syntax->data.cast.value, (Type*)source, (Type*)type)) {
 				break;
 			};
@@ -6840,6 +6886,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				integer_spelling((Compiler*)compiler, Token(syntax->data.unary.value->token), (u64)maximum);
 				@syntax->data.unary.value->type := context;
 				@operand = (Type*)context;
+			}
+			else if (operation == TOKEN_AMPERSAND) {
+				@operand = semantic_address((Semantic*)semantic, (Syntax*)syntax->data.unary.value);
 			}
 			else {
 				@operand = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.unary.value, (Type*)context);
@@ -7117,6 +7166,14 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				compiler_error((Compiler*)compiler, Token(syntax->token), "call requires a function entity or function pointer\0");
 				return (Type*)compiler->void_type;
 			};
+			if (callable->data.function.result->kind != TYPE_VOID) {
+				layout_validate((Compiler*)compiler, (Type*)callable->data.function.result, nullptr, Token(syntax->token));
+			};
+			Parameter* complete := callable->data.function.parameters;
+			while (complete) {
+				layout_validate((Compiler*)compiler, (Type*)complete->type, nullptr, Token(syntax->token));
+				@complete := complete->next;
+			};
 			Parameter* parameter := callable->data.function.parameters;
 			Syntax* direct := syntax->data.call.callable;
 			if (syntax->data.call.receiver.kind == RECEIVER_NONE && direct->kind == SYNTAX_NAME && !direct->data.expression && direct->entity && direct->entity->scope && direct->entity->scope->owner && (direct->entity->scope->owner->kind == ENTITY_STRUCT || direct->entity->scope->owner->kind == ENTITY_UNION) && parameter && token_is(Token(parameter->name), "this\0")) {
@@ -7202,12 +7259,12 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	return semantic_expect($semantic, $syntax, $type, $expected);
 };
 
-fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
+fn llvm_body(Compiler* compiler, Entity* entity) -> LLVMOpaqueType* {
 	if (entity->data.aggregate.llvm_body) {
-		return (void*)entity->data.aggregate.llvm_body;
+		return LLVMOpaqueType*(entity->data.aggregate.llvm_body);
 	};
 	entity_resolve((Compiler*)compiler, (Entity*)entity);
-	void* record = LLVMStructCreateNamed((void*)compiler->llvm_context.handle, "rt.body\0");
+	LLVMOpaqueType* record = LLVMStructCreateNamed(LLVMOpaqueContext*(compiler->llvm_context.handle), "rt.body\0");
 	@entity->data.aggregate.llvm_body := record;
 	if (!entity->declaration || !entity->declaration->data.declaration.body) {
 		return $record;
@@ -7223,10 +7280,10 @@ fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
 		};
 		@base := base->next;
 	};
-	void** fields = (void**)memory_allocate((Compiler*)compiler, (count + 2) * sizeof(void*));
+	LLVMOpaqueType** fields = (LLVMOpaqueType**)memory_allocate((Compiler*)compiler, (count + 2) * sizeof(LLVMOpaqueType*));
 	usize index = 0;
 	if (aggregate_header((Entity*)entity)) {
-		@fields[index] = LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0);
+		@fields[index] = LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0);
 		@index = index + 1;
 	};
 	@base := entity->data.aggregate.bases;
@@ -7240,64 +7297,64 @@ fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
 	Field* binding := entity->data.aggregate.fields;
 	u64 maximum_size = 0;
 	u32 maximum_alignment = 0;
-	void* aligned = nullptr;
+	LLVMOpaqueType* aligned = nullptr;
 	while (binding) {
-		void* field = llvm_type((Compiler*)compiler, entity_type((Entity*)binding->entity));
+		LLVMOpaqueType* field = llvm_type((Compiler*)compiler, entity_type((Entity*)binding->entity));
 		@fields[index] := field;
 		@index = index + 1;
 		if (entity->kind == ENTITY_UNION) {
-			u64 size = LLVMABISizeOfType((void*)compiler->llvm_layout.handle, (void*)field);
-			u32 alignment = LLVMABIAlignmentOfType((void*)compiler->llvm_layout.handle, (void*)field);
+			u64 size = LLVMABISizeOfType(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), LLVMOpaqueType*(field));
+			u32 alignment = LLVMABIAlignmentOfType(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), LLVMOpaqueType*(field));
 			if (size > maximum_size) {
 				@maximum_size = (u64)size;
 			};
 			if (alignment > maximum_alignment) {
 				@maximum_alignment = (u32)alignment;
-				@aligned = (void*)field;
+				@aligned = LLVMOpaqueType*(field);
 			};
 		};
 		@binding := binding->next;
 	};
 	if (entity->kind == ENTITY_UNION && aligned) {
-		u64 size = LLVMABISizeOfType((void*)compiler->llvm_layout.handle, (void*)aligned);
-		@fields[0] = (void*)aligned;
+		u64 size = LLVMABISizeOfType(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), LLVMOpaqueType*(aligned));
+		@fields[0] = LLVMOpaqueType*(aligned);
 		@index = 1;
 		if (maximum_size > size) {
-			@fields[1] = LLVMArrayType2(LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8), maximum_size - size);
+			@fields[1] = LLVMArrayType2(LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 8), maximum_size - size);
 			@index = 2;
 		};
 	};
 	if (!index) {
-		@fields[0] = LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8);
+		@fields[0] = LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 8);
 		@index = 1;
 	};
-	LLVMStructSetBody((void*)record, $fields, (u32)index, 0);
+	LLVMStructSetBody(LLVMOpaqueType*(record), $fields, (u32)index, 0);
 	return $record;
 };
 
-fn llvm_type(Compiler* compiler, Type* type) -> void* {
+fn llvm_type(Compiler* compiler, Type* type) -> LLVMOpaqueType* {
 	if (!type) {
-		return LLVMVoidTypeInContext((void*)compiler->llvm_context.handle);
+		return LLVMVoidTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 	};
 	switch (type->kind) {
 		case TYPE_VOID:
 		case TYPE_NULL:
-			return LLVMVoidTypeInContext((void*)compiler->llvm_context.handle);
+			return LLVMVoidTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 		case TYPE_CHAR:
-			return LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8);
+			return LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 8);
 		case TYPE_BOOL:
-			return LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1);
+			return LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1);
 		case TYPE_SIGNED:
 		case TYPE_UNSIGNED:
-			return LLVMIntTypeInContext((void*)compiler->llvm_context.handle, (u32)type->data.bits);
+			return LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), (u32)type->data.bits);
 		case TYPE_FLOAT:
 			if (type->data.bits == 32) {
-				return LLVMFloatTypeInContext((void*)compiler->llvm_context.handle);
+				return LLVMFloatTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 			};
-			return LLVMDoubleTypeInContext((void*)compiler->llvm_context.handle);
+			return LLVMDoubleTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 		case TYPE_POINTER:
 		case TYPE_REFERENCE:
-			return LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0);
+			return LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0);
 		case TYPE_ARRAY:
 			return LLVMArrayType2(llvm_type((Compiler*)compiler, (Type*)type->data.array.element), (u64)type->data.array.count);
 		case TYPE_FUNCTION: {
@@ -7307,7 +7364,7 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 				@count = count + 1;
 				@parameter := parameter->next;
 			};
-			void** parameters = (void**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(void*));
+			LLVMOpaqueType** parameters = (LLVMOpaqueType**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(LLVMOpaqueType*));
 			@parameter := type->data.function.parameters;
 			u32 index = 0;
 			while (parameter) {
@@ -7320,17 +7377,17 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 		case TYPE_NAMED: {
 			Entity* entity := type->data.entity;
 			if (entity->kind == ENTITY_ENUM) {
-				return LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 32);
+				return LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 32);
 			};
 			if (entity->data.aggregate.llvm_type) {
-				return (void*)entity->data.aggregate.llvm_type;
+				return LLVMOpaqueType*(entity->data.aggregate.llvm_type);
 			};
-			void* body = llvm_body((Compiler*)compiler, (Entity*)entity);
+			LLVMOpaqueType* body = llvm_body((Compiler*)compiler, (Entity*)entity);
 			if (!entity->data.aggregate.virtual_types) {
 				@entity->data.aggregate.llvm_type := body;
 				return $body;
 			};
-			void* record = LLVMStructCreateNamed((void*)compiler->llvm_context.handle, entity_name((Compiler*)compiler, (Entity*)entity));
+			LLVMOpaqueType* record = LLVMStructCreateNamed(LLVMOpaqueContext*(compiler->llvm_context.handle), entity_name((Compiler*)compiler, (Entity*)entity));
 			@entity->data.aggregate.llvm_type := record;
 			CompleteGraph* graph = complete_graph((Compiler*)compiler, (Entity*)entity);
 			usize count = 1;
@@ -7339,49 +7396,49 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 				@count = count + 1;
 				@object := object->virtual_next;
 			};
-			void** components = (void**)memory_allocate((Compiler*)compiler, count * sizeof(void*));
-			@components[0] = (void*)body;
+			LLVMOpaqueType** components = (LLVMOpaqueType**)memory_allocate((Compiler*)compiler, count * sizeof(LLVMOpaqueType*));
+			@components[0] = LLVMOpaqueType*(body);
 			@object := graph->virtuals;
 			while (object) {
 				@components[object->component] = llvm_body((Compiler*)compiler, (Entity*)object->entity);
 				@object := object->virtual_next;
 			};
-			LLVMStructSetBody((void*)record, (void**)components, (u32)count, 0);
+			LLVMStructSetBody(LLVMOpaqueType*(record), LLVMOpaqueType**(components), (u32)count, 0);
 			return $record;
 		};
 	};
-	return LLVMVoidTypeInContext((void*)compiler->llvm_context.handle);
+	return LLVMVoidTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 };
 
-fn emit_slot(Compiler* compiler, Type* type) -> void* {
-	void* block = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(LLVMGetInsertBlock((void*)compiler->llvm_builder.handle)));
-	LLVMBuilderOwner storage_builder = LLVMBuilderOwner(LLVMCreateBuilderInContext((void*)compiler->llvm_context.handle));
-	void* first = LLVMGetFirstInstruction((void*)block);
+fn emit_slot(Compiler* compiler, Type* type) -> LLVMOpaqueValue* {
+	LLVMOpaqueBasicBlock* block = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle))));
+	LLVMBuilderOwner storage_builder = LLVMBuilderOwner(LLVMCreateBuilderInContext(LLVMOpaqueContext*(compiler->llvm_context.handle)));
+	LLVMOpaqueValue* first = LLVMGetFirstInstruction(LLVMOpaqueBasicBlock*(block));
 	if (first) {
-		LLVMPositionBuilderBefore((void*)storage_builder.handle, (void*)first);
+		LLVMPositionBuilderBefore(LLVMOpaqueBuilder*(storage_builder.handle), LLVMOpaqueValue*(first));
 	}
 	else {
-		LLVMPositionBuilderAtEnd((void*)storage_builder.handle, (void*)block);
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(storage_builder.handle), LLVMOpaqueBasicBlock*(block));
 	};
-	void* slot = LLVMBuildAlloca((void*)storage_builder.handle, llvm_type($compiler, $type), "storage\0");
+	LLVMOpaqueValue* slot = LLVMBuildAlloca(LLVMOpaqueBuilder*(storage_builder.handle), llvm_type($compiler, $type), "storage\0");
 
 	return $slot;
 };
 
-fn emit_expression(Emitter* emitter, Syntax* syntax) -> void*;
+fn emit_expression(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue*;
 fn emit_statement(Emitter* emitter, Syntax* syntax);
-fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void*;
+fn emit_cast(Emitter* emitter, LLVMOpaqueValue* value, Type* source, Type* target) -> LLVMOpaqueValue*;
 
-fn emit_call(Emitter* emitter, Syntax* syntax) -> void*;
+fn emit_call(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue*;
 
-fn emit_address(Emitter* emitter, Syntax* syntax) -> void*;
+fn emit_address(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue*;
 
 fn subobject_offsets(Compiler* compiler, Subobject* object, u64 offset) {
 	@object->offset := offset;
 	SubobjectEdge* edge := object->edges;
 	while (edge) {
 		if (edge->relation->kind == BASE_NONVIRTUAL) {
-			u64 child = offset + LLVMOffsetOfElement((void*)compiler->llvm_layout.handle, llvm_body((Compiler*)compiler, (Entity*)object->entity), (u32)edge->relation->component);
+			u64 child = offset + LLVMOffsetOfElement(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), llvm_body((Compiler*)compiler, (Entity*)object->entity), (u32)edge->relation->component);
 			subobject_offsets((Compiler*)compiler, (Subobject*)edge->target, $child);
 		};
 		@edge := edge->next;
@@ -7389,11 +7446,11 @@ fn subobject_offsets(Compiler* compiler, Subobject* object, u64 offset) {
 };
 
 fn complete_offsets(Compiler* compiler, CompleteGraph* graph) {
-	void* type = llvm_type((Compiler*)compiler, entity_type((Entity*)graph->entity));
+	LLVMOpaqueType* type = llvm_type((Compiler*)compiler, entity_type((Entity*)graph->entity));
 	subobject_offsets((Compiler*)compiler, (Subobject*)graph->root, 0);
 	Subobject* object := graph->virtuals;
 	while (object) {
-		u64 offset = LLVMOffsetOfElement((void*)compiler->llvm_layout.handle, (void*)type, (u32)object->component);
+		u64 offset = LLVMOffsetOfElement(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), LLVMOpaqueType*(type), (u32)object->component);
 		subobject_offsets((Compiler*)compiler, (Subobject*)object, $offset);
 		@object := object->virtual_next;
 	};
@@ -7419,20 +7476,20 @@ fn virtual_base_count(Entity* entity) -> usize {
 	return $count;
 };
 
-fn runtime_view_type(Compiler* compiler, Entity* entity) -> void* {
-	void*[2] fields {};
+fn runtime_view_type(Compiler* compiler, Entity* entity) -> LLVMOpaqueType* {
+	LLVMOpaqueType*[2] fields {};
 	@fields[0] = LLVMArrayType2(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)virtual_base_count((Entity*)entity));
-	@fields[1] = LLVMArrayType2(LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), (u64)virtual_callable_count($entity));
-	return LLVMStructTypeInContext((void*)compiler->llvm_context.handle, &fields[0], 2, 0);
+	@fields[1] = LLVMArrayType2(LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), (u64)virtual_callable_count($entity));
+	return LLVMStructTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), &fields[0], 2, 0);
 };
 
-fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* object) -> void* {
+fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* object) -> LLVMOpaqueValue* {
 	if (object->view) {
-		return (void*)object->view;
+		return LLVMOpaqueValue*(object->view);
 	};
-	void* view = LLVMAddGlobal((void*)compiler->llvm_module.handle, runtime_view_type((Compiler*)compiler, (Entity*)object->entity), "rt.view\0");
-	LLVMSetLinkage((void*)view, 9);
-	LLVMSetGlobalConstant((void*)view, 1);
+	LLVMOpaqueValue* view = LLVMAddGlobal(LLVMOpaqueModule*(compiler->llvm_module.handle), runtime_view_type((Compiler*)compiler, (Entity*)object->entity), "rt.view\0");
+	LLVMSetLinkage(LLVMOpaqueValue*(view), 9);
+	LLVMSetGlobalConstant(LLVMOpaqueValue*(view), 1);
 	@object->view := view;
 	RuntimeView* request = (RuntimeView*)memory_allocate((Compiler*)compiler, sizeof(RuntimeView));
 	@request->graph = $graph;
@@ -7442,38 +7499,38 @@ fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* obj
 	return $view;
 };
 
-fn emit_function_attributes(Compiler* compiler, void* function, Type* signature) {
-	void* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
+fn emit_function_attributes(Compiler* compiler, LLVMOpaqueValue* function, Type* signature) {
+	LLVMOpaqueAttributeRef* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
 	if (extension) {
-		LLVMAddAttributeAtIndex((void*)function, 0, (void*)extension);
+		LLVMAddAttributeAtIndex(LLVMOpaqueValue*(function), 0, LLVMOpaqueAttributeRef*(extension));
 	};
 	Parameter* parameter := signature->data.function.parameters;
 	u32 index = 1;
 	while (parameter) {
 		@extension = emit_extension((Compiler*)compiler, (Type*)parameter->type);
 		if (extension) {
-			LLVMAddAttributeAtIndex((void*)function, (u32)index, (void*)extension);
+			LLVMAddAttributeAtIndex(LLVMOpaqueValue*(function), (u32)index, LLVMOpaqueAttributeRef*(extension));
 		};
 		@index = index + 1;
 		@parameter := parameter->next;
 	};
 };
 
-fn runtime_thunk_request(Compiler* compiler, CompleteGraph* graph, Subobject* receiver, VirtualCallable* callable) -> void* {
+fn runtime_thunk_request(Compiler* compiler, CompleteGraph* graph, Subobject* receiver, VirtualCallable* callable) -> LLVMOpaqueValue* {
 	VirtualTarget target = virtual_target((Compiler*)compiler, $graph, (Subobject*)receiver, (Entity*)callable->function);
 	if (target.function == callable->function && target.object == receiver) {
-		return (void*)target.function->data.function.llvm_value;
+		return LLVMOpaqueValue*(target.function->data.function.llvm_value);
 	};
 	RuntimeThunk* thunk = (RuntimeThunk*)memory_allocate((Compiler*)compiler, sizeof(RuntimeThunk));
 	@thunk->receiver = $receiver;
 	@thunk->callable := callable;
 	@thunk->target = $target;
-	@thunk->function = LLVMAddFunction((void*)compiler->llvm_module.handle, "rt.virtual.thunk\0", llvm_type((Compiler*)compiler, (Type*)callable->function->data.function.type));
-	LLVMSetLinkage((void*)thunk->function, 9);
-	emit_function_attributes((Compiler*)compiler, (void*)thunk->function, (Type*)callable->function->data.function.type);
+	@thunk->function = LLVMAddFunction(LLVMOpaqueModule*(compiler->llvm_module.handle), "rt.virtual.thunk\0", llvm_type((Compiler*)compiler, (Type*)callable->function->data.function.type));
+	LLVMSetLinkage(LLVMOpaqueValue*(thunk->function), 9);
+	emit_function_attributes((Compiler*)compiler, LLVMOpaqueValue*(thunk->function), (Type*)callable->function->data.function.type);
 	@thunk->next := compiler->runtime_thunks;
 	@compiler->runtime_thunks := thunk;
-	return (void*)thunk->function;
+	return LLVMOpaqueValue*(thunk->function);
 };
 
 fn runtime_views_emit(Compiler* compiler) {
@@ -7482,7 +7539,7 @@ fn runtime_views_emit(Compiler* compiler) {
 		@compiler->runtime_views := view->next;
 		complete_offsets((Compiler*)compiler, (CompleteGraph*)view->graph);
 		usize count = virtual_base_count((Entity*)view->object->entity);
-		void** offsets = (void**)memory_allocate((Compiler*)compiler, count * sizeof(void*));
+		LLVMOpaqueValue** offsets = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, count * sizeof(LLVMOpaqueValue*));
 		VirtualType* target := view->object->entity->data.aggregate.virtual_types;
 		while (target) {
 			Subobject* storage := view->graph->virtuals;
@@ -7492,63 +7549,63 @@ fn runtime_views_emit(Compiler* compiler) {
 			@offsets[target->index] = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), storage->offset - view->object->offset, 0);
 			@target := target->next;
 		};
-		void*[2] fields {};
+		LLVMOpaqueValue*[2] fields {};
 		@fields[0] = LLVMConstArray2(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $offsets, (u64)count);
 		@count = virtual_callable_count((Entity*)view->object->entity);
-		void** functions = (void**)memory_allocate((Compiler*)compiler, count * sizeof(void*));
+		LLVMOpaqueValue** functions = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, count * sizeof(LLVMOpaqueValue*));
 		VirtualCallable* callable := view->object->entity->data.aggregate.virtual_callables;
 		while (callable) {
 			@functions[callable->index] = runtime_thunk_request((Compiler*)compiler, (CompleteGraph*)view->graph, (Subobject*)view->object, (VirtualCallable*)callable);
 			@callable := callable->next;
 		};
-		@fields[1] = LLVMConstArray2(LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), $functions, (u64)count);
-		LLVMSetInitializer((void*)view->object->view, LLVMConstStructInContext((void*)compiler->llvm_context.handle, &fields[0], 2, 0));
+		@fields[1] = LLVMConstArray2(LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), $functions, (u64)count);
+		LLVMSetInitializer(LLVMOpaqueValue*(view->object->view), LLVMConstStructInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), &fields[0], 2, 0));
 	};
 };
 
-fn emit_byte_offset(Emitter* emitter, void* address, u64 offset) -> void* {
+fn emit_byte_offset(Emitter* emitter, LLVMOpaqueValue* address, u64 offset) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $offset, 0);
-	return LLVMBuildGEP2((void*)compiler->llvm_builder.handle, LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8), $address, &index, 1, "subobject\0");
+	LLVMOpaqueValue* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $offset, 0);
+	return LLVMBuildGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 8), $address, &index, 1, "subobject\0");
 };
 
-fn emit_base_address(Emitter* emitter, void* address, Entity* derived, BasePath* path, BaseDirection direction) -> void* {
+fn emit_base_address(Emitter* emitter, LLVMOpaqueValue* address, Entity* derived, BasePath* path, BaseDirection direction) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void* builder := compiler->llvm_builder.handle;
+	LLVMOpaqueBuilder* builder := compiler->llvm_builder.handle;
 	u64 offset = 0;
 	while (path) {
 		BaseRelation* relation := path->relation;
 		if (direction == BASE_UP && relation->kind == BASE_VIRTUAL) {
-			void* header = LLVMBuildStructGEP2((void*)builder, llvm_body((Compiler*)compiler, (Entity*)derived), (void*)address, 0, "view.storage\0");
-			void* view = LLVMBuildLoad2((void*)builder, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), $header, "view\0");
-			void* offsets = LLVMBuildStructGEP2((void*)builder, runtime_view_type((Compiler*)compiler, (Entity*)derived), $view, 0, "virtual.offsets\0");
-			void* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)relation->component, 0);
-			void* slot = LLVMBuildGEP2((void*)builder, llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $offsets, &index, 1, "virtual.offset.storage\0");
-			void* displacement = LLVMBuildLoad2((void*)builder, llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $slot, "virtual.offset\0");
-			@address = LLVMBuildGEP2((void*)builder, LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8), (void*)address, &displacement, 1, "virtual.base\0");
+			LLVMOpaqueValue* header = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), llvm_body((Compiler*)compiler, (Entity*)derived), LLVMOpaqueValue*(address), 0, "view.storage\0");
+			LLVMOpaqueValue* view = LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), $header, "view\0");
+			LLVMOpaqueValue* offsets = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), runtime_view_type((Compiler*)compiler, (Entity*)derived), $view, 0, "virtual.offsets\0");
+			LLVMOpaqueValue* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)relation->component, 0);
+			LLVMOpaqueValue* slot = LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $offsets, &index, 1, "virtual.offset.storage\0");
+			LLVMOpaqueValue* displacement = LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), $slot, "virtual.offset\0");
+			@address = LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 8), LLVMOpaqueValue*(address), &displacement, 1, "virtual.base\0");
 		}
 		else if (direction == BASE_UP) {
-			@address = LLVMBuildStructGEP2((void*)builder, llvm_body((Compiler*)compiler, (Entity*)derived), (void*)address, (u32)relation->component, "base\0");
+			@address = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), llvm_body((Compiler*)compiler, (Entity*)derived), LLVMOpaqueValue*(address), (u32)relation->component, "base\0");
 		}
 		else {
-			@offset = offset + LLVMOffsetOfElement((void*)compiler->llvm_layout.handle, llvm_body((Compiler*)compiler, (Entity*)derived), (u32)relation->component);
+			@offset = offset + LLVMOffsetOfElement(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), llvm_body((Compiler*)compiler, (Entity*)derived), (u32)relation->component);
 		};
 		@derived := relation->entity;
 		@path := path->next;
 	};
 	if (direction == BASE_DOWN && offset) {
-		void* integer = LLVMBuildPtrToInt((void*)builder, (void*)address, llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), "base.address\0");
-		@integer = LLVMBuildSub((void*)builder, (void*)integer, LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)offset, 0), "derived.address\0");
-		@address = LLVMBuildIntToPtr((void*)builder, $integer, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), "derived\0");
+		LLVMOpaqueValue* integer = LLVMBuildPtrToInt(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(address), llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), "base.address\0");
+		@integer = LLVMBuildSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(integer), LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)offset, 0), "derived.address\0");
+		@address = LLVMBuildIntToPtr(LLVMOpaqueBuilder*(builder), $integer, LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), "derived\0");
 	};
 	return $address;
 };
 
-fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
 	Syntax* value := syntax->data.base_conversion.value;
 	Type* source := value->type;
-	void* address = nullptr;
+	LLVMOpaqueValue* address = nullptr;
 	if (syntax->kind == SYNTAX_BASE_POINTER) {
 		@address = emit_expression((Emitter*)emitter, (Syntax*)value);
 		@source := source->data.element;
@@ -7561,47 +7618,47 @@ fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
 		@derived := syntax->data.base_conversion.target->data.element->data.entity;
 	};
 	if (syntax->kind == SYNTAX_BASE_POINTER && base_path_virtual((BasePath*)syntax->data.base_conversion.path)) {
-		void* initial = LLVMGetInsertBlock((void*)compiler->llvm_builder.handle);
-		void* function = LLVMGetBasicBlockParent((void*)initial);
-		void* live = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "base.nonnull\0");
-		void* merge = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, $function, "base.end\0");
-		void* null = LLVMConstNull(LLVMTypeOf((void*)address));
-		void* empty = LLVMBuildICmp((void*)compiler->llvm_builder.handle, 32, (void*)address, (void*)null, "base.null\0");
-		LLVMBuildCondBr((void*)compiler->llvm_builder.handle, $empty, (void*)merge, (void*)live);
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, (void*)live);
-		void* converted = emit_base_address((Emitter*)emitter, (void*)address, (Entity*)derived, (BasePath*)syntax->data.base_conversion.path, (BaseDirection)syntax->data.base_conversion.direction);
-		@live = LLVMGetInsertBlock((void*)compiler->llvm_builder.handle);
-		LLVMBuildBr((void*)compiler->llvm_builder.handle, (void*)merge);
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $merge);
-		void* result = LLVMBuildPhi((void*)compiler->llvm_builder.handle, LLVMTypeOf((void*)address), "base.pointer\0");
-		void*[2] values {};
-		void*[2] blocks {};
+		LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
+		LLVMOpaqueValue* function = LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock*(initial));
+		LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "base.nonnull\0");
+		LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), $function, "base.end\0");
+		LLVMOpaqueValue* null = LLVMConstNull(LLVMTypeOf(LLVMOpaqueValue*(address)));
+		LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), 32, LLVMOpaqueValue*(address), LLVMOpaqueValue*(null), "base.null\0");
+		LLVMBuildCondBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $empty, LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(live));
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(live));
+		LLVMOpaqueValue* converted = emit_base_address((Emitter*)emitter, LLVMOpaqueValue*(address), (Entity*)derived, (BasePath*)syntax->data.base_conversion.path, (BaseDirection)syntax->data.base_conversion.direction);
+		@live = LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
+		LLVMBuildBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(merge));
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $merge);
+		LLVMOpaqueValue* result = LLVMBuildPhi(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMTypeOf(LLVMOpaqueValue*(address)), "base.pointer\0");
+		LLVMOpaqueValue*[2] values {};
+		LLVMOpaqueBasicBlock*[2] blocks {};
 		@values[0] = $null;
 		@values[1] = $converted;
 		@blocks[0] = $initial;
 		@blocks[1] = $live;
-		LLVMAddIncoming((void*)result, &values[0], &blocks[0], 2);
+		LLVMAddIncoming(LLVMOpaqueValue*(result), &values[0], &blocks[0], 2);
 		return $result;
 	};
-	void* result = emit_base_address($emitter, (void*)address, $derived, (BasePath*)syntax->data.base_conversion.path, (BaseDirection)syntax->data.base_conversion.direction);
+	LLVMOpaqueValue* result = emit_base_address($emitter, LLVMOpaqueValue*(address), $derived, (BasePath*)syntax->data.base_conversion.path, (BaseDirection)syntax->data.base_conversion.direction);
 	if (syntax->kind == SYNTAX_BASE_POINTER) {
-		void* null = LLVMConstNull(LLVMTypeOf((void*)address));
-		void* empty = LLVMBuildICmp((void*)compiler->llvm_builder.handle, 32, (void*)address, (void*)null, "base.null\0");
-		return LLVMBuildSelect((void*)compiler->llvm_builder.handle, $empty, $null, (void*)result, "base.pointer\0");
+		LLVMOpaqueValue* null = LLVMConstNull(LLVMTypeOf(LLVMOpaqueValue*(address)));
+		LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), 32, LLVMOpaqueValue*(address), LLVMOpaqueValue*(null), "base.null\0");
+		return LLVMBuildSelect(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $empty, $null, LLVMOpaqueValue*(result), "base.pointer\0");
 	};
 	return $result;
 };
 
-fn runtime_callable(Compiler* compiler, Entity* entity) -> void* {
+fn runtime_callable(Compiler* compiler, Entity* entity) -> LLVMOpaqueValue* {
 	if (!entity->data.function.callable) {
-		return (void*)entity->data.function.llvm_value;
+		return LLVMOpaqueValue*(entity->data.function.llvm_value);
 	};
 	if (entity->data.function.wrapper) {
-		return (void*)entity->data.function.wrapper;
+		return LLVMOpaqueValue*(entity->data.function.wrapper);
 	};
-	void* function = LLVMAddFunction((void*)compiler->llvm_module.handle, "rt.virtual.callable\0", llvm_type((Compiler*)compiler, (Type*)entity->data.function.type));
-	LLVMSetLinkage((void*)function, 9);
-	emit_function_attributes((Compiler*)compiler, (void*)function, (Type*)entity->data.function.type);
+	LLVMOpaqueValue* function = LLVMAddFunction(LLVMOpaqueModule*(compiler->llvm_module.handle), "rt.virtual.callable\0", llvm_type((Compiler*)compiler, (Type*)entity->data.function.type));
+	LLVMSetLinkage(LLVMOpaqueValue*(function), 9);
+	emit_function_attributes((Compiler*)compiler, LLVMOpaqueValue*(function), (Type*)entity->data.function.type);
 	@entity->data.function.wrapper := function;
 	RuntimeWrapper* wrapper = (RuntimeWrapper*)memory_allocate((Compiler*)compiler, sizeof(RuntimeWrapper));
 	@wrapper->entity = $entity;
@@ -7610,46 +7667,46 @@ fn runtime_callable(Compiler* compiler, Entity* entity) -> void* {
 	return $function;
 };
 
-fn emit_dispatch_target(Emitter* emitter, Entity* entity, void* receiver) -> void* {
+fn emit_dispatch_target(Emitter* emitter, Entity* entity, LLVMOpaqueValue* receiver) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
 	Entity* owner := entity->data.function.interface_owner;
-	void* header = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)owner), $receiver, 0, "virtual.header\0");
-	void* view = LLVMBuildLoad2((void*)compiler->llvm_builder.handle, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), $header, "virtual.view\0");
-	void* functions = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, runtime_view_type((Compiler*)compiler, $owner), $view, 1, "virtual.functions\0");
-	void* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)entity->data.function.callable->index, 0);
-	void* slot = LLVMBuildGEP2((void*)compiler->llvm_builder.handle, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), $functions, &index, 1, "virtual.slot\0");
-	return LLVMBuildLoad2((void*)compiler->llvm_builder.handle, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), $slot, "virtual.target\0");
+	LLVMOpaqueValue* header = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)owner), $receiver, 0, "virtual.header\0");
+	LLVMOpaqueValue* view = LLVMBuildLoad2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), $header, "virtual.view\0");
+	LLVMOpaqueValue* functions = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), runtime_view_type((Compiler*)compiler, $owner), $view, 1, "virtual.functions\0");
+	LLVMOpaqueValue* index = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)entity->data.function.callable->index, 0);
+	LLVMOpaqueValue* slot = LLVMBuildGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), $functions, &index, 1, "virtual.slot\0");
+	return LLVMBuildLoad2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), $slot, "virtual.target\0");
 };
 
-fn emit_covariant_result(Emitter* emitter, void* value, Type* source, Type* target) -> void* {
+fn emit_covariant_result(Emitter* emitter, LLVMOpaqueValue* value, Type* source, Type* target) -> LLVMOpaqueValue* {
 	if (type_equal((Type*)source, (Type*)target)) {
 		return $value;
 	};
 	Compiler* compiler := emitter->compiler;
 	BaseSearch path = base_search((Compiler*)compiler, (Type*)source->data.element, (Type*)target->data.element);
 	if (source->kind == TYPE_REFERENCE) {
-		return emit_base_address((Emitter*)emitter, (void*)value, (Entity*)source->data.element->data.entity, (BasePath*)path.path, BASE_UP);
+		return emit_base_address((Emitter*)emitter, LLVMOpaqueValue*(value), (Entity*)source->data.element->data.entity, (BasePath*)path.path, BASE_UP);
 	};
-	void* initial = LLVMGetInsertBlock((void*)compiler->llvm_builder.handle);
-	void* function = LLVMGetBasicBlockParent((void*)initial);
-	void* live = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "return.nonnull\0");
-	void* merge = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, $function, "return.end\0");
-	void* null = LLVMConstNull(LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0));
-	void* empty = LLVMBuildICmp((void*)compiler->llvm_builder.handle, 32, (void*)value, (void*)null, "return.null\0");
-	LLVMBuildCondBr((void*)compiler->llvm_builder.handle, $empty, (void*)merge, (void*)live);
-	LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, (void*)live);
-	void* adjusted = emit_base_address($emitter, $value, (Entity*)source->data.element->data.entity, (BasePath*)path.path, BASE_UP);
-	@live = LLVMGetInsertBlock((void*)compiler->llvm_builder.handle);
-	LLVMBuildBr((void*)compiler->llvm_builder.handle, (void*)merge);
-	LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $merge);
-	void* result = LLVMBuildPhi((void*)compiler->llvm_builder.handle, LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0), "return.base\0");
-	void*[2] values {};
-	void*[2] blocks {};
+	LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
+	LLVMOpaqueValue* function = LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock*(initial));
+	LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "return.nonnull\0");
+	LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), $function, "return.end\0");
+	LLVMOpaqueValue* null = LLVMConstNull(LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0));
+	LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), 32, LLVMOpaqueValue*(value), LLVMOpaqueValue*(null), "return.null\0");
+	LLVMBuildCondBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $empty, LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(live));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(live));
+	LLVMOpaqueValue* adjusted = emit_base_address($emitter, $value, (Entity*)source->data.element->data.entity, (BasePath*)path.path, BASE_UP);
+	@live = LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
+	LLVMBuildBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(merge));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $merge);
+	LLVMOpaqueValue* result = LLVMBuildPhi(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0), "return.base\0");
+	LLVMOpaqueValue*[2] values {};
+	LLVMOpaqueBasicBlock*[2] blocks {};
 	@values[0] = $null;
 	@values[1] = $adjusted;
 	@blocks[0] = $initial;
 	@blocks[1] = $live;
-	LLVMAddIncoming((void*)result, &values[0], &blocks[0], 2);
+	LLVMAddIncoming(LLVMOpaqueValue*(result), &values[0], &blocks[0], 2);
 	return $result;
 };
 
@@ -7665,27 +7722,27 @@ fn covariance_adjustment_required(Compiler* compiler, Type* source, Type* target
 		if (path->relation->kind == BASE_VIRTUAL) {
 			return true;
 		};
-		@offset = offset + LLVMOffsetOfElement((void*)compiler->llvm_layout.handle, llvm_body((Compiler*)compiler, (Entity*)current), (u32)path->relation->component);
+		@offset = offset + LLVMOffsetOfElement(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), llvm_body((Compiler*)compiler, (Entity*)current), (u32)path->relation->component);
 		@current := path->relation->entity;
 		@path := path->next;
 	};
 	return offset != 0;
 };
 
-fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void* builder := compiler->llvm_builder.handle;
+	LLVMOpaqueBuilder* builder := compiler->llvm_builder.handle;
 	switch (syntax->kind) {
 		case SYNTAX_BORROWED_COMPONENT:
 		case SYNTAX_OWNED_COMPONENT:
-			return (void*)syntax->address;
+			return LLVMOpaqueValue*(syntax->address);
 		case SYNTAX_BINARY:
 			if (syntax->entity && syntax->entity->kind == ENTITY_FUNCTION && syntax->entity->data.function.role == ASSIGNMENT_ROLE) {
 				return emit_special_call((Emitter*)emitter, (Entity*)syntax->entity, emit_address((Emitter*)emitter, (Syntax*)syntax->data.binary.left), (Syntax*)syntax->data.binary.right);
 			};
 			if (syntax->data.binary.operation == TOKEN_ASSIGN || syntax->data.binary.operation == TOKEN_COPY) {
 				emit_expression((Emitter*)emitter, (Syntax*)syntax);
-				return (void*)syntax->address;
+				return LLVMOpaqueValue*(syntax->address);
 			};
 			break;
 		case SYNTAX_ACCESS:
@@ -7696,7 +7753,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 			if (syntax->entity->kind == ENTITY_FUNCTION) {
 				return runtime_callable((Compiler*)compiler, (Entity*)syntax->entity);
 			};
-			return (void*)syntax->entity->data.variable.data.address;
+			return LLVMOpaqueValue*(syntax->entity->data.variable.data.address);
 		case SYNTAX_CAST:
 			return emit_address((Emitter*)emitter, (Syntax*)syntax->data.cast.value);
 		case SYNTAX_CALL:
@@ -7706,7 +7763,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 		case SYNTAX_MEMBER: {
 			Syntax* object := syntax->data.member.object;
 			Type* type := object->type;
-			void* address = nullptr;
+			LLVMOpaqueValue* address = nullptr;
 			if (syntax->token.kind == TOKEN_ARROW) {
 				@address = emit_expression((Emitter*)emitter, (Syntax*)object);
 				@type := type->data.element;
@@ -7720,26 +7777,26 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 			Entity* owner := syntax->entity->data.variable.data.field.owner;
 			if (type->data.entity != owner) {
 				BaseSearch path = base_search((Compiler*)compiler, (Type*)type, entity_type((Entity*)owner));
-				@address = emit_base_address((Emitter*)emitter, (void*)address, (Entity*)type->data.entity, (BasePath*)path.path, BASE_UP);
+				@address = emit_base_address((Emitter*)emitter, LLVMOpaqueValue*(address), (Entity*)type->data.entity, (BasePath*)path.path, BASE_UP);
 				@type = entity_type((Entity*)owner);
 			};
 			if (type->data.entity->kind == ENTITY_UNION) {
 				return $address;
 			};
-			void* field = LLVMBuildStructGEP2((void*)builder, llvm_body((Compiler*)compiler, (Entity*)type->data.entity), (void*)address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
+			LLVMOpaqueValue* field = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), llvm_body((Compiler*)compiler, (Entity*)type->data.entity), LLVMOpaqueValue*(address), (u32)syntax->entity->data.variable.data.field.index, "field\0");
 			return $field;
 		};
 		case SYNTAX_INDEX: {
 			Syntax* object := syntax->data.binary.left;
-			void* index = emit_expression((Emitter*)emitter, (Syntax*)syntax->data.binary.right);
-			@index = emit_cast((Emitter*)emitter, (void*)index, (Type*)syntax->data.binary.right->type, (Type*)compiler->usize_type);
-			void*[2] indices {};
+			LLVMOpaqueValue* index = emit_expression((Emitter*)emitter, (Syntax*)syntax->data.binary.right);
+			@index = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(index), (Type*)syntax->data.binary.right->type, (Type*)compiler->usize_type);
+			LLVMOpaqueValue*[2] indices {};
 			if (object->type->kind == TYPE_ARRAY) {
 				@indices[0] = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), 0, 0);
 				@indices[1] := index;
-				return LLVMBuildGEP2((void*)builder, llvm_type((Compiler*)compiler, (Type*)object->type), emit_address((Emitter*)emitter, (Syntax*)object), &indices[0], 2, "element\0");
+				return LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)compiler, (Type*)object->type), emit_address((Emitter*)emitter, (Syntax*)object), &indices[0], 2, "element\0");
 			};
-			@indices[0] = (void*)index;
+			@indices[0] = LLVMOpaqueValue*(index);
 			return LLVMBuildGEP2($builder, llvm_type((Compiler*)compiler, (Type*)object->type->data.element), emit_expression($emitter, $object), &indices[0], 1, "element\0");
 		};
 	};
@@ -7810,18 +7867,18 @@ fn type_requires_union_choice(Type* type) -> bool {
 	return false;
 };
 
-fn emit_initialize_type(Emitter* emitter, Type* type, void* address);
-fn emit_payload_copy(Emitter* emitter, Type* type, void* destination, void* source);
+fn emit_initialize_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address);
+fn emit_payload_copy(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source);
 
-fn emit_array_element(Emitter* emitter, Type* type, void* address, usize index) -> void* {
+fn emit_array_element(Emitter* emitter, Type* type, LLVMOpaqueValue* address, usize index) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void*[2] indices {};
+	LLVMOpaqueValue*[2] indices {};
 	@indices[0] = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), 0, 0);
 	@indices[1] = LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)compiler->usize_type), (u64)index, 0);
-	return LLVMBuildGEP2((void*)compiler->llvm_builder.handle, llvm_type($compiler, $type), $address, &indices[0], 2, "array.element\0");
+	return LLVMBuildGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_type($compiler, $type), $address, &indices[0], 2, "array.element\0");
 };
 
-fn emit_initialize_body_fields(Emitter* emitter, Entity* entity, void* address) {
+fn emit_initialize_body_fields(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address) {
 	if (entity->kind == ENTITY_UNION) {
 		return;
 	};
@@ -7829,14 +7886,14 @@ fn emit_initialize_body_fields(Emitter* emitter, Entity* entity, void* address) 
 	while (field) {
 		Type* type = entity_type((Entity*)field->entity);
 		if (type_has_views((Type*)type)) {
-			void* storage = LLVMBuildStructGEP2((void*)emitter->compiler->llvm_builder.handle, llvm_body((Compiler*)emitter->compiler, (Entity*)entity), (void*)address, (u32)field->entity->data.variable.data.field.index, "member.object\0");
+			LLVMOpaqueValue* storage = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), llvm_body((Compiler*)emitter->compiler, (Entity*)entity), LLVMOpaqueValue*(address), (u32)field->entity->data.variable.data.field.index, "member.object\0");
 			emit_initialize_type((Emitter*)emitter, (Type*)type, $storage);
 		};
 		@field := field->next;
 	};
 };
 
-fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
+fn emit_initialize_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address) {
 	Compiler* compiler := emitter->compiler;
 	if (!type_has_views((Type*)type)) {
 		return;
@@ -7844,7 +7901,7 @@ fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
 	if (type->kind == TYPE_ARRAY) {
 		usize index = 0;
 		while (index < type->data.array.count) {
-			emit_initialize_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)address, (u64)index));
+			emit_initialize_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(address), (u64)index));
 			@index = index + 1;
 		};
 		return;
@@ -7858,116 +7915,116 @@ fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
 	complete_offsets((Compiler*)compiler, (CompleteGraph*)graph);
 	Subobject* object := graph->objects;
 	while (object) {
-		void* storage = emit_byte_offset((Emitter*)emitter, (void*)address, (u64)object->offset);
+		LLVMOpaqueValue* storage = emit_byte_offset((Emitter*)emitter, LLVMOpaqueValue*(address), (u64)object->offset);
 		if (aggregate_header((Entity*)object->entity)) {
-			void* header = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)object->entity), (void*)storage, 0, "view.storage\0");
-			LLVMBuildStore((void*)compiler->llvm_builder.handle, runtime_view_request((Compiler*)compiler, (CompleteGraph*)graph, (Subobject*)object), $header);
+			LLVMOpaqueValue* header = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)object->entity), LLVMOpaqueValue*(storage), 0, "view.storage\0");
+			LLVMBuildStore(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), runtime_view_request((Compiler*)compiler, (CompleteGraph*)graph, (Subobject*)object), $header);
 		};
 		emit_initialize_body_fields((Emitter*)emitter, (Entity*)object->entity, $storage);
 		@object := object->next;
 	};
 };
 
-fn emit_body_payload_copy(Emitter* emitter, Entity* entity, void* destination, void* source) {
+fn emit_body_payload_copy(Emitter* emitter, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	Compiler* compiler := emitter->compiler;
 	BaseRelation* base := entity->data.aggregate.bases;
 	while (base) {
 		if (base->kind == BASE_NONVIRTUAL) {
-			void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)base->component, "copy.base.destination\0");
-			void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)base->component, "copy.base.source\0");
+			LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)base->component, "copy.base.destination\0");
+			LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)base->component, "copy.base.source\0");
 			emit_body_payload_copy((Emitter*)emitter, (Entity*)base->entity, $target, $origin);
 		};
 		@base := base->next;
 	};
 	Field* field := entity->data.aggregate.fields;
 	while (field) {
-		void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)field->entity->data.variable.data.field.index, "copy.field.destination\0");
-		void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)field->entity->data.variable.data.field.index, "copy.field.source\0");
+		LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)field->entity->data.variable.data.field.index, "copy.field.destination\0");
+		LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)field->entity->data.variable.data.field.index, "copy.field.source\0");
 		emit_payload_copy((Emitter*)emitter, entity_type((Entity*)field->entity), $target, $origin);
 		@field := field->next;
 	};
 };
 
-fn emit_payload_copy(Emitter* emitter, Type* type, void* destination, void* source) {
+fn emit_payload_copy(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	Compiler* compiler := emitter->compiler;
 	if (!type_has_views((Type*)type) || (type->kind == TYPE_NAMED && type->data.entity->kind == ENTITY_UNION)) {
-		void* value = LLVMBuildLoad2((void*)compiler->llvm_builder.handle, llvm_type((Compiler*)compiler, (Type*)type), (void*)source, "copy.value\0");
-		LLVMBuildStore((void*)compiler->llvm_builder.handle, $value, (void*)destination);
+		LLVMOpaqueValue* value = LLVMBuildLoad2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_type((Compiler*)compiler, (Type*)type), LLVMOpaqueValue*(source), "copy.value\0");
+		LLVMBuildStore(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $value, LLVMOpaqueValue*(destination));
 		return;
 	};
 	if (type->kind == TYPE_ARRAY) {
 		usize index = 0;
 		while (index < type->data.array.count) {
-			emit_payload_copy((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)destination, (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, (void*)source, (u64)index));
+			emit_payload_copy((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(source), (u64)index));
 			@index = index + 1;
 		};
 		return;
 	};
 	Entity* entity := type->data.entity;
-	emit_body_payload_copy((Emitter*)emitter, (Entity*)entity, (void*)destination, (void*)source);
+	emit_body_payload_copy((Emitter*)emitter, (Entity*)entity, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 	CompleteGraph* graph = complete_graph((Compiler*)compiler, (Entity*)entity);
 	Subobject* target := graph->virtuals;
 	while (target) {
 		BasePath* path = nullptr;
 		subobject_find_path((Compiler*)compiler, (Subobject*)graph->root, (Subobject*)target, &path);
-		void* origin = emit_base_address((Emitter*)emitter, (void*)source, (Entity*)entity, (BasePath*)path, BASE_UP);
-		void* result = emit_base_address((Emitter*)emitter, (void*)destination, (Entity*)entity, $path, BASE_UP);
+		LLVMOpaqueValue* origin = emit_base_address((Emitter*)emitter, LLVMOpaqueValue*(source), (Entity*)entity, (BasePath*)path, BASE_UP);
+		LLVMOpaqueValue* result = emit_base_address((Emitter*)emitter, LLVMOpaqueValue*(destination), (Entity*)entity, $path, BASE_UP);
 		emit_body_payload_copy((Emitter*)emitter, (Entity*)target->entity, $result, $origin);
 		@target := target->virtual_next;
 	};
 };
 
-fn emit_complete_read(Emitter* emitter, Type* type, void* source) -> void* {
+fn emit_complete_read(Emitter* emitter, Type* type, LLVMOpaqueValue* source) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
 	if (!type_has_views((Type*)type) || (type->kind == TYPE_NAMED && type->data.entity->kind == ENTITY_UNION)) {
-		return LLVMBuildLoad2((void*)compiler->llvm_builder.handle, llvm_type((Compiler*)compiler, (Type*)type), (void*)source, "value\0");
+		return LLVMBuildLoad2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_type((Compiler*)compiler, (Type*)type), LLVMOpaqueValue*(source), "value\0");
 	};
-	void* value = emit_slot((Compiler*)compiler, (Type*)type);
-	emit_initialize_type((Emitter*)emitter, (Type*)type, (void*)value);
-	emit_payload_copy($emitter, (Type*)type, (void*)value, $source);
-	return LLVMBuildLoad2((void*)compiler->llvm_builder.handle, llvm_type($compiler, $type), $value, "complete.value\0");
+	LLVMOpaqueValue* value = emit_slot((Compiler*)compiler, (Type*)type);
+	emit_initialize_type((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(value));
+	emit_payload_copy($emitter, (Type*)type, LLVMOpaqueValue*(value), $source);
+	return LLVMBuildLoad2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_type($compiler, $type), $value, "complete.value\0");
 };
 
-fn emit_value_read(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_value_read(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, emit_address($emitter, $syntax));
 };
 
-fn emit_truth(Emitter* emitter, void* value, Type* type) -> void* {
-	void* zero = LLVMConstNull(llvm_type((Compiler*)emitter->compiler, (Type*)type));
+fn emit_truth(Emitter* emitter, LLVMOpaqueValue* value, Type* type) -> LLVMOpaqueValue* {
+	LLVMOpaqueValue* zero = LLVMConstNull(llvm_type((Compiler*)emitter->compiler, (Type*)type));
 	if (type->kind == TYPE_FLOAT) {
-		return LLVMBuildFCmp((void*)emitter->compiler->llvm_builder.handle, 14, (void*)value, (void*)zero, "truth\0");
+		return LLVMBuildFCmp(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), 14, LLVMOpaqueValue*(value), LLVMOpaqueValue*(zero), "truth\0");
 	};
-	return LLVMBuildICmp((void*)emitter->compiler->llvm_builder.handle, 33, $value, $zero, "truth\0");
+	return LLVMBuildICmp(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), 33, $value, $zero, "truth\0");
 };
 
-fn emit_address(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_address(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	if (syntax->kind == SYNTAX_OWNED_COMPONENT) {
-		return (void*)syntax->address;
+		return LLVMOpaqueValue*(syntax->address);
 	};
 	if (syntax_category((Syntax*)syntax) == VALUE_TEMPORARY) {
-		void* value = emit_expression((Emitter*)emitter, (Syntax*)syntax);
+		LLVMOpaqueValue* value = emit_expression((Emitter*)emitter, (Syntax*)syntax);
 		if (syntax->address) {
-			return (void*)syntax->address;
+			return LLVMOpaqueValue*(syntax->address);
 		};
-		void* slot = emit_slot((Compiler*)emitter->compiler, (Type*)syntax->type);
-		LLVMBuildStore((void*)emitter->compiler->llvm_builder.handle, $value, (void*)slot);
+		LLVMOpaqueValue* slot = emit_slot((Compiler*)emitter->compiler, (Type*)syntax->type);
+		LLVMBuildStore(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), $value, LLVMOpaqueValue*(slot));
 		@syntax->address := slot;
 		return $slot;
 	};
-	void* address = emit_storage_address((Emitter*)emitter, (Syntax*)syntax);
+	LLVMOpaqueValue* address = emit_storage_address((Emitter*)emitter, (Syntax*)syntax);
 	Type* storage = syntax_storage_type((Syntax*)syntax);
 	if (storage && storage->kind == TYPE_REFERENCE && syntax->kind != SYNTAX_CALL && syntax->kind != SYNTAX_CAST && syntax->kind != SYNTAX_BASE_REFERENCE) {
-		return LLVMBuildLoad2((void*)emitter->compiler->llvm_builder.handle, llvm_type((Compiler*)emitter->compiler, $storage), (void*)address, "referent\0");
+		return LLVMBuildLoad2(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), llvm_type((Compiler*)emitter->compiler, $storage), LLVMOpaqueValue*(address), "referent\0");
 	};
 	return $address;
 };
 
 
-fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void* {
-	void* builder := emitter->compiler->llvm_builder.handle;
-	void* type = llvm_type((Compiler*)emitter->compiler, (Type*)target);
+fn emit_cast(Emitter* emitter, LLVMOpaqueValue* value, Type* source, Type* target) -> LLVMOpaqueValue* {
+	LLVMOpaqueBuilder* builder := emitter->compiler->llvm_builder.handle;
+	LLVMOpaqueType* type = llvm_type((Compiler*)emitter->compiler, (Type*)target);
 	if (target->kind == TYPE_BOOL && source->kind != TYPE_BOOL) {
-		return emit_truth($emitter, (void*)value, (Type*)source);
+		return emit_truth($emitter, LLVMOpaqueValue*(value), (Type*)source);
 	};
 	if (type_equal((Type*)source, (Type*)target)) {
 		return $value;
@@ -7976,30 +8033,30 @@ fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void*
 		if (target->kind == TYPE_POINTER || target->kind == TYPE_REFERENCE) {
 			return $value;
 		};
-		return LLVMBuildPtrToInt((void*)builder, (void*)value, (void*)type, "cast\0");
+		return LLVMBuildPtrToInt(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 	};
 	if (target->kind == TYPE_POINTER || target->kind == TYPE_REFERENCE) {
-		return LLVMBuildIntToPtr((void*)builder, (void*)value, (void*)type, "cast\0");
+		return LLVMBuildIntToPtr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 	};
 	if (source->kind == TYPE_FLOAT && target->kind == TYPE_FLOAT) {
-		return LLVMBuildFPCast((void*)builder, (void*)value, (void*)type, "cast\0");
+		return LLVMBuildFPCast(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 	};
 	if (source->kind == TYPE_FLOAT) {
 		if (type_unsigned((Type*)target)) {
-			return LLVMBuildFPToUI((void*)builder, (void*)value, (void*)type, "cast\0");
+			return LLVMBuildFPToUI(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 		};
-		return LLVMBuildFPToSI((void*)builder, (void*)value, (void*)type, "cast\0");
+		return LLVMBuildFPToSI(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 	};
 	if (target->kind == TYPE_FLOAT) {
 		if (type_unsigned((Type*)source) || source->kind == TYPE_CHAR) {
-			return LLVMBuildUIToFP((void*)builder, (void*)value, (void*)type, "cast\0");
+			return LLVMBuildUIToFP(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 		};
-		return LLVMBuildSIToFP((void*)builder, (void*)value, (void*)type, "cast\0");
+		return LLVMBuildSIToFP(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
 	};
 	return LLVMBuildIntCast2($builder, $value, $type, !(type_unsigned((Type*)source) || source->kind == TYPE_CHAR), "cast\0");
 };
 
-fn emit_extension(Compiler* compiler, Type* type) -> void* {
+fn emit_extension(Compiler* compiler, Type* type) -> LLVMOpaqueAttributeRef* {
 	if (!type_integer((Type*)type) || type_bits((Type*)type) >= 32) {
 		return nullptr;
 	};
@@ -8007,22 +8064,22 @@ fn emit_extension(Compiler* compiler, Type* type) -> void* {
 	if (type_unsigned((Type*)type) || type->kind == TYPE_CHAR) {
 		@name = "zeroext\0";
 	};
-	return LLVMCreateEnumAttribute((void*)compiler->llvm_context.handle, LLVMGetEnumAttributeKindForName((char*)name, strlen($name)), 0);
+	return LLVMCreateEnumAttribute(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMGetEnumAttributeKindForName((char*)name, strlen($name)), 0);
 };
 
-fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> void* {
-	void* builder := emitter->compiler->llvm_builder.handle;
+fn emit_binary(Emitter* emitter, Syntax* syntax, LLVMOpaqueValue* first, LLVMOpaqueValue* second) -> LLVMOpaqueValue* {
+	LLVMOpaqueBuilder* builder := emitter->compiler->llvm_builder.handle;
 	Type* type := syntax->data.binary.left->type;
 	TokenKind operation := syntax->data.binary.operation;
 	if (operation != TOKEN_EQUAL && operation != TOKEN_NOT_EQUAL && operation != TOKEN_LESS && operation != TOKEN_GREATER && operation != TOKEN_LESS_EQUAL && operation != TOKEN_GREATER_EQUAL) {
 		@type := syntax->type;
 	};
 	if (type->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
-		@second = emit_cast((Emitter*)emitter, (void*)second, (Type*)syntax->data.binary.right->type, (Type*)emitter->compiler->usize_type);
+		@second = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(second), (Type*)syntax->data.binary.right->type, (Type*)emitter->compiler->usize_type);
 		if (operation == TOKEN_MINUS) {
-			@second = LLVMBuildNeg((void*)builder, (void*)second, "negative\0");
+			@second = LLVMBuildNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(second), "negative\0");
 		};
-		return LLVMBuildGEP2((void*)builder, llvm_type((Compiler*)emitter->compiler, (Type*)type->data.element), (void*)first, &second, 1, "offset\0");
+		return LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)emitter->compiler, (Type*)type->data.element), LLVMOpaqueValue*(first), &second, 1, "offset\0");
 	};
 	if (operation == TOKEN_EQUAL || operation == TOKEN_NOT_EQUAL || operation == TOKEN_LESS || operation == TOKEN_GREATER || operation == TOKEN_LESS_EQUAL || operation == TOKEN_GREATER_EQUAL) {
 		i32 predicate = 32;
@@ -8041,7 +8098,7 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 		if (operation == TOKEN_LESS_EQUAL) {
 			@predicate = 41;
 		};
-		void* result = nullptr;
+		LLVMOpaqueValue* result = nullptr;
 		if (type->kind == TYPE_FLOAT) {
 			@predicate = 1;
 			if (operation == TOKEN_NOT_EQUAL) {
@@ -8059,56 +8116,56 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 			if (operation == TOKEN_LESS_EQUAL) {
 				@predicate = 5;
 			};
-			@result = LLVMBuildFCmp((void*)builder, (i32)predicate, (void*)first, (void*)second, "compare\0");
+			@result = LLVMBuildFCmp(LLVMOpaqueBuilder*(builder), (i32)predicate, LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "compare\0");
 		}
 		else {
 			if ((type_unsigned((Type*)type) || type->kind == TYPE_CHAR || type->kind == TYPE_POINTER) && predicate >= 38) {
 				@predicate = predicate - 4;
 			};
-			@result = LLVMBuildICmp((void*)builder, (i32)predicate, (void*)first, (void*)second, "compare\0");
+			@result = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), (i32)predicate, LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "compare\0");
 		};
 		return $result;
 	};
 	if (type->kind == TYPE_FLOAT) {
 		switch (operation) {
 			case TOKEN_PLUS:
-				return LLVMBuildFAdd((void*)builder, (void*)first, (void*)second, "sum\0");
+				return LLVMBuildFAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "sum\0");
 			case TOKEN_MINUS:
-				return LLVMBuildFSub((void*)builder, (void*)first, (void*)second, "difference\0");
+				return LLVMBuildFSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "difference\0");
 			case TOKEN_STAR:
-				return LLVMBuildFMul((void*)builder, (void*)first, (void*)second, "product\0");
+				return LLVMBuildFMul(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "product\0");
 			case TOKEN_SLASH:
-				return LLVMBuildFDiv((void*)builder, (void*)first, (void*)second, "quotient\0");
+				return LLVMBuildFDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
 		};
 	};
 	switch (operation) {
 		case TOKEN_PLUS:
-			return LLVMBuildAdd((void*)builder, (void*)first, (void*)second, "sum\0");
+			return LLVMBuildAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "sum\0");
 		case TOKEN_MINUS:
-			return LLVMBuildSub((void*)builder, (void*)first, (void*)second, "difference\0");
+			return LLVMBuildSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "difference\0");
 		case TOKEN_STAR:
-			return LLVMBuildMul((void*)builder, (void*)first, (void*)second, "product\0");
+			return LLVMBuildMul(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "product\0");
 		case TOKEN_SLASH:
 			if (type_unsigned((Type*)type)) {
-				return LLVMBuildUDiv((void*)builder, (void*)first, (void*)second, "quotient\0");
+				return LLVMBuildUDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
 			};
-			return LLVMBuildSDiv((void*)builder, (void*)first, (void*)second, "quotient\0");
+			return LLVMBuildSDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
 		case TOKEN_REMAINDER:
 			if (type_unsigned((Type*)type)) {
-				return LLVMBuildURem((void*)builder, (void*)first, (void*)second, "remainder\0");
+				return LLVMBuildURem(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "remainder\0");
 			};
-			return LLVMBuildSRem((void*)builder, (void*)first, (void*)second, "remainder\0");
+			return LLVMBuildSRem(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "remainder\0");
 		case TOKEN_AMPERSAND:
-			return LLVMBuildAnd((void*)builder, (void*)first, (void*)second, "and\0");
+			return LLVMBuildAnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "and\0");
 		case TOKEN_PIPE:
-			return LLVMBuildOr((void*)builder, (void*)first, (void*)second, "or\0");
+			return LLVMBuildOr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "or\0");
 		case TOKEN_CARET:
-			return LLVMBuildXor((void*)builder, (void*)first, (void*)second, "xor\0");
+			return LLVMBuildXor(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "xor\0");
 		case TOKEN_SHIFT_LEFT:
-			return LLVMBuildShl((void*)builder, (void*)first, (void*)second, "shift\0");
+			return LLVMBuildShl(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "shift\0");
 		case TOKEN_SHIFT_RIGHT:
 			if (type_unsigned((Type*)type)) {
-				return LLVMBuildLShr((void*)builder, (void*)first, (void*)second, "shift\0");
+				return LLVMBuildLShr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "shift\0");
 			};
 			return LLVMBuildAShr($builder, $first, $second, "shift\0");
 	};
@@ -8116,9 +8173,9 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 	return nullptr;
 };
 
-fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_call(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void* builder := compiler->llvm_builder.handle;
+	LLVMOpaqueBuilder* builder := compiler->llvm_builder.handle;
 	if (syntax->data.call.receiver.kind == RECEIVER_EVALUATE) {
 		Syntax* object := syntax->data.call.receiver.value;
 		if (syntax_category((Syntax*)object) == VALUE_STORAGE) {
@@ -8142,7 +8199,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 		@count = count + 1;
 		@argument := argument->next;
 	};
-	void** values = (void**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(void*));
+	LLVMOpaqueValue** values = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(LLVMOpaqueValue*));
 	Parameter* parameter := signature->data.function.parameters;
 	@argument := syntax->data.call.arguments;
 	u32 index = 0;
@@ -8158,14 +8215,14 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 		@index = 1;
 	};
 	while (argument) {
-		void* value = nullptr;
+		LLVMOpaqueValue* value = nullptr;
 		if (argument->kind == SYNTAX_BLOCK) {
 			@argument->entity->data.variable.data.address = emit_slot((Compiler*)compiler, (Type*)argument->type);
 			if (argument->data.statements && argument->type->kind != TYPE_REFERENCE) {
-				emit_initialize_type((Emitter*)emitter, (Type*)argument->type, (void*)argument->entity->data.variable.data.address);
+				emit_initialize_type((Emitter*)emitter, (Type*)argument->type, LLVMOpaqueValue*(argument->entity->data.variable.data.address));
 			};
 			emit_statement((Emitter*)emitter, (Syntax*)argument);
-			@value = LLVMBuildLoad2((void*)builder, llvm_type((Compiler*)compiler, (Type*)argument->type), (void*)argument->entity->data.variable.data.address, "argument\0");
+			@value = LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)compiler, (Type*)argument->type), LLVMOpaqueValue*(argument->entity->data.variable.data.address), "argument\0");
 		}
 		else if (parameter && parameter->type->kind == TYPE_REFERENCE) {
 			@value = emit_address((Emitter*)emitter, (Syntax*)argument);
@@ -8174,7 +8231,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 			@value = emit_expression((Emitter*)emitter, (Syntax*)argument);
 		};
 		if (parameter && parameter->type->kind != TYPE_REFERENCE) {
-			@value = emit_cast((Emitter*)emitter, (void*)value, (Type*)argument->type, (Type*)parameter->type);
+			@value = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)argument->type, (Type*)parameter->type);
 		};
 		if (!parameter) {
 			Type* promoted := argument->type;
@@ -8185,7 +8242,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 			else if (type_integer((Type*)promoted) && type_bits((Type*)promoted) < 32) {
 				@promoted := compiler->i32_type;
 			};
-			@value = emit_cast((Emitter*)emitter, (void*)value, (Type*)argument->type, $promoted);
+			@value = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)argument->type, $promoted);
 		};
 		@values[index] = $value;
 		@index = index + 1;
@@ -8198,11 +8255,11 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	if (signature->data.function.result->kind == TYPE_VOID) {
 		@name = "\0";
 	};
-	void* target = nullptr;
+	LLVMOpaqueValue* target = nullptr;
 	if (callee->kind == SYNTAX_NAME && callee->entity && callee->entity->kind == ENTITY_FUNCTION) {
 		Entity* function := callee->entity;
 		if (function->data.function.callable && !syntax->data.call.qualified_owner && !callee->data.expression) {
-			@target = emit_dispatch_target((Emitter*)emitter, (Entity*)function, (void*)values[0]);
+			@target = emit_dispatch_target((Emitter*)emitter, (Entity*)function, LLVMOpaqueValue*(values[0]));
 		}
 		else {
 			@target := function->data.function.llvm_value;
@@ -8211,17 +8268,17 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	else {
 		@target = emit_expression((Emitter*)emitter, (Syntax*)callee);
 	};
-	void* call = LLVMBuildCall2($builder, llvm_type((Compiler*)compiler, (Type*)signature), $target, $values, $count, $name);
-	void* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
+	LLVMOpaqueValue* call = LLVMBuildCall2($builder, llvm_type((Compiler*)compiler, (Type*)signature), $target, $values, $count, $name);
+	LLVMOpaqueAttributeRef* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
 	if (extension) {
-		LLVMAddCallSiteAttribute((void*)call, 0, (void*)extension);
+		LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), 0, LLVMOpaqueAttributeRef*(extension));
 	};
 	@index = 1;
 	@parameter := signature->data.function.parameters;
 	while (parameter) {
 		@extension = emit_extension((Compiler*)compiler, (Type*)parameter->type);
 		if (extension) {
-			LLVMAddCallSiteAttribute((void*)call, (u32)index, (void*)extension);
+			LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), (u32)index, LLVMOpaqueAttributeRef*(extension));
 		};
 		@index = index + 1;
 		@parameter := parameter->next;
@@ -8229,7 +8286,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	return $call;
 };
 
-fn emit_special_call(Emitter* emitter, Entity* function, void* receiver, Syntax* arguments) -> void* {
+fn emit_special_call(Emitter* emitter, Entity* function, LLVMOpaqueValue* receiver, Syntax* arguments) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
 	Type* signature := function->data.function.type;
 	u32 count = 1;
@@ -8238,7 +8295,7 @@ fn emit_special_call(Emitter* emitter, Entity* function, void* receiver, Syntax*
 		@count = count + 1;
 		@argument := argument->next;
 	};
-	void** values = (void**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(void*));
+	LLVMOpaqueValue** values = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, (usize)count * sizeof(LLVMOpaqueValue*));
 	@values[0] = $receiver;
 	Parameter* parameter := signature->data.function.parameters->next;
 	@argument := arguments;
@@ -8258,8 +8315,8 @@ fn emit_special_call(Emitter* emitter, Entity* function, void* receiver, Syntax*
 	if (signature->data.function.result->kind == TYPE_VOID) {
 		@name = "\0";
 	};
-	void* call = LLVMBuildCall2((void*)compiler->llvm_builder.handle, (void*)function->data.function.llvm_type, (void*)function->data.function.llvm_value, $values, $count, $name);
-	emit_forward_attributes($compiler, (void*)call, $signature);
+	LLVMOpaqueValue* call = LLVMBuildCall2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueType*(function->data.function.llvm_type), LLVMOpaqueValue*(function->data.function.llvm_value), $values, $count, $name);
+	emit_forward_attributes($compiler, LLVMOpaqueValue*(call), $signature);
 	return $call;
 };
 
@@ -8291,39 +8348,39 @@ fn type_requires_destruction(Type* type) -> bool {
 	return false;
 };
 
-fn emit_destroy_type(Emitter* emitter, Type* type, void* address);
+fn emit_destroy_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address);
 
-fn emit_destroy_fields(Emitter* emitter, Field* field, void* address) {
+fn emit_destroy_fields(Emitter* emitter, Field* field, LLVMOpaqueValue* address) {
 	if (!field) {
 		return;
 	};
-	emit_destroy_fields((Emitter*)emitter, (Field*)field->next, (void*)address);
+	emit_destroy_fields((Emitter*)emitter, (Field*)field->next, LLVMOpaqueValue*(address));
 	Entity* entity := field->entity;
 	Entity* owner := entity->data.variable.data.field.owner;
-	void* member = LLVMBuildStructGEP2((void*)emitter->compiler->llvm_builder.handle, llvm_body((Compiler*)emitter->compiler, $owner), $address, (u32)entity->data.variable.data.field.index, "destroy.field\0");
+	LLVMOpaqueValue* member = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), llvm_body((Compiler*)emitter->compiler, $owner), $address, (u32)entity->data.variable.data.field.index, "destroy.field\0");
 	emit_destroy_type($emitter, entity_type($entity), $member);
 };
 
-fn emit_destroy_body(Emitter* emitter, Entity* entity, void* address);
+fn emit_destroy_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address);
 
-fn emit_destroy_bases(Emitter* emitter, Entity* owner, BaseRelation* base, void* address) {
+fn emit_destroy_bases(Emitter* emitter, Entity* owner, BaseRelation* base, LLVMOpaqueValue* address) {
 	if (!base) {
 		return;
 	};
-	emit_destroy_bases((Emitter*)emitter, (Entity*)owner, (BaseRelation*)base->next, (void*)address);
+	emit_destroy_bases((Emitter*)emitter, (Entity*)owner, (BaseRelation*)base->next, LLVMOpaqueValue*(address));
 	if (base->kind == BASE_NONVIRTUAL) {
-		void* subobject = LLVMBuildStructGEP2((void*)emitter->compiler->llvm_builder.handle, llvm_body((Compiler*)emitter->compiler, (Entity*)owner), (void*)address, (u32)base->component, "destroy.base\0");
+		LLVMOpaqueValue* subobject = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), llvm_body((Compiler*)emitter->compiler, (Entity*)owner), LLVMOpaqueValue*(address), (u32)base->component, "destroy.base\0");
 		emit_destroy_body((Emitter*)emitter, (Entity*)base->entity, $subobject);
 	};
 };
 
-fn emit_destroy_body(Emitter* emitter, Entity* entity, void* address) {
+fn emit_destroy_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address) {
 	if (entity->data.aggregate.destructor) {
 		if (entity->data.aggregate.destructor->data.function.definition == FUNCTION_DELETED) {
 			compiler_error((Compiler*)emitter->compiler, Token(entity->name), "selected destructor is deleted\0");
 			return;
 		};
-		emit_special_call((Emitter*)emitter, (Entity*)entity->data.aggregate.destructor, (void*)address, nullptr);
+		emit_special_call((Emitter*)emitter, (Entity*)entity->data.aggregate.destructor, LLVMOpaqueValue*(address), nullptr);
 	};
 	if (entity->kind == ENTITY_UNION) {
 		if (!entity->data.aggregate.destructor) {
@@ -8338,11 +8395,11 @@ fn emit_destroy_body(Emitter* emitter, Entity* entity, void* address) {
 		};
 		return;
 	};
-	emit_destroy_fields((Emitter*)emitter, (Field*)entity->data.aggregate.fields, (void*)address);
+	emit_destroy_fields((Emitter*)emitter, (Field*)entity->data.aggregate.fields, LLVMOpaqueValue*(address));
 	emit_destroy_bases($emitter, (Entity*)entity, (BaseRelation*)entity->data.aggregate.bases, $address);
 };
 
-fn emit_destroy_type(Emitter* emitter, Type* type, void* address) {
+fn emit_destroy_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address) {
 	if (!type_requires_destruction((Type*)type)) {
 		return;
 	};
@@ -8350,7 +8407,7 @@ fn emit_destroy_type(Emitter* emitter, Type* type, void* address) {
 		u64 index := type->data.array.count;
 		while (index) {
 			@index = index - 1;
-			emit_destroy_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)address, (usize)index));
+			emit_destroy_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(address), (usize)index));
 		};
 		return;
 	};
@@ -8369,7 +8426,7 @@ fn emit_cleanups(Emitter* emitter, Syntax* syntax) {
 	LifetimeCleanup* cleanup := syntax->cleanup;
 	while (cleanup) {
 		Entity* entity := cleanup->entity;
-		emit_destroy_type((Emitter*)emitter, entity_type((Entity*)entity), (void*)entity->data.variable.data.address);
+		emit_destroy_type((Emitter*)emitter, entity_type((Entity*)entity), LLVMOpaqueValue*(entity->data.variable.data.address));
 		@cleanup := cleanup->next;
 	};
 };
@@ -8426,10 +8483,10 @@ fn lifetime_polymorphism_supported(Emitter* emitter, Type* type) -> bool {
 	return true;
 };
 
-fn emit_default_type(Emitter* emitter, Type* type, void* address);
-fn emit_default_body(Emitter* emitter, Entity* entity, void* address);
+fn emit_default_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address);
+fn emit_default_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address);
 
-fn emit_default_body_members(Emitter* emitter, Entity* entity, void* address) {
+fn emit_default_body_members(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address) {
 	if (entity->kind == ENTITY_UNION) {
 		return;
 	};
@@ -8437,28 +8494,28 @@ fn emit_default_body_members(Emitter* emitter, Entity* entity, void* address) {
 	BaseRelation* base := entity->data.aggregate.bases;
 	while (base) {
 		if (base->kind == BASE_NONVIRTUAL) {
-			void* subobject = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)address, (u32)base->component, "construct.base\0");
+			LLVMOpaqueValue* subobject = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(address), (u32)base->component, "construct.base\0");
 			emit_default_body((Emitter*)emitter, (Entity*)base->entity, $subobject);
 		};
 		@base := base->next;
 	};
 	Field* field := entity->data.aggregate.fields;
 	while (field) {
-		void* member = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)address, (u32)field->entity->data.variable.data.field.index, "construct.field\0");
+		LLVMOpaqueValue* member = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(address), (u32)field->entity->data.variable.data.field.index, "construct.field\0");
 		emit_default_type((Emitter*)emitter, entity_type((Entity*)field->entity), $member);
 		@field := field->next;
 	};
 };
 
-fn emit_default_body(Emitter* emitter, Entity* entity, void* address) {
-	emit_default_body_members((Emitter*)emitter, (Entity*)entity, (void*)address);
+fn emit_default_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* address) {
+	emit_default_body_members((Emitter*)emitter, (Entity*)entity, LLVMOpaqueValue*(address));
 	Entity* constructor = aggregate_default_constructor($entity);
 	if (constructor) {
-		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, nullptr);
+		emit_special_call((Emitter*)emitter, (Entity*)constructor, LLVMOpaqueValue*(address), nullptr);
 	};
 };
 
-fn emit_default_members(Emitter* emitter, Type* type, void* address) {
+fn emit_default_members(Emitter* emitter, Type* type, LLVMOpaqueValue* address) {
 	if (!lifetime_polymorphism_supported((Emitter*)emitter, (Type*)type)) {
 		return;
 	};
@@ -8469,11 +8526,11 @@ fn emit_default_members(Emitter* emitter, Type* type, void* address) {
 	emit_default_body_members($emitter, $entity, $address);
 };
 
-fn emit_default_type(Emitter* emitter, Type* type, void* address) {
+fn emit_default_type(Emitter* emitter, Type* type, LLVMOpaqueValue* address) {
 	if (type->kind == TYPE_ARRAY) {
 		usize index = 0;
 		while (index < type->data.array.count) {
-			emit_default_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)address, (u64)index));
+			emit_default_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(address), (u64)index));
 			@index = index + 1;
 		};
 		return;
@@ -8481,10 +8538,10 @@ fn emit_default_type(Emitter* emitter, Type* type, void* address) {
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
 		return;
 	};
-	emit_default_members((Emitter*)emitter, (Type*)type, (void*)address);
+	emit_default_members((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(address));
 	Entity* constructor = aggregate_default_constructor((Entity*)type->data.entity);
 	if (constructor) {
-		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, nullptr);
+		emit_special_call((Emitter*)emitter, (Entity*)constructor, LLVMOpaqueValue*(address), nullptr);
 	};
 };
 
@@ -8493,12 +8550,12 @@ enum StorageExtent {
 	COMPLETE_OBJECT,
 };
 
-fn emit_temporary_register(Emitter* emitter, Type* type, void* value, void* address) -> void* {
+fn emit_temporary_register(Emitter* emitter, Type* type, LLVMOpaqueValue* value, LLVMOpaqueValue* address) -> LLVMOpaqueValue* {
 	Temporary* temporary = (Temporary*)memory_allocate((Compiler*)emitter->compiler, sizeof(Temporary));
 	@temporary->type := type;
 	if (!address) {
 		@address = emit_slot((Compiler*)emitter->compiler, (Type*)type);
-		LLVMBuildStore((void*)emitter->compiler->llvm_builder.handle, (void*)value, (void*)address);
+		LLVMBuildStore(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), LLVMOpaqueValue*(value), LLVMOpaqueValue*(address));
 	};
 	@temporary->address := address;
 	@temporary->next := emitter->temporaries;
@@ -8506,7 +8563,7 @@ fn emit_temporary_register(Emitter* emitter, Type* type, void* value, void* addr
 	return $address;
 };
 
-fn emit_storage_special(Emitter* emitter, Type* type, FunctionRole role, void* destination, void* source, SyntaxKind kind, StorageExtent extent) -> bool {
+fn emit_storage_special(Emitter* emitter, Type* type, FunctionRole role, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, SyntaxKind kind, StorageExtent extent) -> bool {
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
 		return false;
 	};
@@ -8528,111 +8585,111 @@ fn emit_storage_special(Emitter* emitter, Type* type, FunctionRole role, void* d
 	};
 	if (role == CONSTRUCTOR_ROLE) {
 		if (extent == COMPLETE_OBJECT) {
-			emit_default_members((Emitter*)emitter, (Type*)type, (void*)destination);
+			emit_default_members((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination));
 		}
 		else {
-			emit_default_body_members((Emitter*)emitter, (Entity*)type->data.entity, (void*)destination);
+			emit_default_body_members((Emitter*)emitter, (Entity*)type->data.entity, LLVMOpaqueValue*(destination));
 		};
 	};
-	void* result = emit_special_call((Emitter*)emitter, (Entity*)function, $destination, &argument);
+	LLVMOpaqueValue* result = emit_special_call((Emitter*)emitter, (Entity*)function, $destination, &argument);
 	Type* result_type := function->data.function.type->data.function.result;
 	if (role == ASSIGNMENT_ROLE && result_type->kind != TYPE_REFERENCE && type_requires_destruction((Type*)result_type)) {
-		emit_temporary_register((Emitter*)emitter, (Type*)result_type, (void*)result, nullptr);
+		emit_temporary_register((Emitter*)emitter, (Type*)result_type, LLVMOpaqueValue*(result), nullptr);
 	};
 	if (role == ASSIGNMENT_ROLE && function->data.function.type->data.function.parameters->next->type->kind == TYPE_REFERENCE) {
-		emit_destroy_type((Emitter*)emitter, (Type*)type, (void*)source);
+		emit_destroy_type((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(source));
 	};
 	return true;
 };
 
-fn emit_copy_construct_type(Emitter* emitter, Type* type, void* destination, void* source);
+fn emit_copy_construct_type(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source);
 
-fn emit_copy_construct_body(Emitter* emitter, Entity* entity, void* destination, void* source) {
+fn emit_copy_construct_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	Type* type = entity_type((Entity*)entity);
-	if (emit_storage_special((Emitter*)emitter, (Type*)type, CONSTRUCTOR_ROLE, (void*)destination, (void*)source, SYNTAX_BORROWED_COMPONENT, BODY_OBJECT)) {
+	if (emit_storage_special((Emitter*)emitter, (Type*)type, CONSTRUCTOR_ROLE, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), SYNTAX_BORROWED_COMPONENT, BODY_OBJECT)) {
 		return;
 	};
 	Compiler* compiler := emitter->compiler;
 	if (entity->kind == ENTITY_UNION) {
-		emit_payload_copy((Emitter*)emitter, (Type*)type, (void*)destination, (void*)source);
+		emit_payload_copy((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 		return;
 	};
 	BaseRelation* base := entity->data.aggregate.bases;
 	while (base) {
 		if (base->kind == BASE_NONVIRTUAL) {
-			void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)base->component, "construct.copy.base.target\0");
-			void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)base->component, "construct.copy.base.source\0");
+			LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)base->component, "construct.copy.base.target\0");
+			LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)base->component, "construct.copy.base.source\0");
 			emit_copy_construct_body((Emitter*)emitter, (Entity*)base->entity, $target, $origin);
 		};
 		@base := base->next;
 	};
 	Field* field := entity->data.aggregate.fields;
 	while (field) {
-		void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)field->entity->data.variable.data.field.index, "construct.copy.field.target\0");
-		void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)field->entity->data.variable.data.field.index, "construct.copy.field.source\0");
+		LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)field->entity->data.variable.data.field.index, "construct.copy.field.target\0");
+		LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)field->entity->data.variable.data.field.index, "construct.copy.field.source\0");
 		emit_copy_construct_type((Emitter*)emitter, entity_type((Entity*)field->entity), $target, $origin);
 		@field := field->next;
 	};
 };
 
-fn emit_copy_construct_type(Emitter* emitter, Type* type, void* destination, void* source) {
+fn emit_copy_construct_type(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	if (!lifetime_polymorphism_supported((Emitter*)emitter, (Type*)type)) {
 		return;
 	};
 	if (type->kind == TYPE_ARRAY) {
 		usize index = 0;
 		while (index < type->data.array.count) {
-			emit_copy_construct_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)destination, (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, (void*)source, (u64)index));
+			emit_copy_construct_type((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(source), (u64)index));
 			@index = index + 1;
 		};
 		return;
 	};
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
-		emit_payload_copy((Emitter*)emitter, (Type*)type, (void*)destination, (void*)source);
+		emit_payload_copy((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 		return;
 	};
-	if (emit_storage_special((Emitter*)emitter, (Type*)type, CONSTRUCTOR_ROLE, (void*)destination, (void*)source, SYNTAX_BORROWED_COMPONENT, COMPLETE_OBJECT)) {
+	if (emit_storage_special((Emitter*)emitter, (Type*)type, CONSTRUCTOR_ROLE, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), SYNTAX_BORROWED_COMPONENT, COMPLETE_OBJECT)) {
 		return;
 	};
 	Entity* entity := type->data.entity;
 	if (type_has_views((Type*)type)) {
-		emit_payload_copy((Emitter*)emitter, (Type*)type, (void*)destination, (void*)source);
+		emit_payload_copy((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 		return;
 	};
 	emit_copy_construct_body($emitter, $entity, $destination, $source);
 };
 
-fn emit_assign_storage(Emitter* emitter, Type* type, void* destination, void* source);
+fn emit_assign_storage(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source);
 
-fn emit_assign_body(Emitter* emitter, Entity* entity, void* destination, void* source) {
+fn emit_assign_body(Emitter* emitter, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	Type* type = entity_type((Entity*)entity);
-	if (emit_storage_special((Emitter*)emitter, (Type*)type, ASSIGNMENT_ROLE, (void*)destination, (void*)source, SYNTAX_OWNED_COMPONENT, BODY_OBJECT)) {
+	if (emit_storage_special((Emitter*)emitter, (Type*)type, ASSIGNMENT_ROLE, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), SYNTAX_OWNED_COMPONENT, BODY_OBJECT)) {
 		return;
 	};
 	Compiler* compiler := emitter->compiler;
 	if (entity->kind == ENTITY_UNION) {
-		emit_payload_copy((Emitter*)emitter, (Type*)type, (void*)destination, (void*)source);
+		emit_payload_copy((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 		return;
 	};
 	BaseRelation* base := entity->data.aggregate.bases;
 	while (base) {
 		if (base->kind == BASE_NONVIRTUAL) {
-			void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)base->component, "assign.base.target\0");
-			void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)base->component, "assign.base.source\0");
+			LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)base->component, "assign.base.target\0");
+			LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)base->component, "assign.base.source\0");
 			emit_assign_body((Emitter*)emitter, (Entity*)base->entity, $target, $origin);
 		};
 		@base := base->next;
 	};
 	Field* field := entity->data.aggregate.fields;
 	while (field) {
-		void* target = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)destination, (u32)field->entity->data.variable.data.field.index, "assign.field.target\0");
-		void* origin = LLVMBuildStructGEP2((void*)compiler->llvm_builder.handle, llvm_body((Compiler*)compiler, (Entity*)entity), (void*)source, (u32)field->entity->data.variable.data.field.index, "assign.field.source\0");
+		LLVMOpaqueValue* target = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(destination), (u32)field->entity->data.variable.data.field.index, "assign.field.target\0");
+		LLVMOpaqueValue* origin = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_body((Compiler*)compiler, (Entity*)entity), LLVMOpaqueValue*(source), (u32)field->entity->data.variable.data.field.index, "assign.field.source\0");
 		emit_assign_storage((Emitter*)emitter, entity_type((Entity*)field->entity), $target, $origin);
 		@field := field->next;
 	};
 };
 
-fn emit_assign_storage(Emitter* emitter, Type* type, void* destination, void* source) {
+fn emit_assign_storage(Emitter* emitter, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
 	if (!lifetime_polymorphism_supported((Emitter*)emitter, (Type*)type)) {
 		return;
 	};
@@ -8644,54 +8701,54 @@ fn emit_assign_storage(Emitter* emitter, Type* type, void* destination, void* so
 	if (type->kind == TYPE_ARRAY) {
 		usize index = 0;
 		while (index < type->data.array.count) {
-			emit_assign_storage((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, (void*)destination, (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, (void*)source, (u64)index));
+			emit_assign_storage((Emitter*)emitter, (Type*)type->data.array.element, emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), (u64)index), emit_array_element((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(source), (u64)index));
 			@index = index + 1;
 		};
 		return;
 	};
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM || type_has_views((Type*)type)) {
-		emit_payload_copy((Emitter*)emitter, (Type*)type, (void*)destination, (void*)source);
+		emit_payload_copy((Emitter*)emitter, (Type*)type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 		return;
 	};
 	emit_assign_body($emitter, (Entity*)type->data.entity, $destination, $source);
 };
 
-fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler* compiler := emitter->compiler;
-	void* builder := compiler->llvm_builder.handle;
-	void* type = llvm_type((Compiler*)compiler, (Type*)syntax->type);
+	LLVMOpaqueBuilder* builder := compiler->llvm_builder.handle;
+	LLVMOpaqueType* type = llvm_type((Compiler*)compiler, (Type*)syntax->type);
 	switch (syntax->kind) {
 		case SYNTAX_BORROWED_COMPONENT:
 		case SYNTAX_OWNED_COMPONENT:
-			return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, (void*)syntax->address);
+			return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, LLVMOpaqueValue*(syntax->address));
 		case SYNTAX_DISCARD:
 			return nullptr;
 		case SYNTAX_CONSTRUCT: {
 			Type* target := syntax->data.construction.target;
-			void* slot = emit_slot((Compiler*)compiler, (Type*)target);
+			LLVMOpaqueValue* slot = emit_slot((Compiler*)compiler, (Type*)target);
 			@syntax->data.construction.slot := slot;
 			Syntax* argument := syntax->data.construction.arguments;
 			if (syntax->data.construction.constructor) {
-				LLVMBuildStore((void*)builder, LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)target)), (void*)slot);
-				emit_initialize_type((Emitter*)emitter, (Type*)target, (void*)slot);
-				emit_default_members((Emitter*)emitter, (Type*)target, (void*)slot);
-				emit_special_call((Emitter*)emitter, (Entity*)syntax->data.construction.constructor, (void*)slot, (Syntax*)argument);
+				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)target)), LLVMOpaqueValue*(slot));
+				emit_initialize_type((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot));
+				emit_default_members((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot));
+				emit_special_call((Emitter*)emitter, (Entity*)syntax->data.construction.constructor, LLVMOpaqueValue*(slot), (Syntax*)argument);
 			}
 			else if (!argument) {
-				LLVMBuildStore((void*)builder, LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)target)), (void*)slot);
-				emit_initialize_type((Emitter*)emitter, (Type*)target, (void*)slot);
-				emit_default_type((Emitter*)emitter, (Type*)target, (void*)slot);
+				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)target)), LLVMOpaqueValue*(slot));
+				emit_initialize_type((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot));
+				emit_default_type((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot));
 			}
 			else if (type_aggregate((Type*)target)) {
-				void* source = emit_address((Emitter*)emitter, (Syntax*)argument);
-				emit_initialize_type((Emitter*)emitter, (Type*)target, (void*)slot);
-				emit_copy_construct_type((Emitter*)emitter, (Type*)target, (void*)slot, (void*)source);
+				LLVMOpaqueValue* source = emit_address((Emitter*)emitter, (Syntax*)argument);
+				emit_initialize_type((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot));
+				emit_copy_construct_type((Emitter*)emitter, (Type*)target, LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
 			}
 			else {
-				void* value = emit_cast((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)argument), (Type*)argument->type, (Type*)target);
-				LLVMBuildStore((void*)builder, (void*)value, (void*)slot);
+				LLVMOpaqueValue* value = emit_cast((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)argument), (Type*)argument->type, (Type*)target);
+				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(slot));
 			};
-			return LLVMBuildLoad2((void*)builder, llvm_type((Compiler*)compiler, $target), $slot, "constructed\0");
+			return LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type((Compiler*)compiler, $target), $slot, "constructed\0");
 		};
 		case SYNTAX_ACCESS:
 		case SYNTAX_RELOCATE:
@@ -8707,22 +8764,22 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 				return LLVMConstNull($type);
 			};
 			if (syntax->type->kind == TYPE_BOOL) {
-				return LLVMConstInt((void*)type, number_truth((Compiler*)compiler, Token(syntax->token)), 0);
+				return LLVMConstInt(LLVMOpaqueType*(type), number_truth((Compiler*)compiler, Token(syntax->token)), 0);
 			};
 			if (syntax->type->kind == TYPE_FLOAT) {
 				if (syntax->token.source->bytes[syntax->token.begin] == '\'') {
-					return LLVMConstReal((void*)type, (f64)integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615));
+					return LLVMConstReal(LLVMOpaqueType*(type), (f64)integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615));
 				};
 				char* text = memory_text((Compiler*)compiler, syntax->token.source->bytes + syntax->token.begin, (u64)syntax->token.length);
-				return LLVMConstReal((void*)type, strtod($text, nullptr));
+				return LLVMConstReal(LLVMOpaqueType*(type), strtod($text, nullptr));
 			};
-			return LLVMConstInt((void*)type, integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615), 0);
+			return LLVMConstInt(LLVMOpaqueType*(type), integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615), 0);
 		case SYNTAX_STRING: {
-			void* value = LLVMConstStringInContext2((void*)compiler->llvm_context.handle, (char*)syntax->data.string.bytes, (u64)syntax->data.string.length, 1);
-			void* global = LLVMAddGlobal((void*)compiler->llvm_module.handle, LLVMTypeOf((void*)value), "string\0");
-			LLVMSetInitializer((void*)global, (void*)value);
-			LLVMSetGlobalConstant((void*)global, 1);
-			LLVMSetLinkage((void*)global, 9);
+			LLVMOpaqueValue* value = LLVMConstStringInContext2(LLVMOpaqueContext*(compiler->llvm_context.handle), (char*)syntax->data.string.bytes, (u64)syntax->data.string.length, 1);
+			LLVMOpaqueValue* global = LLVMAddGlobal(LLVMOpaqueModule*(compiler->llvm_module.handle), LLVMTypeOf(LLVMOpaqueValue*(value)), "string\0");
+			LLVMSetInitializer(LLVMOpaqueValue*(global), LLVMOpaqueValue*(value));
+			LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
+			LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
 			return $global;
 		};
 		case SYNTAX_NAME:
@@ -8730,7 +8787,7 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 				return runtime_callable((Compiler*)compiler, (Entity*)syntax->entity);
 			};
 			if (syntax->entity->data.variable.storage == STORAGE_CONSTANT) {
-				return LLVMConstInt((void*)type, (u64)syntax->entity->data.variable.data.integer, 0);
+				return LLVMConstInt(LLVMOpaqueType*(type), (u64)syntax->entity->data.variable.data.integer, 0);
 			};
 			if (syntax->type->kind == TYPE_FUNCTION) {
 				return emit_address((Emitter*)emitter, (Syntax*)syntax);
@@ -8743,7 +8800,7 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 			};
 			return emit_value_read((Emitter*)emitter, (Syntax*)syntax);
 		case SYNTAX_SIZEOF:
-			return LLVMConstInt($type, LLVMABISizeOfType((void*)compiler->llvm_layout.handle, llvm_type((Compiler*)compiler, (Type*)syntax->data.expression->type)), 0);
+			return LLVMConstInt($type, LLVMABISizeOfType(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), llvm_type((Compiler*)compiler, (Type*)syntax->data.expression->type)), 0);
 		case SYNTAX_CAST:
 			return emit_cast((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)syntax->data.cast.value), (Type*)syntax->data.cast.value->type, (Type*)syntax->type);
 		case SYNTAX_UNARY: {
@@ -8761,27 +8818,27 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 				};
 				return emit_value_read((Emitter*)emitter, (Syntax*)syntax);
 			};
-			void* value = emit_expression((Emitter*)emitter, (Syntax*)operand);
+			LLVMOpaqueValue* value = emit_expression((Emitter*)emitter, (Syntax*)operand);
 			if (operation == TOKEN_BANG) {
-				@value = LLVMBuildNot((void*)builder, emit_truth((Emitter*)emitter, (void*)value, (Type*)operand->type), "not\0");
+				@value = LLVMBuildNot(LLVMOpaqueBuilder*(builder), emit_truth((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)operand->type), "not\0");
 				return $value;
 			};
-			@value = emit_cast((Emitter*)emitter, (void*)value, (Type*)operand->type, (Type*)syntax->type);
+			@value = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)operand->type, (Type*)syntax->type);
 			if (operation == TOKEN_TILDE) {
-				return LLVMBuildNot((void*)builder, (void*)value, "complement\0");
+				return LLVMBuildNot(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "complement\0");
 			};
 			if (operation == TOKEN_MINUS) {
 				if (syntax->type->kind == TYPE_FLOAT) {
-					return LLVMBuildFNeg((void*)builder, (void*)value, "negative\0");
+					return LLVMBuildFNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "negative\0");
 				};
-				return LLVMBuildNeg((void*)builder, (void*)value, "negative\0");
+				return LLVMBuildNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "negative\0");
 			};
 			return $value;
 		};
 		case SYNTAX_BIND_REFERENCE: {
 			Syntax* left := syntax->data.binary.left;
-			void* referent = emit_address((Emitter*)emitter, (Syntax*)syntax->data.binary.right);
-			LLVMBuildStore((void*)builder, (void*)referent, emit_storage_address((Emitter*)emitter, (Syntax*)left));
+			LLVMOpaqueValue* referent = emit_address((Emitter*)emitter, (Syntax*)syntax->data.binary.right);
+			LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(referent), emit_storage_address((Emitter*)emitter, (Syntax*)left));
 			return $referent;
 		};
 		case SYNTAX_INITIALIZE:
@@ -8791,26 +8848,26 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 			Syntax* right := syntax->data.binary.right;
 			if (operation == TOKEN_ASSIGN || operation == TOKEN_COPY) {
 				if (syntax->entity && syntax->entity->kind == ENTITY_FUNCTION && syntax->entity->data.function.role == ASSIGNMENT_ROLE) {
-					void* result = emit_special_call((Emitter*)emitter, (Entity*)syntax->entity, emit_address((Emitter*)emitter, (Syntax*)left), (Syntax*)right);
+					LLVMOpaqueValue* result = emit_special_call((Emitter*)emitter, (Entity*)syntax->entity, emit_address((Emitter*)emitter, (Syntax*)left), (Syntax*)right);
 					Type* declared := syntax->entity->data.function.type->data.function.result;
 					if (declared->kind == TYPE_REFERENCE) {
-						return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, (void*)result);
+						return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, LLVMOpaqueValue*(result));
 					};
 					return $result;
 				};
 				if (type_aggregate((Type*)left->type)) {
-					void* destination = nullptr;
+					LLVMOpaqueValue* destination = nullptr;
 					if (type_has_views((Type*)left->type)) {
 						@destination = emit_address((Emitter*)emitter, (Syntax*)left);
 					};
-					void* source = nullptr;
+					LLVMOpaqueValue* source = nullptr;
 					if (syntax_category((Syntax*)right) == VALUE_STORAGE) {
 						@source = emit_address((Emitter*)emitter, (Syntax*)right);
 					}
 					else {
-						void* value = emit_expression((Emitter*)emitter, (Syntax*)right);
+						LLVMOpaqueValue* value = emit_expression((Emitter*)emitter, (Syntax*)right);
 						@source = emit_slot((Compiler*)compiler, (Type*)right->type);
-						LLVMBuildStore((void*)builder, (void*)value, (void*)source);
+						LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(source));
 					};
 					if (!destination) {
 						@destination = emit_address((Emitter*)emitter, (Syntax*)left);
@@ -8818,72 +8875,72 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 					@syntax->address := destination;
 					if (syntax->kind == SYNTAX_INITIALIZE) {
 						if (left->kind != SYNTAX_BASE_REFERENCE) {
-							emit_initialize_type((Emitter*)emitter, (Type*)left->type, (void*)destination);
+							emit_initialize_type((Emitter*)emitter, (Type*)left->type, LLVMOpaqueValue*(destination));
 						};
-						emit_payload_copy((Emitter*)emitter, (Type*)left->type, (void*)destination, (void*)source);
+						emit_payload_copy((Emitter*)emitter, (Type*)left->type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 					}
 					else {
-						emit_assign_storage((Emitter*)emitter, (Type*)left->type, (void*)destination, (void*)source);
+						emit_assign_storage((Emitter*)emitter, (Type*)left->type, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
 					};
 					return emit_complete_read((Emitter*)emitter, (Type*)left->type, $destination);
 				};
-				void* value = emit_expression((Emitter*)emitter, (Syntax*)right);
-				@value = emit_cast((Emitter*)emitter, (void*)value, (Type*)right->type, (Type*)left->type);
-				void* destination = emit_address((Emitter*)emitter, (Syntax*)left);
+				LLVMOpaqueValue* value = emit_expression((Emitter*)emitter, (Syntax*)right);
+				@value = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)right->type, (Type*)left->type);
+				LLVMOpaqueValue* destination = emit_address((Emitter*)emitter, (Syntax*)left);
 				@syntax->address := destination;
-				LLVMBuildStore((void*)builder, (void*)value, (void*)destination);
+				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(destination));
 				return $value;
 			};
 			if (operation == TOKEN_AND || operation == TOKEN_OR) {
-				void* initial = LLVMGetInsertBlock((void*)builder);
-				void* function = LLVMGetBasicBlockParent((void*)initial);
-				void* rhs = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "logical.right\0");
-				void* merge = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "logical.end\0");
-				void* first = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)left), (Type*)left->type);
-				@initial = LLVMGetInsertBlock((void*)builder);
+				LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+				LLVMOpaqueValue* function = LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock*(initial));
+				LLVMOpaqueBasicBlock* rhs = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "logical.right\0");
+				LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "logical.end\0");
+				LLVMOpaqueValue* first = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)left), (Type*)left->type);
+				@initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
 				if (operation == TOKEN_AND) {
-					LLVMBuildCondBr((void*)builder, (void*)first, (void*)rhs, (void*)merge);
+					LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueBasicBlock*(rhs), LLVMOpaqueBasicBlock*(merge));
 				}
 				else {
-					LLVMBuildCondBr((void*)builder, (void*)first, (void*)merge, (void*)rhs);
+					LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(rhs));
 				};
-				LLVMPositionBuilderAtEnd((void*)builder, (void*)rhs);
+				LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(rhs));
 				Temporary* boundary := emitter->temporaries;
-				void* second = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)right), (Type*)right->type);
-				@rhs = LLVMGetInsertBlock((void*)builder);
-				LLVMBuildBr((void*)builder, (void*)merge);
-				LLVMPositionBuilderAtEnd((void*)builder, (void*)merge);
-				void* phi = LLVMBuildPhi((void*)builder, LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1), "logical\0");
-				void*[2] values {};
-				void*[2] blocks {};
-				@values[0] = LLVMConstInt(LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1), (u64)(operation == TOKEN_OR), 0);
-				@values[1] = (void*)second;
-				@blocks[0] = (void*)initial;
-				@blocks[1] = (void*)rhs;
-				LLVMAddIncoming((void*)phi, &values[0], &blocks[0], 2);
+				LLVMOpaqueValue* second = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)right), (Type*)right->type);
+				@rhs = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+				LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+				LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+				LLVMOpaqueValue* phi = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1), "logical\0");
+				LLVMOpaqueValue*[2] values {};
+				LLVMOpaqueBasicBlock*[2] blocks {};
+				@values[0] = LLVMConstInt(LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1), (u64)(operation == TOKEN_OR), 0);
+				@values[1] = LLVMOpaqueValue*(second);
+				@blocks[0] = LLVMOpaqueBasicBlock*(initial);
+				@blocks[1] = LLVMOpaqueBasicBlock*(rhs);
+				LLVMAddIncoming(LLVMOpaqueValue*(phi), &values[0], &blocks[0], 2);
 				Temporary* temporary := emitter->temporaries;
 				while (temporary != boundary) {
-					void* guard = LLVMBuildPhi((void*)builder, LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1), "temporary.created\0");
-					@values[0] = LLVMConstInt(LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1), 0, 0);
+					LLVMOpaqueValue* guard = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1), "temporary.created\0");
+					@values[0] = LLVMConstInt(LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1), 0, 0);
 					@values[1] := temporary->guard;
 					if (!values[1]) {
-						@values[1] = LLVMConstInt(LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 1), 1, 0);
+						@values[1] = LLVMConstInt(LLVMIntTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 1), 1, 0);
 					};
-					LLVMAddIncoming((void*)guard, &values[0], &blocks[0], 2);
-					@temporary->guard = (void*)guard;
+					LLVMAddIncoming(LLVMOpaqueValue*(guard), &values[0], &blocks[0], 2);
+					@temporary->guard = LLVMOpaqueValue*(guard);
 					@temporary := temporary->next;
 				};
 				return $phi;
 			};
-			void* first = emit_expression((Emitter*)emitter, (Syntax*)left);
-			void* second = emit_expression((Emitter*)emitter, (Syntax*)right);
+			LLVMOpaqueValue* first = emit_expression((Emitter*)emitter, (Syntax*)left);
+			LLVMOpaqueValue* second = emit_expression((Emitter*)emitter, (Syntax*)right);
 			if (left->type->kind != TYPE_POINTER) {
 				Type* operand := left->type;
 				if (operation != TOKEN_EQUAL && operation != TOKEN_NOT_EQUAL && operation != TOKEN_LESS && operation != TOKEN_GREATER && operation != TOKEN_LESS_EQUAL && operation != TOKEN_GREATER_EQUAL) {
 					@operand := syntax->type;
 				};
-				@first = emit_cast((Emitter*)emitter, (void*)first, (Type*)left->type, (Type*)operand);
-				@second = emit_cast((Emitter*)emitter, (void*)second, (Type*)right->type, (Type*)operand);
+				@first = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(first), (Type*)left->type, (Type*)operand);
+				@second = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(second), (Type*)right->type, (Type*)operand);
 			};
 			return emit_binary((Emitter*)emitter, (Syntax*)syntax, $first, $second);
 		};
@@ -8898,11 +8955,11 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 	return nullptr;
 };
 
-fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
+fn emit_expression(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 	if (syntax->kind != SYNTAX_BORROWED_COMPONENT && syntax->kind != SYNTAX_OWNED_COMPONENT) {
 		@syntax->address = nullptr;
 	};
-	void* value = emit_expression_value((Emitter*)emitter, (Syntax*)syntax);
+	LLVMOpaqueValue* value = emit_expression_value((Emitter*)emitter, (Syntax*)syntax);
 	if (syntax->kind == SYNTAX_CONSTRUCT) {
 		@syntax->address := syntax->data.construction.slot;
 	}
@@ -8912,7 +8969,7 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 	if (!value || syntax->use == TRANSFERRED_VALUE || syntax_category((Syntax*)syntax) != VALUE_TEMPORARY || !type_requires_destruction((Type*)syntax->type)) {
 		return $value;
 	};
-	@syntax->address = emit_temporary_register($emitter, (Type*)syntax->type, (void*)value, (void*)syntax->address);
+	@syntax->address = emit_temporary_register($emitter, (Type*)syntax->type, LLVMOpaqueValue*(value), LLVMOpaqueValue*(syntax->address));
 	return $value;
 };
 
@@ -8922,41 +8979,41 @@ fn emit_temporaries(Emitter* emitter, Temporary* boundary) {
 		Temporary* temporary := emitter->temporaries;
 		@emitter->temporaries := temporary->next;
 		if (!temporary->guard) {
-			emit_destroy_type((Emitter*)emitter, (Type*)temporary->type, (void*)temporary->address);
+			emit_destroy_type((Emitter*)emitter, (Type*)temporary->type, LLVMOpaqueValue*(temporary->address));
 			continue;
 		};
-		void* destroy = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)emitter->llvm_function, "temporary.destroy\0");
-		void* continuation = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)emitter->llvm_function, "temporary.end\0");
-		LLVMBuildCondBr((void*)compiler->llvm_builder.handle, (void*)temporary->guard, (void*)destroy, (void*)continuation);
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $destroy);
-		emit_destroy_type((Emitter*)emitter, (Type*)temporary->type, (void*)temporary->address);
-		LLVMBuildBr((void*)compiler->llvm_builder.handle, (void*)continuation);
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $continuation);
+		LLVMOpaqueBasicBlock* destroy = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(emitter->llvm_function), "temporary.destroy\0");
+		LLVMOpaqueBasicBlock* continuation = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(emitter->llvm_function), "temporary.end\0");
+		LLVMBuildCondBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueValue*(temporary->guard), LLVMOpaqueBasicBlock*(destroy), LLVMOpaqueBasicBlock*(continuation));
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $destroy);
+		emit_destroy_type((Emitter*)emitter, (Type*)temporary->type, LLVMOpaqueValue*(temporary->address));
+		LLVMBuildBr(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(continuation));
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $continuation);
 	};
 };
 
-fn emit_jump(Emitter* emitter, void* block) {
-	void* current = LLVMGetInsertBlock((void*)emitter->compiler->llvm_builder.handle);
+fn emit_jump(Emitter* emitter, LLVMOpaqueBasicBlock* block) {
+	LLVMOpaqueBasicBlock* current = LLVMGetInsertBlock(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle));
 	if (!LLVMGetBasicBlockTerminator($current)) {
-		LLVMBuildBr((void*)emitter->compiler->llvm_builder.handle, (void*)block);
+		LLVMBuildBr(LLVMOpaqueBuilder*(emitter->compiler->llvm_builder.handle), LLVMOpaqueBasicBlock*(block));
 	};
 };
 
-fn emit_has_predecessor(void* target) -> i32 {
-	void* block = LLVMGetFirstBasicBlock(LLVMGetBasicBlockParent((void*)target));
+fn emit_has_predecessor(LLVMOpaqueBasicBlock* target) -> i32 {
+	LLVMOpaqueBasicBlock* block = LLVMGetFirstBasicBlock(LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock*(target)));
 	while (block) {
-		void* instruction = LLVMGetBasicBlockTerminator((void*)block);
+		LLVMOpaqueValue* instruction = LLVMGetBasicBlockTerminator(LLVMOpaqueBasicBlock*(block));
 		if (instruction) {
-			u32 count = LLVMGetNumSuccessors((void*)instruction);
+			u32 count = LLVMGetNumSuccessors(LLVMOpaqueValue*(instruction));
 			u32 index = 0;
 			while (index < count) {
-				if (LLVMGetSuccessor((void*)instruction, (u32)index) == target) {
+				if (LLVMGetSuccessor(LLVMOpaqueValue*(instruction), (u32)index) == target) {
 					return 1;
 				};
 				@index = index + 1;
 			};
 		};
-		@block = LLVMGetNextBasicBlock((void*)block);
+		@block = LLVMGetNextBasicBlock(LLVMOpaqueBasicBlock*(block));
 	};
 	return 0;
 };
@@ -8966,9 +9023,9 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 	if (!syntax || compiler->result == COMPILATION_FAILURE) {
 		return;
 	};
-	void* builder := compiler->llvm_builder.handle;
+	LLVMOpaqueBuilder* builder := compiler->llvm_builder.handle;
 	Temporary* temporaries := emitter->temporaries;
-	if (syntax->kind != SYNTAX_CASE && syntax->kind != SYNTAX_BLOCK && syntax->kind != SYNTAX_DECLARATION && LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder))) {
+	if (syntax->kind != SYNTAX_CASE && syntax->kind != SYNTAX_BLOCK && syntax->kind != SYNTAX_DECLARATION && LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder)))) {
 		return;
 	};
 	switch (syntax->kind) {
@@ -8984,16 +9041,16 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			if (syntax->entity->kind == ENTITY_VARIABLE) {
 				Entity* variable := syntax->entity;
 				@variable->data.variable.data.address = emit_slot((Compiler*)compiler, (Type*)variable->data.variable.type);
-				if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder))) {
+				if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder)))) {
 					break;
 				};
 				if (!syntax->data.declaration.body) {
-					LLVMBuildStore((void*)builder, LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)variable->data.variable.type)), (void*)variable->data.variable.data.address);
-					emit_initialize_type((Emitter*)emitter, (Type*)variable->data.variable.type, (void*)variable->data.variable.data.address);
-					emit_default_type((Emitter*)emitter, (Type*)variable->data.variable.type, (void*)variable->data.variable.data.address);
+					LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type((Compiler*)compiler, (Type*)variable->data.variable.type)), LLVMOpaqueValue*(variable->data.variable.data.address));
+					emit_initialize_type((Emitter*)emitter, (Type*)variable->data.variable.type, LLVMOpaqueValue*(variable->data.variable.data.address));
+					emit_default_type((Emitter*)emitter, (Type*)variable->data.variable.type, LLVMOpaqueValue*(variable->data.variable.data.address));
 				}
 				else if (syntax->data.declaration.body->data.statements && variable->data.variable.type->kind != TYPE_REFERENCE) {
-					emit_initialize_type((Emitter*)emitter, (Type*)variable->data.variable.type, (void*)variable->data.variable.data.address);
+					emit_initialize_type((Emitter*)emitter, (Type*)variable->data.variable.type, LLVMOpaqueValue*(variable->data.variable.data.address));
 				};
 				emit_statement((Emitter*)emitter, (Syntax*)syntax->data.declaration.body);
 			};
@@ -9002,30 +9059,30 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			if (syntax->data.expression) {
 				Syntax* expression := syntax->data.expression;
 				Type* result := emitter->function->data.function.type->data.function.result;
-				void* value = nullptr;
+				LLVMOpaqueValue* value = nullptr;
 				if (result->kind == TYPE_REFERENCE) {
 					@value = emit_address((Emitter*)emitter, (Syntax*)expression);
 				}
 				else {
 					@value = emit_expression((Emitter*)emitter, (Syntax*)expression);
-					@value = emit_cast((Emitter*)emitter, (void*)value, (Type*)expression->type, (Type*)result);
+					@value = emit_cast((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)expression->type, (Type*)result);
 				};
 				if (emitter->return_type && !type_equal((Type*)result, (Type*)emitter->return_type)) {
-					@value = emit_covariant_result((Emitter*)emitter, (void*)value, (Type*)result, (Type*)emitter->return_type);
+					@value = emit_covariant_result((Emitter*)emitter, LLVMOpaqueValue*(value), (Type*)result, (Type*)emitter->return_type);
 				};
 				emit_temporaries((Emitter*)emitter, nullptr);
 				emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
-				LLVMBuildRet((void*)builder, (void*)value);
+				LLVMBuildRet(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value));
 			}
 			else {
 				emit_temporaries((Emitter*)emitter, nullptr);
 				emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
-				LLVMBuildRetVoid((void*)builder);
+				LLVMBuildRetVoid(LLVMOpaqueBuilder*(builder));
 			};
 			break;
 		case SYNTAX_BREAK:
 			emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
-			LLVMBuildBr((void*)builder, (void*)emitter->flow->break_block);
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(emitter->flow->break_block));
 			break;
 		case SYNTAX_CONTINUE: {
 			Flow* flow := emitter->flow;
@@ -9033,52 +9090,52 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 				@flow := flow->parent;
 			};
 			emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
-			LLVMBuildBr((void*)builder, (void*)flow->continue_block);
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(flow->continue_block));
 			break;
 		};
 		case SYNTAX_IF: {
-			void* function := emitter->llvm_function;
-			void* first = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "if.then\0");
-			void* second = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "if.else\0");
-			void* merge = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "if.end\0");
+			LLVMOpaqueValue* function := emitter->llvm_function;
+			LLVMOpaqueBasicBlock* first = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "if.then\0");
+			LLVMOpaqueBasicBlock* second = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "if.else\0");
+			LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "if.end\0");
 			Syntax* condition := syntax->data.branch.condition;
-			void* predicate = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)condition), (Type*)condition->type);
+			LLVMOpaqueValue* predicate = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)condition), (Type*)condition->type);
 			emit_temporaries((Emitter*)emitter, (Temporary*)temporaries);
-			LLVMBuildCondBr((void*)builder, (void*)predicate, (void*)first, (void*)second);
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)first);
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(predicate), LLVMOpaqueBasicBlock*(first), LLVMOpaqueBasicBlock*(second));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(first));
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.branch.first);
-			i32 first_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != nullptr;
-			emit_jump((Emitter*)emitter, (void*)merge);
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)second);
+			i32 first_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder))) != nullptr;
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(second));
 			@emitter->temporaries := temporaries;
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.branch.second);
-			i32 second_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != nullptr;
-			emit_jump((Emitter*)emitter, (void*)merge);
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)merge);
+			i32 second_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder))) != nullptr;
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
 			@emitter->temporaries := temporaries;
 			if (first_stops && second_stops) {
-				LLVMBuildUnreachable((void*)builder);
+				LLVMBuildUnreachable(LLVMOpaqueBuilder*(builder));
 			};
 			break;
 		};
 		case SYNTAX_FOR:
 		case SYNTAX_WHILE: {
-			void* function := emitter->llvm_function;
-			void* test = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "loop.test\0");
-			void* body = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "loop.body\0");
-			void* step = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "loop.step\0");
-			void* end = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "loop.end\0");
+			LLVMOpaqueValue* function := emitter->llvm_function;
+			LLVMOpaqueBasicBlock* test = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "loop.test\0");
+			LLVMOpaqueBasicBlock* body = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "loop.body\0");
+			LLVMOpaqueBasicBlock* step = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "loop.step\0");
+			LLVMOpaqueBasicBlock* end = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "loop.end\0");
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.loop.initializer);
-			emit_jump((Emitter*)emitter, (void*)test);
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)test);
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(test));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(test));
 			Syntax* condition := syntax->data.loop.condition;
 			if (condition) {
-				void* predicate = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)condition), (Type*)condition->type);
+				LLVMOpaqueValue* predicate = emit_truth((Emitter*)emitter, emit_expression((Emitter*)emitter, (Syntax*)condition), (Type*)condition->type);
 				emit_temporaries((Emitter*)emitter, (Temporary*)temporaries);
-				LLVMBuildCondBr((void*)builder, (void*)predicate, (void*)body, (void*)end);
+				LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(predicate), LLVMOpaqueBasicBlock*(body), LLVMOpaqueBasicBlock*(end));
 			}
 			else {
-				LLVMBuildBr((void*)builder, (void*)body);
+				LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(body));
 			};
 			Flow flow;
 			@flow.kind = FLOW_LOOP;
@@ -9086,25 +9143,25 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			@flow.break_block := end;
 			@flow.continue_block := step;
 			@emitter->flow = &flow;
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)body);
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(body));
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.loop.body);
-			emit_jump((Emitter*)emitter, (void*)step);
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)step);
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(step));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(step));
 			@emitter->temporaries := temporaries;
 			if (syntax->data.loop.step) {
 				emit_expression((Emitter*)emitter, (Syntax*)syntax->data.loop.step);
 				emit_temporaries((Emitter*)emitter, (Temporary*)temporaries);
 			};
-			emit_jump((Emitter*)emitter, (void*)test);
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(test));
 			@emitter->flow := flow.parent;
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)end);
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(end));
 			@emitter->temporaries := temporaries;
 			break;
 		};
 		case SYNTAX_SWITCH: {
-			void* function := emitter->llvm_function;
-			void* end = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "switch.end\0");
-			void* fallback := end;
+			LLVMOpaqueValue* function := emitter->llvm_function;
+			LLVMOpaqueBasicBlock* end = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "switch.end\0");
+			LLVMOpaqueBasicBlock* fallback := end;
 			Syntax* statement := syntax->data.selection.cases->data.statements;
 			CaseBlock* previous := emitter->cases;
 			CaseBlock* cases = nullptr;
@@ -9114,7 +9171,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 					CaseBlock* selection = (CaseBlock*)memory_allocate((Compiler*)compiler, sizeof(CaseBlock));
 					@selection->syntax := statement;
 					@selection->temporaries := temporaries;
-					@selection->block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "switch.case\0");
+					@selection->block = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "switch.case\0");
 					@selection->next := cases;
 					if (!statement->data.selection_case.value) {
 						@fallback := selection->block;
@@ -9126,16 +9183,16 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 				};
 				@statement := statement->next;
 			};
-			void* value = emit_expression((Emitter*)emitter, (Syntax*)syntax->data.selection.value);
+			LLVMOpaqueValue* value = emit_expression((Emitter*)emitter, (Syntax*)syntax->data.selection.value);
 			emit_temporaries((Emitter*)emitter, (Temporary*)temporaries);
-			void* instruction = LLVMBuildSwitch((void*)builder, (void*)value, (void*)fallback, (u32)count);
+			LLVMOpaqueValue* instruction = LLVMBuildSwitch(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueBasicBlock*(fallback), (u32)count);
 			CaseBlock* selection := cases;
 			while (selection) {
 				if (selection->syntax->data.selection_case.value) {
 					Syntax* expression := selection->syntax->data.selection_case.value;
 					u64 value = constant_integer((Compiler*)compiler, (Scope*)expression->scope, (Syntax*)expression);
 					@value = constant_selector((u64)value, (Type*)expression->type);
-					LLVMAddCase((void*)instruction, LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)expression->type), (u64)value, 0), (void*)selection->block);
+					LLVMAddCase(LLVMOpaqueValue*(instruction), LLVMConstInt(llvm_type((Compiler*)compiler, (Type*)expression->type), (u64)value, 0), LLVMOpaqueBasicBlock*(selection->block));
 				};
 				@selection := selection->next;
 			};
@@ -9146,13 +9203,13 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			@emitter->flow = &flow;
 			@emitter->cases = (CaseBlock*)cases;
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.selection.cases);
-			emit_jump((Emitter*)emitter, (void*)end);
+			emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(end));
 			@emitter->flow := flow.parent;
 			@emitter->cases = (CaseBlock*)previous;
-			LLVMPositionBuilderAtEnd((void*)builder, (void*)end);
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(end));
 			@emitter->temporaries := temporaries;
-			if (!emit_has_predecessor((void*)end)) {
-				LLVMBuildUnreachable((void*)builder);
+			if (!emit_has_predecessor(LLVMOpaqueBasicBlock*(end))) {
+				LLVMBuildUnreachable(LLVMOpaqueBuilder*(builder));
 			};
 			break;
 		};
@@ -9162,8 +9219,8 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 				@selection := selection->next;
 			};
 			if (selection) {
-				emit_jump((Emitter*)emitter, (void*)selection->block);
-				LLVMPositionBuilderAtEnd((void*)builder, (void*)selection->block);
+				emit_jump((Emitter*)emitter, LLVMOpaqueBasicBlock*(selection->block));
+				LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(selection->block));
 				@emitter->temporaries := selection->temporaries;
 			};
 			break;
@@ -9197,7 +9254,7 @@ fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token to
 			return;
 		};
 
-		u64 size = LLVMABISizeOfType((void*)compiler->llvm_layout.handle, llvm_type((Compiler*)compiler, (Type*)type->data.array.element));
+		u64 size = LLVMABISizeOfType(LLVMOpaqueTargetData*(compiler->llvm_layout.handle), llvm_type((Compiler*)compiler, (Type*)type->data.array.element));
 		u64 maximum = (u64)18446744073709551615;
 		if (compiler->usize_type->data.bits < 64) {
 			@maximum = 1;
@@ -9669,12 +9726,12 @@ fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
 	return $name;
 };
 
-fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 receiver_offset, Type* return_type) {
+fn emit_function_body(Compiler* compiler, Entity* entity, LLVMOpaqueValue* function, u64 receiver_offset, Type* return_type) {
 	if (!entity->data.function.body || entity->data.function.analysis == FUNCTION_UNREQUESTED) {
 		return;
 	};
-	void* block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "entry\0");
-	LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $block);
+	LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "entry\0");
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $block);
 	Emitter emitter;
 	@emitter.llvm_function := function;
 	@emitter.return_type = $return_type;
@@ -9683,30 +9740,30 @@ fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 re
 	Parameter* parameter := entity->data.function.type->data.function.parameters;
 	u32 index = 0;
 	while (parameter) {
-		void* value = LLVMGetParam((void*)function, (u32)index);
+		LLVMOpaqueValue* value = LLVMGetParam(LLVMOpaqueValue*(function), (u32)index);
 		if (!index && receiver_offset) {
-			@value = emit_byte_offset(&emitter, (void*)value, (u64)receiver_offset);
+			@value = emit_byte_offset(&emitter, LLVMOpaqueValue*(value), (u64)receiver_offset);
 		};
 		@parameter->entity->data.variable.data.address = emit_slot((Compiler*)compiler, (Type*)parameter->type);
 		if (type_has_views((Type*)parameter->type) && (parameter->type->kind != TYPE_NAMED || parameter->type->data.entity->kind != ENTITY_UNION)) {
-			void* incoming = emit_slot((Compiler*)compiler, (Type*)parameter->type);
-			LLVMBuildStore((void*)compiler->llvm_builder.handle, (void*)value, (void*)incoming);
-			emit_initialize_type(&emitter, (Type*)parameter->type, (void*)parameter->entity->data.variable.data.address);
-			emit_payload_copy(&emitter, (Type*)parameter->type, (void*)parameter->entity->data.variable.data.address, $incoming);
+			LLVMOpaqueValue* incoming = emit_slot((Compiler*)compiler, (Type*)parameter->type);
+			LLVMBuildStore(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueValue*(value), LLVMOpaqueValue*(incoming));
+			emit_initialize_type(&emitter, (Type*)parameter->type, LLVMOpaqueValue*(parameter->entity->data.variable.data.address));
+			emit_payload_copy(&emitter, (Type*)parameter->type, LLVMOpaqueValue*(parameter->entity->data.variable.data.address), $incoming);
 		}
 		else {
-			LLVMBuildStore((void*)compiler->llvm_builder.handle, (void*)value, (void*)parameter->entity->data.variable.data.address);
+			LLVMBuildStore(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueValue*(value), LLVMOpaqueValue*(parameter->entity->data.variable.data.address));
 		};
 		@index = index + 1;
 		@parameter := parameter->next;
 	};
 	emit_statement(&emitter, (Syntax*)entity->data.function.body);
-	if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)compiler->llvm_builder.handle))) {
+	if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle)))) {
 		if (entity->data.function.lifetime_exit == PATH_UNREACHABLE) {
-			LLVMBuildUnreachable((void*)compiler->llvm_builder.handle);
+			LLVMBuildUnreachable(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
 		}
 		else if (entity->data.function.type->data.function.result->kind == TYPE_VOID) {
-			LLVMBuildRetVoid((void*)compiler->llvm_builder.handle);
+			LLVMBuildRetVoid(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
 		}
 		else {
 			compiler_error((Compiler*)compiler, Token(entity->name), "function can finish without returning a value\0");
@@ -9715,38 +9772,38 @@ fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 re
 };
 
 fn emit_function(Compiler* compiler, Entity* entity) {
-	emit_function_body($compiler, (Entity*)entity, (void*)entity->data.function.llvm_value, 0, nullptr);
+	emit_function_body($compiler, (Entity*)entity, LLVMOpaqueValue*(entity->data.function.llvm_value), 0, nullptr);
 };
 
-fn emit_forward_attributes(Compiler* compiler, void* call, Type* signature) {
-	void* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
+fn emit_forward_attributes(Compiler* compiler, LLVMOpaqueValue* call, Type* signature) {
+	LLVMOpaqueAttributeRef* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
 	if (extension) {
-		LLVMAddCallSiteAttribute((void*)call, 0, (void*)extension);
+		LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), 0, LLVMOpaqueAttributeRef*(extension));
 	};
 	Parameter* parameter := signature->data.function.parameters;
 	u32 index = 1;
 	while (parameter) {
 		@extension = emit_extension((Compiler*)compiler, (Type*)parameter->type);
 		if (extension) {
-			LLVMAddCallSiteAttribute((void*)call, (u32)index, (void*)extension);
+			LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), (u32)index, LLVMOpaqueAttributeRef*(extension));
 		};
 		@index = index + 1;
 		@parameter := parameter->next;
 	};
 };
 
-fn emit_variadic_tail(Compiler* compiler, void* function, void* call) {
-	void* attribute = LLVMCreateStringAttribute((void*)compiler->llvm_context.handle, "thunk\0", 5, "\0", 0);
+fn emit_variadic_tail(Compiler* compiler, LLVMOpaqueValue* function, LLVMOpaqueValue* call) {
+	LLVMOpaqueAttributeRef* attribute = LLVMCreateStringAttribute(LLVMOpaqueContext*(compiler->llvm_context.handle), "thunk\0", 5, "\0", 0);
 	LLVMAddAttributeAtIndex($function, (u32)4294967295, $attribute);
 	LLVMSetTailCallKind($call, 2);
 };
 
-fn emit_forward_return(Compiler* compiler, Type* result, void* call) {
+fn emit_forward_return(Compiler* compiler, Type* result, LLVMOpaqueValue* call) {
 	if (result->kind == TYPE_VOID) {
-		LLVMBuildRetVoid((void*)compiler->llvm_builder.handle);
+		LLVMBuildRetVoid(LLVMOpaqueBuilder*(compiler->llvm_builder.handle));
 	}
 	else {
-		LLVMBuildRet((void*)compiler->llvm_builder.handle, (void*)call);
+		LLVMBuildRet(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueValue*(call));
 	};
 };
 
@@ -9755,10 +9812,10 @@ fn runtime_wrappers_emit(Compiler* compiler) {
 		RuntimeWrapper* wrapper := compiler->runtime_wrappers;
 		@compiler->runtime_wrappers := wrapper->next;
 		Entity* entity := wrapper->entity;
-		void* function := entity->data.function.wrapper;
+		LLVMOpaqueValue* function := entity->data.function.wrapper;
 		Type* signature := entity->data.function.type;
-		void* block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "entry\0");
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $block);
+		LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(function), "entry\0");
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $block);
 		Emitter emitter;
 		@emitter.llvm_function := function;
 		@emitter.compiler := compiler;
@@ -9769,21 +9826,21 @@ fn runtime_wrappers_emit(Compiler* compiler) {
 			@count = count + 1;
 			@parameter := parameter->next;
 		};
-		void** arguments = (void**)memory_allocate((Compiler*)compiler, count * sizeof(void*));
+		LLVMOpaqueValue** arguments = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, count * sizeof(LLVMOpaqueValue*));
 		usize index = 0;
 		while (index < count) {
-			@arguments[index] = LLVMGetParam((void*)function, (u32)index);
+			@arguments[index] = LLVMGetParam(LLVMOpaqueValue*(function), (u32)index);
 			@index = index + 1;
 		};
-		void* target = emit_dispatch_target(&emitter, $entity, (void*)arguments[0]);
+		LLVMOpaqueValue* target = emit_dispatch_target(&emitter, $entity, LLVMOpaqueValue*(arguments[0]));
 		char* name = "virtual.call\0";
 		if (signature->data.function.result->kind == TYPE_VOID) {
 			@name = "\0";
 		};
-		void* call = LLVMBuildCall2((void*)compiler->llvm_builder.handle, llvm_type((Compiler*)compiler, (Type*)signature), $target, $arguments, (u32)count, $name);
-		emit_forward_attributes((Compiler*)compiler, (void*)call, (Type*)signature);
+		LLVMOpaqueValue* call = LLVMBuildCall2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), llvm_type((Compiler*)compiler, (Type*)signature), $target, $arguments, (u32)count, $name);
+		emit_forward_attributes((Compiler*)compiler, LLVMOpaqueValue*(call), (Type*)signature);
 		if (signature->data.function.arity == PARAMETERS_VARIADIC) {
-			emit_variadic_tail((Compiler*)compiler, (void*)function, (void*)call);
+			emit_variadic_tail((Compiler*)compiler, LLVMOpaqueValue*(function), LLVMOpaqueValue*(call));
 		};
 		emit_forward_return((Compiler*)compiler, (Type*)signature->data.function.result, $call);
 	};
@@ -9802,11 +9859,11 @@ fn runtime_thunks_emit(Compiler* compiler) {
 				compiler_error((Compiler*)compiler, Token(implementation->name), "covariant variadic override requires an available implementation body\0");
 				return;
 			};
-			emit_function_body((Compiler*)compiler, (Entity*)implementation, (void*)thunk->function, (u64)offset, (Type*)signature->data.function.result);
+			emit_function_body((Compiler*)compiler, (Entity*)implementation, LLVMOpaqueValue*(thunk->function), (u64)offset, (Type*)signature->data.function.result);
 			continue;
 		};
-		void* block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)thunk->function, "entry\0");
-		LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $block);
+		LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(thunk->function), "entry\0");
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $block);
 		Emitter emitter;
 		@emitter.llvm_function := thunk->function;
 		@emitter.compiler := compiler;
@@ -9817,26 +9874,26 @@ fn runtime_thunks_emit(Compiler* compiler) {
 			@count = count + 1;
 			@parameter := parameter->next;
 		};
-		void** arguments = (void**)memory_allocate((Compiler*)compiler, count * sizeof(void*));
+		LLVMOpaqueValue** arguments = (LLVMOpaqueValue**)memory_allocate((Compiler*)compiler, count * sizeof(LLVMOpaqueValue*));
 		usize index = 0;
 		while (index < count) {
-			@arguments[index] = LLVMGetParam((void*)thunk->function, (u32)index);
+			@arguments[index] = LLVMGetParam(LLVMOpaqueValue*(thunk->function), (u32)index);
 			@index = index + 1;
 		};
-		@arguments[0] = emit_byte_offset(&emitter, (void*)arguments[0], $offset);
+		@arguments[0] = emit_byte_offset(&emitter, LLVMOpaqueValue*(arguments[0]), $offset);
 		char* name = "override.call\0";
 		if (result->kind == TYPE_VOID) {
 			@name = "\0";
 		};
-		void* call = LLVMBuildCall2((void*)compiler->llvm_builder.handle, (void*)implementation->data.function.llvm_type, (void*)implementation->data.function.llvm_value, $arguments, (u32)count, $name);
-		emit_forward_attributes((Compiler*)compiler, (void*)call, (Type*)implementation->data.function.type);
+		LLVMOpaqueValue* call = LLVMBuildCall2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueType*(implementation->data.function.llvm_type), LLVMOpaqueValue*(implementation->data.function.llvm_value), $arguments, (u32)count, $name);
+		emit_forward_attributes((Compiler*)compiler, LLVMOpaqueValue*(call), (Type*)implementation->data.function.type);
 		if (signature->data.function.arity == PARAMETERS_VARIADIC) {
-			emit_variadic_tail((Compiler*)compiler, (void*)thunk->function, (void*)call);
-			emit_forward_return((Compiler*)compiler, (Type*)signature->data.function.result, (void*)call);
+			emit_variadic_tail((Compiler*)compiler, LLVMOpaqueValue*(thunk->function), LLVMOpaqueValue*(call));
+			emit_forward_return((Compiler*)compiler, (Type*)signature->data.function.result, LLVMOpaqueValue*(call));
 			continue;
 		};
 		if (!type_equal((Type*)result, (Type*)signature->data.function.result)) {
-			@call = emit_covariant_result(&emitter, (void*)call, (Type*)result, (Type*)signature->data.function.result);
+			@call = emit_covariant_result(&emitter, LLVMOpaqueValue*(call), (Type*)result, (Type*)signature->data.function.result);
 		};
 		emit_forward_return((Compiler*)compiler, (Type*)signature->data.function.result, $call);
 	};
@@ -9894,19 +9951,19 @@ fn emit_entry(Compiler* compiler) {
 		return;
 	};
 	Parameter* parameter := signature->data.function.parameters;
-	void*[2] arguments {};
-	void*[2] parameter_types {};
+	LLVMOpaqueValue*[2] arguments {};
+	LLVMOpaqueType*[2] parameter_types {};
 	@parameter_types[0] = llvm_type((Compiler*)compiler, (Type*)compiler->i32_type);
-	@parameter_types[1] = LLVMPointerTypeInContext((void*)compiler->llvm_context.handle, 0);
+	@parameter_types[1] = LLVMPointerTypeInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), 0);
 	if (parameter && (!parameter->next || parameter->next->next || !type_equal((Type*)parameter->type, (Type*)compiler->i32_type) || !type_equal((Type*)parameter->next->type, type_pointer((Compiler*)compiler, type_pointer((Compiler*)compiler, (Type*)compiler->char_type))))) {
 		compiler_error((Compiler*)compiler, Token(entry->name), "entry parameters must be empty or (i32, char**)\0");
 		return;
 	};
-	void* main_type = LLVMFunctionType((void*)parameter_types[0], &parameter_types[0], 2, 0);
-	void* main_function = LLVMAddFunction((void*)compiler->llvm_module.handle, "main\0", $main_type);
-	void* block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)main_function, "entry\0");
-	LLVMPositionBuilderAtEnd((void*)compiler->llvm_builder.handle, $block);
-	@arguments[0] = LLVMGetParam((void*)main_function, 0);
+	LLVMOpaqueType* main_type = LLVMFunctionType(LLVMOpaqueType*(parameter_types[0]), &parameter_types[0], 2, 0);
+	LLVMOpaqueValue* main_function = LLVMAddFunction(LLVMOpaqueModule*(compiler->llvm_module.handle), "main\0", $main_type);
+	LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler->llvm_context.handle), LLVMOpaqueValue*(main_function), "entry\0");
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $block);
+	@arguments[0] = LLVMGetParam(LLVMOpaqueValue*(main_function), 0);
 	@arguments[1] = LLVMGetParam($main_function, 1);
 	u32 count = 0;
 	if (parameter) {
@@ -9916,11 +9973,11 @@ fn emit_entry(Compiler* compiler) {
 	if (signature->data.function.result->kind == TYPE_VOID) {
 		@name = "\0";
 	};
-	void* result = LLVMBuildCall2((void*)compiler->llvm_builder.handle, (void*)entry->data.function.llvm_type, (void*)entry->data.function.llvm_value, &arguments[0], $count, $name);
+	LLVMOpaqueValue* result = LLVMBuildCall2(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), LLVMOpaqueType*(entry->data.function.llvm_type), LLVMOpaqueValue*(entry->data.function.llvm_value), &arguments[0], $count, $name);
 	if (signature->data.function.result->kind == TYPE_VOID) {
-		@result = LLVMConstInt((void*)parameter_types[0], 0, 0);
+		@result = LLVMConstInt(LLVMOpaqueType*(parameter_types[0]), 0, 0);
 	};
-	LLVMBuildRet((void*)compiler->llvm_builder.handle, $result);
+	LLVMBuildRet(LLVMOpaqueBuilder*(compiler->llvm_builder.handle), $result);
 };
 
 fn backend_emit(Compiler* compiler) {
@@ -9933,25 +9990,25 @@ fn backend_emit(Compiler* compiler) {
 			Type* signature := entity->data.function.type;
 			@entity->data.function.llvm_type = llvm_type((Compiler*)compiler, (Type*)signature);
 			char* symbol = emit_symbol((Compiler*)compiler, (Entity*)entity);
-			void* existing = LLVMGetNamedFunction((void*)compiler->llvm_module.handle, (char*)symbol);
-			if (existing && LLVMGlobalGetValueType((void*)existing) != entity->data.function.llvm_type) {
+			LLVMOpaqueValue* existing = LLVMGetNamedFunction(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)symbol);
+			if (existing && LLVMGlobalGetValueType(LLVMOpaqueValue*(existing)) != entity->data.function.llvm_type) {
 				compiler_error((Compiler*)compiler, Token(entity->name), "conflicting native function signature\0");
 				return;
 			};
 			if (!existing) {
-				@existing = LLVMAddFunction((void*)compiler->llvm_module.handle, (char*)symbol, (void*)entity->data.function.llvm_type);
+				@existing = LLVMAddFunction(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)symbol, LLVMOpaqueType*(entity->data.function.llvm_type));
 			};
 			@entity->data.function.llvm_value = $existing;
-			void* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
+			LLVMOpaqueAttributeRef* extension = emit_extension((Compiler*)compiler, (Type*)signature->data.function.result);
 			if (extension) {
-				LLVMAddAttributeAtIndex((void*)entity->data.function.llvm_value, 0, (void*)extension);
+				LLVMAddAttributeAtIndex(LLVMOpaqueValue*(entity->data.function.llvm_value), 0, LLVMOpaqueAttributeRef*(extension));
 			};
 			Parameter* parameter := signature->data.function.parameters;
 			u32 index = 1;
 			while (parameter) {
 				@extension = emit_extension((Compiler*)compiler, (Type*)parameter->type);
 				if (extension) {
-					LLVMAddAttributeAtIndex((void*)entity->data.function.llvm_value, (u32)index, (void*)extension);
+					LLVMAddAttributeAtIndex(LLVMOpaqueValue*(entity->data.function.llvm_value), (u32)index, LLVMOpaqueAttributeRef*(extension));
 				};
 				@index = index + 1;
 				@parameter := parameter->next;
@@ -10583,9 +10640,13 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 			};
 			break;
 		};
-		default:
-			semantic_expression((Semantic*)semantic, (Syntax*)syntax, nullptr);
+		default: {
+			Type* type = semantic_expression((Semantic*)semantic, (Syntax*)syntax, nullptr);
+			if (syntax->kind != SYNTAX_BIND_REFERENCE && (type->kind == TYPE_NAMED || type->kind == TYPE_ARRAY)) {
+				layout_validate((Compiler*)compiler, (Type*)type, nullptr, Token(syntax->token));
+			};
 			break;
+		};
 	};
 };
 
@@ -10611,12 +10672,12 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM context\0");
 		return 0;
 	};
-	@compiler->llvm_module.handle = LLVMModuleCreateWithNameInContext("rutile\0", (void*)compiler->llvm_context.handle);
+	@compiler->llvm_module.handle = LLVMModuleCreateWithNameInContext("rutile\0", LLVMOpaqueContext*(compiler->llvm_context.handle));
 	if (!compiler->llvm_module.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM module\0");
 		return 0;
 	};
-	@compiler->llvm_builder.handle = LLVMCreateBuilderInContext((void*)compiler->llvm_context.handle);
+	@compiler->llvm_builder.handle = LLVMCreateBuilderInContext(LLVMOpaqueContext*(compiler->llvm_context.handle));
 	if (!compiler->llvm_builder.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM builder\0");
 		return 0;
@@ -10624,7 +10685,7 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 
 	LLVMMessageOwner triple = LLVMMessageOwner(LLVMGetDefaultTargetTriple());
 	LLVMMessageOwner message;
-	void* target;
+	LLVMTarget* target;
 	if (!triple.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot obtain LLVM target triple\0");
 		return 0;
@@ -10634,29 +10695,29 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 		return 0;
 	};
 
-	@compiler->llvm_machine.handle = LLVMCreateTargetMachine((void*)target, (char*)triple.handle, "generic\0", "\0", (i32)compiler->optimization, 2, 0);
+	@compiler->llvm_machine.handle = LLVMCreateTargetMachine(LLVMTarget*(target), (char*)triple.handle, "generic\0", "\0", (i32)compiler->optimization, 2, 0);
 	if (!compiler->llvm_machine.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM target machine\0");
 		return 0;
 	};
-	@compiler->llvm_layout.handle = LLVMCreateTargetDataLayout((void*)compiler->llvm_machine.handle);
+	@compiler->llvm_layout.handle = LLVMCreateTargetDataLayout(LLVMOpaqueTargetMachine*(compiler->llvm_machine.handle));
 	if (!compiler->llvm_layout.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM target data layout\0");
 		return 0;
 	};
-	LLVMMessageOwner layout = LLVMMessageOwner(LLVMCopyStringRepOfTargetData((void*)compiler->llvm_layout.handle));
+	LLVMMessageOwner layout = LLVMMessageOwner(LLVMCopyStringRepOfTargetData(LLVMOpaqueTargetData*(compiler->llvm_layout.handle)));
 	if (!layout.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot obtain LLVM target data layout\0");
 		return 0;
 	};
-	LLVMSetTarget((void*)compiler->llvm_module.handle, (char*)triple.handle);
-	LLVMSetDataLayout((void*)compiler->llvm_module.handle, (char*)layout.handle);
+	LLVMSetTarget(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)triple.handle);
+	LLVMSetDataLayout(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)layout.handle);
 	return compiler->result == COMPILATION_SUCCESS;
 };
 
 fn backend_verify(Compiler* compiler) -> i32 {
 	LLVMMessageOwner message;
-	i32 invalid = LLVMVerifyModule((void*)compiler->llvm_module.handle, 2, &message.handle);
+	i32 invalid = LLVMVerifyModule(LLVMOpaqueModule*(compiler->llvm_module.handle), 2, &message.handle);
 	if (invalid) {
 		Token token;
 		compiler_error((Compiler*)compiler, $token, (char*)message.handle);
@@ -10680,10 +10741,10 @@ fn backend_optimize(Compiler* compiler) -> i32 {
 		compiler_error((Compiler*)compiler, $token, "cannot create LLVM pass options\0");
 		return 0;
 	};
-	LLVMPassBuilderOptionsSetVerifyEach((void*)options.handle, 1);
-	void* error = LLVMRunPasses((void*)compiler->llvm_module.handle, (char*)pipelines[compiler->optimization], (void*)compiler->llvm_machine.handle, (void*)options.handle);
+	LLVMPassBuilderOptionsSetVerifyEach(LLVMOpaquePassBuilderOptions*(options.handle), 1);
+	LLVMOpaqueError* error = LLVMRunPasses(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)pipelines[compiler->optimization], LLVMOpaqueTargetMachine*(compiler->llvm_machine.handle), LLVMOpaquePassBuilderOptions*(options.handle));
 	if (error) {
-		LLVMErrorMessageOwner message = LLVMErrorMessageOwner(LLVMGetErrorMessage((void*)error));
+		LLVMErrorMessageOwner message = LLVMErrorMessageOwner(LLVMGetErrorMessage(LLVMOpaqueError*(error)));
 		Token token;
 		compiler_error((Compiler*)compiler, $token, (char*)message.handle);
 		return 0;
@@ -10695,7 +10756,7 @@ fn backend_optimize(Compiler* compiler) -> i32 {
 fn backend_publish(Compiler* compiler, char* output_path) -> i32 {
 	LLVMMessageOwner message;
 	LLVMMemoryBufferOwner buffer;
-	if (LLVMTargetMachineEmitToMemoryBuffer((void*)compiler->llvm_machine.handle, (void*)compiler->llvm_module.handle, 1, &message.handle, &buffer.handle)) {
+	if (LLVMTargetMachineEmitToMemoryBuffer(LLVMOpaqueTargetMachine*(compiler->llvm_machine.handle), LLVMOpaqueModule*(compiler->llvm_module.handle), 1, &message.handle, &buffer.handle)) {
 		Token token;
 		compiler_error((Compiler*)compiler, $token, (char*)message.handle);
 		return 0;
@@ -10707,8 +10768,8 @@ fn backend_publish(Compiler* compiler, char* output_path) -> i32 {
 		if (!file.handle) {
 			return 0;
 		};
-		usize size = LLVMGetBufferSize((void*)buffer.handle);
-		usize written = fwrite((void*)LLVMGetBufferStart((void*)buffer.handle), 1, (u64)size, (void*)file.handle);
+		usize size = LLVMGetBufferSize(LLVMOpaqueMemoryBuffer*(buffer.handle));
+		usize written = fwrite(LLVMGetBufferStart(LLVMOpaqueMemoryBuffer*(buffer.handle)), 1, (u64)size, (void*)file.handle);
 		if (written != size) {
 			compiler_error((Compiler*)compiler, $token, "cannot write native object output\0");
 			return 0;
@@ -10860,7 +10921,7 @@ fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, 
 	};
 
 	if (compiler->result != COMPILATION_FAILURE && backend_initialize((Compiler*)compiler)) {
-		compiler_builtins((Compiler*)compiler, (i32)(LLVMPointerSize((void*)compiler->llvm_layout.handle) * 8));
+		compiler_builtins((Compiler*)compiler, (i32)(LLVMPointerSize(LLVMOpaqueTargetData*(compiler->llvm_layout.handle)) * 8));
 		if (prepare_sources((Compiler*)compiler)) {
 			Source* source := compiler->sources;
 			Syntax* last_module;

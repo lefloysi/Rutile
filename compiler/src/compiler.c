@@ -5785,6 +5785,27 @@ void validate_reference_field_read(struct Compiler* compiler, struct Expression*
 	diagnostic(compiler, expression->span.first, "reference field used before binding");
 }
 
+void check_address_expression(struct Compiler* compiler, struct Expression* expression) {
+	if (!expression || compiler->failed) {
+		return;
+	}
+	if (expression->kind == DEREFERENCE_EXPRESSION) {
+		check_expression(compiler, expression->data.operand, NULL);
+		if (unsized_type(expression->type)) {
+			complete_type(compiler, expression->type, expression->span.first);
+		}
+		return;
+	}
+	if (expression->kind == ACCESS_EXPRESSION) {
+		check_address_expression(compiler, expression->data.operand);
+		if (!lvalue_expression(expression->data.operand) || expression->data.operand->type.qualifier == CONST_TYPE) {
+			diagnostic(compiler, expression->span.first, "'@' requires mutable storage");
+		}
+		return;
+	}
+	check_expression(compiler, expression, NULL);
+}
+
 void check_expression(struct Compiler* compiler, struct Expression* expression, struct Type* expected) {
 	if (!expression || compiler->failed) {
 		return;
@@ -5794,8 +5815,15 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			diagnostic(compiler, expression->span.first, "mutable reference binding requires explicit '@' access");
 			return;
 		}
-		convert_base_expression(compiler, expression, *expected->data.element, IMPLICIT_BASE_CONVERSION);
-		check_expression(compiler, expression, expected->data.element);
+		if (!type_value_equal(expression->type, *expected->data.element)) {
+			convert_base_expression(compiler, expression, *expected->data.element, IMPLICIT_BASE_CONVERSION);
+		}
+		if (lvalue_expression(expression) && type_value_equal(expression->type, *expected->data.element)) {
+			check_address_expression(compiler, expression);
+		}
+		else {
+			check_expression(compiler, expression, expected->data.element);
+		}
 		if (compiler->failed) {
 			return;
 		}
@@ -6097,6 +6125,9 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		struct Expression* value = expression->data.cast.value;
 		struct Type source = value->type;
 		struct Type target = expression->type;
+		if (source.kind == STRUCT_TYPE || source.kind == UNION_TYPE || source.kind == ARRAY_TYPE) {
+			complete_type(compiler, source, value->span.first);
+		}
 		if (is_void(source)) {
 			source = target;
 		}
@@ -6133,7 +6164,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	case ENUMERATOR_EXPRESSION:
 		break;
 	case ADDRESS_EXPRESSION:
-		check_expression(compiler, expression->data.operand, NULL);
+		check_address_expression(compiler, expression->data.operand);
 		if (!lvalue_expression(expression->data.operand) && expression->data.operand->kind != FUNCTION_EXPRESSION) {
 			diagnostic(compiler, expression->span.first, "address-of requires an assignable expression");
 		}
@@ -6168,7 +6199,13 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	case CALL_EXPRESSION: {
 		check_expression(compiler, expression->data.call.callee, NULL);
 		check_expression(compiler, expression->data.call.receiver_evaluation, NULL);
+		if (!is_void(expression->data.call.binding->result)) {
+			complete_type(compiler, expression->data.call.binding->result, expression->span.first);
+		}
 		struct Variable* parameter = expression->data.call.binding->parameters;
+		for (struct Variable* argument = parameter; argument && !compiler->failed; argument = argument->next) {
+			complete_type(compiler, argument->type, expression->span.first);
+		}
 		for (struct Argument* argument = expression->data.call.arguments; argument && !compiler->failed; argument = argument->next) {
 			if (parameter) {
 				check_expression(compiler, argument->initializer, &parameter->type);
@@ -7015,6 +7052,9 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 	case EXPRESSION_STATEMENT:
 		bind_expression(compiler, statement->data.expression, scope);
 		check_expression(compiler, statement->data.expression, NULL);
+		if (statement->data.expression->type.kind == STRUCT_TYPE || statement->data.expression->type.kind == UNION_TYPE || statement->data.expression->type.kind == ARRAY_TYPE) {
+			complete_type(compiler, statement->data.expression->type, statement->span.first);
+		}
 		break;
 	case RETURN_STATEMENT:
 		if (!statement->data.expression) {
