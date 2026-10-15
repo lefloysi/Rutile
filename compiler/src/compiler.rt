@@ -7,6 +7,9 @@ enum TokenKind {
 	TOKEN_DISCARD,
 	TOKEN_DELETE,
 	TOKEN_NULLPTR,
+	TOKEN_TEMPLATE,
+	TOKEN_TYPENAME,
+	TOKEN_CLASS,
 	TOKEN_VAR,
 	TOKEN_STRUCT,
 	TOKEN_UNION,
@@ -312,6 +315,66 @@ struct Syntax {
 	ValueUse use;
 	void* address;
 	SyntaxData data;
+	TemplateArgument* template_arguments;
+};
+
+enum TemplateParameterKind {
+	TEMPLATE_TYPE,
+	TEMPLATE_VALUE,
+};
+
+struct TemplateParameter {
+	TemplateParameterKind kind;
+	Token name;
+	Token* tokens;
+	usize count;
+	usize type_begin;
+	usize type_end;
+	usize default_begin;
+	usize default_end;
+	TemplateParameter* next;
+};
+
+struct TemplateArgument {
+	TemplateParameterKind kind;
+	Type* type;
+	u64 value;
+	TemplateParameter* parameter;
+	TemplateArgument* next;
+};
+
+struct TemplateDeclaration {
+	Entity* pattern;
+	Scope* definition_scope;
+	TemplateParameter* parameters;
+	Token* tokens;
+	usize count;
+	usize start;
+	usize begin;
+	usize end;
+	TemplateDeclaration* next;
+	TemplateDeclaration* pattern_next;
+};
+
+enum TemplateDeclarationRole {
+	TEMPLATE_PRIMARY,
+	TEMPLATE_MEMBER,
+};
+
+struct TemplateSpecialization {
+	TemplateArgument* arguments;
+	Entity* entity;
+	Scope* scope;
+	TemplateSpecialization* next;
+};
+
+struct TemplatePattern {
+	Resolution grammar;
+	TokenKind declaration_kind;
+	TemplateDeclaration* declarations;
+	TemplateDeclaration* definition;
+	TemplateSpecialization* specializations;
+	Scope* instances;
 };
 
 enum LifetimeStatus {
@@ -367,6 +430,7 @@ enum TypeKind {
 	TYPE_REFERENCE,
 	TYPE_ARRAY,
 	TYPE_FUNCTION,
+	TYPE_PARAMETER,
 };
 
 struct ArrayType {
@@ -415,6 +479,7 @@ enum EntityKind {
 	ENTITY_VARIABLE,
 	ENTITY_NUMBER,
 	ENTITY_NAMESPACE,
+	ENTITY_TEMPLATE,
 };
 
 enum Resolution {
@@ -605,7 +670,15 @@ enum FunctionRole {
 	ASSIGNMENT_ROLE,
 };
 
+enum FunctionAnalysis {
+	FUNCTION_UNREQUESTED,
+	FUNCTION_REQUESTED,
+	FUNCTION_ANALYZING,
+	FUNCTION_ANALYZED,
+};
+
 struct FunctionEntity {
+	FunctionAnalysis analysis;
 	FunctionDefinition definition;
 	FunctionRole role;
 	Entity* overload_next;
@@ -654,6 +727,7 @@ struct NamespaceEntity {
 };
 
 union EntityData {
+	TemplatePattern template_pattern;
 	NamespaceEntity namespace_entity;
 	NumberEntity number;
 	PrimitiveEntity primitive;
@@ -669,6 +743,9 @@ struct Entity {
 	Token name;
 	Scope* scope;
 	Syntax* declaration;
+	Entity* template_origin;
+	TemplateSpecialization* specialization;
+	TemplateParameter* template_parameter;
 	EntityData data;
 };
 
@@ -677,58 +754,65 @@ struct Allocation {
 	Allocation* next;
 };
 
+template<typename T>
 struct unique_ptr {
 	fn unique_ptr(unique_ptr& this);
 	fn unique_ptr(unique_ptr& this, null* pointer);
-	fn unique_ptr(unique_ptr& this, void* pointer);
+	fn unique_ptr(unique_ptr& this, T* pointer);
 	fn unique_ptr(unique_ptr& this, const unique_ptr& other) : delete;
 	fn operator=(unique_ptr& this, const unique_ptr& other) -> unique_ptr& : delete;
 	fn operator=(unique_ptr& this, unique_ptr other) -> unique_ptr&;
 	fn ~unique_ptr(unique_ptr& this);
 
-	fn get(const unique_ptr& this) -> void*;
-	fn release(unique_ptr& this) -> void*;
-	fn reset(unique_ptr& this, void* pointer);
+	fn get(const unique_ptr& this) -> T*;
+	fn release(unique_ptr& this) -> T*;
+	fn reset(unique_ptr& this, T* pointer);
 
-	void* pointer;
+	T* pointer;
 };
 
-fn unique_ptr::unique_ptr(unique_ptr& this) {
+template<typename T>
+fn unique_ptr<T>::unique_ptr(unique_ptr& this) {
 	@this.pointer = nullptr;
 };
 
-fn unique_ptr::unique_ptr(unique_ptr& this, null* pointer) {
+template<typename T>
+fn unique_ptr<T>::unique_ptr(unique_ptr& this, null* pointer) {
 	@this.pointer = $pointer;
 };
 
-fn unique_ptr::unique_ptr(unique_ptr& this, void* pointer) {
+template<typename T>
+fn unique_ptr<T>::unique_ptr(unique_ptr& this, T* pointer) {
 	@this.pointer = $pointer;
 };
 
-fn unique_ptr::operator=(unique_ptr& this, unique_ptr other) -> unique_ptr& {
-	@this.reset(@other.release());
+template<typename T>
+fn unique_ptr<T>::operator=(unique_ptr& this, unique_ptr other) -> unique_ptr& {
+	@this.reset(other.get());
 	discard other;
 	return @this;
 };
 
-fn unique_ptr::~unique_ptr(unique_ptr& this) {
-	void* pointer := this.pointer;
-	free($pointer);
+template<typename T>
+fn unique_ptr<T>::~unique_ptr(unique_ptr& this) {
+	free(void*(this.pointer));
 };
 
-fn unique_ptr::get(const unique_ptr& this) -> void* {
-	void* pointer := this.pointer;
-	return pointer;
+template<typename T>
+fn unique_ptr<T>::get(const unique_ptr& this) -> T* {
+	return T*(this.pointer);
 };
 
-fn unique_ptr::release(unique_ptr& this) -> void* {
-	void* pointer := this.pointer;
+template<typename T>
+fn unique_ptr<T>::release(unique_ptr& this) -> T* {
+	T* pointer := this.pointer;
 	@this.pointer = nullptr;
 	return pointer;
 };
 
-fn unique_ptr::reset(unique_ptr& this, void* pointer) {
-	void* previous := this.pointer;
+template<typename T>
+fn unique_ptr<T>::reset(unique_ptr& this, T* pointer) {
+	T* previous := this.pointer;
 	@this.pointer = $pointer;
 	free($previous);
 };
@@ -740,9 +824,8 @@ struct Arena {
 		while (this.head) {
 			Allocation* allocation := this.head;
 			@this.head := allocation->next;
-			void* memory := allocation->memory;
-			free($memory);
-			free((void*)allocation);
+			free(void*(allocation->memory));
+			free(void*(allocation));
 		};
 	};
 };
@@ -751,8 +834,7 @@ struct LLVMContextOwner {
 	void* handle;
 
 	fn ~LLVMContextOwner(LLVMContextOwner& this) {
-		void* handle := this.handle;
-		LLVMContextDispose($handle);
+		LLVMContextDispose(void*(this.handle));
 	};
 };
 
@@ -760,8 +842,7 @@ struct LLVMTargetMachineOwner {
 	void* handle;
 
 	fn ~LLVMTargetMachineOwner(LLVMTargetMachineOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposeTargetMachine($handle);
+		LLVMDisposeTargetMachine(void*(this.handle));
 	};
 };
 
@@ -769,8 +850,7 @@ struct LLVMModuleOwner {
 	void* handle;
 
 	fn ~LLVMModuleOwner(LLVMModuleOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposeModule($handle);
+		LLVMDisposeModule(void*(this.handle));
 	};
 };
 
@@ -785,8 +865,7 @@ struct LLVMBuilderOwner {
 	};
 
 	fn ~LLVMBuilderOwner(LLVMBuilderOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposeBuilder($handle);
+		LLVMDisposeBuilder(void*(this.handle));
 	};
 };
 
@@ -794,8 +873,7 @@ struct LLVMLayoutOwner {
 	void* handle;
 
 	fn ~LLVMLayoutOwner(LLVMLayoutOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposeTargetData($handle);
+		LLVMDisposeTargetData(void*(this.handle));
 	};
 };
 
@@ -810,8 +888,7 @@ struct LLVMMessageOwner {
 	};
 
 	fn ~LLVMMessageOwner(LLVMMessageOwner& this) {
-		char* handle := this.handle;
-		LLVMDisposeMessage($handle);
+		LLVMDisposeMessage(char*(this.handle));
 	};
 };
 
@@ -826,8 +903,7 @@ struct LLVMErrorMessageOwner {
 	};
 
 	fn ~LLVMErrorMessageOwner(LLVMErrorMessageOwner& this) {
-		char* handle := this.handle;
-		LLVMDisposeErrorMessage($handle);
+		LLVMDisposeErrorMessage(char*(this.handle));
 	};
 };
 
@@ -835,8 +911,7 @@ struct LLVMMemoryBufferOwner {
 	void* handle;
 
 	fn ~LLVMMemoryBufferOwner(LLVMMemoryBufferOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposeMemoryBuffer($handle);
+		LLVMDisposeMemoryBuffer(void*(this.handle));
 	};
 };
 
@@ -851,8 +926,7 @@ struct LLVMPassOptionsOwner {
 	};
 
 	fn ~LLVMPassOptionsOwner(LLVMPassOptionsOwner& this) {
-		void* handle := this.handle;
-		LLVMDisposePassBuilderOptions($handle);
+		LLVMDisposePassBuilderOptions(void*(this.handle));
 	};
 };
 
@@ -887,8 +961,7 @@ struct File {
 		if (!this.handle) {
 			return;
 		};
-		void* handle := this.handle;
-		if (fclose($handle)) {
+		if (fclose(void*(this.handle))) {
 			char* failure = "cannot read source\0";
 			if (this.purpose == OBJECT_FILE) {
 				@failure = "cannot write native object output\0";
@@ -918,6 +991,7 @@ struct Compiler {
 	CompilationResult result;
 	Source* sources;
 	Syntax* declarations;
+	TemplateDeclaration* templates;
 	Scope* module;
 	DeclarationRule[4] declaration_rules;
 	((char* path, char* mode) -> void*)* open_file;
@@ -947,12 +1021,19 @@ struct Compiler {
 	};
 };
 
+enum ExpressionContext {
+	ORDINARY_EXPRESSION,
+	TEMPLATE_ARGUMENT_EXPRESSION,
+};
+
 struct Parser {
 	Compiler* compiler;
 	Scope* scope;
 	Token* tokens;
 	usize count;
 	usize offset;
+	usize pending_greater;
+	ExpressionContext expression_context;
 };
 
 enum FlowKind {
@@ -988,7 +1069,7 @@ fn strcmp(char* first, char* second) -> i32;
 fn platform_standard_error() -> void*;
 
 fn memory_allocate(Compiler* compiler, usize size) -> void* {
-	unique_ptr memory = unique_ptr(calloc(1, $size));
+	unique_ptr<void> memory = unique_ptr<void>(calloc(1, $size));
 	if (!memory.get()) {
 		@compiler->result = COMPILATION_FAILURE;
 		return nullptr;
@@ -1216,6 +1297,9 @@ fn entity_create(Compiler* compiler, EntityKind kind, Token name) -> Entity* {
 
 	@entity->kind = $kind;
 	@entity->name = $name;
+	if (entity->kind == ENTITY_FUNCTION) {
+		@entity->data.function.analysis = FUNCTION_REQUESTED;
+	};
 
 	return $entity;
 };
@@ -1400,6 +1484,243 @@ enum DeclarationPhase {
 	DECLARATION_MEMBERS,
 };
 
+fn template_delimiter_end(Token* tokens, usize count, usize position) -> usize {
+	usize depth = 0;
+	usize grouping = 0;
+	while (position < count) {
+		TokenKind kind := tokens[position].kind;
+		if (kind == TOKEN_LEFT_PAREN || kind == TOKEN_LEFT_BRACKET || kind == TOKEN_LEFT_BRACE) {
+			@grouping = grouping + 1;
+		};
+		if (grouping && (kind == TOKEN_RIGHT_PAREN || kind == TOKEN_RIGHT_BRACKET || kind == TOKEN_RIGHT_BRACE)) {
+			@grouping = grouping - 1;
+		};
+		if (grouping) {
+			@position = position + 1;
+			continue;
+		};
+		if (kind == TOKEN_LESS) {
+			@depth = depth + 1;
+		}
+		else if (kind == TOKEN_GREATER || kind == TOKEN_SHIFT_RIGHT) {
+			usize closing = 1;
+			if (kind == TOKEN_SHIFT_RIGHT) {
+				@closing = 2;
+			};
+			if (depth <= closing) {
+				return position + 1;
+			};
+			@depth = depth - closing;
+		};
+		@position = position + 1;
+	};
+	return 0;
+};
+
+fn template_declaration_find(Compiler* compiler, Scope* scope, Token* tokens, usize start) -> TemplateDeclaration* {
+	TemplateDeclaration* declaration := compiler->templates;
+	while (declaration) {
+		if (declaration->definition_scope == scope && declaration->tokens == tokens && declaration->start == start) {
+			return declaration;
+		};
+		@declaration := declaration->next;
+	};
+	return nullptr;
+};
+
+fn template_register(Parser* parser, Scope* scope, usize start) -> TemplateDeclaration* {
+	TemplateDeclaration* existing = template_declaration_find((Compiler*)parser->compiler, (Scope*)scope, (Token*)parser->tokens, (usize)start);
+	if (existing) {
+		return existing;
+	};
+	if (scope->context != CONTEXT_MODULE && scope->context != CONTEXT_STRUCT && scope->context != CONTEXT_UNION) {
+		compiler_error((Compiler*)parser->compiler, Token(parser->tokens[start]), "template declarations require module or aggregate scope\0");
+		return nullptr;
+	};
+	Compiler* compiler := parser->compiler;
+	Token* tokens := parser->tokens;
+	usize count := parser->count;
+	if (start + 1 >= count || tokens[start + 1].kind != TOKEN_LESS) {
+		compiler_error((Compiler*)compiler, Token(tokens[start]), "expected '<' after template\0");
+		return nullptr;
+	};
+	usize end = template_delimiter_end((Token*)tokens, (usize)count, start + 1);
+	if (!end || end >= count) {
+		compiler_error((Compiler*)compiler, Token(tokens[start]), "unterminated template parameter list\0");
+		return nullptr;
+	};
+	if (end == start + 3) {
+		compiler_error((Compiler*)compiler, Token(tokens[start]), "explicit template specialization is not supported yet\0");
+		return nullptr;
+	};
+	TemplateDeclaration* declaration = (TemplateDeclaration*)memory_allocate((Compiler*)compiler, sizeof(TemplateDeclaration));
+	@declaration->definition_scope := scope;
+	@declaration->tokens := tokens;
+	@declaration->count := count;
+	@declaration->start := start;
+	@declaration->begin := end;
+	usize position = start + 2;
+	TemplateParameter** link = &declaration->parameters;
+	while (position + 1 < end) {
+		TemplateParameter* parameter = (TemplateParameter*)memory_allocate((Compiler*)compiler, sizeof(TemplateParameter));
+		@parameter->tokens := tokens;
+		@parameter->count := count;
+		if (tokens[position].kind == TOKEN_TYPENAME || tokens[position].kind == TOKEN_CLASS) {
+			@parameter->kind = TEMPLATE_TYPE;
+			@position = position + 1;
+		}
+		else {
+			@parameter->kind = TEMPLATE_VALUE;
+			@parameter->type_begin := position;
+			@position = position + 1;
+			while (position + 1 < end && tokens[position].kind != TOKEN_NAME) {
+				@position = position + 1;
+			};
+			@parameter->type_end := position;
+		};
+		if (position + 1 >= end || tokens[position].kind != TOKEN_NAME) {
+			compiler_error((Compiler*)compiler, Token(tokens[position]), "expected template parameter name\0");
+			return nullptr;
+		};
+		@parameter->name := tokens[position];
+		TemplateParameter* previous := declaration->parameters;
+		while (previous) {
+			if (token_same(Token(previous->name), Token(parameter->name))) {
+				compiler_error((Compiler*)compiler, Token(parameter->name), "duplicate template parameter\0");
+				return nullptr;
+			};
+			@previous := previous->next;
+		};
+		@position = position + 1;
+		if (tokens[position].kind == TOKEN_ASSIGN) {
+			@position = position + 1;
+			@parameter->default_begin := position;
+			usize depth = 0;
+			while (position + 1 < end) {
+				TokenKind kind := tokens[position].kind;
+				if (!depth && kind == TOKEN_COMMA) {
+					break;
+				};
+				if (kind == TOKEN_LESS || kind == TOKEN_LEFT_PAREN || kind == TOKEN_LEFT_BRACKET) {
+					@depth = depth + 1;
+				};
+				if (depth && (kind == TOKEN_GREATER || kind == TOKEN_RIGHT_PAREN || kind == TOKEN_RIGHT_BRACKET)) {
+					@depth = depth - 1;
+				};
+				@position = position + 1;
+			};
+			@parameter->default_end := position;
+		};
+		@*link := parameter;
+		@link = &parameter->next;
+		if (position + 1 >= end) {
+			break;
+		};
+		if (tokens[position].kind != TOKEN_COMMA) {
+			compiler_error((Compiler*)compiler, Token(tokens[position]), "expected ',' after template parameter\0");
+			return nullptr;
+		};
+		@position = position + 1;
+	};
+	TokenKind kind := tokens[end].kind;
+	if (kind != TOKEN_STRUCT && kind != TOKEN_UNION && kind != TOKEN_FN) {
+		compiler_error((Compiler*)compiler, Token(tokens[end]), "template requires a struct, union, or function declaration\0");
+		return nullptr;
+	};
+	if (kind != TOKEN_FN) {
+		TemplateParameter* parameter := declaration->parameters;
+		TemplateParameter* defaulted = nullptr;
+		while (parameter) {
+			if (parameter->default_begin) {
+				@defaulted := parameter;
+			}
+			else if (defaulted) {
+				compiler_error((Compiler*)compiler, Token(parameter->name), "class template parameters after a default must also have defaults\0");
+				return nullptr;
+			};
+			@parameter := parameter->next;
+		};
+	};
+	@position = end + 1;
+	if (tokens[position].kind != TOKEN_NAME) {
+		compiler_error((Compiler*)compiler, Token(tokens[position]), "expected template declaration name\0");
+		return nullptr;
+	};
+	Scope* owner := scope;
+	TemplateDeclarationRole role = TEMPLATE_PRIMARY;
+	Entity* pattern = scope_local((Scope*)owner, Token(tokens[position]));
+	while (tokens[position + 1].kind == TOKEN_SCOPE) {
+		@owner = entity_members((Entity*)pattern);
+		@position = position + 2;
+		if (!owner) {
+			compiler_error((Compiler*)compiler, Token(tokens[position]), "qualified template owner has no scope\0");
+			return nullptr;
+		};
+		@pattern = scope_local((Scope*)owner, Token(tokens[position]));
+	};
+	if (kind == TOKEN_FN && tokens[position + 1].kind == TOKEN_LESS) {
+		@role = TEMPLATE_MEMBER;
+		if (!pattern || pattern->kind != ENTITY_TEMPLATE || pattern->data.template_pattern.declaration_kind == TOKEN_FN) {
+			compiler_error((Compiler*)compiler, Token(tokens[position]), "template member requires a class template owner\0");
+			return nullptr;
+		};
+	}
+	else {
+		if (pattern && pattern->kind != ENTITY_TEMPLATE) {
+			compiler_error((Compiler*)compiler, Token(tokens[position]), "template conflicts with an existing entity\0");
+			return nullptr;
+		};
+		if (!pattern) {
+			@pattern = entity_create((Compiler*)compiler, ENTITY_TEMPLATE, Token(tokens[position]));
+			@pattern->resolution = RESOLUTION_READY;
+			@pattern->scope := owner;
+			@pattern->data.template_pattern.declaration_kind := kind;
+			@pattern->data.template_pattern.instances = scope_create((Compiler*)compiler, (Scope*)owner, CONTEXT_MODULE, (Entity*)pattern);
+			scope_define((Compiler*)compiler, (Scope*)owner, (Entity*)pattern);
+		};
+	};
+	@declaration->pattern := pattern;
+	@position := end;
+	usize braces = 0;
+	while (position < count) {
+		TokenKind current := tokens[position].kind;
+		if (!braces && current == TOKEN_SEMICOLON) {
+			@position = position + 1;
+			break;
+		};
+		if (current == TOKEN_LEFT_BRACE) {
+			@braces = braces + 1;
+			if (role == TEMPLATE_PRIMARY && braces == 1) {
+				if (pattern->data.template_pattern.definition && pattern->data.template_pattern.definition != declaration) {
+					compiler_error((Compiler*)compiler, Token(tokens[start]), "duplicate template definition\0");
+					return nullptr;
+				};
+				@pattern->data.template_pattern.definition := declaration;
+			};
+		};
+		if (current == TOKEN_RIGHT_BRACE && braces) {
+			@braces = braces - 1;
+		};
+		if (current == TOKEN_END) {
+			compiler_error((Compiler*)compiler, Token(tokens[start]), "unterminated template declaration\0");
+			return nullptr;
+		};
+		@position = position + 1;
+	};
+	@declaration->end := position;
+	TemplateDeclaration** declaration_link = &compiler->templates;
+	while (*declaration_link) {
+		@declaration_link = &(*declaration_link)->next;
+	};
+	@*declaration_link := declaration;
+	@declaration_link = &pattern->data.template_pattern.declarations;
+	while (*declaration_link) {
+		@declaration_link = &(*declaration_link)->pattern_next;
+	};
+	@*declaration_link := declaration;
+	return declaration;
+};
+
 fn scope_identity_lookup(Scope* scope, Token name) -> Entity* {
 	while (scope) {
 		Entity* entity = scope_local((Scope*)scope, Token(name));
@@ -1414,6 +1735,14 @@ fn scope_identity_lookup(Scope* scope, Token name) -> Entity* {
 fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position, DeclarationPhase phase) {
 	while (*position + 1 < parser->count && parser->compiler->result != COMPILATION_FAILURE) {
 		Token token := parser->tokens[*position];
+		if (token.kind == TOKEN_TEMPLATE) {
+			TemplateDeclaration* declaration = template_register((Parser*)parser, (Scope*)scope, (usize)*position);
+			if (!declaration) {
+				return;
+			};
+			@*position := declaration->end;
+			continue;
+		};
 		if (token.kind == TOKEN_RIGHT_BRACE || token.kind == TOKEN_END) {
 			return;
 		};
@@ -1558,6 +1887,12 @@ struct Keyword {
 };
 
 fn lexer_keywords(Keyword* keywords) {
+	@keywords[24].text = "template\0";
+	@keywords[24].kind = TOKEN_TEMPLATE;
+	@keywords[25].text = "typename\0";
+	@keywords[25].kind = TOKEN_TYPENAME;
+	@keywords[26].text = "class\0";
+	@keywords[26].kind = TOKEN_CLASS;
 	@keywords[23].text = "nullptr\0";
 	@keywords[23].kind = TOKEN_NULLPTR;
 	@keywords[22].text = "delete\0";
@@ -1727,7 +2062,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate((Compiler*)compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[24] keywords {};
+	Keyword[27] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[37] operators {};
 	lexer_operators(&operators[0]);
@@ -1864,7 +2199,14 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 };
 
 fn parser_token(Parser* parser) -> Token {
-	return Token(parser->tokens[parser->offset]);
+	Token token := parser->tokens[parser->offset];
+	if (parser->pending_greater) {
+		@token.kind = TOKEN_GREATER;
+		@token.begin = token.begin + 1;
+		@token.length = 1;
+		@token.column = token.column + 1;
+	};
+	return token;
 };
 
 fn parser_at(Parser* parser, TokenKind kind) -> i32 {
@@ -1879,6 +2221,7 @@ fn parser_take(Parser* parser, TokenKind kind) -> i32 {
 	if (parser->offset + 1 < parser->count) {
 		@parser->offset = parser->offset + 1;
 	};
+	@parser->pending_greater = 0;
 
 	return 1;
 };
@@ -1946,6 +2289,9 @@ fn parser_signature_arrow(Parser* parser, usize offset) -> usize {
 };
 
 fn entity_members(Entity* entity) -> Scope* {
+	if (entity && entity->kind == ENTITY_TEMPLATE) {
+		return (Scope*)entity->data.template_pattern.instances;
+	};
 	if (entity && entity->kind == ENTITY_NAMESPACE) {
 		return (Scope*)entity->data.namespace_entity.scope;
 	};
@@ -2368,6 +2714,9 @@ fn base_search(Compiler* compiler, Type* source, Type* target) -> BaseSearch {
 };
 
 fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
+	if (syntax->entity) {
+		return (Entity*)syntax->entity;
+	};
 	if (!syntax->data.expression) {
 		return scope_lookup((Scope*)scope, Token(syntax->token));
 	};
@@ -2378,10 +2727,363 @@ fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
 	return associated_lookup((Compiler*)scope->compiler, (Entity*)members->owner, Token(syntax->token));
 };
 
-fn parser_name(Parser* parser) -> Syntax* {
+fn template_arguments_equal(TemplateArgument* first, TemplateArgument* second) -> bool {
+	while (first && second) {
+		if (first->kind != second->kind || first->parameter != second->parameter || !type_equal((Type*)first->type, (Type*)second->type)) {
+			return false;
+		};
+		if (first->kind == TEMPLATE_VALUE && first->value != second->value) {
+			return false;
+		};
+		@first := first->next;
+		@second := second->next;
+	};
+	return !first && !second;
+};
+
+fn template_bind(Compiler* compiler, Scope* scope, TemplateParameter* parameter, TemplateArgument* argument) {
+	while (parameter && argument && compiler->result != COMPILATION_FAILURE) {
+		if (!scope_local((Scope*)scope, Token(parameter->name))) {
+			EntityKind kind = ENTITY_PRIMITIVE;
+			if (parameter->kind == TEMPLATE_VALUE) {
+				@kind = ENTITY_VARIABLE;
+			};
+			Entity* entity = entity_create((Compiler*)compiler, $kind, Token(parameter->name));
+			if (!entity) {
+				return;
+			};
+			@entity->resolution = RESOLUTION_READY;
+			@entity->template_parameter := argument->parameter;
+			if (parameter->kind == TEMPLATE_TYPE) {
+				@entity->data.primitive.type := argument->type;
+			}
+			else {
+				@entity->data.variable.storage = STORAGE_CONSTANT;
+				@entity->data.variable.type := argument->type;
+				@entity->data.variable.data.integer := argument->value;
+			};
+			scope_define((Compiler*)compiler, (Scope*)scope, $entity);
+		};
+		@parameter := parameter->next;
+		@argument := argument->next;
+	};
+};
+
+fn template_instance_name(Compiler* compiler, Token token, usize index) -> Token {
+	char[22] digits {};
+	@digits[sizeof(digits) - 1] = '\0';
+	usize position = sizeof(digits) - 1;
+	while (true) {
+		@position = position - 1;
+		@digits[position] = (char)((usize)'0' + index % 10);
+		@index = index / 10;
+		if (!index) {
+			break;
+		};
+	};
+	char* spelling = memory_text((Compiler*)compiler, &digits[position], sizeof(digits) - position - 1);
+	return token_synthetic($compiler, $token, $spelling);
+};
+
+fn type_dependent(Type* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == TYPE_PARAMETER) {
+		return true;
+	};
+	if (type->kind == TYPE_POINTER || type->kind == TYPE_REFERENCE) {
+		return type_dependent((Type*)type->data.element);
+	};
+	if (type->kind == TYPE_ARRAY) {
+		return type_dependent((Type*)type->data.array.element);
+	};
+	if (type->kind == TYPE_NAMED && type->data.entity->specialization) {
+		TemplateArgument* argument := type->data.entity->specialization->arguments;
+		while (argument) {
+			if (argument->parameter || type_dependent((Type*)argument->type)) {
+				return true;
+			};
+			@argument := argument->next;
+		};
+	};
+	return false;
+};
+
+fn template_specialize(Compiler* compiler, Entity* pattern, TemplateArgument* arguments, Token token) -> Entity* {
+	TemplateSpecialization* specialization := pattern->data.template_pattern.specializations;
+	while (specialization) {
+		if (template_arguments_equal((TemplateArgument*)specialization->arguments, (TemplateArgument*)arguments)) {
+			return (Entity*)specialization->entity;
+		};
+		@specialization := specialization->next;
+	};
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	Scope* instances := pattern->data.template_pattern.instances;
+	Token name = template_instance_name((Compiler*)compiler, Token(token), (usize)instances->binding_count);
+	Entity* wrapper = nullptr;
+	TemplateArgument* argument := arguments;
+	while (argument) {
+		if (argument->parameter || type_dependent((Type*)argument->type)) {
+			@wrapper = entity_create((Compiler*)compiler, ENTITY_NAMESPACE, Token(name));
+			@wrapper->resolution = RESOLUTION_READY;
+			@wrapper->scope := instances;
+			@wrapper->data.namespace_entity.scope = scope_create((Compiler*)compiler, (Scope*)instances, CONTEXT_MODULE, (Entity*)wrapper);
+			break;
+		};
+		@argument := argument->next;
+	};
+	if (!wrapper) {
+		@wrapper = namespace_define((Compiler*)compiler, (Scope*)instances, Token(name));
+	};
+	if (!wrapper) {
+		return nullptr;
+	};
+	Scope* scope = entity_members($wrapper);
+	template_bind((Compiler*)compiler, (Scope*)scope, (TemplateParameter*)declaration->parameters, (TemplateArgument*)arguments);
+	@specialization = (TemplateSpecialization*)memory_allocate((Compiler*)compiler, sizeof(TemplateSpecialization));
+	@specialization->arguments := arguments;
+	@specialization->scope := scope;
+	@specialization->next := pattern->data.template_pattern.specializations;
+	@pattern->data.template_pattern.specializations := specialization;
+	Parser parser;
+	@parser.compiler := compiler;
+	@parser.scope := scope;
+	@parser.tokens := declaration->tokens;
+	@parser.count = declaration->end + 1;
+	@parser.offset := declaration->begin;
+	usize position := declaration->begin;
+	parser_predeclare_range(&parser, (Scope*)scope, &position, DECLARATION_IDENTITIES);
+	@specialization->entity = scope_local((Scope*)scope, Token(pattern->name));
+	if (!specialization->entity) {
+		compiler_error((Compiler*)compiler, Token(token), "could not instantiate template declaration\0");
+		return nullptr;
+	};
+	@specialization->entity->template_origin := pattern;
+	@specialization->entity->specialization := specialization;
+	@position := declaration->begin;
+	parser_predeclare_range(&parser, (Scope*)scope, &position, DECLARATION_MEMBERS);
+	parser_statement(&parser);
+	TemplateDeclaration* extension := pattern->data.template_pattern.declarations;
+	while (extension && compiler->result != COMPILATION_FAILURE) {
+		if (extension != declaration && extension->tokens[extension->begin].kind == TOKEN_FN && pattern->data.template_pattern.declaration_kind != TOKEN_FN) {
+			template_bind((Compiler*)compiler, (Scope*)scope, (TemplateParameter*)extension->parameters, (TemplateArgument*)arguments);
+			@parser.tokens := extension->tokens;
+			@parser.count = extension->end + 1;
+			@parser.offset := extension->begin;
+			parser_statement(&parser);
+		};
+		@extension := extension->pattern_next;
+	};
+	return (Entity*)specialization->entity;
+};
+
+fn template_validate(Compiler* compiler, Entity* pattern) {
+	if (pattern->data.template_pattern.grammar != RESOLUTION_PENDING) {
+		return;
+	};
+	@pattern->data.template_pattern.grammar = RESOLUTION_ACTIVE;
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	Scope* scope = scope_create((Compiler*)compiler, (Scope*)pattern->scope, CONTEXT_MODULE, nullptr);
+	TemplateArgument* arguments = nullptr;
+	TemplateArgument** link = &arguments;
+	TemplateParameter* parameter := declaration->parameters;
+	while (parameter && compiler->result == COMPILATION_SUCCESS) {
+		TemplateArgument* argument = (TemplateArgument*)memory_allocate((Compiler*)compiler, sizeof(TemplateArgument));
+		@argument->kind := parameter->kind;
+		Entity* binding = entity_create((Compiler*)compiler, ENTITY_PRIMITIVE, Token(parameter->name));
+		@binding->resolution = RESOLUTION_READY;
+		@binding->template_parameter := parameter;
+		if (parameter->kind == TEMPLATE_TYPE) {
+			Type* type = type_new((Compiler*)compiler, TYPE_PARAMETER);
+			@type->data.entity := binding;
+			@binding->data.primitive.type := type;
+			@argument->type := type;
+		}
+		else {
+			Parser parser;
+			@parser.compiler := compiler;
+			@parser.scope := scope;
+			@parser.tokens := parameter->tokens;
+			@parser.count := parameter->count;
+			@parser.offset := parameter->type_begin;
+			@binding->kind = ENTITY_VARIABLE;
+			@binding->data.variable.storage = STORAGE_CONSTANT;
+			@binding->data.variable.type = type_resolve((Compiler*)compiler, (Scope*)scope, parser_type(&parser));
+			@binding->data.variable.data.integer = 1;
+			if (!type_integer((Type*)binding->data.variable.type) && !type_dependent((Type*)binding->data.variable.type)) {
+				compiler_error((Compiler*)compiler, Token(parameter->name), "non-type template parameter requires an integral type\0");
+				return;
+			};
+			@argument->type := binding->data.variable.type;
+			@argument->value = 1;
+			@argument->parameter := parameter;
+		};
+		scope_define((Compiler*)compiler, (Scope*)scope, $binding);
+		@*link := argument;
+		@link = &argument->next;
+		@parameter := parameter->next;
+	};
+	template_specialize((Compiler*)compiler, (Entity*)pattern, (TemplateArgument*)arguments, Token(declaration->tokens[declaration->start]));
+	@pattern->data.template_pattern.grammar = RESOLUTION_READY;
+};
+
+fn parser_template_close(Parser* parser) {
+	if (!parser->pending_greater && parser->tokens[parser->offset].kind == TOKEN_SHIFT_RIGHT) {
+		@parser->pending_greater = 1;
+		return;
+	};
+	parser_require($parser, TOKEN_GREATER, "expected '>' after template arguments\0");
+};
+
+fn parser_template_argument(Parser* parser, TemplateParameter* parameter) -> TemplateArgument* {
+	Compiler* compiler := parser->compiler;
+	TemplateArgument* argument = (TemplateArgument*)memory_allocate((Compiler*)compiler, sizeof(TemplateArgument));
+	@argument->kind := parameter->kind;
+	if (parameter->kind == TEMPLATE_TYPE) {
+		@argument->type = type_resolve((Compiler*)compiler, (Scope*)parser->scope, parser_type((Parser*)parser));
+		return argument;
+	};
+	Parser declared;
+	@declared.compiler := compiler;
+	@declared.scope := parser->scope;
+	@declared.tokens := parameter->tokens;
+	@declared.count := parameter->count;
+	@declared.offset := parameter->type_begin;
+	@argument->type = type_resolve((Compiler*)compiler, (Scope*)parser->scope, parser_type(&declared));
+	if (!type_integer((Type*)argument->type)) {
+		compiler_error((Compiler*)compiler, Token(parameter->name), "non-type template parameter requires an integral type\0");
+		return argument;
+	};
+	ExpressionContext context := parser->expression_context;
+	@parser->expression_context = TEMPLATE_ARGUMENT_EXPRESSION;
+	Syntax* value = parser_expression((Parser*)parser, 1);
+	@parser->expression_context = $context;
+	if (value->kind == SYNTAX_NAME) {
+		Entity* entity = syntax_lookup((Scope*)parser->scope, (Syntax*)value);
+		if (entity) {
+			@argument->parameter := entity->template_parameter;
+		};
+	};
+	Semantic checking;
+	@checking.compiler := compiler;
+	@checking.scope := parser->scope;
+	semantic_expression(&checking, (Syntax*)value, (Type*)argument->type);
+	@argument->value = constant_integer((Compiler*)compiler, (Scope*)parser->scope, (Syntax*)value);
+	i32 bits = type_bits((Type*)argument->type);
+	if (bits < 64) {
+		u64 maximum = (u64)18446744073709551615 >> (u64)(64 - bits);
+		if (type_unsigned((Type*)argument->type) || argument->type->kind == TYPE_BOOL || argument->type->kind == TYPE_CHAR) {
+			if (argument->value > maximum) {
+				compiler_error((Compiler*)compiler, Token(value->token), "template argument is outside its parameter type range\0");
+			};
+		}
+		else {
+			@maximum = maximum / 2;
+			i64 signed_value := (i64)argument->value;
+			if (signed_value > (i64)maximum || signed_value < -(i64)maximum - 1) {
+				compiler_error((Compiler*)compiler, Token(value->token), "template argument is outside its parameter type range\0");
+			};
+		};
+	};
+	return argument;
+};
+
+fn parser_template_arguments(Parser* parser, Entity* pattern, TemplateArgument** explicit_arguments) -> Entity* {
+	Token token = parser_require((Parser*)parser, TOKEN_LESS, "expected '<' before template arguments\0");
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	TemplateParameter* parameter := declaration->parameters;
+	TemplateArgument* arguments = nullptr;
+	TemplateArgument** link = &arguments;
+	Scope* bindings = scope_create((Compiler*)parser->compiler, (Scope*)parser->scope, CONTEXT_LOCAL, nullptr);
+	while (parameter && parser->compiler->result != COMPILATION_FAILURE) {
+		TemplateArgument* argument = nullptr;
+		if (!parser_at((Parser*)parser, TOKEN_GREATER) && !parser_at((Parser*)parser, TOKEN_SHIFT_RIGHT)) {
+			@argument = parser_template_argument((Parser*)parser, (TemplateParameter*)parameter);
+		}
+		else {
+			if (!parameter->default_begin) {
+				if (pattern->data.template_pattern.declaration_kind == TOKEN_FN) {
+					break;
+				};
+				compiler_error((Compiler*)parser->compiler, Token(token), "not enough template arguments\0");
+				return nullptr;
+			};
+			Parser defaults;
+			@defaults.compiler := parser->compiler;
+			@defaults.scope := bindings;
+			@defaults.tokens := parameter->tokens;
+			@defaults.count := parameter->count;
+			@defaults.offset := parameter->default_begin;
+			@argument = parser_template_argument(&defaults, (TemplateParameter*)parameter);
+		};
+		@*link := argument;
+		@link = &argument->next;
+		template_bind((Compiler*)parser->compiler, (Scope*)bindings, (TemplateParameter*)parameter, (TemplateArgument*)argument);
+		@parameter := parameter->next;
+		if (!parser_take((Parser*)parser, TOKEN_COMMA)) {
+			break;
+		};
+	};
+	while (parameter && parser->compiler->result != COMPILATION_FAILURE) {
+		if (!parameter->default_begin) {
+			if (pattern->data.template_pattern.declaration_kind == TOKEN_FN) {
+				break;
+			};
+			compiler_error((Compiler*)parser->compiler, Token(token), "not enough template arguments\0");
+			return nullptr;
+		};
+		Parser defaults;
+		@defaults.compiler := parser->compiler;
+		@defaults.scope := bindings;
+		@defaults.tokens := parameter->tokens;
+		@defaults.count := parameter->count;
+		@defaults.offset := parameter->default_begin;
+		TemplateArgument* argument = parser_template_argument(&defaults, (TemplateParameter*)parameter);
+		@*link := argument;
+		@link = &argument->next;
+		template_bind((Compiler*)parser->compiler, (Scope*)bindings, (TemplateParameter*)parameter, (TemplateArgument*)argument);
+		@parameter := parameter->next;
+	};
+	parser_template_close((Parser*)parser);
+	if (parser->compiler->result == COMPILATION_FAILURE) {
+		return nullptr;
+	};
+	@*explicit_arguments := arguments;
+	if (parameter && pattern->data.template_pattern.declaration_kind == TOKEN_FN) {
+		return pattern;
+	};
+	return template_specialize((Compiler*)parser->compiler, $pattern, (TemplateArgument*)arguments, $token);
+};
+
+fn parser_name_part(Parser* parser) -> Syntax* {
 	Token token = parser_require((Parser*)parser, TOKEN_NAME, "expected identifier\0");
 	Syntax* name = syntax_new((Parser*)parser, SYNTAX_NAME, $token);
-	while (parser_take((Parser*)parser, TOKEN_SCOPE)) {
+	return name;
+};
+
+fn parser_name(Parser* parser) -> Syntax* {
+	Syntax* name = parser_name_part((Parser*)parser);
+	while (true) {
+		Entity* entity = syntax_lookup((Scope*)parser->scope, (Syntax*)name);
+		if (entity && entity->template_origin && parser_at((Parser*)parser, TOKEN_LESS)) {
+			@entity := entity->template_origin;
+		};
+		if (entity && entity->kind == ENTITY_TEMPLATE && parser_at((Parser*)parser, TOKEN_LESS)) {
+			@name->entity = parser_template_arguments((Parser*)parser, (Entity*)entity, &name->template_arguments);
+		};
+		if (!parser_take((Parser*)parser, TOKEN_SCOPE)) {
+			break;
+		};
 		Token member = parser_require((Parser*)parser, TOKEN_NAME, "expected qualified identifier\0");
 		Syntax* qualified = syntax_new((Parser*)parser, SYNTAX_NAME, $member);
 		@qualified->data.expression := name;
@@ -2399,9 +3101,40 @@ fn parser_type_end(Parser* parser, usize offset) -> usize {
 		return parser_type_end((Parser*)parser, offset + 1);
 	};
 	if (kind == TOKEN_NAME) {
+		usize name_begin := offset;
 		Entity* entity = scope_lookup((Scope*)parser->scope, Token(parser->tokens[offset]));
 		@offset = offset + 1;
-		while (entity && offset + 1 < parser->count && parser->tokens[offset].kind == TOKEN_SCOPE && parser->tokens[offset + 1].kind == TOKEN_NAME) {
+		while (entity) {
+			if (entity->template_origin && offset < parser->count && parser->tokens[offset].kind == TOKEN_LESS) {
+				@entity := entity->template_origin;
+			};
+			if (entity->kind == ENTITY_TEMPLATE && offset < parser->count && parser->tokens[offset].kind == TOKEN_LESS) {
+				if (entity->data.template_pattern.declaration_kind == TOKEN_FN) {
+					return 0;
+				};
+				@offset = template_delimiter_end((Token*)parser->tokens, (usize)parser->count, (usize)offset);
+				if (!offset) {
+					return 0;
+				};
+				if (offset < parser->count && parser->tokens[offset].kind == TOKEN_SCOPE) {
+					Parser qualified;
+					@qualified.compiler := parser->compiler;
+					@qualified.scope := parser->scope;
+					@qualified.tokens := parser->tokens;
+					@qualified.count := parser->count;
+					@qualified.offset := name_begin;
+					Syntax* name = parser_name(&qualified);
+					Entity* member = syntax_lookup((Scope*)parser->scope, (Syntax*)name);
+					if (!member || (member->kind != ENTITY_PRIMITIVE && member->kind != ENTITY_STRUCT && member->kind != ENTITY_UNION && member->kind != ENTITY_ENUM)) {
+						return 0;
+					};
+					return parser_type_suffix_end((Parser*)parser, (usize)qualified.offset);
+				};
+				return parser_type_suffix_end((Parser*)parser, (usize)offset);
+			};
+			if (offset + 1 >= parser->count || parser->tokens[offset].kind != TOKEN_SCOPE || parser->tokens[offset + 1].kind != TOKEN_NAME) {
+				break;
+			};
 			Scope* members = entity_members((Entity*)entity);
 			if (!members) {
 				return 0;
@@ -2468,7 +3201,7 @@ fn parser_type_suffix_end(Parser* parser, usize offset) -> usize {
 		if (kind != TOKEN_LEFT_BRACKET) {
 			break;
 		};
-		if (offset + 2 >= parser->count || parser->tokens[offset + 1].kind != TOKEN_NUMBER || parser->tokens[offset + 2].kind != TOKEN_RIGHT_BRACKET) {
+		if (offset + 2 >= parser->count || (parser->tokens[offset + 1].kind != TOKEN_NUMBER && parser->tokens[offset + 1].kind != TOKEN_NAME) || parser->tokens[offset + 2].kind != TOKEN_RIGHT_BRACKET) {
 			return 0;
 		};
 
@@ -2550,7 +3283,10 @@ fn parser_type(Parser* parser) -> Syntax* {
 		};
 
 		Syntax* modified = syntax_new((Parser*)parser, SYNTAX_ARRAY, $modifier);
-		@modified->data.array.count = parser_require((Parser*)parser, TOKEN_NUMBER, "array requires an explicit length\0");
+		@modified->data.array.count = parser_token((Parser*)parser);
+		if (!parser_take((Parser*)parser, TOKEN_NUMBER) && !parser_take((Parser*)parser, TOKEN_NAME)) {
+			compiler_error((Compiler*)parser->compiler, Token(modified->data.array.count), "array requires an explicit constant length\0");
+		};
 		parser_require((Parser*)parser, TOKEN_RIGHT_BRACKET, "expected ']' after array length\0");
 		@modified->data.array.element := node;
 		@node = $modified;
@@ -2655,6 +3391,23 @@ fn parser_precedence(TokenKind operation) -> i32 {
 
 fn parser_primary(Parser* parser) -> Syntax* {
 	Token token = parser_token((Parser*)parser);
+	usize type_end = parser_type_end((Parser*)parser, (usize)parser->offset);
+	if (type_end > parser->offset + 1 && type_end < parser->count && parser->tokens[type_end].kind == TOKEN_LEFT_PAREN && !(token.kind == TOKEN_LEFT_PAREN && parser->tokens[type_end - 1].kind == TOKEN_RIGHT_PAREN)) {
+		Syntax* type = parser_type((Parser*)parser);
+		Syntax* construction = syntax_new((Parser*)parser, SYNTAX_CONSTRUCT, Token(token));
+		@construction->data.construction.target = type_resolve((Compiler*)parser->compiler, (Scope*)parser->scope, $type);
+		parser_require((Parser*)parser, TOKEN_LEFT_PAREN, "expected '(' after construction type\0");
+		Syntax* last = nullptr;
+		while (!parser_at((Parser*)parser, TOKEN_RIGHT_PAREN) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
+			Syntax* argument = parser_expression((Parser*)parser, 1);
+			syntax_append(&construction->data.construction.arguments, &last, $argument);
+			if (!parser_take((Parser*)parser, TOKEN_COMMA)) {
+				break;
+			};
+		};
+		parser_require((Parser*)parser, TOKEN_RIGHT_PAREN, "expected ')' after construction arguments\0");
+		return construction;
+	};
 	if (parser_at((Parser*)parser, TOKEN_NAME)) {
 		return parser_name((Parser*)parser);
 	};
@@ -2674,7 +3427,10 @@ fn parser_primary(Parser* parser) -> Syntax* {
 		return parser_block((Parser*)parser);
 	};
 	if (parser_take((Parser*)parser, TOKEN_LEFT_PAREN)) {
+		ExpressionContext context := parser->expression_context;
+		@parser->expression_context = ORDINARY_EXPRESSION;
 		Syntax* node = parser_expression((Parser*)parser, 1);
+		@parser->expression_context = $context;
 		parser_require((Parser*)parser, TOKEN_RIGHT_PAREN, "expected ')' after expression\0");
 		return $node;
 	};
@@ -2721,7 +3477,8 @@ fn parser_unary(Parser* parser) -> Syntax* {
 		return $node;
 	};
 	usize cast_end = 0;
-	if (parser_at((Parser*)parser, TOKEN_LEFT_PAREN)) {
+	usize construction_end = parser_type_end((Parser*)parser, (usize)parser->offset);
+	if (parser_at((Parser*)parser, TOKEN_LEFT_PAREN) && !(construction_end && construction_end < parser->count && parser->tokens[construction_end].kind == TOKEN_LEFT_PAREN && parser->tokens[construction_end - 1].kind != TOKEN_RIGHT_PAREN)) {
 		@cast_end = parser_type_end((Parser*)parser, parser->offset + 1);
 	};
 	if (cast_end && cast_end < parser->count && parser->tokens[cast_end].kind == TOKEN_RIGHT_PAREN) {
@@ -2775,6 +3532,9 @@ fn parser_expression(Parser* parser, i32 minimum) -> Syntax* {
 	Syntax* left = parser_unary((Parser*)parser);
 	while (parser->compiler->result != COMPILATION_FAILURE) {
 		Token operation = parser_token((Parser*)parser);
+		if (parser->expression_context == TEMPLATE_ARGUMENT_EXPRESSION && (operation.kind == TOKEN_GREATER || operation.kind == TOKEN_SHIFT_RIGHT)) {
+			break;
+		};
 		i32 precedence = parser_precedence((TokenKind)operation.kind);
 		if (precedence < minimum) {
 			break;
@@ -2963,7 +3723,17 @@ fn parser_function_name(Parser* parser, FunctionRole* role) -> Syntax* {
 	};
 	Token token = parser_require((Parser*)parser, TOKEN_NAME, "expected function identifier\0");
 	Syntax* name = syntax_new((Parser*)parser, SYNTAX_NAME, $token);
-	while (parser_take((Parser*)parser, TOKEN_SCOPE)) {
+	while (true) {
+		Entity* entity = syntax_lookup((Scope*)parser->scope, (Syntax*)name);
+		if (entity && entity->template_origin && parser_at((Parser*)parser, TOKEN_LESS)) {
+			@entity := entity->template_origin;
+		};
+		if (entity && entity->kind == ENTITY_TEMPLATE && parser_at((Parser*)parser, TOKEN_LESS)) {
+			@name->entity = parser_template_arguments((Parser*)parser, (Entity*)entity, &name->template_arguments);
+		};
+		if (!parser_take((Parser*)parser, TOKEN_SCOPE)) {
+			break;
+		};
 		if (*role == DESTRUCTOR_ROLE) {
 			compiler_error((Compiler*)parser->compiler, Token(name->token), "destructor name must be the final qualified component\0");
 			return $name;
@@ -2977,6 +3747,17 @@ fn parser_function_name(Parser* parser, FunctionRole* role) -> Syntax* {
 		@name = $qualified;
 	};
 	return $name;
+};
+
+fn scope_template_member(Scope* scope) -> bool {
+	while (scope) {
+		Entity* owner := scope->owner;
+		if (owner && (owner->kind == ENTITY_STRUCT || owner->kind == ENTITY_UNION) && owner->template_origin) {
+			return true;
+		};
+		@scope := scope->parent;
+	};
+	return false;
 };
 
 fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
@@ -3022,6 +3803,9 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 	};
 	if (!node->entity) {
 		return $node;
+	};
+	if (token.kind == TOKEN_FN && aggregate && scope_template_member((Scope*)owner)) {
+		@node->entity->data.function.analysis = FUNCTION_UNREQUESTED;
 	};
 	if (parser_take((Parser*)parser, TOKEN_COLON)) {
 		if (token.kind != TOKEN_STRUCT) {
@@ -3086,6 +3870,10 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 		};
 	};
 	if (parser_at((Parser*)parser, TOKEN_LEFT_BRACE)) {
+		if (token.kind == TOKEN_FN && role == ORDINARY_ROLE && node->entity->declaration && (node->entity->declaration->data.declaration.body || node->entity->declaration->data.declaration.definition == FUNCTION_DELETED)) {
+			compiler_error((Compiler*)parser->compiler, Token(token), "duplicate function definition\0");
+			return node;
+		};
 		if (node->data.declaration.definition == FUNCTION_DELETED) {
 			compiler_error((Compiler*)parser->compiler, Token(token), "deleted function cannot have a body\0");
 			return $node;
@@ -3204,6 +3992,17 @@ fn parser_namespace(Parser* parser) -> Syntax* {
 };
 
 fn parser_statement(Parser* parser) -> Syntax* {
+	if (parser_at((Parser*)parser, TOKEN_TEMPLATE)) {
+		TemplateDeclaration* declaration = template_register((Parser*)parser, (Scope*)parser->scope, (usize)parser->offset);
+		if (!declaration) {
+			return nullptr;
+		};
+		template_validate((Compiler*)parser->compiler, (Entity*)declaration->pattern);
+		Syntax* node = syntax_new((Parser*)parser, SYNTAX_DECLARATION, parser_token((Parser*)parser));
+		@node->entity := declaration->pattern;
+		@parser->offset := declaration->end;
+		return node;
+	};
 	if (parser_at((Parser*)parser, TOKEN_NAMESPACE)) {
 		return parser_namespace((Parser*)parser);
 	};
@@ -3322,6 +4121,8 @@ fn prepare_source(Compiler* compiler, Source* source) -> i32 {
 		@parser.tokens := source->tokens;
 		@parser.count := source->token_count;
 		@parser.offset = 0;
+		@parser.pending_greater = 0;
+		@parser.expression_context = ORDINARY_EXPRESSION;
 	};
 	parser_predeclare(&parser, DECLARATION_IDENTITIES);
 	return compiler->result == COMPILATION_SUCCESS;
@@ -3358,6 +4159,8 @@ fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
 		@parser.tokens := source->tokens;
 		@parser.count := source->token_count;
 		@parser.offset = 0;
+		@parser.pending_greater = 0;
+		@parser.expression_context = ORDINARY_EXPRESSION;
 	};
 	Token token = parser_token(&parser);
 	Syntax* module = syntax_new(&parser, SYNTAX_BLOCK, $token);
@@ -3597,6 +4400,7 @@ fn type_equal(Type* first, Type* second) -> i32 {
 		case TYPE_FLOAT:
 			return first->data.bits == second->data.bits;
 		case TYPE_NAMED:
+		case TYPE_PARAMETER:
 			return first->data.entity == second->data.entity;
 		case TYPE_POINTER:
 		case TYPE_REFERENCE:
@@ -3812,7 +4616,15 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 		};
 		case SYNTAX_ARRAY:
 			@type = type_new((Compiler*)compiler, TYPE_ARRAY);
-			@type->data.array.count = integer_spelling((Compiler*)compiler, Token(syntax->data.array.count), (u64)18446744073709551615);
+			if (syntax->data.array.count.kind == TOKEN_NAME) {
+				Syntax length;
+				@length.kind = SYNTAX_NAME;
+				@length.token := syntax->data.array.count;
+				@type->data.array.count = constant_integer((Compiler*)compiler, (Scope*)scope, &length);
+			}
+			else {
+				@type->data.array.count = integer_spelling((Compiler*)compiler, Token(syntax->data.array.count), (u64)18446744073709551615);
+			};
 			@type->data.array.element = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax->data.array.element);
 			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_NULL || type->data.array.element->kind == TYPE_FUNCTION || type->data.array.element->kind == TYPE_REFERENCE) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "array requires a positive length and a storage element type\0");
@@ -4307,6 +5119,40 @@ fn semantic_owned(Semantic* semantic, Syntax* syntax) {
 	@syntax->use = TRANSFERRED_VALUE;
 };
 
+fn function_request(Entity* function) {
+	if (function && function->kind == ENTITY_FUNCTION && function->data.function.analysis == FUNCTION_UNREQUESTED) {
+		@function->data.function.analysis = FUNCTION_REQUESTED;
+	};
+};
+
+fn destruction_request(Type* type) {
+	if (!type) {
+		return;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		destruction_request((Type*)type->data.array.element);
+		return;
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return;
+	};
+	Entity* owner := type->data.entity;
+	function_request((Entity*)owner->data.aggregate.destructor);
+	if (owner->kind == ENTITY_UNION) {
+		return;
+	};
+	Field* field := owner->data.aggregate.fields;
+	while (field) {
+		destruction_request(entity_type((Entity*)field->entity));
+		@field := field->next;
+	};
+	BaseRelation* base := owner->data.aggregate.bases;
+	while (base) {
+		destruction_request(entity_type((Entity*)base->entity));
+		@base := base->next;
+	};
+};
+
 fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* arguments, Token token) -> Entity* {
 	Syntax* input := arguments;
 	while (input) {
@@ -4383,6 +5229,7 @@ fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* 
 		return nullptr;
 	};
 	if (selected) {
+		function_request((Entity*)selected);
 		Parameter* parameter := selected->data.function.type->data.function.parameters->next;
 		Syntax* argument := arguments;
 		while (argument && parameter) {
@@ -5468,6 +6315,221 @@ fn receiver_callable(Semantic* semantic, Type* type, Token name) -> Entity* {
 	return $lexical;
 };
 
+fn template_argument_slot(TemplateParameter* parameters, TemplateArgument* arguments, TemplateParameter* parameter) -> TemplateArgument* {
+	while (parameters && arguments) {
+		if (parameters == parameter) {
+			return arguments;
+		};
+		@parameters := parameters->next;
+		@arguments := arguments->next;
+	};
+	return nullptr;
+};
+
+fn template_unify(Compiler* compiler, Type* pattern, Type* actual, TemplateParameter* parameters, TemplateArgument* arguments) -> bool {
+	if (!pattern || !actual) {
+		return false;
+	};
+	if (pattern->kind == TYPE_REFERENCE) {
+		if (actual->kind == TYPE_REFERENCE) {
+			@actual := actual->data.element;
+		};
+		return template_unify((Compiler*)compiler, (Type*)pattern->data.element, (Type*)actual, (TemplateParameter*)parameters, (TemplateArgument*)arguments);
+	};
+	if (pattern->kind == TYPE_PARAMETER) {
+		TemplateArgument* argument = template_argument_slot((TemplateParameter*)parameters, (TemplateArgument*)arguments, (TemplateParameter*)pattern->data.entity->template_parameter);
+		if (!argument) {
+			return false;
+		};
+		if (pattern->qualifier == CONST_TYPE) {
+			@actual = type_qualified((Compiler*)compiler, (Type*)actual, MUTABLE_TYPE);
+		};
+		if (argument->type) {
+			return type_equal((Type*)argument->type, (Type*)actual);
+		};
+		@argument->type := actual;
+		return true;
+	};
+	if (pattern->kind != actual->kind) {
+		return false;
+	};
+	if (pattern->kind == TYPE_POINTER) {
+		return template_unify((Compiler*)compiler, (Type*)pattern->data.element, (Type*)actual->data.element, (TemplateParameter*)parameters, (TemplateArgument*)arguments);
+	};
+	if (pattern->kind == TYPE_FUNCTION) {
+		if (pattern->data.function.arity != actual->data.function.arity || !template_unify((Compiler*)compiler, (Type*)pattern->data.function.result, (Type*)actual->data.function.result, (TemplateParameter*)parameters, (TemplateArgument*)arguments)) {
+			return false;
+		};
+		Parameter* first := pattern->data.function.parameters;
+		Parameter* second := actual->data.function.parameters;
+		while (first && second) {
+			if (!template_unify((Compiler*)compiler, (Type*)first->type, (Type*)second->type, (TemplateParameter*)parameters, (TemplateArgument*)arguments)) {
+				return false;
+			};
+			@first := first->next;
+			@second := second->next;
+		};
+		return !first && !second;
+	};
+	if (pattern->kind == TYPE_ARRAY) {
+		return pattern->data.array.count == actual->data.array.count && template_unify((Compiler*)compiler, (Type*)pattern->data.array.element, (Type*)actual->data.array.element, (TemplateParameter*)parameters, (TemplateArgument*)arguments);
+	};
+	if (pattern->kind == TYPE_NAMED && pattern->data.entity->specialization && actual->data.entity->specialization && pattern->data.entity->template_origin == actual->data.entity->template_origin) {
+		TemplateArgument* formal := pattern->data.entity->specialization->arguments;
+		TemplateArgument* concrete := actual->data.entity->specialization->arguments;
+		while (formal && concrete) {
+			if (formal->kind != concrete->kind) {
+				return false;
+			};
+			if (formal->kind == TEMPLATE_TYPE) {
+				if (!template_unify((Compiler*)compiler, (Type*)formal->type, (Type*)concrete->type, (TemplateParameter*)parameters, (TemplateArgument*)arguments)) {
+					return false;
+				};
+			}
+			else if (formal->parameter) {
+				TemplateArgument* argument = template_argument_slot((TemplateParameter*)parameters, (TemplateArgument*)arguments, (TemplateParameter*)formal->parameter);
+				if (!argument || (argument->type && argument->value != concrete->value)) {
+					return false;
+				};
+				@argument->type := concrete->type;
+				@argument->value := concrete->value;
+			}
+			else if (formal->value != concrete->value) {
+				return false;
+			};
+			@formal := formal->next;
+			@concrete := concrete->next;
+		};
+		return !formal && !concrete;
+	};
+	return type_value_equal((Type*)pattern, (Type*)actual);
+};
+
+fn template_deduce(Semantic* semantic, Entity* pattern, Syntax* callable, Syntax* values) -> Entity* {
+	Compiler* compiler := semantic->compiler;
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	Scope* scope = scope_create((Compiler*)compiler, (Scope*)pattern->scope, CONTEXT_LOCAL, nullptr);
+	TemplateArgument* arguments = nullptr;
+	TemplateArgument** link = &arguments;
+	TemplateArgument* explicit_argument := callable->template_arguments;
+	TemplateParameter* parameter := declaration->parameters;
+	while (parameter && compiler->result != COMPILATION_FAILURE) {
+		TemplateArgument* argument = (TemplateArgument*)memory_allocate((Compiler*)compiler, sizeof(TemplateArgument));
+		@argument->kind := parameter->kind;
+		if (explicit_argument) {
+			@*argument := *explicit_argument;
+			@argument->next = nullptr;
+			@explicit_argument := explicit_argument->next;
+		};
+		@*link := argument;
+		@link = &argument->next;
+		Entity* binding = entity_create((Compiler*)compiler, ENTITY_PRIMITIVE, Token(parameter->name));
+		@binding->resolution = RESOLUTION_READY;
+		@binding->template_parameter := parameter;
+		if (parameter->kind == TEMPLATE_TYPE) {
+			Type* type := argument->type;
+			if (!type) {
+				@type = type_new((Compiler*)compiler, TYPE_PARAMETER);
+				@type->data.entity := binding;
+			};
+			@binding->data.primitive.type := type;
+		}
+		else {
+			Parser declared;
+			@declared.compiler := compiler;
+			@declared.scope := scope;
+			@declared.tokens := parameter->tokens;
+			@declared.count := parameter->count;
+			@declared.offset := parameter->type_begin;
+			@binding->kind = ENTITY_VARIABLE;
+			@binding->data.variable.storage = STORAGE_CONSTANT;
+			@binding->data.variable.type = type_resolve((Compiler*)compiler, (Scope*)scope, parser_type(&declared));
+			@binding->data.variable.data.integer = 1;
+			if (argument->type) {
+				@binding->data.variable.data.integer := argument->value;
+			};
+		};
+		scope_define((Compiler*)compiler, (Scope*)scope, $binding);
+		@parameter := parameter->next;
+	};
+	Parser parser;
+	@parser.compiler := compiler;
+	@parser.scope := scope;
+	@parser.tokens := declaration->tokens;
+	@parser.count := declaration->count;
+	@parser.offset = declaration->begin + 1;
+	FunctionRole role = ORDINARY_ROLE;
+	parser_function_name(&parser, &role);
+	Syntax* signature = parser_signature(&parser, Token(callable->token));
+	ParameterSyntax* formal := signature->data.signature.parameters;
+	Syntax* value := values;
+	while (formal && value && compiler->result != COMPILATION_FAILURE) {
+		if (!syntax_number_expression((Syntax*)value)) {
+			Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)value, nullptr);
+			Syntax* syntax := formal->type;
+			if (syntax->kind == SYNTAX_REFERENCE) {
+				@syntax := syntax->data.expression;
+			}
+			else {
+				@actual = type_qualified((Compiler*)compiler, (Type*)actual, MUTABLE_TYPE);
+			};
+			if (syntax->kind == SYNTAX_ARRAY && syntax->data.array.count.kind == TOKEN_NAME && actual->kind == TYPE_ARRAY) {
+				Entity* bound = scope_lookup((Scope*)scope, Token(syntax->data.array.count));
+				if (bound && bound->template_parameter) {
+					TemplateArgument* argument = template_argument_slot((TemplateParameter*)declaration->parameters, (TemplateArgument*)arguments, (TemplateParameter*)bound->template_parameter);
+					if (argument && argument->type && argument->value != actual->data.array.count) {
+						compiler_error((Compiler*)compiler, Token(callable->token), "conflicting non-type template argument deduction\0");
+						return nullptr;
+					};
+					@argument->type := bound->data.variable.type;
+					@argument->value := actual->data.array.count;
+					@syntax := syntax->data.array.element;
+					@actual := actual->data.array.element;
+				};
+			};
+			Type* expected = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax);
+			if (!template_unify((Compiler*)compiler, (Type*)expected, (Type*)actual, (TemplateParameter*)declaration->parameters, (TemplateArgument*)arguments)) {
+				compiler_error((Compiler*)compiler, Token(callable->token), "conflicting function template argument deduction\0");
+				return nullptr;
+			};
+		};
+		@formal := formal->next;
+		@value := value->next;
+	};
+	@parameter := declaration->parameters;
+	TemplateArgument* argument := arguments;
+	while (parameter && argument && compiler->result != COMPILATION_FAILURE) {
+		if (!argument->type && parameter->default_begin) {
+			Parser defaults;
+			@defaults.compiler := compiler;
+			@defaults.scope := scope;
+			@defaults.tokens := parameter->tokens;
+			@defaults.count := parameter->count;
+			@defaults.offset := parameter->default_begin;
+			TemplateArgument* default_argument = parser_template_argument(&defaults, (TemplateParameter*)parameter);
+			@argument->type := default_argument->type;
+			@argument->value := default_argument->value;
+		};
+		if (!argument->type || type_dependent((Type*)argument->type)) {
+			compiler_error((Compiler*)compiler, Token(callable->token), "function template argument cannot be deduced; provide it explicitly\0");
+			return nullptr;
+		};
+		Entity* binding = scope_local((Scope*)scope, Token(parameter->name));
+		if (parameter->kind == TEMPLATE_TYPE) {
+			@binding->data.primitive.type := argument->type;
+		}
+		else {
+			@binding->data.variable.data.integer := argument->value;
+		};
+		@argument := argument->next;
+		@parameter := parameter->next;
+	};
+	return template_specialize((Compiler*)compiler, (Entity*)pattern, (TemplateArgument*)arguments, Token(callable->token));
+};
+
 fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Type* {
 	Compiler* compiler := semantic->compiler;
 	if (!syntax) {
@@ -5577,6 +6639,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return (Type*)compiler->void_type;
 			};
 			entity_resolve((Compiler*)compiler, (Entity*)syntax->entity);
+			if (syntax->entity->kind == ENTITY_FUNCTION) {
+				function_request((Entity*)syntax->entity);
+			};
 			if (syntax->entity->kind == ENTITY_FUNCTION && syntax->entity->data.function.definition == FUNCTION_DELETED) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "selected function is deleted\0");
 			};
@@ -5990,6 +7055,13 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			Syntax* callable_syntax := syntax->data.call.callable;
 			if (callable_syntax->kind == SYNTAX_NAME) {
 				Entity* callable_entity = syntax_lookup((Scope*)semantic->scope, (Syntax*)callable_syntax);
+				if (callable_entity && callable_entity->kind == ENTITY_TEMPLATE && callable_entity->data.template_pattern.declaration_kind == TOKEN_FN) {
+					@callable_entity = template_deduce((Semantic*)semantic, (Entity*)callable_entity, (Syntax*)callable_syntax, (Syntax*)syntax->data.call.arguments);
+					if (!callable_entity) {
+						return (Type*)compiler->void_type;
+					};
+					@callable_syntax->entity := callable_entity;
+				};
 				if (callable_entity && (callable_entity->kind == ENTITY_PRIMITIVE || callable_entity->kind == ENTITY_STRUCT || callable_entity->kind == ENTITY_UNION || callable_entity->kind == ENTITY_ENUM)) {
 					Syntax* arguments := syntax->data.call.arguments;
 					Type* target = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)callable_syntax);
@@ -8182,7 +9254,7 @@ struct DeclarationIterator {
 
 fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding* {
 	Scope* members = nullptr;
-	if (binding->entity->kind == ENTITY_NAMESPACE || binding->entity->kind == ENTITY_STRUCT || binding->entity->kind == ENTITY_UNION) {
+	if (binding->entity->kind == ENTITY_NAMESPACE || binding->entity->kind == ENTITY_STRUCT || binding->entity->kind == ENTITY_UNION || binding->entity->kind == ENTITY_TEMPLATE) {
 		@members = entity_members((Entity*)binding->entity);
 	};
 	if (members && members->bindings) {
@@ -8191,7 +9263,7 @@ fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding*
 	};
 	while (!binding->next) {
 		Entity* owner := iterator->scope->owner;
-		if (!owner || (owner->kind != ENTITY_NAMESPACE && owner->kind != ENTITY_STRUCT && owner->kind != ENTITY_UNION)) {
+		if (!owner || (owner->kind != ENTITY_NAMESPACE && owner->kind != ENTITY_STRUCT && owner->kind != ENTITY_UNION && owner->kind != ENTITY_TEMPLATE)) {
 			return nullptr;
 		};
 		@iterator->scope := iterator->scope->parent;
@@ -8451,6 +9523,22 @@ fn virtual_validate(Compiler* compiler) {
 	};
 };
 
+fn semantic_function(Compiler* compiler, Entity* entity) {
+	if (!entity->data.function.body || entity->data.function.analysis != FUNCTION_REQUESTED) {
+		return;
+	};
+	@entity->data.function.analysis = FUNCTION_ANALYZING;
+	Semantic semantic;
+	@semantic.compiler := compiler;
+	@semantic.scope := entity->scope;
+	@semantic.function := entity;
+	semantic_statement(&semantic, (Syntax*)entity->data.function.body);
+	if (compiler->result == COMPILATION_SUCCESS) {
+		lifetime_function((Compiler*)compiler, (Entity*)entity);
+	};
+	@entity->data.function.analysis = FUNCTION_ANALYZED;
+};
+
 fn backend_analyze(Compiler* compiler) {
 	DeclarationIterator iterator;
 	@iterator.scope := compiler->module;
@@ -8491,23 +9579,35 @@ fn backend_analyze(Compiler* compiler) {
 			};
 		};
 		if (entity->kind == ENTITY_FUNCTION && entity->data.function.body) {
-			Semantic semantic;
-			@semantic.compiler := compiler;
-			@semantic.scope := entity->scope;
-			@semantic.function := entity;
-			semantic_statement(&semantic, (Syntax*)entity->data.function.body);
-			if (compiler->result == COMPILATION_SUCCESS) {
-				lifetime_function((Compiler*)compiler, (Entity*)entity);
-			};
+			semantic_function((Compiler*)compiler, (Entity*)entity);
 		};
 		@binding = declaration_next(&iterator, (Binding*)binding);
+	};
+	while (compiler->result == COMPILATION_SUCCESS) {
+		usize pending = 0;
+		@iterator.scope := compiler->module;
+		@binding := compiler->module->bindings;
+		while (binding && compiler->result == COMPILATION_SUCCESS) {
+			Entity* entity := binding->entity;
+			if (entity->kind != ENTITY_VARIABLE) {
+				entity_resolve((Compiler*)compiler, (Entity*)entity);
+			};
+			if (entity->kind == ENTITY_FUNCTION && entity->data.function.body && entity->data.function.analysis == FUNCTION_REQUESTED) {
+				@pending = pending + 1;
+				semantic_function((Compiler*)compiler, (Entity*)entity);
+			};
+			@binding = declaration_next(&iterator, (Binding*)binding);
+		};
+		if (!pending) {
+			break;
+		};
 	};
 };
 
 fn entity_name(Compiler* compiler, Entity* entity) -> char* {
 	Scope* scope := entity->scope;
 	char* parent = "\0";
-	if (scope && scope->owner && (scope->owner->kind == ENTITY_NAMESPACE || scope->owner->kind == ENTITY_STRUCT || scope->owner->kind == ENTITY_UNION)) {
+	if (scope && scope->owner && (scope->owner->kind == ENTITY_NAMESPACE || scope->owner->kind == ENTITY_STRUCT || scope->owner->kind == ENTITY_UNION || scope->owner->kind == ENTITY_TEMPLATE)) {
 		@parent = entity_name((Compiler*)compiler, (Entity*)scope->owner);
 	};
 	usize length = strlen((char*)parent);
@@ -8570,7 +9670,7 @@ fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
 };
 
 fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 receiver_offset, Type* return_type) {
-	if (!entity->data.function.body) {
+	if (!entity->data.function.body || entity->data.function.analysis == FUNCTION_UNREQUESTED) {
 		return;
 	};
 	void* block = LLVMAppendBasicBlockInContext((void*)compiler->llvm_context.handle, (void*)function, "entry\0");
@@ -8961,6 +10061,7 @@ fn lifetime_cleanup(LifetimeAnalysis* analysis, Syntax* syntax, LifetimeObject* 
 	while (object && (!boundary || object->entity != boundary->entity)) {
 		Type* type = entity_type((Entity*)object->entity);
 		if (object->status == LIFETIME_ALIVE && type && type->kind != TYPE_REFERENCE) {
+			destruction_request((Type*)type);
 			LifetimeCleanup* cleanup = (LifetimeCleanup*)memory_allocate((Compiler*)analysis->compiler, sizeof(LifetimeCleanup));
 			@cleanup->entity := object->entity;
 			@*last := cleanup;
@@ -9016,6 +10117,9 @@ fn lifetime_nested_statement(LifetimeAnalysis* analysis, Syntax* syntax) {
 fn lifetime_expression(LifetimeAnalysis* analysis, Syntax* syntax) {
 	if (!syntax || analysis->state.reachability == PATH_UNREACHABLE || analysis->compiler->result == COMPILATION_FAILURE) {
 		return;
+	};
+	if (syntax->use == OBSERVED_VALUE && syntax_category((Syntax*)syntax) == VALUE_TEMPORARY) {
+		destruction_request((Type*)syntax->type);
 	};
 	switch (syntax->kind) {
 		case SYNTAX_CONSTRUCT: {
@@ -9684,7 +10788,7 @@ fn backend_clear(Compiler* compiler) {
 
 fn rutile_compiler_create() -> Compiler* {
 	Compiler value;
-	unique_ptr storage = unique_ptr(calloc(1, sizeof(Compiler)));
+	unique_ptr<void> storage = unique_ptr<void>(calloc(1, sizeof(Compiler)));
 	if (!storage.get()) {
 		return nullptr;
 	};
@@ -9698,7 +10802,7 @@ fn rutile_compiler_destroy(Compiler* compiler) {
 		return;
 	};
 
-	unique_ptr storage = unique_ptr((void*)compiler);
+	unique_ptr<void> storage = unique_ptr<void>((void*)compiler);
 	Compiler previous = Compiler($compiler);
 };
 

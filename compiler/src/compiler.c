@@ -34,6 +34,9 @@ enum TypeKind {
 	UNION_TYPE,
 	ENUM_TYPE,
 	FUNCTION_TYPE,
+	PARAMETER_TYPE,
+	TEMPLATE_TYPE,
+	DEPENDENT_ARRAY_TYPE,
 };
 
 enum TypeQualifier {
@@ -48,6 +51,12 @@ struct Type {
 		struct Type* element;
 		struct Record* record;
 		struct Function* function;
+		struct TemplateParameter* parameter;
+		struct TemplateApplication* application;
+		struct {
+			struct Type* element;
+			struct TemplateParameter* parameter;
+		} dependent_array;
 		struct {
 			struct Type* element;
 			uint64_t count;
@@ -82,6 +91,7 @@ struct Token {
 	int column;
 	const char* path;
 	struct Namespace* owner;
+	struct TemplateApplication* application;
 };
 
 struct Span {
@@ -182,12 +192,17 @@ enum TokenKind {
 	DISCARD,
 	DELETE,
 	NULLPTR,
+	TEMPLATE,
+	TYPENAME,
+	CLASS,
 };
 
 enum NodeKind {
 	INTEGER_EXPRESSION,
 	BOOLEAN_EXPRESSION,
 	NULLPTR_EXPRESSION,
+	TEMPLATE_VALUE_EXPRESSION,
+	PARAMETER_VALUE_EXPRESSION,
 	DECIMAL_EXPRESSION,
 	STRING_EXPRESSION,
 	NAME_EXPRESSION,
@@ -198,6 +213,7 @@ enum NodeKind {
 	RELOCATE_EXPRESSION,
 	ABANDON_EXPRESSION,
 	CONSTRUCTION_EXPRESSION,
+	TYPE_EXPRESSION,
 	NEGATE_EXPRESSION,
 	BINARY_EXPRESSION,
 	ASSIGNMENT_EXPRESSION,
@@ -243,6 +259,7 @@ enum TypeSyntaxKind {
 	POINTER_SYNTAX,
 	REFERENCE_SYNTAX,
 	ARRAY_SYNTAX,
+	DEPENDENT_ARRAY_SYNTAX,
 	NAMED_SYNTAX,
 	FUNCTION_SYNTAX,
 };
@@ -272,6 +289,10 @@ struct TypeNode {
 			struct TypeNode* element;
 			uint64_t count;
 		} array;
+		struct {
+			struct TypeNode* element;
+			struct TemplateParameter* parameter;
+		} dependent_array;
 	} data;
 };
 
@@ -293,6 +314,7 @@ struct Expression {
 			LLVMValueRef slot;
 		} construction;
 		uint64_t integer;
+		struct TemplateParameter* template_parameter;
 		double decimal;
 		struct Enumerator* enumerator;
 		struct Function* function;
@@ -536,6 +558,7 @@ struct Subobject {
 };
 
 struct Record {
+	struct TemplateSpecialization* specialization;
 	enum TypeKind kind;
 	enum RecordState state;
 	struct Token name;
@@ -578,7 +601,15 @@ enum GeneratedOperation {
 	VALUE_ASSIGNMENT,
 };
 
+enum FunctionAnalysis {
+	UNREQUESTED_FUNCTION,
+	REQUESTED_FUNCTION,
+	ANALYZING_FUNCTION,
+	ANALYZED_FUNCTION,
+};
+
 struct Function {
+	enum FunctionAnalysis analysis;
 	enum FunctionRole role;
 	LLVMValueRef llvm_value;
 	LLVMTypeRef llvm_type;
@@ -665,6 +696,75 @@ struct BuiltinType {
 	struct Type type;
 };
 
+enum TemplateParameterKind {
+	TYPE_PARAMETER,
+	VALUE_PARAMETER,
+	DEPENDENT_VALUE,
+};
+
+struct TemplateArgument {
+	enum TemplateParameterKind kind;
+	struct Type type;
+	uint64_t value;
+	struct TemplateParameter* parameter;
+	struct TemplateArgument* next;
+};
+
+struct TemplateParameter {
+	enum TemplateParameterKind kind;
+	struct Token name;
+	struct Type value_type;
+	size_t default_begin;
+	size_t default_end;
+	struct TemplateParameter* next;
+};
+
+struct TemplateBinding {
+	struct Token name;
+	struct TemplateArgument argument;
+	struct TemplateBinding* next;
+};
+
+struct TemplateSpecialization {
+	struct TemplatePattern* pattern;
+	struct TemplateArgument* arguments;
+	struct Namespace* scope;
+	struct Token name;
+	struct TemplateSpecialization* next;
+};
+
+struct TemplateExtension {
+	size_t header;
+	size_t begin;
+	size_t end;
+	struct TemplateParameter* parameters;
+	struct TemplateExtension* next;
+};
+
+struct TemplatePattern {
+	size_t header;
+	struct Token name;
+	struct Namespace* owner;
+	struct TemplateParameter* parameters;
+	size_t begin;
+	size_t end;
+	int declaration_kind;
+	struct Function* signature;
+	struct TemplateExtension* extensions;
+	struct TemplateSpecialization* specializations;
+	struct TemplatePattern* next;
+};
+
+struct TemplateApplication {
+	struct TemplatePattern* pattern;
+	struct TemplateArgument* arguments;
+};
+
+enum TemplateContext {
+	CONCRETE_TEMPLATE,
+	DEPENDENT_TEMPLATE,
+};
+
 enum OperatorKind {
 	ARITHMETIC_OPERATOR,
 	COMPARISON_OPERATOR,
@@ -720,6 +820,12 @@ struct Compiler {
 	int optimization;
 	int next_string;
 	struct Temporary* temporaries;
+	struct TemplatePattern* templates;
+	struct TemplateBinding* template_bindings;
+	unsigned next_specialization;
+	struct Record* registered_record;
+	struct Function* registered_function;
+	enum TemplateContext template_context;
 };
 
 struct Temporary {
@@ -737,7 +843,7 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
+const struct Keyword keywords[] = { { "template", TEMPLATE }, { "typename", TYPENAME }, { "class", CLASS }, { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
 
 const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } }, { "null", { NULL_TYPE, { 0 } } } };
 
@@ -856,6 +962,8 @@ bool type_equal(struct Type a, struct Type b) {
 	case UNION_TYPE:
 	case ENUM_TYPE:
 		return a.data.record == b.data.record;
+	case PARAMETER_TYPE:
+		return a.data.parameter == b.data.parameter;
 	case FUNCTION_TYPE: {
 		struct Function* first = a.data.function;
 		struct Function* second = b.data.function;
@@ -896,6 +1004,15 @@ bool implicit_pointer_conversion(struct Type source, struct Type target) {
 	}
 	if (is_null_pointer_type(source)) {
 		return true;
+	}
+	struct Type source_element = *source.data.element;
+	struct Type target_element = *target.data.element;
+	if (target_element.qualifier == CONST_TYPE && source_element.qualifier == MUTABLE_TYPE) {
+		source_element.qualifier = MUTABLE_TYPE;
+		target_element.qualifier = MUTABLE_TYPE;
+		if (type_equal(source_element, target_element)) {
+			return true;
+		}
 	}
 	return target.data.element->kind == VOID_TYPE && source.data.element->kind != FUNCTION_TYPE && (source.data.element->qualifier == MUTABLE_TYPE || target.data.element->qualifier == CONST_TYPE);
 }
@@ -1344,6 +1461,31 @@ struct QualifiedName lookup_name(struct Compiler* compiler, struct Token name) {
 	return result;
 }
 
+struct TemplateBinding* template_binding(struct Compiler* compiler, struct Token name) {
+	for (struct TemplateBinding* binding = compiler->template_bindings; binding; binding = binding->next) {
+		if (name_equal(binding->name, name)) {
+			return binding;
+		}
+	}
+	return NULL;
+}
+
+struct TemplatePattern* find_template(struct Compiler* compiler, struct Token name) {
+	struct QualifiedName lookup = lookup_name(compiler, name);
+	for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
+		for (struct TemplatePattern* pattern = compiler->templates; pattern; pattern = pattern->next) {
+			if (pattern->owner == owner && name_equal(pattern->name, lookup.name)) {
+				return pattern;
+			}
+		}
+		if (!owner || lookup.name.kind == QUALIFY) {
+			return NULL;
+		}
+	}
+}
+
+struct Token template_parse_id(struct Compiler* compiler, struct Token name);
+
 struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
 	if (destructor) {
 		*destructor = take(compiler, '~');
@@ -1351,6 +1493,9 @@ struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
 	struct Token name = compiler->token;
 	if (!expect(compiler, NAME, "an identifier")) {
 		return name;
+	}
+	if (compiler->token.kind == '<' && find_template(compiler, name)) {
+		name = template_parse_id(compiler, name);
 	}
 
 	while (take(compiler, QUALIFY)) {
@@ -1376,6 +1521,9 @@ struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
 		memcpy(text + name.length + 2, part.start, part.length);
 		name.start = text;
 		name.length += part.length + 2;
+		if (compiler->token.kind == '<' && find_template(compiler, name)) {
+			name = template_parse_id(compiler, name);
+		}
 	}
 	return name;
 }
@@ -1508,9 +1656,9 @@ struct TypeNode* parse_type(struct Compiler* compiler) {
 		syntax->data.element = parse_type(compiler);
 		struct TypeNode* root = syntax->data.element;
 		struct TypeNode* inner = root;
-		while (inner && (inner->kind == POINTER_SYNTAX || inner->kind == REFERENCE_SYNTAX || inner->kind == ARRAY_SYNTAX)) {
-			struct TypeNode** element = inner->kind == ARRAY_SYNTAX ? &inner->data.array.element : &inner->data.element;
-			if ((*element)->kind != POINTER_SYNTAX && (*element)->kind != REFERENCE_SYNTAX && (*element)->kind != ARRAY_SYNTAX) {
+		while (inner && (inner->kind == POINTER_SYNTAX || inner->kind == REFERENCE_SYNTAX || inner->kind == ARRAY_SYNTAX || inner->kind == DEPENDENT_ARRAY_SYNTAX)) {
+			struct TypeNode** element = inner->kind == ARRAY_SYNTAX ? &inner->data.array.element : inner->kind == DEPENDENT_ARRAY_SYNTAX ? &inner->data.dependent_array.element : &inner->data.element;
+			if ((*element)->kind != POINTER_SYNTAX && (*element)->kind != REFERENCE_SYNTAX && (*element)->kind != ARRAY_SYNTAX && (*element)->kind != DEPENDENT_ARRAY_SYNTAX) {
 				syntax->data.element = *element;
 				*element = syntax;
 				return root;
@@ -1580,7 +1728,18 @@ struct TypeNode* parse_type(struct Compiler* compiler) {
 	}
 	else {
 		syntax->kind = BUILTIN_SYNTAX;
-		syntax->data.builtin = find_builtin(compiler->token);
+		struct TemplateBinding* binding = template_binding(compiler, compiler->token);
+		if (binding && binding->argument.kind == TYPE_PARAMETER) {
+			struct BuiltinType* alias = allocate(compiler, sizeof(struct BuiltinType));
+			if (!alias) {
+				return syntax;
+			}
+			alias->type = binding->argument.type;
+			syntax->data.builtin = alias;
+		}
+		else {
+			syntax->data.builtin = find_builtin(compiler->token);
+		}
 		if (!syntax->data.builtin) {
 			if (compiler->token.kind == NAME) {
 				syntax->kind = NAMED_SYNTAX;
@@ -1613,16 +1772,38 @@ suffixes:
 			modifier->kind = ARRAY_SYNTAX;
 			modifier->data.array.element = syntax;
 			struct Token length = compiler->token;
-			if (!expect(compiler, INTEGER, "a positive integer array length")) {
-				return modifier;
+			struct TemplateBinding* binding = template_binding(compiler, length);
+			if (binding && binding->argument.kind == DEPENDENT_VALUE) {
+				modifier->kind = DEPENDENT_ARRAY_SYNTAX;
+				modifier->data.dependent_array.element = syntax;
+				modifier->data.dependent_array.parameter = binding->argument.parameter;
+				next_token(compiler);
+				expect(compiler, ']', "']'");
+				modifier->span.last = previous_token(compiler);
+				syntax = modifier;
+				continue;
 			}
-			for (size_t i = 0; i < length.length; i++) {
-				unsigned digit = (unsigned)(length.start[i] - '0');
-				if (modifier->data.array.count > (UINT64_MAX - digit) / 10) {
-					diagnostic(compiler, length, "array length is out of range");
+			if (binding && binding->argument.kind == VALUE_PARAMETER) {
+				struct Type type = binding->argument.type;
+				if ((type.kind == SIGNED_INTEGER_TYPE || type.kind == ENUM_TYPE) && (binding->argument.value & (UINT64_C(1) << ((type.kind == ENUM_TYPE ? 32 : type.data.bits) - 1)))) {
+					diagnostic(compiler, length, "array length must be positive");
 					return modifier;
 				}
-				modifier->data.array.count = modifier->data.array.count * 10 + digit;
+				modifier->data.array.count = binding->argument.value;
+				next_token(compiler);
+			}
+			else {
+				if (!expect(compiler, INTEGER, "a positive integer array length")) {
+					return modifier;
+				}
+				for (size_t i = 0; i < length.length; i++) {
+					unsigned digit = (unsigned)(length.start[i] - '0');
+					if (modifier->data.array.count > (UINT64_MAX - digit) / 10) {
+						diagnostic(compiler, length, "array length is out of range");
+						return modifier;
+					}
+					modifier->data.array.count = modifier->data.array.count * 10 + digit;
+				}
 			}
 			if (!modifier->data.array.count) {
 				diagnostic(compiler, length, "array length must be positive");
@@ -2005,9 +2186,18 @@ struct Expression* new_expression(struct Compiler* compiler, enum NodeKind kind,
 }
 
 struct Expression* parse_expression(struct Compiler* compiler, int minimum);
+enum ExpressionBoundary {
+	OPEN_EXPRESSION,
+	TEMPLATE_ARGUMENT_EXPRESSION,
+};
+struct Expression* parse_expression_boundary(struct Compiler* compiler, int minimum, enum ExpressionBoundary boundary);
 struct Statement* parse_statement(struct Compiler* compiler);
 
 bool known_type_name(struct Compiler* compiler, struct Token name) {
+	struct TemplateBinding* binding = template_binding(compiler, name);
+	if ((binding && binding->argument.kind == TYPE_PARAMETER) || find_template(compiler, name)) {
+		return true;
+	}
 	if (find_builtin(name)) {
 		return true;
 	}
@@ -2019,6 +2209,45 @@ bool known_type_name(struct Compiler* compiler, struct Token name) {
 		}
 	}
 	return false;
+}
+
+bool scan_template_arguments(struct Compiler* compiler, size_t* position) {
+	size_t index = *position + 1;
+	int depth = 1;
+	int groups = 0;
+	while (index < compiler->token_count && depth > 0) {
+		int kind = compiler->tokens[index].kind;
+		if (kind == END) {
+			return false;
+		}
+		if (kind == '(' || kind == '[') {
+			groups++;
+		}
+		else if (kind == ')' || kind == ']') {
+			groups--;
+		}
+		else if (!groups && kind == '<' && index && compiler->tokens[index - 1].kind == NAME) {
+			struct Token name = compiler->tokens[index - 1];
+			struct TemplateBinding* binding = template_binding(compiler, name);
+			if (!binding || binding->argument.kind == TYPE_PARAMETER) {
+				for (struct TemplatePattern* pattern = compiler->templates; pattern; pattern = pattern->next) {
+					if (name_equal(pattern->name, name)) {
+						depth++;
+						break;
+					}
+				}
+			}
+		}
+		else if (!groups) {
+			depth -= kind == '>' ? 1 : kind == SHIFT_RIGHT ? 2 : 0;
+		}
+		index++;
+	}
+	if (depth > 0 || groups) {
+		return false;
+	}
+	*position = index;
+	return true;
 }
 
 bool scan_type(struct Compiler* compiler, size_t* position) {
@@ -2086,12 +2315,22 @@ bool scan_type(struct Compiler* compiler, size_t* position) {
 			return false;
 		}
 		struct Token name = compiler->tokens[index - 1];
+		if (index < compiler->token_count && compiler->tokens[index].kind == '<' && find_template(compiler, name)) {
+			if (!scan_template_arguments(compiler, &index)) {
+				return false;
+			}
+		}
 		while (index < compiler->token_count && compiler->tokens[index].kind == QUALIFY) {
 			index++;
 			if (index >= compiler->token_count || compiler->tokens[index].kind != NAME) {
 				return false;
 			}
 			name = compiler->tokens[index++];
+			if (index < compiler->token_count && compiler->tokens[index].kind == '<') {
+				if (!scan_template_arguments(compiler, &index)) {
+					return false;
+				}
+			}
 		}
 		if (!tagged && !known_type_name(compiler, name)) {
 			return false;
@@ -2108,7 +2347,8 @@ suffixes:
 			break;
 		}
 		index++;
-		if (index + 1 >= compiler->token_count || compiler->tokens[index].kind != INTEGER || compiler->tokens[index + 1].kind != ']') {
+		struct TemplateBinding* length = index < compiler->token_count ? template_binding(compiler, compiler->tokens[index]) : NULL;
+		if (index + 1 >= compiler->token_count || (compiler->tokens[index].kind != INTEGER && (!length || (length->argument.kind != VALUE_PARAMETER && length->argument.kind != DEPENDENT_VALUE))) || compiler->tokens[index + 1].kind != ']') {
 			return false;
 		}
 		index += 2;
@@ -2125,6 +2365,16 @@ bool type_start(struct Compiler* compiler) {
 struct Expression* parse_prefix(struct Compiler* compiler) {
 	struct Token token = compiler->token;
 	struct Expression* expression = NULL;
+	size_t type_end = compiler->token_index - 1;
+	int following = compiler->token_index < compiler->token_count ? compiler->tokens[compiler->token_index].kind : END;
+	if ((token.kind == CONST || token.kind == '(' || following == '*' || following == '&' || following == '[' || following == QUALIFY || following == '<') && scan_type(compiler, &type_end) && type_end < compiler->token_count && compiler->tokens[type_end].kind == '(' && type_end && (compiler->tokens[type_end - 1].kind == '*' || compiler->tokens[type_end - 1].kind == '&' || compiler->tokens[type_end - 1].kind == ']')) {
+		expression = new_expression(compiler, TYPE_EXPRESSION, token);
+		if (!expression) {
+			return NULL;
+		}
+		expression->data.cast.syntax = parse_type(compiler);
+		goto postfix;
+	}
 	switch (token.kind) {
 	case NULLPTR:
 		expression = new_expression(compiler, NULLPTR_EXPRESSION, token);
@@ -2320,6 +2570,35 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 		}
 		break;
 	case NAME:
+		if (template_binding(compiler, token) && template_binding(compiler, token)->argument.kind == DEPENDENT_VALUE) {
+			expression = new_expression(compiler, PARAMETER_VALUE_EXPRESSION, token);
+			if (!expression) {
+				return NULL;
+			}
+			expression->type = template_binding(compiler, token)->argument.type;
+			expression->data.template_parameter = template_binding(compiler, token)->argument.parameter;
+			next_token(compiler);
+			break;
+		}
+		if (template_binding(compiler, token) && template_binding(compiler, token)->argument.kind == TYPE_PARAMETER && following == '(') {
+			expression = new_expression(compiler, TYPE_EXPRESSION, token);
+			if (!expression) {
+				return NULL;
+			}
+			expression->data.cast.syntax = parse_type(compiler);
+			break;
+		}
+		if (template_binding(compiler, token) && template_binding(compiler, token)->argument.kind == VALUE_PARAMETER) {
+			struct TemplateArgument* argument = &template_binding(compiler, token)->argument;
+			expression = new_expression(compiler, TEMPLATE_VALUE_EXPRESSION, token);
+			if (!expression) {
+				return NULL;
+			}
+			expression->data.integer = argument->value;
+			expression->type = argument->type;
+			next_token(compiler);
+			break;
+		}
 		token = parse_name(compiler);
 		expression = new_expression(compiler, NAME_EXPRESSION, token);
 		if (expression) {
@@ -2333,6 +2612,7 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 		diagnostic(compiler, token, "expected an expression");
 		break;
 	}
+postfix:
 	while (expression && !compiler->failed) {
 		if (take(compiler, '(')) {
 			struct Expression* call = new_expression(compiler, CALL_EXPRESSION, expression->span.first);
@@ -2405,16 +2685,16 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 	return expression;
 }
 
-struct Expression* parse_expression(struct Compiler* compiler, int minimum) {
+struct Expression* parse_expression_boundary(struct Compiler* compiler, int minimum, enum ExpressionBoundary boundary) {
 	struct Expression* left = parse_prefix(compiler);
 	while (!compiler->failed) {
 		const struct Operator* operation = find_operator(compiler->token.kind);
-		if (!operation || operation->precedence < minimum) {
+		if (!operation || operation->precedence < minimum || (boundary == TEMPLATE_ARGUMENT_EXPRESSION && (operation->token == '>' || operation->token == SHIFT_RIGHT))) {
 			break;
 		}
 		struct Token token = compiler->token;
 		next_token(compiler);
-		struct Expression* right = parse_expression(compiler, operation->precedence + (operation->kind == ASSIGNMENT_OPERATOR ? 0 : 1));
+		struct Expression* right = parse_expression_boundary(compiler, operation->precedence + (operation->kind == ASSIGNMENT_OPERATOR ? 0 : 1), boundary);
 		struct Expression* binary = new_expression(compiler, operation->kind == ASSIGNMENT_OPERATOR ? ASSIGNMENT_EXPRESSION : BINARY_EXPRESSION, token);
 		if (!binary) {
 			return NULL;
@@ -2427,6 +2707,10 @@ struct Expression* parse_expression(struct Compiler* compiler, int minimum) {
 		left = binary;
 	}
 	return left;
+}
+
+struct Expression* parse_expression(struct Compiler* compiler, int minimum) {
+	return parse_expression_boundary(compiler, minimum, OPEN_EXPRESSION);
 }
 
 bool declaration_start(struct Compiler* compiler) {
@@ -2618,6 +2902,7 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 
 void parse_declarations(struct Compiler* compiler);
 void parse_namespace(struct Compiler* compiler);
+void parse_template(struct Compiler* compiler);
 
 void parse_function(struct Compiler* compiler, struct Record* receiver) {
 	struct Token first = compiler->token;
@@ -2905,6 +3190,10 @@ void parse_namespace(struct Compiler* compiler) {
 
 void parse_declarations(struct Compiler* compiler) {
 	while (compiler->token.kind != END && compiler->token.kind != '}' && !compiler->failed) {
+		if (compiler->token.kind == TEMPLATE) {
+			parse_template(compiler);
+			continue;
+		}
 		if (compiler->token.kind == NAMESPACE) {
 			parse_namespace(compiler);
 			continue;
@@ -2925,6 +3214,712 @@ void parse_functions(struct Compiler* compiler, size_t first_token) {
 	if (!compiler->failed && compiler->token.kind != END) {
 		diagnostic(compiler, compiler->token, "unexpected '}' at global scope");
 	}
+}
+
+struct Type template_type(struct Compiler* compiler, struct TypeNode* syntax) {
+	if (!syntax) {
+		return (struct Type){ 0 };
+	}
+	if (syntax->kind == NAMED_SYNTAX) {
+		if (syntax->data.named.name.application) {
+			return (struct Type){ TEMPLATE_TYPE, { .application = syntax->data.named.name.application } };
+		}
+		if (compiler->template_context == DEPENDENT_TEMPLATE) {
+			return (struct Type){ PARAMETER_TYPE, { 0 } };
+		}
+		struct QualifiedName lookup = lookup_name(compiler, syntax->data.named.name);
+		for (struct Namespace* owner = lookup.owner; ; owner = owner->parent) {
+			struct Namespace* space = namespace_local(compiler, owner, lookup.name);
+			if (space && space->record) {
+				return (struct Type){ space->record->kind, { .record = space->record } };
+			}
+			if (!owner || lookup.name.kind == QUALIFY) {
+				break;
+			}
+		}
+	}
+	if (syntax->kind == CONST_SYNTAX) {
+		struct Type type = template_type(compiler, syntax->data.element);
+		type.qualifier = CONST_TYPE;
+		return type;
+	}
+	if (syntax->kind == POINTER_SYNTAX || syntax->kind == REFERENCE_SYNTAX) {
+		struct Type type = pointer_type(compiler, template_type(compiler, syntax->data.element));
+		type.kind = syntax->kind == REFERENCE_SYNTAX ? REFERENCE_TYPE : POINTER_TYPE;
+		return type;
+	}
+	if (syntax->kind == ARRAY_SYNTAX) {
+		struct Type type = { ARRAY_TYPE, { 0 } };
+		type.data.array.element = allocate(compiler, sizeof(struct Type));
+		if (type.data.array.element) {
+			*type.data.array.element = template_type(compiler, syntax->data.array.element);
+		}
+		type.data.array.count = syntax->data.array.count;
+		return type;
+	}
+	if (syntax->kind == DEPENDENT_ARRAY_SYNTAX) {
+		struct Type type = { DEPENDENT_ARRAY_TYPE, { 0 } };
+		type.data.dependent_array.element = allocate(compiler, sizeof(struct Type));
+		if (type.data.dependent_array.element) {
+			*type.data.dependent_array.element = template_type(compiler, syntax->data.dependent_array.element);
+		}
+		type.data.dependent_array.parameter = syntax->data.dependent_array.parameter;
+		return type;
+	}
+	return resolve_type(compiler, syntax);
+}
+
+bool template_constant_syntax(struct Compiler* compiler, struct Expression* expression) {
+	if (expression->kind == INTEGER_EXPRESSION || expression->kind == BOOLEAN_EXPRESSION || expression->kind == TEMPLATE_VALUE_EXPRESSION) {
+		return true;
+	}
+	if (expression->kind == NEGATE_EXPRESSION || expression->kind == COMPLEMENT_EXPRESSION || expression->kind == NOT_EXPRESSION) {
+		return template_constant_syntax(compiler, expression->data.operand);
+	}
+	if (expression->kind == BINARY_EXPRESSION) {
+		return template_constant_syntax(compiler, expression->data.binary.left) && template_constant_syntax(compiler, expression->data.binary.right);
+	}
+	if (!compiler->failed) {
+		diagnostic(compiler, expression->span.first, "template value argument requires an integral constant expression");
+	}
+	return false;
+}
+
+void template_close(struct Compiler* compiler) {
+	if (compiler->token.kind == SHIFT_RIGHT) {
+		compiler->token.kind = '>';
+		compiler->token.start++;
+		compiler->token.length = 1;
+		return;
+	}
+	expect(compiler, '>', "'>' after template arguments");
+}
+
+void template_bind_arguments(struct Compiler* compiler, struct TemplateParameter* parameter, struct TemplateArgument* argument) {
+	while (parameter && argument && !compiler->failed) {
+		struct TemplateBinding* binding = allocate(compiler, sizeof(struct TemplateBinding));
+		if (!binding) {
+			return;
+		}
+		binding->name = parameter->name;
+		binding->argument = *argument;
+		binding->next = compiler->template_bindings;
+		compiler->template_bindings = binding;
+		parameter = parameter->next;
+		argument = argument->next;
+	}
+}
+
+bool integer_constant(struct Expression* expression, uint64_t* magnitude, bool* negative);
+void check_integer(struct Compiler* compiler, struct Expression* expression, struct Type* expected, uint64_t magnitude, bool negative);
+void check_expression(struct Compiler* compiler, struct Expression* expression, struct Type* expected);
+bool case_integer(struct Compiler* compiler, struct Expression* expression, struct Type context, uint64_t* result);
+
+struct TemplateArgument* template_argument(struct Compiler* compiler, struct TemplateParameter* parameter) {
+	struct TemplateArgument* argument = allocate(compiler, sizeof(struct TemplateArgument));
+	if (!argument) {
+		return NULL;
+	}
+	argument->kind = parameter->kind;
+	if (parameter->kind == TYPE_PARAMETER) {
+		argument->type = template_type(compiler, parse_type(compiler));
+		return argument;
+	}
+	argument->type = parameter->value_type;
+	struct Expression* value = parse_expression_boundary(compiler, 2, TEMPLATE_ARGUMENT_EXPRESSION);
+	if (compiler->template_context == DEPENDENT_TEMPLATE && value && value->kind == PARAMETER_VALUE_EXPRESSION) {
+		argument->kind = DEPENDENT_VALUE;
+		argument->parameter = value->data.template_parameter;
+		return argument;
+	}
+	if (!value || !template_constant_syntax(compiler, value)) {
+		return NULL;
+	}
+	uint64_t magnitude;
+	bool negative;
+	if (integer_constant(value, &magnitude, &negative)) {
+		if (argument->type.kind == BOOL_TYPE && magnitude > 1) {
+			diagnostic(compiler, value->span.first, "template bool argument is out of range");
+			return NULL;
+		}
+	}
+	check_expression(compiler, value, &argument->type);
+	if (compiler->failed || !case_integer(compiler, value, argument->type, &argument->value)) {
+		return NULL;
+	}
+	return argument;
+}
+
+bool template_arguments_equal(struct TemplateArgument* first, struct TemplateArgument* second) {
+	while (first && second) {
+		if (first->kind != second->kind || !type_equal(first->type, second->type) || (first->kind == VALUE_PARAMETER && first->value != second->value)) {
+			return false;
+		}
+		first = first->next;
+		second = second->next;
+	}
+	return !first && !second;
+}
+
+void template_replay(struct Compiler* compiler, struct TemplateSpecialization* specialization, struct TemplateParameter* parameters, size_t begin, int kind) {
+	struct Namespace* previous_scope = compiler->namespace_scope;
+	struct TemplateBinding* previous_bindings = compiler->template_bindings;
+	size_t previous_index = compiler->token_index;
+	struct Token previous = compiler->token;
+	compiler->namespace_scope = specialization->scope;
+	compiler->token_index = begin;
+	next_token(compiler);
+	template_bind_arguments(compiler, parameters, specialization->arguments);
+	if (kind == FN) {
+		parse_function(compiler, NULL);
+	}
+	else {
+		parse_record(compiler);
+	}
+	compiler->template_bindings = previous_bindings;
+	compiler->namespace_scope = previous_scope;
+	compiler->token_index = previous_index;
+	compiler->token = previous;
+}
+
+struct Token template_instantiate(struct Compiler* compiler, struct TemplatePattern* pattern, struct TemplateArgument* arguments) {
+	for (struct TemplateSpecialization* instance = pattern->specializations; instance; instance = instance->next) {
+		if (template_arguments_equal(instance->arguments, arguments)) {
+			return instance->name;
+		}
+	}
+	struct TemplateSpecialization* instance = allocate(compiler, sizeof(struct TemplateSpecialization));
+	if (!instance) {
+		return pattern->name;
+	}
+	char text[64];
+	int length = snprintf(text, sizeof(text), ".template.%u", compiler->next_specialization++);
+	char* name = allocate(compiler, (size_t)length + 1);
+	if (!name) {
+		return pattern->name;
+	}
+	memcpy(name, text, (size_t)length + 1);
+	struct Token hidden = { NAME, name, (size_t)length, pattern->name.line, pattern->name.column, pattern->name.path, pattern->owner };
+	instance->scope = namespace_ensure(compiler, pattern->owner, hidden);
+	if (!instance->scope) {
+		return pattern->name;
+	}
+	instance->scope->kind = DECLARED_NAMESPACE;
+	instance->pattern = pattern;
+	instance->arguments = arguments;
+	instance->name = qualify_name(compiler, instance->scope, pattern->name);
+	instance->next = pattern->specializations;
+	pattern->specializations = instance;
+	template_replay(compiler, instance, pattern->parameters, pattern->begin, pattern->declaration_kind);
+	struct Namespace* associated = namespace_local(compiler, instance->scope, pattern->name);
+	if (associated && associated->record) {
+		associated->record->specialization = instance;
+	}
+	for (struct TemplateExtension* extension = pattern->extensions; extension && !compiler->failed; extension = extension->next) {
+		template_replay(compiler, instance, extension->parameters, extension->begin, FN);
+	}
+	return instance->name;
+}
+
+struct TemplateArgument* template_default_argument(struct Compiler* compiler, struct TemplatePattern* pattern, struct TemplateParameter* parameter, struct TemplateArgument* arguments) {
+	if (!parameter->default_begin) {
+		return NULL;
+	}
+	size_t saved_index = compiler->token_index;
+	struct Token saved_token = compiler->token;
+	struct Namespace* saved_scope = compiler->namespace_scope;
+	struct TemplateBinding* saved_bindings = compiler->template_bindings;
+	compiler->namespace_scope = pattern->owner;
+	compiler->token_index = parameter->default_begin;
+	next_token(compiler);
+	template_bind_arguments(compiler, pattern->parameters, arguments);
+	struct TemplateArgument* argument = template_argument(compiler, parameter);
+	compiler->token_index = saved_index;
+	compiler->token = saved_token;
+	compiler->namespace_scope = saved_scope;
+	compiler->template_bindings = saved_bindings;
+	return argument;
+}
+
+struct Token template_parse_id(struct Compiler* compiler, struct Token name) {
+	struct TemplatePattern* pattern = find_template(compiler, name);
+	expect(compiler, '<', "'<' after template name");
+	struct TemplateArgument* arguments = NULL;
+	struct TemplateArgument** tail = &arguments;
+	struct TemplateParameter* parameter = pattern->parameters;
+	while (compiler->token.kind != '>' && compiler->token.kind != SHIFT_RIGHT && !compiler->failed) {
+		if (!parameter) {
+			diagnostic(compiler, name, "too many template arguments");
+			return name;
+		}
+		struct TemplateArgument* argument = template_argument(compiler, parameter);
+		if (!argument) {
+			return name;
+		}
+		*tail = argument;
+		tail = &argument->next;
+		parameter = parameter->next;
+		if (!take(compiler, ',')) {
+			break;
+		}
+	}
+	template_close(compiler);
+	if (compiler->template_context == DEPENDENT_TEMPLATE || (parameter && pattern->declaration_kind == FN)) {
+		struct TemplateApplication* application = allocate(compiler, sizeof(struct TemplateApplication));
+		if (application) {
+			application->pattern = pattern;
+			application->arguments = arguments;
+			name.application = application;
+		}
+		return name;
+	}
+	while (parameter && !compiler->failed) {
+		if (!parameter->default_begin) {
+			diagnostic(compiler, name, "missing template arguments");
+			return name;
+		}
+		struct TemplateArgument* argument = template_default_argument(compiler, pattern, parameter, arguments);
+		if (!argument) {
+			return name;
+		}
+		*tail = argument;
+		tail = &argument->next;
+		parameter = parameter->next;
+	}
+	return compiler->template_context == DEPENDENT_TEMPLATE ? name : template_instantiate(compiler, pattern, arguments);
+}
+
+void template_validate_syntax(struct Compiler* compiler, struct TemplatePattern* pattern, struct TemplateExtension* extension) {
+	struct Compiler parser = *compiler;
+	parser.template_context = DEPENDENT_TEMPLATE;
+	parser.functions = NULL;
+	parser.last_function = NULL;
+	parser.records = NULL;
+	parser.last_record = NULL;
+	parser.tags = NULL;
+	parser.symbols = NULL;
+	parser.last_symbol = NULL;
+	struct TemplateArgument* arguments = NULL;
+	struct TemplateArgument** tail = &arguments;
+	for (struct TemplateParameter* parameter = pattern->parameters; parameter; parameter = parameter->next) {
+		struct TemplateArgument* argument = allocate(&parser, sizeof(struct TemplateArgument));
+		if (!argument) {
+			break;
+		}
+		argument->kind = parameter->kind == VALUE_PARAMETER ? DEPENDENT_VALUE : TYPE_PARAMETER;
+		argument->type = parameter->value_type;
+		argument->parameter = parameter;
+		if (parameter->kind == TYPE_PARAMETER) {
+			argument->type = (struct Type){ PARAMETER_TYPE, { .parameter = parameter } };
+		}
+		*tail = argument;
+		tail = &argument->next;
+	}
+	char text[64];
+	int length = snprintf(text, sizeof(text), ".template_syntax.%u", compiler->next_specialization++);
+	char* name = allocate(&parser, (size_t)length + 1);
+	if (!name) {
+		compiler->allocations = parser.allocations;
+		compiler->failed = true;
+		return;
+	}
+	memcpy(name, text, (size_t)length + 1);
+	struct Token token = { NAME, name, (size_t)length, pattern->name.line, pattern->name.column, pattern->name.path, pattern->owner };
+	struct TemplateSpecialization instance = { .pattern = pattern, .arguments = arguments, .scope = namespace_ensure(&parser, pattern->owner, token) };
+	if (instance.scope && !parser.failed) {
+		instance.scope->kind = DECLARED_NAMESPACE;
+		template_replay(&parser, &instance, pattern->parameters, pattern->begin, pattern->declaration_kind);
+		if (extension) {
+			template_replay(&parser, &instance, extension->parameters, extension->begin, FN);
+		}
+		else if (pattern->declaration_kind == FN) {
+			pattern->signature = parser.last_function;
+			for (struct Variable* parameter = pattern->signature ? pattern->signature->parameters : NULL; parameter && !parser.failed; parameter = parameter->next) {
+				parameter->type = template_type(&parser, parameter->syntax);
+			}
+		}
+	}
+	compiler->allocations = parser.allocations;
+	if (parser.failed) {
+		compiler->failed = true;
+	}
+}
+
+void parse_template(struct Compiler* compiler) {
+	size_t header = compiler->token_index - 1;
+	for (struct TemplatePattern* pattern = compiler->templates; pattern; pattern = pattern->next) {
+		if (pattern->header == header) {
+			compiler->token_index = pattern->end;
+			next_token(compiler);
+			return;
+		}
+		for (struct TemplateExtension* extension = pattern->extensions; extension; extension = extension->next) {
+			if (extension->header == header) {
+				compiler->token_index = extension->end;
+				next_token(compiler);
+				return;
+			}
+		}
+	}
+	next_token(compiler);
+	expect(compiler, '<', "'<' after template");
+	struct TemplateParameter* parameters = NULL;
+	struct TemplateParameter** tail = &parameters;
+	while (compiler->token.kind != '>' && !compiler->failed) {
+		struct TemplateParameter* parameter = allocate(compiler, sizeof(struct TemplateParameter));
+		if (!parameter) {
+			return;
+		}
+		if (take(compiler, TYPENAME) || take(compiler, CLASS)) {
+			parameter->kind = TYPE_PARAMETER;
+		}
+		else {
+			parameter->kind = VALUE_PARAMETER;
+			parameter->value_type = template_type(compiler, parse_type(compiler));
+			if (!numeric_type(parameter->value_type) || parameter->value_type.kind == FLOAT_TYPE) {
+				diagnostic(compiler, compiler->token, "template value parameter requires an integral type");
+				return;
+			}
+		}
+		parameter->name = compiler->token;
+		expect(compiler, NAME, "template parameter name");
+		for (struct TemplateParameter* previous = parameters; previous; previous = previous->next) {
+			if (name_equal(previous->name, parameter->name)) {
+				diagnostic(compiler, parameter->name, "duplicate template parameter");
+				return;
+			}
+		}
+		if (take(compiler, '=')) {
+			parameter->default_begin = compiler->token_index - 1;
+			int depth = 0;
+			while (compiler->token.kind != END && !compiler->failed) {
+				int kind = compiler->token.kind;
+				if (!depth && (kind == ',' || kind == '>' || kind == SHIFT_RIGHT)) {
+					break;
+				}
+				if (kind == '<' || kind == '(' || kind == '[') {
+					depth++;
+				}
+				else if (kind == '>' || kind == ')' || kind == ']') {
+					depth--;
+				}
+				else if (kind == SHIFT_RIGHT) {
+					if (depth == 1) {
+						template_close(compiler);
+						break;
+					}
+					depth -= 2;
+				}
+				next_token(compiler);
+			}
+			parameter->default_end = compiler->token_index - 1;
+		}
+		*tail = parameter;
+		tail = &parameter->next;
+		if (!take(compiler, ',')) {
+			break;
+		}
+	}
+	template_close(compiler);
+	size_t begin = compiler->token_index - 1;
+	int kind = compiler->token.kind;
+	if (kind != STRUCT && kind != UNION && kind != FN) {
+		diagnostic(compiler, compiler->token, "template requires a struct, union, or function declaration");
+		return;
+	}
+	if (kind != FN) {
+		struct TemplateParameter* defaulted = NULL;
+		for (struct TemplateParameter* parameter = parameters; parameter; parameter = parameter->next) {
+			if (parameter->default_begin) {
+				defaulted = parameter;
+			}
+			else if (defaulted) {
+				diagnostic(compiler, parameter->name, "class template parameters after a default require defaults");
+				return;
+			}
+		}
+	}
+	next_token(compiler);
+	struct Token name = compiler->token;
+	expect(compiler, NAME, "template name");
+	struct TemplatePattern* owner = compiler->token.kind == '<' ? find_template(compiler, name) : NULL;
+	int depth = 0;
+	while (compiler->token.kind != END && !compiler->failed) {
+		int delimiter = compiler->token.kind;
+		next_token(compiler);
+		if (delimiter == '{') {
+			depth++;
+		}
+		if (delimiter == '}') {
+			depth--;
+		}
+		if (delimiter == ';' && !depth) {
+			break;
+		}
+	}
+	if (owner && kind == FN) {
+		struct TemplateExtension* extension = allocate(compiler, sizeof(struct TemplateExtension));
+		if (!extension) {
+			return;
+		}
+		extension->begin = begin;
+		extension->header = header;
+		extension->end = compiler->token_index - 1;
+		extension->parameters = parameters;
+		struct TemplateExtension** last = &owner->extensions;
+		while (*last) {
+			last = &(*last)->next;
+		}
+		*last = extension;
+		for (struct TemplateSpecialization* instance = owner->specializations; instance && !compiler->failed; instance = instance->next) {
+			template_replay(compiler, instance, parameters, begin, FN);
+		}
+		return;
+	}
+	if (find_template(compiler, name)) {
+		diagnostic(compiler, name, "duplicate template declaration");
+		return;
+	}
+	struct TemplatePattern* pattern = allocate(compiler, sizeof(struct TemplatePattern));
+	if (!pattern) {
+		return;
+	}
+	pattern->name = name;
+	pattern->header = header;
+	pattern->owner = compiler->namespace_scope;
+	pattern->parameters = parameters;
+	pattern->begin = begin;
+	pattern->end = compiler->token_index - 1;
+	pattern->declaration_kind = kind;
+	pattern->next = compiler->templates;
+	compiler->templates = pattern;
+}
+
+void collect_templates(struct Compiler* compiler) {
+	while (compiler->token.kind != END && compiler->token.kind != '}' && !compiler->failed) {
+		if (compiler->token.kind == TEMPLATE) {
+			parse_template(compiler);
+			continue;
+		}
+		if (take(compiler, NAMESPACE)) {
+			struct Namespace* previous = compiler->namespace_scope;
+			while (!compiler->failed) {
+				struct Token name = compiler->token;
+				expect(compiler, NAME, "a namespace name");
+				struct Namespace* space = namespace_ensure(compiler, compiler->namespace_scope, name);
+				if (!space) {
+					return;
+				}
+				space->kind = DECLARED_NAMESPACE;
+				compiler->namespace_scope = space;
+				if (!take(compiler, QUALIFY)) {
+					break;
+				}
+			}
+			expect(compiler, '{', "'{' after namespace name");
+			collect_templates(compiler);
+			expect(compiler, '}', "'}' after namespace declarations");
+			expect(compiler, ';', "';' after namespace declaration");
+			compiler->namespace_scope = previous;
+			continue;
+		}
+		int depth = 0;
+		while (compiler->token.kind != END && !compiler->failed) {
+			int kind = compiler->token.kind;
+			next_token(compiler);
+			depth += kind == '{' ? 1 : kind == '}' ? -1 : 0;
+			if (kind == ';' && !depth) {
+				break;
+			}
+		}
+	}
+}
+
+void validate_templates(struct Compiler* compiler) {
+	for (struct TemplatePattern* pattern = compiler->templates; pattern && !compiler->failed; pattern = pattern->next) {
+		template_validate_syntax(compiler, pattern, NULL);
+		for (struct TemplateExtension* extension = pattern->extensions; extension && !compiler->failed; extension = extension->next) {
+			template_validate_syntax(compiler, pattern, extension);
+		}
+	}
+}
+
+struct TemplateDeduction {
+	struct TemplateParameter* parameter;
+	struct TemplateArgument* argument;
+	struct TemplateDeduction* next;
+};
+
+bool template_deduce_value(struct Compiler* compiler, struct TemplateParameter* parameter, struct TemplateArgument* actual, struct TemplateDeduction* deductions) {
+	for (struct TemplateDeduction* deduction = deductions; deduction; deduction = deduction->next) {
+		if (deduction->parameter != parameter) {
+			continue;
+		}
+		if (deduction->argument) {
+			return deduction->argument->kind == actual->kind && type_equal(deduction->argument->type, actual->type) && deduction->argument->value == actual->value;
+		}
+		deduction->argument = allocate(compiler, sizeof(struct TemplateArgument));
+		if (!deduction->argument) {
+			return false;
+		}
+		*deduction->argument = *actual;
+		deduction->argument->next = NULL;
+		return true;
+	}
+	return false;
+}
+
+bool template_deduce_type(struct Compiler* compiler, struct Type pattern, struct Type actual, struct TemplateDeduction* deductions) {
+	if (actual.kind == VOID_TYPE) {
+		return true;
+	}
+	if (pattern.kind == PARAMETER_TYPE) {
+		for (struct TemplateDeduction* deduction = deductions; deduction; deduction = deduction->next) {
+			if (deduction->parameter != pattern.data.parameter) {
+				continue;
+			}
+			if (pattern.qualifier == CONST_TYPE) {
+				actual.qualifier = MUTABLE_TYPE;
+			}
+			if (deduction->argument) {
+				return type_equal(deduction->argument->type, actual);
+			}
+			deduction->argument = allocate(compiler, sizeof(struct TemplateArgument));
+			if (!deduction->argument) {
+				return false;
+			}
+			deduction->argument->kind = TYPE_PARAMETER;
+			deduction->argument->type = actual;
+			return true;
+		}
+		return true;
+	}
+	if (pattern.kind == REFERENCE_TYPE) {
+		return template_deduce_type(compiler, *pattern.data.element, actual, deductions);
+	}
+	if (pattern.kind == DEPENDENT_ARRAY_TYPE) {
+		if (actual.kind != ARRAY_TYPE) {
+			return false;
+		}
+		struct TemplateArgument length = { .kind = VALUE_PARAMETER, .type = pattern.data.dependent_array.parameter->value_type, .value = actual.data.array.count };
+		return template_deduce_value(compiler, pattern.data.dependent_array.parameter, &length, deductions) && template_deduce_type(compiler, *pattern.data.dependent_array.element, *actual.data.array.element, deductions);
+	}
+	if (pattern.kind == TEMPLATE_TYPE) {
+		if ((actual.kind != STRUCT_TYPE && actual.kind != UNION_TYPE) || !actual.data.record->specialization || actual.data.record->specialization->pattern != pattern.data.application->pattern) {
+			return false;
+		}
+		struct TemplateArgument* expected = pattern.data.application->arguments;
+		struct TemplateArgument* concrete = actual.data.record->specialization->arguments;
+		while (expected && concrete) {
+			if (expected->kind == TYPE_PARAMETER) {
+				if (!template_deduce_type(compiler, expected->type, concrete->type, deductions)) {
+					return false;
+				}
+			}
+			else if (expected->kind == DEPENDENT_VALUE) {
+				if (!template_deduce_value(compiler, expected->parameter, concrete, deductions)) {
+					return false;
+				}
+			}
+			else if (expected->value != concrete->value || !type_equal(expected->type, concrete->type)) {
+				return false;
+			}
+			expected = expected->next;
+			concrete = concrete->next;
+		}
+		return !expected && !concrete;
+	}
+	if (pattern.kind != actual.kind) {
+		return false;
+	}
+	if (pattern.kind == POINTER_TYPE) {
+		return template_deduce_type(compiler, *pattern.data.element, *actual.data.element, deductions);
+	}
+	if (pattern.kind == ARRAY_TYPE) {
+		return pattern.data.array.count == actual.data.array.count && template_deduce_type(compiler, *pattern.data.array.element, *actual.data.array.element, deductions);
+	}
+	if (pattern.kind == FUNCTION_TYPE) {
+		if (pattern.data.function->arity != actual.data.function->arity || !template_deduce_type(compiler, pattern.data.function->result, actual.data.function->result, deductions)) {
+			return false;
+		}
+		struct Variable* expected = pattern.data.function->parameters;
+		struct Variable* concrete = actual.data.function->parameters;
+		while (expected && concrete) {
+			if (!template_deduce_type(compiler, expected->type, concrete->type, deductions)) {
+				return false;
+			}
+			expected = expected->next;
+			concrete = concrete->next;
+		}
+		return !expected && !concrete;
+	}
+	return type_equal(pattern, actual);
+}
+
+void register_tags(struct Compiler* compiler);
+void register_functions(struct Compiler* compiler);
+
+struct Token template_deduce(struct Compiler* compiler, struct TemplatePattern* pattern, struct TemplateArgument* explicit_arguments, struct Argument* values) {
+	struct TemplateDeduction* deductions = NULL;
+	struct TemplateDeduction** tail = &deductions;
+	for (struct TemplateParameter* parameter = pattern->parameters; parameter; parameter = parameter->next) {
+		struct TemplateDeduction* deduction = allocate(compiler, sizeof(struct TemplateDeduction));
+		if (!deduction) {
+			return pattern->name;
+		}
+		deduction->parameter = parameter;
+		if (explicit_arguments) {
+			deduction->argument = allocate(compiler, sizeof(struct TemplateArgument));
+			if (!deduction->argument) {
+				return pattern->name;
+			}
+			*deduction->argument = *explicit_arguments;
+			deduction->argument->next = NULL;
+			explicit_arguments = explicit_arguments->next;
+		}
+		*tail = deduction;
+		tail = &deduction->next;
+	}
+	struct Variable* parameter = pattern->signature ? pattern->signature->parameters : NULL;
+	struct Argument* value = values;
+	while (parameter && value && !compiler->failed) {
+		struct Type actual = value->expression->type;
+		if (parameter->type.kind != REFERENCE_TYPE) {
+			actual.qualifier = MUTABLE_TYPE;
+		}
+		if (!template_deduce_type(compiler, parameter->type, actual, deductions)) {
+			diagnostic(compiler, pattern->name, "conflicting or incompatible template argument deduction");
+			return pattern->name;
+		}
+		parameter = parameter->next;
+		value = value->next;
+	}
+	if (parameter || value) {
+		diagnostic(compiler, pattern->name, "incorrect function template argument count");
+		return pattern->name;
+	}
+	struct TemplateArgument* arguments = NULL;
+	struct TemplateArgument** last = &arguments;
+	for (struct TemplateDeduction* deduction = deductions; deduction; deduction = deduction->next) {
+		if (!deduction->argument) {
+			deduction->argument = template_default_argument(compiler, pattern, deduction->parameter, arguments);
+		}
+		if (!deduction->argument) {
+			diagnostic(compiler, pattern->name, "template argument cannot be deduced from typed arguments");
+			return pattern->name;
+		}
+		*last = deduction->argument;
+		last = &deduction->argument->next;
+	}
+	struct Token name = template_instantiate(compiler, pattern, arguments);
+	register_tags(compiler);
+	for (struct TagSymbol* tag = compiler->tags; tag && !compiler->failed; tag = tag->next) {
+		if (tag->record->state != FORWARD_RECORD) {
+			resolve_record(compiler, tag->record);
+		}
+	}
+	register_functions(compiler);
+	return name;
 }
 
 struct Function* find_function(struct Compiler* compiler, struct Token name) {
@@ -2996,7 +3991,8 @@ struct Enumerator* find_enumerator(struct Compiler* compiler, struct Token name)
 }
 
 void register_tags(struct Compiler* compiler) {
-	for (struct Record* record = compiler->records; record && !compiler->failed; record = record->next) {
+	for (struct Record* record = compiler->registered_record ? compiler->registered_record->next : compiler->records; record && !compiler->failed; record = record->next) {
+		compiler->registered_record = record;
 		struct Record* previous = find_record(compiler, record->name);
 		if (previous) {
 			if (previous->kind != record->kind) {
@@ -3305,8 +4301,21 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 
 bool integer_constant(struct Expression* expression, uint64_t* magnitude, bool* negative);
 
+bool template_member(struct Namespace* owner) {
+	for (; owner; owner = owner->parent) {
+		if (owner->record && owner->record->specialization) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void register_functions(struct Compiler* compiler) {
-	for (struct Function* function = compiler->functions; function && !compiler->failed; function = function->next) {
+	for (struct Function* function = compiler->registered_function ? compiler->registered_function->next : compiler->functions; function && !compiler->failed; function = function->next) {
+		compiler->registered_function = function;
+		if (!template_member(function->owner) || function->modification != ORDINARY_FUNCTION) {
+			function->analysis = REQUESTED_FUNCTION;
+		}
 		function->result = resolve_type(compiler, function->result_syntax);
 		if (!is_void(function->result)) {
 			complete_type(compiler, function->result, function->name);
@@ -3862,15 +4871,35 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 	case BASE_POINTER_EXPRESSION:
 		bind_expression(compiler, expression->data.base.value, scope);
 		break;
-	case CALL_EXPRESSION:
+	case CALL_EXPRESSION: {
+		bool deduced_arguments = false;
 		if (expression->data.call.callee->kind == NAME_EXPRESSION) {
-			struct Token name = expression->data.call.callee->data.variable.name;
-			const struct BuiltinType* builtin = find_builtin(name);
-			struct Record* record = builtin ? NULL : find_record(compiler, name);
-			if (builtin || record) {
+			struct TemplatePattern* pattern = find_template(compiler, expression->data.call.callee->data.variable.name);
+			if (pattern && pattern->declaration_kind == FN) {
+				for (struct Argument* argument = expression->data.call.arguments; argument && !compiler->failed; argument = argument->next) {
+					if (argument->initialization) {
+						diagnostic(compiler, expression->span.first, "template deduction requires expression arguments");
+						break;
+					}
+					bind_expression(compiler, argument->expression, scope);
+				}
+				if (compiler->failed) {
+					break;
+				}
+				struct TemplateApplication* application = expression->data.call.callee->data.variable.name.application;
+				expression->data.call.callee->data.variable.name = template_deduce(compiler, pattern, application ? application->arguments : NULL, expression->data.call.arguments);
+				deduced_arguments = true;
+			}
+		}
+		if (expression->data.call.callee->kind == NAME_EXPRESSION || expression->data.call.callee->kind == TYPE_EXPRESSION) {
+			struct TypeNode* syntax = expression->data.call.callee->kind == TYPE_EXPRESSION ? expression->data.call.callee->data.cast.syntax : NULL;
+			struct Token name = syntax ? expression->span.first : expression->data.call.callee->data.variable.name;
+			const struct BuiltinType* builtin = syntax ? NULL : find_builtin(name);
+			struct Record* record = syntax || builtin ? NULL : find_record(compiler, name);
+			if (syntax || builtin || record) {
 				struct Argument* arguments = expression->data.call.arguments;
 				expression->kind = CONSTRUCTION_EXPRESSION;
-				expression->type = builtin ? builtin->type : (struct Type){ record->kind, { .record = record } };
+				expression->type = syntax ? resolve_type(compiler, syntax) : builtin ? builtin->type : (struct Type){ record->kind, { .record = record } };
 				expression->data.construction.function = NULL;
 				expression->data.construction.arguments = arguments;
 				expression->data.construction.slot = NULL;
@@ -3981,7 +5010,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 				}
 			}
 			else {
-				if (argument != receiver_argument) {
+				if (argument != receiver_argument && !deduced_arguments) {
 					bind_expression(compiler, argument->expression, scope);
 				}
 			}
@@ -3990,6 +5019,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			}
 		}
 		break;
+	}
 	case CAST_EXPRESSION:
 		bind_expression(compiler, expression->data.cast.value, scope);
 		expression->type = resolve_type(compiler, expression->data.cast.syntax);
@@ -4236,6 +5266,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		break;
 	case BOOLEAN_EXPRESSION:
 	case NULLPTR_EXPRESSION:
+	case TEMPLATE_VALUE_EXPRESSION:
 	case INTEGER_EXPRESSION:
 	case DECIMAL_EXPRESSION:
 		break;
@@ -4446,6 +5477,12 @@ bool special_argument_matches(struct Compiler* compiler, struct Type parameter, 
 	return value.qualifier == CONST_TYPE || expression_mutable_access(argument);
 }
 
+void request_function(struct Function* function) {
+	if (function && function->analysis == UNREQUESTED_FUNCTION) {
+		function->analysis = REQUESTED_FUNCTION;
+	}
+}
+
 struct Function* select_special_function(struct Compiler* compiler, struct Record* record, enum FunctionRole role, struct Argument* arguments, struct Token token) {
 	struct Function* selected = NULL;
 	unsigned best = UINT_MAX;
@@ -4481,6 +5518,7 @@ struct Function* select_special_function(struct Compiler* compiler, struct Recor
 	if (selected && selected->kind == FUNCTION_DELETED) {
 		diagnostic(compiler, token, "selected function is deleted");
 	}
+	request_function(selected);
 	return selected;
 }
 
@@ -4527,6 +5565,7 @@ bool const_element_type(struct Type type) {
 }
 
 void check_generated_operation(struct Compiler* compiler, struct Type type, enum GeneratedOperation operation, struct Token token);
+void request_destruction(struct Compiler* compiler, struct Type type);
 
 void check_constructor_subobjects(struct Compiler* compiler, struct Record* record, struct Token token) {
 	for (struct BaseRelation* base = record->bases; base && !compiler->failed; base = base->next) {
@@ -4568,6 +5607,9 @@ void check_generated_operation(struct Compiler* compiler, struct Type type, enum
 		}
 		if (operation != VALUE_ASSIGNMENT) {
 			check_constructor_subobjects(compiler, type.data.record, token);
+		}
+		else if (function->parameters->next->type.kind == REFERENCE_TYPE) {
+			request_destruction(compiler, type);
 		}
 		return;
 	}
@@ -5165,9 +6207,13 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 	}
 	case BOOLEAN_EXPRESSION:
 	case NULLPTR_EXPRESSION:
+	case TEMPLATE_VALUE_EXPRESSION:
 	case STRING_EXPRESSION:
 	case NAME_EXPRESSION:
 	case FUNCTION_EXPRESSION:
+		if (expression->kind == FUNCTION_EXPRESSION) {
+			request_function(expression->data.function);
+		}
 		if (expression->kind == FUNCTION_EXPRESSION && expression->data.function->kind == FUNCTION_DELETED) {
 			diagnostic(compiler, expression->span.first, "use of deleted function");
 			break;
@@ -5202,6 +6248,7 @@ contextual_conversion:
 		}
 		*source = *expression;
 		expression->kind = CAST_EXPRESSION;
+		expression->data.cast.syntax = NULL;
 		expression->data.cast.value = source;
 		expression->type = *expected;
 	}
@@ -5216,6 +6263,7 @@ contextual_conversion:
 
 		*source = *expression;
 		expression->kind = CAST_EXPRESSION;
+		expression->data.cast.syntax = NULL;
 		expression->data.cast.value = source;
 		expression->type = *expected;
 	}
@@ -5248,6 +6296,7 @@ bool case_integer(struct Compiler* compiler, struct Expression* expression, stru
 		*result = expression->data.integer;
 		return true;
 	case INTEGER_EXPRESSION:
+	case TEMPLATE_VALUE_EXPRESSION:
 		*result = expression->data.integer & mask;
 		return true;
 	case NAME_EXPRESSION: {
@@ -5270,6 +6319,12 @@ bool case_integer(struct Compiler* compiler, struct Expression* expression, stru
 		}
 		*result = ~left & mask;
 		return true;
+	case NOT_EXPRESSION:
+		if (!case_integer(compiler, expression->data.operand, expression->data.operand->type, &left)) {
+			return false;
+		}
+		*result = !left;
+		return true;
 	case CAST_EXPRESSION: {
 		struct Type type = expression->data.cast.syntax ? resolve_type(compiler, expression->data.cast.syntax) : expression->type;
 		if (type.kind != SIGNED_INTEGER_TYPE && type.kind != UNSIGNED_INTEGER_TYPE && type.kind != CHAR_TYPE && type.kind != BOOL_TYPE && type.kind != ENUM_TYPE) {
@@ -5290,7 +6345,50 @@ bool case_integer(struct Compiler* compiler, struct Expression* expression, stru
 		*result = LLVMABISizeOfType(compiler->layout, llvm_type(compiler, type)) & mask;
 		return true;
 	}
-	case BINARY_EXPRESSION:
+	case BINARY_EXPRESSION: {
+		const struct Operator* operation = find_operator(expression->data.binary.operation);
+		if (operation->kind == LOGICAL_OPERATOR) {
+			if (!case_integer(compiler, expression->data.binary.left, expression->data.binary.left->type, &left)) {
+				return false;
+			}
+			if ((operation->token == LOGICAL_AND && !left) || (operation->token == LOGICAL_OR && left)) {
+				*result = !!left;
+				return true;
+			}
+			if (!case_integer(compiler, expression->data.binary.right, expression->data.binary.right->type, &right)) {
+				return false;
+			}
+			*result = !!right;
+			return true;
+		}
+		if (operation->kind == COMPARISON_OPERATOR) {
+			struct Type operands = expression->data.binary.left->type;
+			if (!case_integer(compiler, expression->data.binary.left, operands, &left) || !case_integer(compiler, expression->data.binary.right, operands, &right)) {
+				return false;
+			}
+			int order = zero_extended_type(operands) ? (left > right) - (left < right) : (signed_constant(left, numeric_bits(operands)) > signed_constant(right, numeric_bits(operands))) - (signed_constant(left, numeric_bits(operands)) < signed_constant(right, numeric_bits(operands)));
+			switch (operation->token) {
+			case EQUAL:
+				*result = !order;
+				break;
+			case NOT_EQUAL:
+				*result = !!order;
+				break;
+			case '<':
+				*result = order < 0;
+				break;
+			case '>':
+				*result = order > 0;
+				break;
+			case LESS_EQUAL:
+				*result = order <= 0;
+				break;
+			case GREATER_EQUAL:
+				*result = order >= 0;
+				break;
+			}
+			return true;
+		}
 		if (!case_integer(compiler, expression->data.binary.left, context, &left) || !case_integer(compiler, expression->data.binary.right, context, &right)) {
 			return false;
 		}
@@ -5351,6 +6449,7 @@ bool case_integer(struct Compiler* compiler, struct Expression* expression, stru
 			break;
 		}
 		break;
+	}
 	default:
 		break;
 	}
@@ -5868,6 +6967,9 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 			diagnostic(compiler, variable->name, "local references cannot bind temporaries");
 		}
 		check_expression(compiler, statement->data.declaration.initializer, variable->syntax ? &variable->type : NULL);
+		if (variable->type.kind == REFERENCE_TYPE && statement->data.declaration.initializer && statement->data.declaration.initializer->kind == REFERENCE_BINDING_EXPRESSION && !lvalue_expression(statement->data.declaration.initializer->data.operand) && statement->data.declaration.initializer->data.operand->kind != FUNCTION_EXPRESSION) {
+			diagnostic(compiler, variable->name, "local references cannot bind conversion temporaries");
+		}
 		if (variable->type.kind != REFERENCE_TYPE) {
 			require_owned_value(compiler, statement->data.declaration.initializer);
 		}
@@ -6144,6 +7246,29 @@ void lifetime_trim(struct LifetimeState* state, struct LifetimeObject* boundary)
 	}
 }
 
+struct Function* record_destructor(struct Compiler* compiler, struct Record* record);
+
+void request_destruction(struct Compiler* compiler, struct Type type) {
+	if (type.kind == ARRAY_TYPE) {
+		request_destruction(compiler, *type.data.array.element);
+		return;
+	}
+	if (type.kind != STRUCT_TYPE && type.kind != UNION_TYPE) {
+		return;
+	}
+	struct Record* record = type.data.record;
+	request_function(record_destructor(compiler, record));
+	if (record->kind == UNION_TYPE) {
+		return;
+	}
+	for (struct BaseRelation* base = record->bases; base; base = base->next) {
+		request_destruction(compiler, (struct Type){ STRUCT_TYPE, { .record = base->record } });
+	}
+	for (struct Member* member = record->data.members; member; member = member->next) {
+		request_destruction(compiler, member->type);
+	}
+}
+
 struct LifetimeCleanup* lifetime_cleanups(struct LifetimeAnalysis* analysis, struct LifetimeObject* boundary) {
 	struct LifetimeCleanup* result = NULL;
 	struct LifetimeCleanup** tail = &result;
@@ -6156,6 +7281,7 @@ struct LifetimeCleanup* lifetime_cleanups(struct LifetimeAnalysis* analysis, str
 			break;
 		}
 		cleanup->variable = object->variable;
+		request_destruction(analysis->compiler, object->variable->type);
 		*tail = cleanup;
 		tail = &cleanup->next;
 	}
@@ -6171,7 +7297,7 @@ int lifetime_truth(struct Expression* expression) {
 	if (integer_constant(expression, &magnitude, &negative)) {
 		return !!magnitude;
 	}
-	if (expression->kind == BOOLEAN_EXPRESSION) {
+	if (expression->kind == BOOLEAN_EXPRESSION || expression->kind == TEMPLATE_VALUE_EXPRESSION) {
 		return !!expression->data.integer;
 	}
 	if (expression->kind == NULLPTR_EXPRESSION) {
@@ -6300,6 +7426,9 @@ void lifetime_expression(struct LifetimeAnalysis* analysis, struct Expression* e
 		break;
 	default:
 		break;
+	}
+	if (expression->use != TRANSFERRED_VALUE && !borrowed_value(expression)) {
+		request_destruction(analysis->compiler, expression->type);
 	}
 }
 
@@ -6438,7 +7567,12 @@ void lifetime_statement(struct LifetimeAnalysis* analysis, struct Statement* sta
 }
 
 void analyze_function(struct Compiler* compiler, struct Function* function) {
+	if (function->analysis != REQUESTED_FUNCTION) {
+		return;
+	}
+	function->analysis = ANALYZING_FUNCTION;
 	if (function->kind != FUNCTION_DEFINITION) {
+		function->analysis = ANALYZED_FUNCTION;
 		return;
 	}
 	struct Scope scope = { NULL, NULL };
@@ -6460,6 +7594,7 @@ void analyze_function(struct Compiler* compiler, struct Function* function) {
 	if (analysis.state.reachability == REACHABLE_STATE && !is_void(function->result)) {
 		diagnostic(compiler, function->name, "non-void function must return a value");
 	}
+	function->analysis = ANALYZED_FUNCTION;
 }
 
 void check_enumerator_names(struct Compiler* compiler) {
@@ -6605,8 +7740,18 @@ void analyze(struct Compiler* compiler) {
 	}
 	register_functions(compiler);
 	resolve_virtual_functions(compiler);
-	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
-		analyze_function(compiler, symbol->function);
+	while (!compiler->failed) {
+		struct Function* requested = NULL;
+		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+			if (symbol->function->analysis == REQUESTED_FUNCTION) {
+				requested = symbol->function;
+				break;
+			}
+		}
+		if (!requested) {
+			break;
+		}
+		analyze_function(compiler, requested);
 	}
 }
 
@@ -6722,7 +7867,7 @@ char* function_symbol(struct Compiler* compiler, struct Function* function) {
 void declare_llvm_functions(struct Compiler* compiler) {
 	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
 		struct Function* function = symbol->function;
-		if (function->kind == FUNCTION_DELETED) {
+		if (function->kind == FUNCTION_DELETED || function->analysis == UNREQUESTED_FUNCTION) {
 			continue;
 		}
 		unsigned count = 0;
@@ -7768,6 +8913,7 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return emit_read_value(compiler, expression->type, address);
 	}
 	case BOOLEAN_EXPRESSION:
+	case TEMPLATE_VALUE_EXPRESSION:
 		return LLVMConstInt(llvm_type(compiler, expression->type), expression->data.integer, false);
 	case NULLPTR_EXPRESSION:
 		return LLVMConstNull(llvm_type(compiler, expression->type));
@@ -8215,6 +9361,9 @@ void emit_function_body(struct Compiler* compiler, struct Function* function, st
 }
 
 void emit_function(struct Compiler* compiler, struct Function* function) {
+	if (function->analysis == UNREQUESTED_FUNCTION) {
+		return;
+	}
 	emit_function_body(compiler, function, function, function->llvm_value, 0);
 }
 
@@ -8591,7 +9740,16 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 		parse_source(compiler, source_paths[i]);
 	}
 	for (size_t first = 0; first < compiler->token_count && !compiler->failed; first = compiler->token_index) {
+		compiler->namespace_scope = NULL;
+		compiler->token_index = first;
+		next_token(compiler);
+		collect_templates(compiler);
+	}
+	for (size_t first = 0; first < compiler->token_count && !compiler->failed; first = compiler->token_index) {
 		parse_functions(compiler, first);
+	}
+	if (!compiler->failed) {
+		validate_templates(compiler);
 	}
 	if (!compiler->failed) {
 		initialize_backend(compiler);
