@@ -678,18 +678,19 @@ struct Allocation {
 };
 
 struct unique_ptr {
-	void* pointer;
-
 	fn unique_ptr(unique_ptr& this);
 	fn unique_ptr(unique_ptr& this, null* pointer);
 	fn unique_ptr(unique_ptr& this, void* pointer);
 	fn unique_ptr(unique_ptr& this, const unique_ptr& other) : delete;
 	fn operator=(unique_ptr& this, const unique_ptr& other) -> unique_ptr& : delete;
 	fn operator=(unique_ptr& this, unique_ptr other) -> unique_ptr&;
+	fn ~unique_ptr(unique_ptr& this);
+
 	fn get(const unique_ptr& this) -> void*;
 	fn release(unique_ptr& this) -> void*;
 	fn reset(unique_ptr& this, void* pointer);
-	fn ~unique_ptr(unique_ptr& this);
+
+	void* pointer;
 };
 
 fn unique_ptr::unique_ptr(unique_ptr& this) {
@@ -705,35 +706,31 @@ fn unique_ptr::unique_ptr(unique_ptr& this, void* pointer) {
 };
 
 fn unique_ptr::operator=(unique_ptr& this, unique_ptr other) -> unique_ptr& {
-	unique_ptr::reset(@this, unique_ptr::release(@other));
+	@this.reset(@other.release());
 	discard other;
 	return @this;
 };
 
+fn unique_ptr::~unique_ptr(unique_ptr& this) {
+	void* pointer := this.pointer;
+	free($pointer);
+};
+
 fn unique_ptr::get(const unique_ptr& this) -> void* {
-	return (void*)this.pointer;
+	void* pointer := this.pointer;
+	return pointer;
 };
 
 fn unique_ptr::release(unique_ptr& this) -> void* {
 	void* pointer := this.pointer;
 	@this.pointer = nullptr;
-	return $pointer;
+	return pointer;
 };
 
 fn unique_ptr::reset(unique_ptr& this, void* pointer) {
 	void* previous := this.pointer;
 	@this.pointer = $pointer;
-	if (!previous) {
-		return;
-	};
 	free($previous);
-};
-
-fn unique_ptr::~unique_ptr(unique_ptr& this) {
-	if (!this.pointer) {
-		return;
-	};
-	free((void*)this.pointer);
 };
 
 struct Arena {
@@ -743,7 +740,8 @@ struct Arena {
 		while (this.head) {
 			Allocation* allocation := this.head;
 			@this.head := allocation->next;
-			free((void*)allocation->memory);
+			void* memory := allocation->memory;
+			free($memory);
 			free((void*)allocation);
 		};
 	};
@@ -753,9 +751,8 @@ struct LLVMContextOwner {
 	void* handle;
 
 	fn ~LLVMContextOwner(LLVMContextOwner& this) {
-		if (this.handle) {
-			LLVMContextDispose((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMContextDispose($handle);
 	};
 };
 
@@ -763,9 +760,8 @@ struct LLVMTargetMachineOwner {
 	void* handle;
 
 	fn ~LLVMTargetMachineOwner(LLVMTargetMachineOwner& this) {
-		if (this.handle) {
-			LLVMDisposeTargetMachine((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposeTargetMachine($handle);
 	};
 };
 
@@ -773,9 +769,8 @@ struct LLVMModuleOwner {
 	void* handle;
 
 	fn ~LLVMModuleOwner(LLVMModuleOwner& this) {
-		if (this.handle) {
-			LLVMDisposeModule((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposeModule($handle);
 	};
 };
 
@@ -790,9 +785,8 @@ struct LLVMBuilderOwner {
 	};
 
 	fn ~LLVMBuilderOwner(LLVMBuilderOwner& this) {
-		if (this.handle) {
-			LLVMDisposeBuilder((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposeBuilder($handle);
 	};
 };
 
@@ -800,9 +794,8 @@ struct LLVMLayoutOwner {
 	void* handle;
 
 	fn ~LLVMLayoutOwner(LLVMLayoutOwner& this) {
-		if (this.handle) {
-			LLVMDisposeTargetData((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposeTargetData($handle);
 	};
 };
 
@@ -817,9 +810,8 @@ struct LLVMMessageOwner {
 	};
 
 	fn ~LLVMMessageOwner(LLVMMessageOwner& this) {
-		if (this.handle) {
-			LLVMDisposeMessage((char*)this.handle);
-		};
+		char* handle := this.handle;
+		LLVMDisposeMessage($handle);
 	};
 };
 
@@ -834,9 +826,8 @@ struct LLVMErrorMessageOwner {
 	};
 
 	fn ~LLVMErrorMessageOwner(LLVMErrorMessageOwner& this) {
-		if (this.handle) {
-			LLVMDisposeErrorMessage((char*)this.handle);
-		};
+		char* handle := this.handle;
+		LLVMDisposeErrorMessage($handle);
 	};
 };
 
@@ -844,9 +835,8 @@ struct LLVMMemoryBufferOwner {
 	void* handle;
 
 	fn ~LLVMMemoryBufferOwner(LLVMMemoryBufferOwner& this) {
-		if (this.handle) {
-			LLVMDisposeMemoryBuffer((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposeMemoryBuffer($handle);
 	};
 };
 
@@ -861,9 +851,8 @@ struct LLVMPassOptionsOwner {
 	};
 
 	fn ~LLVMPassOptionsOwner(LLVMPassOptionsOwner& this) {
-		if (this.handle) {
-			LLVMDisposePassBuilderOptions((void*)this.handle);
-		};
+		void* handle := this.handle;
+		LLVMDisposePassBuilderOptions($handle);
 	};
 };
 
@@ -898,7 +887,8 @@ struct File {
 		if (!this.handle) {
 			return;
 		};
-		if (fclose((void*)this.handle)) {
+		void* handle := this.handle;
+		if (fclose($handle)) {
 			char* failure = "cannot read source\0";
 			if (this.purpose == OBJECT_FILE) {
 				@failure = "cannot write native object output\0";
@@ -999,7 +989,7 @@ fn platform_standard_error() -> void*;
 
 fn memory_allocate(Compiler* compiler, usize size) -> void* {
 	unique_ptr memory = unique_ptr(calloc(1, $size));
-	if (!unique_ptr::get(memory)) {
+	if (!memory.get()) {
 		@compiler->result = COMPILATION_FAILURE;
 		return nullptr;
 	};
@@ -1010,7 +1000,7 @@ fn memory_allocate(Compiler* compiler, usize size) -> void* {
 		return nullptr;
 	};
 
-	void* result = unique_ptr::release(@memory);
+	void* result = @memory.release();
 	@allocation->memory := result;
 	@allocation->next := compiler->allocations.head;
 	@compiler->allocations.head = $allocation;
@@ -5505,6 +5495,31 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case SYNTAX_ACCESS:
 		case SYNTAX_RELOCATE: {
 			Syntax* operand := syntax->data.expression;
+			if (syntax->kind == SYNTAX_ACCESS && operand->kind == SYNTAX_CALL && operand->data.call.callable->kind == SYNTAX_MEMBER) {
+				Syntax* member := operand->data.call.callable;
+				Syntax* receiver = method_receiver((Semantic*)semantic, (Syntax*)member);
+				Type* owner := receiver->type;
+				if (member->data.member.qualifier) {
+					@owner = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)member->data.member.qualifier);
+				};
+				Entity* function = receiver_callable((Semantic*)semantic, (Type*)owner, Token(member->data.member.name));
+				if (function && function->kind == ENTITY_FUNCTION) {
+					entity_resolve((Compiler*)compiler, (Entity*)function);
+					Parameter* first := function->data.function.type->data.function.parameters;
+					if (first && token_is(Token(first->name), "this\0")) {
+						Syntax* access = (Syntax*)memory_allocate((Compiler*)compiler, sizeof(Syntax));
+						@access->kind = SYNTAX_ACCESS;
+						@access->token := syntax->token;
+						@access->data.expression = $receiver;
+						@member->data.member.object = $access;
+						@member->token.kind = TOKEN_DOT;
+						Syntax* next := syntax->next;
+						@*syntax := *operand;
+						@syntax->next = $next;
+						return semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)expected);
+					};
+				};
+			};
 			@type = semantic_expression((Semantic*)semantic, (Syntax*)operand, nullptr);
 			if (syntax_category((Syntax*)operand) != VALUE_STORAGE) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "reference access and relocation require an existing object\0");
@@ -9349,6 +9364,15 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 				if (syntax->data.expression) {
 					semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.expression, (Type*)result);
 					if (result->kind != TYPE_REFERENCE) {
+						Syntax* value := syntax->data.expression;
+						if (value->kind == SYNTAX_NAME && value->entity && value->entity->kind == ENTITY_VARIABLE && !storage_borrowed((Syntax*)value) && (value->entity->data.variable.storage == STORAGE_LOCAL || value->entity->data.variable.storage == STORAGE_PARAMETER)) {
+							Syntax* relocation = (Syntax*)memory_allocate((Compiler*)compiler, sizeof(Syntax));
+							@relocation->kind = SYNTAX_RELOCATE;
+							@relocation->token := value->token;
+							@relocation->type := value->type;
+							@relocation->data.expression := value;
+							@syntax->data.expression = $relocation;
+						};
 						semantic_owned((Semantic*)semantic, (Syntax*)syntax->data.expression);
 					};
 				}
@@ -9661,12 +9685,12 @@ fn backend_clear(Compiler* compiler) {
 fn rutile_compiler_create() -> Compiler* {
 	Compiler value;
 	unique_ptr storage = unique_ptr(calloc(1, sizeof(Compiler)));
-	if (!unique_ptr::get(storage)) {
+	if (!storage.get()) {
 		return nullptr;
 	};
-	memcpy((void*)unique_ptr::get(storage), (void*)&value, sizeof(Compiler));
+	memcpy(storage.get(), (void*)&value, sizeof(Compiler));
 	discard value;
-	return (Compiler*)unique_ptr::release(@storage);
+	return (Compiler*)@storage.release();
 };
 
 fn rutile_compiler_destroy(Compiler* compiler) {

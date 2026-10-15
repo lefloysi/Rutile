@@ -4156,7 +4156,28 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		bind_expression(compiler, expression->data.operand, scope);
 		expression->type = (struct Type){ BOOL_TYPE, { 0 } };
 		break;
-	case ACCESS_EXPRESSION:
+	case ACCESS_EXPRESSION: {
+		struct Expression* operand = expression->data.operand;
+		bool member_call = operand->kind == CALL_EXPRESSION && (operand->data.call.callee->kind == FIELD_EXPRESSION || operand->data.call.callee->kind == POINTER_FIELD_EXPRESSION);
+		bind_expression(compiler, operand, scope);
+		if (compiler->failed) {
+			break;
+		}
+		if (member_call && operand->data.call.callee->kind == FUNCTION_EXPRESSION && operand->data.call.binding->parameters && token_text(operand->data.call.binding->parameters->name, "this")) {
+			struct Argument* argument = operand->data.call.arguments;
+			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
+			if (!receiver) {
+				break;
+			}
+			receiver->data.operand = argument->expression;
+			receiver->type = argument->expression->type;
+			argument->expression = receiver;
+			*expression = *operand;
+			break;
+		}
+		expression->type = operand->type;
+		break;
+	}
 	case RELOCATE_EXPRESSION:
 	case ABANDON_EXPRESSION:
 		bind_expression(compiler, expression->data.operand, scope);
@@ -5904,6 +5925,16 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		}
 		else {
 			bind_expression(compiler, statement->data.expression, scope);
+			struct Expression* value = statement->data.expression;
+			if (function->result.kind != REFERENCE_TYPE && value->kind == NAME_EXPRESSION && value->data.variable.binding && value->data.variable.binding->scope_depth && value->data.variable.binding->type.kind != REFERENCE_TYPE) {
+				struct Expression* relocation = new_expression(compiler, RELOCATE_EXPRESSION, value->span.first);
+				if (!relocation) {
+					break;
+				}
+				relocation->data.operand = value;
+				relocation->type = value->type;
+				statement->data.expression = relocation;
+			}
 			check_expression(compiler, statement->data.expression, &function->result);
 			if (function->result.kind != REFERENCE_TYPE) {
 				require_owned_value(compiler, statement->data.expression);
