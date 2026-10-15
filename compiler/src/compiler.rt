@@ -5,6 +5,8 @@ enum TokenKind {
 	TOKEN_FN,
 	TOKEN_CONST,
 	TOKEN_DISCARD,
+	TOKEN_DELETE,
+	TOKEN_NULLPTR,
 	TOKEN_VAR,
 	TOKEN_STRUCT,
 	TOKEN_UNION,
@@ -92,6 +94,7 @@ struct Lexer {
 enum SyntaxKind {
 	SYNTAX_NAME,
 	SYNTAX_NUMBER,
+	SYNTAX_NULLPTR,
 	SYNTAX_STRING,
 	SYNTAX_BLOCK,
 	SYNTAX_POINTER,
@@ -152,7 +155,14 @@ enum FunctionModification {
 	FUNCTION_FINAL,
 };
 
+enum FunctionDefinition {
+	FUNCTION_DECLARATION,
+	FUNCTION_DEFINITION,
+	FUNCTION_DELETED,
+};
+
 struct DeclarationSyntax {
+	FunctionDefinition definition;
 	Token name;
 	Syntax* path;
 	FunctionModification modification;
@@ -346,6 +356,7 @@ struct LifetimeAnalysis {
 
 enum TypeKind {
 	TYPE_VOID,
+	TYPE_NULL,
 	TYPE_BOOL,
 	TYPE_CHAR,
 	TYPE_SIGNED,
@@ -595,6 +606,7 @@ enum FunctionRole {
 };
 
 struct FunctionEntity {
+	FunctionDefinition definition;
 	FunctionRole role;
 	Entity* overload_next;
 	usize overload_index;
@@ -665,20 +677,63 @@ struct Allocation {
 	Allocation* next;
 };
 
-struct HeapMemory {
-	void* handle;
+struct unique_ptr {
+	void* pointer;
 
-	fn HeapMemory(HeapMemory& this, usize size) {
-		@this.handle = calloc(1, $size);
-	};
+	fn unique_ptr(unique_ptr& this);
+	fn unique_ptr(unique_ptr& this, null* pointer);
+	fn unique_ptr(unique_ptr& this, void* pointer);
+	fn unique_ptr(unique_ptr& this, const unique_ptr& other) : delete;
+	fn operator=(unique_ptr& this, const unique_ptr& other) -> unique_ptr& : delete;
+	fn operator=(unique_ptr& this, unique_ptr other) -> unique_ptr&;
+	fn get(const unique_ptr& this) -> void*;
+	fn release(unique_ptr& this) -> void*;
+	fn reset(unique_ptr& this, void* pointer);
+	fn ~unique_ptr(unique_ptr& this);
+};
 
-	fn HeapMemory(HeapMemory& this, void* memory) {
-		@this.handle = $memory;
-	};
+fn unique_ptr::unique_ptr(unique_ptr& this) {
+	@this.pointer = nullptr;
+};
 
-	fn ~HeapMemory(HeapMemory& this) {
-		free((void*)this.handle);
+fn unique_ptr::unique_ptr(unique_ptr& this, null* pointer) {
+	@this.pointer = $pointer;
+};
+
+fn unique_ptr::unique_ptr(unique_ptr& this, void* pointer) {
+	@this.pointer = $pointer;
+};
+
+fn unique_ptr::operator=(unique_ptr& this, unique_ptr other) -> unique_ptr& {
+	unique_ptr::reset(@this, unique_ptr::release(@other));
+	discard other;
+	return @this;
+};
+
+fn unique_ptr::get(const unique_ptr& this) -> void* {
+	return (void*)this.pointer;
+};
+
+fn unique_ptr::release(unique_ptr& this) -> void* {
+	void* pointer := this.pointer;
+	@this.pointer = nullptr;
+	return $pointer;
+};
+
+fn unique_ptr::reset(unique_ptr& this, void* pointer) {
+	void* previous := this.pointer;
+	@this.pointer = $pointer;
+	if (!previous) {
+		return;
 	};
+	free($previous);
+};
+
+fn unique_ptr::~unique_ptr(unique_ptr& this) {
+	if (!this.pointer) {
+		return;
+	};
+	free((void*)this.pointer);
 };
 
 struct Arena {
@@ -727,6 +782,9 @@ struct LLVMModuleOwner {
 struct LLVMBuilderOwner {
 	void* handle;
 
+	fn LLVMBuilderOwner(LLVMBuilderOwner& this) {
+	};
+
 	fn LLVMBuilderOwner(LLVMBuilderOwner& this, void* handle) {
 		@this.handle = $handle;
 	};
@@ -751,6 +809,9 @@ struct LLVMLayoutOwner {
 struct LLVMMessageOwner {
 	char* handle;
 
+	fn LLVMMessageOwner(LLVMMessageOwner& this) {
+	};
+
 	fn LLVMMessageOwner(LLVMMessageOwner& this, char* handle) {
 		@this.handle = $handle;
 	};
@@ -764,6 +825,9 @@ struct LLVMMessageOwner {
 
 struct LLVMErrorMessageOwner {
 	char* handle;
+
+	fn LLVMErrorMessageOwner(LLVMErrorMessageOwner& this) {
+	};
 
 	fn LLVMErrorMessageOwner(LLVMErrorMessageOwner& this, char* handle) {
 		@this.handle = $handle;
@@ -788,6 +852,9 @@ struct LLVMMemoryBufferOwner {
 
 struct LLVMPassOptionsOwner {
 	void* handle;
+
+	fn LLVMPassOptionsOwner(LLVMPassOptionsOwner& this) {
+	};
 
 	fn LLVMPassOptionsOwner(LLVMPassOptionsOwner& this, void* handle) {
 		@this.handle = $handle;
@@ -872,10 +939,14 @@ struct Compiler {
 	char* entry;
 	i32 optimization;
 	Type* void_type;
+	Type* null_type;
 	Type* bool_type;
 	Type* i32_type;
 	Type* usize_type;
 	Type* char_type;
+
+	fn Compiler(Compiler& this) {
+	};
 
 	fn Compiler(Compiler& this, Compiler* storage) {
 		if (!storage) {
@@ -927,31 +998,30 @@ fn strcmp(char* first, char* second) -> i32;
 fn platform_standard_error() -> void*;
 
 fn memory_allocate(Compiler* compiler, usize size) -> void* {
-	HeapMemory memory = HeapMemory($size);
-	if (!memory.handle) {
+	unique_ptr memory = unique_ptr(calloc(1, $size));
+	if (!unique_ptr::get(memory)) {
 		@compiler->result = COMPILATION_FAILURE;
-		return (void*)0;
+		return nullptr;
 	};
 
 	Allocation* allocation = (Allocation*)malloc(sizeof(Allocation));
 	if (!allocation) {
 		@compiler->result = COMPILATION_FAILURE;
-		return (void*)0;
+		return nullptr;
 	};
 
-	@allocation->memory := memory.handle;
+	void* result = unique_ptr::release(@memory);
+	@allocation->memory := result;
 	@allocation->next := compiler->allocations.head;
 	@compiler->allocations.head = $allocation;
 
-	void* result := memory.handle;
-	discard memory;
 	return $result;
 };
 
 fn memory_text(Compiler* compiler, char* text, usize length) -> char* {
 	char* copy = (char*)memory_allocate($compiler, length + 1);
 	if (!copy) {
-		return (char*)0;
+		return nullptr;
 	};
 
 	memcpy((void*)copy, (void*)text, $length);
@@ -983,7 +1053,7 @@ fn compiler_error(Compiler* compiler, Token token, char* message) {
 fn scope_create(Compiler* compiler, Scope* parent, ContextKind context, Entity* owner) -> Scope* {
 	Scope* scope = (Scope*)memory_allocate((Compiler*)compiler, sizeof(Scope));
 	if (!scope) {
-		return (Scope*)0;
+		return nullptr;
 	};
 
 	@scope->compiler := compiler;
@@ -993,7 +1063,7 @@ fn scope_create(Compiler* compiler, Scope* parent, ContextKind context, Entity* 
 	@scope->bucket_count = 64;
 	@scope->buckets = (Binding**)memory_allocate($compiler, scope->bucket_count * sizeof(Binding*));
 	if (!scope->buckets) {
-		return (Scope*)0;
+		return nullptr;
 	};
 
 	return $scope;
@@ -1021,7 +1091,7 @@ fn scope_local(Scope* scope, Token name) -> Entity* {
 		@binding := binding->hash_next;
 	};
 
-	return (Entity*)0;
+	return nullptr;
 };
 
 fn scope_lookup(Scope* scope, Token name) -> Entity* {
@@ -1039,14 +1109,14 @@ fn scope_lookup(Scope* scope, Token name) -> Entity* {
 		RemovedBinding* removed := scope->removed;
 		while (removed) {
 			if (token_same(Token(removed->entity->name), Token(name))) {
-				return (Entity*)0;
+				return nullptr;
 			};
 			@removed := removed->next;
 		};
 		@scope := scope->parent;
 	};
 
-	return (Entity*)0;
+	return nullptr;
 };
 
 fn scope_bind_named(Compiler* compiler, Scope* scope, Token name, Entity* entity, Scope* declaration_scope, Source* source) -> i32 {
@@ -1120,7 +1190,7 @@ fn scope_snapshot(Compiler* compiler, Scope* source) -> Scope* {
 
 	Scope* scope = scope_create((Compiler*)compiler, scope_snapshot((Compiler*)compiler, (Scope*)source->parent), (ContextKind)source->context, (Entity*)source->owner);
 	if (!scope) {
-		return (Scope*)0;
+		return nullptr;
 	};
 
 	@scope->removed := source->removed;
@@ -1151,7 +1221,7 @@ fn scope_merge_removals(Compiler* compiler, Scope* destination, Scope* branch) {
 fn entity_create(Compiler* compiler, EntityKind kind, Token name) -> Entity* {
 	Entity* entity = (Entity*)memory_allocate($compiler, sizeof(Entity));
 	if (!entity) {
-		return (Entity*)0;
+		return nullptr;
 	};
 
 	@entity->kind = $kind;
@@ -1163,7 +1233,7 @@ fn entity_create(Compiler* compiler, EntityKind kind, Token name) -> Entity* {
 fn primitive_define(Compiler* compiler, char* name, TypeKind kind, i32 bits) -> Type* {
 	Source* source = (Source*)memory_allocate((Compiler*)compiler, sizeof(Source));
 	if (!source) {
-		return (Type*)0;
+		return nullptr;
 	};
 
 	@source->path = "<builtins>\0";
@@ -1175,7 +1245,7 @@ fn primitive_define(Compiler* compiler, char* name, TypeKind kind, i32 bits) -> 
 	@token.source = $source;
 	Type* type = (Type*)memory_allocate((Compiler*)compiler, sizeof(Type));
 	if (!type) {
-		return (Type*)0;
+		return nullptr;
 	};
 
 	if (kind == TYPE_SIGNED || kind == TYPE_UNSIGNED || kind == TYPE_FLOAT) {
@@ -1184,7 +1254,7 @@ fn primitive_define(Compiler* compiler, char* name, TypeKind kind, i32 bits) -> 
 	@type->kind = $kind;
 	Entity* entity = entity_create((Compiler*)compiler, ENTITY_PRIMITIVE, $token);
 	if (!entity) {
-		return (Type*)0;
+		return nullptr;
 	};
 
 	@entity->resolution = RESOLUTION_READY;
@@ -1225,8 +1295,9 @@ fn compiler_builtins(Compiler* compiler, i32 pointer_bits) {
 	declaration_rule_define(&compiler->declaration_rules[2], TOKEN_UNION, ENTITY_UNION, CONTEXT_UNION);
 	declaration_rule_define(&compiler->declaration_rules[3], TOKEN_ENUM, ENTITY_ENUM, CONTEXT_ENUM);
 
-	@compiler->module = scope_create((Compiler*)compiler, (Scope*)0, CONTEXT_MODULE, (Entity*)0);
+	@compiler->module = scope_create((Compiler*)compiler, nullptr, CONTEXT_MODULE, nullptr);
 	@compiler->void_type = primitive_define((Compiler*)compiler, "void\0", TYPE_VOID, 0);
+	@compiler->null_type = primitive_define((Compiler*)compiler, "null\0", TYPE_NULL, 0);
 	@compiler->bool_type = primitive_define((Compiler*)compiler, "bool\0", TYPE_BOOL, 0);
 	boolean_define((Compiler*)compiler, "false\0", false);
 	boolean_define((Compiler*)compiler, "true\0", true);
@@ -1262,7 +1333,7 @@ fn declaration_rule(Compiler* compiler, TokenKind token_kind) -> DeclarationRule
 		@index = index + 1;
 	};
 
-	return (DeclarationRule*)0;
+	return nullptr;
 };
 
 fn declaration_entity(Compiler* compiler, Scope* scope, EntityKind kind, Token name) -> Entity* {
@@ -1271,17 +1342,17 @@ fn declaration_entity(Compiler* compiler, Scope* scope, EntityKind kind, Token n
 		Scope* members = entity_members((Entity*)entity);
 		@entity->kind := kind;
 		@entity->resolution = RESOLUTION_PENDING;
-		@entity->data.aggregate.type = (Type*)0;
+		@entity->data.aggregate.type = nullptr;
 		@entity->data.aggregate.scope = $members;
 	};
 	if (entity && entity->kind != kind) {
 		compiler_error((Compiler*)compiler, Token(name), "conflicting declaration kind\0");
-		return (Entity*)0;
+		return nullptr;
 	};
 	if (!entity) {
 		@entity = entity_create((Compiler*)compiler, (EntityKind)kind, Token(name));
 		if (!entity) {
-			return (Entity*)0;
+			return nullptr;
 		};
 		scope_define((Compiler*)compiler, (Scope*)scope, (Entity*)entity);
 	};
@@ -1292,8 +1363,8 @@ fn declaration_entity(Compiler* compiler, Scope* scope, EntityKind kind, Token n
 };
 
 fn parser_bases(Parser* parser) -> BaseRelation* {
-	BaseRelation* first = (BaseRelation*)0;
-	BaseRelation* last = (BaseRelation*)0;
+	BaseRelation* first = nullptr;
+	BaseRelation* last = nullptr;
 	while (true) {
 		BaseRelation* base = (BaseRelation*)memory_allocate((Compiler*)parser->compiler, sizeof(BaseRelation));
 		if (parser_take((Parser*)parser, TOKEN_VIRTUAL)) {
@@ -1319,14 +1390,14 @@ fn namespace_define(Compiler* compiler, Scope* scope, Token name) -> Entity* {
 	if (entity) {
 		if (entity->kind != ENTITY_NAMESPACE && entity->kind != ENTITY_STRUCT && entity->kind != ENTITY_UNION) {
 			compiler_error((Compiler*)compiler, Token(name), "namespace conflicts with another declaration\0");
-			return (Entity*)0;
+			return nullptr;
 		};
 		return $entity;
 	};
 
 	@entity = entity_create((Compiler*)compiler, ENTITY_NAMESPACE, $name);
 	if (!entity) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	@entity->data.namespace_entity.scope = scope_create((Compiler*)compiler, (Scope*)scope, CONTEXT_MODULE, (Entity*)entity);
 	@entity->resolution = RESOLUTION_READY;
@@ -1347,7 +1418,7 @@ fn scope_identity_lookup(Scope* scope, Token name) -> Entity* {
 		};
 		@scope := scope->parent;
 	};
-	return (Entity*)0;
+	return nullptr;
 };
 
 fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position, DeclarationPhase phase) {
@@ -1386,13 +1457,13 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position, Declar
 		}
 		else {
 			DeclarationRule* rule = declaration_rule((Compiler*)parser->compiler, (TokenKind)token.kind);
-			Entity* declared = (Entity*)0;
+			Entity* declared = nullptr;
 			if (rule && parser->tokens[*position + 1].kind == TOKEN_NAME) {
 				usize name_position = *position + 1;
 				Token name := parser->tokens[name_position];
 				Scope* owner := scope;
 				while (name_position + 2 < parser->count && parser->tokens[name_position + 1].kind == TOKEN_SCOPE) {
-					Entity* entity = (Entity*)0;
+					Entity* entity = nullptr;
 					if (owner) {
 						if (phase == DECLARATION_MEMBERS) {
 							@entity = scope_lookup((Scope*)owner, Token(name));
@@ -1403,6 +1474,9 @@ fn parser_predeclare_range(Parser* parser, Scope* scope, usize* position, Declar
 					};
 					@owner = entity_members($entity);
 					@name_position = name_position + 2;
+					if (rule->entity == ENTITY_FUNCTION && parser->tokens[name_position].kind == TOKEN_TILDE && name_position + 1 < parser->count) {
+						@name_position = name_position + 1;
+					};
 					@name := parser->tokens[name_position];
 				};
 				if (owner) {
@@ -1494,6 +1568,10 @@ struct Keyword {
 };
 
 fn lexer_keywords(Keyword* keywords) {
+	@keywords[23].text = "nullptr\0";
+	@keywords[23].kind = TOKEN_NULLPTR;
+	@keywords[22].text = "delete\0";
+	@keywords[22].kind = TOKEN_DELETE;
 	@keywords[21].text = "discard\0";
 	@keywords[21].kind = TOKEN_DISCARD;
 	@keywords[20].text = "const\0";
@@ -1659,7 +1737,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate((Compiler*)compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[22] keywords {};
+	Keyword[24] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[37] operators {};
 	lexer_operators(&operators[0]);
@@ -1828,7 +1906,7 @@ fn parser_require(Parser* parser, TokenKind kind, char* message) -> Token {
 fn syntax_new(Parser* parser, SyntaxKind kind, Token token) -> Syntax* {
 	Syntax* syntax = (Syntax*)memory_allocate((Compiler*)parser->compiler, sizeof(Syntax));
 	if (!syntax) {
-		return (Syntax*)0;
+		return nullptr;
 	};
 
 	@syntax->kind = $kind;
@@ -1887,7 +1965,7 @@ fn entity_members(Entity* entity) -> Scope* {
 	if (entity && entity->kind == ENTITY_ENUM && entity->declaration && entity->declaration->data.declaration.body) {
 		return (Scope*)entity->declaration->data.declaration.body->scope;
 	};
-	return (Scope*)0;
+	return nullptr;
 };
 
 fn aggregate_header(Entity* entity) -> bool {
@@ -1896,7 +1974,7 @@ fn aggregate_header(Entity* entity) -> bool {
 
 fn virtual_type_add(Compiler* compiler, Entity* owner, Entity* target) {
 	VirtualType* current := owner->data.aggregate.virtual_types;
-	VirtualType* last = (VirtualType*)0;
+	VirtualType* last = nullptr;
 	usize index = 0;
 	while (current) {
 		if (current->entity == target) {
@@ -2023,7 +2101,7 @@ fn subobject_virtual(Compiler* compiler, CompleteGraph* graph, Entity* entity) -
 
 fn subobject_expand(Compiler* compiler, CompleteGraph* graph, Subobject* object) {
 	BaseRelation* base := object->entity->data.aggregate.bases;
-	SubobjectEdge* last = (SubobjectEdge*)0;
+	SubobjectEdge* last = nullptr;
 	while (base) {
 		SubobjectEdge* edge = (SubobjectEdge*)memory_allocate((Compiler*)compiler, sizeof(SubobjectEdge));
 		@edge->relation := base;
@@ -2051,7 +2129,7 @@ fn complete_graph(Compiler* compiler, Entity* entity) -> CompleteGraph* {
 	};
 	bases_resolve((Compiler*)compiler, (Entity*)entity);
 	if (compiler->result == COMPILATION_FAILURE) {
-		return (CompleteGraph*)0;
+		return nullptr;
 	};
 	CompleteGraph* graph = (CompleteGraph*)memory_allocate((Compiler*)compiler, sizeof(CompleteGraph));
 	@graph->entity := entity;
@@ -2063,14 +2141,14 @@ fn complete_graph(Compiler* compiler, Entity* entity) -> CompleteGraph* {
 
 fn subobject_edge(Subobject* object, BaseRelation* relation) -> Subobject* {
 	if (!object) {
-		return (Subobject*)0;
+		return nullptr;
 	};
 	SubobjectEdge* edge := object->edges;
 	while (edge && edge->relation != relation) {
 		@edge := edge->next;
 	};
 	if (!edge) {
-		return (Subobject*)0;
+		return nullptr;
 	};
 	return (Subobject*)edge->target;
 };
@@ -2136,7 +2214,7 @@ fn subobject_find_path(Compiler* compiler, Subobject* object, Subobject* target,
 	};
 	SubobjectEdge* edge := object->edges;
 	while (edge) {
-		BasePath* tail = (BasePath*)0;
+		BasePath* tail = nullptr;
 		if (subobject_find_path((Compiler*)compiler, (Subobject*)edge->target, (Subobject*)target, &tail)) {
 			BasePath* path = (BasePath*)memory_allocate((Compiler*)compiler, sizeof(BasePath));
 			@path->relation := edge->relation;
@@ -2242,7 +2320,7 @@ fn member_find_object(Compiler* compiler, Subobject* object, Token name) -> Memb
 		else if (!lookup_dominates((LookupObject*)result.objects, (LookupObject*)inherited.objects)) {
 			if (inherited.kind != MEMBER_FOUND || result.kind != MEMBER_FOUND || inherited.entity != result.entity) {
 				@result.kind = MEMBER_AMBIGUOUS;
-				@result.entity = (Entity*)0;
+				@result.entity = nullptr;
 			};
 			lookup_objects_merge((Compiler*)compiler, &result.objects, (LookupObject*)inherited.objects);
 		};
@@ -2270,7 +2348,7 @@ fn associated_lookup(Compiler* compiler, Entity* owner, Token name) -> Entity* {
 	MemberLookup result = member_find((Compiler*)compiler, $owner, Token(name));
 	if (result.kind == MEMBER_AMBIGUOUS) {
 		compiler_error((Compiler*)compiler, Token(name), "ambiguous inherited declaration\0");
-		return (Entity*)0;
+		return nullptr;
 	};
 	return (Entity*)result.entity;
 };
@@ -2287,8 +2365,8 @@ fn base_paths(Compiler* compiler, Entity* source, Entity* target, BaseSearch* re
 	if (!graph) {
 		return;
 	};
-	SubobjectVisit* visited = (SubobjectVisit*)0;
-	base_paths_graph($compiler, (Subobject*)graph->root, $target, (BasePath*)0, &visited, $result);
+	SubobjectVisit* visited = nullptr;
+	base_paths_graph($compiler, (Subobject*)graph->root, $target, nullptr, &visited, $result);
 };
 
 fn base_search(Compiler* compiler, Type* source, Type* target) -> BaseSearch {
@@ -2305,7 +2383,7 @@ fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
 	};
 	Scope* members = entity_members(syntax_lookup((Scope*)scope, (Syntax*)syntax->data.expression));
 	if (!members) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	return associated_lookup((Compiler*)scope->compiler, (Entity*)members->owner, Token(syntax->token));
 };
@@ -2411,7 +2489,7 @@ fn parser_type_suffix_end(Parser* parser, usize offset) -> usize {
 
 fn parser_signature(Parser* parser, Token token) -> Syntax* {
 	Syntax* node = syntax_new((Parser*)parser, SYNTAX_SIGNATURE, $token);
-	ParameterSyntax* last = (ParameterSyntax*)0;
+	ParameterSyntax* last = nullptr;
 	parser_require((Parser*)parser, TOKEN_LEFT_PAREN, "expected '(' in signature\0");
 	while (!parser_at((Parser*)parser, TOKEN_RIGHT_PAREN) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
 		if (parser_take((Parser*)parser, TOKEN_ELLIPSIS)) {
@@ -2590,6 +2668,9 @@ fn parser_primary(Parser* parser) -> Syntax* {
 	if (parser_at((Parser*)parser, TOKEN_NAME)) {
 		return parser_name((Parser*)parser);
 	};
+	if (parser_take((Parser*)parser, TOKEN_NULLPTR)) {
+		return syntax_new($parser, SYNTAX_NULLPTR, $token);
+	};
 	if (parser_take((Parser*)parser, TOKEN_NUMBER)) {
 		Syntax* node = syntax_new((Parser*)parser, SYNTAX_NUMBER, Token(token));
 		@node->entity = entity_create((Compiler*)parser->compiler, ENTITY_NUMBER, Token(token));
@@ -2667,7 +2748,7 @@ fn parser_unary(Parser* parser) -> Syntax* {
 		if (parser_take((Parser*)parser, TOKEN_LEFT_PAREN)) {
 			Syntax* call = syntax_new((Parser*)parser, SYNTAX_CALL, Token(operation));
 			@call->data.call.callable := value;
-			Syntax* last = (Syntax*)0;
+			Syntax* last = nullptr;
 			while (!parser_at((Parser*)parser, TOKEN_RIGHT_PAREN) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
 				Syntax* argument = parser_expression((Parser*)parser, 1);
 				syntax_append(&call->data.call.arguments, &last, $argument);
@@ -2779,7 +2860,7 @@ fn parser_enum_block(Parser* parser) -> Syntax* {
 	Token token = parser_require((Parser*)parser, TOKEN_LEFT_BRACE, "expected '{' after enum name\0");
 	Syntax* block = syntax_new((Parser*)parser, SYNTAX_BLOCK, $token);
 	@block->scope := parser->scope;
-	Syntax* last = (Syntax*)0;
+	Syntax* last = nullptr;
 	while (!parser_at((Parser*)parser, TOKEN_RIGHT_BRACE) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
 		Token name = parser_require((Parser*)parser, TOKEN_NAME, "expected enum member identifier\0");
 		Syntax* node = syntax_new((Parser*)parser, SYNTAX_DECLARATION, Token(name));
@@ -2844,14 +2925,16 @@ fn parser_special_register(Parser* parser, Scope* owner, Syntax* declaration) {
 		Entity* existing := *tail;
 		Type* other = type_resolve((Compiler*)parser->compiler, (Scope*)owner, (Syntax*)existing->declaration->data.declaration.type);
 		if (type_equal((Type*)signature, $other)) {
-			if (declaration->data.declaration.body && existing->declaration->data.declaration.body) {
+			if (declaration->data.declaration.definition != FUNCTION_DECLARATION && existing->declaration->data.declaration.definition != FUNCTION_DECLARATION) {
 				compiler_error((Compiler*)parser->compiler, Token(declaration->token), "duplicate special function definition\0");
 				return;
 			};
 			@declaration->entity := existing;
-			if (declaration->data.declaration.body) {
+			if (declaration->data.declaration.definition != FUNCTION_DECLARATION) {
 				@existing->declaration := declaration;
-				@declaration->data.declaration.body->scope->owner := existing;
+				if (declaration->data.declaration.body) {
+					@declaration->data.declaration.body->scope->owner := existing;
+				};
 			};
 			return;
 		};
@@ -2874,7 +2957,7 @@ fn parser_block_scope(Parser* parser, Scope* scope) -> Syntax* {
 	Scope* outer := parser->scope;
 	@node->scope := scope;
 	@parser->scope = $scope;
-	Syntax* last = (Syntax*)0;
+	Syntax* last = nullptr;
 	while (!parser_at((Parser*)parser, TOKEN_RIGHT_BRACE) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
 		Syntax* statement = parser_statement((Parser*)parser);
 		syntax_append(&node->data.statements, &last, $statement);
@@ -2884,15 +2967,39 @@ fn parser_block_scope(Parser* parser, Scope* scope) -> Syntax* {
 	return $node;
 };
 
+fn parser_function_name(Parser* parser, FunctionRole* role) -> Syntax* {
+	if (parser_take((Parser*)parser, TOKEN_TILDE)) {
+		@*role = DESTRUCTOR_ROLE;
+	};
+	Token token = parser_require((Parser*)parser, TOKEN_NAME, "expected function identifier\0");
+	Syntax* name = syntax_new((Parser*)parser, SYNTAX_NAME, $token);
+	while (parser_take((Parser*)parser, TOKEN_SCOPE)) {
+		if (*role == DESTRUCTOR_ROLE) {
+			compiler_error((Compiler*)parser->compiler, Token(name->token), "destructor name must be the final qualified component\0");
+			return $name;
+		};
+		if (parser_take((Parser*)parser, TOKEN_TILDE)) {
+			@*role = DESTRUCTOR_ROLE;
+		};
+		Token member = parser_require((Parser*)parser, TOKEN_NAME, "expected qualified function identifier\0");
+		Syntax* qualified = syntax_new((Parser*)parser, SYNTAX_NAME, $member);
+		@qualified->data.expression := name;
+		@name = $qualified;
+	};
+	return $name;
+};
+
 fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 	Token token = parser_token((Parser*)parser);
 	parser_take((Parser*)parser, (TokenKind)token.kind);
 	Syntax* node = syntax_new((Parser*)parser, SYNTAX_DECLARATION, Token(token));
-	i32 destructor = 0;
+	FunctionRole role = ORDINARY_ROLE;
 	if (token.kind == TOKEN_FN) {
-		@destructor = parser_take((Parser*)parser, TOKEN_TILDE);
+		@node->data.declaration.path = parser_function_name((Parser*)parser, &role);
+	}
+	else {
+		@node->data.declaration.path = parser_name((Parser*)parser);
 	};
-	@node->data.declaration.path = parser_name((Parser*)parser);
 	@node->data.declaration.name := node->data.declaration.path->token;
 	Scope* owner := parser->scope;
 	if (node->data.declaration.path->data.expression) {
@@ -2902,21 +3009,17 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 			return $node;
 		};
 	};
-	FunctionRole role = ORDINARY_ROLE;
 	Entity* aggregate := owner->owner;
-	if (token.kind == TOKEN_FN && aggregate && (aggregate->kind == ENTITY_STRUCT || aggregate->kind == ENTITY_UNION)) {
-		if (destructor) {
-			@role = DESTRUCTOR_ROLE;
-		}
-		else if (token_same(Token(node->data.declaration.name), Token(aggregate->name))) {
+	if (token.kind == TOKEN_FN && role != DESTRUCTOR_ROLE && aggregate && (aggregate->kind == ENTITY_STRUCT || aggregate->kind == ENTITY_UNION)) {
+		if (token_same(Token(node->data.declaration.name), Token(aggregate->name))) {
 			@role = CONSTRUCTOR_ROLE;
 		}
 		else if (token_is(Token(node->data.declaration.name), "operator\0") && parser_take((Parser*)parser, TOKEN_ASSIGN)) {
 			@role = ASSIGNMENT_ROLE;
 		};
 	};
-	if (destructor && (role != DESTRUCTOR_ROLE || owner != parser->scope || (parser->scope->context != CONTEXT_STRUCT && parser->scope->context != CONTEXT_UNION) || !token_same(Token(node->data.declaration.name), Token(aggregate->name)))) {
-		compiler_error((Compiler*)parser->compiler, Token(token), "destructor must be defined inline in its owning type\0");
+	if (role == DESTRUCTOR_ROLE && (!aggregate || (aggregate->kind != ENTITY_STRUCT && aggregate->kind != ENTITY_UNION) || !token_same(Token(node->data.declaration.name), Token(aggregate->name)))) {
+		compiler_error((Compiler*)parser->compiler, Token(token), "destructor name must match its owning type\0");
 		return $node;
 	};
 	if (role != ORDINARY_ROLE) {
@@ -2956,7 +3059,10 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 	if (token.kind == TOKEN_FN) {
 		if (parser_take((Parser*)parser, TOKEN_COLON)) {
 			Token modifier = parser_token((Parser*)parser);
-			if (parser_take((Parser*)parser, TOKEN_VIRTUAL)) {
+			if (parser_take((Parser*)parser, TOKEN_DELETE)) {
+				@node->data.declaration.definition = FUNCTION_DELETED;
+			}
+			else if (parser_take((Parser*)parser, TOKEN_VIRTUAL)) {
 				@node->data.declaration.modification = FUNCTION_VIRTUAL;
 			}
 			else if (parser_take((Parser*)parser, TOKEN_OVERRIDE)) {
@@ -2966,7 +3072,7 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 				@node->data.declaration.modification = FUNCTION_FINAL;
 			}
 			else {
-				compiler_error((Compiler*)parser->compiler, Token(modifier), "expected virtual, override, or final relationship\0");
+				compiler_error((Compiler*)parser->compiler, Token(modifier), "expected delete, virtual, override, or final modifier\0");
 				return $node;
 			};
 		};
@@ -2990,6 +3096,13 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 		};
 	};
 	if (parser_at((Parser*)parser, TOKEN_LEFT_BRACE)) {
+		if (node->data.declaration.definition == FUNCTION_DELETED) {
+			compiler_error((Compiler*)parser->compiler, Token(token), "deleted function cannot have a body\0");
+			return $node;
+		};
+		if (token.kind == TOKEN_FN) {
+			@node->data.declaration.definition = FUNCTION_DEFINITION;
+		};
 		Scope* outer := parser->scope;
 		ContextKind context := rule->context;
 		if (token.kind == TOKEN_STRUCT || token.kind == TOKEN_UNION) {
@@ -3023,11 +3136,8 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 		};
 		@parser->scope = $outer;
 	};
-	if (!node->entity->declaration || node->data.declaration.body) {
+	if (!node->entity->declaration || node->data.declaration.body || node->data.declaration.definition == FUNCTION_DELETED) {
 		@node->entity->declaration := node;
-	};
-	if (role == DESTRUCTOR_ROLE && !node->data.declaration.body) {
-		compiler_error((Compiler*)parser->compiler, Token(token), "destructor requires an inline body\0");
 	};
 	if (role != ORDINARY_ROLE) {
 		parser_special_register((Parser*)parser, (Scope*)owner, (Syntax*)node);
@@ -3069,16 +3179,16 @@ fn parser_namespace(Parser* parser) -> Syntax* {
 	Token token = parser_require((Parser*)parser, TOKEN_NAMESPACE, "expected namespace\0");
 	if (parser->scope->context != CONTEXT_MODULE) {
 		compiler_error((Compiler*)parser->compiler, Token(token), "namespace requires module context\0");
-		return (Syntax*)0;
+		return nullptr;
 	};
 
 	Scope* outer := parser->scope;
-	Entity* entity = (Entity*)0;
+	Entity* entity = nullptr;
 	while (true) {
 		Token name = parser_require((Parser*)parser, TOKEN_NAME, "expected namespace identifier\0");
 		@entity = namespace_define((Compiler*)parser->compiler, (Scope*)parser->scope, $name);
 		if (!entity) {
-			return (Syntax*)0;
+			return nullptr;
 		};
 		@parser->scope = entity_members((Entity*)entity);
 		if (!parser_take((Parser*)parser, TOKEN_SCOPE)) {
@@ -3091,7 +3201,7 @@ fn parser_namespace(Parser* parser) -> Syntax* {
 	parser_require((Parser*)parser, TOKEN_LEFT_BRACE, "expected namespace body\0");
 	Syntax* body = syntax_new((Parser*)parser, SYNTAX_BLOCK, $token);
 	@body->scope := parser->scope;
-	Syntax* last = (Syntax*)0;
+	Syntax* last = nullptr;
 	while (!parser_at((Parser*)parser, TOKEN_RIGHT_BRACE) && !parser_at((Parser*)parser, TOKEN_END) && parser->compiler->result != COMPILATION_FAILURE) {
 		Syntax* statement = parser_statement((Parser*)parser);
 		syntax_append(&body->data.statements, &last, $statement);
@@ -3157,7 +3267,7 @@ fn parser_statement(Parser* parser) -> Syntax* {
 	if (parser_take((Parser*)parser, TOKEN_FOR)) {
 		Syntax* node = syntax_new((Parser*)parser, SYNTAX_FOR, Token(token));
 		Scope* outer := parser->scope;
-		@node->scope = scope_create((Compiler*)parser->compiler, (Scope*)outer, CONTEXT_LOCAL, (Entity*)0);
+		@node->scope = scope_create((Compiler*)parser->compiler, (Scope*)outer, CONTEXT_LOCAL, nullptr);
 		@parser->scope := node->scope;
 		parser_require((Parser*)parser, TOKEN_LEFT_PAREN, "expected '(' after for\0");
 		if (parser_declaration_start((Parser*)parser)) {
@@ -3205,7 +3315,7 @@ fn parser_statement(Parser* parser) -> Syntax* {
 };
 
 fn parser_block(Parser* parser) -> Syntax* {
-	Scope* scope = scope_create((Compiler*)parser->compiler, (Scope*)parser->scope, CONTEXT_LOCAL, (Entity*)0);
+	Scope* scope = scope_create((Compiler*)parser->compiler, (Scope*)parser->scope, CONTEXT_LOCAL, nullptr);
 	return parser_block_scope($parser, $scope);
 };
 
@@ -3250,7 +3360,7 @@ fn prepare_sources(Compiler* compiler) -> i32 {
 
 fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
 	if (!prepare_source((Compiler*)compiler, (Source*)source)) {
-		return (Syntax*)0;
+		return nullptr;
 	};
 	Parser parser {
 		@parser.compiler := compiler;
@@ -3262,7 +3372,7 @@ fn parse_source(Compiler* compiler, Source* source) -> Syntax* {
 	Token token = parser_token(&parser);
 	Syntax* module = syntax_new(&parser, SYNTAX_BLOCK, $token);
 	@module->scope := compiler->module;
-	Syntax* last = (Syntax*)0;
+	Syntax* last = nullptr;
 	while (!parser_at(&parser, TOKEN_END) && compiler->result != COMPILATION_FAILURE) {
 		Syntax* statement = parser_statement(&parser);
 		syntax_append(&module->data.statements, &last, $statement);
@@ -3453,14 +3563,14 @@ fn entity_type(Entity* entity) -> Type* {
 		case ENTITY_VARIABLE:
 			return (Type*)entity->data.variable.type;
 		default:
-			return (Type*)0;
+			return nullptr;
 	};
 };
 
 fn type_new(Compiler* compiler, TypeKind kind) -> Type* {
 	Type* type = (Type*)memory_allocate($compiler, sizeof(Type));
 	if (!type) {
-		return (Type*)0;
+		return nullptr;
 	};
 
 	@type->kind = $kind;
@@ -3471,7 +3581,7 @@ fn type_new(Compiler* compiler, TypeKind kind) -> Type* {
 fn type_pointer(Compiler* compiler, Type* element) -> Type* {
 	Type* type = type_new($compiler, TYPE_POINTER);
 	if (!type) {
-		return (Type*)0;
+		return nullptr;
 	};
 
 	@type->data.element = $element;
@@ -3488,6 +3598,7 @@ fn type_equal(Type* first, Type* second) -> i32 {
 	};
 	switch (first->kind) {
 		case TYPE_VOID:
+		case TYPE_NULL:
 		case TYPE_BOOL:
 		case TYPE_CHAR:
 			return 1;
@@ -3548,6 +3659,22 @@ fn type_numeric(Type* type) -> i32 {
 
 fn type_integer(Type* type) -> i32 {
 	return type_numeric((Type*)type) && type->kind != TYPE_FLOAT;
+};
+
+fn type_null_pointer(Type* type) -> bool {
+	return type && type->kind == TYPE_POINTER && type->data.element->kind == TYPE_NULL;
+};
+fn type_pointer_conversion(Type* source, Type* target) -> bool {
+	if (!source || !target || source->kind != TYPE_POINTER || target->kind != TYPE_POINTER) {
+		return false;
+	};
+	if (type_null_pointer((Type*)source)) {
+		return true;
+	};
+	if (source->data.element->qualifier == CONST_TYPE && target->data.element->qualifier != CONST_TYPE) {
+		return false;
+	};
+	return type_value_equal((Type*)source->data.element, (Type*)target->data.element) || (target->data.element->kind == TYPE_VOID && source->data.element->kind != TYPE_FUNCTION);
 };
 
 fn type_scalar(Type* type) -> i32 {
@@ -3655,7 +3782,7 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 	if (syntax->type) {
 		return (Type*)syntax->type;
 	};
-	Type* type = (Type*)0;
+	Type* type = nullptr;
 	switch (syntax->kind) {
 		case SYNTAX_CONST:
 			@type = type_qualified((Compiler*)compiler, type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax->data.expression), CONST_TYPE);
@@ -3688,7 +3815,7 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 			};
 			@type = type_new((Compiler*)compiler, (TypeKind)kind);
 			@type->data.element = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax->data.expression);
-			if ((kind == TYPE_POINTER && type->data.element->kind == TYPE_REFERENCE) || (kind == TYPE_REFERENCE && (type->data.element->kind == TYPE_VOID || type->data.element->kind == TYPE_REFERENCE))) {
+			if ((kind == TYPE_POINTER && type->data.element->kind == TYPE_REFERENCE) || (kind == TYPE_REFERENCE && (type->data.element->kind == TYPE_VOID || type->data.element->kind == TYPE_NULL || type->data.element->kind == TYPE_REFERENCE))) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "reference requires an object or function referent type\0");
 			};
 			break;
@@ -3697,21 +3824,24 @@ fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type* {
 			@type = type_new((Compiler*)compiler, TYPE_ARRAY);
 			@type->data.array.count = integer_spelling((Compiler*)compiler, Token(syntax->data.array.count), (u64)18446744073709551615);
 			@type->data.array.element = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax->data.array.element);
-			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_FUNCTION || type->data.array.element->kind == TYPE_REFERENCE) {
+			if (!type->data.array.count || type->data.array.element->kind == TYPE_VOID || type->data.array.element->kind == TYPE_NULL || type->data.array.element->kind == TYPE_FUNCTION || type->data.array.element->kind == TYPE_REFERENCE) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "array requires a positive length and a storage element type\0");
 			};
 			break;
 		case SYNTAX_SIGNATURE: {
 			@type = type_new((Compiler*)compiler, TYPE_FUNCTION);
 			@type->data.function.result = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)syntax->data.signature.result);
+			if (type->data.function.result->kind == TYPE_NULL) {
+				compiler_error((Compiler*)compiler, Token(syntax->token), "null is an unsized type and cannot be a function result\0");
+			};
 			@type->data.function.arity := syntax->data.signature.arity;
-			Parameter* last = (Parameter*)0;
+			Parameter* last = nullptr;
 			ParameterSyntax* input := syntax->data.signature.parameters;
 			while (input) {
 				Parameter* parameter = (Parameter*)memory_allocate((Compiler*)compiler, sizeof(Parameter));
 				@parameter->name := input->name;
 				@parameter->type = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)input->type);
-				if (parameter->type->kind == TYPE_VOID || parameter->type->kind == TYPE_FUNCTION) {
+				if (parameter->type->kind == TYPE_VOID || parameter->type->kind == TYPE_NULL || parameter->type->kind == TYPE_FUNCTION) {
 					compiler_error((Compiler*)compiler, Token(input->type->token), "parameter requires a storage type\0");
 				};
 				if (last) {
@@ -3866,8 +3996,8 @@ fn constant_selector(u64 value, Type* type) -> u64 {
 
 fn selection_validate(Semantic* semantic, Syntax* syntax, Type* type) {
 	Syntax* statement := syntax->data.selection.cases->data.statements;
-	CaseValue* values = (CaseValue*)0;
-	Syntax* fallback = (Syntax*)0;
+	CaseValue* values = nullptr;
+	Syntax* fallback = nullptr;
 	while (statement && semantic->compiler->result != COMPILATION_FAILURE) {
 		if (statement->kind != SYNTAX_CASE) {
 			@statement := statement->next;
@@ -3945,13 +4075,14 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 		@entity->data.function.type = type_resolve((Compiler*)compiler, (Scope*)entity->scope, (Syntax*)declaration->data.declaration.type);
 		interface_receiver_validate((Compiler*)compiler, (Entity*)entity, (Type*)entity->data.function.type, Token(declaration->token));
 		Parameter* receiver := entity->data.function.type->data.function.parameters;
-		Entity* owner = (Entity*)0;
+		Entity* owner = nullptr;
 		if (entity->scope) {
 			@owner := entity->scope->owner;
 		};
 		if (owner && (owner->kind == ENTITY_STRUCT || owner->kind == ENTITY_UNION) && receiver && token_is(Token(receiver->name), "this\0") && (receiver->type->kind != TYPE_REFERENCE || receiver->type->data.element->kind != TYPE_NAMED || receiver->type->data.element->data.entity != owner)) {
 			compiler_error((Compiler*)compiler, Token(receiver->name), "associated receiver must reference its owning type\0");
 		};
+		@entity->data.function.definition := declaration->data.declaration.definition;
 		@entity->data.function.body := declaration->data.declaration.body;
 		if (entity->data.function.body) {
 			@entity->data.function.scope := entity->data.function.body->scope;
@@ -4013,7 +4144,7 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 		if (body) {
 			Syntax* field := body->data.statements;
 			usize index = 0;
-			Field* last_field = (Field*)0;
+			Field* last_field = nullptr;
 			u64 next_value = 0;
 			while (field) {
 				if (field->kind != SYNTAX_DECLARATION) {
@@ -4190,12 +4321,12 @@ fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* 
 	Syntax* input := arguments;
 	while (input) {
 		if (!syntax_number_expression((Syntax*)input)) {
-			semantic_expression((Semantic*)semantic, (Syntax*)input, (Type*)0);
+			semantic_expression((Semantic*)semantic, (Syntax*)input, nullptr);
 		};
 		@input := input->next;
 	};
 	Entity* candidate := *special_functions($owner, $role);
-	Entity* selected = (Entity*)0;
+	Entity* selected = nullptr;
 	i32 best = 2147483647;
 	i32 matches = 0;
 	while (candidate && semantic->compiler->result != COMPILATION_FAILURE) {
@@ -4222,13 +4353,19 @@ fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* 
 				break;
 			};
 			if (syntax_number_expression((Syntax*)argument)) {
-				if (!type_numeric((Type*)value_type)) {
+				if (value_type->kind == TYPE_POINTER && syntax_zero_pointer_constant((Syntax*)argument)) {
+					@rank = rank + 2;
+				}
+				else if (!type_numeric((Type*)value_type)) {
 					break;
 				};
 			}
 			else {
-				Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)argument, (Type*)0);
-				if (!type_value_equal((Type*)actual, (Type*)value_type) && !(expected->kind == TYPE_REFERENCE && base_search((Compiler*)semantic->compiler, (Type*)actual, (Type*)value_type).count == 1)) {
+				Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)argument, nullptr);
+				if (type_pointer_conversion((Type*)actual, (Type*)value_type) && !type_value_equal((Type*)actual, (Type*)value_type)) {
+					@rank = rank + 2;
+				}
+				else if (!type_value_equal((Type*)actual, (Type*)value_type) && !(expected->kind == TYPE_REFERENCE && base_search((Compiler*)semantic->compiler, (Type*)actual, (Type*)value_type).count == 1)) {
 					break;
 				};
 			};
@@ -4249,7 +4386,11 @@ fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* 
 	};
 	if (matches > 1) {
 		compiler_error((Compiler*)semantic->compiler, Token(token), "ambiguous special function call\0");
-		return (Entity*)0;
+		return nullptr;
+	};
+	if (selected && selected->data.function.definition == FUNCTION_DELETED) {
+		compiler_error((Compiler*)semantic->compiler, Token(token), "selected function is deleted\0");
+		return nullptr;
 	};
 	if (selected) {
 		Parameter* parameter := selected->data.function.type->data.function.parameters->next;
@@ -4272,15 +4413,15 @@ fn special_select(Semantic* semantic, Entity* owner, FunctionRole role, Syntax* 
 fn syntax_construct(Compiler* compiler, Syntax* syntax, Type* target) {
 	Syntax* argument = (Syntax*)memory_allocate($compiler, sizeof(Syntax));
 	@*argument := *syntax;
-	@argument->next = (Syntax*)0;
+	@argument->next = nullptr;
 	@argument->use = OBSERVED_VALUE;
 	@syntax->kind = SYNTAX_CONSTRUCT;
-	@syntax->type = (Type*)0;
-	@syntax->entity = (Entity*)0;
+	@syntax->type = nullptr;
+	@syntax->entity = nullptr;
 	@syntax->data.construction.target = $target;
-	@syntax->data.construction.constructor = (Entity*)0;
+	@syntax->data.construction.constructor = nullptr;
 	@syntax->data.construction.arguments = $argument;
-	@syntax->data.construction.slot = (void*)0;
+	@syntax->data.construction.slot = nullptr;
 };
 
 enum GeneratedOperation {
@@ -4291,7 +4432,7 @@ enum GeneratedOperation {
 
 fn operation_function(Semantic* semantic, Type* type, GeneratedOperation operation, Token token) -> Entity* {
 	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	FunctionRole role = CONSTRUCTOR_ROLE;
 	Syntax input;
@@ -4306,7 +4447,7 @@ fn operation_function(Semantic* semantic, Type* type, GeneratedOperation operati
 	};
 	Syntax* argument = &input;
 	if (operation == DEFAULT_CONSTRUCTION) {
-		@argument = (Syntax*)0;
+		@argument = nullptr;
 	};
 	return special_select($semantic, (Entity*)type->data.entity, $role, $argument, $token);
 };
@@ -4341,6 +4482,21 @@ fn operation_has_callback(Semantic* semantic, Type* type, GeneratedOperation ope
 	return false;
 };
 
+fn constructor_members_validate(Semantic* semantic, Type* type, Token token) {
+	if (type->kind != TYPE_NAMED || type->data.entity->kind != ENTITY_STRUCT) {
+		return;
+	};
+	BaseRelation* base := type->data.entity->data.aggregate.bases;
+	while (base && semantic->compiler->result != COMPILATION_FAILURE) {
+		generated_operation_validate((Semantic*)semantic, entity_type((Entity*)base->entity), DEFAULT_CONSTRUCTION, Token(token));
+		@base := base->next;
+	};
+	Field* field := type->data.entity->data.aggregate.fields;
+	while (field && semantic->compiler->result != COMPILATION_FAILURE) {
+		generated_operation_validate((Semantic*)semantic, entity_type((Entity*)field->entity), DEFAULT_CONSTRUCTION, Token(token));
+		@field := field->next;
+	};
+};
 fn generated_operation_validate(Semantic* semantic, Type* type, GeneratedOperation operation, Token token) {
 	if (semantic->compiler->result == COMPILATION_FAILURE) {
 		return;
@@ -4364,12 +4520,19 @@ fn generated_operation_validate(Semantic* semantic, Type* type, GeneratedOperati
 	};
 	Entity* function = operation_function((Semantic*)semantic, (Type*)type, (GeneratedOperation)operation, Token(token));
 	if (function) {
+		if (operation != VALUE_ASSIGNMENT) {
+			constructor_members_validate((Semantic*)semantic, (Type*)type, Token(token));
+		};
 		if (operation != VALUE_ASSIGNMENT && type_has_reference((Type*)type)) {
 			compiler_error((Compiler*)semantic->compiler, Token(token), "constructor reference-field binding syntax is not implemented\0");
 		};
 		return;
 	};
 	Entity* entity := type->data.entity;
+	if (operation == DEFAULT_CONSTRUCTION && entity->data.aggregate.constructors) {
+		compiler_error((Compiler*)semantic->compiler, Token(token), "user-declared constructors suppress the generated default constructor\0");
+		return;
+	};
 	if (entity->kind == ENTITY_UNION) {
 		if (operation == DEFAULT_CONSTRUCTION && entity->data.aggregate.fields) {
 			Field* variant := entity->data.aggregate.fields;
@@ -4421,6 +4584,19 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 fn semantic_statement(Semantic* semantic, Syntax* syntax);
 fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token token);
 
+fn syntax_zero_pointer_constant(Syntax* syntax) -> bool {
+	if (syntax->kind != SYNTAX_NUMBER || !syntax->token.length) {
+		return false;
+	};
+	usize index = 0;
+	while (index < syntax->token.length) {
+		if (syntax->token.source->bytes[syntax->token.begin + index] != '0') {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
 fn syntax_number_expression(Syntax* syntax) -> i32 {
 	if (syntax->kind == SYNTAX_NUMBER) {
 		return 1;
@@ -4455,7 +4631,7 @@ fn storage_borrowed(Syntax* syntax) -> i32 {
 fn semantic_scope(Semantic* semantic, Scope* parsed) -> Scope* {
 	Scope* scope = scope_create((Compiler*)semantic->compiler, (Scope*)semantic->scope, (ContextKind)parsed->context, (Entity*)parsed->owner);
 	if (!scope) {
-		return (Scope*)0;
+		return nullptr;
 	};
 
 	Binding* binding := parsed->bindings;
@@ -4488,12 +4664,12 @@ fn syntax_unaccess(Syntax* syntax) -> Syntax* {
 };
 
 fn reference_initializer(Compiler* compiler, Syntax* body, Entity* variable, Token token) {
-	Syntax* statement = (Syntax*)0;
+	Syntax* statement = nullptr;
 	if (body) {
 		@statement := body->data.statements;
 	};
 	while (statement) {
-		Syntax* target = (Syntax*)0;
+		Syntax* target = nullptr;
 		if (statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) {
 			@target = syntax_unaccess((Syntax*)statement->data.binary.left);
 		};
@@ -4539,7 +4715,7 @@ fn reference_base_count(ReferencePath* path) -> usize {
 fn reference_base_at(ReferencePath* path, usize index) -> BaseRelation* {
 	usize depth = reference_base_count((ReferencePath*)path);
 	if (!depth || index >= depth) {
-		return (BaseRelation*)0;
+		return nullptr;
 	};
 	if (index + 1 == depth) {
 		return (BaseRelation*)path->data.base;
@@ -4566,19 +4742,19 @@ fn reference_cast_subobject(Compiler* compiler, Scope* scope, ReferencePath* roo
 		if (reference_path_matches((Compiler*)compiler, (Scope*)scope, (ReferencePath*)root, (Syntax*)storage)) {
 			return (Subobject*)graph->root;
 		};
-		return (Subobject*)0;
+		return nullptr;
 	};
 	Type* selected = type_resolve((Compiler*)compiler, (Scope*)scope, (Syntax*)storage->data.cast.type);
 	if (selected->kind != TYPE_REFERENCE || selected->data.element->kind != TYPE_NAMED) {
-		return (Subobject*)0;
+		return nullptr;
 	};
 	Subobject* source = reference_cast_subobject((Compiler*)compiler, $scope, $root, $graph, (Syntax*)storage->data.cast.value);
 	if (!source) {
-		return (Subobject*)0;
+		return nullptr;
 	};
 	BaseSearch path = base_search($compiler, entity_type((Entity*)source->entity), (Type*)selected->data.element);
 	if (path.count != 1) {
-		return (Subobject*)0;
+		return nullptr;
 	};
 	return subobject_path($source, (BasePath*)path.path);
 };
@@ -4706,7 +4882,7 @@ fn reference_path_contains(Compiler* compiler, Scope* scope, ReferencePath* path
 fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, ReferencePath* path, Syntax* body, Token token);
 
 fn reference_whole_prepare(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* body) -> bool {
-	Syntax* statement = (Syntax*)0;
+	Syntax* statement = nullptr;
 	if (body) {
 		@statement := body->data.statements;
 	};
@@ -4786,7 +4962,7 @@ fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, Refere
 	if (reference_whole_prepare((Compiler*)compiler, (Scope*)scope, (ReferencePath*)path, (Syntax*)body)) {
 		return;
 	};
-	Syntax* statement = (Syntax*)0;
+	Syntax* statement = nullptr;
 	if (type->kind == TYPE_REFERENCE) {
 		compiler_error((Compiler*)compiler, Token(token), "object requires an initializer binding every reference field\0");
 		return;
@@ -4831,22 +5007,22 @@ fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, Refere
 		return;
 	};
 	CompleteGraph* graph = complete_graph((Compiler*)compiler, (Entity*)type->data.entity);
-	SubobjectVisit* visited = (SubobjectVisit*)0;
+	SubobjectVisit* visited = nullptr;
 	reference_subobjects_prepare($compiler, $scope, (Subobject*)graph->root, $path, $body, $token, &visited);
 };
 
 fn object_initializer_prepare(Compiler* compiler, Scope* scope, Entity* variable, Syntax* body, Token token) {
 	Type* type := entity_type((Entity*)variable);
-	layout_validate((Compiler*)compiler, (Type*)type, (LayoutVisit*)0, Token(token));
+	layout_validate((Compiler*)compiler, (Type*)type, nullptr, Token(token));
 	if (compiler->result == COMPILATION_FAILURE) {
 		return;
 	};
-	Syntax* whole = (Syntax*)0;
+	Syntax* whole = nullptr;
 	if (body) {
 		@whole := body->data.statements;
 	};
 	while (whole) {
-		Syntax* target = (Syntax*)0;
+		Syntax* target = nullptr;
 		if (whole->kind == SYNTAX_BINARY || whole->kind == SYNTAX_INITIALIZE) {
 			@target = syntax_unaccess((Syntax*)whole->data.binary.left);
 		};
@@ -4881,7 +5057,7 @@ fn syntax_base_count(Syntax* syntax) -> usize {
 
 fn syntax_base_at(Syntax* syntax, usize index) -> BaseRelation* {
 	if (syntax->kind != SYNTAX_BASE_REFERENCE) {
-		return (BaseRelation*)0;
+		return nullptr;
 	};
 	usize before = syntax_base_count((Syntax*)syntax->data.base_conversion.value);
 	if (index < before) {
@@ -4894,7 +5070,7 @@ fn syntax_base_at(Syntax* syntax, usize index) -> BaseRelation* {
 		@index = index - 1;
 	};
 	if (!path) {
-		return (BaseRelation*)0;
+		return nullptr;
 	};
 	return (BaseRelation*)path->relation;
 };
@@ -4925,7 +5101,7 @@ fn storage_root_entity(Syntax* syntax) -> Entity* {
 		};
 	};
 	if (!syntax || syntax->kind != SYNTAX_NAME) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	return (Entity*)syntax->entity;
 };
@@ -5095,7 +5271,7 @@ fn semantic_move(Semantic* semantic, Syntax* syntax) {
 fn syntax_base_conversion(Compiler* compiler, Syntax* syntax, Type* target, BasePath* path, BaseDirection direction) {
 	Syntax* original = (Syntax*)memory_allocate($compiler, sizeof(Syntax));
 	@*original := *syntax;
-	@original->next = (Syntax*)0;
+	@original->next = nullptr;
 	if (target->kind == TYPE_REFERENCE) {
 		@syntax->kind = SYNTAX_BASE_REFERENCE;
 		@syntax->type := target->data.element;
@@ -5104,7 +5280,7 @@ fn syntax_base_conversion(Compiler* compiler, Syntax* syntax, Type* target, Base
 		@syntax->kind = SYNTAX_BASE_POINTER;
 		@syntax->type := target;
 	};
-	@syntax->entity = (Entity*)0;
+	@syntax->entity = nullptr;
 	@syntax->data.base_conversion.value = $original;
 	@syntax->data.base_conversion.target = $target;
 	@syntax->data.base_conversion.path = $path;
@@ -5138,6 +5314,9 @@ fn semantic_base_conversion(Semantic* semantic, Syntax* syntax, Type* actual, Ty
 
 fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expected) -> Type* {
 	if (expected && actual && expected->kind == TYPE_REFERENCE) {
+		if (expected->data.element->qualifier == CONST_TYPE && type_pointer_conversion((Type*)actual, (Type*)expected->data.element)) {
+			return $expected;
+		};
 		if (expected->data.element->qualifier != CONST_TYPE && !syntax_mutable_access((Syntax*)syntax) && actual->kind != TYPE_FUNCTION) {
 			compiler_error((Compiler*)semantic->compiler, Token(syntax->token), "mutable reference requires explicit '@' access\0");
 		};
@@ -5153,11 +5332,14 @@ fn semantic_expect(Semantic* semantic, Syntax* syntax, Type* actual, Type* expec
 			return $expected;
 		};
 		if (actual->kind == TYPE_POINTER && expected->kind == TYPE_POINTER) {
+			if (type_null_pointer((Type*)actual)) {
+				return $expected;
+			};
 			if (actual->data.element->qualifier == CONST_TYPE && expected->data.element->qualifier != CONST_TYPE) {
 				compiler_error((Compiler*)semantic->compiler, Token(syntax->token), "pointer conversion cannot discard const qualification\0");
 				return $actual;
 			};
-			if (type_value_equal((Type*)actual->data.element, (Type*)expected->data.element) || actual->data.element->kind == TYPE_VOID || expected->data.element->kind == TYPE_VOID) {
+			if (type_pointer_conversion((Type*)actual, (Type*)expected)) {
 				return $expected;
 			};
 		};
@@ -5222,7 +5404,7 @@ fn semantic_member_project(Semantic* semantic, Syntax* member, Type* source, Typ
 		return $source;
 	};
 	@target = type_qualified((Compiler*)semantic->compiler, (Type*)target, (TypeQualifier)source->qualifier);
-	Type* expected = (Type*)0;
+	Type* expected = nullptr;
 	if (member->token.kind == TOKEN_ARROW) {
 		@expected = type_pointer((Compiler*)semantic->compiler, (Type*)target);
 	}
@@ -5237,7 +5419,7 @@ fn semantic_member_project(Semantic* semantic, Syntax* member, Type* source, Typ
 };
 
 fn semantic_member_object(Semantic* semantic, Syntax* member) -> Type* {
-	Type* object = semantic_expression((Semantic*)semantic, (Syntax*)member->data.member.object, (Type*)0);
+	Type* object = semantic_expression((Semantic*)semantic, (Syntax*)member->data.member.object, nullptr);
 	if (member->token.kind == TOKEN_ARROW) {
 		if (object->kind != TYPE_POINTER) {
 			compiler_error((Compiler*)semantic->compiler, Token(member->token), "arrow member access requires a pointer\0");
@@ -5258,7 +5440,7 @@ fn semantic_member_object(Semantic* semantic, Syntax* member) -> Type* {
 
 fn method_receiver(Semantic* semantic, Syntax* member) -> Syntax* {
 	Syntax* receiver := member->data.member.object;
-	Type* type = semantic_expression((Semantic*)semantic, (Syntax*)receiver, (Type*)0);
+	Type* type = semantic_expression((Semantic*)semantic, (Syntax*)receiver, nullptr);
 	if (member->token.kind != TOKEN_ARROW) {
 		return $receiver;
 	};
@@ -5276,7 +5458,7 @@ fn method_receiver(Semantic* semantic, Syntax* member) -> Syntax* {
 };
 
 fn receiver_callable(Semantic* semantic, Type* type, Token name) -> Entity* {
-	Entity* associated = (Entity*)0;
+	Entity* associated = nullptr;
 	if (type->kind == TYPE_NAMED && (type->data.entity->kind == ENTITY_STRUCT || type->data.entity->kind == ENTITY_UNION)) {
 		entity_resolve((Compiler*)semantic->compiler, (Entity*)type->data.entity);
 		@associated = associated_lookup((Compiler*)semantic->compiler, (Entity*)type->data.entity, Token(name));
@@ -5286,12 +5468,12 @@ fn receiver_callable(Semantic* semantic, Type* type, Token name) -> Entity* {
 	};
 	Entity* lexical = scope_lookup((Scope*)semantic->scope, $name);
 	if (!lexical || lexical->kind != ENTITY_FUNCTION) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	entity_resolve((Compiler*)semantic->compiler, (Entity*)lexical);
 	Parameter* first := lexical->data.function.type->data.function.parameters;
 	if (!first || !token_is(Token(first->name), "this\0")) {
-		return (Entity*)0;
+		return nullptr;
 	};
 	return $lexical;
 };
@@ -5308,10 +5490,13 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	if (syntax->type) {
 		return semantic_expect((Semantic*)semantic, (Syntax*)syntax, (Type*)syntax->type, (Type*)expected);
 	};
-	Type* type = (Type*)0;
+	Type* type = nullptr;
 	switch (syntax->kind) {
+		case SYNTAX_NULLPTR:
+			@type = type_pointer((Compiler*)compiler, (Type*)compiler->null_type);
+			break;
 		case SYNTAX_DISCARD:
-			semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.expression, (Type*)0);
+			semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.expression, nullptr);
 			if (syntax->data.expression->kind != SYNTAX_NAME || !syntax->data.expression->entity || syntax->data.expression->entity->kind != ENTITY_VARIABLE || storage_borrowed((Syntax*)syntax->data.expression) || (syntax->data.expression->entity->data.variable.storage != STORAGE_LOCAL && syntax->data.expression->entity->data.variable.storage != STORAGE_PARAMETER)) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "discard requires a directly owned local identifier\0");
 			};
@@ -5320,7 +5505,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case SYNTAX_ACCESS:
 		case SYNTAX_RELOCATE: {
 			Syntax* operand := syntax->data.expression;
-			@type = semantic_expression((Semantic*)semantic, (Syntax*)operand, (Type*)0);
+			@type = semantic_expression((Semantic*)semantic, (Syntax*)operand, nullptr);
 			if (syntax_category((Syntax*)operand) != VALUE_STORAGE) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "reference access and relocation require an existing object\0");
 			};
@@ -5334,10 +5519,17 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		};
 		case SYNTAX_CONSTRUCT: {
 			@type := syntax->data.construction.target;
+			if (type->kind == TYPE_NULL) {
+				compiler_error((Compiler*)compiler, Token(syntax->token), "null is an unsized type and cannot be constructed\0");
+				break;
+			};
 			Syntax* argument := syntax->data.construction.arguments;
 			if (type->kind == TYPE_NAMED && (type->data.entity->kind == ENTITY_STRUCT || type->data.entity->kind == ENTITY_UNION)) {
 				@syntax->data.construction.constructor = special_select((Semantic*)semantic, (Entity*)type->data.entity, CONSTRUCTOR_ROLE, (Syntax*)argument, Token(syntax->token));
 				if (syntax->data.construction.constructor || compiler->result == COMPILATION_FAILURE) {
+					if (syntax->data.construction.constructor) {
+						constructor_members_validate((Semantic*)semantic, (Type*)type, Token(syntax->token));
+					};
 					if (syntax->data.construction.constructor && type_has_reference((Type*)type)) {
 						compiler_error((Compiler*)compiler, Token(syntax->token), "constructor reference-field binding syntax is not implemented\0");
 					};
@@ -5370,6 +5562,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return (Type*)compiler->void_type;
 			};
 			entity_resolve((Compiler*)compiler, (Entity*)syntax->entity);
+			if (syntax->entity->kind == ENTITY_FUNCTION && syntax->entity->data.function.definition == FUNCTION_DELETED) {
+				compiler_error((Compiler*)compiler, Token(syntax->token), "selected function is deleted\0");
+			};
 			if (syntax->entity->kind == ENTITY_VARIABLE && syntax->entity->data.variable.storage == STORAGE_FIELD) {
 				Token name := syntax->token;
 				Entity* receiver = scope_lookup((Scope*)semantic->scope, token_synthetic((Compiler*)compiler, Token(name), "this\0"));
@@ -5389,6 +5584,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			@type = type_effective(entity_type((Entity*)syntax->entity));
 			break;
 		case SYNTAX_NUMBER:
+			if (expected && expected->kind == TYPE_POINTER && syntax_zero_pointer_constant((Syntax*)syntax)) {
+				@type := expected;
+				break;
+			};
 			if (!expected || !type_numeric((Type*)expected)) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "number literal requires a numeric destination type\0");
 				return (Type*)compiler->void_type;
@@ -5419,7 +5618,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			@type = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)syntax->data.cast.type);
 			if (type->kind == TYPE_REFERENCE) {
 				Syntax* value := syntax->data.cast.value;
-				Type* source = semantic_expression((Semantic*)semantic, (Syntax*)value, (Type*)0);
+				Type* source = semantic_expression((Semantic*)semantic, (Syntax*)value, nullptr);
 				if (semantic_base_cast((Semantic*)semantic, (Syntax*)syntax, (Syntax*)value, (Type*)source, (Type*)type)) {
 					@type := syntax->type;
 				}
@@ -5428,7 +5627,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				};
 				break;
 			};
-			Type* source = (Type*)0;
+			Type* source = nullptr;
 			if (syntax_number_expression((Syntax*)syntax->data.cast.value)) {
 				Type* context := type;
 				if (type->kind == TYPE_POINTER) {
@@ -5437,7 +5636,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				@source = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.cast.value, (Type*)context);
 			}
 			else {
-				@source = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.cast.value, (Type*)0);
+				@source = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.cast.value, nullptr);
 			};
 			if (type->kind == TYPE_POINTER && source->kind == TYPE_POINTER && semantic_base_cast((Semantic*)semantic, (Syntax*)syntax, (Syntax*)syntax->data.cast.value, (Type*)source, (Type*)type)) {
 				break;
@@ -5458,20 +5657,20 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					@operand->type = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)operand);
 				}
 				else {
-					semantic_expression((Semantic*)semantic, (Syntax*)operand, (Type*)0);
+					semantic_expression((Semantic*)semantic, (Syntax*)operand, nullptr);
 				};
 			}
 			else if (operand->kind == SYNTAX_POINTER || operand->kind == SYNTAX_REFERENCE || operand->kind == SYNTAX_ARRAY || operand->kind == SYNTAX_SIGNATURE) {
 				@operand->type = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)operand);
 			}
 			else {
-				semantic_expression((Semantic*)semantic, (Syntax*)operand, (Type*)0);
+				semantic_expression((Semantic*)semantic, (Syntax*)operand, nullptr);
 			};
 			@operand->type = type_effective((Type*)operand->type);
-			if (!operand->type || operand->type->kind == TYPE_VOID || operand->type->kind == TYPE_FUNCTION) {
+			if (!operand->type || operand->type->kind == TYPE_VOID || operand->type->kind == TYPE_NULL || operand->type->kind == TYPE_FUNCTION) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "sizeof requires a storage type\0");
 			};
-			layout_validate((Compiler*)compiler, (Type*)operand->type, (LayoutVisit*)0, Token(syntax->token));
+			layout_validate((Compiler*)compiler, (Type*)operand->type, nullptr, Token(syntax->token));
 			@type := compiler->usize_type;
 			break;
 		};
@@ -5482,7 +5681,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				return (Type*)compiler->void_type;
 			};
 			entity_resolve((Compiler*)compiler, (Entity*)object->data.entity);
-			layout_validate((Compiler*)compiler, (Type*)object, (LayoutVisit*)0, Token(syntax->token));
+			layout_validate((Compiler*)compiler, (Type*)object, nullptr, Token(syntax->token));
 			if (compiler->result == COMPILATION_FAILURE) {
 				return (Type*)compiler->void_type;
 			};
@@ -5508,8 +5707,8 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			break;
 		};
 		case SYNTAX_INDEX: {
-			Type* object = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.binary.left, (Type*)0);
-			Type* index_context = (Type*)0;
+			Type* object = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.binary.left, nullptr);
+			Type* index_context = nullptr;
 			if (syntax_number_expression((Syntax*)syntax->data.binary.right)) {
 				@index_context := compiler->usize_type;
 			};
@@ -5530,7 +5729,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				compiler_error((Compiler*)compiler, Token(syntax->token), "index requires an array or pointer\0");
 				@type := compiler->void_type;
 			};
-			layout_validate((Compiler*)compiler, (Type*)type, (LayoutVisit*)0, Token(syntax->token));
+			layout_validate((Compiler*)compiler, (Type*)type, nullptr, Token(syntax->token));
 			break;
 		};
 		case SYNTAX_UNARY: {
@@ -5541,12 +5740,12 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				@context->data.bits = 64;
 			};
 			if (operation == TOKEN_AMPERSAND || operation == TOKEN_STAR) {
-				@context = (Type*)0;
+				@context = nullptr;
 			};
 			if (operation == TOKEN_BANG) {
 				@context := compiler->bool_type;
 			};
-			Type* operand = (Type*)0;
+			Type* operand = nullptr;
 			if (operation == TOKEN_MINUS && syntax->data.unary.value->kind == SYNTAX_NUMBER && context && context->kind == TYPE_SIGNED) {
 				Type* magnitude = type_new((Compiler*)compiler, TYPE_UNSIGNED);
 				@magnitude->data.bits := context->data.bits;
@@ -5579,7 +5778,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				else {
 					@type := operand->data.element;
 					if (type->kind != TYPE_FUNCTION) {
-						layout_validate((Compiler*)compiler, (Type*)type, (LayoutVisit*)0, Token(syntax->token));
+						layout_validate((Compiler*)compiler, (Type*)type, nullptr, Token(syntax->token));
 					};
 				};
 			}
@@ -5630,10 +5829,10 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					break;
 				};
 
-				Type* destination = semantic_expression((Semantic*)semantic, (Syntax*)left, (Type*)0);
-				Type* source_type = (Type*)0;
+				Type* destination = semantic_expression((Semantic*)semantic, (Syntax*)left, nullptr);
+				Type* source_type = nullptr;
 				if (left->entity && left->entity->kind == ENTITY_VARIABLE && !left->entity->data.variable.type) {
-					@source_type = semantic_expression((Semantic*)semantic, (Syntax*)right, (Type*)0);
+					@source_type = semantic_expression((Semantic*)semantic, (Syntax*)right, nullptr);
 					@destination := source_type;
 					@left->entity->data.variable.type := destination;
 					@left->type := destination;
@@ -5657,7 +5856,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					@source_type = semantic_expression((Semantic*)semantic, (Syntax*)right, (Type*)destination);
 				}
 				else if (!source_type) {
-					Type* context = (Type*)0;
+					Type* context = nullptr;
 					if (syntax_number_expression((Syntax*)right)) {
 						@context := destination;
 					};
@@ -5706,14 +5905,14 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 				@operand = type_new((Compiler*)compiler, TYPE_FLOAT);
 				@operand->data.bits = 64;
 			};
-			Type* a = (Type*)0;
-			Type* b = (Type*)0;
+			Type* a = nullptr;
+			Type* b = nullptr;
 			if (!syntax_number_expression((Syntax*)left)) {
-				@a = semantic_expression((Semantic*)semantic, (Syntax*)left, (Type*)0);
+				@a = semantic_expression((Semantic*)semantic, (Syntax*)left, nullptr);
 				@operand := a;
 			}
 			else if (!syntax_number_expression((Syntax*)right)) {
-				@b = semantic_expression((Semantic*)semantic, (Syntax*)right, (Type*)0);
+				@b = semantic_expression((Semantic*)semantic, (Syntax*)right, nullptr);
 				@operand := b;
 			};
 			if (!a) {
@@ -5722,7 +5921,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 
 			Type* right_context := operand;
 			if (a->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
-				@right_context = (Type*)0;
+				@right_context = nullptr;
 				if (syntax_number_expression((Syntax*)right)) {
 					@right_context := compiler->usize_type;
 				};
@@ -5737,7 +5936,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					semantic_expect((Semantic*)semantic, (Syntax*)right, (Type*)b, (Type*)a);
 					@b := a;
 				}
-				else if (reverse.count == 1) {
+				else if (reverse.count == 1 || type_pointer_conversion((Type*)a, (Type*)b)) {
 					semantic_expect((Semantic*)semantic, (Syntax*)left, (Type*)a, (Type*)b);
 					@a := b;
 					@right_context := b;
@@ -5745,7 +5944,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			};
 			semantic_expect((Semantic*)semantic, (Syntax*)right, (Type*)b, (Type*)right_context);
 			if (a->kind == TYPE_POINTER && (operation == TOKEN_PLUS || operation == TOKEN_MINUS)) {
-				layout_validate((Compiler*)compiler, (Type*)a->data.element, (LayoutVisit*)0, Token(syntax->token));
+				layout_validate((Compiler*)compiler, (Type*)a->data.element, nullptr, Token(syntax->token));
 				if (!type_integer((Type*)b)) {
 					compiler_error((Compiler*)compiler, Token(right->token), "pointer offset requires an integer\0");
 				};
@@ -5781,9 +5980,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					Type* target = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)callable_syntax);
 					@syntax->kind = SYNTAX_CONSTRUCT;
 					@syntax->data.construction.target = (Type*)target;
-					@syntax->data.construction.constructor = (Entity*)0;
+					@syntax->data.construction.constructor = nullptr;
 					@syntax->data.construction.arguments = (Syntax*)arguments;
-					@syntax->data.construction.slot = (void*)0;
+					@syntax->data.construction.slot = nullptr;
 					return semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)expected);
 				};
 			};
@@ -5823,7 +6022,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					@syntax->data.call.callable = (Syntax*)direct;
 				};
 			};
-			Type* callable = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.call.callable, (Type*)0);
+			Type* callable = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.call.callable, nullptr);
 			if (callable->kind == TYPE_POINTER) {
 				@callable := callable->data.element;
 			};
@@ -5854,7 +6053,7 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					compiler_error((Compiler*)compiler, Token(argument->token), "too many arguments\0");
 					break;
 				};
-				Type* destination = (Type*)0;
+				Type* destination = nullptr;
 				if (parameter) {
 					@destination := parameter->type;
 				};
@@ -5954,7 +6153,7 @@ fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
 	Field* binding := entity->data.aggregate.fields;
 	u64 maximum_size = 0;
 	u32 maximum_alignment = 0;
-	void* aligned = (void*)0;
+	void* aligned = nullptr;
 	while (binding) {
 		void* field = llvm_type((Compiler*)compiler, entity_type((Entity*)binding->entity));
 		@fields[index] := field;
@@ -5995,6 +6194,7 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 	};
 	switch (type->kind) {
 		case TYPE_VOID:
+		case TYPE_NULL:
 			return LLVMVoidTypeInContext((void*)compiler->llvm_context.handle);
 		case TYPE_CHAR:
 			return LLVMIntTypeInContext((void*)compiler->llvm_context.handle, 8);
@@ -6261,7 +6461,7 @@ fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
 	Compiler* compiler := emitter->compiler;
 	Syntax* value := syntax->data.base_conversion.value;
 	Type* source := value->type;
-	void* address = (void*)0;
+	void* address = nullptr;
 	if (syntax->kind == SYNTAX_BASE_POINTER) {
 		@address = emit_expression((Emitter*)emitter, (Syntax*)value);
 		@source := source->data.element;
@@ -6419,7 +6619,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 		case SYNTAX_MEMBER: {
 			Syntax* object := syntax->data.member.object;
 			Type* type := object->type;
-			void* address = (void*)0;
+			void* address = nullptr;
 			if (syntax->token.kind == TOKEN_ARROW) {
 				@address = emit_expression((Emitter*)emitter, (Syntax*)object);
 				@type := type->data.element;
@@ -6457,7 +6657,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 		};
 	};
 	compiler_error($compiler, Token(syntax->token), "expression has no storage address\0");
-	return (void*)0;
+	return nullptr;
 };
 
 fn type_has_views(Type* type) -> bool {
@@ -6502,6 +6702,7 @@ fn type_requires_union_choice(Type* type) -> bool {
 		return false;
 	};
 	Entity* entity := type->data.entity;
+
 	if (entity->kind == ENTITY_UNION) {
 		return type_has_views((Type*)type) || type_has_reference((Type*)type);
 	};
@@ -6562,6 +6763,7 @@ fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
 		return;
 	};
 	Entity* entity := type->data.entity;
+
 	if (entity->kind == ENTITY_UNION) {
 		return;
 	};
@@ -6619,7 +6821,7 @@ fn emit_payload_copy(Emitter* emitter, Type* type, void* destination, void* sour
 	CompleteGraph* graph = complete_graph((Compiler*)compiler, (Entity*)entity);
 	Subobject* target := graph->virtuals;
 	while (target) {
-		BasePath* path = (BasePath*)0;
+		BasePath* path = nullptr;
 		subobject_find_path((Compiler*)compiler, (Subobject*)graph->root, (Subobject*)target, &path);
 		void* origin = emit_base_address((Emitter*)emitter, (void*)source, (Entity*)entity, (BasePath*)path, BASE_UP);
 		void* result = emit_base_address((Emitter*)emitter, (void*)destination, (Entity*)entity, $path, BASE_UP);
@@ -6712,7 +6914,7 @@ fn emit_cast(Emitter* emitter, void* value, Type* source, Type* target) -> void*
 
 fn emit_extension(Compiler* compiler, Type* type) -> void* {
 	if (!type_integer((Type*)type) || type_bits((Type*)type) >= 32) {
-		return (void*)0;
+		return nullptr;
 	};
 	char* name = "signext\0";
 	if (type_unsigned((Type*)type) || type->kind == TYPE_CHAR) {
@@ -6752,7 +6954,7 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 		if (operation == TOKEN_LESS_EQUAL) {
 			@predicate = 41;
 		};
-		void* result = (void*)0;
+		void* result = nullptr;
 		if (type->kind == TYPE_FLOAT) {
 			@predicate = 1;
 			if (operation == TOKEN_NOT_EQUAL) {
@@ -6824,7 +7026,7 @@ fn emit_binary(Emitter* emitter, Syntax* syntax, void* first, void* second) -> v
 			return LLVMBuildAShr($builder, $first, $second, "shift\0");
 	};
 	compiler_error((Compiler*)emitter->compiler, Token(syntax->token), "unsupported numeric operation\0");
-	return (void*)0;
+	return nullptr;
 };
 
 fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
@@ -6869,7 +7071,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 		@index = 1;
 	};
 	while (argument) {
-		void* value = (void*)0;
+		void* value = nullptr;
 		if (argument->kind == SYNTAX_BLOCK) {
 			@argument->entity->data.variable.data.address = emit_slot((Compiler*)compiler, (Type*)argument->type);
 			if (argument->data.statements && argument->type->kind != TYPE_REFERENCE) {
@@ -6909,7 +7111,7 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 	if (signature->data.function.result->kind == TYPE_VOID) {
 		@name = "\0";
 	};
-	void* target = (void*)0;
+	void* target = nullptr;
 	if (callee->kind == SYNTAX_NAME && callee->entity && callee->entity->kind == ENTITY_FUNCTION) {
 		Entity* function := callee->entity;
 		if (function->data.function.callable && !syntax->data.call.qualified_owner && !callee->data.expression) {
@@ -7030,7 +7232,11 @@ fn emit_destroy_bases(Emitter* emitter, Entity* owner, BaseRelation* base, void*
 
 fn emit_destroy_body(Emitter* emitter, Entity* entity, void* address) {
 	if (entity->data.aggregate.destructor) {
-		emit_special_call((Emitter*)emitter, (Entity*)entity->data.aggregate.destructor, (void*)address, (Syntax*)0);
+		if (entity->data.aggregate.destructor->data.function.definition == FUNCTION_DELETED) {
+			compiler_error((Compiler*)emitter->compiler, Token(entity->name), "selected destructor is deleted\0");
+			return;
+		};
+		emit_special_call((Emitter*)emitter, (Entity*)entity->data.aggregate.destructor, (void*)address, nullptr);
 	};
 	if (entity->kind == ENTITY_UNION) {
 		if (!entity->data.aggregate.destructor) {
@@ -7090,7 +7296,7 @@ fn aggregate_default_constructor(Entity* entity) -> Entity* {
 		};
 		@constructor := constructor->data.function.overload_next;
 	};
-	return (Entity*)0;
+	return nullptr;
 };
 
 fn type_has_lifecycle_callbacks(Type* type) -> bool {
@@ -7161,7 +7367,7 @@ fn emit_default_body(Emitter* emitter, Entity* entity, void* address) {
 	emit_default_body_members((Emitter*)emitter, (Entity*)entity, (void*)address);
 	Entity* constructor = aggregate_default_constructor($entity);
 	if (constructor) {
-		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, (Syntax*)0);
+		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, nullptr);
 	};
 };
 
@@ -7191,7 +7397,7 @@ fn emit_default_type(Emitter* emitter, Type* type, void* address) {
 	emit_default_members((Emitter*)emitter, (Type*)type, (void*)address);
 	Entity* constructor = aggregate_default_constructor((Entity*)type->data.entity);
 	if (constructor) {
-		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, (Syntax*)0);
+		emit_special_call((Emitter*)emitter, (Entity*)constructor, (void*)address, nullptr);
 	};
 };
 
@@ -7244,7 +7450,7 @@ fn emit_storage_special(Emitter* emitter, Type* type, FunctionRole role, void* d
 	void* result = emit_special_call((Emitter*)emitter, (Entity*)function, $destination, &argument);
 	Type* result_type := function->data.function.type->data.function.result;
 	if (role == ASSIGNMENT_ROLE && result_type->kind != TYPE_REFERENCE && type_requires_destruction((Type*)result_type)) {
-		emit_temporary_register((Emitter*)emitter, (Type*)result_type, (void*)result, (void*)0);
+		emit_temporary_register((Emitter*)emitter, (Type*)result_type, (void*)result, nullptr);
 	};
 	if (role == ASSIGNMENT_ROLE && function->data.function.type->data.function.parameters->next->type->kind == TYPE_REFERENCE) {
 		emit_destroy_type((Emitter*)emitter, (Type*)type, (void*)source);
@@ -7372,7 +7578,7 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 		case SYNTAX_OWNED_COMPONENT:
 			return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, (void*)syntax->address);
 		case SYNTAX_DISCARD:
-			return (void*)0;
+			return nullptr;
 		case SYNTAX_CONSTRUCT: {
 			Type* target := syntax->data.construction.target;
 			void* slot = emit_slot((Compiler*)compiler, (Type*)target);
@@ -7407,7 +7613,12 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 			return emit_base_conversion((Emitter*)emitter, (Syntax*)syntax);
 		case SYNTAX_BASE_REFERENCE:
 			return emit_value_read((Emitter*)emitter, (Syntax*)syntax);
+		case SYNTAX_NULLPTR:
+			return LLVMConstNull($type);
 		case SYNTAX_NUMBER:
+			if (syntax->type->kind == TYPE_POINTER) {
+				return LLVMConstNull($type);
+			};
 			if (syntax->type->kind == TYPE_BOOL) {
 				return LLVMConstInt((void*)type, number_truth((Compiler*)compiler, Token(syntax->token)), 0);
 			};
@@ -7416,7 +7627,7 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 					return LLVMConstReal((void*)type, (f64)integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615));
 				};
 				char* text = memory_text((Compiler*)compiler, syntax->token.source->bytes + syntax->token.begin, (u64)syntax->token.length);
-				return LLVMConstReal((void*)type, strtod($text, (char**)0));
+				return LLVMConstReal((void*)type, strtod($text, nullptr));
 			};
 			return LLVMConstInt((void*)type, integer_spelling((Compiler*)compiler, Token(syntax->token), (u64)18446744073709551615), 0);
 		case SYNTAX_STRING: {
@@ -7501,11 +7712,11 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 					return $result;
 				};
 				if (type_aggregate((Type*)left->type)) {
-					void* destination = (void*)0;
+					void* destination = nullptr;
 					if (type_has_views((Type*)left->type)) {
 						@destination = emit_address((Emitter*)emitter, (Syntax*)left);
 					};
-					void* source = (void*)0;
+					void* source = nullptr;
 					if (syntax_category((Syntax*)right) == VALUE_STORAGE) {
 						@source = emit_address((Emitter*)emitter, (Syntax*)right);
 					}
@@ -7597,12 +7808,12 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> void* {
 		};
 	};
 	compiler_error($compiler, Token(syntax->token), "expression cannot be emitted\0");
-	return (void*)0;
+	return nullptr;
 };
 
 fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 	if (syntax->kind != SYNTAX_BORROWED_COMPONENT && syntax->kind != SYNTAX_OWNED_COMPONENT) {
-		@syntax->address = (void*)0;
+		@syntax->address = nullptr;
 	};
 	void* value = emit_expression_value((Emitter*)emitter, (Syntax*)syntax);
 	if (syntax->kind == SYNTAX_CONSTRUCT) {
@@ -7704,7 +7915,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			if (syntax->data.expression) {
 				Syntax* expression := syntax->data.expression;
 				Type* result := emitter->function->data.function.type->data.function.result;
-				void* value = (void*)0;
+				void* value = nullptr;
 				if (result->kind == TYPE_REFERENCE) {
 					@value = emit_address((Emitter*)emitter, (Syntax*)expression);
 				}
@@ -7715,12 +7926,12 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 				if (emitter->return_type && !type_equal((Type*)result, (Type*)emitter->return_type)) {
 					@value = emit_covariant_result((Emitter*)emitter, (void*)value, (Type*)result, (Type*)emitter->return_type);
 				};
-				emit_temporaries((Emitter*)emitter, (Temporary*)0);
+				emit_temporaries((Emitter*)emitter, nullptr);
 				emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
 				LLVMBuildRet((void*)builder, (void*)value);
 			}
 			else {
-				emit_temporaries((Emitter*)emitter, (Temporary*)0);
+				emit_temporaries((Emitter*)emitter, nullptr);
 				emit_cleanups((Emitter*)emitter, (Syntax*)syntax);
 				LLVMBuildRetVoid((void*)builder);
 			};
@@ -7749,12 +7960,12 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			LLVMBuildCondBr((void*)builder, (void*)predicate, (void*)first, (void*)second);
 			LLVMPositionBuilderAtEnd((void*)builder, (void*)first);
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.branch.first);
-			i32 first_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != (void*)0;
+			i32 first_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != nullptr;
 			emit_jump((Emitter*)emitter, (void*)merge);
 			LLVMPositionBuilderAtEnd((void*)builder, (void*)second);
 			@emitter->temporaries := temporaries;
 			emit_statement((Emitter*)emitter, (Syntax*)syntax->data.branch.second);
-			i32 second_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != (void*)0;
+			i32 second_stops = LLVMGetBasicBlockTerminator(LLVMGetInsertBlock((void*)builder)) != nullptr;
 			emit_jump((Emitter*)emitter, (void*)merge);
 			LLVMPositionBuilderAtEnd((void*)builder, (void*)merge);
 			@emitter->temporaries := temporaries;
@@ -7809,7 +8020,7 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 			void* fallback := end;
 			Syntax* statement := syntax->data.selection.cases->data.statements;
 			CaseBlock* previous := emitter->cases;
-			CaseBlock* cases = (CaseBlock*)0;
+			CaseBlock* cases = nullptr;
 			u32 count = 0;
 			while (statement) {
 				if (statement->kind == SYNTAX_CASE) {
@@ -7889,7 +8100,7 @@ fn layout_validate(Compiler* compiler, Type* type, LayoutVisit* parent, Token to
 	if (!type) {
 		return;
 	};
-	if (type->kind == TYPE_VOID || type->kind == TYPE_FUNCTION) {
+	if (type->kind == TYPE_VOID || type->kind == TYPE_NULL || type->kind == TYPE_FUNCTION) {
 		compiler_error((Compiler*)compiler, Token(token), "type has no value storage layout\0");
 		return;
 	};
@@ -7955,7 +8166,7 @@ struct DeclarationIterator {
 };
 
 fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding* {
-	Scope* members = (Scope*)0;
+	Scope* members = nullptr;
 	if (binding->entity->kind == ENTITY_NAMESPACE || binding->entity->kind == ENTITY_STRUCT || binding->entity->kind == ENTITY_UNION) {
 		@members = entity_members((Entity*)binding->entity);
 	};
@@ -7966,7 +8177,7 @@ fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding*
 	while (!binding->next) {
 		Entity* owner := iterator->scope->owner;
 		if (!owner || (owner->kind != ENTITY_NAMESPACE && owner->kind != ENTITY_STRUCT && owner->kind != ENTITY_UNION)) {
-			return (Binding*)0;
+			return nullptr;
 		};
 		@iterator->scope := iterator->scope->parent;
 		@binding := iterator->scope->bindings;
@@ -7974,7 +8185,7 @@ fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding*
 			@binding := binding->next;
 		};
 		if (!binding) {
-			return (Binding*)0;
+			return nullptr;
 		};
 	};
 	return (Binding*)binding->next;
@@ -8001,7 +8212,7 @@ fn declarations_validate_block(Compiler* compiler, Syntax* module) {
 			if (!type_equal($declared, (Type*)entity->data.function.type)) {
 				compiler_error((Compiler*)compiler, Token(statement->token), "conflicting function signature\0");
 			};
-			if (statement->data.declaration.body && statement != entity->declaration) {
+			if (statement->data.declaration.definition != FUNCTION_DECLARATION && statement != entity->declaration) {
 				compiler_error((Compiler*)compiler, Token(statement->token), "duplicate function definition\0");
 			};
 		}
@@ -8086,7 +8297,7 @@ fn virtual_relationships(Compiler* compiler, Entity* function) {
 		return;
 	};
 	@function->data.function.virtual_resolution = RESOLUTION_ACTIVE;
-	Entity* owner = (Entity*)0;
+	Entity* owner = nullptr;
 	if (function->scope) {
 		@owner := function->scope->owner;
 	};
@@ -8158,7 +8369,7 @@ struct VirtualCandidate {
 };
 
 fn virtual_target(Compiler* compiler, CompleteGraph* graph, Subobject* receiver, Entity* operation) -> VirtualTarget {
-	VirtualCandidate* candidates = (VirtualCandidate*)0;
+	VirtualCandidate* candidates = nullptr;
 	Subobject* object := graph->objects;
 	while (object) {
 		if (subobject_contains((Subobject*)object, (Subobject*)receiver)) {
@@ -8243,7 +8454,7 @@ fn backend_analyze(Compiler* compiler) {
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		Entity* entity := binding->entity;
 		if ((entity->kind == ENTITY_STRUCT || entity->kind == ENTITY_UNION) && entity->declaration && entity->declaration->data.declaration.body) {
-			layout_validate((Compiler*)compiler, entity_type((Entity*)entity), (LayoutVisit*)0, Token(entity->name));
+			layout_validate((Compiler*)compiler, entity_type((Entity*)entity), nullptr, Token(entity->name));
 		};
 		if (entity->kind == ENTITY_FUNCTION) {
 			external_validate((Compiler*)compiler, (Entity*)entity);
@@ -8252,7 +8463,7 @@ fn backend_analyze(Compiler* compiler) {
 				compiler_error((Compiler*)compiler, Token(entity->name), "external aggregate return requires C ABI lowering that is not supported yet\0");
 			};
 			if (signature->data.function.result->kind != TYPE_VOID) {
-				layout_validate((Compiler*)compiler, (Type*)signature->data.function.result, (LayoutVisit*)0, Token(entity->name));
+				layout_validate((Compiler*)compiler, (Type*)signature->data.function.result, nullptr, Token(entity->name));
 			};
 			Parameter* parameter := signature->data.function.parameters;
 			while (parameter && compiler->result != COMPILATION_FAILURE) {
@@ -8260,7 +8471,7 @@ fn backend_analyze(Compiler* compiler) {
 					compiler_error((Compiler*)compiler, Token(entity->name), "external aggregate parameter requires C ABI lowering that is not supported yet\0");
 					break;
 				};
-				layout_validate((Compiler*)compiler, (Type*)parameter->type, (LayoutVisit*)0, Token(entity->name));
+				layout_validate((Compiler*)compiler, (Type*)parameter->type, nullptr, Token(entity->name));
 				@parameter := parameter->next;
 			};
 		};
@@ -8291,7 +8502,7 @@ fn entity_name(Compiler* compiler, Entity* entity) -> char* {
 	};
 	char* name = (char*)memory_allocate($compiler, length + separator + entity->name.length + 1);
 	if (!name) {
-		return (char*)0;
+		return nullptr;
 	};
 	memcpy((void*)name, (void*)parent, (u64)length);
 	if (separator) {
@@ -8336,7 +8547,7 @@ fn emit_symbol(Compiler* compiler, Entity* entity) -> char* {
 	usize length = strlen((char*)qualified);
 	char* name = (char*)memory_allocate($compiler, prefix_length + length + 1);
 	if (!name) {
-		return (char*)0;
+		return nullptr;
 	};
 	memcpy((void*)name, (void*)prefix, (u64)prefix_length);
 	memcpy((void*)(name + prefix_length), (void*)qualified, $length);
@@ -8389,7 +8600,7 @@ fn emit_function_body(Compiler* compiler, Entity* entity, void* function, u64 re
 };
 
 fn emit_function(Compiler* compiler, Entity* entity) {
-	emit_function_body($compiler, (Entity*)entity, (void*)entity->data.function.llvm_value, 0, (Type*)0);
+	emit_function_body($compiler, (Entity*)entity, (void*)entity->data.function.llvm_value, 0, nullptr);
 };
 
 fn emit_forward_attributes(Compiler* compiler, void* call, Type* signature) {
@@ -8538,18 +8749,18 @@ fn entry_lookup(Compiler* compiler) -> Entity* {
 		};
 		Entity* entity = scope_local((Scope*)scope, Token(name));
 		if (!entity) {
-			return (Entity*)0;
+			return nullptr;
 		};
 		if (name.begin + name.length == source.length) {
 			return $entity;
 		};
 		@scope = entity_members($entity);
 		if (!scope || name.begin + name.length + 1 >= source.length || source.bytes[name.begin + name.length + 1] != ':') {
-			return (Entity*)0;
+			return nullptr;
 		};
 		@name.begin = name.begin + name.length + 2;
 	};
-	return (Entity*)0;
+	return nullptr;
 };
 
 fn emit_entry(Compiler* compiler) {
@@ -8603,7 +8814,7 @@ fn backend_emit(Compiler* compiler) {
 	Binding* binding := compiler->module->bindings;
 	while (binding && compiler->result != COMPILATION_FAILURE) {
 		Entity* entity := binding->entity;
-		if (entity->kind == ENTITY_FUNCTION) {
+		if (entity->kind == ENTITY_FUNCTION && entity->data.function.definition != FUNCTION_DELETED) {
 			Type* signature := entity->data.function.type;
 			@entity->data.function.llvm_type = llvm_type((Compiler*)compiler, (Type*)signature);
 			char* symbol = emit_symbol((Compiler*)compiler, (Entity*)entity);
@@ -8657,7 +8868,7 @@ fn lifetime_find(LifetimeState* state, Entity* entity) -> LifetimeObject* {
 		};
 		@object := object->next;
 	};
-	return (LifetimeObject*)0;
+	return nullptr;
 };
 
 fn lifetime_clone(Compiler* compiler, LifetimeState* state) -> LifetimeState {
@@ -8997,7 +9208,7 @@ fn lifetime_statement(LifetimeAnalysis* analysis, Syntax* syntax) {
 			break;
 		case SYNTAX_RETURN:
 			lifetime_expression((LifetimeAnalysis*)analysis, (Syntax*)syntax->data.expression);
-			lifetime_cleanup((LifetimeAnalysis*)analysis, (Syntax*)syntax, (LifetimeObject*)0);
+			lifetime_cleanup((LifetimeAnalysis*)analysis, (Syntax*)syntax, nullptr);
 			@analysis->state.reachability = PATH_UNREACHABLE;
 			break;
 		case SYNTAX_IF: {
@@ -9063,7 +9274,7 @@ fn lifetime_function(Compiler* compiler, Entity* entity) {
 	lifetime_statement(&analysis, (Syntax*)entity->data.function.body);
 	@entity->data.function.lifetime_exit := analysis.state.reachability;
 	if (analysis.state.reachability == PATH_REACHABLE) {
-		lifetime_cleanup(&analysis, (Syntax*)entity->data.function.body, (LifetimeObject*)0);
+		lifetime_cleanup(&analysis, (Syntax*)entity->data.function.body, nullptr);
 	};
 };
 
@@ -9098,7 +9309,7 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 					generated_operation_validate((Semantic*)semantic, (Type*)variable->data.variable.type, DEFAULT_CONSTRUCTION, Token(syntax->token));
 				};
 				if (!syntax->data.declaration.body && variable->data.variable.type && variable->data.variable.type->kind == TYPE_NAMED && (variable->data.variable.type->data.entity->kind == ENTITY_STRUCT || variable->data.variable.type->data.entity->kind == ENTITY_UNION)) {
-					@syntax->data.declaration.constructor = special_select((Semantic*)semantic, (Entity*)variable->data.variable.type->data.entity, CONSTRUCTOR_ROLE, (Syntax*)0, Token(syntax->token));
+					@syntax->data.declaration.constructor = special_select((Semantic*)semantic, (Entity*)variable->data.variable.type->data.entity, CONSTRUCTOR_ROLE, nullptr, Token(syntax->token));
 				};
 				if (!syntax->data.declaration.body && variable->data.variable.type && type_requires_union_choice((Type*)variable->data.variable.type)) {
 					compiler_error((Compiler*)compiler, Token(syntax->token), "automatic union member construction requires an explicit member initializer\0");
@@ -9120,10 +9331,10 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 				if (variable->data.variable.type && variable->data.variable.type->kind == TYPE_REFERENCE) {
 					scope_bind((Compiler*)compiler, (Scope*)semantic->scope, (Entity*)variable);
 				};
-				if (!variable->data.variable.type || variable->data.variable.type->kind == TYPE_VOID || variable->data.variable.type->kind == TYPE_FUNCTION) {
+				if (!variable->data.variable.type || variable->data.variable.type->kind == TYPE_VOID || variable->data.variable.type->kind == TYPE_NULL || variable->data.variable.type->kind == TYPE_FUNCTION) {
 					compiler_error((Compiler*)compiler, Token(syntax->token), "variable requires a resolved storage type\0");
 				};
-				layout_validate((Compiler*)compiler, (Type*)variable->data.variable.type, (LayoutVisit*)0, Token(syntax->token));
+				layout_validate((Compiler*)compiler, (Type*)variable->data.variable.type, nullptr, Token(syntax->token));
 			}
 			else {
 				entity_resolve((Compiler*)compiler, (Entity*)syntax->entity);
@@ -9180,14 +9391,14 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 			};
 			semantic_statement((Semantic*)semantic, (Syntax*)syntax->data.loop.body);
 			if (syntax->data.loop.step) {
-				semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.loop.step, (Type*)0);
+				semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.loop.step, nullptr);
 			};
 			@semantic->scope = (Scope*)outer;
 			@semantic->flow := flow.parent;
 			break;
 		};
 		case SYNTAX_SWITCH: {
-			Type* type = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.selection.value, (Type*)0);
+			Type* type = semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.selection.value, nullptr);
 			if (!type_integer((Type*)type)) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "switch requires an integer value\0");
 				break;
@@ -9245,7 +9456,7 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 			break;
 		};
 		default:
-			semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)0);
+			semantic_expression((Semantic*)semantic, (Syntax*)syntax, nullptr);
 			break;
 	};
 };
@@ -9381,7 +9592,7 @@ fn backend_publish(Compiler* compiler, char* output_path) -> i32 {
 fn source_read(Compiler* compiler, char* path) -> Source* {
 	Source* source = (Source*)memory_allocate((Compiler*)compiler, sizeof(Source));
 	if (!source) {
-		return (Source*)0;
+		return nullptr;
 	};
 	@source->path = memory_text((Compiler*)compiler, (char*)path, strlen((char*)path));
 	Token token;
@@ -9392,7 +9603,7 @@ fn source_read(Compiler* compiler, char* path) -> Source* {
 	{
 		File file = File((Compiler*)compiler, $path, SOURCE_FILE, Token(token));
 		if (!file.handle) {
-			return (Source*)0;
+			return nullptr;
 		};
 		usize capacity = 4096;
 		@bytes = (char*)memory_allocate((Compiler*)compiler, (u64)capacity);
@@ -9436,7 +9647,7 @@ fn source_read(Compiler* compiler, char* path) -> Source* {
 		};
 	};
 	if (compiler->result == COMPILATION_FAILURE) {
-		return (Source*)0;
+		return nullptr;
 	};
 	@bytes[source->length] = 0;
 	@source->bytes = $bytes;
@@ -9449,15 +9660,13 @@ fn backend_clear(Compiler* compiler) {
 
 fn rutile_compiler_create() -> Compiler* {
 	Compiler value;
-	HeapMemory storage = HeapMemory(sizeof(Compiler));
-	if (!storage.handle) {
-		return (Compiler*)0;
+	unique_ptr storage = unique_ptr(calloc(1, sizeof(Compiler)));
+	if (!unique_ptr::get(storage)) {
+		return nullptr;
 	};
-	memcpy((void*)storage.handle, (void*)&value, sizeof(Compiler));
-	Compiler* result := (Compiler*)storage.handle;
+	memcpy((void*)unique_ptr::get(storage), (void*)&value, sizeof(Compiler));
 	discard value;
-	discard storage;
-	return $result;
+	return (Compiler*)unique_ptr::release(@storage);
 };
 
 fn rutile_compiler_destroy(Compiler* compiler) {
@@ -9465,7 +9674,7 @@ fn rutile_compiler_destroy(Compiler* compiler) {
 		return;
 	};
 
-	HeapMemory storage = HeapMemory((void*)compiler);
+	unique_ptr storage = unique_ptr((void*)compiler);
 	Compiler previous = Compiler($compiler);
 };
 
@@ -9550,7 +9759,7 @@ fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, 
 		backend_publish((Compiler*)compiler, (char*)output_path);
 	};
 
-	@compiler->diagnostics = (void*)0;
+	@compiler->diagnostics = nullptr;
 	@compiler->open_file = (((char*, char*) -> void*)*)0;
 	return (i32)compiler->result;
 };
@@ -9560,7 +9769,7 @@ fn rutile_compile(Compiler* compiler, char** source_paths, usize source_count, c
 };
 
 fn rutile_compile_library(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, i32 optimization, void* diagnostics) -> i32 {
-	return backend_compile($compiler, $source_paths, $source_count, $output_path, $open_file, (char*)0, $optimization, $diagnostics, OUTPUT_LIBRARY);
+	return backend_compile($compiler, $source_paths, $source_count, $output_path, $open_file, nullptr, $optimization, $diagnostics, OUTPUT_LIBRARY);
 };
 
 

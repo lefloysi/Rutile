@@ -22,6 +22,7 @@ _Static_assert(FLT_RADIX == 2 && FLT_MANT_DIG == 24 && DBL_MANT_DIG == 53 && siz
 enum TypeKind {
 	VOID_TYPE,
 	BOOL_TYPE,
+	NULL_TYPE,
 	CHAR_TYPE,
 	SIGNED_INTEGER_TYPE,
 	UNSIGNED_INTEGER_TYPE,
@@ -179,11 +180,14 @@ enum TokenKind {
 	FINAL,
 	CONST,
 	DISCARD,
+	DELETE,
+	NULLPTR,
 };
 
 enum NodeKind {
 	INTEGER_EXPRESSION,
 	BOOLEAN_EXPRESSION,
+	NULLPTR_EXPRESSION,
 	DECIMAL_EXPRESSION,
 	STRING_EXPRESSION,
 	NAME_EXPRESSION,
@@ -229,6 +233,7 @@ enum NodeKind {
 	CONTINUE_STATEMENT,
 	FUNCTION_DECLARATION,
 	FUNCTION_DEFINITION,
+	FUNCTION_DELETED,
 	TYPE_NODE,
 };
 
@@ -732,9 +737,9 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
+const struct Keyword keywords[] = { { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
 
-const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } } };
+const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } }, { "null", { NULL_TYPE, { 0 } } } };
 
 const struct Operator operators[] = {
 	{ '=', 1, ASSIGNMENT_OPERATOR, 0, NULL, NULL },
@@ -875,6 +880,24 @@ bool type_equal(struct Type a, struct Type b) {
 
 bool numeric_type(struct Type type) {
 	return type.kind == BOOL_TYPE || type.kind == CHAR_TYPE || type.kind == SIGNED_INTEGER_TYPE || type.kind == UNSIGNED_INTEGER_TYPE || type.kind == FLOAT_TYPE || type.kind == ENUM_TYPE;
+}
+
+bool is_null_pointer_type(struct Type type) {
+	return type.kind == POINTER_TYPE && type.data.element->kind == NULL_TYPE;
+}
+
+bool unsized_type(struct Type type) {
+	return type.kind == VOID_TYPE || type.kind == NULL_TYPE;
+}
+
+bool implicit_pointer_conversion(struct Type source, struct Type target) {
+	if (source.kind != POINTER_TYPE || target.kind != POINTER_TYPE) {
+		return false;
+	}
+	if (is_null_pointer_type(source)) {
+		return true;
+	}
+	return target.data.element->kind == VOID_TYPE && source.data.element->kind != FUNCTION_TYPE && (source.data.element->qualifier == MUTABLE_TYPE || target.data.element->qualifier == CONST_TYPE);
 }
 
 bool zero_extended_type(struct Type type) {
@@ -1321,13 +1344,23 @@ struct QualifiedName lookup_name(struct Compiler* compiler, struct Token name) {
 	return result;
 }
 
-struct Token parse_name(struct Compiler* compiler) {
+struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
+	if (destructor) {
+		*destructor = take(compiler, '~');
+	}
 	struct Token name = compiler->token;
 	if (!expect(compiler, NAME, "an identifier")) {
 		return name;
 	}
 
 	while (take(compiler, QUALIFY)) {
+		if (destructor && *destructor) {
+			diagnostic(compiler, compiler->token, "destructor name must end the qualified name");
+			return name;
+		}
+		if (destructor) {
+			*destructor = take(compiler, '~');
+		}
 		name.kind = QUALIFY;
 		struct Token part = compiler->token;
 		if (!expect(compiler, NAME, "an identifier after '::'")) {
@@ -1345,6 +1378,10 @@ struct Token parse_name(struct Compiler* compiler) {
 		name.length += part.length + 2;
 	}
 	return name;
+}
+
+struct Token parse_name(struct Compiler* compiler) {
+	return parse_qualified_name(compiler, NULL);
 }
 
 bool namespace_name_equal(struct Token declared, struct Namespace* owner, struct Token name);
@@ -1622,7 +1659,7 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 		if (!type.data.element) {
 			return type;
 		}
-		if (type.data.element->kind == VOID_TYPE || type.data.element->kind == REFERENCE_TYPE) {
+		if (unsized_type(*type.data.element) || type.data.element->kind == REFERENCE_TYPE) {
 			diagnostic(compiler, syntax->span.first, "reference requires a non-reference value type");
 		}
 		type.kind = REFERENCE_TYPE;
@@ -1631,9 +1668,12 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 		type.kind = FUNCTION_TYPE;
 		type.data.function = syntax->data.function;
 		type.data.function->result = resolve_type(compiler, type.data.function->result_syntax);
+		if (type.data.function->result.kind == NULL_TYPE) {
+			diagnostic(compiler, syntax->span.first, "function cannot return the unsized null type");
+		}
 		for (struct Variable* parameter = type.data.function->parameters; parameter; parameter = parameter->next) {
 			parameter->type = resolve_type(compiler, parameter->syntax);
-			if (is_void(parameter->type) || parameter->type.kind == FUNCTION_TYPE) {
+			if (unsized_type(parameter->type) || parameter->type.kind == FUNCTION_TYPE) {
 				diagnostic(compiler, parameter->syntax->span.first, "function parameter requires a value type");
 			}
 		}
@@ -1654,7 +1694,7 @@ struct Type resolve_type(struct Compiler* compiler, struct TypeNode* syntax) {
 		type.data.array.element = allocate(compiler, sizeof(struct Type));
 		if (type.data.array.element) {
 			*type.data.array.element = resolve_type(compiler, syntax->data.array.element);
-			if (is_void(*type.data.array.element) || type.data.array.element->kind == REFERENCE_TYPE) {
+			if (unsized_type(*type.data.array.element) || type.data.array.element->kind == REFERENCE_TYPE) {
 				diagnostic(compiler, syntax->span.first, "array elements cannot have void or reference type");
 			}
 		}
@@ -2086,6 +2126,14 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 	struct Token token = compiler->token;
 	struct Expression* expression = NULL;
 	switch (token.kind) {
+	case NULLPTR:
+		expression = new_expression(compiler, NULLPTR_EXPRESSION, token);
+		if (!expression) {
+			return NULL;
+		}
+		expression->type = pointer_type(compiler, (struct Type){ NULL_TYPE, { 0 } });
+		next_token(compiler);
+		break;
 	case TRUE:
 	case FALSE:
 		expression = new_expression(compiler, BOOLEAN_EXPRESSION, token);
@@ -2583,13 +2631,13 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 	function->kind = FUNCTION_DECLARATION;
 	function->span.first = first;
 	struct Namespace* previous_scope = compiler->namespace_scope;
-	bool destructor = take(compiler, '~');
-	struct QualifiedName declared = declaration_name(compiler, parse_name(compiler));
+	bool destructor;
+	struct QualifiedName declared = declaration_name(compiler, parse_qualified_name(compiler, &destructor));
 	struct Record* special_owner = declared.owner ? declared.owner->record : NULL;
 	if (destructor) {
 		function->role = DESTRUCTOR_ROLE;
-		if (!receiver || !special_owner || !name_equal(declared.name, unqualified_token(special_owner->name))) {
-			diagnostic(compiler, declared.name, "destructor must be defined inline in its owning type");
+		if (!special_owner || !name_equal(declared.name, unqualified_token(special_owner->name))) {
+			diagnostic(compiler, declared.name, "destructor name must match its owning type");
 			return;
 		}
 	}
@@ -2636,7 +2684,10 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 		diagnostic(compiler, function->name, "constructors and destructors have no return type");
 	}
 	if (take(compiler, ':')) {
-		if (take(compiler, VIRTUAL)) {
+		if (take(compiler, DELETE)) {
+			function->kind = FUNCTION_DELETED;
+		}
+		else if (take(compiler, VIRTUAL)) {
 			function->modification = VIRTUAL_FUNCTION;
 		}
 		else if (take(compiler, OVERRIDE)) {
@@ -2646,8 +2697,10 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 			function->modification = FINAL_FUNCTION;
 		}
 		else {
-			diagnostic(compiler, compiler->token, "expected virtual, override, or final relationship");
+			diagnostic(compiler, compiler->token, "expected delete, virtual, override, or final modifier");
 		}
+	}
+	if (function->modification != ORDINARY_FUNCTION) {
 		if (!receiver || receiver->kind != STRUCT_TYPE) {
 			diagnostic(compiler, function->name, "virtual relationships must originate in a struct interface");
 			return;
@@ -2663,9 +2716,11 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 		}
 		*tail = callable;
 	}
-	function->kind = take(compiler, ';') ? FUNCTION_DECLARATION : FUNCTION_DEFINITION;
-	if (function->role == DESTRUCTOR_ROLE && function->kind != FUNCTION_DEFINITION) {
-		diagnostic(compiler, function->name, "destructor requires an inline body");
+	if (function->kind == FUNCTION_DELETED) {
+		expect(compiler, ';', "';' after deleted function");
+	}
+	else {
+		function->kind = take(compiler, ';') ? FUNCTION_DECLARATION : FUNCTION_DEFINITION;
 	}
 	if (function->kind == FUNCTION_DEFINITION) {
 		expect(compiler, '{', "function body or ';'");
@@ -2989,6 +3044,9 @@ void complete_type(struct Compiler* compiler, struct Type type, struct Token tok
 	case VOID_TYPE:
 		diagnostic(compiler, token, "void is not an object type");
 		break;
+	case NULL_TYPE:
+		diagnostic(compiler, token, "null is not an object type; use a pointer");
+		break;
 	case FUNCTION_TYPE:
 		diagnostic(compiler, token, "function signatures are not object types; use a pointer");
 		break;
@@ -3257,8 +3315,8 @@ void register_functions(struct Compiler* compiler) {
 		for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
 			parameter->type = resolve_type(compiler, parameter->syntax);
 			complete_type(compiler, parameter->type, parameter->name);
-			if (is_void(parameter->type)) {
-				diagnostic(compiler, parameter->name, "parameter cannot have void type");
+			if (unsized_type(parameter->type)) {
+				diagnostic(compiler, parameter->name, "parameter cannot have an unsized type");
 			}
 			if (find_variable(scope, parameter->name)) {
 				diagnostic(compiler, parameter->name, "duplicate parameter");
@@ -3328,12 +3386,12 @@ void register_functions(struct Compiler* compiler) {
 			if (!compatible || a || b) {
 				diagnostic(compiler, function->name, "conflicting function declarations");
 			}
-			else if (function->kind == FUNCTION_DEFINITION) {
-				if (previous->kind == FUNCTION_DEFINITION) {
+			else if (function->kind != FUNCTION_DECLARATION) {
+				if (previous->kind != FUNCTION_DECLARATION) {
 					diagnostic(compiler, function->name, "duplicate function definition");
 				}
 				else {
-					previous->kind = FUNCTION_DEFINITION;
+					previous->kind = function->kind;
 					previous->span = function->span;
 					previous->parameters = function->parameters;
 					previous->statements = function->statements;
@@ -4156,6 +4214,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		expression->type = pointer_type(compiler, (struct Type){ CHAR_TYPE, { 0 } });
 		break;
 	case BOOLEAN_EXPRESSION:
+	case NULLPTR_EXPRESSION:
 	case INTEGER_EXPRESSION:
 	case DECIMAL_EXPRESSION:
 		break;
@@ -4225,12 +4284,18 @@ void check_decimal(struct Compiler* compiler, struct Expression* expression, str
 	expression->type = *expected;
 }
 
+bool zero_pointer_constant(struct Expression* expression) {
+	uint64_t magnitude;
+	bool negative;
+	return expression->kind == INTEGER_EXPRESSION && expression->span.first.kind == INTEGER && integer_constant(expression, &magnitude, &negative) && !magnitude;
+}
+
 void check_integer(struct Compiler* compiler, struct Expression* expression, struct Type* expected, uint64_t magnitude, bool negative) {
 	if (!expected) {
 		diagnostic(compiler, expression->span.first, "integer literal has no type context");
 		return;
 	}
-	if (expected->kind == POINTER_TYPE && !magnitude) {
+	if (expected->kind == POINTER_TYPE && zero_pointer_constant(expression)) {
 		expression->type = *expected;
 		return;
 	}
@@ -4351,7 +4416,7 @@ void construct_value(struct Compiler* compiler, struct Expression* expression, s
 
 bool special_argument_matches(struct Compiler* compiler, struct Type parameter, struct Expression* argument) {
 	struct Type value = parameter.kind == REFERENCE_TYPE ? *parameter.data.element : parameter;
-	if (!type_value_equal(value, argument->type) && !(is_void(argument->type) && numeric_type(value))) {
+	if (!type_value_equal(value, argument->type) && !(is_void(argument->type) && numeric_type(value)) && !implicit_pointer_conversion(argument->type, value) && !(value.kind == POINTER_TYPE && zero_pointer_constant(argument))) {
 		return false;
 	}
 	if (parameter.kind != REFERENCE_TYPE) {
@@ -4372,6 +4437,10 @@ struct Function* select_special_function(struct Compiler* compiler, struct Recor
 		struct Argument* argument = arguments;
 		unsigned rank = 0;
 		while (parameter && argument && special_argument_matches(compiler, parameter->type, argument->expression)) {
+			struct Type value = parameter->type.kind == REFERENCE_TYPE ? *parameter->type.data.element : parameter->type;
+			if (!type_value_equal(value, argument->expression->type) && (implicit_pointer_conversion(argument->expression->type, value) || (value.kind == POINTER_TYPE && zero_pointer_constant(argument->expression)))) {
+				rank += 2;
+			}
 			if (parameter->type.kind == REFERENCE_TYPE && !lvalue_expression(argument->expression)) {
 				rank++;
 			}
@@ -4387,6 +4456,9 @@ struct Function* select_special_function(struct Compiler* compiler, struct Recor
 		}
 		selected = function;
 		best = rank;
+	}
+	if (selected && selected->kind == FUNCTION_DELETED) {
+		diagnostic(compiler, token, "selected function is deleted");
 	}
 	return selected;
 }
@@ -4433,6 +4505,17 @@ bool const_element_type(struct Type type) {
 	return type.kind == ARRAY_TYPE && const_element_type(*type.data.array.element);
 }
 
+void check_generated_operation(struct Compiler* compiler, struct Type type, enum GeneratedOperation operation, struct Token token);
+
+void check_constructor_subobjects(struct Compiler* compiler, struct Record* record, struct Token token) {
+	for (struct BaseRelation* base = record->bases; base && !compiler->failed; base = base->next) {
+		check_generated_operation(compiler, (struct Type){ STRUCT_TYPE, { .record = base->record } }, DEFAULT_CONSTRUCTION, token);
+	}
+	for (struct Member* field = record->kind == STRUCT_TYPE ? record->data.members : NULL; field && !compiler->failed; field = field->next) {
+		check_generated_operation(compiler, field->type, DEFAULT_CONSTRUCTION, token);
+	}
+}
+
 void check_generated_operation(struct Compiler* compiler, struct Type type, enum GeneratedOperation operation, struct Token token) {
 	if (compiler->failed) {
 		return;
@@ -4462,7 +4545,19 @@ void check_generated_operation(struct Compiler* compiler, struct Type type, enum
 		if (operation != VALUE_ASSIGNMENT && contains_reference_fields(type)) {
 			diagnostic(compiler, token, "constructor does not provide a binding for its reference fields");
 		}
+		if (operation != VALUE_ASSIGNMENT) {
+			check_constructor_subobjects(compiler, type.data.record, token);
+		}
 		return;
+	}
+	if (operation == DEFAULT_CONSTRUCTION) {
+		for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+			struct Function* constructor = symbol->function;
+			if (constructor->role == CONSTRUCTOR_ROLE && constructor->owner == type.data.record->associated) {
+				diagnostic(compiler, token, "user-declared constructor suppresses implicit default construction");
+				return;
+			}
+		}
 	}
 	if (type.kind == UNION_TYPE) {
 		if (operation == DEFAULT_CONSTRUCTION && type.data.record->data.members) {
@@ -4694,7 +4789,7 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		break;
 	case CONSTRUCTION_EXPRESSION: {
 		struct Argument* argument = expression->data.construction.arguments;
-		if (expression->type.kind == VOID_TYPE || expression->type.kind == FUNCTION_TYPE || expression->type.kind == REFERENCE_TYPE) {
+		if (unsized_type(expression->type) || expression->type.kind == FUNCTION_TYPE || expression->type.kind == REFERENCE_TYPE) {
 			diagnostic(compiler, expression->span.first, "construction requires an object type");
 			break;
 		}
@@ -4704,6 +4799,10 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		struct Function* function = expression->data.construction.function;
 		if (function) {
+			check_constructor_subobjects(compiler, expression->type.data.record, expression->span.first);
+			if (compiler->failed) {
+				break;
+			}
 			if (contains_reference_fields(expression->type)) {
 				diagnostic(compiler, expression->span.first, "constructor does not provide a binding for its reference fields");
 				break;
@@ -4858,6 +4957,9 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		struct Expression* left = expression->data.binary.left;
 		struct Expression* right = expression->data.binary.right;
 		struct Type type = !is_void(left->type) ? left->type : right->type;
+		if (operation->kind == COMPARISON_OPERATOR && is_null_pointer_type(left->type) && right->type.kind == POINTER_TYPE) {
+			type = right->type;
+		}
 		if ((operation->kind == COMPARISON_OPERATOR || operation->token == '-') && left->type.kind == POINTER_TYPE && right->type.kind == POINTER_TYPE && left->type.data.element->kind == STRUCT_TYPE && right->type.data.element->kind == STRUCT_TYPE) {
 			struct BaseSearch common = find_base_path(compiler, left->type.data.element->data.record, right->type.data.element->data.record);
 			if (common.kind == MULTIPLE_BASE_PATHS) {
@@ -5041,9 +5143,14 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		break;
 	}
 	case BOOLEAN_EXPRESSION:
+	case NULLPTR_EXPRESSION:
 	case STRING_EXPRESSION:
 	case NAME_EXPRESSION:
 	case FUNCTION_EXPRESSION:
+		if (expression->kind == FUNCTION_EXPRESSION && expression->data.function->kind == FUNCTION_DELETED) {
+			diagnostic(compiler, expression->span.first, "use of deleted function");
+			break;
+		}
 		if (expression->kind == NAME_EXPRESSION && expression->data.variable.initialization && expression->data.variable.initialization->type.kind == REFERENCE_TYPE) {
 			struct InitializationContext* context = expression->data.variable.initialization;
 			struct Statement* statement = context->body->data.block;
@@ -5067,6 +5174,16 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		break;
 	}
 contextual_conversion:
+	if (expected && !type_value_equal(expression->type, *expected) && implicit_pointer_conversion(expression->type, *expected)) {
+		struct Expression* source = allocate(compiler, sizeof(struct Expression));
+		if (!source) {
+			return;
+		}
+		*source = *expression;
+		expression->kind = CAST_EXPRESSION;
+		expression->data.cast.value = source;
+		expression->type = *expected;
+	}
 	if (expected && expected->kind == POINTER_TYPE && !type_equal(expression->type, *expected)) {
 		convert_base_expression(compiler, expression, *expected, IMPLICIT_BASE_CONVERSION);
 	}
@@ -5748,8 +5865,8 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 		if (!variable->syntax && statement->data.declaration.initializer) {
 			variable->type = statement->data.declaration.initializer->type;
 		}
-		if (is_void(variable->type)) {
-			diagnostic(compiler, variable->name, "variable cannot have void type");
+		if (unsized_type(variable->type)) {
+			diagnostic(compiler, variable->name, "variable cannot have an unsized type");
 		}
 		if (variable->type.kind == FUNCTION_TYPE) {
 			diagnostic(compiler, variable->name, "function entities require explicit address-of to obtain a pointer");
@@ -6026,6 +6143,9 @@ int lifetime_truth(struct Expression* expression) {
 	if (expression->kind == BOOLEAN_EXPRESSION) {
 		return !!expression->data.integer;
 	}
+	if (expression->kind == NULLPTR_EXPRESSION) {
+		return 0;
+	}
 	if (expression->kind == NOT_EXPRESSION) {
 		int truth = lifetime_truth(expression->data.operand);
 		return truth < 0 ? -1 : !truth;
@@ -6287,7 +6407,7 @@ void lifetime_statement(struct LifetimeAnalysis* analysis, struct Statement* sta
 }
 
 void analyze_function(struct Compiler* compiler, struct Function* function) {
-	if (function->kind == FUNCTION_DECLARATION) {
+	if (function->kind != FUNCTION_DEFINITION) {
 		return;
 	}
 	struct Scope scope = { NULL, NULL };
@@ -6466,7 +6586,7 @@ void select_entry(struct Compiler* compiler, const char* name) {
 		diagnostic(compiler, compiler->functions ? compiler->functions->name : compiler->token, "entry function '%s' was not found", name);
 		return;
 	}
-	if (function->kind == FUNCTION_DECLARATION) {
+	if (function->kind != FUNCTION_DEFINITION) {
 		diagnostic(compiler, function->name, "entry function '%s' has no definition", name);
 		return;
 	}
@@ -6503,6 +6623,7 @@ LLVMTypeRef llvm_type(struct Compiler* compiler, struct Type type) {
 	}
 	switch (type.kind) {
 	case VOID_TYPE:
+	case NULL_TYPE:
 		return LLVMVoidTypeInContext(compiler->llvm_context);
 	case POINTER_TYPE:
 	case REFERENCE_TYPE:
@@ -6570,6 +6691,9 @@ char* function_symbol(struct Compiler* compiler, struct Function* function) {
 void declare_llvm_functions(struct Compiler* compiler) {
 	for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
 		struct Function* function = symbol->function;
+		if (function->kind == FUNCTION_DELETED) {
+			continue;
+		}
 		unsigned count = 0;
 		for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
 			if (count == UINT_MAX) {
@@ -7292,6 +7416,10 @@ void emit_destroy_bases(struct Compiler* compiler, struct BaseRelation* base, st
 void emit_destroy_body(struct Compiler* compiler, struct Record* record, LLVMValueRef address) {
 	struct Function* destructor = record_destructor(compiler, record);
 	if (destructor) {
+		if (destructor->kind == FUNCTION_DELETED) {
+			diagnostic(compiler, destructor->name, "use of deleted destructor");
+			return;
+		}
 		emit_direct_call(compiler, destructor, &address, 1);
 	}
 	if (record->kind == STRUCT_TYPE) {
@@ -7610,6 +7738,8 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 	}
 	case BOOLEAN_EXPRESSION:
 		return LLVMConstInt(llvm_type(compiler, expression->type), expression->data.integer, false);
+	case NULLPTR_EXPRESSION:
+		return LLVMConstNull(llvm_type(compiler, expression->type));
 	case STRING_EXPRESSION: {
 		if (expression->data.string.count > UINT_MAX) {
 			diagnostic(compiler, expression->span.first, "string literal exceeds LLVM's supported length");
@@ -8025,7 +8155,7 @@ void emit_statements(struct Compiler* compiler, struct Statement* statements, st
 }
 
 void emit_function_body(struct Compiler* compiler, struct Function* function, struct Function* signature, LLVMValueRef target, uint64_t receiver_offset) {
-	if (function->kind == FUNCTION_DECLARATION) {
+	if (function->kind != FUNCTION_DEFINITION) {
 		return;
 	}
 	compiler->emitted_function = function;
