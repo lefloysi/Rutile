@@ -160,6 +160,7 @@ enum TokenKind {
 	COPY_ASSIGN,
 	NAMESPACE,
 	QUALIFY,
+	VIRTUAL,
 };
 
 enum NodeKind {
@@ -174,6 +175,7 @@ enum NodeKind {
 	NEGATE_EXPRESSION,
 	BINARY_EXPRESSION,
 	ASSIGNMENT_EXPRESSION,
+	VALUE_INITIALIZATION_EXPRESSION,
 	NOT_EXPRESSION,
 	COMPLEMENT_EXPRESSION,
 	PREFIX_UPDATE_EXPRESSION,
@@ -415,10 +417,16 @@ struct Enumerator {
 	struct Enumerator* next;
 };
 
+enum BaseKind {
+	NONVIRTUAL_BASE,
+	VIRTUAL_BASE,
+};
+
 struct BaseRelation {
 	struct TypeNode* syntax;
 	struct Record* record;
 	unsigned index;
+	enum BaseKind kind;
 	struct BaseRelation* next;
 };
 
@@ -433,6 +441,34 @@ enum BaseResolution {
 	RESOLVED_BASES,
 };
 
+struct VirtualBase {
+	struct Record* record;
+	unsigned index;
+	struct VirtualBase* next;
+};
+
+enum SubobjectKind {
+	ROOT_SUBOBJECT,
+	ORDINARY_SUBOBJECT,
+	SHARED_SUBOBJECT,
+};
+
+struct SubobjectEdge {
+	struct BaseRelation* relation;
+	struct Subobject* target;
+	struct SubobjectEdge* next;
+};
+
+struct Subobject {
+	struct Record* record;
+	enum SubobjectKind kind;
+	uint64_t offset;
+	struct BasePath* path;
+	struct SubobjectEdge* edges;
+	LLVMValueRef view;
+	struct Subobject* next;
+};
+
 struct Record {
 	enum TypeKind kind;
 	enum RecordState state;
@@ -440,12 +476,15 @@ struct Record {
 	struct Span span;
 	struct Namespace* associated;
 	struct BaseRelation* bases;
+	struct VirtualBase* virtual_bases;
+	struct Subobject* subobjects;
 	enum BaseResolution base_resolution;
 	union {
 		struct Member* members;
 		struct Enumerator* enumerators;
 	} data;
 	LLVMTypeRef llvm_type;
+	LLVMTypeRef llvm_body;
 	struct Record* next;
 };
 
@@ -550,7 +589,7 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE } };
+const struct Keyword keywords[] = { { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL } };
 
 const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } } };
 
@@ -1005,7 +1044,9 @@ struct Token unqualified_token(struct Token name) {
 	return name;
 }
 
-struct MemberLookup record_member(struct Compiler* compiler, struct Record* record, struct Token name) {
+
+
+struct MemberLookup record_local_member(struct Compiler* compiler, struct Record* record, struct Token name) {
 	struct MemberLookup result = { 0 };
 	for (struct Member* field = record->kind == ENUM_TYPE ? NULL : record->data.members; field; field = field->next) {
 		if (name_equal(field->name, name)) {
@@ -1040,43 +1081,10 @@ struct MemberLookup record_member(struct Compiler* compiler, struct Record* reco
 		return result;
 	}
 
-	resolve_bases(compiler, record);
-	for (struct BaseRelation* base = record->bases; base && !compiler->failed; base = base->next) {
-		struct MemberLookup inherited = record_member(compiler, base->record, name);
-		if (inherited.kind == NO_MEMBER) {
-			continue;
-		}
-		if (inherited.kind == AMBIGUOUS_MEMBER) {
-			return inherited;
-		}
-		struct BasePath* path = allocate(compiler, sizeof(struct BasePath));
-		if (!path) {
-			return result;
-		}
-		path->relation = base;
-		path->next = inherited.path;
-		inherited.path = path;
-		if (result.kind == NO_MEMBER) {
-			result = inherited;
-			continue;
-		}
-		if (result.kind == NAMESPACE_MEMBER && inherited.kind == NAMESPACE_MEMBER && result.entity.space == inherited.entity.space) {
-			continue;
-		}
-		if (result.kind == ENUMERATOR_MEMBER && inherited.kind == ENUMERATOR_MEMBER && result.entity.enumerator == inherited.entity.enumerator) {
-			continue;
-		}
-		if (result.kind == FUNCTION_MEMBER && inherited.kind == FUNCTION_MEMBER && result.entity.function == inherited.entity.function) {
-			continue;
-		}
-		if (result.kind == FIELD_MEMBER && inherited.kind == FIELD_MEMBER && result.entity.field == inherited.entity.field) {
-			continue;
-		}
-		result.kind = AMBIGUOUS_MEMBER;
-		return result;
-	}
 	return result;
 }
+
+struct MemberLookup record_member(struct Compiler* compiler, struct Record* record, struct Token name);
 
 struct Namespace* namespace_child(struct Compiler* compiler, struct Namespace* owner, struct Token name) {
 	while (owner && owner->canonical) {
@@ -1535,27 +1543,202 @@ struct BaseSearch {
 	struct BasePath* path;
 };
 
-struct BaseSearch find_base_path(struct Compiler* compiler, struct Record* derived, struct Record* base) {
-	if (derived == base) {
-		return (struct BaseSearch){ ONE_BASE_PATH, NULL };
+struct BasePath* append_base_path(struct Compiler* compiler, struct BasePath* path, struct BaseRelation* relation) {
+	struct BasePath* result = allocate(compiler, sizeof(struct BasePath));
+	if (!result) {
+		return NULL;
 	}
-	struct BaseSearch result = { 0 };
-	for (struct BaseRelation* relation = derived->bases; relation && !compiler->failed; relation = relation->next) {
-		struct BaseSearch inherited = find_base_path(compiler, relation->record, base);
-		if (inherited.kind == NO_BASE_PATH) {
+	if (!path) {
+		result->relation = relation;
+		return result;
+	}
+	result->relation = path->relation;
+	result->next = append_base_path(compiler, path->next, relation);
+	return result;
+}
+
+void build_subobject_edges(struct Compiler* compiler, struct Record* complete, struct Subobject* object) {
+	struct SubobjectEdge** tail = &object->edges;
+	for (struct BaseRelation* relation = object->record->bases; relation && !compiler->failed; relation = relation->next) {
+		struct Subobject* target = NULL;
+		if (relation->kind == VIRTUAL_BASE) {
+			for (struct Subobject* existing = complete->subobjects; existing; existing = existing->next) {
+				if (existing->kind == SHARED_SUBOBJECT && existing->record == relation->record) {
+					target = existing;
+					break;
+				}
+			}
+		}
+		struct SubobjectEdge* edge = allocate(compiler, sizeof(struct SubobjectEdge));
+		if (!edge) {
+			return;
+		}
+		edge->relation = relation;
+		*tail = edge;
+		tail = &edge->next;
+		if (target) {
+			edge->target = target;
 			continue;
 		}
-		if (inherited.kind == MULTIPLE_BASE_PATHS || result.kind != NO_BASE_PATH) {
+		target = allocate(compiler, sizeof(struct Subobject));
+		if (!target) {
+			return;
+		}
+		target->record = relation->record;
+		target->kind = relation->kind == VIRTUAL_BASE ? SHARED_SUBOBJECT : ORDINARY_SUBOBJECT;
+		target->path = append_base_path(compiler, object->path, relation);
+		struct Subobject** objects = &complete->subobjects;
+		while (*objects) {
+			objects = &(*objects)->next;
+		}
+		*objects = target;
+		edge->target = target;
+		if (relation->kind == VIRTUAL_BASE) {
+			struct VirtualBase** bases = &complete->virtual_bases;
+			unsigned index = 0;
+			while (*bases) {
+				bases = &(*bases)->next;
+				index++;
+			}
+			struct VirtualBase* base = allocate(compiler, sizeof(struct VirtualBase));
+			if (!base) {
+				return;
+			}
+			base->record = relation->record;
+			base->index = index;
+			*bases = base;
+		}
+		build_subobject_edges(compiler, complete, target);
+	}
+}
+
+void prepare_subobjects(struct Compiler* compiler, struct Record* record) {
+	if (compiler->failed || record->subobjects) {
+		return;
+	}
+	resolve_bases(compiler, record);
+	if (compiler->failed) {
+		return;
+	}
+	struct Subobject* root = allocate(compiler, sizeof(struct Subobject));
+	if (!root) {
+		return;
+	}
+	root->record = record;
+	root->kind = ROOT_SUBOBJECT;
+	record->subobjects = root;
+	build_subobject_edges(compiler, record, root);
+}
+
+struct BaseSearch find_base_path(struct Compiler* compiler, struct Record* derived, struct Record* base) {
+	prepare_subobjects(compiler, derived);
+	struct BaseSearch result = { 0 };
+	for (struct Subobject* object = derived->subobjects; object; object = object->next) {
+		if (object->record != base) {
+			continue;
+		}
+		if (result.kind != NO_BASE_PATH) {
 			return (struct BaseSearch){ MULTIPLE_BASE_PATHS, NULL };
 		}
-		struct BasePath* path = allocate(compiler, sizeof(struct BasePath));
-		if (!path) {
+		result.kind = ONE_BASE_PATH;
+		result.path = object->path;
+	}
+	return result;
+}
+
+struct Subobject* path_subobject(struct Subobject* object, struct BasePath* path) {
+	for (; object && path; path = path->next) {
+		struct SubobjectEdge* edge = object->edges;
+		while (edge && edge->relation != path->relation) {
+			edge = edge->next;
+		}
+		object = edge ? edge->target : NULL;
+	}
+	return object;
+}
+
+bool subobject_contains(struct Subobject* derived, struct Subobject* base) {
+	if (derived == base) {
+		return true;
+	}
+	for (struct SubobjectEdge* edge = derived ? derived->edges : NULL; edge; edge = edge->next) {
+		if (subobject_contains(edge->target, base)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+struct LookupCandidate {
+	struct MemberLookup member;
+	struct Subobject* object;
+	struct LookupCandidate* next;
+};
+
+void collect_member_candidates(struct Compiler* compiler, struct Subobject* object, struct Token name, struct LookupCandidate** candidates) {
+	struct MemberLookup local = record_local_member(compiler, object->record, name);
+	if (local.kind != NO_MEMBER) {
+		struct LookupCandidate* candidate = allocate(compiler, sizeof(struct LookupCandidate));
+		if (!candidate) {
+			return;
+		}
+		candidate->member = local;
+		candidate->member.path = object->path;
+		candidate->object = object;
+		candidate->next = *candidates;
+		*candidates = candidate;
+		return;
+	}
+	for (struct SubobjectEdge* edge = object->edges; edge && !compiler->failed; edge = edge->next) {
+		collect_member_candidates(compiler, edge->target, name, candidates);
+	}
+}
+
+bool same_member(struct MemberLookup first, struct MemberLookup second) {
+	if (first.kind != second.kind) {
+		return false;
+	}
+	switch (first.kind) {
+	case FIELD_MEMBER:
+		return first.entity.field == second.entity.field;
+	case FUNCTION_MEMBER:
+		return first.entity.function == second.entity.function;
+	case NAMESPACE_MEMBER:
+		return first.entity.space == second.entity.space;
+	case ENUMERATOR_MEMBER:
+		return first.entity.enumerator == second.entity.enumerator;
+	default:
+		return false;
+	}
+}
+
+struct MemberLookup record_member(struct Compiler* compiler, struct Record* record, struct Token name) {
+	struct MemberLookup result = record_local_member(compiler, record, name);
+	if (result.kind != NO_MEMBER) {
+		return result;
+	}
+	prepare_subobjects(compiler, record);
+	if (compiler->failed || !record->subobjects) {
+		return result;
+	}
+	struct LookupCandidate* candidates = NULL;
+	collect_member_candidates(compiler, record->subobjects, name, &candidates);
+	for (struct LookupCandidate* candidate = candidates; candidate; candidate = candidate->next) {
+		struct LookupCandidate* dominant = candidates;
+		while (dominant) {
+			if (dominant->object != candidate->object && subobject_contains(dominant->object, candidate->object)) {
+				break;
+			}
+			dominant = dominant->next;
+		}
+		if (dominant) {
+			continue;
+		}
+		if (result.kind != NO_MEMBER && !same_member(result, candidate->member)) {
+			result.kind = AMBIGUOUS_MEMBER;
 			return result;
 		}
-		path->relation = relation;
-		path->next = inherited.path;
-		result.kind = ONE_BASE_PATH;
-		result.path = path;
+		result = candidate->member;
 	}
 	return result;
 }
@@ -1862,7 +2045,8 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 		break;
 	case '(':
 		next_token(compiler);
-		if (type_start(compiler)) {
+		size_t type_end = compiler->token_index - 1;
+		if (scan_type(compiler, &type_end) && type_end < compiler->token_count && compiler->tokens[type_end].kind == ')') {
 			expression = new_expression(compiler, CAST_EXPRESSION, token);
 			if (!expression) {
 				return NULL;
@@ -2018,6 +2202,22 @@ bool declaration_start(struct Compiler* compiler) {
 		return true;
 	}
 	size_t index = compiler->token_index - 1;
+	if (compiler->token.kind == '(') {
+		size_t closing = index + 1;
+		size_t depth = 1;
+		while (closing < compiler->token_count && depth) {
+			int kind = compiler->tokens[closing++].kind;
+			if (kind == '(') {
+				depth++;
+			}
+			else if (kind == ')') {
+				depth--;
+			}
+		}
+		if (!depth && closing < compiler->token_count && compiler->tokens[closing].kind == NAME) {
+			return false;
+		}
+	}
 	return scan_type(compiler, &index) && index < compiler->token_count && compiler->tokens[index].kind == NAME;
 }
 
@@ -2325,6 +2525,7 @@ void parse_record(struct Compiler* compiler) {
 			if (!base) {
 				return;
 			}
+			base->kind = take(compiler, VIRTUAL) ? VIRTUAL_BASE : NONVIRTUAL_BASE;
 			base->syntax = parse_type(compiler);
 			*tail = base;
 			tail = &base->next;
@@ -2702,7 +2903,15 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 		record->state = RESOLVED_RECORD;
 		return;
 	}
-	unsigned count = 0;
+	prepare_subobjects(compiler, record);
+	if (compiler->failed) {
+		return;
+	}
+	record->llvm_body = record->llvm_type;
+	if (record->virtual_bases) {
+		record->llvm_body = LLVMStructCreateNamed(compiler->llvm_context, "rt.body");
+	}
+	unsigned count = record->virtual_bases ? 1 : 0;
 	uint64_t maximum_size = 0;
 	unsigned maximum_alignment = 0;
 	struct Member* storage = NULL;
@@ -2711,7 +2920,17 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 		if (compiler->failed) {
 			return;
 		}
-		base->index = count++;
+		if (base->kind == NONVIRTUAL_BASE) {
+			base->index = count++;
+		}
+		else {
+			for (struct VirtualBase* shared = record->virtual_bases; shared; shared = shared->next) {
+				if (shared->record == base->record) {
+					base->index = shared->index;
+					break;
+				}
+			}
+		}
 	}
 	for (struct Member* member = record->data.members; member && !compiler->failed; member = member->next) {
 		for (struct Function* function = compiler->functions; function; function = function->next) {
@@ -2754,7 +2973,7 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	}
 	if (!count) {
 		LLVMTypeRef byte = LLVMInt8TypeInContext(compiler->llvm_context);
-		LLVMStructSetBody(record->llvm_type, &byte, 1, false);
+		LLVMStructSetBody(record->llvm_body, &byte, 1, false);
 		record->state = RESOLVED_RECORD;
 		return;
 	}
@@ -2764,13 +2983,34 @@ void resolve_record(struct Compiler* compiler, struct Record* record) {
 	}
 	if (record->kind == STRUCT_TYPE) {
 		unsigned index = 0;
+		if (record->virtual_bases) {
+			members[index++] = LLVMPointerTypeInContext(compiler->llvm_context, 0);
+		}
 		for (struct BaseRelation* base = record->bases; base; base = base->next) {
-			members[index++] = base->record->llvm_type;
+			if (base->kind == NONVIRTUAL_BASE) {
+				members[index++] = base->record->llvm_body;
+			}
 		}
 		for (struct Member* member = record->data.members; member; member = member->next) {
 			members[index++] = llvm_type(compiler, member->type);
 		}
-		LLVMStructSetBody(record->llvm_type, members, count, false);
+		LLVMStructSetBody(record->llvm_body, members, count, false);
+		if (record->virtual_bases) {
+			unsigned complete_count = 1;
+			for (struct VirtualBase* shared = record->virtual_bases; shared; shared = shared->next) {
+				complete_count++;
+			}
+			LLVMTypeRef* complete = allocate(compiler, complete_count * sizeof(LLVMTypeRef));
+			if (!complete) {
+				return;
+			}
+			complete[0] = record->llvm_body;
+			for (struct VirtualBase* shared = record->virtual_bases; shared; shared = shared->next) {
+				resolve_record(compiler, shared->record);
+				complete[shared->index + 1] = shared->record->llvm_body;
+			}
+			LLVMStructSetBody(record->llvm_type, complete, complete_count, false);
+		}
 	}
 	else {
 		if (maximum_size > SIZE_MAX - (maximum_alignment - 1)) {
@@ -3408,13 +3648,17 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		bind_expression(compiler, expression->data.operand, scope);
 		expression->type = expression->data.operand->type;
 		break;
+	case VALUE_INITIALIZATION_EXPRESSION:
 	case ASSIGNMENT_EXPRESSION:
 	case BINARY_EXPRESSION:
 		bind_expression(compiler, expression->data.binary.left, scope);
 		bind_expression(compiler, expression->data.binary.right, scope);
 		expression->type = !is_void(expression->data.binary.left->type) ? expression->data.binary.left->type : expression->data.binary.right->type;
-		if (expression->kind == ASSIGNMENT_EXPRESSION && expression->data.binary.operation == '=') {
+		if ((expression->kind == ASSIGNMENT_EXPRESSION || expression->kind == VALUE_INITIALIZATION_EXPRESSION) && expression->data.binary.operation == '=') {
 			move_expression(compiler, expression->data.binary.right, scope);
+		}
+		if (expression->kind == VALUE_INITIALIZATION_EXPRESSION) {
+			expression->type = (struct Type){ VOID_TYPE, { 0 } };
 		}
 		if (expression->kind == BINARY_EXPRESSION) {
 			const struct Operator* operation = find_operator(expression->data.binary.operation);
@@ -3578,6 +3822,14 @@ bool convert_base_expression(struct Compiler* compiler, struct Expression* expre
 	if (selection.kind != ONE_BASE_PATH) {
 		return false;
 	}
+	if (direction == BASE_TO_DERIVED) {
+		for (struct BasePath* step = selection.path; step; step = step->next) {
+			if (step->relation->kind == VIRTUAL_BASE) {
+				diagnostic(compiler, expression->span.first, "cannot downcast through a virtual base");
+				return false;
+			}
+		}
+	}
 	struct Expression* value = allocate(compiler, sizeof(struct Expression));
 	if (!value) {
 		return false;
@@ -3592,7 +3844,35 @@ bool convert_base_expression(struct Compiler* compiler, struct Expression* expre
 }
 
 bool contains_reference_fields(struct Type type);
+bool type_has_views(struct Type type);
 bool initialization_path_equal(struct Compiler* compiler, struct Expression* left, struct Expression* right);
+bool initialization_contains_path(struct Compiler* compiler, struct Expression* expression, struct Expression* path);
+
+bool owned_union_initialization(struct Expression* expression) {
+	if (expression->kind != FIELD_EXPRESSION || !expression->data.member.binding || expression->data.member.binding->owner->kind != UNION_TYPE || !expression->data.member.initialization) {
+		return false;
+	}
+	struct Statement* context = expression->data.member.initialization;
+	if (context->data.declaration.variable->type.kind == REFERENCE_TYPE) {
+		return false;
+	}
+	struct Expression* root = expression;
+	while (root->kind != NAME_EXPRESSION) {
+		if (root->kind == FIELD_EXPRESSION) {
+			root = root->data.member.object;
+		}
+		else if (root->kind == INDEX_EXPRESSION && root->data.binary.left->type.kind == ARRAY_TYPE) {
+			root = root->data.binary.left;
+		}
+		else if (root->kind == BASE_VALUE_EXPRESSION) {
+			root = root->data.base.value;
+		}
+		else {
+			return false;
+		}
+	}
+	return root->data.variable.binding == context->data.declaration.variable;
+}
 
 void validate_reference_field_read(struct Compiler* compiler, struct Expression* expression) {
 	struct Statement* context = expression->data.member.initialization;
@@ -3629,6 +3909,9 @@ void validate_reference_field_read(struct Compiler* compiler, struct Expression*
 		}
 		struct Expression* binding = statement->data.expression;
 		if (binding->kind == REFERENCE_INITIALIZATION_EXPRESSION && binding->type.kind == REFERENCE_TYPE && initialization_path_equal(compiler, binding->data.binary.left, expression)) {
+			return;
+		}
+		if (binding->kind == VALUE_INITIALIZATION_EXPRESSION && !is_void(binding->type) && initialization_contains_path(compiler, expression, binding->data.binary.left)) {
 			return;
 		}
 	}
@@ -3694,10 +3977,14 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		break;
 	}
+	case VALUE_INITIALIZATION_EXPRESSION:
 	case ASSIGNMENT_EXPRESSION: {
 		struct Expression* left = expression->data.binary.left;
 		check_expression(compiler, left, NULL);
-		if (left->type.kind != REFERENCE_TYPE && contains_reference_fields(left->type)) {
+		if (owned_union_initialization(left) && !contains_reference_fields(left->type) && !find_operator(expression->data.binary.operation)->compound) {
+			expression->kind = VALUE_INITIALIZATION_EXPRESSION;
+		}
+		if (expression->kind != VALUE_INITIALIZATION_EXPRESSION && left->type.kind != REFERENCE_TYPE && contains_reference_fields(left->type)) {
 			diagnostic(compiler, expression->span.first, "aggregate assignment cannot rebind reference fields");
 			break;
 		}
@@ -4224,22 +4511,49 @@ bool initialization_path_equal(struct Compiler* compiler, struct Expression* lef
 	}
 	struct StorageStep* a = first.steps;
 	struct StorageStep* b = second.steps;
+	struct Type storage_type = first.root->data.variable.binding ? first.root->data.variable.binding->type : first.root->type;
 	for (; a && b; a = a->next, b = b->next) {
 		if (a->kind != b->kind) {
 			return false;
 		}
 		switch (a->kind) {
 		case BASE_STORAGE_STEP:
-			if (a->data.base != b->data.base) {
+			if (storage_type.kind != STRUCT_TYPE) {
 				return false;
 			}
+			struct Subobject* first_object = storage_type.data.record->subobjects;
+			struct Subobject* second_object = first_object;
+			while (a && a->kind == BASE_STORAGE_STEP) {
+				struct BasePath step = { a->data.base, NULL };
+				first_object = path_subobject(first_object, &step);
+				if (!a->next || a->next->kind != BASE_STORAGE_STEP) {
+					break;
+				}
+				a = a->next;
+			}
+			while (b && b->kind == BASE_STORAGE_STEP) {
+				struct BasePath step = { b->data.base, NULL };
+				second_object = path_subobject(second_object, &step);
+				if (!b->next || b->next->kind != BASE_STORAGE_STEP) {
+					break;
+				}
+				b = b->next;
+			}
+			if (!first_object || first_object != second_object) {
+				return false;
+			}
+			storage_type = (struct Type){ STRUCT_TYPE, { .record = first_object->record } };
 			break;
 		case FIELD_STORAGE_STEP:
 			if (a->data.field != b->data.field) {
 				return false;
 			}
+			storage_type = a->data.field->type;
 			break;
 		case INDEX_STORAGE_STEP:
+			if (storage_type.kind == ARRAY_TYPE) {
+				storage_type = *storage_type.data.array.element;
+			}
 			if (a->data.index != b->data.index) {
 				return false;
 			}
@@ -4327,10 +4641,80 @@ bool contains_reference_fields(struct Type type) {
 	return false;
 }
 
+bool initialization_contains_path(struct Compiler* compiler, struct Expression* expression, struct Expression* path) {
+	while (expression) {
+		if (initialization_path_equal(compiler, expression, path)) {
+			return true;
+		}
+		if (expression->kind == FIELD_EXPRESSION) {
+			expression = expression->data.member.object;
+		}
+		else if (expression->kind == INDEX_EXPRESSION) {
+			expression = expression->data.binary.left;
+		}
+		else if (expression->kind == BASE_VALUE_EXPRESSION) {
+			expression = expression->data.base.value;
+		}
+		else {
+			break;
+		}
+	}
+	return false;
+}
+
+struct Member* initialized_union_member(struct Compiler* compiler, struct Expression* path, struct Statement* initialization) {
+	for (struct Statement* statement = initialization ? initialization->data.block : NULL; statement; statement = statement->next) {
+		struct Expression* expression = statement->kind == EXPRESSION_STATEMENT ? statement->data.expression : NULL;
+		if (!expression || (expression->kind != ASSIGNMENT_EXPRESSION && expression->kind != VALUE_INITIALIZATION_EXPRESSION && expression->kind != REFERENCE_INITIALIZATION_EXPRESSION)) {
+			continue;
+		}
+		struct Expression* target = expression->data.binary.left;
+		while (target) {
+			if (target->kind == FIELD_EXPRESSION) {
+				if (initialization_path_equal(compiler, target->data.member.object, path)) {
+					return target->data.member.binding;
+				}
+				target = target->data.member.object;
+			}
+			else if (target->kind == INDEX_EXPRESSION) {
+				target = target->data.binary.left;
+			}
+			else if (target->kind == BASE_VALUE_EXPRESSION) {
+				target = target->data.base.value;
+			}
+			else {
+				break;
+			}
+		}
+	}
+	return NULL;
+}
+
+bool prepare_whole_reference_path(struct Compiler* compiler, struct Expression* path, struct Statement* initialization) {
+	for (struct Statement* statement = initialization ? initialization->data.block : NULL; statement; statement = statement->next) {
+		struct Expression* expression = statement->kind == EXPRESSION_STATEMENT ? statement->data.expression : NULL;
+		if (expression && expression->kind == ASSIGNMENT_EXPRESSION && !find_operator(expression->data.binary.operation)->compound && initialization_path_equal(compiler, expression->data.binary.left, path)) {
+			expression->kind = VALUE_INITIALIZATION_EXPRESSION;
+			return true;
+		}
+	}
+	return false;
+}
+
+struct InitializedSubobject {
+	struct Subobject* object;
+	struct InitializedSubobject* next;
+};
+
 void prepare_reference_path(struct Compiler* compiler, struct Type type, struct Expression* path, struct Statement* initialization) {
 	path->type = type;
 	if (compiler->failed || !contains_reference_fields(type)) {
 		return;
+	}
+	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
+		if (prepare_whole_reference_path(compiler, path, initialization)) {
+			return;
+		}
 	}
 	if (type.kind == ARRAY_TYPE) {
 		for (uint64_t index = 0; index < type.data.array.count; index++) {
@@ -4347,27 +4731,60 @@ void prepare_reference_path(struct Compiler* compiler, struct Type type, struct 
 		return;
 	}
 	if (type.kind == STRUCT_TYPE || type.kind == UNION_TYPE) {
-		for (struct BaseRelation* base = type.data.record->bases; base; base = base->next) {
-			struct Expression* projection = new_expression(compiler, BASE_VALUE_EXPRESSION, path->span.first);
-			struct BasePath* selection = allocate(compiler, sizeof(struct BasePath));
-			if (!projection || !selection) {
+		struct Member* selected = type.kind == UNION_TYPE ? initialized_union_member(compiler, path, initialization) : NULL;
+		struct InitializedSubobject* initialized = NULL;
+		for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+			if (!object->path) {
+				continue;
+			}
+			struct Expression projection = { 0 };
+			projection.kind = BASE_VALUE_EXPRESSION;
+			projection.span = path->span;
+			projection.data.base.value = path;
+			projection.data.base.path = object->path;
+			projection.type = (struct Type){ STRUCT_TYPE, { .record = object->record } };
+			if (!prepare_whole_reference_path(compiler, &projection, initialization)) {
+				continue;
+			}
+			struct InitializedSubobject* complete = allocate(compiler, sizeof(struct InitializedSubobject));
+			if (!complete) {
 				return;
 			}
-			selection->relation = base;
-			projection->data.base.value = path;
-			projection->data.base.path = selection;
-			projection->type = (struct Type){ STRUCT_TYPE, { .record = base->record } };
-			prepare_reference_path(compiler, projection->type, projection, initialization);
+			complete->object = object;
+			complete->next = initialized;
+			initialized = complete;
 		}
-		for (struct Member* member = type.data.record->data.members; member; member = member->next) {
-			struct Expression* field = new_expression(compiler, FIELD_EXPRESSION, member->name);
-			if (!field) {
-				return;
+		for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+			struct InitializedSubobject* complete = initialized;
+			while (complete && !subobject_contains(complete->object, object)) {
+				complete = complete->next;
 			}
-			field->data.member.object = path;
-			field->data.member.name = member->name;
-			field->data.member.binding = member;
-			prepare_reference_path(compiler, member->type, field, initialization);
+			if (complete) {
+				continue;
+			}
+			struct Expression* projection = path;
+			if (object->path) {
+				projection = new_expression(compiler, BASE_VALUE_EXPRESSION, path->span.first);
+				if (!projection) {
+					return;
+				}
+				projection->data.base.value = path;
+				projection->data.base.path = object->path;
+				projection->type = (struct Type){ STRUCT_TYPE, { .record = object->record } };
+			}
+			for (struct Member* member = object->record->data.members; member; member = member->next) {
+				if (type.kind == UNION_TYPE && member != selected) {
+					continue;
+				}
+				struct Expression* field = new_expression(compiler, FIELD_EXPRESSION, member->name);
+				if (!field) {
+					return;
+				}
+				field->data.member.object = projection;
+				field->data.member.name = member->name;
+				field->data.member.binding = member;
+				prepare_reference_path(compiler, member->type, field, initialization);
+			}
 		}
 		return;
 	}
@@ -4415,6 +4832,26 @@ void prepare_reference_fields(struct Compiler* compiler, struct Variable* variab
 	path->data.variable.name = variable->name;
 	path->data.variable.binding = variable;
 	prepare_reference_path(compiler, variable->type, path, initialization);
+}
+
+bool requires_union_selection(struct Type type) {
+	if (type.kind == ARRAY_TYPE) {
+		return requires_union_selection(*type.data.array.element);
+	}
+	if (type.kind != STRUCT_TYPE && type.kind != UNION_TYPE) {
+		return false;
+	}
+	if (type.kind == UNION_TYPE && (type_has_views(type) || contains_reference_fields(type))) {
+		return true;
+	}
+	for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+		for (struct Member* field = object->record->data.members; field; field = field->next) {
+			if (requires_union_selection(field->type)) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 unsigned analyze_statement(struct Compiler* compiler, struct Function* function, struct Statement* statement, struct Scope* scope, struct Flow* flow) {
@@ -4473,6 +4910,10 @@ unsigned analyze_statement(struct Compiler* compiler, struct Function* function,
 			diagnostic(compiler, variable->name, "function entities require explicit address-of to obtain a pointer");
 		}
 		if (!statement->data.declaration.initializer) {
+			if (!statement->data.declaration.initialization && requires_union_selection(variable->type)) {
+				diagnostic(compiler, variable->name, "union initialization must explicitly select a member requiring runtime views");
+				break;
+			}
 			prepare_reference_fields(compiler, variable, statement->data.declaration.initialization);
 		}
 		if (statement->data.declaration.initialization) {
@@ -4954,6 +5395,8 @@ void declare_llvm_functions(struct Compiler* compiler) {
 
 LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expression);
 void emit_statements(struct Compiler* compiler, struct Statement* statements, struct Flow* flow);
+void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRef address);
+void emit_store_value(struct Compiler* compiler, struct Type type, LLVMValueRef address, LLVMValueRef value);
 
 LLVMValueRef entry_alloca(struct Compiler* compiler, struct Type type) {
 	LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(compiler->builder));
@@ -5008,7 +5451,12 @@ LLVMValueRef emit_call(struct Compiler* compiler, struct Expression* expression)
 			argument->variable->slot = entry_alloca(compiler, argument->variable->type);
 			if (argument->variable->type.kind != REFERENCE_TYPE) {
 				LLVMValueRef initial = argument->initializer ? emit_expression(compiler, argument->initializer) : LLVMConstNull(llvm_type(compiler, argument->variable->type));
-				LLVMBuildStore(compiler->builder, initial, argument->variable->slot);
+				if (argument->initializer || !argument->initialization) {
+					LLVMBuildStore(compiler->builder, initial, argument->variable->slot);
+				}
+				if (argument->initializer || !argument->initialization || argument->initialization->data.block) {
+					emit_install_views(compiler, argument->variable->type, argument->variable->slot);
+				}
 			}
 			emit_statements(compiler, argument->initialization->data.block, NULL);
 			value = emit_expression(compiler, argument->expression);
@@ -5057,7 +5505,18 @@ LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expressi
 
 LLVMValueRef emit_base_address(struct Compiler* compiler, LLVMValueRef address, struct Record* derived, struct BasePath* path) {
 	for (; path; path = path->next) {
-		address = LLVMBuildStructGEP2(compiler->builder, derived->llvm_type, address, path->relation->index, "base");
+		if (path->relation->kind == NONVIRTUAL_BASE) {
+			address = LLVMBuildStructGEP2(compiler->builder, derived->llvm_body, address, path->relation->index, "base");
+		}
+		else {
+			LLVMTypeRef integer = LLVMInt64TypeInContext(compiler->llvm_context);
+			LLVMValueRef header = LLVMBuildStructGEP2(compiler->builder, derived->llvm_body, address, 0, "view_slot");
+			LLVMValueRef view = LLVMBuildLoad2(compiler->builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), header, "view");
+			LLVMValueRef index = LLVMConstInt(integer, path->relation->index, false);
+			LLVMValueRef entry = LLVMBuildGEP2(compiler->builder, integer, view, &index, 1, "view_entry");
+			LLVMValueRef offset = LLVMBuildLoad2(compiler->builder, integer, entry, "virtual_offset");
+			address = LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), address, &offset, 1, "virtual_base");
+		}
 		derived = path->relation->record;
 	}
 	return address;
@@ -5066,11 +5525,162 @@ LLVMValueRef emit_base_address(struct Compiler* compiler, LLVMValueRef address, 
 LLVMValueRef emit_inverse_base_address(struct Compiler* compiler, LLVMValueRef address, struct Record* derived, struct BasePath* path) {
 	uint64_t offset = 0;
 	for (; path; path = path->next) {
-		offset += LLVMOffsetOfElement(compiler->layout, derived->llvm_type, path->relation->index);
+		offset += LLVMOffsetOfElement(compiler->layout, derived->llvm_body, path->relation->index);
 		derived = path->relation->record;
 	}
 	LLVMValueRef index = LLVMConstInt(LLVMIntTypeInContext(compiler->llvm_context, LLVMPointerSize(compiler->layout) * CHAR_BIT), 0 - offset, true);
 	return LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), address, &index, 1, "derived");
+}
+
+uint64_t subobject_offset(struct Compiler* compiler, struct Record* complete, struct BasePath* path) {
+	struct Record* record = complete;
+	uint64_t offset = 0;
+	for (; path; path = path->next) {
+		struct BaseRelation* relation = path->relation;
+		if (relation->kind == NONVIRTUAL_BASE) {
+			offset += LLVMOffsetOfElement(compiler->layout, record->llvm_body, relation->index);
+		}
+		else {
+			for (struct VirtualBase* base = complete->virtual_bases; base; base = base->next) {
+				if (base->record == relation->record) {
+					offset = LLVMOffsetOfElement(compiler->layout, complete->llvm_type, base->index + 1);
+					break;
+				}
+			}
+		}
+		record = relation->record;
+	}
+	return offset;
+}
+
+bool type_has_views(struct Type type) {
+	if (type.kind == ARRAY_TYPE) {
+		return type_has_views(*type.data.array.element);
+	}
+	if (type.kind != STRUCT_TYPE && type.kind != UNION_TYPE) {
+		return false;
+	}
+	if (type.data.record->virtual_bases) {
+		return true;
+	}
+	for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+		for (struct Member* field = object->record->data.members; field; field = field->next) {
+			if (type_has_views(field->type)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+LLVMValueRef emit_array_element(struct Compiler* compiler, struct Type type, LLVMValueRef address, uint64_t index) {
+	LLVMTypeRef integer = LLVMInt64TypeInContext(compiler->llvm_context);
+	LLVMValueRef indices[] = { LLVMConstNull(integer), LLVMConstInt(integer, index, false) };
+	return LLVMBuildGEP2(compiler->builder, llvm_type(compiler, type), address, indices, 2, "element");
+}
+
+void emit_install_views(struct Compiler* compiler, struct Type type, LLVMValueRef address) {
+	if (!type_has_views(type) || type.kind == UNION_TYPE) {
+		return;
+	}
+	if (type.kind == ARRAY_TYPE) {
+		for (uint64_t i = 0; i < type.data.array.count; i++) {
+			emit_install_views(compiler, *type.data.array.element, emit_array_element(compiler, type, address, i));
+		}
+		return;
+	}
+	struct Record* complete = type.data.record;
+	for (struct Subobject* object = complete->subobjects; object; object = object->next) {
+		object->offset = subobject_offset(compiler, complete, object->path);
+		LLVMValueRef offset = LLVMConstInt(LLVMInt64TypeInContext(compiler->llvm_context), object->offset, false);
+		LLVMValueRef slot = LLVMBuildGEP2(compiler->builder, LLVMInt8TypeInContext(compiler->llvm_context), address, &offset, 1, "subobject");
+		if (object->record->virtual_bases) {
+			if (!object->view) {
+				unsigned count = 0;
+				for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
+					count++;
+				}
+				object->view = LLVMAddGlobal(compiler->module, LLVMArrayType2(LLVMInt64TypeInContext(compiler->llvm_context), count), "rt.view");
+				LLVMSetGlobalConstant(object->view, true);
+				LLVMSetLinkage(object->view, LLVMPrivateLinkage);
+			}
+			LLVMBuildStore(compiler->builder, object->view, slot);
+		}
+		for (struct Member* field = object->record->data.members; field; field = field->next) {
+			LLVMValueRef member = LLVMBuildStructGEP2(compiler->builder, object->record->llvm_body, slot, field->index, "field");
+			emit_install_views(compiler, field->type, member);
+		}
+	}
+}
+
+void define_runtime_views(struct Compiler* compiler) {
+	for (struct Record* complete = compiler->records; complete; complete = complete->next) {
+		for (struct Subobject* object = complete->subobjects; object; object = object->next) {
+			if (!object->view) {
+				continue;
+			}
+			unsigned count = 0;
+			for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
+				count++;
+			}
+			LLVMValueRef* offsets = allocate(compiler, count * sizeof(LLVMValueRef));
+			if (!offsets) {
+				return;
+			}
+			for (struct VirtualBase* base = object->record->virtual_bases; base; base = base->next) {
+				for (struct Subobject* target = complete->subobjects; target; target = target->next) {
+					if (target->kind == SHARED_SUBOBJECT && target->record == base->record) {
+						uint64_t offset = subobject_offset(compiler, complete, target->path) - object->offset;
+						offsets[base->index] = LLVMConstInt(LLVMInt64TypeInContext(compiler->llvm_context), offset, true);
+						break;
+					}
+				}
+			}
+			LLVMSetInitializer(object->view, LLVMConstArray2(LLVMInt64TypeInContext(compiler->llvm_context), offsets, count));
+		}
+	}
+}
+
+void emit_payload_copy(struct Compiler* compiler, struct Type type, LLVMValueRef destination, LLVMValueRef source) {
+	if (!type_has_views(type) || type.kind == UNION_TYPE) {
+		LLVMBuildStore(compiler->builder, LLVMBuildLoad2(compiler->builder, llvm_type(compiler, type), source, "payload"), destination);
+		return;
+	}
+	if (type.kind == ARRAY_TYPE) {
+		for (uint64_t i = 0; i < type.data.array.count; i++) {
+			emit_payload_copy(compiler, *type.data.array.element, emit_array_element(compiler, type, destination, i), emit_array_element(compiler, type, source, i));
+		}
+		return;
+	}
+	for (struct Subobject* object = type.data.record->subobjects; object; object = object->next) {
+		LLVMValueRef to = emit_base_address(compiler, destination, type.data.record, object->path);
+		LLVMValueRef from = emit_base_address(compiler, source, type.data.record, object->path);
+		for (struct Member* field = object->record->data.members; field; field = field->next) {
+			LLVMValueRef to_field = LLVMBuildStructGEP2(compiler->builder, object->record->llvm_body, to, field->index, "field");
+			LLVMValueRef from_field = LLVMBuildStructGEP2(compiler->builder, object->record->llvm_body, from, field->index, "field");
+			emit_payload_copy(compiler, field->type, to_field, from_field);
+		}
+	}
+}
+
+LLVMValueRef emit_read_value(struct Compiler* compiler, struct Type type, LLVMValueRef address) {
+	if (!type_has_views(type) || type.kind == UNION_TYPE) {
+		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, type), address, "value");
+	}
+	LLVMValueRef temporary = entry_alloca(compiler, type);
+	emit_install_views(compiler, type, temporary);
+	emit_payload_copy(compiler, type, temporary, address);
+	return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, type), temporary, "value");
+}
+
+void emit_store_value(struct Compiler* compiler, struct Type type, LLVMValueRef address, LLVMValueRef value) {
+	if (!type_has_views(type) || type.kind == UNION_TYPE) {
+		LLVMBuildStore(compiler->builder, value, address);
+		return;
+	}
+	LLVMValueRef temporary = entry_alloca(compiler, type);
+	LLVMBuildStore(compiler->builder, value, temporary);
+	emit_payload_copy(compiler, type, address, temporary);
 }
 
 LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expression) {
@@ -5098,7 +5708,7 @@ LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expre
 	}
 	address = emit_base_address(compiler, address, type.data.record, expression->data.member.base_path);
 	struct Member* field = expression->data.member.binding;
-	return field->owner->kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, field->owner->llvm_type, address, field->index, "field");
+	return field->owner->kind == UNION_TYPE ? address : LLVMBuildStructGEP2(compiler->builder, field->owner->llvm_body, address, field->index, "field");
 }
 
 LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression) {
@@ -5322,7 +5932,7 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		if (expression->type.kind == FUNCTION_TYPE) {
 			return address;
 		}
-		return address ? LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), address, "field_value") : NULL;
+		return address ? emit_read_value(compiler, expression->type, address) : NULL;
 	}
 	case ADDRESS_EXPRESSION:
 		return expression->data.operand->kind == FUNCTION_EXPRESSION ? expression->data.operand->data.function->llvm_value : emit_address(compiler, expression->data.operand);
@@ -5334,27 +5944,39 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		}
 	case INDEX_EXPRESSION: {
 		LLVMValueRef address = emit_address(compiler, expression);
-		return address ? LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), address, "value") : NULL;
+		return address ? emit_read_value(compiler, expression->type, address) : NULL;
 	}
 	case NAME_EXPRESSION:
 		if (expression->type.kind == FUNCTION_TYPE) {
 			return emit_address(compiler, expression);
 		}
-		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "value");
+		return emit_read_value(compiler, expression->type, emit_address(compiler, expression));
 	case REFERENCE_CAST_EXPRESSION:
 		if (expression->type.kind == FUNCTION_TYPE) {
 			return emit_address(compiler, expression);
 		}
-		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "reference_value");
+		return emit_read_value(compiler, expression->type, emit_address(compiler, expression));
 	case BASE_VALUE_EXPRESSION:
-		return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), emit_address(compiler, expression), "base_value");
+		return emit_read_value(compiler, expression->type, emit_address(compiler, expression));
 	case BASE_POINTER_EXPRESSION: {
 		struct Expression* source = expression->data.base.value;
 		LLVMValueRef value = emit_expression(compiler, source);
-		LLVMValueRef adjusted = expression->data.base.kind == BASE_TO_DERIVED ? emit_inverse_base_address(compiler, value, expression->type.data.element->data.record, expression->data.base.path) : emit_base_address(compiler, value, source->type.data.element->data.record, expression->data.base.path);
 		LLVMValueRef null = LLVMConstNull(llvm_type(compiler, expression->type));
 		LLVMValueRef empty = LLVMBuildICmp(compiler->builder, LLVMIntEQ, value, null, "null_base");
-		return LLVMBuildSelect(compiler->builder, empty, null, adjusted, "base_pointer");
+		LLVMBasicBlockRef previous = LLVMGetInsertBlock(compiler->builder);
+		LLVMValueRef function = LLVMGetBasicBlockParent(previous);
+		LLVMBasicBlockRef convert = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "base.convert");
+		LLVMBasicBlockRef merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "base.end");
+		LLVMBuildCondBr(compiler->builder, empty, merge, convert);
+		LLVMPositionBuilderAtEnd(compiler->builder, convert);
+		LLVMValueRef adjusted = expression->data.base.kind == BASE_TO_DERIVED ? emit_inverse_base_address(compiler, value, expression->type.data.element->data.record, expression->data.base.path) : emit_base_address(compiler, value, source->type.data.element->data.record, expression->data.base.path);
+		LLVMBuildBr(compiler->builder, merge);
+		LLVMPositionBuilderAtEnd(compiler->builder, merge);
+		LLVMValueRef result = LLVMBuildPhi(compiler->builder, llvm_type(compiler, expression->type), "base_pointer");
+		LLVMValueRef values[] = { null, adjusted };
+		LLVMBasicBlockRef blocks[] = { previous, convert };
+		LLVMAddIncoming(result, values, blocks, 2);
+		return result;
 	}
 	case REFERENCE_INITIALIZATION_EXPRESSION: {
 		LLVMValueRef value = emit_expression(compiler, expression->data.binary.right);
@@ -5372,6 +5994,7 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		}
 		return expression->type.kind == FLOAT_TYPE ? LLVMBuildFNeg(compiler->builder, operand, "negative") : LLVMBuildNeg(compiler->builder, operand, "negative");
 	}
+	case VALUE_INITIALIZATION_EXPRESSION:
 	case ASSIGNMENT_EXPRESSION: {
 		struct Expression* target = expression->data.binary.left;
 		LLVMValueRef address = emit_address(compiler, target);
@@ -5381,8 +6004,11 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		if (operation->compound) {
 			value = emit_binary(compiler, operation->compound, left, value, target->type, expression->data.binary.right->type);
 		}
-		LLVMBuildStore(compiler->builder, value, address);
-		return value;
+		if (expression->kind == VALUE_INITIALIZATION_EXPRESSION && target->kind != BASE_VALUE_EXPRESSION) {
+			emit_install_views(compiler, target->type, address);
+		}
+		emit_store_value(compiler, target->type, address, value);
+		return type_has_views(target->type) ? emit_read_value(compiler, target->type, address) : value;
 	}
 	case NOT_EXPRESSION: {
 		LLVMValueRef value = emit_truth(compiler, emit_expression(compiler, expression->data.operand), expression->data.operand->type);
@@ -5434,7 +6060,7 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 	case CALL_EXPRESSION: {
 		LLVMValueRef call = emit_call(compiler, expression);
 		if (call && expression->data.call.binding->result.kind == REFERENCE_TYPE && expression->type.kind != FUNCTION_TYPE) {
-			return LLVMBuildLoad2(compiler->builder, llvm_type(compiler, expression->type), call, "reference_result");
+			return emit_read_value(compiler, expression->type, call);
 		}
 		return call;
 	}
@@ -5464,12 +6090,18 @@ void emit_statement(struct Compiler* compiler, struct Statement* statement, stru
 		struct Variable* variable = statement->data.declaration.variable;
 		variable->slot = entry_alloca(compiler, variable->type);
 		if (statement->data.declaration.initializer) {
-			LLVMBuildStore(compiler->builder, emit_expression(compiler, statement->data.declaration.initializer), variable->slot);
+			LLVMValueRef value = emit_expression(compiler, statement->data.declaration.initializer);
+			emit_install_views(compiler, variable->type, variable->slot);
+			emit_store_value(compiler, variable->type, variable->slot, value);
 		}
 		else if (!statement->data.declaration.initialization) {
 			LLVMBuildStore(compiler->builder, LLVMConstNull(llvm_type(compiler, variable->type)), variable->slot);
+			emit_install_views(compiler, variable->type, variable->slot);
 		}
 		if (statement->data.declaration.initialization) {
+			if (statement->data.declaration.initialization->data.block) {
+				emit_install_views(compiler, variable->type, variable->slot);
+			}
 			emit_statement(compiler, statement->data.declaration.initialization, flow);
 		}
 		break;
@@ -5609,7 +6241,8 @@ void emit_function(struct Compiler* compiler, struct Function* function) {
 	unsigned index = 0;
 	for (struct Variable* parameter = function->parameters; parameter; parameter = parameter->next) {
 		parameter->slot = entry_alloca(compiler, parameter->type);
-		LLVMBuildStore(compiler->builder, LLVMGetParam(function->llvm_value, index++), parameter->slot);
+		emit_install_views(compiler, parameter->type, parameter->slot);
+		emit_store_value(compiler, parameter->type, parameter->slot, LLVMGetParam(function->llvm_value, index++));
 	}
 	emit_statements(compiler, function->statements, NULL);
 	if (!compiler->failed && !LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(compiler->builder))) {
@@ -5873,6 +6506,7 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 		for (struct FunctionSymbol* symbol = compiler->symbols; symbol && !compiler->failed; symbol = symbol->next) {
 			emit_function(compiler, symbol->function);
 		}
+		define_runtime_views(compiler);
 		if (!compiler->failed && mode == EXECUTABLE_COMPILATION) {
 			emit_entry(compiler);
 		}

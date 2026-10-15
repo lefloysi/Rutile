@@ -8,6 +8,7 @@ enum TokenKind {
 	TOKEN_UNION,
 	TOKEN_ENUM,
 	TOKEN_NAMESPACE,
+	TOKEN_VIRTUAL,
 	TOKEN_RETURN,
 	TOKEN_IF,
 	TOKEN_ELSE,
@@ -372,7 +373,57 @@ struct Field {
 	Field* next;
 };
 
+enum BaseKind {
+	BASE_NONVIRTUAL,
+	BASE_VIRTUAL,
+};
+
+struct VirtualType {
+	Entity* entity;
+	usize index;
+	VirtualType* next;
+};
+
+enum SubobjectKind {
+	SUBOBJECT_ROOT,
+	SUBOBJECT_NONVIRTUAL,
+	SUBOBJECT_VIRTUAL,
+};
+
+struct SubobjectEdge {
+	BaseRelation* relation;
+	Subobject* target;
+	SubobjectEdge* next;
+};
+
+struct Subobject {
+	Entity* entity;
+	SubobjectKind kind;
+	SubobjectEdge* edges;
+	Subobject* next;
+	Subobject* virtual_next;
+	u64 offset;
+	usize component;
+	void* view;
+};
+
+struct CompleteGraph {
+	Entity* entity;
+	Subobject* root;
+	Subobject* objects;
+	Subobject* last_object;
+	Subobject* virtuals;
+	Subobject* last_virtual;
+};
+
+struct RuntimeView {
+	CompleteGraph* graph;
+	Subobject* object;
+	RuntimeView* next;
+};
+
 struct BaseRelation {
+	BaseKind kind;
 	Syntax* name;
 	Entity* entity;
 	usize component;
@@ -395,7 +446,10 @@ struct AggregateEntity {
 	Field* fields;
 	BaseRelation* bases;
 	Resolution bases_resolution;
+	VirtualType* virtual_types;
+	CompleteGraph* complete_graph;
 	usize field_count;
+	void* llvm_body;
 	void* llvm_type;
 };
 
@@ -489,6 +543,7 @@ struct Compiler {
 	void* llvm_builder;
 	void* llvm_machine;
 	void* llvm_layout;
+	RuntimeView* runtime_views;
 	OutputKind output;
 	char* entry;
 	i32 optimization;
@@ -908,6 +963,9 @@ fn parser_bases(Parser* parser) -> BaseRelation* {
 	BaseRelation* last = (BaseRelation*)0;
 	while (true) {
 		BaseRelation* base = (BaseRelation*)memory_allocate(parser->compiler, sizeof(BaseRelation));
+		if (parser_take(parser, TOKEN_VIRTUAL)) {
+			base->kind = BASE_VIRTUAL;
+		};
 		base->name = parser_name(parser);
 		if (last) {
 			last->next := base;
@@ -1100,6 +1158,8 @@ struct Keyword {
 };
 
 fn lexer_keywords(Keyword* keywords) {
+	keywords[17].text = "virtual\0";
+	keywords[17].kind = TOKEN_VIRTUAL;
 	keywords[16].text = "namespace\0";
 	keywords[16].kind = TOKEN_NAMESPACE;
 	keywords[0].text = "fn\0";
@@ -1251,7 +1311,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate(compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[17] keywords {};
+	Keyword[18] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[35] operators {};
 	lexer_operators(&operators[0]);
@@ -1482,6 +1542,40 @@ fn entity_members(Entity* entity) -> Scope* {
 	return (Scope*)0;
 };
 
+fn virtual_type_add(Compiler* compiler, Entity* owner, Entity* target) {
+	VirtualType* current := owner->data.aggregate.virtual_types;
+	VirtualType* last = (VirtualType*)0;
+	usize index = 0;
+	while (current) {
+		if (current->entity == target) {
+			return;
+		};
+		last := current;
+		current := current->next;
+		index = index + 1;
+	};
+	VirtualType* type = (VirtualType*)memory_allocate(compiler, sizeof(VirtualType));
+	type->entity = target;
+	type->index = index;
+	if (last) {
+		last->next = type;
+	}
+	else {
+		owner->data.aggregate.virtual_types = type;
+	};
+};
+
+fn virtual_type_index(Entity* owner, Entity* target) -> usize {
+	VirtualType* type := owner->data.aggregate.virtual_types;
+	while (type && type->entity != target) {
+		type := type->next;
+	};
+	if (!type) {
+		return 0;
+	};
+	return type->index;
+};
+
 fn bases_resolve(Compiler* compiler, Entity* record) {
 	if (record->kind != ENTITY_STRUCT || record->data.aggregate.bases_resolution == RESOLUTION_READY) {
 		return;
@@ -1507,12 +1601,210 @@ fn bases_resolve(Compiler* compiler, Entity* record) {
 			};
 			previous := previous->next;
 		};
-		base->component := component;
-		component = component + 1;
 		bases_resolve(compiler, base->entity);
+		if (base->kind == BASE_VIRTUAL) {
+			virtual_type_add(compiler, record, base->entity);
+		};
+		VirtualType* inherited := base->entity->data.aggregate.virtual_types;
+		while (inherited) {
+			virtual_type_add(compiler, record, inherited->entity);
+			inherited := inherited->next;
+		};
+		base := base->next;
+	};
+	if (record->data.aggregate.virtual_types) {
+		component = 1;
+	};
+	base := record->data.aggregate.bases;
+	while (base) {
+		if (base->kind == BASE_NONVIRTUAL) {
+			base->component := component;
+			component = component + 1;
+		}
+		else {
+			base->component = virtual_type_index(record, base->entity);
+		};
 		base := base->next;
 	};
 	record->data.aggregate.bases_resolution = RESOLUTION_READY;
+};
+
+fn subobject_create(Compiler* compiler, CompleteGraph* graph, Entity* entity, SubobjectKind kind) -> Subobject* {
+	Subobject* object = (Subobject*)memory_allocate(compiler, sizeof(Subobject));
+	object->entity = entity;
+	object->kind := kind;
+	if (graph->last_object) {
+		graph->last_object->next := object;
+	}
+	else {
+		graph->objects := object;
+	};
+	graph->last_object := object;
+	if (kind == SUBOBJECT_VIRTUAL) {
+		if (graph->last_virtual) {
+			object->component = graph->last_virtual->component + 1;
+			graph->last_virtual->virtual_next := object;
+		}
+		else {
+			object->component = 1;
+			graph->virtuals := object;
+		};
+		graph->last_virtual := object;
+	};
+	return object;
+};
+
+fn subobject_expand(Compiler* compiler, CompleteGraph* graph, Subobject* object);
+
+fn subobject_virtual(Compiler* compiler, CompleteGraph* graph, Entity* entity) -> Subobject* {
+	Subobject* object := graph->virtuals;
+	while (object) {
+		if (object->entity == entity) {
+			return object;
+		};
+		object := object->virtual_next;
+	};
+	object = subobject_create(compiler, graph, entity, SUBOBJECT_VIRTUAL);
+	subobject_expand(compiler, graph, object);
+	return object;
+};
+
+fn subobject_expand(Compiler* compiler, CompleteGraph* graph, Subobject* object) {
+	BaseRelation* base := object->entity->data.aggregate.bases;
+	SubobjectEdge* last = (SubobjectEdge*)0;
+	while (base) {
+		SubobjectEdge* edge = (SubobjectEdge*)memory_allocate(compiler, sizeof(SubobjectEdge));
+		edge->relation := base;
+		if (base->kind == BASE_VIRTUAL) {
+			edge->target = subobject_virtual(compiler, graph, base->entity);
+		}
+		else {
+			edge->target = subobject_create(compiler, graph, base->entity, SUBOBJECT_NONVIRTUAL);
+			subobject_expand(compiler, graph, edge->target);
+		};
+		if (last) {
+			last->next := edge;
+		}
+		else {
+			object->edges := edge;
+		};
+		last = edge;
+		base := base->next;
+	};
+};
+
+fn complete_graph(Compiler* compiler, Entity* entity) -> CompleteGraph* {
+	if (entity->data.aggregate.complete_graph) {
+		return entity->data.aggregate.complete_graph;
+	};
+	bases_resolve(compiler, entity);
+	if (compiler->result == COMPILATION_FAILURE) {
+		return (CompleteGraph*)0;
+	};
+	CompleteGraph* graph = (CompleteGraph*)memory_allocate(compiler, sizeof(CompleteGraph));
+	graph->entity := entity;
+	graph->root = subobject_create(compiler, graph, entity, SUBOBJECT_ROOT);
+	entity->data.aggregate.complete_graph := graph;
+	subobject_expand(compiler, graph, graph->root);
+	return graph;
+};
+
+fn subobject_edge(Subobject* object, BaseRelation* relation) -> Subobject* {
+	if (!object) {
+		return (Subobject*)0;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge && edge->relation != relation) {
+		edge := edge->next;
+	};
+	if (!edge) {
+		return (Subobject*)0;
+	};
+	return edge->target;
+};
+
+fn subobject_path(Subobject* object, BasePath* path) -> Subobject* {
+	while (path && object) {
+		object = subobject_edge(object, path->relation);
+		path := path->next;
+	};
+	return object;
+};
+
+struct SubobjectVisit {
+	Subobject* object;
+	SubobjectVisit* next;
+};
+
+fn base_paths_graph(Compiler* compiler, Subobject* object, Entity* target, BasePath* prefix, SubobjectVisit** visited, BaseSearch* result) {
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		previous := previous->next;
+	};
+	SubobjectVisit* current = (SubobjectVisit*)memory_allocate(compiler, sizeof(SubobjectVisit));
+	current->object := object;
+	current->next := *visited;
+	*visited = current;
+	if (object->entity == target) {
+		if (!result->count) {
+			result->path := prefix;
+		};
+		result->count = result->count + 1;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		BasePath* path = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
+		path->relation := edge->relation;
+		if (prefix) {
+			BasePath* first = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
+			*first := *prefix;
+			BasePath* last := first;
+			BasePath* next := prefix->next;
+			while (next) {
+				BasePath* copy = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
+				*copy := *next;
+				last->next := copy;
+				last = copy;
+				next := next->next;
+			};
+			last->next := path;
+			path = first;
+		};
+		base_paths_graph(compiler, edge->target, target, path, visited, result);
+		edge := edge->next;
+	};
+};
+
+fn subobject_find_path(Compiler* compiler, Subobject* object, Subobject* target, BasePath** result) -> bool {
+	if (object == target) {
+		return true;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		BasePath* tail = (BasePath*)0;
+		if (subobject_find_path(compiler, edge->target, target, &tail)) {
+			BasePath* path = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
+			path->relation := edge->relation;
+			path->next = tail;
+			*result = path;
+			return true;
+		};
+		edge := edge->next;
+	};
+	return false;
+};
+
+fn base_path_virtual(BasePath* path) -> bool {
+	while (path) {
+		if (path->relation->kind == BASE_VIRTUAL) {
+			return true;
+		};
+		path := path->next;
+	};
+	return false;
 };
 
 enum MemberLookupKind {
@@ -1521,34 +1813,103 @@ enum MemberLookupKind {
 	MEMBER_AMBIGUOUS,
 };
 
+struct LookupObject {
+	Subobject* object;
+	LookupObject* next;
+};
+
 struct MemberLookup {
 	MemberLookupKind kind;
 	Entity* entity;
+	LookupObject* objects;
 };
 
+fn subobject_contains(Subobject* derived, Subobject* base) -> bool {
+	if (derived == base) {
+		return true;
+	};
+	SubobjectEdge* edge := derived->edges;
+	while (edge) {
+		if (subobject_contains(edge->target, base)) {
+			return true;
+		};
+		edge := edge->next;
+	};
+	return false;
+};
+
+fn lookup_dominates(LookupObject* derived, LookupObject* bases) -> bool {
+	while (bases) {
+		LookupObject* candidate := derived;
+		while (candidate && !subobject_contains(candidate->object, bases->object)) {
+			candidate := candidate->next;
+		};
+		if (!candidate) {
+			return false;
+		};
+		bases := bases->next;
+	};
+	return true;
+};
+
+fn lookup_objects_merge(Compiler* compiler, LookupObject** destination, LookupObject* source) {
+	while (source) {
+		LookupObject* existing := *destination;
+		while (existing && existing->object != source->object) {
+			existing := existing->next;
+		};
+		if (!existing) {
+			LookupObject* entry = (LookupObject*)memory_allocate(compiler, sizeof(LookupObject));
+			entry->object := source->object;
+			entry->next := *destination;
+			*destination = entry;
+		};
+		source := source->next;
+	};
+};
+
+fn member_find_object(Compiler* compiler, Subobject* object, Token name) -> MemberLookup {
+	MemberLookup result;
+	result.entity = scope_local(entity_members(object->entity), name);
+	if (result.entity) {
+		result.kind = MEMBER_FOUND;
+		result.objects = (LookupObject*)memory_allocate(compiler, sizeof(LookupObject));
+		result.objects->object := object;
+		return result;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		MemberLookup inherited = member_find_object(compiler, edge->target, name);
+		if (inherited.kind == MEMBER_NONE) {
+			edge := edge->next;
+			continue;
+		};
+		if (result.kind == MEMBER_NONE || lookup_dominates(inherited.objects, result.objects)) {
+			result = inherited;
+		}
+		else if (!lookup_dominates(result.objects, inherited.objects)) {
+			if (inherited.kind != MEMBER_FOUND || result.kind != MEMBER_FOUND || inherited.entity != result.entity) {
+				result.kind = MEMBER_AMBIGUOUS;
+				result.entity = (Entity*)0;
+			};
+			lookup_objects_merge(compiler, &result.objects, inherited.objects);
+		};
+		edge := edge->next;
+	};
+	return result;
+};
 
 fn member_find(Compiler* compiler, Entity* owner, Token name) -> MemberLookup {
+	if (owner->kind == ENTITY_STRUCT) {
+		CompleteGraph* graph = complete_graph(compiler, owner);
+		if (graph) {
+			return member_find_object(compiler, graph->root, name);
+		};
+	};
 	MemberLookup result;
 	result.entity = scope_local(entity_members(owner), name);
 	if (result.entity) {
 		result.kind = MEMBER_FOUND;
-		return result;
-	};
-	if (owner->kind != ENTITY_STRUCT) {
-		return result;
-	};
-	bases_resolve(compiler, owner);
-	BaseRelation* base := owner->data.aggregate.bases;
-	while (base && compiler->result != COMPILATION_FAILURE) {
-		MemberLookup inherited = member_find(compiler, base->entity, name);
-		if (inherited.kind == MEMBER_AMBIGUOUS || (inherited.kind == MEMBER_FOUND && result.entity && (inherited.entity != result.entity))) {
-			result.kind = MEMBER_AMBIGUOUS;
-			return result;
-		};
-		if (inherited.kind == MEMBER_FOUND) {
-			result = inherited;
-		};
-		base := base->next;
 	};
 	return result;
 };
@@ -1570,22 +1931,12 @@ fn base_paths(Compiler* compiler, Entity* source, Entity* target, BaseSearch* re
 	if (source->kind != ENTITY_STRUCT || target->kind != ENTITY_STRUCT) {
 		return;
 	};
-	bases_resolve(compiler, source);
-	BaseRelation* base := source->data.aggregate.bases;
-	while (base && compiler->result != COMPILATION_FAILURE) {
-		BaseSearch child;
-		base_paths(compiler, base->entity, target, &child);
-		if (child.count) {
-			if (!result->count) {
-				BasePath* path = (BasePath*)memory_allocate(compiler, sizeof(BasePath));
-				path->relation := base;
-				path->next := child.path;
-				result->path = path;
-			};
-			result->count = result->count + child.count;
-		};
-		base := base->next;
+	CompleteGraph* graph = complete_graph(compiler, source);
+	if (!graph) {
+		return;
 	};
+	SubobjectVisit* visited = (SubobjectVisit*)0;
+	base_paths_graph(compiler, graph->root, target, (BasePath*)0, &visited, result);
 };
 
 fn base_search(Compiler* compiler, Type* source, Type* target) -> BaseSearch {
@@ -1923,7 +2274,11 @@ fn parser_unary(Parser* parser) -> Syntax* {
 		node->data.unary.value = parser_unary(parser);
 		return node;
 	};
-	if (parser_at(parser, TOKEN_LEFT_PAREN) && parser_type_at(parser, parser->offset + 1)) {
+	usize cast_end = 0;
+	if (parser_at(parser, TOKEN_LEFT_PAREN)) {
+		cast_end = parser_type_end(parser, parser->offset + 1);
+	};
+	if (cast_end && cast_end < parser->count && parser->tokens[cast_end].kind == TOKEN_RIGHT_PAREN) {
 		parser_take(parser, TOKEN_LEFT_PAREN);
 		Syntax* node = syntax_new(parser, SYNTAX_CAST, token);
 		node->data.cast.type = parser_type(parser);
@@ -2038,6 +2393,9 @@ fn parser_declaration_start(Parser* parser) -> i32 {
 	};
 
 	usize end = parser_type_end(parser, parser->offset);
+	if (end && parser_at(parser, TOKEN_LEFT_PAREN) && parser->tokens[end - 1].kind == TOKEN_RIGHT_PAREN) {
+		return 0;
+	};
 	return end && end < parser->count && parser->tokens[end].kind == TOKEN_NAME;
 };
 
@@ -2462,6 +2820,7 @@ fn LLVMStructSetBody(void* type, void** fields, u32 count, i32 packed);
 fn LLVMConstInt(void* type, u64 value, i32 sign_extend) -> void*;
 fn LLVMConstReal(void* type, f64 value) -> void*;
 fn LLVMConstNull(void* type) -> void*;
+fn LLVMConstArray2(void* element_type, void** values, u64 count) -> void*;
 fn LLVMConstStringInContext2(void* context, char* bytes, usize length, i32 no_terminator) -> void*;
 fn LLVMTypeOf(void* value) -> void*;
 fn LLVMGetNamedFunction(void* module, char* name) -> void*;
@@ -2702,6 +3061,7 @@ fn type_unsigned(Type* type) -> i32 {
 
 fn type_resolve(Compiler* compiler, Scope* scope, Syntax* syntax) -> Type*;
 fn entity_resolve(Compiler* compiler, Entity* entity);
+fn llvm_body(Compiler* compiler, Entity* entity) -> void*;
 fn llvm_type(Compiler* compiler, Type* type) -> void*;
 
 fn integer_spelling(Compiler* compiler, Token token, u64 maximum) -> u64 {
@@ -3079,6 +3439,9 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 		};
 		bases_resolve(compiler, entity);
 		usize base_count = 0;
+		if (entity->data.aggregate.virtual_types) {
+			base_count = 1;
+		};
 		if (entity->kind == ENTITY_STRUCT) {
 			BaseRelation* base := entity->data.aggregate.bases;
 			while (base && compiler->result != COMPILATION_FAILURE) {
@@ -3087,7 +3450,9 @@ fn entity_resolve(Compiler* compiler, Entity* entity) {
 					compiler_error(compiler, base->name->token, "base struct requires a complete definition\0");
 					return;
 				};
-				base_count = base_count + 1;
+				if (base->kind == BASE_NONVIRTUAL) {
+					base_count = base_count + 1;
+				};
 				base := base->next;
 			};
 		};
@@ -3330,28 +3695,59 @@ fn reference_base_at(ReferencePath* path, usize index) -> BaseRelation* {
 	return reference_base_at(path->parent, index);
 };
 
-fn reference_bases_match(ReferencePath* expected, BasePath* first, BasePath* second) -> bool {
+fn reference_bases_match(Compiler* compiler, ReferencePath* expected, Type* source, BasePath* first, BasePath* second) -> bool {
+	CompleteGraph* graph = complete_graph(compiler, source->data.entity);
+	Subobject* actual = subobject_path(subobject_path(graph->root, first), second);
+	Subobject* required := graph->root;
 	usize index = 0;
-	BasePath* path := first;
-	while (path) {
-		if (path->relation != reference_base_at(expected, index)) {
-			return false;
-		};
+	while (index < reference_base_count(expected)) {
+		required = subobject_edge(required, reference_base_at(expected, index));
 		index = index + 1;
-		path := path->next;
 	};
-	path = second;
-	while (path) {
-		if (path->relation != reference_base_at(expected, index)) {
-			return false;
+	return actual == required;
+};
+
+fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* storage) -> bool;
+
+fn reference_cast_subobject(Compiler* compiler, Scope* scope, ReferencePath* root, CompleteGraph* graph, Syntax* storage) -> Subobject* {
+	if (storage->kind != SYNTAX_CAST) {
+		if (reference_path_matches(compiler, scope, root, storage)) {
+			return graph->root;
 		};
-		index = index + 1;
-		path := path->next;
+		return (Subobject*)0;
 	};
-	return index == reference_base_count(expected);
+	Type* selected = type_resolve(compiler, scope, storage->data.cast.type);
+	if (selected->kind != TYPE_REFERENCE || selected->data.element->kind != TYPE_NAMED) {
+		return (Subobject*)0;
+	};
+	Subobject* source = reference_cast_subobject(compiler, scope, root, graph, storage->data.cast.value);
+	if (!source) {
+		return (Subobject*)0;
+	};
+	BaseSearch path = base_search(compiler, entity_type(source->entity), selected->data.element);
+	if (path.count != 1) {
+		return (Subobject*)0;
+	};
+	return subobject_path(source, path.path);
 };
 
 fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* storage) -> bool {
+	if (storage && storage->kind == SYNTAX_CAST && path->kind == SYNTAX_BASE_REFERENCE) {
+		ReferencePath* root := path;
+		while (root->kind == SYNTAX_BASE_REFERENCE) {
+			root := root->parent;
+		};
+		Type* source = reference_path_type(root);
+		CompleteGraph* graph = complete_graph(compiler, source->data.entity);
+		Subobject* actual = reference_cast_subobject(compiler, scope, root, graph, storage);
+		Subobject* required := graph->root;
+		usize index = 0;
+		while (index < reference_base_count(path)) {
+			required = subobject_edge(required, reference_base_at(path, index));
+			index = index + 1;
+		};
+		return actual && actual == required;
+	};
 	if (!storage || storage->kind != path->kind) {
 		return false;
 	};
@@ -3392,7 +3788,7 @@ fn reference_path_matches(Compiler* compiler, Scope* scope, ReferencePath* path,
 			compiler_error(compiler, storage->token, "ambiguous inherited reference field subobject\0");
 			return false;
 		};
-		return first.count == 1 && reference_bases_match(path->parent, first.path, second.path);
+		return first.count == 1 && reference_bases_match(compiler, path->parent, source, first.path, second.path);
 	};
 	if (path->kind == SYNTAX_INDEX) {
 		return reference_path_matches(compiler, scope, path->parent, storage->data.binary.left) && constant_integer(compiler, scope, storage->data.binary.right) == (u64)path->data.index;
@@ -3430,23 +3826,109 @@ fn type_has_reference(Type* type) -> bool {
 	return false;
 };
 
+fn reference_path_contains(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* storage) -> bool {
+	while (storage) {
+		if (reference_path_matches(compiler, scope, path, storage)) {
+			return true;
+		};
+		if (storage->kind == SYNTAX_MEMBER && storage->token.kind != TOKEN_ARROW) {
+			storage := storage->data.member.object;
+		}
+		else if (storage->kind == SYNTAX_INDEX) {
+			storage := storage->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	return false;
+};
+
+fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, ReferencePath* path, Syntax* body, Token token);
+
+fn reference_whole_prepare(Compiler* compiler, Scope* scope, ReferencePath* path, Syntax* body) -> bool {
+	Syntax* statement = (Syntax*)0;
+	if (body) {
+		statement := body->data.statements;
+	};
+	while (statement) {
+		if ((statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) && (statement->data.binary.operation == TOKEN_ASSIGN || statement->data.binary.operation == TOKEN_COPY) && reference_path_matches(compiler, scope, path, statement->data.binary.left)) {
+			statement->kind = SYNTAX_INITIALIZE;
+			if (path->kind == SYNTAX_NAME || path->kind == SYNTAX_MEMBER) {
+				statement->data.binary.left->entity := path->data.entity;
+			};
+			return true;
+		};
+		statement := statement->next;
+	};
+	return false;
+};
+
+fn reference_subobjects_bound(Compiler* compiler, Subobject* object, SubobjectVisit** visited) {
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		previous := previous->next;
+	};
+	SubobjectVisit* visit = (SubobjectVisit*)memory_allocate(compiler, sizeof(SubobjectVisit));
+	visit->object := object;
+	visit->next := *visited;
+	*visited = visit;
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		reference_subobjects_bound(compiler, edge->target, visited);
+		edge := edge->next;
+	};
+};
+
+fn reference_subobjects_prepare(Compiler* compiler, Scope* scope, Subobject* object, ReferencePath* path, Syntax* body, Token token, SubobjectVisit** visited) {
+	if (reference_whole_prepare(compiler, scope, path, body)) {
+		reference_subobjects_bound(compiler, object, visited);
+		return;
+	};
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		previous := previous->next;
+	};
+	SubobjectVisit* visit = (SubobjectVisit*)memory_allocate(compiler, sizeof(SubobjectVisit));
+	visit->object := object;
+	visit->next := *visited;
+	*visited = visit;
+
+	SubobjectEdge* edge := object->edges;
+	while (edge && compiler->result != COMPILATION_FAILURE) {
+		ReferencePath inherited;
+		inherited.kind = SYNTAX_BASE_REFERENCE;
+		inherited.parent := path;
+		inherited.data.base := edge->relation;
+		reference_subobjects_prepare(compiler, scope, edge->target, &inherited, body, token, visited);
+		edge := edge->next;
+	};
+	Field* field := object->entity->data.aggregate.fields;
+	while (field && compiler->result != COMPILATION_FAILURE) {
+		ReferencePath member;
+		member.kind = SYNTAX_MEMBER;
+		member.parent := path;
+		member.data.entity := field->entity;
+		reference_fields_prepare(compiler, scope, entity_type(field->entity), &member, body, token);
+		field := field->next;
+	};
+};
+
 fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, ReferencePath* path, Syntax* body, Token token) {
 	if (!type || compiler->result == COMPILATION_FAILURE || !type_has_reference(type)) {
 		return;
 	};
+	if (reference_whole_prepare(compiler, scope, path, body)) {
+		return;
+	};
+	Syntax* statement = (Syntax*)0;
 	if (type->kind == TYPE_REFERENCE) {
-		Syntax* statement = (Syntax*)0;
-		if (body) {
-			statement := body->data.statements;
-		};
-		while (statement) {
-			if ((statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) && (statement->data.binary.operation == TOKEN_ASSIGN || statement->data.binary.operation == TOKEN_COPY) && reference_path_matches(compiler, scope, path, statement->data.binary.left)) {
-				statement->kind = SYNTAX_INITIALIZE;
-				statement->data.binary.left->entity := path->data.entity;
-				return;
-			};
-			statement := statement->next;
-		};
 		compiler_error(compiler, token, "object requires an initializer binding every reference field\0");
 		return;
 	};
@@ -3466,24 +3948,32 @@ fn reference_fields_prepare(Compiler* compiler, Scope* scope, Type* type, Refere
 		return;
 	};
 	entity_resolve(compiler, type->data.entity);
-	BaseRelation* base := type->data.entity->data.aggregate.bases;
-	while (base && compiler->result != COMPILATION_FAILURE) {
-		ReferencePath inherited;
-		inherited.kind = SYNTAX_BASE_REFERENCE;
-		inherited.parent := path;
-		inherited.data.base := base;
-		reference_fields_prepare(compiler, scope, entity_type(base->entity), &inherited, body, token);
-		base := base->next;
+	if (type->data.entity->kind == ENTITY_UNION) {
+		if (body) {
+			statement := body->data.statements;
+		};
+		while (statement) {
+			if ((statement->kind == SYNTAX_BINARY || statement->kind == SYNTAX_INITIALIZE) && (statement->data.binary.operation == TOKEN_ASSIGN || statement->data.binary.operation == TOKEN_COPY)) {
+				Field* field := type->data.entity->data.aggregate.fields;
+				while (field) {
+					ReferencePath member;
+					member.kind = SYNTAX_MEMBER;
+					member.parent := path;
+					member.data.entity := field->entity;
+					if (reference_path_contains(compiler, scope, &member, statement->data.binary.left)) {
+						reference_fields_prepare(compiler, scope, entity_type(field->entity), &member, body, token);
+						return;
+					};
+					field := field->next;
+				};
+			};
+			statement := statement->next;
+		};
+		return;
 	};
-	Field* field := type->data.entity->data.aggregate.fields;
-	while (field && compiler->result != COMPILATION_FAILURE) {
-		ReferencePath member;
-		member.kind = SYNTAX_MEMBER;
-		member.parent := path;
-		member.data.entity := field->entity;
-		reference_fields_prepare(compiler, scope, entity_type(field->entity), &member, body, token);
-		field := field->next;
-	};
+	CompleteGraph* graph = complete_graph(compiler, type->data.entity);
+	SubobjectVisit* visited = (SubobjectVisit*)0;
+	reference_subobjects_prepare(compiler, scope, graph->root, path, body, token, &visited);
 };
 
 fn object_initializer_prepare(Compiler* compiler, Scope* scope, Entity* variable, Syntax* body, Token token) {
@@ -3550,21 +4040,53 @@ fn syntax_base_root(Syntax* syntax) -> Syntax* {
 	return syntax;
 };
 
+fn storage_root_entity(Syntax* syntax) -> Entity* {
+	while (syntax) {
+		if (syntax->kind == SYNTAX_BASE_REFERENCE) {
+			syntax := syntax->data.base_conversion.value;
+		}
+		else if (syntax->kind == SYNTAX_MEMBER && syntax->token.kind != TOKEN_ARROW) {
+			syntax := syntax->data.member.object;
+		}
+		else if (syntax->kind == SYNTAX_INDEX && syntax->data.binary.left->type->kind == TYPE_ARRAY) {
+			syntax := syntax->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	if (!syntax || syntax->kind != SYNTAX_NAME) {
+		return (Entity*)0;
+	};
+	return syntax->entity;
+};
+
 fn reference_storage_same(Compiler* compiler, Scope* scope, Syntax* first, Syntax* second) -> bool {
 	if (!first || !second) {
 		return false;
 	};
 	if (first->kind == SYNTAX_BASE_REFERENCE || second->kind == SYNTAX_BASE_REFERENCE) {
-		usize count = syntax_base_count(first);
-		if (count != syntax_base_count(second)) {
+		Syntax* root = syntax_base_root(first);
+		Syntax* other = syntax_base_root(second);
+		Type* type = type_effective(root->type);
+		if (!type || type->kind != TYPE_NAMED || !type_equal(type, type_effective(other->type))) {
 			return false;
 		};
+		CompleteGraph* graph = complete_graph(compiler, type->data.entity);
+		Subobject* left := graph->root;
+		Subobject* right := graph->root;
 		usize index = 0;
-		while (index < count) {
-			if (syntax_base_at(first, index) != syntax_base_at(second, index)) {
-				return false;
-			};
+		while (index < syntax_base_count(first)) {
+			left = subobject_edge(left, syntax_base_at(first, index));
 			index = index + 1;
+		};
+		index = 0;
+		while (index < syntax_base_count(second)) {
+			right = subobject_edge(right, syntax_base_at(second, index));
+			index = index + 1;
+		};
+		if (left != right) {
+			return false;
 		};
 		return reference_storage_same(compiler, scope, syntax_base_root(first), syntax_base_root(second));
 	};
@@ -3579,6 +4101,27 @@ fn reference_storage_same(Compiler* compiler, Scope* scope, Syntax* first, Synta
 	};
 	if (first->kind == SYNTAX_INDEX) {
 		return constant_integer(compiler, scope, first->data.binary.right) == constant_integer(compiler, scope, second->data.binary.right) && reference_storage_same(compiler, scope, first->data.binary.left, second->data.binary.left);
+	};
+	return false;
+};
+
+fn reference_storage_contains(Compiler* compiler, Scope* scope, Syntax* parent, Syntax* storage) -> bool {
+	while (storage) {
+		if (reference_storage_same(compiler, scope, parent, storage)) {
+			return true;
+		};
+		if (storage->kind == SYNTAX_MEMBER) {
+			storage := storage->data.member.object;
+		}
+		else if (storage->kind == SYNTAX_INDEX) {
+			storage := storage->data.binary.left;
+		}
+		else if (storage->kind == SYNTAX_BASE_REFERENCE) {
+			storage := storage->data.base_conversion.value;
+		}
+		else {
+			break;
+		};
 	};
 	return false;
 };
@@ -3634,7 +4177,7 @@ fn reference_read_validate(Semantic* semantic, Syntax* storage) {
 				if (statement->kind == SYNTAX_BIND_REFERENCE && reference_storage_same(semantic->compiler, semantic->scope, statement->data.binary.left, storage)) {
 					return;
 				};
-				if (statement->kind == SYNTAX_INITIALIZE && statement->type && statement->data.binary.left->kind == SYNTAX_NAME && statement->data.binary.left->entity == scope->owner) {
+				if (statement->kind == SYNTAX_INITIALIZE && statement->type && reference_storage_contains(semantic->compiler, semantic->scope, statement->data.binary.left, storage)) {
 					return;
 				};
 				statement := statement->next;
@@ -3761,6 +4304,10 @@ fn semantic_base_cast(Semantic* semantic, Syntax* syntax, Syntax* value, Type* s
 	BaseDirection direction = BASE_UP;
 	BasePath* path := up.path;
 	if (down.count) {
+		if (base_path_virtual(down.path)) {
+			compiler_error(semantic->compiler, syntax->token, "downcast through a virtual base is invalid\0");
+			return false;
+		};
 		direction = BASE_DOWN;
 		path := down.path;
 	};
@@ -4139,6 +4686,15 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 					source_type = semantic_expression(semantic, right, destination);
 				};
 				semantic_expect(semantic, right, source_type, destination);
+				if (left->entity && left->entity->kind == ENTITY_VARIABLE && left->entity->data.variable.storage == STORAGE_FIELD && left->entity->data.variable.data.field.owner->kind == ENTITY_UNION && !type_has_reference(destination)) {
+					Scope* context := semantic->scope;
+					while (context && context->context != CONTEXT_INITIALIZATION && context->context != CONTEXT_ARGUMENTS) {
+						context := context->parent;
+					};
+					if (context && context->owner == storage_root_entity(left) && entity_type(context->owner)->kind != TYPE_REFERENCE) {
+						syntax->kind = SYNTAX_INITIALIZE;
+					};
+				};
 				if (syntax->kind != SYNTAX_INITIALIZE && type_has_reference(destination)) {
 					compiler_error(compiler, syntax->token, "assignment cannot replace an object containing reference fields\0");
 				};
@@ -4357,6 +4913,79 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	return semantic_expect(semantic, syntax, type, expected);
 };
 
+fn llvm_body(Compiler* compiler, Entity* entity) -> void* {
+	if (entity->data.aggregate.llvm_body) {
+		return entity->data.aggregate.llvm_body;
+	};
+	entity_resolve(compiler, entity);
+	void* record = LLVMStructCreateNamed(compiler->llvm_context, "rt.body\0");
+	entity->data.aggregate.llvm_body := record;
+	if (!entity->declaration || !entity->declaration->data.declaration.body) {
+		return record;
+	};
+	usize count := entity->data.aggregate.field_count;
+	if (entity->data.aggregate.virtual_types) {
+		count = count + 1;
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == BASE_NONVIRTUAL) {
+			count = count + 1;
+		};
+		base := base->next;
+	};
+	void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
+	usize index = 0;
+	if (entity->data.aggregate.virtual_types) {
+		fields[index] = LLVMPointerTypeInContext(compiler->llvm_context, 0);
+		index = index + 1;
+	};
+	base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == BASE_NONVIRTUAL) {
+			fields[index] = llvm_body(compiler, base->entity);
+			index = index + 1;
+		};
+		base := base->next;
+	};
+	Field* binding := entity->data.aggregate.fields;
+	u64 maximum_size = 0;
+	u32 maximum_alignment = 0;
+	void* aligned = (void*)0;
+	while (binding) {
+		void* field = llvm_type(compiler, entity_type(binding->entity));
+		fields[index] := field;
+		index = index + 1;
+		if (entity->kind == ENTITY_UNION) {
+			u64 size = LLVMABISizeOfType(compiler->llvm_layout, field);
+			u32 alignment = LLVMABIAlignmentOfType(compiler->llvm_layout, field);
+			if (size > maximum_size) {
+				maximum_size = size;
+			};
+			if (alignment > maximum_alignment) {
+				maximum_alignment = alignment;
+				aligned = field;
+			};
+		};
+		binding := binding->next;
+	};
+	if (entity->kind == ENTITY_UNION && aligned) {
+		u64 size = LLVMABISizeOfType(compiler->llvm_layout, aligned);
+		fields[0] = aligned;
+		index = 1;
+		if (maximum_size > size) {
+			fields[1] = LLVMArrayType2(LLVMIntTypeInContext(compiler->llvm_context, 8), maximum_size - size);
+			index = 2;
+		};
+	};
+	if (!index) {
+		fields[0] = LLVMIntTypeInContext(compiler->llvm_context, 8);
+		index = 1;
+	};
+	LLVMStructSetBody(record, fields, (u32)index, 0);
+	return record;
+};
+
 fn llvm_type(Compiler* compiler, Type* type) -> void* {
 	if (!type) {
 		return LLVMVoidTypeInContext(compiler->llvm_context);
@@ -4406,65 +5035,28 @@ fn llvm_type(Compiler* compiler, Type* type) -> void* {
 			if (entity->data.aggregate.llvm_type) {
 				return entity->data.aggregate.llvm_type;
 			};
-			entity_resolve(compiler, entity);
-			char* name = entity_name(compiler, entity);
-			void* record = LLVMStructCreateNamed(compiler->llvm_context, name);
+			void* body = llvm_body(compiler, entity);
+			if (!entity->data.aggregate.virtual_types) {
+				entity->data.aggregate.llvm_type := body;
+				return body;
+			};
+			void* record = LLVMStructCreateNamed(compiler->llvm_context, entity_name(compiler, entity));
 			entity->data.aggregate.llvm_type := record;
-			if (!entity->declaration || !entity->declaration->data.declaration.body) {
-				return record;
-			};
-			usize count := entity->data.aggregate.field_count;
-			BaseRelation* base := entity->data.aggregate.bases;
-			while (base) {
+			CompleteGraph* graph = complete_graph(compiler, entity);
+			usize count = 1;
+			Subobject* object := graph->virtuals;
+			while (object) {
 				count = count + 1;
-				base := base->next;
+				object := object->virtual_next;
 			};
-			void** fields = (void**)memory_allocate(compiler, (count + 2) * sizeof(void*));
-			usize index = 0;
-			base := entity->data.aggregate.bases;
-			while (base) {
-				fields[index] = llvm_type(compiler, entity_type(base->entity));
-				index = index + 1;
-				base := base->next;
+			void** components = (void**)memory_allocate(compiler, count * sizeof(void*));
+			components[0] = body;
+			object := graph->virtuals;
+			while (object) {
+				components[object->component] = llvm_body(compiler, object->entity);
+				object := object->virtual_next;
 			};
-			Field* binding := entity->data.aggregate.fields;
-			u64 maximum_size = 0;
-			u32 maximum_alignment = 0;
-			void* aligned = (void*)0;
-			while (binding) {
-				Type* field_type = entity_type(binding->entity);
-				if (field_type && binding->entity->data.variable.storage == STORAGE_FIELD) {
-					void* field = llvm_type(compiler, field_type);
-					fields[index] := field;
-					index = index + 1;
-					if (entity->kind == ENTITY_UNION) {
-						u64 size = LLVMABISizeOfType(compiler->llvm_layout, field);
-						u32 alignment = LLVMABIAlignmentOfType(compiler->llvm_layout, field);
-						if (size > maximum_size) {
-							maximum_size = size;
-						};
-						if (alignment > maximum_alignment) {
-							maximum_alignment = alignment;
-							aligned = field;
-						};
-					};
-				};
-				binding := binding->next;
-			};
-			if (entity->kind == ENTITY_UNION && aligned) {
-				u64 size = LLVMABISizeOfType(compiler->llvm_layout, aligned);
-				fields[0] = aligned;
-				index = 1;
-				if (maximum_size > size) {
-					fields[1] = LLVMArrayType2(LLVMIntTypeInContext(compiler->llvm_context, 8), maximum_size - size);
-					index = 2;
-				};
-			};
-			if (!index) {
-				fields[0] = LLVMIntTypeInContext(compiler->llvm_context, 8);
-				index = 1;
-			};
-			LLVMStructSetBody(record, fields, (u32)index, 0);
+			LLVMStructSetBody(record, components, (u32)count, 0);
 			return record;
 		};
 	};
@@ -4494,17 +5086,102 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void*;
 
 fn emit_address(Emitter* emitter, Syntax* syntax) -> void*;
 
+fn subobject_offsets(Compiler* compiler, Subobject* object, u64 offset) {
+	object->offset := offset;
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		if (edge->relation->kind == BASE_NONVIRTUAL) {
+			u64 child = offset + LLVMOffsetOfElement(compiler->llvm_layout, llvm_body(compiler, object->entity), (u32)edge->relation->component);
+			subobject_offsets(compiler, edge->target, child);
+		};
+		edge := edge->next;
+	};
+};
+
+fn complete_offsets(Compiler* compiler, CompleteGraph* graph) {
+	void* type = llvm_type(compiler, entity_type(graph->entity));
+	subobject_offsets(compiler, graph->root, 0);
+	Subobject* object := graph->virtuals;
+	while (object) {
+		u64 offset = LLVMOffsetOfElement(compiler->llvm_layout, type, (u32)object->component);
+		subobject_offsets(compiler, object, offset);
+		object := object->virtual_next;
+	};
+};
+
+fn runtime_view_request(Compiler* compiler, CompleteGraph* graph, Subobject* object) -> void* {
+	if (object->view) {
+		return object->view;
+	};
+	usize count = 0;
+	VirtualType* target := object->entity->data.aggregate.virtual_types;
+	while (target) {
+		count = count + 1;
+		target := target->next;
+	};
+	void* type = LLVMArrayType2(llvm_type(compiler, compiler->usize_type), (u64)count);
+	void* view = LLVMAddGlobal(compiler->llvm_module, type, "rt.view\0");
+	LLVMSetLinkage(view, 9);
+	LLVMSetGlobalConstant(view, 1);
+	object->view := view;
+	RuntimeView* request = (RuntimeView*)memory_allocate(compiler, sizeof(RuntimeView));
+	request->graph = graph;
+	request->object = object;
+	request->next := compiler->runtime_views;
+	compiler->runtime_views = request;
+	return view;
+};
+
+fn runtime_views_emit(Compiler* compiler) {
+	RuntimeView* view := compiler->runtime_views;
+	while (view) {
+		complete_offsets(compiler, view->graph);
+		VirtualType* target := view->object->entity->data.aggregate.virtual_types;
+		usize count = 0;
+		while (target) {
+			count = count + 1;
+			target := target->next;
+		};
+		void** values = (void**)memory_allocate(compiler, count * sizeof(void*));
+		target := view->object->entity->data.aggregate.virtual_types;
+		while (target) {
+			Subobject* storage := view->graph->virtuals;
+			while (storage && storage->entity != target->entity) {
+				storage := storage->virtual_next;
+			};
+			values[target->index] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), storage->offset - view->object->offset, 0);
+			target := target->next;
+		};
+		LLVMSetInitializer(view->object->view, LLVMConstArray2(llvm_type(compiler, compiler->usize_type), values, (u64)count));
+		view := view->next;
+	};
+};
+
+fn emit_byte_offset(Emitter* emitter, void* address, u64 offset) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void* index = LLVMConstInt(llvm_type(compiler, compiler->usize_type), offset, 0);
+	return LLVMBuildGEP2(compiler->llvm_builder, LLVMIntTypeInContext(compiler->llvm_context, 8), address, &index, 1, "subobject\0");
+};
+
 fn emit_base_address(Emitter* emitter, void* address, Entity* derived, BasePath* path, BaseDirection direction) -> void* {
 	Compiler* compiler := emitter->compiler;
 	void* builder := compiler->llvm_builder;
 	u64 offset = 0;
 	while (path) {
 		BaseRelation* relation := path->relation;
-		if (direction == BASE_UP) {
-			address = LLVMBuildStructGEP2(builder, llvm_type(compiler, entity_type(derived)), address, (u32)relation->component, "base\0");
+		if (direction == BASE_UP && relation->kind == BASE_VIRTUAL) {
+			void* header = LLVMBuildStructGEP2(builder, llvm_body(compiler, derived), address, 0, "view.storage\0");
+			void* view = LLVMBuildLoad2(builder, LLVMPointerTypeInContext(compiler->llvm_context, 0), header, "view\0");
+			void* index = LLVMConstInt(llvm_type(compiler, compiler->usize_type), (u64)relation->component, 0);
+			void* slot = LLVMBuildGEP2(builder, llvm_type(compiler, compiler->usize_type), view, &index, 1, "virtual.offset.storage\0");
+			void* displacement = LLVMBuildLoad2(builder, llvm_type(compiler, compiler->usize_type), slot, "virtual.offset\0");
+			address = LLVMBuildGEP2(builder, LLVMIntTypeInContext(compiler->llvm_context, 8), address, &displacement, 1, "virtual.base\0");
+		}
+		else if (direction == BASE_UP) {
+			address = LLVMBuildStructGEP2(builder, llvm_body(compiler, derived), address, (u32)relation->component, "base\0");
 		}
 		else {
-			offset = offset + LLVMOffsetOfElement(compiler->llvm_layout, llvm_type(compiler, entity_type(derived)), (u32)relation->component);
+			offset = offset + LLVMOffsetOfElement(compiler->llvm_layout, llvm_body(compiler, derived), (u32)relation->component);
 		};
 		derived := relation->entity;
 		path := path->next;
@@ -4532,6 +5209,29 @@ fn emit_base_conversion(Emitter* emitter, Syntax* syntax) -> void* {
 	Entity* derived := source->data.entity;
 	if (syntax->data.base_conversion.direction == BASE_DOWN) {
 		derived := syntax->data.base_conversion.target->data.element->data.entity;
+	};
+	if (syntax->kind == SYNTAX_BASE_POINTER && base_path_virtual(syntax->data.base_conversion.path)) {
+		void* initial = LLVMGetInsertBlock(compiler->llvm_builder);
+		void* function = LLVMGetBasicBlockParent(initial);
+		void* live = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "base.nonnull\0");
+		void* merge = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "base.end\0");
+		void* null = LLVMConstNull(LLVMTypeOf(address));
+		void* empty = LLVMBuildICmp(compiler->llvm_builder, 32, address, null, "base.null\0");
+		LLVMBuildCondBr(compiler->llvm_builder, empty, merge, live);
+		LLVMPositionBuilderAtEnd(compiler->llvm_builder, live);
+		void* converted = emit_base_address(emitter, address, derived, syntax->data.base_conversion.path, syntax->data.base_conversion.direction);
+		live = LLVMGetInsertBlock(compiler->llvm_builder);
+		LLVMBuildBr(compiler->llvm_builder, merge);
+		LLVMPositionBuilderAtEnd(compiler->llvm_builder, merge);
+		void* result = LLVMBuildPhi(compiler->llvm_builder, LLVMTypeOf(address), "base.pointer\0");
+		void*[2] values {};
+		void*[2] blocks {};
+		values[0] = null;
+		values[1] = converted;
+		blocks[0] = initial;
+		blocks[1] = live;
+		LLVMAddIncoming(result, &values[0], &blocks[0], 2);
+		return result;
 	};
 	void* result = emit_base_address(emitter, address, derived, syntax->data.base_conversion.path, syntax->data.base_conversion.direction);
 	if (syntax->kind == SYNTAX_BASE_POINTER) {
@@ -4583,7 +5283,7 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 			if (type->data.entity->kind == ENTITY_UNION) {
 				return address;
 			};
-			void* field = LLVMBuildStructGEP2(builder, llvm_type(compiler, type), address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
+			void* field = LLVMBuildStructGEP2(builder, llvm_body(compiler, type->data.entity), address, (u32)syntax->entity->data.variable.data.field.index, "field\0");
 			return field;
 		};
 		case SYNTAX_INDEX: {
@@ -4602,6 +5302,189 @@ fn emit_storage_address(Emitter* emitter, Syntax* syntax) -> void* {
 	};
 	compiler_error(compiler, syntax->token, "expression has no storage address\0");
 	return (void*)0;
+};
+
+fn type_has_views(Type* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		return type_has_views(type->data.array.element);
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return false;
+	};
+	Entity* entity := type->data.entity;
+	if (entity->data.aggregate.virtual_types) {
+		return true;
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (type_has_views(entity_type(base->entity))) {
+			return true;
+		};
+		base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		if (type_has_views(entity_type(field->entity))) {
+			return true;
+		};
+		field := field->next;
+	};
+	return false;
+};
+
+fn type_requires_union_choice(Type* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		return type_requires_union_choice(type->data.array.element);
+	};
+	if (type->kind != TYPE_NAMED || type->data.entity->kind == ENTITY_ENUM) {
+		return false;
+	};
+	Entity* entity := type->data.entity;
+	if (entity->kind == ENTITY_UNION) {
+		return type_has_views(type) || type_has_reference(type);
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (type_requires_union_choice(entity_type(base->entity))) {
+			return true;
+		};
+		base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		if (type_requires_union_choice(entity_type(field->entity))) {
+			return true;
+		};
+		field := field->next;
+	};
+	return false;
+};
+
+fn emit_initialize_type(Emitter* emitter, Type* type, void* address);
+fn emit_payload_copy(Emitter* emitter, Type* type, void* destination, void* source);
+
+fn emit_array_element(Emitter* emitter, Type* type, void* address, usize index) -> void* {
+	Compiler* compiler := emitter->compiler;
+	void*[2] indices {};
+	indices[0] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), 0, 0);
+	indices[1] = LLVMConstInt(llvm_type(compiler, compiler->usize_type), (u64)index, 0);
+	return LLVMBuildGEP2(compiler->llvm_builder, llvm_type(compiler, type), address, &indices[0], 2, "array.element\0");
+};
+
+fn emit_initialize_body_fields(Emitter* emitter, Entity* entity, void* address) {
+	if (entity->kind == ENTITY_UNION) {
+		return;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		Type* type = entity_type(field->entity);
+		if (type_has_views(type)) {
+			void* storage = LLVMBuildStructGEP2(emitter->compiler->llvm_builder, llvm_body(emitter->compiler, entity), address, (u32)field->entity->data.variable.data.field.index, "member.object\0");
+			emit_initialize_type(emitter, type, storage);
+		};
+		field := field->next;
+	};
+};
+
+fn emit_initialize_type(Emitter* emitter, Type* type, void* address) {
+	Compiler* compiler := emitter->compiler;
+	if (!type_has_views(type)) {
+		return;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			emit_initialize_type(emitter, type->data.array.element, emit_array_element(emitter, type, address, index));
+			index = index + 1;
+		};
+		return;
+	};
+	Entity* entity := type->data.entity;
+	if (entity->kind == ENTITY_UNION) {
+		return;
+	};
+	CompleteGraph* graph = complete_graph(compiler, entity);
+	complete_offsets(compiler, graph);
+	Subobject* object := graph->objects;
+	while (object) {
+		void* storage = emit_byte_offset(emitter, address, object->offset);
+		if (object->entity->data.aggregate.virtual_types) {
+			void* header = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, object->entity), storage, 0, "view.storage\0");
+			LLVMBuildStore(compiler->llvm_builder, runtime_view_request(compiler, graph, object), header);
+		};
+		emit_initialize_body_fields(emitter, object->entity, storage);
+		object := object->next;
+	};
+};
+
+fn emit_body_payload_copy(Emitter* emitter, Entity* entity, void* destination, void* source) {
+	Compiler* compiler := emitter->compiler;
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == BASE_NONVIRTUAL) {
+			void* target = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, entity), destination, (u32)base->component, "copy.base.destination\0");
+			void* origin = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, entity), source, (u32)base->component, "copy.base.source\0");
+			emit_body_payload_copy(emitter, base->entity, target, origin);
+		};
+		base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		void* target = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, entity), destination, (u32)field->entity->data.variable.data.field.index, "copy.field.destination\0");
+		void* origin = LLVMBuildStructGEP2(compiler->llvm_builder, llvm_body(compiler, entity), source, (u32)field->entity->data.variable.data.field.index, "copy.field.source\0");
+		emit_payload_copy(emitter, entity_type(field->entity), target, origin);
+		field := field->next;
+	};
+};
+
+fn emit_payload_copy(Emitter* emitter, Type* type, void* destination, void* source) {
+	Compiler* compiler := emitter->compiler;
+	if (!type_has_views(type) || (type->kind == TYPE_NAMED && type->data.entity->kind == ENTITY_UNION)) {
+		void* value = LLVMBuildLoad2(compiler->llvm_builder, llvm_type(compiler, type), source, "copy.value\0");
+		LLVMBuildStore(compiler->llvm_builder, value, destination);
+		return;
+	};
+	if (type->kind == TYPE_ARRAY) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			emit_payload_copy(emitter, type->data.array.element, emit_array_element(emitter, type, destination, index), emit_array_element(emitter, type, source, index));
+			index = index + 1;
+		};
+		return;
+	};
+	Entity* entity := type->data.entity;
+	emit_body_payload_copy(emitter, entity, destination, source);
+	CompleteGraph* graph = complete_graph(compiler, entity);
+	Subobject* target := graph->virtuals;
+	while (target) {
+		BasePath* path = (BasePath*)0;
+		subobject_find_path(compiler, graph->root, target, &path);
+		void* origin = emit_base_address(emitter, source, entity, path, BASE_UP);
+		void* result = emit_base_address(emitter, destination, entity, path, BASE_UP);
+		emit_body_payload_copy(emitter, target->entity, result, origin);
+		target := target->virtual_next;
+	};
+};
+
+fn emit_complete_read(Emitter* emitter, Type* type, void* source) -> void* {
+	Compiler* compiler := emitter->compiler;
+	if (!type_has_views(type) || (type->kind == TYPE_NAMED && type->data.entity->kind == ENTITY_UNION)) {
+		return LLVMBuildLoad2(compiler->llvm_builder, llvm_type(compiler, type), source, "value\0");
+	};
+	void* value = emit_slot(compiler, type);
+	emit_initialize_type(emitter, type, value);
+	emit_payload_copy(emitter, type, value, source);
+	return LLVMBuildLoad2(compiler->llvm_builder, llvm_type(compiler, type), value, "complete.value\0");
+};
+
+fn emit_value_read(Emitter* emitter, Syntax* syntax) -> void* {
+	return emit_complete_read(emitter, syntax->type, emit_address(emitter, syntax));
 };
 
 fn emit_truth(Emitter* emitter, void* value, Type* type) -> void* {
@@ -4820,6 +5703,9 @@ fn emit_call(Emitter* emitter, Syntax* syntax) -> void* {
 		void* value = (void*)0;
 		if (argument->kind == SYNTAX_BLOCK) {
 			argument->entity->data.variable.data.address = emit_slot(compiler, argument->type);
+			if (argument->data.statements && argument->type->kind != TYPE_REFERENCE) {
+				emit_initialize_type(emitter, argument->type, argument->entity->data.variable.data.address);
+			};
 			emit_statement(emitter, argument);
 			value = LLVMBuildLoad2(builder, llvm_type(compiler, argument->type), argument->entity->data.variable.data.address, "argument\0");
 		}
@@ -4880,7 +5766,7 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 		case SYNTAX_BASE_POINTER:
 			return emit_base_conversion(emitter, syntax);
 		case SYNTAX_BASE_REFERENCE:
-			return LLVMBuildLoad2(builder, type, emit_base_conversion(emitter, syntax), "base.value\0");
+			return emit_value_read(emitter, syntax);
 		case SYNTAX_NUMBER:
 			if (syntax->type->kind == TYPE_BOOL) {
 				return LLVMConstInt(type, number_truth(compiler, syntax->token), 0);
@@ -4911,13 +5797,13 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			if (syntax->type->kind == TYPE_FUNCTION) {
 				return emit_address(emitter, syntax);
 			};
-			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
+			return emit_value_read(emitter, syntax);
 		case SYNTAX_MEMBER:
 		case SYNTAX_INDEX:
 			if (syntax->type->kind == TYPE_FUNCTION) {
 				return emit_address(emitter, syntax);
 			};
-			return LLVMBuildLoad2(builder, type, emit_address(emitter, syntax), "value\0");
+			return emit_value_read(emitter, syntax);
 		case SYNTAX_SIZEOF:
 			return LLVMConstInt(type, LLVMABISizeOfType(compiler->llvm_layout, llvm_type(compiler, syntax->data.expression->type)), 0);
 		case SYNTAX_CAST:
@@ -4935,7 +5821,7 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 				if (syntax->type->kind == TYPE_FUNCTION) {
 					return emit_expression(emitter, operand);
 				};
-				return LLVMBuildLoad2(builder, type, emit_expression(emitter, operand), "value\0");
+				return emit_value_read(emitter, syntax);
 			};
 			void* value = emit_expression(emitter, operand);
 			if (operation == TOKEN_BANG) {
@@ -4966,6 +5852,23 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			Syntax* left := syntax->data.binary.left;
 			Syntax* right := syntax->data.binary.right;
 			if (operation == TOKEN_ASSIGN || operation == TOKEN_COPY) {
+				if (type_has_views(left->type)) {
+					void* destination = emit_address(emitter, left);
+					if (syntax->kind == SYNTAX_INITIALIZE && left->kind != SYNTAX_BASE_REFERENCE) {
+						emit_initialize_type(emitter, left->type, destination);
+					};
+					void* source = (void*)0;
+					if (syntax_category(right) == VALUE_STORAGE) {
+						source = emit_address(emitter, right);
+					}
+					else {
+						void* value = emit_expression(emitter, right);
+						source = emit_slot(compiler, right->type);
+						LLVMBuildStore(builder, value, source);
+					};
+					emit_payload_copy(emitter, left->type, destination, source);
+					return emit_complete_read(emitter, left->type, destination);
+				};
 				void* value = emit_expression(emitter, right);
 				value = emit_cast(emitter, value, right->type, left->type);
 				LLVMBuildStore(builder, value, emit_address(emitter, left));
@@ -5012,11 +5915,10 @@ fn emit_expression(Emitter* emitter, Syntax* syntax) -> void* {
 			return emit_binary(emitter, syntax, first, second);
 		};
 		case SYNTAX_CALL: {
-			void* call = emit_call(emitter, syntax);
 			if (syntax_storage_type(syntax)->kind == TYPE_REFERENCE && syntax->type->kind != TYPE_FUNCTION) {
-				return LLVMBuildLoad2(builder, type, call, "referent.value\0");
+				return emit_value_read(emitter, syntax);
 			};
-			return call;
+			return emit_call(emitter, syntax);
 		};
 	};
 	compiler_error(compiler, syntax->token, "expression cannot be emitted\0");
@@ -5076,6 +5978,10 @@ fn emit_statement(Emitter* emitter, Syntax* syntax) {
 				};
 				if (!syntax->data.declaration.body) {
 					LLVMBuildStore(builder, LLVMConstNull(llvm_type(compiler, variable->data.variable.type)), variable->data.variable.data.address);
+					emit_initialize_type(emitter, variable->data.variable.type, variable->data.variable.data.address);
+				}
+				else if (syntax->data.declaration.body->data.statements && variable->data.variable.type->kind != TYPE_REFERENCE) {
+					emit_initialize_type(emitter, variable->data.variable.type, variable->data.variable.data.address);
 				};
 				emit_statement(emitter, syntax->data.declaration.body);
 			};
@@ -5493,17 +6399,25 @@ fn emit_function(Compiler* compiler, Entity* entity) {
 	};
 	void* block = LLVMAppendBasicBlockInContext(compiler->llvm_context, entity->data.function.llvm_value, "entry\0");
 	LLVMPositionBuilderAtEnd(compiler->llvm_builder, block);
+	Emitter emitter;
+	emitter.compiler := compiler;
+	emitter.function := entity;
 	Parameter* parameter := entity->data.function.type->data.function.parameters;
 	u32 index = 0;
 	while (parameter) {
 		parameter->entity->data.variable.data.address = emit_slot(compiler, parameter->type);
-		LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), parameter->entity->data.variable.data.address);
+		if (type_has_views(parameter->type) && (parameter->type->kind != TYPE_NAMED || parameter->type->data.entity->kind != ENTITY_UNION)) {
+			void* incoming = emit_slot(compiler, parameter->type);
+			LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), incoming);
+			emit_initialize_type(&emitter, parameter->type, parameter->entity->data.variable.data.address);
+			emit_payload_copy(&emitter, parameter->type, parameter->entity->data.variable.data.address, incoming);
+		}
+		else {
+			LLVMBuildStore(compiler->llvm_builder, LLVMGetParam(entity->data.function.llvm_value, index), parameter->entity->data.variable.data.address);
+		};
 		index = index + 1;
 		parameter := parameter->next;
 	};
-	Emitter emitter;
-	emitter.compiler := compiler;
-	emitter.function := entity;
 	emit_statement(&emitter, entity->data.function.body);
 	if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(compiler->llvm_builder))) {
 		if (entity->data.function.type->data.function.result->kind == TYPE_VOID) {
@@ -5635,6 +6549,9 @@ fn backend_emit(Compiler* compiler) {
 	if (compiler->output == OUTPUT_EXECUTABLE && compiler->result != COMPILATION_FAILURE) {
 		emit_entry(compiler);
 	};
+	if (compiler->result == COMPILATION_SUCCESS) {
+		runtime_views_emit(compiler);
+	};
 };
 
 fn semantic_statement(Semantic* semantic, Syntax* syntax) {
@@ -5664,6 +6581,10 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 					variable->data.variable.type = type_resolve(compiler, semantic->scope, syntax->data.declaration.type);
 				};
 				variable->resolution = RESOLUTION_READY;
+				if (!syntax->data.declaration.body && variable->data.variable.type && type_requires_union_choice(variable->data.variable.type)) {
+					compiler_error(compiler, syntax->token, "automatic union member construction requires an explicit member initializer\0");
+					return;
+				};
 				if (variable->data.variable.type && variable->data.variable.type->kind == TYPE_REFERENCE) {
 					reference_initializer(compiler, syntax->data.declaration.body, variable, syntax->token);
 					if (compiler->result == COMPILATION_FAILURE) {
