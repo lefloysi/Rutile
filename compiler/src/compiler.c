@@ -1388,7 +1388,11 @@ struct Namespace* namespace_child(struct Compiler* compiler, struct Namespace* o
 		owner = owner->canonical;
 	}
 	if (!owner || !owner->record) {
-		return namespace_local(compiler, owner, name);
+		struct Namespace* space = namespace_local(compiler, owner, name);
+		while (space && space->canonical) {
+			space = space->canonical;
+		}
+		return space;
 	}
 	struct MemberLookup member = record_member(compiler, owner->record, name);
 	if (member.kind == AMBIGUOUS_MEMBER) {
@@ -3349,6 +3353,14 @@ void template_bind_arguments(struct Compiler* compiler, struct TemplateParameter
 		binding->argument = *argument;
 		binding->next = compiler->template_bindings;
 		compiler->template_bindings = binding;
+		if (argument->kind == TYPE_PARAMETER && (argument->type.kind == STRUCT_TYPE || argument->type.kind == UNION_TYPE || argument->type.kind == ENUM_TYPE)) {
+			struct Namespace* associated = namespace_ensure(compiler, compiler->namespace_scope, parameter->name);
+			if (!associated) {
+				return;
+			}
+			associated->canonical = argument->type.data.record->associated;
+			associated->kind = ALIASED_NAMESPACE;
+		}
 		parameter = parameter->next;
 		argument = argument->next;
 	}
@@ -6093,7 +6105,6 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 					diagnostic(compiler, left->span.first, "assignment target requires explicit '@' access");
 					break;
 				}
-				require_owned_value(compiler, right);
 				if (function->parameters->next->type.kind != REFERENCE_TYPE) {
 					check_expression(compiler, right, &function->parameters->next->type);
 					require_owned_value(compiler, right);
