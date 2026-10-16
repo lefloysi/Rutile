@@ -12,7 +12,7 @@ struct LLVMOpaqueType;
 struct LLVMOpaqueValue;
 struct LLVMTarget;
 
-enum token_kind {
+enum token_kind : [i32] {
 	identifier;
 	literal_number;
 	literal_string;
@@ -111,7 +111,7 @@ struct Lexer {
 	usize column;
 };
 
-enum syntax_kind {
+enum syntax_kind : [i32] {
 	name;
 	number;
 	nullptr_;
@@ -154,7 +154,7 @@ enum syntax_kind {
 	base_pointer;
 };
 
-enum parameter_arity {
+enum parameter_arity : [i32] {
 	fixed;
 	variadic;
 };
@@ -172,19 +172,19 @@ struct SignatureSyntax {
 	parameter_arity arity;
 };
 
-enum function_modification {
+enum function_modification : [i32] {
 	ordinary;
 	virtual_;
 	override_;
 	final_;
 };
 
-enum constructor_conversion {
+enum constructor_conversion : [i32] {
 	explicit_;
 	implicit_;
 };
 
-enum function_definition {
+enum function_definition : [i32] {
 	declaration;
 	definition;
 	deleted;
@@ -202,7 +202,7 @@ struct DeclarationSyntax {
 	function_modification modification;
 };
 
-enum initialization_access {
+enum initialization_access : [i32] {
 	explicit;
 	access;
 };
@@ -219,7 +219,7 @@ struct UnarySyntax {
 	token_kind operation;
 };
 
-enum receiver_kind {
+enum receiver_kind : [i32] {
 	none;
 	bind;
 	evaluate;
@@ -271,12 +271,12 @@ struct ArraySyntax {
 	Token count;
 };
 
-enum base_direction {
+enum base_direction : [i32] {
 	up;
 	down;
 };
 
-enum base_conversion_request {
+enum base_conversion_request : [i32] {
 	implicit_conversion;
 	explicit_conversion;
 };
@@ -327,7 +327,7 @@ union SyntaxData {
 fn SyntaxData::SyntaxData(SyntaxData& this) {
 };
 
-enum value_use {
+enum value_use : [i32] {
 	observed;
 	transferred;
 };
@@ -346,7 +346,7 @@ struct Syntax {
 	value_use use;
 };
 
-enum template_parameter_kind {
+enum template_parameter_kind : [i32] {
 	type;
 	value;
 };
@@ -384,7 +384,7 @@ struct TemplateDeclaration {
 	usize end;
 };
 
-enum template_declaration_role {
+enum template_declaration_role : [i32] {
 	primary;
 	member;
 };
@@ -405,14 +405,14 @@ struct TemplatePattern {
 	token_kind declaration_kind;
 };
 
-enum lifetime_status {
+enum lifetime_status : [i32] {
 	alive;
 	relocated;
 	discarded;
 	ended;
 };
 
-enum reachability {
+enum reachability : [i32] {
 	unreachable;
 	reachable;
 };
@@ -447,7 +447,7 @@ struct LifetimeAnalysis {
 	LifetimeState state;
 };
 
-enum type_kind {
+enum type_kind : [i32] {
 	void;
 	null;
 	bool;
@@ -489,7 +489,7 @@ union TypeData {
 	FunctionType function;
 };
 
-enum type_qualifier {
+enum type_qualifier : [i32] {
 	mutable;
 	const_;
 };
@@ -500,7 +500,7 @@ struct Type {
 	type_qualifier qualifier;
 };
 
-enum entity_kind {
+enum entity_kind : [i32] {
 	primitive;
 	struct_;
 	union_;
@@ -512,13 +512,13 @@ enum entity_kind {
 	template_;
 };
 
-enum resolution {
+enum resolution : [i32] {
 	pending;
 	active;
 	ready;
 };
 
-enum context_kind {
+enum context_kind : [i32] {
 	module;
 	struct_;
 	union_;
@@ -569,7 +569,7 @@ struct Field {
 	Field* next;
 };
 
-enum base_kind {
+enum base_kind : [i32] {
 	nonvirtual;
 	virtual_;
 };
@@ -580,7 +580,7 @@ struct VirtualType {
 	usize index;
 };
 
-enum subobject_kind {
+enum subobject_kind : [i32] {
 	root;
 	nonvirtual;
 	virtual_;
@@ -667,7 +667,8 @@ struct AggregateEntity {
 };
 
 struct EnumEntity {
-	Type* type;
+	AggregateEntity aggregate;
+	Type* underlying;
 	Binding* values;
 };
 
@@ -687,14 +688,14 @@ struct VirtualTarget {
 	Subobject* object;
 };
 
-enum function_role {
+enum function_role : [i32] {
 	ordinary;
 	constructor;
 	destructor;
 	assignment;
 };
 
-enum function_analysis {
+enum function_analysis : [i32] {
 	unrequested;
 	requested;
 	analyzing;
@@ -722,8 +723,9 @@ struct FunctionEntity {
 	constructor_conversion conversion;
 };
 
-enum storage_kind {
+enum storage_kind : [i32] {
 	local;
+	global;
 	parameter;
 	argument;
 	field;
@@ -743,8 +745,67 @@ union StorageData {
 
 struct VariableEntity {
 	Type* type;
+	ConstantEvaluation* evaluation;
 	StorageData data;
 	storage_kind storage;
+};
+
+enum constant_state : [i32] {
+	unevaluated;
+	evaluating;
+	constant;
+	runtime;
+	invalid;
+};
+
+union ConstantData {
+	u64 integer;
+	f64 real;
+	ConstantValue** elements;
+	string_view text;
+};
+
+enum constant_kind : [i32] {
+	scalar;
+	aggregate;
+	text;
+};
+
+struct ConstantValue {
+	Type* type;
+	ConstantData data;
+	usize count;
+	constant_kind kind;
+};
+
+struct ConstantEvaluation {
+	ConstantValue* value;
+	const char* reason;
+	constant_state state;
+};
+
+struct ConstantBinding {
+	Entity* entity;
+	ConstantValue* value;
+	ConstantBinding* next;
+};
+
+enum constant_flow : [i32] {
+	normal;
+	return_;
+	break_;
+	continue_;
+};
+
+struct ConstantContext {
+	Compiler* compiler;
+	Scope* scope;
+	ConstantBinding* bindings;
+	ConstantValue* result;
+	const char* reason;
+	usize steps;
+	usize depth;
+	constant_flow flow;
 };
 
 struct NamespaceEntity {
@@ -1047,7 +1108,7 @@ fn LLVMPassOptionsDisposer::dispose(LLVMOpaquePassBuilderOptions* handle) {
 	LLVMDisposePassBuilderOptions($handle);
 };
 
-enum file_purpose {
+enum file_purpose : [i32] {
 	source;
 	object;
 };
@@ -1091,12 +1152,12 @@ fn File::~File(File& this) {
 	};
 };
 
-enum compilation_result {
+enum compilation_result : [i32] {
 	success;
 	failure;
 };
 
-enum output_kind {
+enum output_kind : [i32] {
 	executable;
 	library;
 };
@@ -1149,7 +1210,7 @@ fn Compiler::clear(Compiler& this) {
 	@((CompilerState&)this) = CompilerState();
 };
 
-enum expression_context {
+enum expression_context : [i32] {
 	ordinary;
 	argument;
 };
@@ -1164,7 +1225,7 @@ struct Parser {
 	expression_context context;
 };
 
-enum flow_kind {
+enum flow_kind : [i32] {
 	function;
 	loop;
 	switch_;
@@ -1486,7 +1547,7 @@ fn declaration_entity(Compiler& compiler, Scope* scope, entity_kind kind, const 
 		};
 		scope_define(@compiler, (Scope*)scope, (Entity*)entity);
 	};
-	if ((kind == entity_kind::struct_ || kind == entity_kind::union_) && !entity->data.aggregate.scope) {
+	if ((kind == entity_kind::struct_ || kind == entity_kind::union_ || kind == entity_kind::enum_) && !entity->data.aggregate.scope) {
 		@entity->data.aggregate.scope = scope_create(@compiler, (Scope*)scope, context_kind::module, (Entity*)entity);
 	};
 	return $entity;
@@ -1535,7 +1596,7 @@ fn namespace_define(Compiler& compiler, Scope* scope, Token name) -> Entity* {
 	return $entity;
 };
 
-enum declaration_phase {
+enum declaration_phase : [i32] {
 	identities;
 	members;
 };
@@ -2297,11 +2358,8 @@ fn entity_members(Entity* entity) -> Scope* {
 	if (entity && entity->kind == entity_kind::namespace_) {
 		return (Scope*)entity->data.namespace_entity.scope;
 	};
-	if (entity && (entity->kind == entity_kind::struct_ || entity->kind == entity_kind::union_)) {
+	if (entity && (entity->kind == entity_kind::struct_ || entity->kind == entity_kind::union_ || entity->kind == entity_kind::enum_)) {
 		return (Scope*)entity->data.aggregate.scope;
-	};
-	if (entity && entity->kind == entity_kind::enum_ && entity->declaration && entity->declaration->data.declaration.body) {
-		return (Scope*)entity->declaration->data.declaration.body->scope;
 	};
 	return nullptr;
 };
@@ -2574,7 +2632,7 @@ fn base_path_virtual(BasePath* path) -> bool {
 	return false;
 };
 
-enum member_lookup_kind {
+enum member_lookup_kind : [i32] {
 	none;
 	found;
 	ambiguous;
@@ -2715,8 +2773,21 @@ fn base_search(Compiler& compiler, Type* source, Type* target) -> BaseSearch {
 };
 
 fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
+	if (!syntax) {
+		return nullptr;
+	};
 	if (syntax->entity) {
 		return (Entity*)syntax->entity;
+	};
+	if (syntax->kind == syntax_kind::member) {
+		Scope* members = entity_members(syntax_lookup((Scope*)scope, (Syntax*)syntax->data.member.object));
+		if (!members) {
+			return nullptr;
+		};
+		return associated_lookup(@*scope->compiler, (Entity*)members->owner, syntax->data.member.name);
+	};
+	if (syntax->kind != syntax_kind::name) {
+		return nullptr;
 	};
 	if (!syntax->data.expression) {
 		return scope_lookup((Scope*)scope, syntax->token);
@@ -3622,6 +3693,9 @@ fn Parser::variable(Parser& this) -> Syntax* {
 	@node->data.declaration.name = @this.require(token_kind::identifier, "expected declaration identifier\0");
 	@node->entity = entity_create(@*this.compiler, entity_kind::variable, Token(node->data.declaration.name));
 	@node->entity->declaration := node;
+	if (this.scope->context == context_kind::module) {
+		@node->entity->data.variable.storage = storage_kind::global;
+	};
 	if (this.scope->context == context_kind::struct_ || this.scope->context == context_kind::union_) {
 		@node->entity->data.variable.storage = storage_kind::field;
 	};
@@ -3672,6 +3746,11 @@ fn Parser::enum_block(Parser& this) -> Syntax* {
 	@block->scope := this.scope;
 	Syntax* last = nullptr;
 	while (!this.at(token_kind::punct_right_brace) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
+		if (this.at(token_kind::kw_fn)) {
+			Syntax* function = @this.named_declaration(declaration_rule(@*this.compiler, token_kind::kw_fn));
+			syntax_append(&block->data.statements, &last, $function);
+			continue;
+		};
 		Token name = @this.require(token_kind::identifier, "expected enum member identifier\0");
 		Syntax* node = @this.new_syntax(syntax_kind::declaration, Token(name));
 		@node->entity = entity_create(@*this.compiler, entity_kind::variable, Token(name));
@@ -3843,7 +3922,7 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 		};
 	};
 	Entity* aggregate := owner->owner;
-	if (token.kind == token_kind::kw_fn && role != function_role::destructor && aggregate && (aggregate->kind == entity_kind::struct_ || aggregate->kind == entity_kind::union_)) {
+	if (token.kind == token_kind::kw_fn && role != function_role::destructor && aggregate && (aggregate->kind == entity_kind::struct_ || aggregate->kind == entity_kind::union_ || aggregate->kind == entity_kind::enum_)) {
 		if (token_same(node->data.declaration.name, aggregate->name)) {
 			@role = function_role::constructor;
 		}
@@ -3851,7 +3930,7 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 			@role = function_role::assignment;
 		};
 	};
-	if (role == function_role::destructor && (!aggregate || (aggregate->kind != entity_kind::struct_ && aggregate->kind != entity_kind::union_) || !token_same(node->data.declaration.name, aggregate->name))) {
+	if (role == function_role::destructor && (!aggregate || (aggregate->kind != entity_kind::struct_ && aggregate->kind != entity_kind::union_ && aggregate->kind != entity_kind::enum_) || !token_same(node->data.declaration.name, aggregate->name))) {
 		compiler_error(@*this.compiler, token, "destructor name must match its owning type\0");
 		return $node;
 	};
@@ -3871,27 +3950,37 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 	};
 	if (token.kind != token_kind::kw_fn && @this.take(token_kind::punct_colon)) {
 		@this.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
-		if (token.kind != token_kind::kw_struct) {
+		if (token.kind == token_kind::kw_enum) {
+			@node->data.declaration.type = @this.type();
+			@this.require(token_kind::punct_right_bracket, "expected ']' after enum underlying type\0");
+		}
+		else if (token.kind != token_kind::kw_struct) {
 			compiler_error(@*this.compiler, token, "base relationships require a struct declaration\0");
 			return $node;
+		}
+		else {
+			if (this.at(token_kind::punct_right_bracket)) {
+				compiler_error(@*this.compiler, this.token(), "modifier list cannot be empty\0");
+				return $node;
+			};
+			@node->data.declaration.bases = @this.bases();
+			@this.require(token_kind::punct_right_bracket, "expected ']' after base relationships\0");
+			if (!node->entity->data.aggregate.bases) {
+				@node->entity->data.aggregate.bases := node->data.declaration.bases;
+			};
+			if (!this.at(token_kind::punct_left_brace)) {
+				compiler_error(@*this.compiler, token, "base relationships require a struct definition\0");
+				return $node;
+			};
 		};
-		if (this.at(token_kind::punct_right_bracket)) {
-			compiler_error(@*this.compiler, this.token(), "modifier list cannot be empty\0");
-			return $node;
-		};
-		@node->data.declaration.bases = @this.bases();
-		@this.require(token_kind::punct_right_bracket, "expected ']' after base relationships\0");
-		if (!node->entity->data.aggregate.bases) {
-			@node->entity->data.aggregate.bases := node->data.declaration.bases;
-		};
-		if (!this.at(token_kind::punct_left_brace)) {
-			compiler_error(@*this.compiler, token, "base relationships require a struct definition\0");
-			return $node;
-		};
+	};
+	if (token.kind == token_kind::kw_enum && !node->data.declaration.type) {
+		compiler_error(@*this.compiler, token, "enum declaration requires an explicit underlying type ': [type]'\0");
+		return $node;
 	};
 	if (token.kind == token_kind::kw_fn) {
 		@node->data.declaration.type = @this.signature(Token(token));
-		if ((role != function_role::ordinary || this.scope->context == context_kind::struct_ || this.scope->context == context_kind::union_) && !node->data.declaration.path->data.expression) {
+		if ((role != function_role::ordinary || this.scope->context == context_kind::struct_ || this.scope->context == context_kind::union_ || this.scope->context == context_kind::enum_) && !node->data.declaration.path->data.expression) {
 			@this.receiver((Syntax*)node->data.declaration.type, (Entity*)this.scope->owner);
 		};
 		if ((role == function_role::constructor || role == function_role::destructor) && node->data.declaration.type->data.signature.result) {
@@ -4003,7 +4092,13 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 			@members->context = context_kind::module;
 		}
 		else {
-			@this.scope = scope_create(@*this.compiler, (Scope*)owner, (context_kind)context, (Entity*)node->entity);
+			if (token.kind == token_kind::kw_enum) {
+				@this.scope = entity_members((Entity*)node->entity);
+				@this.scope->context := context;
+			}
+			else {
+				@this.scope = scope_create(@*this.compiler, (Scope*)owner, (context_kind)context, (Entity*)node->entity);
+			};
 			if (token.kind == token_kind::kw_fn) {
 				ParameterSyntax* parameter := node->data.declaration.type->data.signature.parameters;
 				while (parameter) {
@@ -4338,6 +4433,7 @@ fn LLVMSetTailCallKind(LLVMOpaqueValue* call, u32 kind);
 fn LLVMCreateStringAttribute(LLVMOpaqueContext* context, const char* key, u32 key_length, const char* value, u32 value_length) -> LLVMOpaqueAttributeRef*;
 fn LLVMStructTypeInContext(LLVMOpaqueContext* context, LLVMOpaqueType** elements, u32 count, i32 packed) -> LLVMOpaqueType*;
 fn LLVMConstStructInContext(LLVMOpaqueContext* context, LLVMOpaqueValue** values, u32 count, i32 packed) -> LLVMOpaqueValue*;
+fn LLVMConstNamedStruct(LLVMOpaqueType* type, LLVMOpaqueValue** values, u32 count) -> LLVMOpaqueValue*;
 fn LLVMAppendBasicBlockInContext(LLVMOpaqueContext* context, LLVMOpaqueValue* function, const char* name) -> LLVMOpaqueBasicBlock*;
 fn LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder* builder, LLVMOpaqueBasicBlock* block);
 fn LLVMPositionBuilderBefore(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* instruction);
@@ -4415,7 +4511,7 @@ fn LLVMGetBufferStart(LLVMOpaqueMemoryBuffer* buffer) -> const char*;
 fn LLVMGetBufferSize(LLVMOpaqueMemoryBuffer* buffer) -> usize;
 fn LLVMDisposeMemoryBuffer(LLVMOpaqueMemoryBuffer* buffer);
 
-enum value_category {
+enum value_category : [i32] {
 	entity;
 	storage;
 	temporary;
@@ -4466,7 +4562,7 @@ fn entity_type(Entity* entity) -> Type* {
 		case entity_kind::union_:
 			return (Type*)entity->data.aggregate.type;
 		case entity_kind::enum_:
-			return (Type*)entity->data.enumeration.type;
+			return (Type*)entity->data.enumeration.aggregate.type;
 		case entity_kind::function:
 			return (Type*)entity->data.function.type;
 		case entity_kind::variable:
@@ -4567,6 +4663,13 @@ fn type_enum(Type* type) -> bool {
 	return type && type->kind == type_kind::named && type->data.entity->kind == entity_kind::enum_;
 };
 
+fn type_representation(Type* type) -> Type* {
+	while (type_enum((Type*)type) && type->data.entity->data.enumeration.underlying) {
+		@type := type->data.entity->data.enumeration.underlying;
+	};
+	return $type;
+};
+
 fn type_numeric(Type* type) -> i32 {
 	return type && (type->kind == type_kind::char || type->kind == type_kind::bool || type->kind == type_kind::signed || type->kind == type_kind::unsigned || type->kind == type_kind::float);
 };
@@ -4596,6 +4699,7 @@ fn type_scalar(Type* type) -> i32 {
 };
 
 fn type_aggregate(Type* type) -> i32 {
+	@type = type_representation(Type*(type));
 	if (!type) {
 		return 0;
 	};
@@ -4606,6 +4710,7 @@ fn type_aggregate(Type* type) -> i32 {
 };
 
 fn type_bits(Type* type) -> i32 {
+	@type = type_representation(Type*(type));
 	if (type->kind == type_kind::bool) {
 		return 1;
 	};
@@ -4619,6 +4724,7 @@ fn type_bits(Type* type) -> i32 {
 };
 
 fn type_unsigned(Type* type) -> i32 {
+	@type = type_representation(Type*(type));
 	return type->kind == type_kind::unsigned || type->kind == type_kind::bool;
 };
 
@@ -4752,7 +4858,7 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 				Type* named = type_new(@compiler, type_kind::named);
 				@named->data.entity := entity;
 				if (entity->kind == entity_kind::enum_) {
-					@entity->data.enumeration.type = (Type*)named;
+					@entity->data.enumeration.aggregate.type = (Type*)named;
 				}
 				else {
 					@entity->data.aggregate.type = (Type*)named;
@@ -4827,121 +4933,923 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 };
 
 
-fn constant_integer(Compiler& compiler, Scope* scope, Syntax* syntax) -> u64 {
-	if (syntax->kind == syntax_kind::number) {
-		return integer_spelling(@compiler, syntax->token, (u64)18446744073709551615);
+const usize constant_evaluation_depth_limit = 128;
+const usize constant_evaluation_step_limit = 100000;
+
+fn constant_failure(ConstantContext& context, const char* reason) -> ConstantValue* {
+	if (!context.reason) {
+		@context.reason := reason;
 	};
+	return nullptr;
+};
 
-	if (syntax->kind == syntax_kind::name) {
-		Entity* entity = syntax_lookup((Scope*)scope, (Syntax*)syntax);
-		if (entity && entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::constant && entity->state == resolution::pending && entity->scope && entity->scope->owner && entity->scope->owner->kind == entity_kind::enum_) {
-			entity_resolve(@compiler, (Entity*)entity->scope->owner);
-		};
-		if (entity && entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::constant && entity->state == resolution::ready) {
-			return (u64)entity->data.variable.data.integer;
-		};
+fn constant_value(Compiler& compiler, Type* type) -> ConstantValue* {
+	ConstantValue* value = (ConstantValue*)memory_allocate(@compiler, sizeof(ConstantValue));
+	if (!value) {
+		return nullptr;
 	};
+	@value->type = type_effective($type);
+	return $value;
+};
 
-	if (syntax->kind == syntax_kind::unary) {
-		u64 value = constant_integer(@compiler, (Scope*)scope, (Syntax*)syntax->data.unary.value);
-		if (syntax->data.unary.operation == token_kind::op_minus) {
-			return (u64)0 - value;
-		};
-		if (syntax->data.unary.operation == token_kind::op_plus) {
-			return $value;
-		};
-		if (syntax->data.unary.operation == token_kind::op_bang) {
-			return (u64)!value;
-		};
-		if (syntax->data.unary.operation == token_kind::op_tilde) {
-			return ~value;
-		};
+fn constant_zero(Compiler& compiler, Type* type) -> ConstantValue* {
+	ConstantValue* value = constant_value(@compiler, (Type*)type);
+	if (!value) {
+		return nullptr;
 	};
-
-	if (syntax->kind == syntax_kind::cast) {
-		Type* target = type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.cast.type);
-		if (!type_integer((Type*)target)) {
-			compiler_error(@compiler, syntax->token, "constant cast requires an integer destination\0");
-			return 0;
+	if (type->kind == type_kind::array) {
+		@value->kind = constant_kind::aggregate;
+		@value->count := type->data.array.count;
+		@value->data.elements = (ConstantValue**)memory_allocate(@compiler, value->count * sizeof(ConstantValue*));
+		if (!value->data.elements) {
+			return nullptr;
 		};
-
-		u64 value = constant_integer(@compiler, (Scope*)scope, (Syntax*)syntax->data.cast.value);
-		@value = constant_selector((u64)value, (Type*)target);
-		i32 bits = type_bits((Type*)target);
-		if (!type_unsigned($target) && bits < 64) {
-			u64 width = (u64)(64 - bits);
-			u64 mask = (u64)18446744073709551615 >> width;
-			if (value > mask / 2) {
-				@value = value | ~mask;
+		usize index = 0;
+		while (index < value->count) {
+			@value->data.elements[index] = constant_zero(@compiler, (Type*)type->data.array.element);
+			if (!value->data.elements[index]) {
+				return nullptr;
 			};
+			@index = index + 1;
+		};
+	};
+	if (type->kind == type_kind::named && type->data.entity->kind == entity_kind::struct_) {
+		@value->kind = constant_kind::aggregate;
+		entity_resolve(@compiler, (Entity*)type->data.entity);
+		@value->count := type->data.entity->data.aggregate.field_count;
+		@value->data.elements = (ConstantValue**)memory_allocate(@compiler, value->count * sizeof(ConstantValue*));
+		if (!value->data.elements) {
+			return nullptr;
+		};
+		Field* field := type->data.entity->data.aggregate.fields;
+		usize index = 0;
+		while (field) {
+			@value->data.elements[index] = constant_zero(@compiler, (Type*)field->entity->data.variable.type);
+			if (!value->data.elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+			@field := field->next;
+		};
+	};
+	return $value;
+};
+
+fn constant_copy(Compiler& compiler, ConstantValue* source) -> ConstantValue* {
+	if (!source) {
+		return nullptr;
+	};
+	ConstantValue* value = constant_value(@compiler, (Type*)source->type);
+	if (!value) {
+		return nullptr;
+	};
+	@value->data := source->data;
+	@value->count := source->count;
+	@value->kind := source->kind;
+	if (source->count) {
+		@value->data.elements = (ConstantValue**)memory_allocate(@compiler, source->count * sizeof(ConstantValue*));
+		if (!value->data.elements) {
+			return nullptr;
+		};
+		usize index = 0;
+		while (index < source->count) {
+			@value->data.elements[index] = constant_copy(@compiler, (ConstantValue*)source->data.elements[index]);
+			if (!value->data.elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+	};
+	return $value;
+};
+
+fn constant_storage_supported(ConstantContext& context, Type* type) -> bool {
+	@type = type_representation((Type*)type);
+	if (type->kind == type_kind::array) {
+		return constant_storage_supported(@context, (Type*)type->data.array.element);
+	};
+	if (type->kind != type_kind::named) {
+		return true;
+	};
+	Entity* record := type->data.entity;
+	if (record->kind != entity_kind::struct_ || record->data.aggregate.bases || aggregate_header((Entity*)record)) {
+		constant_failure(@context, "this aggregate layout requires runtime construction\0");
+		return false;
+	};
+	Field* field := record->data.aggregate.fields;
+	while (field) {
+		if (type_has_lifecycle_callbacks((Type*)field->entity->data.variable.type)) {
+			constant_failure(@context, "member lifecycle operations require runtime execution\0");
+			return false;
+		};
+		@field := field->next;
+	};
+	return true;
+};
+
+fn constant_truth(ConstantValue* value) -> bool {
+	if (value->kind == constant_kind::text) {
+		return true;
+	};
+	if (type_representation((Type*)value->type)->kind == type_kind::float) {
+		return value->data.real != 0;
+	};
+	return value->data.integer != 0;
+};
+
+fn constant_convert(ConstantContext& context, ConstantValue* source, Type* target) -> ConstantValue* {
+	if (!source || !target) {
+		return $source;
+	};
+	@target = type_effective((Type*)target);
+	Type* destination := target;
+	@target = type_representation((Type*)target);
+	Type* source_type = type_representation((Type*)source->type);
+	if (target->kind == type_kind::pointer && source_type->kind != type_kind::pointer && source->data.integer) {
+		return constant_failure(@context, "non-null integer-to-pointer conversion requires runtime execution\0");
+	};
+	if (source_type->kind == type_kind::pointer && target->kind != type_kind::pointer && target->kind != type_kind::bool && (source->kind == constant_kind::text || source->data.integer)) {
+		return constant_failure(@context, "pointer-to-number conversion requires runtime execution\0");
+	};
+	ConstantValue* value = constant_copy(@*context.compiler, (ConstantValue*)source);
+	if (!value) {
+		return nullptr;
+	};
+	@value->type = $destination;
+	if (target->kind == type_kind::bool) {
+		@value->data.integer = (u64)constant_truth($source);
+		return $value;
+	};
+	if (target->kind == type_kind::float) {
+		if (source_type->kind != type_kind::float) {
+			if (type_unsigned((Type*)source_type)) {
+				@value->data.real := (f64)source->data.integer;
+			}
+			else {
+				@value->data.real := (f64)(i64)source->data.integer;
+			};
+		};
+		if (type_bits((Type*)target) == 32) {
+			if (value->data.real > 340282346638528859811704183484516925440.0 || value->data.real < -340282346638528859811704183484516925440.0) {
+				return constant_failure(@context, "floating-point constant is outside the f32 range\0");
+			};
+			@value->data.real := (f64)(f32)value->data.real;
 		};
 		return $value;
 	};
-
-	if (syntax->kind == syntax_kind::binary) {
-		u64 first = constant_integer(@compiler, (Scope*)scope, (Syntax*)syntax->data.binary.left);
-		u64 second = constant_integer(@compiler, (Scope*)scope, (Syntax*)syntax->data.binary.right);
-		if (compiler.result == compilation_result::failure) {
-			return 0;
+	if (type_integer((Type*)target)) {
+		if (source_type->kind == type_kind::float) {
+			if (source->data.real != source->data.real || source->data.real >= 18446744073709551616.0 || source->data.real < -9223372036854775808.0) {
+				return constant_failure(@context, "floating-point constant is outside the integer range\0");
+			};
+			if (source->data.real < 0) {
+				@value->data.integer := (u64)(i64)source->data.real;
+			}
+			else {
+				@value->data.integer := (u64)source->data.real;
+			};
 		};
-		i64 signed_first := (i64)first;
-		i64 signed_second := (i64)second;
-		if ((syntax->data.binary.operation == token_kind::op_slash || syntax->data.binary.operation == token_kind::op_remainder) && (!second || (signed_first == (i64)-9223372036854775808 && signed_second == (i64)-1))) {
-			compiler_error(@compiler, syntax->token, "invalid constant division\0");
-			return 0;
-		};
-		if ((syntax->data.binary.operation == token_kind::op_shift_left || syntax->data.binary.operation == token_kind::op_shift_right) && second >= 64) {
-			compiler_error(@compiler, syntax->token, "constant shift count is outside the integer width\0");
-			return 0;
-		};
-		switch (syntax->data.binary.operation) {
-			case token_kind::op_plus:
-				return first + second;
-			case token_kind::op_minus:
-				return first - second;
-			case token_kind::op_star:
-				return first * second;
-			case token_kind::op_ampersand:
-				return first & second;
-			case token_kind::op_pipe:
-				return first | second;
-			case token_kind::op_caret:
-				return first ^ second;
-			case token_kind::op_shift_left:
-				return first << second;
-			case token_kind::op_shift_right:
-				return (u64)(signed_first >> signed_second);
-			case token_kind::op_slash:
-				if (second) {
-					return (u64)(signed_first / signed_second);
-				};
-				break;
-			case token_kind::op_remainder:
-				if (second) {
-					return (u64)(signed_first % signed_second);
-				};
-				break;
-			case token_kind::op_equal:
-				return (u64)(first == second);
-			case token_kind::op_not_equal:
-				return (u64)(first != second);
-			case token_kind::op_less:
-				return (u64)(signed_first < signed_second);
-			case token_kind::op_greater:
-				return (u64)(signed_first > signed_second);
-			case token_kind::op_less_equal:
-				return (u64)(signed_first <= signed_second);
-			case token_kind::op_greater_equal:
-				return (u64)(signed_first >= signed_second);
-			case token_kind::op_and:
-				return (u64)(first && second);
-			case token_kind::op_or:
-				return (u64)(first || second);
+		@value->data.integer = constant_selector((u64)value->data.integer, (Type*)target);
+		i32 bits = type_bits((Type*)target);
+		if (!type_unsigned((Type*)target) && bits < 64 && (value->data.integer & (u64(1) << (u64)(bits - 1)))) {
+			@value->data.integer = value->data.integer | (~u64(0) << (u64)bits);
 		};
 	};
+	return $value;
+};
 
-	compiler_error(@compiler, syntax->token, "expected an integer constant expression\0");
-	return 0;
+fn constant_bind(ConstantContext& context, Entity* entity, ConstantValue* value) {
+	ConstantBinding* binding = (ConstantBinding*)memory_allocate(@*context.compiler, sizeof(ConstantBinding));
+	if (!binding) {
+		return;
+	};
+	@binding->entity = $entity;
+	@binding->value = $value;
+	@binding->next := context.bindings;
+	@context.bindings = $binding;
+};
+
+fn constant_initializer(Entity* entity) -> Syntax* {
+	if (!entity->declaration) {
+		return nullptr;
+	};
+	Syntax* body := entity->declaration->data.declaration.body;
+	if (!body || body->kind != syntax_kind::block || !body->data.statements || body->data.statements->next) {
+		return nullptr;
+	};
+	Syntax* statement := body->data.statements;
+	if (statement->kind != syntax_kind::initialize && statement->kind != syntax_kind::binary) {
+		return nullptr;
+	};
+	return (Syntax*)statement->data.binary.right;
+};
+
+fn constant_variable(ConstantContext& context, Entity* entity) -> ConstantValue* {
+	ConstantBinding* binding := context.bindings;
+	while (binding) {
+		if (binding->entity == entity) {
+			return (ConstantValue*)binding->value;
+		};
+		@binding := binding->next;
+	};
+	if (entity->kind != entity_kind::variable) {
+		return constant_failure(@context, "constant expression requires a value\0");
+	};
+	if (!entity->data.variable.type && entity->declaration && entity->declaration->data.declaration.type) {
+		@entity->data.variable.type = type_resolve(@*context.compiler, (Scope*)entity->scope, (Syntax*)entity->declaration->data.declaration.type);
+	};
+	Type* type := entity->data.variable.type;
+	if (entity->data.variable.evaluation && entity->data.variable.evaluation->state == constant_state::constant) {
+		return (ConstantValue*)entity->data.variable.evaluation->value;
+	};
+	if (entity->data.variable.storage == storage_kind::constant && !entity->data.variable.evaluation) {
+		if (entity->state == resolution::pending && entity->scope && entity->scope->owner && entity->scope->owner->kind == entity_kind::enum_) {
+			entity_resolve(@*context.compiler, (Entity*)entity->scope->owner);
+		};
+		if (entity->data.variable.evaluation && entity->data.variable.evaluation->state == constant_state::constant) {
+			return (ConstantValue*)entity->data.variable.evaluation->value;
+		};
+		ConstantValue* value = constant_value(@*context.compiler, (Type*)entity->data.variable.type);
+		if (!value) {
+			return nullptr;
+		};
+		@value->data.integer := entity->data.variable.data.integer;
+		return $value;
+	};
+	if (!type || type->qualifier != type_qualifier::const_) {
+		return constant_failure(@context, "constant expression reads a runtime or mutable value\0");
+	};
+	if (!entity->data.variable.evaluation) {
+		@entity->data.variable.evaluation = (ConstantEvaluation*)memory_allocate(@*context.compiler, sizeof(ConstantEvaluation));
+	};
+	ConstantEvaluation* evaluation := entity->data.variable.evaluation;
+	if (!evaluation) {
+		return nullptr;
+	};
+	if (evaluation->state == constant_state::evaluating) {
+		@evaluation->state = constant_state::invalid;
+		@evaluation->reason = "circular constant initializer\0";
+		return constant_failure(@context, (const char*)evaluation->reason);
+	};
+	if (evaluation->state == constant_state::constant) {
+		return (ConstantValue*)evaluation->value;
+	};
+	if (evaluation->state == constant_state::runtime || evaluation->state == constant_state::invalid) {
+		return constant_failure(@context, (const char*)evaluation->reason);
+	};
+	if (context.depth >= constant_evaluation_depth_limit) {
+		return constant_failure(@context, "constant evaluation exceeded the dependency-depth limit\0");
+	};
+	@evaluation->state = constant_state::evaluating;
+	ConstantContext child;
+	@child.compiler := context.compiler;
+	@child.scope := entity->scope;
+	@child.steps := context.steps;
+	@child.depth = context.depth + 1;
+	Syntax* initializer = constant_initializer((Entity*)entity);
+	if (initializer) {
+		@evaluation->value = constant_expression(@child, (Syntax*)initializer, (Type*)type);
+	}
+	else if (!entity->declaration->data.declaration.body) {
+		if (constant_storage_supported(@child, (Type*)type)) {
+			@evaluation->value = constant_zero(@*context.compiler, (Type*)type);
+		};
+		if (entity->declaration->data.declaration.constructor) {
+			if (!constant_call(@child, (Entity*)entity->declaration->data.declaration.constructor, nullptr, (ConstantValue*)evaluation->value)) {
+				@evaluation->value = nullptr;
+			};
+		};
+	}
+	else {
+		constant_failure(@child, "initializer does not produce a compile-time value\0");
+	};
+	@context.steps := child.steps;
+	if (evaluation->value) {
+		@evaluation->state = constant_state::constant;
+		return (ConstantValue*)evaluation->value;
+	};
+	@evaluation->reason := child.reason;
+	if (!evaluation->reason) {
+		@evaluation->reason = "initializer is not a constant expression\0";
+	};
+	if (evaluation->state != constant_state::invalid) {
+		@evaluation->state = constant_state::runtime;
+	};
+	return constant_failure(@context, (const char*)evaluation->reason);
+};
+
+fn constant_lvalue(ConstantContext& context, Syntax* syntax) -> ConstantValue* {
+	if (syntax->kind == syntax_kind::access || syntax->kind == syntax_kind::relocate || syntax->kind == syntax_kind::borrowed_component) {
+		return constant_lvalue(@context, (Syntax*)syntax->data.expression);
+	};
+	if (syntax->kind == syntax_kind::name) {
+		Entity* entity := syntax->entity;
+		if (!entity) {
+			@entity = syntax_lookup((Scope*)context.scope, (Syntax*)syntax);
+		};
+		if (!entity) {
+			return constant_failure(@context, "unknown identifier in constant expression\0");
+		};
+		return constant_variable(@context, $entity);
+	};
+	if (syntax->kind == syntax_kind::member) {
+		ConstantValue* object = constant_lvalue(@context, (Syntax*)syntax->data.member.object);
+		if (!object) {
+			return nullptr;
+		};
+		Entity* field := syntax->entity;
+		if (!field) {
+			@field = scope_lookup(entity_members((Entity*)object->type->data.entity), syntax->data.member.name);
+		};
+		if (!field || field->kind != entity_kind::variable || field->data.variable.storage != storage_kind::field || field->data.variable.data.field.index >= object->count) {
+			return constant_failure(@context, "constant member has no storage\0");
+		};
+		return (ConstantValue*)object->data.elements[field->data.variable.data.field.index];
+	};
+	if (syntax->kind == syntax_kind::index) {
+		ConstantValue* object = constant_lvalue(@context, (Syntax*)syntax->data.binary.left);
+		ConstantValue* index = constant_expression(@context, (Syntax*)syntax->data.binary.right, (Type*)context.compiler->usize_type);
+		if (!object || !index) {
+			return nullptr;
+		};
+		if (index->data.integer >= object->count) {
+			return constant_failure(@context, "constant array index is outside its bounds\0");
+		};
+		return (ConstantValue*)object->data.elements[index->data.integer];
+	};
+	return constant_failure(@context, "constant expression requires local storage\0");
+};
+
+fn constant_call(ConstantContext& context, Entity* function, Syntax* arguments, ConstantValue* receiver) -> ConstantValue* {
+	if (!function || function->kind != entity_kind::function) {
+		return constant_failure(@context, "indirect calls cannot be evaluated during compilation\0");
+	};
+	entity_resolve(@*context.compiler, (Entity*)function);
+	if (!function->data.function.body) {
+		return constant_failure(@context, "external function calls cannot be evaluated during compilation\0");
+	};
+	if (context.depth >= constant_evaluation_depth_limit) {
+		return constant_failure(@context, "constant evaluation exceeded the call-depth limit\0");
+	};
+	function_request((Entity*)function);
+	if (function->data.function.analysis == function_analysis::requested) {
+		semantic_function(@*context.compiler, (Entity*)function);
+	};
+	ConstantContext child;
+	@child.compiler := context.compiler;
+	@child.scope := function->data.function.scope;
+	@child.steps := context.steps;
+	@child.depth = context.depth + 1;
+	Parameter* parameter := function->data.function.type->data.function.parameters;
+	if (receiver && parameter) {
+		constant_bind(@child, (Entity*)parameter->entity, (ConstantValue*)receiver);
+		@parameter := parameter->next;
+	};
+	while (parameter && arguments) {
+		if (parameter->type->kind != type_kind::reference && type_requires_destruction((Type*)parameter->type)) {
+			return constant_failure(@context, "owned parameter destruction requires runtime execution\0");
+		};
+		ConstantValue* value = nullptr;
+		if (parameter->type->kind == type_kind::reference) {
+			@value = constant_lvalue(@context, (Syntax*)arguments);
+		}
+		else {
+			@value = constant_expression(@context, (Syntax*)arguments, (Type*)parameter->type);
+			@value = constant_copy(@*context.compiler, (ConstantValue*)value);
+		};
+		if (!value) {
+			return nullptr;
+		};
+		constant_bind(@child, (Entity*)parameter->entity, $value);
+		@arguments := arguments->next;
+		@parameter := parameter->next;
+	};
+	if (parameter || arguments) {
+		return constant_failure(@context, "constant call has an incompatible argument list\0");
+	};
+	constant_statement(@child, (Syntax*)function->data.function.body);
+	@context.steps := child.steps;
+	if (child.reason) {
+		return constant_failure(@context, (const char*)child.reason);
+	};
+	if (child.result) {
+		return constant_convert(@context, (ConstantValue*)child.result, (Type*)function->data.function.type->data.function.result);
+	};
+	if (function->data.function.type->data.function.result->kind == type_kind::void) {
+		return constant_value(@*context.compiler, (Type*)context.compiler->void_type);
+	};
+	return constant_failure(@context, "constant function finished without returning a value\0");
+};
+
+fn constant_expression(ConstantContext& context, Syntax* syntax, Type* expected) -> ConstantValue* {
+	if (!syntax || context.reason || context.compiler->result == compilation_result::failure) {
+		return nullptr;
+	};
+	@context.steps = context.steps + 1;
+	if (context.steps > constant_evaluation_step_limit) {
+		return constant_failure(@context, "constant evaluation exceeded the execution-step limit\0");
+	};
+	Compiler& compiler = @*context.compiler;
+	Type* type := syntax->type;
+	if (!type) {
+		@type := expected;
+	};
+	if (!type) {
+		@type = entity_type(scope_lookup((Scope*)compiler.module, token_synthetic(@compiler, Token(syntax->token), "i64\0")));
+	};
+	switch (syntax->kind) {
+		case syntax_kind::number: {
+			ConstantValue* value = constant_value(@compiler, (Type*)type);
+			if (!value) {
+				return nullptr;
+			};
+			if (syntax->token.source->bytes.data[syntax->token.begin] == '\'') {
+				@value->type := compiler.char_type;
+				@value->data.integer = integer_spelling(@compiler, syntax->token, 255);
+			}
+			else if (number_decimal(syntax->token) || type->kind == type_kind::float) {
+				char* text = memory_text(@compiler, syntax->token.source->bytes.data + syntax->token.begin, (usize)syntax->token.length);
+				@value->data.real = strtod($text, nullptr);
+				@value->type = entity_type(scope_lookup((Scope*)compiler.module, token_synthetic(@compiler, Token(syntax->token), "f64\0")));
+			}
+			else if (type->kind == type_kind::bool) {
+				@value->data.integer = number_truth(@compiler, syntax->token);
+			}
+			else {
+				@value->data.integer = integer_spelling(@compiler, syntax->token, ~u64(0));
+			};
+			return constant_convert(@context, $value, (Type*)expected);
+		};
+		case syntax_kind::string: {
+			ConstantValue* value = constant_value(@compiler, (Type*)type);
+			if (!value) {
+				return nullptr;
+			};
+			@value->kind = constant_kind::text;
+			@value->data.text := syntax->data.string;
+			return $value;
+		};
+		case syntax_kind::nullptr_: {
+			return constant_value(@compiler, (Type*)type);
+		};
+		case syntax_kind::name:
+		case syntax_kind::member:
+		case syntax_kind::index:
+		case syntax_kind::access:
+		case syntax_kind::relocate:
+		case syntax_kind::borrowed_component:
+			return constant_convert(@context, constant_lvalue(@context, (Syntax*)syntax), (Type*)expected);
+		case syntax_kind::cast: {
+			Type* target = type_resolve(@compiler, (Scope*)context.scope, (Syntax*)syntax->data.cast.type);
+			return constant_convert(@context, constant_expression(@context, (Syntax*)syntax->data.cast.value, (Type*)target), (Type*)target);
+		};
+		case syntax_kind::construct: {
+			Type* target := syntax->data.construction.target;
+			if (!constant_storage_supported(@context, (Type*)target)) {
+				return nullptr;
+			};
+			if (type_requires_destruction((Type*)target)) {
+				return constant_failure(@context, "temporary destruction requires runtime execution\0");
+			};
+			Syntax* arguments := syntax->data.construction.arguments;
+			if (!type_aggregate((Type*)target)) {
+				if (arguments) {
+					return constant_convert(@context, constant_expression(@context, (Syntax*)arguments, (Type*)target), (Type*)target);
+				};
+				return constant_zero(@compiler, (Type*)target);
+			};
+			ConstantValue* object = constant_zero(@compiler, (Type*)target);
+			if (syntax->data.construction.constructor) {
+				if (!constant_call(@context, (Entity*)syntax->data.construction.constructor, (Syntax*)arguments, (ConstantValue*)object)) {
+					return nullptr;
+				};
+			}
+			else if (arguments) {
+				@object = constant_copy(@compiler, constant_expression(@context, (Syntax*)arguments, (Type*)target));
+			};
+			return $object;
+		};
+		case syntax_kind::call: {
+			Entity* function := syntax->data.call.callable->entity;
+			if (!function) {
+				@function = syntax_lookup((Scope*)context.scope, (Syntax*)syntax->data.call.callable);
+			};
+			ConstantValue* receiver = nullptr;
+			if (syntax->data.call.receiver.kind == receiver_kind::bind) {
+				@receiver = constant_lvalue(@context, (Syntax*)syntax->data.call.receiver.value);
+			};
+			return constant_convert(@context, constant_call(@context, $function, (Syntax*)syntax->data.call.arguments, $receiver), (Type*)expected);
+		};
+		case syntax_kind::unary: {
+			ConstantValue* value = constant_copy(@compiler, constant_expression(@context, (Syntax*)syntax->data.unary.value, (Type*)type));
+			if (!value) {
+				return nullptr;
+			};
+			switch (syntax->data.unary.operation) {
+				case token_kind::op_plus:
+					break;
+				case token_kind::op_minus:
+					if (value->type->kind == type_kind::float) {
+						@value->data.real = -value->data.real;
+					}
+					else {
+						@value->data.integer = u64(0) - value->data.integer;
+					};
+					break;
+				case token_kind::op_bang:
+					@value->data.integer = (u64)!constant_truth((ConstantValue*)value);
+					@value->type := compiler.bool_type;
+					break;
+				case token_kind::op_tilde:
+					@value->data.integer = ~value->data.integer;
+					break;
+				default:
+					return constant_failure(@context, "pointer operations require runtime storage\0");
+			};
+			return constant_convert(@context, $value, (Type*)expected);
+		};
+		case syntax_kind::bind_reference: {
+			Syntax* name := syntax->data.binary.left;
+			while (name->kind == syntax_kind::access) {
+				@name := name->data.expression;
+			};
+			if (!name->entity) {
+				return constant_failure(@context, "constant reference requires a local binding\0");
+			};
+			ConstantValue* value = constant_lvalue(@context, (Syntax*)syntax->data.binary.right);
+			constant_bind(@context, (Entity*)name->entity, (ConstantValue*)value);
+			return $value;
+		};
+		case syntax_kind::initialize:
+		case syntax_kind::binary: {
+			if (syntax->entity && syntax->entity->kind == entity_kind::function) {
+				return constant_failure(@context, "assignment operator calls require runtime execution\0");
+			};
+			token_kind operation := syntax->data.binary.operation;
+			if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
+				ConstantValue* destination = constant_lvalue(@context, (Syntax*)syntax->data.binary.left);
+				if (!destination) {
+					return nullptr;
+				};
+				ConstantValue* source = constant_expression(@context, (Syntax*)syntax->data.binary.right, (Type*)destination->type);
+				if (!source) {
+					return nullptr;
+				};
+				@*destination := *constant_copy(@compiler, $source);
+				return $destination;
+			};
+			Type* operand_type := syntax->data.binary.left->type;
+			if (!operand_type) {
+				@operand_type := type;
+			};
+			ConstantValue* first = constant_expression(@context, (Syntax*)syntax->data.binary.left, (Type*)operand_type);
+			if (!first) {
+				return nullptr;
+			};
+			if (type_representation((Type*)first->type)->kind == type_kind::pointer) {
+				return constant_failure(@context, "pointer operations require runtime storage\0");
+			};
+			if ((operation == token_kind::op_and && !constant_truth((ConstantValue*)first)) || (operation == token_kind::op_or && constant_truth((ConstantValue*)first))) {
+				ConstantValue* value = constant_value(@compiler, (Type*)compiler.bool_type);
+				if (!value) {
+					return nullptr;
+				};
+				@value->data.integer = (u64)(operation == token_kind::op_or);
+				return $value;
+			};
+			ConstantValue* second = constant_expression(@context, (Syntax*)syntax->data.binary.right, (Type*)first->type);
+			if (!second) {
+				return nullptr;
+			};
+			ConstantValue* value = constant_value(@compiler, (Type*)type);
+			if (!value) {
+				return nullptr;
+			};
+			if (first->type->kind == type_kind::float) {
+				f64 a := first->data.real;
+				f64 b := second->data.real;
+				switch (operation) {
+					case token_kind::op_plus:
+						@value->data.real = a + b;
+						break;
+					case token_kind::op_minus:
+						@value->data.real = a - b;
+						break;
+					case token_kind::op_star:
+						@value->data.real = a * b;
+						break;
+					case token_kind::op_slash:
+						if (!b) {
+							return constant_failure(@context, "division by zero in constant expression\0");
+						};
+						@value->data.real = a / b; break;
+					case token_kind::op_equal:
+						@value->data.integer = (u64)(a == b);
+						break;
+					case token_kind::op_not_equal:
+						@value->data.integer = (u64)(a != b);
+						break;
+					case token_kind::op_less:
+						@value->data.integer = (u64)(a < b);
+						break;
+					case token_kind::op_greater:
+						@value->data.integer = (u64)(a > b);
+						break;
+					case token_kind::op_less_equal:
+						@value->data.integer = (u64)(a <= b);
+						break;
+					case token_kind::op_greater_equal:
+						@value->data.integer = (u64)(a >= b);
+						break;
+					default:
+						return constant_failure(@context, "unsupported floating-point constant operation\0");
+				};
+				return constant_convert(@context, $value, (Type*)expected);
+			};
+			u64 a := first->data.integer;
+			u64 b := second->data.integer;
+			if ((operation == token_kind::op_slash || operation == token_kind::op_remainder) && (!b || (!type_unsigned((Type*)first->type) && a == (u64)9223372036854775808 && b == ~u64(0)))) {
+				return constant_failure(@context, "invalid division in constant expression\0");
+			};
+			if ((operation == token_kind::op_shift_left || operation == token_kind::op_shift_right) && b >= (u64)type_bits((Type*)first->type)) {
+				return constant_failure(@context, "constant shift count is outside the integer width\0");
+			};
+			bool unsigned_ = (bool)type_unsigned((Type*)first->type);
+			switch (operation) {
+				case token_kind::op_plus:
+					@value->data.integer = a + b;
+					break;
+				case token_kind::op_minus:
+					@value->data.integer = a - b;
+					break;
+				case token_kind::op_star:
+					@value->data.integer = a * b;
+					break;
+				case token_kind::op_ampersand:
+					@value->data.integer = a & b;
+					break;
+				case token_kind::op_pipe:
+					@value->data.integer = a | b;
+					break;
+				case token_kind::op_caret:
+					@value->data.integer = a ^ b;
+					break;
+				case token_kind::op_shift_left:
+					@value->data.integer = a << b;
+					break;
+				case token_kind::op_shift_right:
+					if (unsigned_) {
+						@value->data.integer = a >> b;
+					}
+					else {
+						@value->data.integer = (u64)((i64)a >> (i64)b);
+					};
+					break;
+				case token_kind::op_slash:
+					if (unsigned_) {
+						@value->data.integer = a / b;
+					}
+					else {
+						@value->data.integer = (u64)((i64)a / (i64)b);
+					};
+					break;
+				case token_kind::op_remainder:
+					if (unsigned_) {
+						@value->data.integer = a % b;
+					}
+					else {
+						@value->data.integer = (u64)((i64)a % (i64)b);
+					};
+					break;
+				case token_kind::op_equal:
+					@value->data.integer = (u64)(a == b);
+					break;
+				case token_kind::op_not_equal:
+					@value->data.integer = (u64)(a != b);
+					break;
+				case token_kind::op_less:
+					if (unsigned_) {
+						@value->data.integer = (u64)(a < b);
+					}
+					else {
+						@value->data.integer = (u64)((i64)a < (i64)b);
+					};
+					break;
+				case token_kind::op_greater:
+					if (unsigned_) {
+						@value->data.integer = (u64)(a > b);
+					}
+					else {
+						@value->data.integer = (u64)((i64)a > (i64)b);
+					};
+					break;
+				case token_kind::op_less_equal:
+					if (unsigned_) {
+						@value->data.integer = (u64)(a <= b);
+					}
+					else {
+						@value->data.integer = (u64)((i64)a <= (i64)b);
+					};
+					break;
+				case token_kind::op_greater_equal:
+				if (unsigned_) {
+					@value->data.integer = (u64)(a >= b);
+				}
+					else {
+						@value->data.integer = (u64)((i64)a >= (i64)b);
+					};
+					break;
+				case token_kind::op_and:
+					@value->data.integer = (u64)(constant_truth((ConstantValue*)first) && constant_truth((ConstantValue*)second));
+					break;
+				case token_kind::op_or:
+					@value->data.integer = (u64)(constant_truth((ConstantValue*)first) || constant_truth((ConstantValue*)second));
+					break;
+				default:
+					return constant_failure(@context, "unsupported integer constant operation\0");
+			};
+			@value = constant_convert(@context, (ConstantValue*)value, (Type*)type);
+			return constant_convert(@context, $value, (Type*)expected);
+		};
+		case syntax_kind::sizeof_: {
+			ConstantValue* value = constant_value(@compiler, (Type*)compiler.usize_type);
+			if (!value) {
+				return nullptr;
+			};
+			Type* measured := syntax->data.expression->type;
+			if (!measured) {
+				@measured = type_resolve(@compiler, (Scope*)context.scope, (Syntax*)syntax->data.expression);
+			};
+			@value->data.integer = LLVMABISizeOfType(compiler.llvm_layout.get(), llvm_type(@compiler, $measured));
+			return $value;
+		};
+		default:
+			return constant_failure(@context, "expression requires runtime execution\0");
+	};
+};
+
+fn constant_statement(ConstantContext& context, Syntax* syntax) {
+	if (!syntax || context.reason || context.flow != constant_flow::normal || context.compiler->result == compilation_result::failure) {
+		return;
+	};
+	@context.steps = context.steps + 1;
+	if (context.steps > constant_evaluation_step_limit) {
+		constant_failure(@context, "constant evaluation exceeded the execution-step limit\0");
+		return;
+	};
+	switch (syntax->kind) {
+		case syntax_kind::block: {
+			Syntax* statement := syntax->data.statements;
+			Scope* outer := context.scope;
+			if (syntax->scope) {
+				@context.scope := syntax->scope;
+			};
+			while (statement && !context.reason && context.flow == constant_flow::normal) {
+				constant_statement(@context, (Syntax*)statement);
+				@statement := statement->next;
+			};
+			@context.scope = $outer;
+			break;
+		};
+		case syntax_kind::declaration: {
+			Entity* variable := syntax->entity;
+			if (variable->kind != entity_kind::variable) {
+				break;
+			};
+			Type* type := variable->data.variable.type;
+			if (!type && syntax->data.declaration.type) {
+				@type = type_resolve(@*context.compiler, (Scope*)context.scope, (Syntax*)syntax->data.declaration.type);
+			};
+			if (!type) {
+				constant_failure(@context, "constant local requires a resolved type\0");
+				break;
+			};
+			if (type_requires_destruction((Type*)type)) {
+				constant_failure(@context, "local destruction requires runtime execution\0");
+				break;
+			};
+			if (!constant_storage_supported(@context, type_effective((Type*)type))) {
+				break;
+			};
+			ConstantValue* value = constant_zero(@*context.compiler, type_effective((Type*)type));
+			constant_bind(@context, (Entity*)variable, (ConstantValue*)value);
+			if (!syntax->data.declaration.body && syntax->data.declaration.constructor) {
+				constant_call(@context, (Entity*)syntax->data.declaration.constructor, nullptr, (ConstantValue*)value);
+			};
+			constant_statement(@context, (Syntax*)syntax->data.declaration.body);
+			break;
+		};
+		case syntax_kind::return_:
+			if (syntax->data.expression) {
+				@context.result = constant_expression(@context, (Syntax*)syntax->data.expression, nullptr);
+			};
+			@context.flow = constant_flow::return_;
+			break;
+		case syntax_kind::if_: {
+			ConstantValue* condition = constant_expression(@context, (Syntax*)syntax->data.branch.condition, nullptr);
+			if (!condition) {
+				break;
+			};
+			if (constant_truth($condition)) {
+				constant_statement(@context, (Syntax*)syntax->data.branch.first);
+			}
+			else {
+				constant_statement(@context, (Syntax*)syntax->data.branch.second);
+			};
+			break;
+		};
+		case syntax_kind::while_:
+		case syntax_kind::for_: {
+			constant_statement(@context, (Syntax*)syntax->data.loop.initializer);
+			while (!context.reason && context.flow == constant_flow::normal) {
+				if (syntax->data.loop.condition) {
+					ConstantValue* condition = constant_expression(@context, (Syntax*)syntax->data.loop.condition, nullptr);
+					if (!condition || !constant_truth((ConstantValue*)condition)) {
+						break;
+					};
+				};
+				constant_statement(@context, (Syntax*)syntax->data.loop.body);
+				if (context.flow == constant_flow::break_) {
+					@context.flow = constant_flow::normal;
+					break;
+				};
+				if (context.flow == constant_flow::return_) {
+					break;
+				};
+				@context.flow = constant_flow::normal;
+				constant_statement(@context, (Syntax*)syntax->data.loop.step);
+			};
+			break;
+		};
+		case syntax_kind::break_:
+			@context.flow = constant_flow::break_;
+			break;
+		case syntax_kind::continue_:
+			@context.flow = constant_flow::continue_;
+			break;
+		case syntax_kind::discard_:
+			break;
+		default:
+			constant_expression(@context, (Syntax*)syntax, nullptr);
+			break;
+	};
+};
+
+fn constant_llvm(Compiler& compiler, ConstantValue* value) -> LLVMOpaqueValue* {
+	if (!value || compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	LLVMOpaqueType* type = llvm_type(@compiler, (Type*)value->type);
+	Type* representation = type_representation((Type*)value->type);
+	if (value->kind == constant_kind::text) {
+		LLVMOpaqueValue* text = LLVMConstStringInContext2(compiler.llvm_context.get(), const char*(value->data.text.data), usize(value->data.text.size), 1);
+		LLVMOpaqueValue* global = LLVMAddGlobal(compiler.llvm_module.get(), LLVMTypeOf(LLVMOpaqueValue*(text)), "constant.string\0");
+		LLVMSetInitializer(LLVMOpaqueValue*(global), $text);
+		LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
+		LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
+		return $global;
+	};
+	if (representation->kind == type_kind::float) {
+		return LLVMConstReal($type, (f64)value->data.real);
+	};
+	if (representation->kind == type_kind::pointer) {
+		return LLVMConstNull($type);
+	};
+	if (value->kind == constant_kind::aggregate) {
+		LLVMOpaqueValue** elements = (LLVMOpaqueValue**)memory_allocate(@compiler, value->count * sizeof(LLVMOpaqueValue*));
+		if (!elements) {
+			return nullptr;
+		};
+		usize index = 0;
+		while (index < value->count) {
+			@elements[index] = constant_llvm(@compiler, (ConstantValue*)value->data.elements[index]);
+			if (!elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+		if (representation->kind == type_kind::array) {
+			return LLVMConstArray2(llvm_type(@compiler, (Type*)representation->data.array.element), $elements, (u64)value->count);
+		};
+		return LLVMConstNamedStruct($type, $elements, (u32)value->count);
+	};
+	return LLVMConstInt($type, (u64)value->data.integer, 0);
+};
+
+fn constant_integer(Compiler& compiler, Scope* scope, Syntax* syntax) -> u64 {
+	ConstantContext context;
+	@context.compiler = &compiler;
+	@context.scope = $scope;
+	ConstantValue* value = constant_expression(@context, (Syntax*)syntax, nullptr);
+	if (!value || !type_integer(type_representation((Type*)value->type))) {
+		const char* reason = "expected an integer constant expression\0";
+		if (context.reason) {
+			@reason := context.reason;
+		};
+		compiler_error(@compiler, syntax->token, $reason);
+		return 0;
+	};
+	return (u64)value->data.integer;
 };
 
 fn constant_selector(u64 value, Type* type) -> u64 {
@@ -5044,8 +5952,79 @@ fn defaulted_validate(Compiler& compiler, Entity* entity, Type* signature, const
 	};
 };
 
+fn enum_constructor(Compiler& compiler, Entity* owner, Syntax* body) {
+	Parser parser;
+	@parser.compiler = &compiler;
+	@parser.scope = entity_members((Entity*)owner);
+	Token location := owner->name;
+	Entity* function = entity_create(@compiler, entity_kind::function, Token(location));
+	@function->scope := parser.scope;
+	@function->data.function.role = function_role::constructor;
+	Syntax* declaration = @parser.new_syntax(syntax_kind::declaration, Token(location));
+	@declaration->entity := function;
+	@declaration->data.declaration.name := location;
+	@declaration->data.declaration.definition = function_definition::definition;
+	@function->declaration := declaration;
+	Syntax* signature = @parser.new_syntax(syntax_kind::signature, Token(location));
+	@declaration->data.declaration.type := signature;
+	Type* function_type = type_new(@compiler, type_kind::function);
+	@function_type->data.function.result := compiler.void_type;
+	@signature->type := function_type;
+	Parameter* receiver = (Parameter*)memory_allocate(@compiler, sizeof(Parameter));
+	@receiver->name = token_synthetic(@compiler, Token(location), "this\0");
+	@receiver->type = type_new(@compiler, type_kind::reference);
+	@receiver->type->data.element = entity_type((Entity*)owner);
+	Parameter* value = (Parameter*)memory_allocate(@compiler, sizeof(Parameter));
+	@value->name = token_synthetic(@compiler, Token(location), "value\0");
+	@value->type := owner->data.enumeration.underlying;
+	@receiver->next := value;
+	@function_type->data.function.parameters := receiver;
+	Scope* scope = scope_create(@compiler, (Scope*)parser.scope, context_kind::function, (Entity*)function);
+	Entity* receiver_entity = entity_create(@compiler, entity_kind::variable, Token(receiver->name));
+	@receiver_entity->data.variable.storage = storage_kind::parameter;
+	@receiver_entity->data.variable.type := receiver->type;
+	@receiver_entity->state = resolution::ready;
+	scope_define(@compiler, (Scope*)scope, (Entity*)receiver_entity);
+	Entity* value_entity = entity_create(@compiler, entity_kind::variable, Token(value->name));
+	@value_entity->data.variable.storage = storage_kind::parameter;
+	@value_entity->data.variable.type := value->type;
+	@value_entity->state = resolution::ready;
+	scope_define(@compiler, (Scope*)scope, (Entity*)value_entity);
+	Syntax* receiver_name = @parser.new_syntax(syntax_kind::name, Token(receiver->name));
+	@receiver_name->entity = $receiver_entity;
+	Syntax* access = @parser.new_syntax(syntax_kind::access, Token(location));
+	@access->data.expression = $receiver_name;
+	Syntax* value_name = @parser.new_syntax(syntax_kind::name, Token(value->name));
+	@value_name->entity = $value_entity;
+	Syntax* relocate = @parser.new_syntax(syntax_kind::relocate, Token(location));
+	@relocate->data.expression = $value_name;
+	Syntax* enum_type = @parser.new_syntax(syntax_kind::name, Token(location));
+	@enum_type->type = entity_type((Entity*)owner);
+	Syntax* cast = @parser.new_syntax(syntax_kind::cast, Token(location));
+	@cast->data.cast.type = $enum_type;
+	@cast->data.cast.value = $relocate;
+	Syntax* assignment = @parser.new_syntax(syntax_kind::binary, Token(location));
+	@assignment->data.binary.operation = token_kind::op_assign;
+	@assignment->data.binary.left = $access;
+	@assignment->data.binary.right = $cast;
+	Syntax* function_body = @parser.new_syntax(syntax_kind::block, Token(location));
+	@function_body->scope = $scope;
+	@function_body->data.statements = $assignment;
+	@declaration->data.declaration.body = $function_body;
+	@parser.special_register((Scope*)parser.scope, (Syntax*)declaration);
+	Syntax** tail = &body->data.statements;
+	while (*tail) {
+		@tail = &(*tail)->next;
+	};
+	@*tail = $declaration;
+};
+
 fn entity_resolve(Compiler& compiler, Entity* entity) {
 	if (!entity || entity->state == resolution::ready) {
+		return;
+	};
+	if (entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::global) {
+		global_variable_resolve(@compiler, $entity);
 		return;
 	};
 	if (entity->state == resolution::active) {
@@ -5097,10 +6076,28 @@ fn entity_resolve(Compiler& compiler, Entity* entity) {
 			Type* type = type_new(@compiler, type_kind::named);
 			@type->data.entity := entity;
 			if (entity->kind == entity_kind::enum_) {
-				@entity->data.enumeration.type = (Type*)type;
+				@entity->data.enumeration.aggregate.type = (Type*)type;
 			}
 			else {
 				@entity->data.aggregate.type = (Type*)type;
+			};
+		};
+		if (entity->kind == entity_kind::enum_) {
+			@entity->data.enumeration.underlying = type_resolve(@compiler, (Scope*)entity->scope, (Syntax*)declaration->data.declaration.type);
+			Type* underlying := entity->data.enumeration.underlying;
+			if (!underlying || underlying->kind == type_kind::void || underlying->kind == type_kind::null || underlying->kind == type_kind::function || underlying->kind == type_kind::reference || underlying->qualifier == type_qualifier::const_ || (type_enum((Type*)underlying) && underlying->data.entity == entity)) {
+				compiler_error(@compiler, entity->name, "enum underlying type requires a complete mutable value representation\0");
+				return;
+			};
+			if (type_enum((Type*)underlying)) {
+				entity_resolve(@compiler, (Entity*)underlying->data.entity);
+				if (compiler.result == compilation_result::failure) {
+					return;
+				};
+			};
+			layout_validate(@compiler, (Type*)underlying, nullptr, entity->name);
+			if (compiler.result == compilation_result::failure) {
+				return;
 			};
 		};
 		bases_resolve(@compiler, (Entity*)entity);
@@ -5136,17 +6133,16 @@ fn entity_resolve(Compiler& compiler, Entity* entity) {
 			Syntax* field := body->data.statements;
 			usize index = 0;
 			Field* last_field = nullptr;
-			u64 next_value = 0;
+			ConstantValue* next_value = nullptr;
+			if (entity->kind == entity_kind::enum_ && type_numeric((Type*)entity->data.enumeration.underlying)) {
+				@next_value = constant_zero(@compiler, (Type*)entity->data.enumeration.underlying);
+			};
 			while (field) {
 				if (field->kind != syntax_kind::declaration) {
 					compiler_error(@compiler, field->token, "aggregate context requires declarations\0");
 					break;
 				};
 				if (field->entity->kind != entity_kind::variable) {
-					if (entity->kind == entity_kind::enum_) {
-						compiler_error(@compiler, field->token, "enum context requires enumerator declarations\0");
-						break;
-					};
 					@field := field->next;
 					continue;
 				};
@@ -5154,14 +6150,64 @@ fn entity_resolve(Compiler& compiler, Entity* entity) {
 				if (entity->kind == entity_kind::enum_) {
 					@variable->data.variable.type = entity_type((Entity*)entity);
 					@variable->data.variable.storage = storage_kind::constant;
+					ConstantValue* value = nullptr;
 					if (field->data.declaration.body) {
-						@next_value = constant_integer(@compiler, (Scope*)body->scope, (Syntax*)field->data.declaration.body);
+						Semantic semantic;
+						@semantic.compiler = &compiler;
+						@semantic.scope := body->scope;
+						Type* actual = @semantic.expression((Syntax*)field->data.declaration.body, (Type*)entity->data.enumeration.underlying);
+						@semantic.expect((Syntax*)field->data.declaration.body, (Type*)actual, (Type*)entity->data.enumeration.underlying);
+						if (compiler.result == compilation_result::failure) {
+							return;
+						};
+						ConstantContext context;
+						@context.compiler = &compiler;
+						@context.scope := body->scope;
+						@value = constant_expression(@context, (Syntax*)field->data.declaration.body, (Type*)entity->data.enumeration.underlying);
+						if (!value) {
+							compiler_error(@compiler, field->token, (const char*)context.reason);
+							return;
+						};
 					};
-					if ((i64)next_value < (i64)-2147483648 || (i64)next_value > (i64)2147483647) {
-						compiler_error(@compiler, field->token, "enum value is outside the i32 range\0");
+					if (!field->data.declaration.body) {
+						@value = constant_copy(@compiler, (ConstantValue*)next_value);
 					};
-					@variable->data.variable.data.integer := next_value;
-					@next_value = next_value + 1;
+					if (!value) {
+						if (type_numeric((Type*)entity->data.enumeration.underlying)) {
+							compiler_error(@compiler, field->token, "automatic enum numbering exceeds the underlying type range\0");
+						}
+						else {
+							compiler_error(@compiler, field->token, "enum member with a non-primitive underlying type requires an initializer\0");
+						};
+						return;
+					};
+					@next_value = nullptr;
+					Type* underlying := entity->data.enumeration.underlying;
+					if (type_numeric((Type*)underlying)) {
+						@next_value = constant_copy(@compiler, (ConstantValue*)value);
+					};
+					if (underlying->kind == type_kind::float) {
+						@next_value->data.real = next_value->data.real + 1;
+					}
+					else if (type_integer((Type*)underlying)) {
+						u64 maximum = constant_selector(18446744073709551615, (Type*)underlying);
+						if (!type_unsigned((Type*)underlying) && underlying->kind != type_kind::char) {
+							@maximum = maximum >> 1;
+						};
+						if (value->data.integer == maximum) {
+							@next_value = nullptr;
+						}
+						else {
+							@next_value->data.integer = next_value->data.integer + 1;
+						};
+					};
+					if (type_integer((Type*)entity->data.enumeration.underlying)) {
+						@variable->data.variable.data.integer := value->data.integer;
+					};
+					@value->type = entity_type((Entity*)entity);
+					@variable->data.variable.evaluation = (ConstantEvaluation*)memory_allocate(@compiler, sizeof(ConstantEvaluation));
+					@variable->data.variable.evaluation->state = constant_state::constant;
+					@variable->data.variable.evaluation->value = $value;
 				}
 				else {
 					@variable->data.variable.type = type_resolve(@compiler, (Scope*)body->scope, (Syntax*)field->data.declaration.type);
@@ -5187,6 +6233,7 @@ fn entity_resolve(Compiler& compiler, Entity* entity) {
 			};
 			if (entity->kind == entity_kind::enum_) {
 				@entity->data.enumeration.values := body->scope->bindings;
+				enum_constructor(@compiler, (Entity*)entity, (Syntax*)body);
 			}
 			else {
 				@entity->data.aggregate.field_count = (u64)index;
@@ -5328,11 +6375,15 @@ fn destruction_request(Type* type) {
 		destruction_request((Type*)type->data.array.element);
 		return;
 	};
-	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::enum_) {
+	if (type->kind != type_kind::named) {
 		return;
 	};
 	Entity* owner := type->data.entity;
 	function_request((Entity*)owner->data.aggregate.destructor);
+	if (owner->kind == entity_kind::enum_) {
+		destruction_request((Type*)owner->data.enumeration.underlying);
+		return;
+	};
 	if (owner->kind == entity_kind::union_) {
 		return;
 	};
@@ -5500,7 +6551,7 @@ fn syntax_construct(Compiler& compiler, Syntax* syntax, Type* target) {
 	@syntax->data.construction.slot = nullptr;
 };
 
-enum generated_operation {
+enum generated_operation : [i32] {
 	default_;
 	copy;
 	assignment;
@@ -5908,7 +6959,7 @@ fn reference_path_matches(Compiler& compiler, Scope* scope, ReferencePath* path,
 	return false;
 };
 
-enum type_property {
+enum type_property : [i32] {
 	reference;
 	union_selection;
 	destruction;
@@ -5925,7 +6976,7 @@ fn type_contains(Type* type, type_property property) -> bool {
 	if (type->kind == type_kind::array) {
 		return type_contains((Type*)type->data.array.element, $property);
 	};
-	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::enum_) {
+	if (type->kind != type_kind::named) {
 		return false;
 	};
 
@@ -5962,6 +7013,9 @@ fn type_contains(Type* type, type_property property) -> bool {
 			break;
 		case type_property::reference:
 			break;
+	};
+	if (entity->kind == entity_kind::enum_) {
+		return type_contains((Type*)entity->data.enumeration.underlying, $property);
 	};
 	BaseRelation* base := entity->data.aggregate.bases;
 	while (base) {
@@ -6588,7 +7642,7 @@ fn Semantic::method_receiver(Semantic& this, Syntax* member) -> Syntax* {
 
 fn Semantic::receiver_callable(Semantic& this, Type* type, Token name) -> Entity* {
 	Entity* associated = nullptr;
-	if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::struct_ || type->data.entity->kind == entity_kind::union_)) {
+	if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::struct_ || type->data.entity->kind == entity_kind::union_ || type->data.entity->kind == entity_kind::enum_)) {
 		entity_resolve(@*this.compiler, (Entity*)type->data.entity);
 		@associated = associated_lookup(@*this.compiler, (Entity*)type->data.entity, name);
 	};
@@ -7020,7 +8074,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				break;
 			};
 			Syntax* argument := syntax->data.construction.arguments;
-			if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::struct_ || type->data.entity->kind == entity_kind::union_)) {
+			if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::struct_ || type->data.entity->kind == entity_kind::union_ || type->data.entity->kind == entity_kind::enum_)) {
 				if (!syntax->data.construction.constructor) {
 				@syntax->data.construction.constructor = @this.special_select((Entity*)type->data.entity, function_role::constructor, (Syntax*)argument, Token(syntax->token));
 				};
@@ -7042,8 +8096,22 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				compiler_error(@compiler, syntax->token, "generated construction requires zero or one argument\0");
 				break;
 			};
-			Type* actual = @this.expression((Syntax*)argument, (Type*)type);
-			@this.expect((Syntax*)argument, (Type*)actual, (Type*)type);
+			Type* context := type;
+			if (type_enum((Type*)type)) {
+				entity_resolve(@compiler, (Entity*)type->data.entity);
+				@context := type->data.entity->data.enumeration.underlying;
+			};
+			Type* argument_context = nullptr;
+			if (syntax_number_expression((Syntax*)argument)) {
+				@argument_context := context;
+			};
+			Type* actual = @this.expression((Syntax*)argument, (Type*)argument_context);
+			if (type_enum((Type*)type) && type_value_equal((Type*)actual, (Type*)type)) {
+				@context := type;
+			};
+			if (!type_enum((Type*)actual) || ((!type_numeric((Type*)type) || !type_numeric(type_representation((Type*)actual))) && !type_value_equal((Type*)type, type_representation((Type*)actual)))) {
+				@this.expect((Syntax*)argument, (Type*)actual, (Type*)context);
+			};
 			@this.generated_operation_validate((Type*)type, generated_operation::copy, syntax->token);
 			break;
 		};
@@ -7138,7 +8206,8 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 					@context := compiler.usize_type;
 				};
 				if (type_enum((Type*)type)) {
-					@context := compiler.i32_type;
+					entity_resolve(@compiler, (Entity*)type->data.entity);
+					@context := type->data.entity->data.enumeration.underlying;
 				};
 				@source = @this.expression((Syntax*)syntax->data.cast.value, (Type*)context);
 			}
@@ -7152,7 +8221,9 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				break;
 			};
 			if ((!type_scalar((Type*)type) && !type_enum((Type*)type)) || (!type_scalar((Type*)source) && !type_enum((Type*)source))) {
+				if (!type_value_equal(type_representation((Type*)type), type_representation((Type*)source))) {
 				compiler_error(@compiler, syntax->token, "cast requires scalar types\0");
+				};
 			};
 			if (((type->kind == type_kind::pointer || type->kind == type_kind::reference) && source->kind == type_kind::float) || ((source->kind == type_kind::pointer || source->kind == type_kind::reference) && type->kind == type_kind::float)) {
 				compiler_error(@compiler, syntax->token, "pointer casts require an integer or pointer counterpart\0");
@@ -7185,6 +8256,20 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 			break;
 		};
 		case syntax_kind::member: {
+			Entity* owner = syntax_lookup((Scope*)this.scope, (Syntax*)syntax->data.member.object);
+			if (owner && (owner->kind == entity_kind::enum_ || owner->kind == entity_kind::struct_ || owner->kind == entity_kind::union_ || owner->kind == entity_kind::namespace_)) {
+				entity_resolve(@compiler, (Entity*)owner);
+				Entity* member = associated_lookup(@compiler, (Entity*)owner, syntax->data.member.name);
+				if (!member) {
+					compiler_error(@compiler, syntax->data.member.name, "unknown member of this entity\0");
+					return (Type*)compiler.void_type;
+				};
+				@syntax->token := syntax->data.member.name;
+				@syntax->data.expression = nullptr;
+				@syntax->entity = $member;
+				@syntax->kind = syntax_kind::name;
+				return @this.expression((Syntax*)syntax, (Type*)expected);
+			};
 			Type* object = @this.member_object((Syntax*)syntax);
 			if (object->kind != type_kind::named || (object->data.entity->kind != entity_kind::struct_ && object->data.entity->kind != entity_kind::union_)) {
 				compiler_error(@compiler, syntax->token, "member access requires a record\0");
@@ -7474,7 +8559,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				break;
 			};
 			if (operation == token_kind::op_equal || operation == token_kind::op_not_equal || operation == token_kind::op_less || operation == token_kind::op_greater || operation == token_kind::op_less_equal || operation == token_kind::op_greater_equal) {
-				if ((!type_scalar((Type*)a) || !type_scalar((Type*)b)) && !(type_enum((Type*)a) && type_value_equal((Type*)a, (Type*)b))) {
+				if ((!type_scalar((Type*)a) || !type_scalar((Type*)b)) && !(type_enum((Type*)a) && type_scalar(type_representation((Type*)a)) && type_value_equal((Type*)a, (Type*)b))) {
 					compiler_error(@compiler, syntax->token, "comparison requires scalar operands or matching enum types\0");
 				};
 				@type := compiler.bool_type;
@@ -7785,7 +8870,8 @@ fn llvm_type(Compiler& compiler, Type* type) -> LLVMOpaqueType* {
 		case type_kind::named: {
 			Entity* entity := type->data.entity;
 			if (entity->kind == entity_kind::enum_) {
-				return LLVMIntTypeInContext(compiler.llvm_context.get(), 32);
+				entity_resolve(@compiler, (Entity*)entity);
+				return llvm_type(@compiler, (Type*)entity->data.enumeration.underlying);
 			};
 			if (entity->data.aggregate.llvm_type) {
 				return LLVMOpaqueType*(entity->data.aggregate.llvm_type);
@@ -8211,6 +9297,7 @@ fn Emitter::storage_address(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 };
 
 fn type_has_views(Type* type) -> bool {
+	@type = type_representation(Type*(type));
 	if (!type) {
 		return false;
 	};
@@ -8271,6 +9358,10 @@ fn Emitter::initialize_body_fields(Emitter& this, Entity* entity, LLVMOpaqueValu
 
 fn Emitter::initialize_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
 	Compiler& compiler = @*this.compiler;
+	if (type_enum((Type*)type)) {
+		@this.initialize_type((Type*)type->data.entity->data.enumeration.underlying, $address);
+		return;
+	};
 	if (!type_has_views((Type*)type)) {
 		return;
 	};
@@ -8366,6 +9457,7 @@ fn Emitter::value_read(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 };
 
 fn Emitter::truth(Emitter& this, LLVMOpaqueValue* value, Type* type) -> LLVMOpaqueValue* {
+	@type = type_representation(Type*(type));
 	LLVMOpaqueValue* zero = LLVMConstNull(llvm_type(@*this.compiler, (Type*)type));
 	if (type->kind == type_kind::float) {
 		return LLVMBuildFCmp(this.compiler->llvm_builder.get(), 14, LLVMOpaqueValue*(value), LLVMOpaqueValue*(zero), "truth\0");
@@ -8400,6 +9492,8 @@ fn Emitter::address(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 
 
 fn Emitter::cast(Emitter& this, LLVMOpaqueValue* value, Type* source, Type* target) -> LLVMOpaqueValue* {
+	@source = type_representation(Type*(source));
+	@target = type_representation(Type*(target));
 	LLVMOpaqueBuilder* builder := this.compiler->llvm_builder.get();
 	LLVMOpaqueType* type = llvm_type(@*this.compiler, (Type*)target);
 	if (target->kind == type_kind::bool && source->kind != type_kind::bool) {
@@ -8436,6 +9530,7 @@ fn Emitter::cast(Emitter& this, LLVMOpaqueValue* value, Type* source, Type* targ
 };
 
 fn emit_extension(Compiler& compiler, Type* type) -> LLVMOpaqueAttributeRef* {
+	@type = type_representation(Type*(type));
 	if (!type_integer((Type*)type) || type_bits((Type*)type) >= 32) {
 		return nullptr;
 	};
@@ -8453,6 +9548,7 @@ fn Emitter::binary(Emitter& this, Syntax* syntax, LLVMOpaqueValue* first, LLVMOp
 	if (operation != token_kind::op_equal && operation != token_kind::op_not_equal && operation != token_kind::op_less && operation != token_kind::op_greater && operation != token_kind::op_less_equal && operation != token_kind::op_greater_equal) {
 		@type := syntax->type;
 	};
+	@type = type_representation(Type*(type));
 	if (type->kind == type_kind::pointer && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
 		@second = @this.cast(LLVMOpaqueValue*(second), (Type*)syntax->data.binary.right->type, (Type*)this.compiler->usize_type);
 		if (operation == token_kind::op_minus) {
@@ -8737,6 +9833,10 @@ fn Emitter::destroy_body(Emitter& this, Entity* entity, LLVMOpaqueValue* address
 			@this.special_call((Entity*)entity->data.aggregate.destructor, LLVMOpaqueValue*(address), nullptr);
 		};
 	};
+	if (entity->kind == entity_kind::enum_) {
+		@this.destroy_type((Type*)entity->data.enumeration.underlying, $address);
+		return;
+	};
 	if (entity->kind == entity_kind::union_) {
 		if (!entity->data.aggregate.destructor || entity->data.aggregate.destructor->data.function.definition == function_definition::defaulted) {
 			Field* field := entity->data.aggregate.fields;
@@ -8766,7 +9866,7 @@ fn Emitter::destroy_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
 		};
 		return;
 	};
-	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::enum_) {
+	if (type->kind != type_kind::named) {
 		return;
 	};
 	Entity* entity := type->data.entity;
@@ -8858,6 +9958,10 @@ fn Emitter::default_members(Emitter& this, Type* type, LLVMOpaqueValue* address)
 };
 
 fn Emitter::default_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
+	if (type_enum((Type*)type)) {
+		@this.default_type((Type*)type->data.entity->data.enumeration.underlying, $address);
+		return;
+	};
 	if (type->kind == type_kind::array) {
 		usize index = 0;
 		while (index < type->data.array.count) {
@@ -8878,7 +9982,7 @@ fn Emitter::default_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
 	};
 };
 
-enum storage_extent {
+enum storage_extent : [i32] {
 	body;
 	complete;
 };
@@ -8946,7 +10050,7 @@ fn Emitter::storage_special(Emitter& this, Type* type, function_role role, LLVMO
 	return true;
 };
 
-enum storage_transfer {
+enum storage_transfer : [i32] {
 	copy_construct;
 	assign;
 	copy_assign;
@@ -8995,6 +10099,10 @@ fn Emitter::transfer_members(Emitter& this, Entity* entity, LLVMOpaqueValue* des
 };
 
 fn Emitter::transfer_type(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, storage_transfer operation) {
+	if (type_enum((Type*)type)) {
+		@this.transfer_type((Type*)type->data.entity->data.enumeration.underlying, $destination, $source, $operation);
+		return;
+	};
 	if (!@this.lifetime_polymorphism_supported((Type*)type)) {
 		return;
 	};
@@ -9209,6 +10317,9 @@ fn Emitter::expression_value(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* 
 				return runtime_callable(@compiler, (Entity*)syntax->entity);
 			};
 			if (syntax->entity->data.variable.storage == storage_kind::constant) {
+				if (syntax->entity->data.variable.evaluation && syntax->entity->data.variable.evaluation->state == constant_state::constant) {
+					return constant_llvm(@compiler, (ConstantValue*)syntax->entity->data.variable.evaluation->value);
+				};
 				return LLVMConstInt(LLVMOpaqueType*(type), (u64)syntax->entity->data.variable.data.integer, 0);
 			};
 			if (syntax->type->kind == type_kind::function) {
@@ -9666,6 +10777,16 @@ fn layout_validate(Compiler& compiler, Type* type, LayoutVisit* parent, const To
 	if (!type) {
 		return;
 	};
+	if (type_enum((Type*)type)) {
+		if (type->data.entity->state != resolution::active || !type->data.entity->data.enumeration.underlying) {
+			entity_resolve(@compiler, (Entity*)type->data.entity);
+		};
+		if (compiler.result == compilation_result::failure) {
+			return;
+		};
+		layout_validate(@compiler, (Type*)type->data.entity->data.enumeration.underlying, $parent, token);
+		return;
+	};
 	if (type->kind == type_kind::void || type->kind == type_kind::null || type->kind == type_kind::function) {
 		compiler_error(@compiler, token, "type has no value storage layout\0");
 		return;
@@ -9733,7 +10854,7 @@ struct DeclarationIterator {
 
 fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding* {
 	Scope* members = nullptr;
-	if (binding->entity->kind == entity_kind::namespace_ || binding->entity->kind == entity_kind::struct_ || binding->entity->kind == entity_kind::union_ || binding->entity->kind == entity_kind::template_) {
+	if (binding->entity->kind == entity_kind::namespace_ || binding->entity->kind == entity_kind::struct_ || binding->entity->kind == entity_kind::union_ || binding->entity->kind == entity_kind::enum_ || binding->entity->kind == entity_kind::template_) {
 		@members = entity_members((Entity*)binding->entity);
 	};
 	if (members && members->bindings) {
@@ -9742,7 +10863,7 @@ fn declaration_next(DeclarationIterator* iterator, Binding* binding) -> Binding*
 	};
 	while (!binding->next) {
 		Entity* owner := iterator->scope->owner;
-		if (!owner || (owner->kind != entity_kind::namespace_ && owner->kind != entity_kind::struct_ && owner->kind != entity_kind::union_ && owner->kind != entity_kind::template_)) {
+		if (!owner || (owner->kind != entity_kind::namespace_ && owner->kind != entity_kind::struct_ && owner->kind != entity_kind::union_ && owner->kind != entity_kind::enum_ && owner->kind != entity_kind::template_)) {
 			return nullptr;
 		};
 		@iterator->scope := iterator->scope->parent;
@@ -9783,8 +10904,8 @@ fn declarations_validate_block(Compiler& compiler, Syntax* module) {
 			};
 		}
 		else if (entity->kind == entity_kind::variable) {
-			if (entity->data.variable.storage != storage_kind::field) {
-				compiler_error(@compiler, statement->token, "module variables are not supported in this bootstrap stage\0");
+			if (entity->data.variable.storage == storage_kind::global) {
+				global_variable_resolve(@compiler, (Entity*)entity);
 			};
 		}
 		else if (statement->data.declaration.body && statement != entity->declaration) {
@@ -9999,6 +11120,36 @@ fn virtual_validate(Compiler& compiler) {
 			};
 		};
 		@binding = declaration_next(&iterator, (Binding*)binding);
+	};
+};
+
+fn global_variable_resolve(Compiler& compiler, Entity* entity) {
+	if (entity->state == resolution::ready) {
+		return;
+	};
+	if (entity->state == resolution::active) {
+		compiler_error(@compiler, entity->name, "circular global initializer\0");
+		return;
+	};
+	@entity->state = resolution::active;
+	Semantic semantic;
+	@semantic.compiler = &compiler;
+	@semantic.scope := entity->scope;
+	@semantic.statement((Syntax*)entity->declaration);
+	if (compiler.result == compilation_result::failure) {
+		return;
+	};
+	destruction_request((Type*)entity->data.variable.type);
+	LifetimeAnalysis lifetime;
+	@lifetime.compiler = &compiler;
+	@lifetime.state.path = reachability::reachable;
+	@lifetime.statement((Syntax*)entity->declaration->data.declaration.body);
+	@entity->state = resolution::ready;
+	if (entity->data.variable.type->qualifier == type_qualifier::const_) {
+		ConstantContext context;
+		@context.compiler = &compiler;
+		@context.scope := entity->scope;
+		constant_variable(@context, (Entity*)entity);
 	};
 };
 
@@ -10438,12 +11589,141 @@ fn emit_entry(Compiler& compiler) {
 	LLVMBuildRet(compiler.llvm_builder.get(), $result);
 };
 
+fn emit_global_collect(Syntax* module, Entity** globals, usize* count) {
+	Syntax* statement := module->data.statements;
+	while (statement) {
+		Entity* entity := statement->entity;
+		if (statement->token.kind == token_kind::kw_namespace) {
+			emit_global_collect((Syntax*)statement->data.declaration.body, Entity**(globals), usize*(count));
+		}
+		else if (entity && entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::global) {
+			@globals[*count] := entity;
+			@*count = *count + 1;
+		};
+		@statement := statement->next;
+	};
+};
+
+fn emit_global_register(Compiler& compiler, LLVMOpaqueValue* function, const char* name) {
+	LLVMOpaqueType*[3] fields {};
+	@fields[0] = LLVMIntTypeInContext(compiler.llvm_context.get(), 32);
+	@fields[1] = LLVMPointerTypeInContext(compiler.llvm_context.get(), 0);
+	@fields[2] := fields[1];
+	LLVMOpaqueType* record = LLVMStructTypeInContext(compiler.llvm_context.get(), &fields[0], 3, 0);
+	LLVMOpaqueValue*[3] values {};
+	@values[0] = LLVMConstInt(LLVMOpaqueType*(fields[0]), 65535, 0);
+	@values[1] = $function;
+	@values[2] = LLVMConstNull(LLVMOpaqueType*(fields[2]));
+	LLVMOpaqueValue*[1] entries {};
+	@entries[0] = LLVMConstNamedStruct(LLVMOpaqueType*(record), &values[0], 3);
+	LLVMOpaqueValue* list = LLVMAddGlobal(compiler.llvm_module.get(), LLVMArrayType2(LLVMOpaqueType*(record), 1), $name);
+	LLVMSetInitializer(LLVMOpaqueValue*(list), LLVMConstArray2($record, &entries[0], 1));
+	LLVMSetLinkage($list, 7);
+};
+
+fn emit_global_destructor(Compiler& compiler, Entity* entity) {
+	Type* type := entity->data.variable.type;
+	if (!type_requires_destruction((Type*)type)) {
+		return;
+	};
+
+	LLVMOpaqueBasicBlock* continuation = LLVMGetInsertBlock(compiler.llvm_builder.get());
+	LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(compiler.llvm_context.get()), nullptr, 0, 0);
+	LLVMOpaqueValue* function = LLVMAddFunction(compiler.llvm_module.get(), "rt.global.destroy\0", $signature);
+	LLVMSetLinkage(LLVMOpaqueValue*(function), 9);
+	LLVMPositionBuilderAtEnd(compiler.llvm_builder.get(), LLVMAppendBasicBlockInContext(compiler.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0"));
+	Emitter emitter;
+	@emitter.compiler = &compiler;
+	@emitter.llvm_function := function;
+	@emitter.destroy_type($type, LLVMOpaqueValue*(entity->data.variable.data.address));
+	LLVMBuildRetVoid(compiler.llvm_builder.get());
+	LLVMPositionBuilderAtEnd(compiler.llvm_builder.get(), $continuation);
+
+	LLVMOpaqueType*[1] parameters {};
+	@parameters[0] = LLVMPointerTypeInContext(compiler.llvm_context.get(), 0);
+	LLVMOpaqueType* registration_type = LLVMFunctionType(llvm_type(@compiler, (Type*)compiler.i32_type), &parameters[0], 1, 0);
+	LLVMOpaqueValue* registration = LLVMGetNamedFunction(compiler.llvm_module.get(), "atexit\0");
+	if (!registration) {
+		@registration = LLVMAddFunction(compiler.llvm_module.get(), "atexit\0", LLVMOpaqueType*(registration_type));
+	};
+	if (LLVMGlobalGetValueType(LLVMOpaqueValue*(registration)) != registration_type) {
+		compiler_error(@compiler, entity->name, "atexit declaration conflicts with global destruction registration\0");
+		return;
+	};
+	LLVMBuildCall2(compiler.llvm_builder.get(), $registration_type, $registration, &function, 1, "\0");
+};
+
+fn emit_global_initializers(Compiler& compiler, Entity** globals, usize count) {
+	usize pending = 0;
+	usize index = 0;
+	while (index < count) {
+		Entity* entity := globals[index];
+		if (type_requires_destruction((Type*)entity->data.variable.type) || !entity->data.variable.evaluation || entity->data.variable.evaluation->state != constant_state::constant) {
+			@pending = pending + 1;
+		};
+		@index = index + 1;
+	};
+	if (!pending) {
+		return;
+	};
+
+	LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(compiler.llvm_context.get()), nullptr, 0, 0);
+	LLVMOpaqueValue* function = LLVMAddFunction(compiler.llvm_module.get(), "rt.global.initialize\0", $signature);
+	LLVMSetLinkage(LLVMOpaqueValue*(function), 9);
+	LLVMPositionBuilderAtEnd(compiler.llvm_builder.get(), LLVMAppendBasicBlockInContext(compiler.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0"));
+	Emitter emitter;
+	@emitter.compiler = &compiler;
+	@emitter.llvm_function := function;
+
+	@index = 0;
+	while (index < count && compiler.result == compilation_result::success) {
+		Entity* entity := globals[index];
+		Type* type := entity->data.variable.type;
+		LLVMOpaqueValue* address := entity->data.variable.data.address;
+		if (!entity->data.variable.evaluation || entity->data.variable.evaluation->state != constant_state::constant) {
+			Syntax* body := entity->declaration->data.declaration.body;
+			if (!body) {
+				@emitter.initialize_type((Type*)type, LLVMOpaqueValue*(address));
+				@emitter.default_type((Type*)type, LLVMOpaqueValue*(address));
+			}
+			else {
+				if (body->data.statements && type->kind != type_kind::reference) {
+					@emitter.initialize_type((Type*)type, LLVMOpaqueValue*(address));
+				};
+				@emitter.statement((Syntax*)body);
+			};
+			@emitter.flush_temporaries(nullptr);
+		};
+		emit_global_destructor(@compiler, (Entity*)entity);
+		@index = index + 1;
+	};
+	LLVMBuildRetVoid(compiler.llvm_builder.get());
+	emit_global_register(@compiler, $function, "llvm.global_ctors\0");
+};
+
 fn backend_emit(Compiler& compiler) {
 	DeclarationIterator iterator;
 	@iterator.scope := compiler.module;
 	Binding* binding := compiler.module->bindings;
+	usize global_count = 0;
 	while (binding && compiler.result != compilation_result::failure) {
 		Entity* entity := binding->entity;
+		if (entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::global) {
+			Type* type := entity->data.variable.type;
+			LLVMOpaqueValue* address = LLVMAddGlobal(compiler.llvm_module.get(), llvm_type(@compiler, (Type*)type), entity_name(@compiler, (Entity*)entity));
+			@entity->data.variable.data.address := address;
+			LLVMSetLinkage(LLVMOpaqueValue*(address), 9);
+			LLVMOpaqueValue* initializer = LLVMConstNull(llvm_type(@compiler, (Type*)type));
+			ConstantEvaluation* evaluation := entity->data.variable.evaluation;
+			if (evaluation && evaluation->state == constant_state::constant) {
+				@initializer = constant_llvm(@compiler, (ConstantValue*)evaluation->value);
+				if (type->qualifier == type_qualifier::const_ && !type_requires_destruction((Type*)type)) {
+					LLVMSetGlobalConstant(LLVMOpaqueValue*(address), 1);
+				};
+			};
+			LLVMSetInitializer($address, $initializer);
+			@global_count = global_count + 1;
+		};
 		if (entity->kind == entity_kind::function && entity->data.function.definition != function_definition::deleted) {
 			Type* signature := entity->data.function.type;
 			@entity->data.function.llvm_type = llvm_type(@compiler, (Type*)signature);
@@ -10473,6 +11753,16 @@ fn backend_emit(Compiler& compiler) {
 			};
 		};
 		@binding = declaration_next(&iterator, (Binding*)binding);
+	};
+	if (global_count) {
+		Entity** globals = (Entity**)memory_allocate(@compiler, global_count * sizeof(Entity*));
+		usize count = 0;
+		Syntax* module := compiler.declarations;
+		while (module) {
+			emit_global_collect((Syntax*)module, Entity**(globals), &count);
+			@module := module->next;
+		};
+		emit_global_initializers(@compiler, $globals, $count);
 	};
 	@iterator.scope := compiler.module;
 	@binding := compiler.module->bindings;
@@ -10600,6 +11890,9 @@ fn lifetime_truth(Syntax* syntax) -> i32 {
 		return 1;
 	};
 	if (syntax->kind == syntax_kind::name && syntax->entity && syntax->entity->kind == entity_kind::variable && syntax->entity->data.variable.storage == storage_kind::constant) {
+		if (syntax->entity->data.variable.evaluation && syntax->entity->data.variable.evaluation->state == constant_state::constant) {
+			return (i32)constant_truth((ConstantValue*)syntax->entity->data.variable.evaluation->value);
+		};
 		return !!syntax->entity->data.variable.data.integer;
 	};
 	if (syntax->kind == syntax_kind::number && syntax->token.length == 1) {
@@ -11071,8 +12364,8 @@ fn Semantic::statement(Semantic& this, Syntax* syntax) {
 		};
 		case syntax_kind::switch_: {
 			Type* type = @this.expression((Syntax*)syntax->data.selection.value, nullptr);
-			if (!type_integer((Type*)type) && !type_enum((Type*)type)) {
-				compiler_error(@compiler, syntax->token, "switch requires an integer or enum value\0");
+			if (!type_integer(type_representation((Type*)type))) {
+				compiler_error(@compiler, syntax->token, "switch requires an integer value or an enum with integer underlying storage\0");
 				break;
 			};
 			@this.selection_validate((Syntax*)syntax, (Type*)type);
@@ -11303,13 +12596,12 @@ fn backend_clear(Compiler& compiler) {
 	@compiler.clear();
 };
 
-fn rutile_compiler_create() -> Compiler* {
+fn rutile_compiler_session(((Compiler*, void*) -> i32)* callback, void* data) -> i32 {
 	var compiler = make_unique<Compiler>();
-	return @compiler.release();
-};
-
-fn rutile_compiler_destroy(Compiler* compiler) {
-	delete compiler;
+	if (!compiler.get()) {
+		return 1;
+	};
+	return callback(compiler.get(), $data);
 };
 
 fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics, output_kind output) -> i32 {
@@ -11402,8 +12694,9 @@ fn rutile_compile(Compiler* compiler, char** source_paths, usize source_count, c
 	return backend_compile($compiler, $source_paths, $source_count, $output_path, $open_file, $entry, $optimization, $diagnostics, output_kind::executable);
 };
 
-fn rutile_compile_library(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, i32 optimization, void* diagnostics) -> i32 {
-	return backend_compile($compiler, $source_paths, $source_count, $output_path, $open_file, nullptr, $optimization, $diagnostics, output_kind::library);
+fn rutile_compile_library(char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, i32 optimization, void* diagnostics) -> i32 {
+	var compiler = make_unique<Compiler>();
+	return backend_compile(compiler.get(), $source_paths, $source_count, $output_path, $open_file, nullptr, $optimization, $diagnostics, output_kind::library);
 };
 
 

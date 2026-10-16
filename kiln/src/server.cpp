@@ -11,7 +11,6 @@
 #include <string_view>
 #include <system_error>
 #include <filesystem>
-#include <memory>
 
 bool kiln_handle_request(struct PlatformServer* server, struct Compiler* compiler) {
 	std::array<char, 4096> buffer{};
@@ -69,12 +68,8 @@ bool kiln_handle_request(struct PlatformServer* server, struct Compiler* compile
 	return true;
 }
 
-int kiln_serve(const char* endpoint) {
-	std::unique_ptr<struct Compiler, decltype(&rutile_compiler_destroy)> compiler{ rutile_compiler_create(), rutile_compiler_destroy };
-	if (!compiler) {
-		std::fputs("Could not create the project compiler.\n", stderr);
-		return 1;
-	}
+extern "C" int kiln_serve_session(struct Compiler* compiler, void* data) {
+	const char* endpoint = *static_cast<const char* const*>(data);
 	std::error_code error;
 	auto root = std::filesystem::current_path(error);
 	if (error) {
@@ -106,7 +101,7 @@ int kiln_serve(const char* endpoint) {
 			platform_lock_release(lock);
 			return 1;
 		}
-		if (!kiln_handle_request(server, compiler.get())) {
+		if (!kiln_handle_request(server, compiler)) {
 			platform_server_disconnect(server);
 			break;
 		}
@@ -115,5 +110,9 @@ int kiln_serve(const char* endpoint) {
 	platform_server_close(server);
 	platform_lock_release(lock);
 	return 0;
+}
+
+int kiln_serve(const char* endpoint) {
+	return rutile_compiler_session(kiln_serve_session, &endpoint);
 }
 
