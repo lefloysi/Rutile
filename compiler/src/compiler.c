@@ -191,6 +191,7 @@ enum TokenKind {
 	CONST,
 	DISCARD,
 	DELETE,
+	NEW,
 	IMPLICIT,
 	NULLPTR,
 	TEMPLATE,
@@ -215,6 +216,9 @@ enum NodeKind {
 	RELOCATE_EXPRESSION,
 	ABANDON_EXPRESSION,
 	CONSTRUCTION_EXPRESSION,
+	ALLOCATION_EXPRESSION,
+	DEALLOCATION_EXPRESSION,
+	RAW_DEALLOCATION_EXPRESSION,
 	TYPE_EXPRESSION,
 	NEGATE_EXPRESSION,
 	BINARY_EXPRESSION,
@@ -313,6 +317,8 @@ struct Expression {
 		struct {
 			struct Function* function;
 			struct Argument* arguments;
+			struct Expression* destination;
+			struct TypeNode* syntax;
 			LLVMValueRef slot;
 		} construction;
 		uint64_t integer;
@@ -857,7 +863,7 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "implicit", IMPLICIT }, { "template", TEMPLATE }, { "typename", TYPENAME }, { "class", CLASS }, { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
+const struct Keyword keywords[] = { { "new", NEW }, { "implicit", IMPLICIT }, { "template", TEMPLATE }, { "typename", TYPENAME }, { "class", CLASS }, { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
 
 const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } }, { "null", { NULL_TYPE, { 0 } } } };
 
@@ -1507,6 +1513,9 @@ struct Token template_parse_id(struct Compiler* compiler, struct Token name);
 struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
 	if (destructor) {
 		*destructor = take(compiler, '~');
+		if (*destructor) {
+			expect(compiler, '~', "second '~' in destructor name");
+		}
 	}
 	struct Token name = compiler->token;
 	if (!expect(compiler, NAME, "an identifier")) {
@@ -1523,6 +1532,9 @@ struct Token parse_qualified_name(struct Compiler* compiler, bool* destructor) {
 		}
 		if (destructor) {
 			*destructor = take(compiler, '~');
+			if (*destructor) {
+				expect(compiler, '~', "second '~' in destructor name");
+			}
 		}
 		name.kind = QUALIFY;
 		struct Token part = compiler->token;
@@ -2210,6 +2222,7 @@ enum ExpressionBoundary {
 };
 struct Expression* parse_expression_boundary(struct Compiler* compiler, int minimum, enum ExpressionBoundary boundary);
 struct Statement* parse_statement(struct Compiler* compiler);
+struct Statement* parse_attached_block(struct Compiler* compiler);
 
 bool known_type_name(struct Compiler* compiler, struct Token name) {
 	struct TemplateBinding* binding = template_binding(compiler, name);
@@ -2394,6 +2407,38 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 		goto postfix;
 	}
 	switch (token.kind) {
+	case NEW: {
+		next_token(compiler);
+		expression = new_expression(compiler, ALLOCATION_EXPRESSION, token);
+		if (!expression) {
+			return NULL;
+		}
+		expression->data.construction.syntax = parse_type(compiler);
+		expect(compiler, '(', "'(' after allocated type");
+		struct Argument** tail = &expression->data.construction.arguments;
+		while (compiler->token.kind != ')' && !compiler->failed) {
+			struct Argument* argument = allocate(compiler, sizeof(struct Argument));
+			if (!argument) {
+				return NULL;
+			}
+			argument->expression = parse_expression(compiler, 0);
+			*tail = argument;
+			tail = &argument->next;
+			if (!take(compiler, ',')) {
+				break;
+			}
+		}
+		expect(compiler, ')', "')' after allocation arguments");
+		break;
+	}
+	case DELETE:
+		next_token(compiler);
+		expression = new_expression(compiler, take(compiler, DISCARD) ? RAW_DEALLOCATION_EXPRESSION : DEALLOCATION_EXPRESSION, token);
+		if (!expression) {
+			return NULL;
+		}
+		expression->data.operand = parse_prefix(compiler);
+		break;
 	case NULLPTR:
 		expression = new_expression(compiler, NULLPTR_EXPRESSION, token);
 		if (!expression) {
@@ -2617,7 +2662,32 @@ struct Expression* parse_prefix(struct Compiler* compiler) {
 			next_token(compiler);
 			break;
 		}
-		token = parse_name(compiler);
+		bool destructor = false;
+		token = parse_qualified_name(compiler, &destructor);
+		if (destructor) {
+			struct QualifiedName qualified = lookup_name(compiler, token);
+			struct Record* record = qualified.owner ? qualified.owner->record : NULL;
+			if (!record || !name_equal(qualified.name, unqualified_token(record->name))) {
+				diagnostic(compiler, token, "destructor name must match its owning type");
+				break;
+			}
+			expression = new_expression(compiler, DESTRUCTION_EXPRESSION, token);
+			if (!expression) {
+				return NULL;
+			}
+			struct TypeNode* syntax = allocate(compiler, sizeof(struct TypeNode));
+			if (!syntax) {
+				return NULL;
+			}
+			syntax->kind = NAMED_SYNTAX;
+			syntax->span.first = token;
+			syntax->data.named.name = record->name;
+			expression->data.destruction.syntax = syntax;
+			expect(compiler, '(', "'(' after qualified destructor name");
+			expression->data.destruction.object = parse_expression(compiler, 0);
+			expect(compiler, ')', "')' after destructor receiver");
+			break;
+		}
 		expression = new_expression(compiler, NAME_EXPRESSION, token);
 		if (expression) {
 			expression->data.variable.name = token;
@@ -2645,7 +2715,7 @@ postfix:
 					return NULL;
 				}
 				if (compiler->token.kind == '{') {
-					argument->initialization = parse_statement(compiler);
+					argument->initialization = parse_attached_block(compiler);
 				}
 				else {
 					argument->expression = parse_expression(compiler, 0);
@@ -2674,6 +2744,7 @@ postfix:
 			int kind = compiler->token.kind;
 			next_token(compiler);
 			if (take(compiler, '~')) {
+				expect(compiler, '~', "second '~' in destructor name");
 				struct Expression* destruction = new_expression(compiler, DESTRUCTION_EXPRESSION, expression->span.first);
 				if (!destruction) {
 					return NULL;
@@ -2798,6 +2869,29 @@ struct Statement* parse_block(struct Compiler* compiler) {
 	return first;
 }
 
+struct Statement* parse_attached_block(struct Compiler* compiler) {
+	struct Statement* block = allocate(compiler, sizeof(struct Statement));
+	if (!block) {
+		return NULL;
+	}
+	block->span.first = compiler->token;
+	block->kind = BLOCK_STATEMENT;
+	block->data.block = parse_block(compiler);
+	block->span.last = previous_token(compiler);
+	return block;
+}
+
+struct Statement* parse_control_body(struct Compiler* compiler) {
+	if (compiler->token.kind != '{') {
+		return parse_statement(compiler);
+	}
+	struct Statement* body = parse_attached_block(compiler);
+	if (compiler->token.kind != ELSE) {
+		expect(compiler, ';', "';' after control block");
+	}
+	return body;
+}
+
 struct Statement* parse_statement(struct Compiler* compiler) {
 	struct Token token = compiler->token;
 	struct Statement* statement = allocate(compiler, sizeof(struct Statement));
@@ -2809,6 +2903,7 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 	case '{':
 		statement->kind = BLOCK_STATEMENT;
 		statement->data.block = parse_block(compiler);
+		expect(compiler, ';', "';' after block statement");
 		break;
 	case ';':
 		next_token(compiler);
@@ -2820,9 +2915,9 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 		expect(compiler, '(', "'('");
 		statement->data.branch.condition = parse_expression(compiler, 0);
 		expect(compiler, ')', "')'");
-		statement->data.branch.first = parse_statement(compiler);
+		statement->data.branch.first = parse_control_body(compiler);
 		if (take(compiler, ELSE)) {
-			statement->data.branch.second = parse_statement(compiler);
+			statement->data.branch.second = parse_control_body(compiler);
 		}
 		break;
 	case WHILE:
@@ -2831,7 +2926,7 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 		expect(compiler, '(', "'('");
 		statement->data.loop.condition = parse_expression(compiler, 0);
 		expect(compiler, ')', "')'");
-		statement->data.loop.body = parse_statement(compiler);
+		statement->data.loop.body = parse_control_body(compiler);
 		break;
 	case FOR:
 		next_token(compiler);
@@ -2849,7 +2944,7 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 			statement->data.loop.step = parse_expression(compiler, 0);
 		}
 		expect(compiler, ')', "')'");
-		statement->data.loop.body = parse_statement(compiler);
+		statement->data.loop.body = parse_control_body(compiler);
 		break;
 	case SWITCH: {
 		next_token(compiler);
@@ -2920,7 +3015,7 @@ struct Statement* parse_statement(struct Compiler* compiler) {
 					statement->data.declaration.initializer = parse_expression(compiler, 0);
 				}
 				else if (compiler->token.kind == '{') {
-					statement->data.declaration.initialization = parse_statement(compiler);
+					statement->data.declaration.initialization = parse_attached_block(compiler);
 				}
 				else if (!variable->syntax) {
 					diagnostic(compiler, variable->name, "inferred variables require an initializer");
@@ -3008,28 +3103,45 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 		diagnostic(compiler, function->name, "constructors and destructors have no return type");
 	}
 	if (take(compiler, ':')) {
-		if (take(compiler, IMPLICIT)) {
-			if (function->role != CONSTRUCTOR_ROLE) {
-				diagnostic(compiler, function->name, "implicit modifier requires a constructor");
+		if (!expect(compiler, '[', "'[' after ':' to open function modifiers")) {
+			return;
+		}
+		if (compiler->token.kind == ']') {
+			diagnostic(compiler, compiler->token, "function modifier list cannot be empty");
+			return;
+		}
+		while (!compiler->failed) {
+			if (take(compiler, IMPLICIT)) {
+				if (function->role != CONSTRUCTOR_ROLE || function->conversion == IMPLICIT_CONSTRUCTOR) {
+					diagnostic(compiler, function->name, "implicit modifier requires a constructor and cannot be repeated");
+					return;
+				}
+				function->conversion = IMPLICIT_CONSTRUCTOR;
+			}
+			else if (take(compiler, DELETE)) {
+				if (function->kind == FUNCTION_DELETED) {
+					diagnostic(compiler, function->name, "delete modifier cannot be repeated");
+					return;
+				}
+				function->kind = FUNCTION_DELETED;
+			}
+			else if (compiler->token.kind == VIRTUAL || compiler->token.kind == OVERRIDE || compiler->token.kind == FINAL) {
+				if (function->modification != ORDINARY_FUNCTION) {
+					diagnostic(compiler, compiler->token, "conflicting virtual relationship modifiers");
+					return;
+				}
+				function->modification = compiler->token.kind == VIRTUAL ? VIRTUAL_FUNCTION : compiler->token.kind == OVERRIDE ? OVERRIDE_FUNCTION : FINAL_FUNCTION;
+				next_token(compiler);
+			}
+			else {
+				diagnostic(compiler, compiler->token, "expected implicit, delete, virtual, override, or final modifier");
 				return;
 			}
-			function->conversion = IMPLICIT_CONSTRUCTOR;
+			if (!take(compiler, ',')) {
+				break;
+			}
 		}
-		else if (take(compiler, DELETE)) {
-			function->kind = FUNCTION_DELETED;
-		}
-		else if (take(compiler, VIRTUAL)) {
-			function->modification = VIRTUAL_FUNCTION;
-		}
-		else if (take(compiler, OVERRIDE)) {
-			function->modification = OVERRIDE_FUNCTION;
-		}
-		else if (take(compiler, FINAL)) {
-			function->modification = FINAL_FUNCTION;
-		}
-		else {
-			diagnostic(compiler, compiler->token, "expected implicit, delete, virtual, override, or final modifier");
-		}
+		expect(compiler, ']', "']' after function modifiers");
 	}
 	if (function->modification != ORDINARY_FUNCTION) {
 		if (!receiver || receiver->kind != STRUCT_TYPE) {
@@ -3118,6 +3230,13 @@ void parse_record(struct Compiler* compiler) {
 		compiler->last_record = record;
 	}
 	if (take(compiler, ':')) {
+		if (!expect(compiler, '[', "'[' after ':' to open base list")) {
+			return;
+		}
+		if (compiler->token.kind == ']') {
+			diagnostic(compiler, compiler->token, "base list cannot be empty");
+			return;
+		}
 		if (kind != STRUCT_TYPE) {
 			diagnostic(compiler, declared.name, "only structs can inherit");
 			return;
@@ -3136,6 +3255,7 @@ void parse_record(struct Compiler* compiler) {
 				break;
 			}
 		}
+		expect(compiler, ']', "']' after base list");
 		if (compiler->token.kind != '{') {
 			diagnostic(compiler, declared.name, "base relationships require a struct definition");
 			return;
@@ -4826,6 +4946,95 @@ struct Function* receiver_function(struct Compiler* compiler, struct Type object
 	return function;
 }
 
+void bind_member_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
+	struct Type object = expression->data.member.object->type;
+	if (expression->kind == POINTER_FIELD_EXPRESSION) {
+		if (object.kind != POINTER_TYPE) {
+			diagnostic(compiler, expression->span.first, "'->' requires a pointer to a record");
+			return;
+		}
+		object = *object.data.element;
+	}
+	if (object.kind != STRUCT_TYPE && object.kind != UNION_TYPE) {
+		diagnostic(compiler, expression->span.first, "field access requires a struct or union");
+		return;
+	}
+	struct Record* qualified_owner = NULL;
+	struct MemberLookup member = qualified_record_member(compiler, object.data.record, expression->data.member.name, &qualified_owner);
+	if (member.kind == AMBIGUOUS_MEMBER) {
+		diagnostic(compiler, expression->data.member.name, "ambiguous inherited member");
+		return;
+	}
+	if (member.kind == FIELD_MEMBER) {
+		expression->data.member.binding = member.entity.field;
+		expression->data.member.base_path = member.path;
+		expression->type = member.entity.field->type;
+		if (expression->type.kind == REFERENCE_TYPE) {
+			expression->type = *expression->type.data.element;
+		}
+		else if (object.qualifier == CONST_TYPE) {
+			expression->type.qualifier = CONST_TYPE;
+		}
+	}
+	if (!expression->data.member.binding) {
+		struct Function* function = receiver_function(compiler, object, expression->data.member.name);
+		if (!function) {
+			diagnostic(compiler, expression->data.member.name, "unknown field or associated function '%.*s'", (int)expression->data.member.name.length, expression->data.member.name.start);
+			return;
+		}
+		struct Expression* receiver = expression->data.member.object;
+		enum ReceiverKind receiver_kind = EVALUATE_RECEIVER;
+		if (function->parameters && token_text(function->parameters->name, "this")) {
+			receiver_kind = BIND_RECEIVER;
+			if (expression->kind == POINTER_FIELD_EXPRESSION) {
+				struct Expression* pointee = new_expression(compiler, DEREFERENCE_EXPRESSION, receiver->span.first);
+				if (!pointee) {
+					return;
+				}
+				pointee->data.operand = receiver;
+				pointee->type = object;
+				receiver = pointee;
+			}
+			if (qualified_owner && qualified_owner != object.data.record) {
+				struct BaseSearch selection = find_base_path(compiler, object.data.record, qualified_owner);
+				struct Expression* projection = new_expression(compiler, BASE_VALUE_EXPRESSION, receiver->span.first);
+				if (!projection) {
+					return;
+				}
+				projection->data.base.value = receiver;
+				projection->data.base.path = selection.path;
+				projection->type = (struct Type){ STRUCT_TYPE, { .record = qualified_owner } };
+				receiver = projection;
+			}
+		}
+		expression->kind = BOUND_FUNCTION_EXPRESSION;
+		expression->data.bound_function.function = function;
+		expression->data.bound_function.receiver = receiver;
+		expression->data.bound_function.kind = receiver_kind;
+		expression->data.bound_function.qualified_owner = qualified_owner;
+		expression->type = (struct Type){ FUNCTION_TYPE, { .function = function } };
+		return;
+	}
+	struct Expression* root = expression;
+	while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION || root->kind == BASE_VALUE_EXPRESSION || root->kind == REFERENCE_CAST_EXPRESSION) {
+		if (root->kind == FIELD_EXPRESSION) {
+			root = root->data.member.object;
+		}
+		else if (root->kind == INDEX_EXPRESSION) {
+			root = root->data.binary.left;
+		}
+		else {
+			root = root->kind == BASE_VALUE_EXPRESSION ? root->data.base.value : root->data.operand;
+		}
+	}
+	for (struct Scope* context = scope; context; context = context->parent) {
+		if (context->initialization && root->kind == NAME_EXPRESSION && context->initialization->variable == root->data.variable.binding) {
+			expression->data.member.initialization = context->initialization;
+			break;
+		}
+	}
+}
+
 void bind_expression(struct Compiler* compiler, struct Expression* expression, struct Scope* scope) {
 	if (!expression || compiler->failed) {
 		return;
@@ -4930,7 +5139,66 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 	case BASE_POINTER_EXPRESSION:
 		bind_expression(compiler, expression->data.base.value, scope);
 		break;
+	case ALLOCATION_EXPRESSION:
+		expression->type = pointer_type(compiler, resolve_type(compiler, expression->data.construction.syntax));
+		for (struct Argument* argument = expression->data.construction.arguments; argument && !compiler->failed; argument = argument->next) {
+			bind_expression(compiler, argument->expression, scope);
+		}
+		break;
+	case DEALLOCATION_EXPRESSION:
+	case RAW_DEALLOCATION_EXPRESSION:
+		bind_expression(compiler, expression->data.operand, scope);
+		expression->type = (struct Type){ VOID_TYPE, { 0 } };
+		break;
 	case CALL_EXPRESSION: {
+		struct Expression* member = expression->data.call.callee;
+		if (member->kind == FIELD_EXPRESSION || member->kind == POINTER_FIELD_EXPRESSION) {
+			bind_expression(compiler, member->data.member.object, scope);
+			if (compiler->failed) {
+				break;
+			}
+			struct Type target = member->data.member.object->type;
+			if (member->kind == POINTER_FIELD_EXPRESSION && target.kind == POINTER_TYPE) {
+				target = *target.data.element;
+			}
+			if ((target.kind == STRUCT_TYPE || target.kind == UNION_TYPE) && name_equal(member->data.member.name, unqualified_token(target.data.record->name))) {
+				struct Expression* destination = member->data.member.object;
+				if (member->kind == POINTER_FIELD_EXPRESSION) {
+					if (destination->type.kind != POINTER_TYPE) {
+						diagnostic(compiler, member->span.first, "'->' construction requires a pointer");
+						break;
+					}
+					struct Expression* object = new_expression(compiler, DEREFERENCE_EXPRESSION, destination->span.first);
+					if (!object) {
+						break;
+					}
+					object->data.operand = destination;
+					object->type = target;
+					struct Expression* access = new_expression(compiler, ACCESS_EXPRESSION, destination->span.first);
+					if (!access) {
+						break;
+					}
+					access->data.operand = object;
+					access->type = target;
+					destination = access;
+				}
+				struct Argument* arguments = expression->data.call.arguments;
+				expression->kind = CONSTRUCTION_EXPRESSION;
+				expression->type = target;
+				expression->data.construction.function = NULL;
+				expression->data.construction.arguments = arguments;
+				expression->data.construction.destination = destination;
+				expression->data.construction.slot = NULL;
+				for (struct Argument* argument = arguments; argument && !compiler->failed; argument = argument->next) {
+					if (argument->initialization) {
+						diagnostic(compiler, argument->initialization->span.first, "constructor arguments require expressions");
+						break;
+					}
+					bind_expression(compiler, argument->expression, scope);
+				}
+				break;
+			}
+		}
 		bool deduced_arguments = false;
 		if (expression->data.call.callee->kind == NAME_EXPRESSION) {
 			struct TemplatePattern* pattern = find_template(compiler, expression->data.call.callee->data.variable.name);
@@ -4961,6 +5229,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 				expression->type = syntax ? resolve_type(compiler, syntax) : builtin ? builtin->type : (struct Type){ record->kind, { .record = record } };
 				expression->data.construction.function = NULL;
 				expression->data.construction.arguments = arguments;
+				expression->data.construction.destination = NULL;
 				expression->data.construction.slot = NULL;
 				for (struct Argument* argument = arguments; argument; argument = argument->next) {
 					if (argument->initialization) {
@@ -4979,7 +5248,12 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 				expression->data.call.qualified_owner = qualified.owner ? qualified.owner->record : NULL;
 			}
 		}
-		bind_expression(compiler, expression->data.call.callee, scope);
+		if (member->kind == FIELD_EXPRESSION || member->kind == POINTER_FIELD_EXPRESSION) {
+			bind_member_expression(compiler, member, scope);
+		}
+		else {
+			bind_expression(compiler, expression->data.call.callee, scope);
+		}
 		if (compiler->failed) {
 			break;
 		}
@@ -5111,99 +5385,12 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		break;
 	}
 	case FIELD_EXPRESSION:
-	case POINTER_FIELD_EXPRESSION: {
+	case POINTER_FIELD_EXPRESSION:
 		bind_expression(compiler, expression->data.member.object, scope);
-		if (compiler->failed) {
-			break;
-		}
-		struct Type object = expression->data.member.object->type;
-		if (expression->kind == POINTER_FIELD_EXPRESSION) {
-			if (object.kind != POINTER_TYPE) {
-				diagnostic(compiler, expression->span.first, "'->' requires a pointer to a record");
-				break;
-			}
-			object = *object.data.element;
-		}
-		if (object.kind != STRUCT_TYPE && object.kind != UNION_TYPE) {
-			diagnostic(compiler, expression->span.first, "field access requires a struct or union");
-			break;
-		}
-		struct Record* qualified_owner = NULL;
-		struct MemberLookup member = qualified_record_member(compiler, object.data.record, expression->data.member.name, &qualified_owner);
-		if (member.kind == AMBIGUOUS_MEMBER) {
-			diagnostic(compiler, expression->data.member.name, "ambiguous inherited member");
-			break;
-		}
-		if (member.kind == FIELD_MEMBER) {
-			expression->data.member.binding = member.entity.field;
-			expression->data.member.base_path = member.path;
-			expression->type = member.entity.field->type;
-			if (expression->type.kind == REFERENCE_TYPE) {
-				expression->type = *expression->type.data.element;
-			}
-			else if (object.qualifier == CONST_TYPE) {
-				expression->type.qualifier = CONST_TYPE;
-			}
-		}
-		if (!expression->data.member.binding) {
-			struct Function* function = receiver_function(compiler, object, expression->data.member.name);
-			if (!function) {
-				diagnostic(compiler, expression->data.member.name, "unknown field or associated function '%.*s'", (int)expression->data.member.name.length, expression->data.member.name.start);
-				break;
-			}
-			struct Expression* receiver = expression->data.member.object;
-			enum ReceiverKind receiver_kind = EVALUATE_RECEIVER;
-			if (function->parameters && token_text(function->parameters->name, "this")) {
-				receiver_kind = BIND_RECEIVER;
-				if (expression->kind == POINTER_FIELD_EXPRESSION) {
-					struct Expression* pointee = new_expression(compiler, DEREFERENCE_EXPRESSION, receiver->span.first);
-					if (!pointee) {
-						break;
-					}
-					pointee->data.operand = receiver;
-					pointee->type = object;
-					receiver = pointee;
-				}
-				if (qualified_owner && qualified_owner != object.data.record) {
-					struct BaseSearch selection = find_base_path(compiler, object.data.record, qualified_owner);
-					struct Expression* projection = new_expression(compiler, BASE_VALUE_EXPRESSION, receiver->span.first);
-					if (!projection) {
-						break;
-					}
-					projection->data.base.value = receiver;
-					projection->data.base.path = selection.path;
-					projection->type = (struct Type){ STRUCT_TYPE, { .record = qualified_owner } };
-					receiver = projection;
-				}
-			}
-			expression->kind = BOUND_FUNCTION_EXPRESSION;
-			expression->data.bound_function.function = function;
-			expression->data.bound_function.receiver = receiver;
-			expression->data.bound_function.kind = receiver_kind;
-			expression->data.bound_function.qualified_owner = qualified_owner;
-			expression->type = (struct Type){ FUNCTION_TYPE, { .function = function } };
-			break;
-		}
-		struct Expression* root = expression;
-		while (root->kind == FIELD_EXPRESSION || root->kind == INDEX_EXPRESSION || root->kind == BASE_VALUE_EXPRESSION || root->kind == REFERENCE_CAST_EXPRESSION) {
-			if (root->kind == FIELD_EXPRESSION) {
-				root = root->data.member.object;
-			}
-			else if (root->kind == INDEX_EXPRESSION) {
-				root = root->data.binary.left;
-			}
-			else {
-				root = root->kind == BASE_VALUE_EXPRESSION ? root->data.base.value : root->data.operand;
-			}
-		}
-		for (struct Scope* context = scope; context; context = context->parent) {
-			if (context->initialization && root->kind == NAME_EXPRESSION && context->initialization->variable == root->data.variable.binding) {
-				expression->data.member.initialization = context->initialization;
-				break;
-			}
+		if (!compiler->failed) {
+			bind_member_expression(compiler, expression, scope);
 		}
 		break;
-	}
 	case ENUMERATOR_EXPRESSION:
 		break;
 	case ADDRESS_EXPRESSION:
@@ -5252,6 +5439,17 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		if (compiler->failed) {
 			break;
 		}
+		if (operand->kind == CONSTRUCTION_EXPRESSION && operand->data.construction.destination) {
+			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
+			if (!receiver) {
+				break;
+			}
+			receiver->data.operand = operand->data.construction.destination;
+			receiver->type = receiver->data.operand->type;
+			operand->data.construction.destination = receiver;
+			*expression = *operand;
+			break;
+		}
 		if (operand->kind == DESTRUCTION_EXPRESSION) {
 			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
 			if (!receiver) {
@@ -5263,7 +5461,7 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			*expression = *operand;
 			break;
 		}
-		if (member_call && operand->data.call.callee->kind == FUNCTION_EXPRESSION && operand->data.call.binding->parameters && token_text(operand->data.call.binding->parameters->name, "this")) {
+		if (member_call && operand->kind == CALL_EXPRESSION && operand->data.call.callee->kind == FUNCTION_EXPRESSION && operand->data.call.binding->parameters && token_text(operand->data.call.binding->parameters->name, "this")) {
 			struct Argument* argument = operand->data.call.arguments;
 			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
 			if (!receiver) {
@@ -5456,6 +5654,9 @@ void check_integer(struct Compiler* compiler, struct Expression* expression, str
 }
 
 bool lvalue_expression(struct Expression* expression) {
+	if (expression->kind == CONSTRUCTION_EXPRESSION && expression->data.construction.destination) {
+		return true;
+	}
 	if (expression->kind == ASSIGNMENT_EXPRESSION) {
 		return !expression->assignment_function || expression->assignment_function->result.kind == REFERENCE_TYPE;
 	}
@@ -5489,7 +5690,7 @@ bool expression_mutable_access(struct Expression* expression) {
 	if (!expression || expression->type.qualifier == CONST_TYPE) {
 		return false;
 	}
-	if (expression->kind == ACCESS_EXPRESSION) {
+	if (expression->kind == ACCESS_EXPRESSION || (expression->kind == CONSTRUCTION_EXPRESSION && expression->data.construction.destination)) {
 		return true;
 	}
 	if (expression->kind == FIELD_EXPRESSION || expression->kind == POINTER_FIELD_EXPRESSION) {
@@ -5545,6 +5746,7 @@ void construct_value(struct Compiler* compiler, struct Expression* expression, s
 	expression->type = type;
 	expression->data.construction.function = NULL;
 	expression->data.construction.arguments = argument;
+	expression->data.construction.destination = NULL;
 	expression->data.construction.slot = NULL;
 }
 
@@ -6026,7 +6228,47 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		expression->type = (struct Type){ VOID_TYPE, { 0 } };
 		break;
+	case ALLOCATION_EXPRESSION: {
+		struct Type type = *expression->type.data.element;
+		if (type.kind == ARRAY_TYPE || type.kind == REFERENCE_TYPE || type.kind == FUNCTION_TYPE || unsized_type(type)) {
+			diagnostic(compiler, expression->span.first, "new requires a complete non-array object type");
+			break;
+		}
+		struct Expression construction = *expression;
+		construction.kind = CONSTRUCTION_EXPRESSION;
+		construction.type = type;
+		check_expression(compiler, &construction, NULL);
+		expression->data.construction = construction.data.construction;
+		break;
+	}
+	case DEALLOCATION_EXPRESSION:
+	case RAW_DEALLOCATION_EXPRESSION: {
+		struct Expression* pointer = expression->data.operand;
+		check_expression(compiler, pointer, NULL);
+		if (pointer->type.kind != POINTER_TYPE) {
+			diagnostic(compiler, pointer->span.first, "delete requires a pointer");
+			break;
+		}
+		struct Type type = *pointer->type.data.element;
+		if (type.kind == FUNCTION_TYPE || type.kind == ARRAY_TYPE) {
+			diagnostic(compiler, pointer->span.first, "delete requires a non-array object pointer");
+			break;
+		}
+		if (expression->kind == DEALLOCATION_EXPRESSION && !is_null_pointer_type(pointer->type)) {
+			complete_type(compiler, type, pointer->span.first);
+			request_destruction(compiler, type);
+		}
+		break;
+	}
 	case CONSTRUCTION_EXPRESSION: {
+		if (expression->data.construction.destination) {
+			struct Expression* destination = expression->data.construction.destination;
+			if (!expression_mutable_access(destination) || !addressable_expression(destination)) {
+				diagnostic(compiler, destination->span.first, "placement construction requires mutable object storage; use '@' for an object receiver");
+				break;
+			}
+			check_address_expression(compiler, destination);
+		}
 		struct Argument* argument = expression->data.construction.arguments;
 		if (unsized_type(expression->type) || expression->type.kind == FUNCTION_TYPE || expression->type.kind == REFERENCE_TYPE) {
 			diagnostic(compiler, expression->span.first, "construction requires an object type");
@@ -7550,6 +7792,8 @@ void lifetime_expression(struct LifetimeAnalysis* analysis, struct Expression* e
 		}
 		break;
 	}
+	case DEALLOCATION_EXPRESSION:
+	case RAW_DEALLOCATION_EXPRESSION:
 	case ACCESS_EXPRESSION:
 	case NEGATE_EXPRESSION:
 	case NOT_EXPRESSION:
@@ -7616,9 +7860,14 @@ void lifetime_expression(struct LifetimeAnalysis* analysis, struct Expression* e
 			}
 		}
 		break;
+	case ALLOCATION_EXPRESSION:
 	case CONSTRUCTION_EXPRESSION:
+		lifetime_expression(analysis, expression->data.construction.destination);
 		for (struct Argument* argument = expression->data.construction.arguments; argument; argument = argument->next) {
 			lifetime_expression(analysis, argument->expression);
+			if (expression->kind == ALLOCATION_EXPRESSION && argument->expression->use == TRANSFERRED_VALUE) {
+				request_destruction(analysis->compiler, argument->expression->type);
+			}
 		}
 		break;
 	default:
@@ -8587,6 +8836,9 @@ LLVMValueRef emit_field_slot(struct Compiler* compiler, struct Expression* expre
 
 LLVMValueRef emit_address(struct Compiler* compiler, struct Expression* expression) {
 	switch (expression->kind) {
+	case CONSTRUCTION_EXPRESSION:
+		emit_expression(compiler, expression);
+		return expression->data.construction.slot;
 	case ASSIGNMENT_EXPRESSION:
 		emit_expression(compiler, expression);
 		return expression->assignment_address;
@@ -9048,6 +9300,62 @@ void emit_assign_storage(struct Compiler* compiler, struct Type type, LLVMValueR
 	LLVMBuildStore(compiler->builder, LLVMBuildLoad2(compiler->builder, llvm_type(compiler, type), source, "owned_component"), destination);
 }
 
+void emit_failed_arguments(struct Compiler* compiler, struct Argument* argument) {
+	if (!argument || compiler->failed) {
+		return;
+	}
+	struct Expression* expression = argument->expression;
+	LLVMValueRef address = NULL;
+	if (expression->use == TRANSFERRED_VALUE && (expression->type.kind == STRUCT_TYPE || expression->type.kind == UNION_TYPE || expression->type.kind == ARRAY_TYPE)) {
+		address = emit_materialized_address(compiler, expression);
+	}
+	else {
+		emit_expression(compiler, expression);
+	}
+	emit_failed_arguments(compiler, argument->next);
+	if (address) {
+		emit_destroy_type(compiler, expression->type, address);
+	}
+}
+
+LLVMValueRef emit_construction(struct Compiler* compiler, struct Expression* expression, LLVMValueRef address) {
+	expression->data.construction.slot = address;
+	expression->temporary_address = address;
+	emit_install_views(compiler, expression->type, address);
+	struct Function* constructor = expression->data.construction.function;
+	struct Argument* argument = expression->data.construction.arguments;
+	if (constructor) {
+		unsigned count = 1;
+		for (struct Argument* item = argument; item; item = item->next) {
+			count++;
+		}
+		LLVMValueRef* values = allocate(compiler, count * sizeof(LLVMValueRef));
+		if (!values) {
+			return NULL;
+		}
+		values[0] = address;
+		unsigned index = 1;
+		for (; argument; argument = argument->next) {
+			values[index++] = emit_expression(compiler, argument->expression);
+		}
+		LLVMBuildStore(compiler->builder, LLVMConstNull(llvm_type(compiler, expression->type)), address);
+		emit_install_views(compiler, expression->type, address);
+		emit_construct_virtual_subobjects(compiler, expression->type.data.record, address, NULL);
+		emit_construct_subobjects(compiler, expression->type.data.record, address, NULL);
+		emit_direct_call(compiler, constructor, values, count);
+	}
+	else {
+		LLVMValueRef source = NULL;
+		if (argument) {
+			struct Expression* value = argument->expression;
+			source = emit_materialized_address(compiler, value);
+		}
+		emit_construct_storage(compiler, expression->type, address, source);
+		emit_install_views(compiler, expression->type, address);
+	}
+	return emit_read_value(compiler, expression->type, address);
+}
+
 LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expression) {
 	expression->temporary_address = NULL;
 	if (expression->kind == DESTRUCTION_EXPRESSION) {
@@ -9076,43 +9384,78 @@ LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expre
 		return emit_read_value(compiler, expression->type, address);
 	}
 	case CONSTRUCTION_EXPRESSION: {
-		LLVMValueRef address = entry_alloca(compiler, expression->type);
-		expression->data.construction.slot = address;
-		expression->temporary_address = address;
-		emit_install_views(compiler, expression->type, address);
-		struct Function* constructor = expression->data.construction.function;
-		struct Argument* argument = expression->data.construction.arguments;
-		if (constructor) {
-			unsigned count = 1;
-			for (struct Argument* item = argument; item; item = item->next) {
-				count++;
-			}
-			LLVMValueRef* values = allocate(compiler, count * sizeof(LLVMValueRef));
-			if (!values) {
-				return NULL;
-			}
-			values[0] = address;
-			unsigned index = 1;
-			for (; argument; argument = argument->next) {
-				values[index++] = emit_expression(compiler, argument->expression);
-			}
-			LLVMBuildStore(compiler->builder, LLVMConstNull(llvm_type(compiler, expression->type)), address);
-			emit_install_views(compiler, expression->type, address);
-			emit_construct_virtual_subobjects(compiler, expression->type.data.record, address, NULL);
-			emit_construct_subobjects(compiler, expression->type.data.record, address, NULL);
-			emit_direct_call(compiler, constructor, values, count);
+		struct Expression* destination = expression->data.construction.destination;
+		LLVMValueRef address = destination ? emit_address(compiler, destination) : entry_alloca(compiler, expression->type);
+		LLVMValueRef value = emit_construction(compiler, expression, address);
+		if (!destination) {
+			emit_temporary(compiler, expression, address);
 		}
-		else {
-			LLVMValueRef source = NULL;
-			if (argument) {
-				struct Expression* value = argument->expression;
-				source = emit_materialized_address(compiler, value);
+		return value;
+	}
+	case ALLOCATION_EXPRESSION: {
+		struct Type type = *expression->type.data.element;
+		LLVMValueRef address = LLVMBuildMalloc(compiler->builder, llvm_type(compiler, type), "allocated");
+		LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(compiler->builder));
+		LLVMBasicBlockRef construct = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "allocation_construct");
+		LLVMBasicBlockRef failure = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "allocation_failure");
+		LLVMBasicBlockRef finish = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "allocation_finish");
+		LLVMBuildCondBr(compiler->builder, LLVMBuildIsNotNull(compiler->builder, address, "allocation_valid"), construct, failure);
+		LLVMPositionBuilderAtEnd(compiler->builder, construct);
+		struct Temporary* boundary = compiler->temporaries;
+		struct Expression construction = *expression;
+		construction.kind = CONSTRUCTION_EXPRESSION;
+		construction.type = type;
+		emit_construction(compiler, &construction, address);
+		struct Temporary* success_temporaries = compiler->temporaries;
+		LLVMBasicBlockRef success_end = LLVMGetInsertBlock(compiler->builder);
+		compiler->temporaries = boundary;
+		LLVMBuildBr(compiler->builder, finish);
+		LLVMPositionBuilderAtEnd(compiler->builder, failure);
+		emit_failed_arguments(compiler, expression->data.construction.arguments);
+		struct Temporary* failure_temporaries = compiler->temporaries;
+		LLVMBasicBlockRef failure_end = LLVMGetInsertBlock(compiler->builder);
+		LLVMBuildBr(compiler->builder, finish);
+		LLVMPositionBuilderAtEnd(compiler->builder, finish);
+		compiler->temporaries = boundary;
+		for (unsigned branch = 0; branch < 2; branch++) {
+			struct Temporary* first = branch ? failure_temporaries : success_temporaries;
+			struct Temporary* temporary = first;
+			while (temporary && temporary != boundary) {
+				struct Temporary* next = temporary->next;
+				LLVMValueRef active = temporary->predicate ? temporary->predicate : LLVMConstInt(LLVMInt1TypeInContext(compiler->llvm_context), 1, false);
+				LLVMValueRef inactive = LLVMConstInt(LLVMInt1TypeInContext(compiler->llvm_context), 0, false);
+				LLVMValueRef predicate = LLVMBuildPhi(compiler->builder, LLVMInt1TypeInContext(compiler->llvm_context), "allocation_temporary_active");
+				LLVMValueRef values[] = { branch ? inactive : active, branch ? active : inactive };
+				LLVMBasicBlockRef blocks[] = { success_end, failure_end };
+				LLVMAddIncoming(predicate, values, blocks, 2);
+				temporary->predicate = predicate;
+				if (next == boundary) {
+					temporary->next = compiler->temporaries;
+					compiler->temporaries = first;
+				}
+				temporary = next;
 			}
-			emit_construct_storage(compiler, expression->type, address, source);
-			emit_install_views(compiler, expression->type, address);
 		}
-		emit_temporary(compiler, expression, address);
-		return emit_read_value(compiler, expression->type, address);
+		return address;
+	}
+	case DEALLOCATION_EXPRESSION:
+	case RAW_DEALLOCATION_EXPRESSION: {
+		struct Expression* pointer = expression->data.operand;
+		LLVMValueRef address = emit_expression(compiler, pointer);
+		if (expression->kind == RAW_DEALLOCATION_EXPRESSION || is_null_pointer_type(pointer->type)) {
+			LLVMBuildFree(compiler->builder, address);
+			return NULL;
+		}
+		LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(compiler->builder));
+		LLVMBasicBlockRef destroy = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "delete_destroy");
+		LLVMBasicBlockRef finish = LLVMAppendBasicBlockInContext(compiler->llvm_context, function, "delete_finish");
+		LLVMBuildCondBr(compiler->builder, LLVMBuildIsNotNull(compiler->builder, address, "delete_valid"), destroy, finish);
+		LLVMPositionBuilderAtEnd(compiler->builder, destroy);
+		emit_destroy_type(compiler, *pointer->type.data.element, address);
+		LLVMBuildFree(compiler->builder, address);
+		LLVMBuildBr(compiler->builder, finish);
+		LLVMPositionBuilderAtEnd(compiler->builder, finish);
+		return NULL;
 	}
 	case BOOLEAN_EXPRESSION:
 	case TEMPLATE_VALUE_EXPRESSION:

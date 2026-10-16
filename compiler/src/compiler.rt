@@ -20,6 +20,7 @@ enum token_kind {
 	kw_const;
 	kw_discard;
 	kw_delete;
+	kw_new;
 	kw_implicit;
 	kw_nullptr;
 	kw_template;
@@ -131,6 +132,9 @@ enum syntax_kind {
 	discard_;
 	destroy;
 	construct;
+	allocate;
+	delete_;
+	delete_discard;
 	borrowed_component;
 	owned_component;
 	binary;
@@ -290,6 +294,7 @@ struct CastSyntax {
 };
 
 struct ConstructionSyntax {
+	Syntax* destination;
 	Type* target;
 	Entity* constructor;
 	Syntax* arguments;
@@ -778,10 +783,10 @@ struct unique_ptr {
 	fn unique_ptr(unique_ptr& this);
 	fn unique_ptr(unique_ptr& this, null* pointer);
 	fn unique_ptr(unique_ptr& this, T* pointer);
-	fn unique_ptr(unique_ptr& this, const unique_ptr& other) : delete;
-	fn operator=(unique_ptr& this, const unique_ptr& other) -> unique_ptr& : delete;
+	fn unique_ptr(unique_ptr& this, const unique_ptr& other) :[delete];
+	fn operator=(unique_ptr& this, const unique_ptr& other) -> unique_ptr& :[delete];
 	fn operator=(unique_ptr& this, unique_ptr other) -> unique_ptr&;
-	fn ~unique_ptr(unique_ptr& this);
+	fn ~~unique_ptr(unique_ptr& this);
 
 	fn get(const unique_ptr& this) -> T*;
 	fn release(unique_ptr& this) -> T*;
@@ -813,7 +818,7 @@ fn unique_ptr<T>::operator=(unique_ptr& this, unique_ptr other) -> unique_ptr& {
 };
 
 template<typename T>
-fn unique_ptr<T>::~unique_ptr(unique_ptr& this) {
+fn unique_ptr<T>::~~unique_ptr(unique_ptr& this) {
 	free(void*(this.pointer));
 };
 
@@ -839,7 +844,7 @@ fn unique_ptr<T>::reset(unique_ptr& this, T* pointer) {
 struct string_view {
 	fn string_view(string_view& this);
 	fn string_view(string_view& this, const char* data, usize size);
-	fn string_view(string_view& this, const string& text) : implicit;
+	fn string_view(string_view& this, const string& text) :[implicit];
 	fn equal(const string_view& this, const string_view& other) -> bool;
 
 	const char* data;
@@ -848,7 +853,7 @@ struct string_view {
 
 struct string {
 	fn string(string& this);
-	fn string(string& this, const string& other) : delete;
+	fn string(string& this, const string& other) :[delete];
 	fn append(string& this, const string_view& text) -> bool;
 	fn data(const string& this) -> const char*;
 	fn release(string& this) -> char*;
@@ -926,14 +931,14 @@ fn string::append(string& this, const string_view& text) -> bool {
 };
 
 struct Arena {
-	fn ~Arena(Arena& this);
+	fn ~~Arena(Arena& this);
 	fn clear(Arena& this);
 	fn adopt(Arena& this, void* memory) -> void*;
 
 	Allocation* head;
 };
 
-fn Arena::~Arena(Arena& this) {
+fn Arena::~~Arena(Arena& this) {
 	@this.clear();
 };
 
@@ -966,8 +971,8 @@ template<typename T, typename Disposer>
 struct owner {
 	fn owner(owner& this);
 	fn owner(owner& this, T* handle);
-	fn owner(owner& this, const owner& other) : delete;
-	fn ~owner(owner& this);
+	fn owner(owner& this, const owner& other) :[delete];
+	fn ~~owner(owner& this);
 
 	fn reset(owner& this, T* handle);
 
@@ -984,7 +989,7 @@ fn owner<T, Disposer>::owner(owner& this, T* handle) {
 };
 
 template<typename T, typename Disposer>
-fn owner<T, Disposer>::~owner(owner& this) {
+fn owner<T, Disposer>::~~owner(owner& this) {
 	@this.reset(nullptr);
 };
 
@@ -1065,7 +1070,7 @@ enum file_purpose {
 
 struct File {
 	fn File(File& this, Compiler* compiler, char* path, file_purpose purpose, Token location);
-	fn ~File(File& this);
+	fn ~~File(File& this);
 
 	Compiler* compiler;
 	void* handle;
@@ -1089,7 +1094,7 @@ fn File::File(File& this, Compiler* compiler, char* path, file_purpose purpose, 
 	};
 };
 
-fn File::~File(File& this) {
+fn File::~~File(File& this) {
 	if (!this.handle) {
 		return;
 	};
@@ -1135,7 +1140,7 @@ struct CompilerState {
 	output_kind output;
 };
 
-struct Compiler : CompilerState {
+struct Compiler :[CompilerState] {
 	fn Compiler(Compiler& this);
 	fn clear(Compiler& this);
 
@@ -1859,8 +1864,8 @@ fn Parser::predeclare_range(Parser& this, Scope* scope, usize* position, declara
 					};
 					@owner = entity_members($entity);
 					@name_position = name_position + 2;
-					if (rule->entity == entity_kind::function && this.tokens[name_position].kind == token_kind::op_tilde && name_position + 1 < this.count) {
-						@name_position = name_position + 1;
+					if (rule->entity == entity_kind::function && this.tokens[name_position].kind == token_kind::op_tilde && name_position + 2 < this.count) {
+						@name_position = name_position + 2;
 					};
 					@name := this.tokens[name_position];
 				};
@@ -1876,7 +1881,9 @@ fn Parser::predeclare_range(Parser& this, Scope* scope, usize* position, declara
 						@inheritance.tokens := this.tokens;
 						@inheritance.count := this.count;
 						@inheritance.offset = name_position + 2;
+						@inheritance.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
 						@declared->data.aggregate.bases = @inheritance.bases();
+						@inheritance.require(token_kind::punct_right_bracket, "expected ']' after base relationships\0");
 					};
 				};
 			};
@@ -1988,6 +1995,7 @@ fn lexer_keywords(Keyword* keywords) {
 	@keywords[25] = Keyword("typename\0", token_kind::kw_typename);
 	@keywords[26] = Keyword("class\0", token_kind::kw_class);
 	@keywords[27] = Keyword("implicit\0", token_kind::kw_implicit);
+	@keywords[28] = Keyword("new\0", token_kind::kw_new);
 };
 
 fn lexer_keyword(const Token& token, Keyword* keywords, usize count) -> token_kind {
@@ -2072,7 +2080,7 @@ fn tokenize(Compiler& compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate(@compiler, (source->bytes.size + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[28] keywords {};
+	Keyword[29] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[37] operators {};
 	lexer_operators(&operators[0]);
@@ -3092,6 +3100,19 @@ fn Parser::name(Parser& this) -> Syntax* {
 		if (!@this.take(token_kind::op_scope)) {
 			break;
 		};
+		if (@this.take(token_kind::op_tilde)) {
+			@this.require(token_kind::op_tilde, "expected second tilde in destructor name\0");
+			Token member = @this.require(token_kind::identifier, "expected destructor type\0");
+			if (!token_same(member, name->token)) {
+				compiler_error(@*this.compiler, member, "destructor name must match its owning type\0");
+			};
+			Syntax* destruction = @this.new_syntax(syntax_kind::destroy, Token(member));
+			@destruction->data.cast.type := name;
+			@this.require(token_kind::punct_left_paren, "expected '(' after destructor type\0");
+			@destruction->data.cast.value = @this.expression(1);
+			@this.require(token_kind::punct_right_paren, "destructor invocation requires exactly one receiver\0");
+			return destruction;
+		};
 		Token member = @this.require(token_kind::identifier, "expected qualified identifier\0");
 		Syntax* qualified = @this.new_syntax(syntax_kind::name, $member);
 		@qualified->data.expression := name;
@@ -3400,6 +3421,9 @@ fn parser_precedence(token_kind operation) -> i32 {
 fn Parser::primary(Parser& this) -> Syntax* {
 	Token token = this.token();
 	usize type_end = @this.type_end((usize)this.offset);
+	if (token.kind == token_kind::punct_left_paren && @this.signature_arrow((usize)this.offset)) {
+		@type_end = 0;
+	};
 	if (type_end > this.offset + 1 && type_end < this.count && this.tokens[type_end].kind == token_kind::punct_left_paren && !(token.kind == token_kind::punct_left_paren && this.tokens[type_end - 1].kind == token_kind::punct_right_paren)) {
 		Syntax* type = @this.type();
 		Syntax* construction = @this.new_syntax(syntax_kind::construct, Token(token));
@@ -3452,6 +3476,32 @@ fn Parser::type_at(Parser& this, usize offset) -> i32 {
 
 fn Parser::unary(Parser& this) -> Syntax* {
 	Token token = this.token();
+	if (@this.take(token_kind::kw_new)) {
+		Syntax* node = @this.new_syntax(syntax_kind::allocate, Token(token));
+		Syntax* construction = @this.new_syntax(syntax_kind::construct, Token(token));
+		@construction->data.construction.target = type_resolve(@*this.compiler, (Scope*)this.scope, @this.type());
+		@this.require(token_kind::punct_left_paren, "expected '(' after allocated type\0");
+		Syntax* last = nullptr;
+		while (!this.at(token_kind::punct_right_paren) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
+			Syntax* argument = @this.expression(1);
+			syntax_append(&construction->data.construction.arguments, &last, $argument);
+			if (!@this.take(token_kind::punct_comma)) {
+				break;
+			};
+		};
+		@this.require(token_kind::punct_right_paren, "expected ')' after construction arguments\0");
+		@node->data.expression = $construction;
+		return $node;
+	};
+	if (@this.take(token_kind::kw_delete)) {
+		syntax_kind kind = syntax_kind::delete_;
+		if (@this.take(token_kind::kw_discard)) {
+			@kind = syntax_kind::delete_discard;
+		};
+		Syntax* node = @this.new_syntax($kind, Token(token));
+		@node->data.expression = @this.unary();
+		return $node;
+	};
 	if (@this.take(token_kind::kw_discard)) {
 		Syntax* node = @this.new_syntax(syntax_kind::discard_, Token(token));
 		@node->data.expression = @this.name();
@@ -3486,6 +3536,9 @@ fn Parser::unary(Parser& this) -> Syntax* {
 	};
 	usize cast_end = 0;
 	usize construction_end = @this.type_end((usize)this.offset);
+	if (token.kind == token_kind::punct_left_paren && @this.signature_arrow((usize)this.offset)) {
+		@construction_end = 0;
+	};
 	if (this.at(token_kind::punct_left_paren) && !(construction_end && construction_end < this.count && this.tokens[construction_end].kind == token_kind::punct_left_paren && this.tokens[construction_end - 1].kind != token_kind::punct_right_paren)) {
 		@cast_end = @this.type_end(this.offset + 1);
 	};
@@ -3523,6 +3576,7 @@ fn Parser::unary(Parser& this) -> Syntax* {
 		}
 		else if (@this.take(token_kind::op_dot) || @this.take(token_kind::op_arrow)) {
 			if (@this.take(token_kind::op_tilde)) {
+				@this.require(token_kind::op_tilde, "expected second tilde in destructor name\0");
 				Syntax* destruction = @this.new_syntax(syntax_kind::destroy, Token(operation));
 				if (operation.kind == token_kind::op_arrow) {
 					Syntax* object = @this.new_syntax(syntax_kind::unary, Token(operation));
@@ -3744,6 +3798,7 @@ fn Parser::block_scope(Parser& this, Scope* scope) -> Syntax* {
 
 fn Parser::function_name(Parser& this, function_role* role) -> Syntax* {
 	if (@this.take(token_kind::op_tilde)) {
+		@this.require(token_kind::op_tilde, "expected second tilde in destructor name\0");
 		@*role = function_role::destructor;
 	};
 	Token token = @this.require(token_kind::identifier, "expected function identifier\0");
@@ -3764,6 +3819,7 @@ fn Parser::function_name(Parser& this, function_role* role) -> Syntax* {
 			return $name;
 		};
 		if (@this.take(token_kind::op_tilde)) {
+			@this.require(token_kind::op_tilde, "expected second tilde in destructor name\0");
 			@*role = function_role::destructor;
 		};
 		Token member = @this.require(token_kind::identifier, "expected qualified function identifier\0");
@@ -3832,12 +3888,18 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 	if (token.kind == token_kind::kw_fn && aggregate && scope_template_member((Scope*)owner)) {
 		@node->entity->data.function.analysis = function_analysis::unrequested;
 	};
-	if (@this.take(token_kind::punct_colon)) {
+	if (token.kind != token_kind::kw_fn && @this.take(token_kind::punct_colon)) {
+		@this.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
 		if (token.kind != token_kind::kw_struct) {
 			compiler_error(@*this.compiler, token, "base relationships require a struct declaration\0");
 			return $node;
 		};
+		if (this.at(token_kind::punct_right_bracket)) {
+			compiler_error(@*this.compiler, this.token(), "modifier list cannot be empty\0");
+			return $node;
+		};
 		@node->data.declaration.bases = @this.bases();
+		@this.require(token_kind::punct_right_bracket, "expected ']' after base relationships\0");
 		if (!node->entity->data.aggregate.bases) {
 			@node->entity->data.aggregate.bases := node->data.declaration.bases;
 		};
@@ -3857,30 +3919,61 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 	};
 	if (token.kind == token_kind::kw_fn) {
 		if (@this.take(token_kind::punct_colon)) {
-			Token modifier = this.token();
-			if (@this.take(token_kind::kw_delete)) {
-				@node->data.declaration.definition = function_definition::deleted;
-			}
-			else if (@this.take(token_kind::kw_implicit)) {
-				if (role != function_role::constructor) {
-					compiler_error(@*this.compiler, modifier, "implicit applies only to constructors\0");
-					return $node;
-				};
-				@node->entity->data.function.conversion = constructor_conversion::implicit_;
-			}
-			else if (@this.take(token_kind::kw_virtual)) {
-				@node->data.declaration.modification = function_modification::virtual_;
-			}
-			else if (@this.take(token_kind::kw_override)) {
-				@node->data.declaration.modification = function_modification::override_;
-			}
-			else if (@this.take(token_kind::kw_final)) {
-				@node->data.declaration.modification = function_modification::final_;
-			}
-			else {
-				compiler_error(@*this.compiler, modifier, "expected delete, implicit, virtual, override, or final modifier\0");
+			@this.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
+			if (this.at(token_kind::punct_right_bracket)) {
+				compiler_error(@*this.compiler, this.token(), "modifier list cannot be empty\0");
 				return $node;
 			};
+			while (this.compiler->result != compilation_result::failure) {
+				Token modifier = this.token();
+				if (@this.take(token_kind::kw_delete)) {
+					if (node->data.declaration.definition == function_definition::deleted) {
+						compiler_error(@*this.compiler, modifier, "duplicate or conflicting function modifier\0");
+						return $node;
+					};
+					@node->data.declaration.definition = function_definition::deleted;
+				}
+				else if (@this.take(token_kind::kw_implicit)) {
+					if (node->entity->data.function.conversion == constructor_conversion::implicit_) {
+						compiler_error(@*this.compiler, modifier, "duplicate or conflicting function modifier\0");
+						return $node;
+					};
+					if (role != function_role::constructor) {
+						compiler_error(@*this.compiler, modifier, "implicit applies only to constructors\0");
+						return $node;
+					};
+					@node->entity->data.function.conversion = constructor_conversion::implicit_;
+				}
+				else if (@this.take(token_kind::kw_virtual)) {
+					if (node->data.declaration.modification != function_modification::ordinary) {
+						compiler_error(@*this.compiler, modifier, "duplicate or conflicting function modifier\0");
+						return $node;
+					};
+					@node->data.declaration.modification = function_modification::virtual_;
+				}
+				else if (@this.take(token_kind::kw_override)) {
+					if (node->data.declaration.modification != function_modification::ordinary) {
+						compiler_error(@*this.compiler, modifier, "duplicate or conflicting function modifier\0");
+						return $node;
+					};
+					@node->data.declaration.modification = function_modification::override_;
+				}
+				else if (@this.take(token_kind::kw_final)) {
+					if (node->data.declaration.modification != function_modification::ordinary) {
+						compiler_error(@*this.compiler, modifier, "duplicate or conflicting function modifier\0");
+						return $node;
+					};
+					@node->data.declaration.modification = function_modification::final_;
+				}
+				else {
+					compiler_error(@*this.compiler, modifier, "expected delete, implicit, virtual, override, or final modifier\0");
+					return $node;
+				};
+				if (!@this.take(token_kind::punct_comma)) {
+					break;
+				};
+			};
+			@this.require(token_kind::punct_right_bracket, "expected ']' after function modifiers\0");
 		};
 		if (this.scope->context == context_kind::struct_ && !node->data.declaration.path->data.expression) {
 			@node->entity->data.function.interface_owner := this.scope->owner;
@@ -3958,7 +4051,11 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 
 fn Parser::control_body(Parser& this) -> Syntax* {
 	if (this.at(token_kind::punct_left_brace)) {
-		return @this.block();
+		Syntax* body = @this.block();
+		if (!this.at(token_kind::kw_else)) {
+			@this.require(token_kind::punct_semicolon, "expected ';' after control block\0");
+		};
+		return $body;
 	};
 
 	return @this.statement();
@@ -4073,7 +4170,6 @@ fn Parser::statement(Parser& this) -> Syntax* {
 	};
 	if (this.at(token_kind::kw_if)) {
 		Syntax* node = @this.conditional();
-		@this.require(token_kind::punct_semicolon, "expected ';' after if statement\0");
 		return $node;
 	};
 	if (@this.take(token_kind::kw_while)) {
@@ -4082,7 +4178,6 @@ fn Parser::statement(Parser& this) -> Syntax* {
 		@node->data.loop.condition = @this.expression(1);
 		@this.require(token_kind::punct_right_paren, "expected ')' after condition\0");
 		@node->data.loop.body = @this.control_body();
-		@this.require(token_kind::punct_semicolon, "expected ';' after loop statement\0");
 		return $node;
 	};
 	if (@this.take(token_kind::kw_for)) {
@@ -4109,7 +4204,6 @@ fn Parser::statement(Parser& this) -> Syntax* {
 		};
 		@this.require(token_kind::punct_right_paren, "expected ')' after for step\0");
 		@node->data.loop.body = @this.control_body();
-		@this.require(token_kind::punct_semicolon, "expected ';' after loop statement\0");
 		@this.scope = $outer;
 		return $node;
 	};
@@ -4277,6 +4371,8 @@ fn LLVMBuildCall2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueVa
 fn LLVMBuildRet(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value) -> LLVMOpaqueValue*;
 fn LLVMBuildRetVoid(LLVMOpaqueBuilder* builder) -> LLVMOpaqueValue*;
 fn LLVMBuildBr(LLVMOpaqueBuilder* builder, LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+fn LLVMBuildMalloc(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+fn LLVMBuildFree(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* memory) -> LLVMOpaqueValue*;
 fn LLVMBuildCondBr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* first, LLVMOpaqueBasicBlock* second) -> LLVMOpaqueValue*;
 fn LLVMBuildUnreachable(LLVMOpaqueBuilder* builder) -> LLVMOpaqueValue*;
 fn LLVMBuildSwitch(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* fallback, u32 count) -> LLVMOpaqueValue*;
@@ -5087,6 +5183,9 @@ fn syntax_storage_type(Syntax* syntax) -> Type* {
 };
 
 fn syntax_category(Syntax* syntax) -> value_category {
+	if (syntax->kind == syntax_kind::construct && syntax->data.construction.destination) {
+		return value_category::storage;
+	};
 	if (syntax->kind == syntax_kind::borrowed_component) {
 		return value_category::storage;
 	};
@@ -5121,7 +5220,7 @@ fn syntax_mutable_access(Syntax* syntax) -> bool {
 	if (!syntax || !syntax->type || syntax->type->qualifier == type_qualifier::const_) {
 		return false;
 	};
-	if (syntax->kind == syntax_kind::access) {
+	if (syntax->kind == syntax_kind::access || (syntax->kind == syntax_kind::construct && syntax->data.construction.destination)) {
 		return true;
 	};
 	if (syntax->kind == syntax_kind::binary && (syntax->data.binary.operation == token_kind::op_assign || syntax->data.binary.operation == token_kind::op_copy) && !syntax->entity) {
@@ -5332,6 +5431,7 @@ fn syntax_construct(Compiler& compiler, Syntax* syntax, Type* target) {
 	@syntax->kind = syntax_kind::construct;
 	@syntax->type = nullptr;
 	@syntax->entity = nullptr;
+	@syntax->data.construction.destination = nullptr;
 	@syntax->data.construction.target = $target;
 	@syntax->data.construction.constructor = nullptr;
 	@syntax->data.construction.arguments = $argument;
@@ -6705,6 +6805,42 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 	};
 	Type* type = nullptr;
 	switch (syntax->kind) {
+		case syntax_kind::allocate: {
+			Syntax* construction := syntax->data.expression;
+			Type* allocated = @this.expression((Syntax*)construction, nullptr);
+			@construction->use = value_use::transferred;
+			Syntax* argument := construction->data.construction.arguments;
+			while (argument) {
+				if (argument->use == value_use::transferred) {
+					destruction_request((Type*)argument->type);
+				};
+				@argument := argument->next;
+			};
+			if (allocated->kind == type_kind::array || allocated->kind == type_kind::void || allocated->kind == type_kind::null || allocated->kind == type_kind::reference || allocated->kind == type_kind::function) {
+				compiler_error(@compiler, syntax->token, "new requires a complete non-array object type\0");
+			};
+			layout_validate(@compiler, (Type*)allocated, nullptr, syntax->token);
+			@type = type_pointer(@compiler, $allocated);
+			break;
+		};
+		case syntax_kind::delete_:
+		case syntax_kind::delete_discard: {
+			Type* pointer = @this.expression((Syntax*)syntax->data.expression, nullptr);
+			if (pointer->kind != type_kind::pointer || pointer->data.element->kind == type_kind::function || pointer->data.element->kind == type_kind::array) {
+				compiler_error(@compiler, syntax->token, "delete requires an object pointer\0");
+				@type := compiler.void_type;
+				break;
+			};
+			if (syntax->kind == syntax_kind::delete_ && pointer->data.element->kind != type_kind::null) {
+				if (pointer->data.element->kind == type_kind::void) {
+					compiler_error(@compiler, syntax->token, "delete requires a complete object type\0");
+				};
+				layout_validate(@compiler, (Type*)pointer->data.element, nullptr, syntax->token);
+				destruction_request((Type*)pointer->data.element);
+			};
+			@type := compiler.void_type;
+			break;
+		};
 		case syntax_kind::nullptr_:
 			@type = type_pointer(@compiler, (Type*)compiler.null_type);
 			break;
@@ -6749,6 +6885,18 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				Type* owner := receiver->type;
 				if (member->data.member.qualifier) {
 					@owner = type_resolve(@compiler, (Scope*)this.scope, (Syntax*)member->data.member.qualifier);
+				};
+				if (owner->kind == type_kind::named && (owner->data.entity->kind == entity_kind::struct_ || owner->data.entity->kind == entity_kind::union_) && token_same(member->data.member.name, owner->data.entity->name)) {
+					Syntax* access = (Syntax*)memory_allocate(@compiler, sizeof(Syntax));
+					@access->kind = syntax_kind::access;
+					@access->token := syntax->token;
+					@access->data.expression = $receiver;
+					@member->data.member.object = $access;
+					@member->token.kind = token_kind::op_dot;
+					Syntax* next := syntax->next;
+					@*syntax := *operand;
+					@syntax->next = $next;
+					return @this.expression((Syntax*)syntax, (Type*)expected);
 				};
 				Entity* function = @this.receiver_callable((Type*)owner, Token(member->data.member.name));
 				if (function && function->kind == entity_kind::function) {
@@ -7267,6 +7415,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 					Syntax* arguments := syntax->data.call.arguments;
 					Type* target = type_resolve(@compiler, (Scope*)this.scope, (Syntax*)callable_syntax);
 					@syntax->kind = syntax_kind::construct;
+					@syntax->data.construction.destination = nullptr;
 					@syntax->data.construction.target = (Type*)target;
 					@syntax->data.construction.constructor = nullptr;
 					@syntax->data.construction.arguments = (Syntax*)arguments;
@@ -7285,6 +7434,20 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 						return (Type*)compiler.void_type;
 					};
 					@syntax->data.call.qualified_owner := owner->data.entity;
+				};
+				if (owner->kind == type_kind::named && (owner->data.entity->kind == entity_kind::struct_ || owner->data.entity->kind == entity_kind::union_) && token_same(callable_syntax->data.member.name, owner->data.entity->name)) {
+					if (owner->qualifier == type_qualifier::const_ || (callable_syntax->token.kind != token_kind::op_arrow && (syntax_category((Syntax*)receiver) != value_category::storage || !syntax_mutable_access((Syntax*)receiver)))) {
+						compiler_error(@compiler, callable_syntax->token, "construction requires mutable storage\0");
+						return (Type*)compiler.void_type;
+					};
+					Syntax* arguments := syntax->data.call.arguments;
+					@syntax->kind = syntax_kind::construct;
+					@syntax->data.construction.destination = $receiver;
+					@syntax->data.construction.target := owner;
+					@syntax->data.construction.constructor = nullptr;
+					@syntax->data.construction.arguments = $arguments;
+					@syntax->data.construction.slot = nullptr;
+					return @this.expression((Syntax*)syntax, (Type*)expected);
 				};
 				Entity* function = @this.receiver_callable((Type*)owner, Token(callable_syntax->data.member.name));
 				if (function && function->kind == entity_kind::function) {
@@ -7880,6 +8043,9 @@ fn Emitter::storage_address(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler& compiler = @*this.compiler;
 	LLVMOpaqueBuilder* builder := compiler.llvm_builder.handle;
 	switch (syntax->kind) {
+		case syntax_kind::construct:
+			@this.expression((Syntax*)syntax);
+			return LLVMOpaqueValue*(syntax->data.construction.slot);
 		case syntax_kind::borrowed_component:
 		case syntax_kind::owned_component:
 			return LLVMOpaqueValue*(syntax->address);
@@ -8749,6 +8915,72 @@ fn Emitter::assign_storage(Emitter& this, Type* type, LLVMOpaqueValue* destinati
 	@this.transfer_type($type, $destination, $source, storage_transfer::assign);
 };
 
+fn Emitter::failed_arguments(Emitter& this, Syntax* argument) {
+	if (!argument) {
+		return;
+	};
+
+	LLVMOpaqueValue* storage = nullptr;
+	if (argument->use == value_use::transferred && type_requires_destruction((Type*)argument->type)) {
+		@storage = @this.address((Syntax*)argument);
+	}
+	else {
+		@this.expression((Syntax*)argument);
+	};
+
+	@this.failed_arguments((Syntax*)argument->next);
+	if (storage) {
+		@this.destroy_type((Type*)argument->type, LLVMOpaqueValue*(storage));
+	};
+};
+
+fn Emitter::guard_temporaries(Emitter& this, Temporary* first, Temporary* boundary, LLVMOpaqueBasicBlock* created, LLVMOpaqueBasicBlock* skipped) {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueType* bool_type = LLVMIntTypeInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), 1);
+	LLVMOpaqueBasicBlock*[2] blocks {};
+	@blocks[0] = $created;
+	@blocks[1] = $skipped;
+	while (first != boundary) {
+		LLVMOpaqueValue*[2] values {};
+		@values[0] := first->guard;
+		if (!values[0]) {
+			@values[0] = LLVMConstInt(LLVMOpaqueType*(bool_type), 1, 0);
+		};
+		@values[1] = LLVMConstInt(LLVMOpaqueType*(bool_type), 0, 0);
+		LLVMOpaqueValue* guard = LLVMBuildPhi(LLVMOpaqueBuilder*(compiler.llvm_builder.handle), LLVMOpaqueType*(bool_type), "temporary.created\0");
+		LLVMAddIncoming(LLVMOpaqueValue*(guard), &values[0], &blocks[0], 2);
+		@first->guard = $guard;
+		@first := first->next;
+	};
+};
+
+fn Emitter::construct_at(Emitter& this, Syntax* syntax, LLVMOpaqueValue* slot) {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.llvm_builder.handle;
+	Type* target := syntax->data.construction.target;
+	Syntax* argument := syntax->data.construction.arguments;
+	if (syntax->data.construction.constructor) {
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, (Type*)target)), LLVMOpaqueValue*(slot));
+		@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
+		@this.default_members((Type*)target, LLVMOpaqueValue*(slot));
+		@this.special_call((Entity*)syntax->data.construction.constructor, LLVMOpaqueValue*(slot), (Syntax*)argument);
+	}
+	else if (!argument) {
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, (Type*)target)), LLVMOpaqueValue*(slot));
+		@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
+		@this.default_type((Type*)target, LLVMOpaqueValue*(slot));
+	}
+	else if (type_aggregate((Type*)target)) {
+		LLVMOpaqueValue* source = @this.address((Syntax*)argument);
+		@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
+		@this.copy_construct_type((Type*)target, LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
+	}
+	else {
+		LLVMOpaqueValue* value = @this.cast(@this.expression((Syntax*)argument), (Type*)argument->type, (Type*)target);
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(slot));
+	};
+};
+
 fn Emitter::expression_value(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 	Compiler& compiler = @*this.compiler;
 	LLVMOpaqueBuilder* builder := compiler.llvm_builder.handle;
@@ -8757,6 +8989,47 @@ fn Emitter::expression_value(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* 
 		case syntax_kind::borrowed_component:
 		case syntax_kind::owned_component:
 			return @this.complete_read((Type*)syntax->type, LLVMOpaqueValue*(syntax->address));
+		case syntax_kind::allocate: {
+			Syntax* construction := syntax->data.expression;
+			Type* target := construction->data.construction.target;
+			LLVMOpaqueValue* memory = LLVMBuildMalloc(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, (Type*)target), "new.storage\0");
+			LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), LLVMOpaqueValue*(this.llvm_function), "new.construct\0");
+			LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), LLVMOpaqueValue*(this.llvm_function), "new.end\0");
+			LLVMOpaqueBasicBlock* failed = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), LLVMOpaqueValue*(this.llvm_function), "new.failed\0");
+			LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 32, LLVMOpaqueValue*(memory), LLVMConstNull(llvm_type(@compiler, (Type*)syntax->type)), "new.null\0");
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $empty, LLVMOpaqueBasicBlock*(failed), LLVMOpaqueBasicBlock*(live));
+			Temporary* boundary := this.temporaries;
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(live));
+			@this.construct_at((Syntax*)construction, LLVMOpaqueValue*(memory));
+			@live = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+			Temporary* success := this.temporaries;
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(failed));
+			@this.failed_arguments((Syntax*)construction->data.construction.arguments);
+			@failed = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $merge);
+			@this.guard_temporaries((Temporary*)this.temporaries, (Temporary*)success, LLVMOpaqueBasicBlock*(failed), LLVMOpaqueBasicBlock*(live));
+			@this.guard_temporaries($success, $boundary, $live, $failed);
+			return $memory;
+		};
+		case syntax_kind::delete_:
+		case syntax_kind::delete_discard: {
+			Syntax* operand := syntax->data.expression;
+			LLVMOpaqueValue* memory = @this.expression((Syntax*)operand);
+			LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), LLVMOpaqueValue*(this.llvm_function), "delete.live\0");
+			LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(LLVMOpaqueContext*(compiler.llvm_context.handle), LLVMOpaqueValue*(this.llvm_function), "delete.end\0");
+			LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 32, LLVMOpaqueValue*(memory), LLVMConstNull(llvm_type(@compiler, (Type*)operand->type)), "delete.null\0");
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $empty, LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(live));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $live);
+			if (syntax->kind == syntax_kind::delete_) {
+				@this.destroy_type((Type*)operand->type->data.element, LLVMOpaqueValue*(memory));
+			};
+			LLVMBuildFree(LLVMOpaqueBuilder*(builder), $memory);
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $merge);
+			return nullptr;
+		};
 		case syntax_kind::destroy:
 			@this.destroy_type((Type*)syntax->data.cast.value->type, @this.address((Syntax*)syntax->data.cast.value));
 			return nullptr;
@@ -8764,29 +9037,15 @@ fn Emitter::expression_value(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* 
 			return nullptr;
 		case syntax_kind::construct: {
 			Type* target := syntax->data.construction.target;
-			LLVMOpaqueValue* slot = emit_slot(@compiler, (Type*)target);
-			@syntax->data.construction.slot := slot;
-			Syntax* argument := syntax->data.construction.arguments;
-			if (syntax->data.construction.constructor) {
-				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, (Type*)target)), LLVMOpaqueValue*(slot));
-				@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
-				@this.default_members((Type*)target, LLVMOpaqueValue*(slot));
-				@this.special_call((Entity*)syntax->data.construction.constructor, LLVMOpaqueValue*(slot), (Syntax*)argument);
-			}
-			else if (!argument) {
-				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, (Type*)target)), LLVMOpaqueValue*(slot));
-				@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
-				@this.default_type((Type*)target, LLVMOpaqueValue*(slot));
-			}
-			else if (type_aggregate((Type*)target)) {
-				LLVMOpaqueValue* source = @this.address((Syntax*)argument);
-				@this.initialize_type((Type*)target, LLVMOpaqueValue*(slot));
-				@this.copy_construct_type((Type*)target, LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
+			LLVMOpaqueValue* slot = nullptr;
+			if (syntax->data.construction.destination) {
+				@slot = @this.address((Syntax*)syntax->data.construction.destination);
 			}
 			else {
-				LLVMOpaqueValue* value = @this.cast(@this.expression((Syntax*)argument), (Type*)argument->type, (Type*)target);
-				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(slot));
+				@slot = emit_slot(@compiler, (Type*)target);
 			};
+			@syntax->data.construction.slot := slot;
+			@this.construct_at((Syntax*)syntax, LLVMOpaqueValue*(slot));
 			return LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, $target), $slot, "constructed\0");
 		};
 		case syntax_kind::access:
@@ -10219,7 +10478,13 @@ fn LifetimeAnalysis::expression(LifetimeAnalysis& this, Syntax* syntax) {
 		destruction_request((Type*)syntax->type);
 	};
 	switch (syntax->kind) {
+		case syntax_kind::allocate:
+		case syntax_kind::delete_:
+		case syntax_kind::delete_discard:
+			@this.expression((Syntax*)syntax->data.expression);
+			break;
 		case syntax_kind::construct: {
+			@this.expression((Syntax*)syntax->data.construction.destination);
 			Syntax* argument := syntax->data.construction.arguments;
 			while (argument) {
 				@this.expression((Syntax*)argument);
@@ -10879,23 +11144,11 @@ fn backend_clear(Compiler& compiler) {
 };
 
 fn rutile_compiler_create() -> Compiler* {
-	Compiler value;
-	var storage = unique_ptr<void>(calloc(1, sizeof(Compiler)));
-	if (!storage.get()) {
-		return nullptr;
-	};
-	memcpy(storage.get(), &value, sizeof(Compiler));
-	discard value;
-	return (Compiler*)@storage.release();
+	return new Compiler();
 };
 
 fn rutile_compiler_destroy(Compiler* compiler) {
-	if (!compiler) {
-		return;
-	};
-
-	@compiler->~Compiler();
-	free($compiler);
+	delete compiler;
 };
 
 fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics, output_kind output) -> i32 {
