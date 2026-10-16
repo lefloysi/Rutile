@@ -132,6 +132,7 @@ enum syntax_kind : [i32] {
 	kw_discard;
 	expr_destroy;
 	expr_construct;
+	expr_typed_apply;
 	kw_new;
 	kw_delete;
 	expr_delete_discard;
@@ -294,6 +295,11 @@ struct CastSyntax {
 	Syntax* value;
 };
 
+struct TypedApplySyntax {
+	Syntax* target;
+	Syntax* arguments;
+};
+
 struct ConstructionSyntax {
 	Syntax* destination;
 	Type* target;
@@ -320,6 +326,7 @@ union SyntaxData {
 	ArraySyntax array;
 	CastSyntax cast;
 	ConstructionSyntax construction;
+	TypedApplySyntax typed_apply;
 	BaseConversionSyntax base_conversion;
 };
 
@@ -505,7 +512,6 @@ enum entity_kind : [i32] {
 	kw_enum;
 	function;
 	variable;
-	number;
 	kw_namespace;
 	kw_template;
 };
@@ -556,10 +562,6 @@ struct Scope {
 
 struct PrimitiveEntity {
 	Type* type;
-};
-
-struct NumberEntity {
-	Token spelling;
 };
 
 struct Field {
@@ -808,7 +810,6 @@ struct NamespaceEntity {
 union EntityData {
 	TemplatePattern template_pattern;
 	NamespaceEntity namespace_entity;
-	NumberEntity number;
 	PrimitiveEntity primitive;
 	AggregateEntity aggregate;
 	EnumEntity enumeration;
@@ -3510,6 +3511,28 @@ fn parser_precedence(token_kind operation) -> i32 {
 	};
 };
 
+fn Parser::arguments(Parser& this, char* closing_message) -> Syntax* {
+	Syntax* arguments = nullptr;
+	Syntax* last = nullptr;
+	while (!this.at(token_kind::punct_right_paren) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
+		Syntax* argument = @this.expression(1);
+		syntax_append(&arguments, &last, $argument);
+		if (!@this.take(token_kind::punct_comma)) {
+			break;
+		};
+	};
+	@this.require(token_kind::punct_right_paren, $closing_message);
+	return $arguments;
+};
+
+fn Parser::typed_apply(Parser& this, Token token, char* opening_message) -> Syntax* {
+	Syntax* application = @this.new_syntax(syntax_kind::expr_typed_apply, $token);
+	@application->data.typed_apply.target = @this.type();
+	@this.require(token_kind::punct_left_paren, $opening_message);
+	@application->data.typed_apply.arguments = @this.arguments("expected ')' after construction arguments\0");
+	return $application;
+};
+
 fn Parser::primary(Parser& this) -> Syntax* {
 	Token token = this.token();
 	usize type_end = @this.type_end((usize)this.offset);
@@ -3517,20 +3540,7 @@ fn Parser::primary(Parser& this) -> Syntax* {
 		@type_end = 0;
 	};
 	if (type_end > this.offset + 1 && type_end < this.count && this.tokens[type_end].kind == token_kind::punct_left_paren && !(token.kind == token_kind::punct_left_paren && this.tokens[type_end - 1].kind == token_kind::punct_right_paren)) {
-		Syntax* type = @this.type();
-		Syntax* construction = @this.new_syntax(syntax_kind::expr_construct, Token(token));
-		@construction->data.construction.target = type_resolve(@*this.compiler, (Scope*)this.scope, $type);
-		@this.require(token_kind::punct_left_paren, "expected '(' after construction type\0");
-		Syntax* last = nullptr;
-		while (!this.at(token_kind::punct_right_paren) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
-			Syntax* argument = @this.expression(1);
-			syntax_append(&construction->data.construction.arguments, &last, $argument);
-			if (!@this.take(token_kind::punct_comma)) {
-				break;
-			};
-		};
-		@this.require(token_kind::punct_right_paren, "expected ')' after construction arguments\0");
-		return construction;
+		return @this.typed_apply(Token(token), "expected '(' after construction type\0");
 	};
 	if (this.at(token_kind::identifier)) {
 		return @this.name();
@@ -3539,10 +3549,7 @@ fn Parser::primary(Parser& this) -> Syntax* {
 		return @this.new_syntax(syntax_kind::kw_nullptr, $token);
 	};
 	if (@this.take(token_kind::literal_number)) {
-		Syntax* node = @this.new_syntax(syntax_kind::literal_number, Token(token));
-		@node->entity = entity_create(@*this.compiler, entity_kind::number, Token(token));
-		@node->entity->data.number.spelling := token;
-		return $node;
+		return @this.new_syntax(syntax_kind::literal_number, $token);
 	};
 	if (@this.take(token_kind::literal_string)) {
 		return @this.string(token);
@@ -3570,19 +3577,7 @@ fn Parser::unary(Parser& this) -> Syntax* {
 	Token token = this.token();
 	if (@this.take(token_kind::kw_new)) {
 		Syntax* node = @this.new_syntax(syntax_kind::kw_new, Token(token));
-		Syntax* construction = @this.new_syntax(syntax_kind::expr_construct, Token(token));
-		@construction->data.construction.target = type_resolve(@*this.compiler, (Scope*)this.scope, @this.type());
-		@this.require(token_kind::punct_left_paren, "expected '(' after allocated type\0");
-		Syntax* last = nullptr;
-		while (!this.at(token_kind::punct_right_paren) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
-			Syntax* argument = @this.expression(1);
-			syntax_append(&construction->data.construction.arguments, &last, $argument);
-			if (!@this.take(token_kind::punct_comma)) {
-				break;
-			};
-		};
-		@this.require(token_kind::punct_right_paren, "expected ')' after construction arguments\0");
-		@node->data.expression = $construction;
+		@node->data.expression = @this.typed_apply(Token(token), "expected '(' after allocated type\0");
 		return $node;
 	};
 	if (@this.take(token_kind::kw_delete)) {
@@ -3648,15 +3643,7 @@ fn Parser::unary(Parser& this) -> Syntax* {
 		if (@this.take(token_kind::punct_left_paren)) {
 			Syntax* call = @this.new_syntax(syntax_kind::expr_call, Token(operation));
 			@call->data.call.callable := value;
-			Syntax* last = nullptr;
-			while (!this.at(token_kind::punct_right_paren) && !this.at(token_kind::eof) && this.compiler->result != compilation_result::failure) {
-				Syntax* argument = @this.expression(1);
-				syntax_append(&call->data.call.arguments, &last, $argument);
-				if (!@this.take(token_kind::punct_comma)) {
-					break;
-				};
-			};
-			@this.require(token_kind::punct_right_paren, "expected ')' after arguments\0");
+			@call->data.call.arguments = @this.arguments("expected ')' after arguments\0");
 			@value = $call;
 		}
 		else if (@this.take(token_kind::punct_left_bracket)) {
@@ -5388,6 +5375,12 @@ fn constant_expression(ConstantContext& context, Syntax* syntax, Type* expected)
 		return constant_failure(@context, "constant evaluation exceeded the execution-step limit\0");
 	};
 	Compiler& compiler = @*context.compiler;
+	if (syntax->kind == syntax_kind::expr_typed_apply) {
+		construction_resolve(@compiler, (Scope*)context.scope, (Syntax*)syntax);
+		if (compiler.result == compilation_result::failure) {
+			return nullptr;
+		};
+	};
 	Type* type := syntax->type;
 	if (!type) {
 		@type := expected;
@@ -6572,6 +6565,20 @@ fn Semantic::conversion_select(Semantic& this, Entity* owner, function_role role
 
 fn Semantic::special_select(Semantic& this, Entity* owner, function_role role, Syntax* arguments, Token token) -> Entity* {
 	return @this.conversion_select($owner, $role, $arguments, token, constructor_conversion::kw_explicit);
+};
+
+fn construction_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) {
+	TypedApplySyntax parsed := syntax->data.typed_apply;
+	Type* target = type_resolve(@compiler, $scope, (Syntax*)parsed.target);
+	if (compiler.result == compilation_result::failure) {
+		return;
+	};
+
+	@syntax->kind = syntax_kind::expr_construct;
+	@syntax->data.construction.destination = nullptr;
+	@syntax->data.construction.target = $target;
+	@syntax->data.construction.constructor = nullptr;
+	@syntax->data.construction.arguments := parsed.arguments;
 };
 
 fn syntax_construct(Compiler& compiler, Syntax* syntax, Type* target) {
@@ -7944,6 +7951,12 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 	if (!syntax) {
 		return (Type*)compiler.void_type;
 	};
+	if (syntax->kind == syntax_kind::expr_typed_apply) {
+		construction_resolve(@compiler, (Scope*)this.scope, (Syntax*)syntax);
+		if (compiler.result == compilation_result::failure) {
+			return (Type*)compiler.void_type;
+		};
+	};
 	Type* target := expected;
 	if (target && target->kind == type_kind::reference && target->data.element->qualifier == type_qualifier::kw_const) {
 		@target := target->data.element;
@@ -7985,6 +7998,9 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 		case syntax_kind::kw_new: {
 			Syntax* construction := syntax->data.expression;
 			Type* allocated = @this.expression((Syntax*)construction, nullptr);
+			if (compiler.result == compilation_result::failure) {
+				return (Type*)compiler.void_type;
+			};
 			@construction->use = value_use::transferred;
 			Syntax* argument := construction->data.construction.arguments;
 			while (argument) {

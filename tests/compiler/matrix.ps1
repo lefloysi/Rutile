@@ -1,12 +1,19 @@
-param([string]$Rutile = "$PSScriptRoot/../../build/debug/bin/rutile.exe", [string]$Profile = "debug")
+param([string]$Rutile = "$PSScriptRoot/../../build/debug/bin/rutile.exe", [string]$Profile = "debug", [string]$CasePattern = '*')
 
 $ErrorActionPreference = 'Stop'
 $Rutile = (Resolve-Path -LiteralPath $Rutile).Path
 $cases = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'cases.json') -Raw | ConvertFrom-Json
+$cases = @($cases | Where-Object { $_.name -like $CasePattern })
+if (!$cases.Count) {
+	throw "No compiler cases match '$CasePattern'."
+}
 $sources = Join-Path $PSScriptRoot 'cases'
 $outputs = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../build/$Profile/tests/compiler"))
 $failures = @()
 foreach ($case in $cases) {
+	if (!$case.name -or ($null -eq $case.exit -and !$case.diagnostic)) {
+		throw 'A compiler case requires a name and an expected exit code or diagnostic.'
+	}
 	$source = (Resolve-Path -LiteralPath (Join-Path $sources $case.name)).Path
 	$directory = Join-Path $outputs $case.name
 	New-Item -ItemType Directory -Path $directory -Force | Out-Null

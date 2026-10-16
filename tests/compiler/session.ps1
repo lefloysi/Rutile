@@ -7,6 +7,7 @@ $directory = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../build
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $targets = [ordered]@{
 	templates = 'template-reuse'
+	construction = 'template-typed-construction'
 	dispatch = 'virtual-dispatch'
 	invalid = 'recursive-value'
 	lifecycle = 'lifecycle-return'
@@ -24,7 +25,7 @@ try {
 	if ($LASTEXITCODE) {
 		throw "Initialization failed: $initialization"
 	}
-	foreach ($target in @('templates', 'dispatch', 'invalid', 'lifecycle', 'dispatch', 'templates')) {
+	foreach ($target in @('templates', 'construction', 'dispatch', 'invalid', 'lifecycle', 'construction', 'dispatch', 'templates')) {
 		$output = & $Rutile run $target --profile $Profile 2>&1 | Out-String
 		$actual = $LASTEXITCODE
 		if ($target -eq 'invalid') {
