@@ -1,0 +1,29 @@
+struct Tracker {
+	fn ~Tracker(Tracker& this);
+	i32* trace;
+};
+
+fn Tracker::~Tracker(Tracker& this) {
+	@*this.trace = *this.trace + 1;
+};
+
+fn main() -> i32 {
+	i32 trace = 0;
+	Tracker first;
+	@first.trace = &trace;
+	@first.~Tracker();
+	discard first;
+	Tracker second;
+	@second.trace = &trace;
+	Tracker::~Tracker(@second);
+	discard second;
+	Tracker third;
+	@third.trace = &trace;
+	Tracker* pointer = &third;
+	@pointer->~Tracker();
+	discard third;
+	if (trace == 3) {
+		return 42;
+	};
+	return 1;
+};
