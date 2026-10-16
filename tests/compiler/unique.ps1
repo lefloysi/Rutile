@@ -64,6 +64,7 @@ fn main() -> i32 {
 };
 '@
 $checks = @(
+	@{ name = 'constructor-arguments'; source = (Get-Content -LiteralPath "$PSScriptRoot/cases/template-constructor-arguments/main.rt" -Raw); exit = 42 },
 	@{ name = 'runtime'; source = $runtime; exit = 42 },
 	@{ name = 'copy'; source = 'fn main() -> i32 { var first = make_unique<i32>(); var second := first; return 42; };'; diagnostic = 'selected function is deleted' },
 	@{ name = 'copy-assignment'; source = 'fn main() -> i32 { var first = make_unique<i32>(); unique<i32> second; @second := first; return 42; };'; diagnostic = 'selected function is deleted' }

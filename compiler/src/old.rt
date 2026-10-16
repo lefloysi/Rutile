@@ -5957,6 +5957,33 @@ fn function_name_qualified(Compiler& compiler, NameSyntax* name, NameSyntax* qua
 	return (NameSyntax*)result;
 };
 
+fn function_name_guard(Compiler& compiler, ParseGuard* guard) -> ParseGuard* {
+	if (!guard) {
+		return nullptr;
+	};
+	if (guard->kind == parse_guard_kind::decision) {
+		if (guard->choice.kind != parse_choice_kind::template_name) {
+			return (ParseGuard*)guard;
+		};
+		NameSyntax* name = name_declaration_spelling((NameSyntax*)guard->choice.name);
+		NameSyntax* qualifier = nullptr;
+		if (name) {
+			@qualifier = name_declaration_spelling((NameSyntax*)name->qualifier);
+		};
+		if (!qualifier || qualifier->arguments || !token_same(name->token, qualifier->token)) {
+			return (ParseGuard*)guard;
+		};
+		ParseGuard* result = (ParseGuard*)memory_allocate(@compiler, sizeof(ParseGuard));
+		if (!result) {
+			return nullptr;
+		};
+		@*result := *guard;
+		@result->choice.name := qualifier;
+		return (ParseGuard*)result;
+	};
+	return parse_guard(@compiler, (parse_guard_kind)guard->kind, function_name_guard(@compiler, (ParseGuard*)guard->left), function_name_guard(@compiler, (ParseGuard*)guard->right));
+};
+
 fn Parser::source_function_name_results(Parser& this) -> FunctionNameParseResult* {
 	ParseMemo* memo = @this.memo_begin(parse_memo_kind::function_name, 0, 0, "non-consuming function name parse cycle\0");
 	if (!memo) {
@@ -6015,7 +6042,11 @@ fn Parser::source_function_name_results(Parser& this) -> FunctionNameParseResult
 			if (token_is(names->value->token, "operator\0") && @ending.take(token_kind::op_assign)) {
 				@spelling = function_role::assignment;
 			};
-			function_names_add(@*this.compiler, &result, NameSyntax*(names->value), (function_role)spelling, ParseGuard*(names->guard), parser_cursor(ending));
+			ParseGuard* guard := names->guard;
+			if (spelling == function_role::ordinary) {
+				@guard = function_name_guard(@*this.compiler, (ParseGuard*)guard);
+			};
+			function_names_add(@*this.compiler, &result, NameSyntax*(names->value), (function_role)spelling, (ParseGuard*)guard, parser_cursor(ending));
 		};
 		if (ending.failure.message && (!failure.message || ending.failure.offset > failure.offset)) {
 			@failure := ending.failure;
@@ -6687,7 +6718,8 @@ fn source_collect_declaration(Compiler& compiler, Scope* scope, SourceDeclaratio
 		return (SourceBinding*)binding;
 	};
 	if (path->qualifier) {
-		Entity* entity = name_resolve(@compiler, (Scope*)scope, (NameSyntax*)path->qualifier);
+		NameSyntax* qualifier = source_constructor_qualifier(@compiler, (SourceDeclaration*)source, (NameSyntax*)path);
+		Entity* entity = name_resolve(@compiler, (Scope*)scope, (NameSyntax*)qualifier);
 		@owner = entity_members((Entity*)entity);
 		if (!owner) {
 			if (phase == declaration_phase::identities) {
@@ -7312,6 +7344,20 @@ fn source_template_qualifier(NameSyntax* name) -> NameSyntax* {
 	return nullptr;
 };
 
+fn source_constructor_qualifier(Compiler& compiler, SourceDeclaration* source, NameSyntax* path) -> NameSyntax* {
+	NameSyntax* qualifier = name_declaration_spelling((NameSyntax*)path->qualifier);
+	if (source->token.kind != token_kind::kw_fn || source->spelling != function_role::ordinary || !path->arguments || !qualifier || qualifier->arguments || !token_same(path->token, qualifier->token)) {
+		return (NameSyntax*)path->qualifier;
+	};
+	NameSyntax* owner = (NameSyntax*)memory_allocate(@compiler, sizeof(NameSyntax));
+	if (!owner) {
+		return nullptr;
+	};
+	@*owner := *qualifier;
+	@owner->arguments := path->arguments;
+	return (NameSyntax*)owner;
+};
+
 fn source_template_register(Compiler& compiler, Scope* scope, SourceDeclaration* source) -> Entity* {
 	if (scope->context != context_kind::module && scope->context != context_kind::kw_struct && scope->context != context_kind::kw_union) {
 		compiler_error(@compiler, source->token, "template declarations require module or aggregate scope\0");
@@ -7321,6 +7367,12 @@ fn source_template_register(Compiler& compiler, Scope* scope, SourceDeclaration*
 	NameSyntax* member = nullptr;
 	if (source->token.kind == token_kind::kw_fn) {
 		@member = source_template_qualifier((NameSyntax*)path->qualifier);
+		if (!member) {
+			NameSyntax* qualifier = source_constructor_qualifier(@compiler, (SourceDeclaration*)source, (NameSyntax*)path);
+			if (qualifier != path->qualifier) {
+				@member := qualifier;
+			};
+		};
 	};
 	NameSyntax* name = (NameSyntax*)path;
 	if (member) {
