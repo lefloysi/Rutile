@@ -20,6 +20,7 @@ enum token_kind {
 	kw_const;
 	kw_discard;
 	kw_delete;
+	kw_implicit;
 	kw_nullptr;
 	kw_template;
 	kw_typename;
@@ -127,6 +128,7 @@ enum syntax_kind {
 	access;
 	relocate;
 	discard_;
+	destroy;
 	construct;
 	borrowed_component;
 	owned_component;
@@ -170,6 +172,11 @@ enum function_modification {
 	virtual_;
 	override_;
 	final_;
+};
+
+enum constructor_conversion {
+	explicit_;
+	implicit_;
 };
 
 enum function_definition {
@@ -528,17 +535,11 @@ struct DeclarationRule {
 	context_kind context;
 };
 
-struct RemovedBinding {
-	Entity* entity;
-	RemovedBinding* next;
-};
-
 struct Scope {
 	Compiler* compiler;
 	Scope* parent;
 	Binding* bindings;
 	Binding* last_binding;
-	RemovedBinding* removed;
 	Binding** buckets;
 	Entity* owner;
 	usize bucket_count;
@@ -709,6 +710,7 @@ struct FunctionEntity {
 	reachability lifetime_exit;
 	function_modification modification;
 	resolution virtual_resolution;
+	constructor_conversion conversion;
 };
 
 enum storage_kind {
@@ -1083,7 +1085,7 @@ fn strcmp(char* first, char* second) -> i32;
 fn platform_standard_error() -> void*;
 
 fn memory_allocate(Compiler* compiler, usize size) -> void* {
-	unique_ptr<void> memory = unique_ptr<void>(calloc(1, $size));
+	var memory = unique_ptr<void>(calloc(1, $size));
 	if (!memory.get()) {
 		@compiler->result = compilation_result::failure;
 		return nullptr;
@@ -1131,7 +1133,7 @@ fn compiler_error(Compiler* compiler, Token token, char* message) {
 		if (token.source && token.source->path) {
 			@path := token.source->path;
 		};
-		fprintf((void*)compiler->diagnostics, "%s:%llu:%llu: error: %s\n\0", $path, (u64)token.line, (u64)token.column, (char*)message);
+		fprintf((void*)compiler->diagnostics, "%s:%llu:%llu: %s\n\0", $path, (u64)token.line, (u64)token.column, (char*)message);
 	};
 };
 
@@ -1191,13 +1193,6 @@ fn scope_lookup(Scope* scope, Token name) -> Entity* {
 				return $entity;
 			};
 		};
-		RemovedBinding* removed := scope->removed;
-		while (removed) {
-			if (token_same(Token(removed->entity->name), Token(name))) {
-				return nullptr;
-			};
-			@removed := removed->next;
-		};
 		@scope := scope->parent;
 	};
 
@@ -1242,65 +1237,6 @@ fn scope_define(Compiler* compiler, Scope* scope, Entity* entity) -> i32 {
 	};
 
 	return scope_bind($compiler, $scope, $entity);
-};
-
-fn scope_remove(Compiler* compiler, Scope* scope, Entity* entity) {
-	while (scope) {
-		usize bucket = token_hash(Token(entity->name)) % scope->bucket_count;
-		Binding** link = &scope->buckets[bucket];
-		while (*link) {
-			Binding* binding := *link;
-			if (binding->entity == entity) {
-				@*link := binding->hash_next;
-				RemovedBinding* removed = (RemovedBinding*)memory_allocate((Compiler*)compiler, sizeof(RemovedBinding));
-				if (!removed) {
-					return;
-				};
-
-				@removed->entity = (Entity*)entity;
-				@removed->next := scope->removed;
-				@scope->removed = $removed;
-				return;
-			};
-			@link = &binding->hash_next;
-		};
-		@scope := scope->parent;
-	};
-};
-
-fn scope_snapshot(Compiler* compiler, Scope* source) -> Scope* {
-	if (!source || source->context == context_kind::module) {
-		return $source;
-	};
-
-	Scope* scope = scope_create((Compiler*)compiler, scope_snapshot((Compiler*)compiler, (Scope*)source->parent), (context_kind)source->context, (Entity*)source->owner);
-	if (!scope) {
-		return nullptr;
-	};
-
-	@scope->removed := source->removed;
-	usize bucket = 0;
-	while (bucket < source->bucket_count) {
-		Binding* binding := source->buckets[bucket];
-		while (binding) {
-			scope_bind_named((Compiler*)compiler, (Scope*)scope, Token(binding->name), (Entity*)binding->entity, (Scope*)binding->declaration_scope, (Source*)binding->source);
-			@binding := binding->hash_next;
-		};
-		@bucket = bucket + 1;
-	};
-
-	return $scope;
-};
-
-fn scope_merge_removals(Compiler* compiler, Scope* destination, Scope* branch) {
-	while (branch && branch->context != context_kind::module) {
-		RemovedBinding* removed := branch->removed;
-		while (removed) {
-			scope_remove((Compiler*)compiler, (Scope*)destination, (Entity*)removed->entity);
-			@removed := removed->next;
-		};
-		@branch := branch->parent;
-	};
 };
 
 fn entity_create(Compiler* compiler, entity_kind kind, Token name) -> Entity* {
@@ -1896,65 +1832,46 @@ fn lexer_digit(char value) -> i32 {
 };
 
 struct Keyword {
+	fn Keyword(Keyword& this, char* text, token_kind kind);
+
 	char* text;
 	token_kind kind;
 };
 
+fn Keyword::Keyword(Keyword& this, char* text, token_kind kind) {
+	@this.text = $text;
+	@this.kind = $kind;
+};
+
 fn lexer_keywords(Keyword* keywords) {
-	@keywords[24].text = "template\0";
-	@keywords[24].kind = token_kind::kw_template;
-	@keywords[25].text = "typename\0";
-	@keywords[25].kind = token_kind::kw_typename;
-	@keywords[26].text = "class\0";
-	@keywords[26].kind = token_kind::kw_class;
-	@keywords[23].text = "nullptr\0";
-	@keywords[23].kind = token_kind::kw_nullptr;
-	@keywords[22].text = "delete\0";
-	@keywords[22].kind = token_kind::kw_delete;
-	@keywords[21].text = "discard\0";
-	@keywords[21].kind = token_kind::kw_discard;
-	@keywords[20].text = "const\0";
-	@keywords[20].kind = token_kind::kw_const;
-	@keywords[17].text = "virtual\0";
-	@keywords[17].kind = token_kind::kw_virtual;
-	@keywords[18].text = "override\0";
-	@keywords[18].kind = token_kind::kw_override;
-	@keywords[19].text = "final\0";
-	@keywords[19].kind = token_kind::kw_final;
-	@keywords[16].text = "namespace\0";
-	@keywords[16].kind = token_kind::kw_namespace;
-	@keywords[0].text = "fn\0";
-	@keywords[0].kind = token_kind::kw_fn;
-	@keywords[1].text = "var\0";
-	@keywords[1].kind = token_kind::kw_var;
-	@keywords[2].text = "struct\0";
-	@keywords[2].kind = token_kind::kw_struct;
-	@keywords[3].text = "union\0";
-	@keywords[3].kind = token_kind::kw_union;
-	@keywords[4].text = "enum\0";
-	@keywords[4].kind = token_kind::kw_enum;
-	@keywords[5].text = "return\0";
-	@keywords[5].kind = token_kind::kw_return;
-	@keywords[6].text = "if\0";
-	@keywords[6].kind = token_kind::kw_if;
-	@keywords[7].text = "else\0";
-	@keywords[7].kind = token_kind::kw_else;
-	@keywords[8].text = "while\0";
-	@keywords[8].kind = token_kind::kw_while;
-	@keywords[9].text = "for\0";
-	@keywords[9].kind = token_kind::kw_for;
-	@keywords[10].text = "switch\0";
-	@keywords[10].kind = token_kind::kw_switch;
-	@keywords[11].text = "case\0";
-	@keywords[11].kind = token_kind::kw_case;
-	@keywords[12].text = "default\0";
-	@keywords[12].kind = token_kind::kw_default;
-	@keywords[13].text = "break\0";
-	@keywords[13].kind = token_kind::kw_break;
-	@keywords[14].text = "continue\0";
-	@keywords[14].kind = token_kind::kw_continue;
-	@keywords[15].text = "sizeof\0";
-	@keywords[15].kind = token_kind::kw_sizeof;
+	@keywords[0] = Keyword("fn\0", token_kind::kw_fn);
+	@keywords[1] = Keyword("var\0", token_kind::kw_var);
+	@keywords[2] = Keyword("struct\0", token_kind::kw_struct);
+	@keywords[3] = Keyword("union\0", token_kind::kw_union);
+	@keywords[4] = Keyword("enum\0", token_kind::kw_enum);
+	@keywords[5] = Keyword("return\0", token_kind::kw_return);
+	@keywords[6] = Keyword("if\0", token_kind::kw_if);
+	@keywords[7] = Keyword("else\0", token_kind::kw_else);
+	@keywords[8] = Keyword("while\0", token_kind::kw_while);
+	@keywords[9] = Keyword("for\0", token_kind::kw_for);
+	@keywords[10] = Keyword("switch\0", token_kind::kw_switch);
+	@keywords[11] = Keyword("case\0", token_kind::kw_case);
+	@keywords[12] = Keyword("default\0", token_kind::kw_default);
+	@keywords[13] = Keyword("break\0", token_kind::kw_break);
+	@keywords[14] = Keyword("continue\0", token_kind::kw_continue);
+	@keywords[15] = Keyword("sizeof\0", token_kind::kw_sizeof);
+	@keywords[16] = Keyword("namespace\0", token_kind::kw_namespace);
+	@keywords[17] = Keyword("virtual\0", token_kind::kw_virtual);
+	@keywords[18] = Keyword("override\0", token_kind::kw_override);
+	@keywords[19] = Keyword("final\0", token_kind::kw_final);
+	@keywords[20] = Keyword("const\0", token_kind::kw_const);
+	@keywords[21] = Keyword("discard\0", token_kind::kw_discard);
+	@keywords[22] = Keyword("delete\0", token_kind::kw_delete);
+	@keywords[23] = Keyword("nullptr\0", token_kind::kw_nullptr);
+	@keywords[24] = Keyword("template\0", token_kind::kw_template);
+	@keywords[25] = Keyword("typename\0", token_kind::kw_typename);
+	@keywords[26] = Keyword("class\0", token_kind::kw_class);
+	@keywords[27] = Keyword("implicit\0", token_kind::kw_implicit);
 };
 
 fn lexer_keyword(Token token, Keyword* keywords, usize count) -> token_kind {
@@ -1971,80 +1888,43 @@ fn lexer_keyword(Token token, Keyword* keywords, usize count) -> token_kind {
 };
 
 fn lexer_operators(Keyword* operators) {
-	@operators[35].text = "@\0";
-	@operators[35].kind = token_kind::op_access;
-	@operators[36].text = "$\0";
-	@operators[36].kind = token_kind::op_relocate;
-	@operators[34].text = ":\0";
-	@operators[34].kind = token_kind::punct_colon;
-	@operators[0].text = "...\0";
-	@operators[0].kind = token_kind::punct_ellipsis;
-	@operators[1].text = "->\0";
-	@operators[1].kind = token_kind::op_arrow;
-	@operators[2].text = ":=\0";
-	@operators[2].kind = token_kind::op_copy;
-	@operators[3].text = "==\0";
-	@operators[3].kind = token_kind::op_equal;
-	@operators[4].text = "!=\0";
-	@operators[4].kind = token_kind::op_not_equal;
-	@operators[5].text = "<=\0";
-	@operators[5].kind = token_kind::op_less_equal;
-	@operators[6].text = ">=\0";
-	@operators[6].kind = token_kind::op_greater_equal;
-	@operators[7].text = "&&\0";
-	@operators[7].kind = token_kind::op_and;
-	@operators[8].text = "||\0";
-	@operators[8].kind = token_kind::op_or;
-	@operators[9].text = "<<\0";
-	@operators[9].kind = token_kind::op_shift_left;
-	@operators[10].text = ">>\0";
-	@operators[10].kind = token_kind::op_shift_right;
-	@operators[11].text = "(\0";
-	@operators[11].kind = token_kind::punct_left_paren;
-	@operators[12].text = ")\0";
-	@operators[12].kind = token_kind::punct_right_paren;
-	@operators[13].text = "[\0";
-	@operators[13].kind = token_kind::punct_left_bracket;
-	@operators[14].text = "]\0";
-	@operators[14].kind = token_kind::punct_right_bracket;
-	@operators[15].text = "{\0";
-	@operators[15].kind = token_kind::punct_left_brace;
-	@operators[16].text = "}\0";
-	@operators[16].kind = token_kind::punct_right_brace;
-	@operators[17].text = ";\0";
-	@operators[17].kind = token_kind::punct_semicolon;
-	@operators[18].text = ",\0";
-	@operators[18].kind = token_kind::punct_comma;
-	@operators[19].text = "::\0";
-	@operators[19].kind = token_kind::op_scope;
-	@operators[20].text = ".\0";
-	@operators[20].kind = token_kind::op_dot;
-	@operators[21].text = "=\0";
-	@operators[21].kind = token_kind::op_assign;
-	@operators[22].text = "+\0";
-	@operators[22].kind = token_kind::op_plus;
-	@operators[23].text = "-\0";
-	@operators[23].kind = token_kind::op_minus;
-	@operators[24].text = "*\0";
-	@operators[24].kind = token_kind::op_star;
-	@operators[25].text = "/\0";
-	@operators[25].kind = token_kind::op_slash;
-	@operators[26].text = "%\0";
-	@operators[26].kind = token_kind::op_remainder;
-	@operators[27].text = "&\0";
-	@operators[27].kind = token_kind::op_ampersand;
-	@operators[28].text = "|\0";
-	@operators[28].kind = token_kind::op_pipe;
-	@operators[29].text = "^\0";
-	@operators[29].kind = token_kind::op_caret;
-	@operators[30].text = "!\0";
-	@operators[30].kind = token_kind::op_bang;
-	@operators[31].text = "~\0";
-	@operators[31].kind = token_kind::op_tilde;
-	@operators[32].text = "<\0";
-	@operators[32].kind = token_kind::op_less;
-	@operators[33].text = ">\0";
-	@operators[33].kind = token_kind::op_greater;
+	@operators[0] = Keyword("...\0", token_kind::punct_ellipsis);
+	@operators[1] = Keyword("->\0", token_kind::op_arrow);
+	@operators[2] = Keyword(":=\0", token_kind::op_copy);
+	@operators[3] = Keyword("==\0", token_kind::op_equal);
+	@operators[4] = Keyword("!=\0", token_kind::op_not_equal);
+	@operators[5] = Keyword("<=\0", token_kind::op_less_equal);
+	@operators[6] = Keyword(">=\0", token_kind::op_greater_equal);
+	@operators[7] = Keyword("&&\0", token_kind::op_and);
+	@operators[8] = Keyword("||\0", token_kind::op_or);
+	@operators[9] = Keyword("<<\0", token_kind::op_shift_left);
+	@operators[10] = Keyword(">>\0", token_kind::op_shift_right);
+	@operators[11] = Keyword("(\0", token_kind::punct_left_paren);
+	@operators[12] = Keyword(")\0", token_kind::punct_right_paren);
+	@operators[13] = Keyword("[\0", token_kind::punct_left_bracket);
+	@operators[14] = Keyword("]\0", token_kind::punct_right_bracket);
+	@operators[15] = Keyword("{\0", token_kind::punct_left_brace);
+	@operators[16] = Keyword("}\0", token_kind::punct_right_brace);
+	@operators[17] = Keyword(";\0", token_kind::punct_semicolon);
+	@operators[18] = Keyword(",\0", token_kind::punct_comma);
+	@operators[19] = Keyword("::\0", token_kind::op_scope);
+	@operators[20] = Keyword(".\0", token_kind::op_dot);
+	@operators[21] = Keyword("=\0", token_kind::op_assign);
+	@operators[22] = Keyword("+\0", token_kind::op_plus);
+	@operators[23] = Keyword("-\0", token_kind::op_minus);
+	@operators[24] = Keyword("*\0", token_kind::op_star);
+	@operators[25] = Keyword("/\0", token_kind::op_slash);
+	@operators[26] = Keyword("%\0", token_kind::op_remainder);
+	@operators[27] = Keyword("&\0", token_kind::op_ampersand);
+	@operators[28] = Keyword("|\0", token_kind::op_pipe);
+	@operators[29] = Keyword("^\0", token_kind::op_caret);
+	@operators[30] = Keyword("!\0", token_kind::op_bang);
+	@operators[31] = Keyword("~\0", token_kind::op_tilde);
+	@operators[32] = Keyword("<\0", token_kind::op_less);
+	@operators[33] = Keyword(">\0", token_kind::op_greater);
+	@operators[34] = Keyword(":\0", token_kind::punct_colon);
+	@operators[35] = Keyword("@\0", token_kind::op_access);
+	@operators[36] = Keyword("$\0", token_kind::op_relocate);
 };
 
 fn lexer_operator(Lexer* lexer, Token* token, Keyword* operators, usize count) -> i32 {
@@ -2076,7 +1956,7 @@ fn tokenize(Compiler* compiler, Source* source, Token** result, usize* count) ->
 	};
 	Token* tokens = (Token*)memory_allocate((Compiler*)compiler, (source->length + 1) * sizeof(Token));
 	usize used = 0;
-	Keyword[27] keywords {};
+	Keyword[28] keywords {};
 	lexer_keywords(&keywords[0]);
 	Keyword[37] operators {};
 	lexer_operators(&operators[0]);
@@ -2303,6 +2183,9 @@ fn parser_signature_arrow(Parser* parser, usize offset) -> usize {
 };
 
 fn entity_members(Entity* entity) -> Scope* {
+	if (entity && entity->kind == entity_kind::primitive && entity->data.primitive.type->kind == type_kind::named) {
+		return entity_members((Entity*)entity->data.primitive.type->data.entity);
+	};
 	if (entity && entity->kind == entity_kind::template_) {
 		return (Scope*)entity->data.template_pattern.instances;
 	};
@@ -3528,6 +3411,21 @@ fn parser_unary(Parser* parser) -> Syntax* {
 			@value = $index;
 		}
 		else if (parser_take((Parser*)parser, token_kind::op_dot) || parser_take((Parser*)parser, token_kind::op_arrow)) {
+			if (parser_take((Parser*)parser, token_kind::op_tilde)) {
+				Syntax* destruction = syntax_new((Parser*)parser, syntax_kind::destroy, Token(operation));
+				if (operation.kind == token_kind::op_arrow) {
+					Syntax* object = syntax_new((Parser*)parser, syntax_kind::unary, Token(operation));
+					@object->data.unary.operation = token_kind::op_star;
+					@object->data.unary.value := value;
+					@value = $object;
+				};
+				@destruction->data.cast.value := value;
+				@destruction->data.cast.type = parser_name((Parser*)parser);
+				parser_require((Parser*)parser, token_kind::punct_left_paren, "expected '(' after destructor type\0");
+				parser_require((Parser*)parser, token_kind::punct_right_paren, "destructor invocation takes no arguments\0");
+				@value = $destruction;
+				continue;
+			};
 			Syntax* member = syntax_new((Parser*)parser, syntax_kind::member, Token(operation));
 			@member->data.member.object := value;
 			Syntax* path = parser_name((Parser*)parser);
@@ -3692,6 +3590,9 @@ fn parser_special_register(Parser* parser, Scope* owner, Syntax* declaration) {
 				compiler_error((Compiler*)parser->compiler, Token(declaration->token), "duplicate special function definition\0");
 				return;
 			};
+			if (function->data.function.conversion == constructor_conversion::implicit_) {
+				@existing->data.function.conversion = constructor_conversion::implicit_;
+			};
 			@declaration->entity := existing;
 			if (declaration->data.declaration.definition != function_definition::declaration) {
 				@existing->declaration := declaration;
@@ -3849,6 +3750,13 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 			if (parser_take((Parser*)parser, token_kind::kw_delete)) {
 				@node->data.declaration.definition = function_definition::deleted;
 			}
+			else if (parser_take((Parser*)parser, token_kind::kw_implicit)) {
+				if (role != function_role::constructor) {
+					compiler_error((Compiler*)parser->compiler, Token(modifier), "implicit applies only to constructors\0");
+					return $node;
+				};
+				@node->entity->data.function.conversion = constructor_conversion::implicit_;
+			}
 			else if (parser_take((Parser*)parser, token_kind::kw_virtual)) {
 				@node->data.declaration.modification = function_modification::virtual_;
 			}
@@ -3859,7 +3767,7 @@ fn parser_named_declaration(Parser* parser, DeclarationRule* rule) -> Syntax* {
 				@node->data.declaration.modification = function_modification::final_;
 			}
 			else {
-				compiler_error((Compiler*)parser->compiler, Token(modifier), "expected delete, virtual, override, or final modifier\0");
+				compiler_error((Compiler*)parser->compiler, Token(modifier), "expected delete, implicit, virtual, override, or final modifier\0");
 				return $node;
 			};
 		};
@@ -5170,7 +5078,68 @@ fn destruction_request(Type* type) {
 	};
 };
 
-fn special_select(Semantic* semantic, Entity* owner, function_role role, Syntax* arguments, Token token) -> Entity* {
+fn conversion_rank(Semantic* semantic, Syntax* argument, Type* expected, constructor_conversion conversion) -> i32 {
+	Type* target := expected;
+	i32 rank = 0;
+	if (target->kind == type_kind::reference) {
+		@target := target->data.element;
+		if (target->qualifier != type_qualifier::const_ && !syntax_mutable_access((Syntax*)argument)) {
+			return -1;
+		};
+		if (syntax_category((Syntax*)argument) == value_category::temporary) {
+			@rank = 1;
+		};
+	}
+	else if (syntax_category((Syntax*)argument) == value_category::storage) {
+		@rank = -1;
+	};
+	if (rank >= 0) {
+		if (syntax_number_expression((Syntax*)argument)) {
+			if (target->kind == type_kind::pointer && syntax_zero_pointer_constant((Syntax*)argument)) {
+				return rank + 2;
+			};
+			if (type_numeric((Type*)target)) {
+				return rank;
+			};
+		}
+		else {
+			Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)argument, nullptr);
+			if (type_value_equal((Type*)actual, (Type*)target)) {
+				return rank;
+			};
+			if (type_pointer_conversion((Type*)actual, (Type*)target)) {
+				return rank + 2;
+			};
+			if (expected->kind == type_kind::reference && base_search((Compiler*)semantic->compiler, (Type*)actual, (Type*)target).count == 1) {
+				return rank;
+			};
+		};
+	};
+	if (conversion == constructor_conversion::implicit_ || target->kind != type_kind::named || (target->data.entity->kind != entity_kind::struct_ && target->data.entity->kind != entity_kind::union_) || (expected->kind == type_kind::reference && target->qualifier != type_qualifier::const_)) {
+		return -1;
+	};
+	Entity* candidate := target->data.entity->data.aggregate.constructors;
+	i32 best = 2147483647;
+	while (candidate) {
+		if (candidate->data.function.conversion == constructor_conversion::implicit_) {
+			entity_resolve((Compiler*)semantic->compiler, (Entity*)candidate);
+			Parameter* parameter := candidate->data.function.type->data.function.parameters;
+			if (parameter && parameter->next && !parameter->next->next) {
+				i32 nested = conversion_rank((Semantic*)semantic, (Syntax*)argument, (Type*)parameter->next->type, constructor_conversion::implicit_);
+				if (nested >= 0 && nested < best) {
+					@best := nested;
+				};
+			};
+		};
+		@candidate := candidate->data.function.overload_next;
+	};
+	if (best == 2147483647) {
+		return -1;
+	};
+	return best + 16;
+};
+
+fn conversion_select(Semantic* semantic, Entity* owner, function_role role, Syntax* arguments, Token token, constructor_conversion conversion) -> Entity* {
 	Syntax* input := arguments;
 	while (input) {
 		if (!syntax_number_expression((Syntax*)input)) {
@@ -5183,6 +5152,10 @@ fn special_select(Semantic* semantic, Entity* owner, function_role role, Syntax*
 	i32 best = 2147483647;
 	i32 matches = 0;
 	while (candidate && semantic->compiler->result != compilation_result::failure) {
+		if (conversion == constructor_conversion::implicit_ && candidate->data.function.conversion != constructor_conversion::implicit_) {
+			@candidate := candidate->data.function.overload_next;
+			continue;
+		};
 		entity_resolve((Compiler*)semantic->compiler, (Entity*)candidate);
 		Parameter* parameter := candidate->data.function.type->data.function.parameters;
 		if (parameter) {
@@ -5191,37 +5164,11 @@ fn special_select(Semantic* semantic, Entity* owner, function_role role, Syntax*
 		Syntax* argument := arguments;
 		i32 rank = 0;
 		while (argument && parameter) {
-			Type* expected := parameter->type;
-			Type* value_type := expected;
-			if (expected->kind == type_kind::reference) {
-				@value_type := expected->data.element;
-				if (value_type->qualifier != type_qualifier::const_ && !syntax_mutable_access((Syntax*)argument)) {
-					break;
-				};
-				if (syntax_category((Syntax*)argument) == value_category::temporary) {
-					@rank = rank + 1;
-				};
-			}
-			else if (syntax_category((Syntax*)argument) == value_category::storage) {
+			i32 score = conversion_rank((Semantic*)semantic, (Syntax*)argument, (Type*)parameter->type, (constructor_conversion)conversion);
+			if (score < 0) {
 				break;
 			};
-			if (syntax_number_expression((Syntax*)argument)) {
-				if (value_type->kind == type_kind::pointer && syntax_zero_pointer_constant((Syntax*)argument)) {
-					@rank = rank + 2;
-				}
-				else if (!type_numeric((Type*)value_type)) {
-					break;
-				};
-			}
-			else {
-				Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)argument, nullptr);
-				if (type_pointer_conversion((Type*)actual, (Type*)value_type) && !type_value_equal((Type*)actual, (Type*)value_type)) {
-					@rank = rank + 2;
-				}
-				else if (!type_value_equal((Type*)actual, (Type*)value_type) && !(expected->kind == type_kind::reference && base_search((Compiler*)semantic->compiler, (Type*)actual, (Type*)value_type).count == 1)) {
-					break;
-				};
-			};
+			@rank = rank + score;
 			@parameter := parameter->next;
 			@argument := argument->next;
 		};
@@ -5262,6 +5209,10 @@ fn special_select(Semantic* semantic, Entity* owner, function_role role, Syntax*
 		};
 	};
 	return $selected;
+};
+
+fn special_select(Semantic* semantic, Entity* owner, function_role role, Syntax* arguments, Token token) -> Entity* {
+	return conversion_select($semantic, $owner, $role, $arguments, $token, constructor_conversion::explicit_);
 };
 
 fn syntax_construct(Compiler* compiler, Syntax* syntax, Type* target) {
@@ -6577,6 +6528,31 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 	if (!syntax) {
 		return (Type*)compiler->void_type;
 	};
+	Type* target := expected;
+	if (target && target->kind == type_kind::reference && target->data.element->qualifier == type_qualifier::const_) {
+		@target := target->data.element;
+	};
+	if (target && target->kind == type_kind::named && (target->data.entity->kind == entity_kind::struct_ || target->data.entity->kind == entity_kind::union_) && syntax->kind != syntax_kind::construct) {
+		Type* actual = nullptr;
+		if (!syntax_number_expression((Syntax*)syntax)) {
+			@actual = semantic_expression((Semantic*)semantic, (Syntax*)syntax, nullptr);
+		};
+		if (!actual || !type_value_equal((Type*)actual, (Type*)target)) {
+			Syntax* next := syntax->next;
+			@syntax->next = nullptr;
+			Entity* constructor = conversion_select((Semantic*)semantic, (Entity*)target->data.entity, function_role::constructor, (Syntax*)syntax, Token(syntax->token), constructor_conversion::implicit_);
+			@syntax->next = $next;
+			if (constructor) {
+				value_use argument_use := syntax->use;
+				syntax_construct((Compiler*)compiler, (Syntax*)syntax, (Type*)target);
+				@syntax->data.construction.arguments->use = $argument_use;
+				@syntax->use = value_use::observed;
+				@syntax->data.construction.constructor = $constructor;
+				Type* converted = semantic_expression((Semantic*)semantic, (Syntax*)syntax, nullptr);
+				return semantic_expect((Semantic*)semantic, (Syntax*)syntax, $converted, (Type*)expected);
+			};
+		};
+	};
 	if (expected && expected->kind == type_kind::reference && syntax_number_expression((Syntax*)syntax)) {
 		Type* actual = semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)expected->data.element);
 		return semantic_expect((Semantic*)semantic, (Syntax*)syntax, $actual, (Type*)expected);
@@ -6593,6 +6569,20 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case syntax_kind::nullptr_:
 			@type = type_pointer((Compiler*)compiler, (Type*)compiler->null_type);
 			break;
+		case syntax_kind::destroy: {
+			Type* target = type_resolve((Compiler*)compiler, (Scope*)semantic->scope, (Syntax*)syntax->data.cast.type);
+			Type* actual = semantic_address((Semantic*)semantic, (Syntax*)syntax->data.cast.value);
+			if (target->kind != type_kind::named || (target->data.entity->kind != entity_kind::struct_ && target->data.entity->kind != entity_kind::union_) || !type_value_equal((Type*)actual, (Type*)target)) {
+				compiler_error((Compiler*)compiler, Token(syntax->token), "destructor type must match the object type\0");
+			};
+			if (syntax_category((Syntax*)syntax->data.cast.value) != value_category::storage || !syntax_mutable_access((Syntax*)syntax->data.cast.value)) {
+				compiler_error((Compiler*)compiler, Token(syntax->token), "destructor invocation requires explicit '@' access to storage\0");
+			};
+			layout_validate((Compiler*)compiler, (Type*)target, nullptr, Token(syntax->token));
+			destruction_request((Type*)target);
+			@type := compiler->void_type;
+			break;
+		};
 		case syntax_kind::discard_:
 			semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.expression, nullptr);
 			if (syntax->data.expression->kind != syntax_kind::name || !syntax->data.expression->entity || syntax->data.expression->entity->kind != entity_kind::variable || storage_borrowed((Syntax*)syntax->data.expression) || (syntax->data.expression->entity->data.variable.storage != storage_kind::local && syntax->data.expression->entity->data.variable.storage != storage_kind::parameter)) {
@@ -6603,6 +6593,17 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 		case syntax_kind::access:
 		case syntax_kind::relocate: {
 			Syntax* operand := syntax->data.expression;
+			if (syntax->kind == syntax_kind::access && operand->kind == syntax_kind::destroy) {
+				Syntax* access = (Syntax*)memory_allocate((Compiler*)compiler, sizeof(Syntax));
+				@access->kind = syntax_kind::access;
+				@access->token := syntax->token;
+				@access->data.expression := operand->data.cast.value;
+				@operand->data.cast.value = $access;
+				Syntax* next := syntax->next;
+				@*syntax := *operand;
+				@syntax->next = $next;
+				return semantic_expression((Semantic*)semantic, (Syntax*)syntax, (Type*)expected);
+			};
 			if (syntax->kind == syntax_kind::access && operand->kind == syntax_kind::call && operand->data.call.callable->kind == syntax_kind::member) {
 				Syntax* member := operand->data.call.callable;
 				Syntax* receiver = method_receiver((Semantic*)semantic, (Syntax*)member);
@@ -6648,7 +6649,9 @@ fn semantic_expression(Semantic* semantic, Syntax* syntax, Type* expected) -> Ty
 			};
 			Syntax* argument := syntax->data.construction.arguments;
 			if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::struct_ || type->data.entity->kind == entity_kind::union_)) {
+				if (!syntax->data.construction.constructor) {
 				@syntax->data.construction.constructor = special_select((Semantic*)semantic, (Entity*)type->data.entity, function_role::constructor, (Syntax*)argument, Token(syntax->token));
+				};
 				if (syntax->data.construction.constructor || compiler->result == compilation_result::failure) {
 					if (syntax->data.construction.constructor) {
 						constructor_members_validate((Semantic*)semantic, (Type*)type, Token(syntax->token));
@@ -7418,7 +7421,7 @@ fn llvm_type(Compiler* compiler, Type* type) -> LLVMOpaqueType* {
 
 fn emit_slot(Compiler* compiler, Type* type) -> LLVMOpaqueValue* {
 	LLVMOpaqueBasicBlock* block = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(LLVMGetInsertBlock(LLVMOpaqueBuilder*(compiler->llvm_builder.handle))));
-	LLVMBuilderOwner storage_builder = LLVMBuilderOwner(LLVMCreateBuilderInContext(LLVMOpaqueContext*(compiler->llvm_context.handle)));
+	var storage_builder = LLVMBuilderOwner(LLVMCreateBuilderInContext(LLVMOpaqueContext*(compiler->llvm_context.handle)));
 	LLVMOpaqueValue* first = LLVMGetFirstInstruction(LLVMOpaqueBasicBlock*(block));
 	if (first) {
 		LLVMPositionBuilderBefore(LLVMOpaqueBuilder*(storage_builder.handle), LLVMOpaqueValue*(first));
@@ -8727,6 +8730,9 @@ fn emit_expression_value(Emitter* emitter, Syntax* syntax) -> LLVMOpaqueValue* {
 		case syntax_kind::borrowed_component:
 		case syntax_kind::owned_component:
 			return emit_complete_read((Emitter*)emitter, (Type*)syntax->type, LLVMOpaqueValue*(syntax->address));
+		case syntax_kind::destroy:
+			emit_destroy_type((Emitter*)emitter, (Type*)syntax->data.cast.value->type, emit_address((Emitter*)emitter, (Syntax*)syntax->data.cast.value));
+			return nullptr;
 		case syntax_kind::discard_:
 			return nullptr;
 		case syntax_kind::construct: {
@@ -10200,7 +10206,15 @@ fn lifetime_expression(LifetimeAnalysis* analysis, Syntax* syntax) {
 				return;
 			};
 			if (object && object->status == lifetime_status::dead) {
-				compiler_error((Compiler*)analysis->compiler, Token(syntax->token), "object was relocated; declare a new binding before using it\0");
+				usize length := syntax->token.length;
+				char* message = (char*)memory_allocate((Compiler*)analysis->compiler, length + strlen("'' has been relocated\0") + 1);
+				if (!message) {
+					return;
+				};
+				@message[0] = '\'';
+				memcpy(message + 1, syntax->token.source->bytes + syntax->token.begin, (u64)length);
+				memcpy(message + length + 1, "' has been relocated\0", strlen("' has been relocated\0") + 1);
+				compiler_error((Compiler*)analysis->compiler, Token(syntax->token), $message);
 			};
 			break;
 		};
@@ -10230,6 +10244,7 @@ fn lifetime_expression(LifetimeAnalysis* analysis, Syntax* syntax) {
 		case syntax_kind::member:
 			lifetime_expression((LifetimeAnalysis*)analysis, (Syntax*)syntax->data.member.object);
 			break;
+		case syntax_kind::destroy:
 		case syntax_kind::cast:
 			lifetime_expression((LifetimeAnalysis*)analysis, (Syntax*)syntax->data.cast.value);
 			break;
@@ -10460,6 +10475,13 @@ fn lifetime_function(Compiler* compiler, Entity* entity) {
 	};
 };
 
+fn semantic_nested_statement(Semantic* semantic, Syntax* syntax) {
+	Scope* outer := semantic->scope;
+	@semantic->scope = scope_create((Compiler*)semantic->compiler, (Scope*)outer, context_kind::local, nullptr);
+	semantic_statement((Semantic*)semantic, $syntax);
+	@semantic->scope = $outer;
+};
+
 fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 	Compiler* compiler := semantic->compiler;
 	if (!syntax || compiler->result == compilation_result::failure) {
@@ -10552,16 +10574,8 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 			if (!type_scalar(semantic_expression((Semantic*)semantic, (Syntax*)syntax->data.branch.condition, (Type*)compiler->bool_type))) {
 				compiler_error((Compiler*)compiler, Token(syntax->token), "condition requires a scalar value\0");
 			};
-			Scope* outer := semantic->scope;
-			Scope* first = scope_snapshot((Compiler*)compiler, (Scope*)outer);
-			@semantic->scope := first;
-			semantic_statement((Semantic*)semantic, (Syntax*)syntax->data.branch.first);
-			Scope* second = scope_snapshot((Compiler*)compiler, (Scope*)outer);
-			@semantic->scope := second;
-			semantic_statement((Semantic*)semantic, (Syntax*)syntax->data.branch.second);
-			@semantic->scope := outer;
-			scope_merge_removals((Compiler*)compiler, (Scope*)outer, (Scope*)first);
-			scope_merge_removals((Compiler*)compiler, (Scope*)outer, (Scope*)second);
+			semantic_nested_statement((Semantic*)semantic, (Syntax*)syntax->data.branch.first);
+			semantic_nested_statement((Semantic*)semantic, (Syntax*)syntax->data.branch.second);
 			break;
 		case syntax_kind::for_:
 		case syntax_kind::while_: {
@@ -10602,24 +10616,14 @@ fn semantic_statement(Semantic* semantic, Syntax* syntax) {
 			Type* outer := semantic->selection_type;
 			@semantic->selection_type = (Type*)type;
 			Scope* outer_scope := semantic->scope;
-			Scope* merged = scope_snapshot((Compiler*)compiler, (Scope*)outer_scope);
-			Scope* branch = scope_snapshot((Compiler*)compiler, (Scope*)outer_scope);
-			@semantic->scope := branch;
 			Scope* cases = semantic_scope((Semantic*)semantic, (Scope*)syntax->data.selection.cases->scope);
 			@syntax->data.selection.cases->scope := cases;
 			@semantic->scope := cases;
 			Syntax* statement := syntax->data.selection.cases->data.statements;
 			while (statement && compiler->result != compilation_result::failure) {
-				if (statement->kind == syntax_kind::case_) {
-					scope_merge_removals((Compiler*)compiler, (Scope*)merged, (Scope*)branch);
-					@branch = scope_snapshot((Compiler*)compiler, (Scope*)outer_scope);
-					@cases->parent := branch;
-				};
 				semantic_statement((Semantic*)semantic, (Syntax*)statement);
 				@statement := statement->next;
 			};
-			scope_merge_removals((Compiler*)compiler, (Scope*)merged, (Scope*)branch);
-			scope_merge_removals((Compiler*)compiler, (Scope*)outer_scope, (Scope*)merged);
 			@semantic->scope = (Scope*)outer_scope;
 			@semantic->selection_type = (Type*)outer;
 			@semantic->flow := flow.parent;
@@ -10689,7 +10693,7 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 		return 0;
 	};
 
-	LLVMMessageOwner triple = LLVMMessageOwner(LLVMGetDefaultTargetTriple());
+	var triple = LLVMMessageOwner(LLVMGetDefaultTargetTriple());
 	LLVMMessageOwner message;
 	LLVMTarget* target;
 	if (!triple.handle) {
@@ -10711,7 +10715,7 @@ fn backend_initialize(Compiler* compiler) -> i32 {
 		compiler_error((Compiler*)compiler, Token(token), "cannot create LLVM target data layout\0");
 		return 0;
 	};
-	LLVMMessageOwner layout = LLVMMessageOwner(LLVMCopyStringRepOfTargetData(LLVMOpaqueTargetData*(compiler->llvm_layout.handle)));
+	var layout = LLVMMessageOwner(LLVMCopyStringRepOfTargetData(LLVMOpaqueTargetData*(compiler->llvm_layout.handle)));
 	if (!layout.handle) {
 		compiler_error((Compiler*)compiler, Token(token), "cannot obtain LLVM target data layout\0");
 		return 0;
@@ -10741,7 +10745,7 @@ fn backend_optimize(Compiler* compiler) -> i32 {
 	@pipelines[1] = "default<O1>\0";
 	@pipelines[2] = "default<O2>\0";
 	@pipelines[3] = "default<O3>\0";
-	LLVMPassOptionsOwner options = LLVMPassOptionsOwner(LLVMCreatePassBuilderOptions());
+	var options = LLVMPassOptionsOwner(LLVMCreatePassBuilderOptions());
 	if (!options.handle) {
 		Token token;
 		compiler_error((Compiler*)compiler, $token, "cannot create LLVM pass options\0");
@@ -10750,7 +10754,7 @@ fn backend_optimize(Compiler* compiler) -> i32 {
 	LLVMPassBuilderOptionsSetVerifyEach(LLVMOpaquePassBuilderOptions*(options.handle), 1);
 	LLVMOpaqueError* error = LLVMRunPasses(LLVMOpaqueModule*(compiler->llvm_module.handle), (char*)pipelines[compiler->optimization], LLVMOpaqueTargetMachine*(compiler->llvm_machine.handle), LLVMOpaquePassBuilderOptions*(options.handle));
 	if (error) {
-		LLVMErrorMessageOwner message = LLVMErrorMessageOwner(LLVMGetErrorMessage(LLVMOpaqueError*(error)));
+		var message = LLVMErrorMessageOwner(LLVMGetErrorMessage(LLVMOpaqueError*(error)));
 		Token token;
 		compiler_error((Compiler*)compiler, $token, (char*)message.handle);
 		return 0;
@@ -10770,7 +10774,7 @@ fn backend_publish(Compiler* compiler, char* output_path) -> i32 {
 
 	{
 		Token token;
-		File file = File((Compiler*)compiler, $output_path, file_purpose::object, Token(token));
+		var file = File((Compiler*)compiler, $output_path, file_purpose::object, Token(token));
 		if (!file.handle) {
 			return 0;
 		};
@@ -10796,7 +10800,7 @@ fn source_read(Compiler* compiler, char* path) -> Source* {
 	@token.column = 1;
 	char* bytes;
 	{
-		File file = File((Compiler*)compiler, $path, file_purpose::source, Token(token));
+		var file = File((Compiler*)compiler, $path, file_purpose::source, Token(token));
 		if (!file.handle) {
 			return nullptr;
 		};
@@ -10850,12 +10854,12 @@ fn source_read(Compiler* compiler, char* path) -> Source* {
 };
 
 fn backend_clear(Compiler* compiler) {
-	Compiler previous = Compiler($compiler);
+	var previous = Compiler($compiler);
 };
 
 fn rutile_compiler_create() -> Compiler* {
 	Compiler value;
-	unique_ptr<void> storage = unique_ptr<void>(calloc(1, sizeof(Compiler)));
+	var storage = unique_ptr<void>(calloc(1, sizeof(Compiler)));
 	if (!storage.get()) {
 		return nullptr;
 	};
@@ -10869,8 +10873,8 @@ fn rutile_compiler_destroy(Compiler* compiler) {
 		return;
 	};
 
-	unique_ptr<void> storage = unique_ptr<void>((void*)compiler);
-	Compiler previous = Compiler($compiler);
+	@compiler->~Compiler();
+	free($compiler);
 };
 
 fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics, output_kind output) -> i32 {
@@ -10878,7 +10882,7 @@ fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, 
 		@diagnostics = platform_standard_error();
 	};
 	if (!compiler) {
-		fputs("error: compiler context unavailable\n\0", (void*)diagnostics);
+		fputs("compiler context unavailable\n\0", (void*)diagnostics);
 		return 1;
 	};
 

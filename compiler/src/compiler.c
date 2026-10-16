@@ -191,6 +191,7 @@ enum TokenKind {
 	CONST,
 	DISCARD,
 	DELETE,
+	IMPLICIT,
 	NULLPTR,
 	TEMPLATE,
 	TYPENAME,
@@ -208,6 +209,7 @@ enum NodeKind {
 	NAME_EXPRESSION,
 	FUNCTION_EXPRESSION,
 	BOUND_FUNCTION_EXPRESSION,
+	DESTRUCTION_EXPRESSION,
 	CALL_EXPRESSION,
 	ACCESS_EXPRESSION,
 	RELOCATE_EXPRESSION,
@@ -365,6 +367,10 @@ struct Expression {
 			struct Argument* arguments;
 		} call;
 		struct Expression* operand;
+		struct {
+			struct Expression* object;
+			struct TypeNode* syntax;
+		} destruction;
 		struct {
 			struct Expression* value;
 			int operation;
@@ -595,6 +601,11 @@ enum FunctionRole {
 	ASSIGNMENT_ROLE,
 };
 
+enum ConstructorConversion {
+	EXPLICIT_CONSTRUCTOR,
+	IMPLICIT_CONSTRUCTOR,
+};
+
 enum GeneratedOperation {
 	DEFAULT_CONSTRUCTION,
 	COPY_CONSTRUCTION,
@@ -611,6 +622,7 @@ enum FunctionAnalysis {
 struct Function {
 	enum FunctionAnalysis analysis;
 	enum FunctionRole role;
+	enum ConstructorConversion conversion;
 	LLVMValueRef llvm_value;
 	LLVMTypeRef llvm_type;
 	struct TypeNode* result_syntax;
@@ -634,7 +646,9 @@ struct Function {
 
 enum LifetimeStatus {
 	ALIVE_OBJECT,
-	DEAD_OBJECT,
+	RELOCATED_OBJECT,
+	DISCARDED_OBJECT,
+	ENDED_OBJECT,
 };
 
 enum Reachability {
@@ -843,7 +857,7 @@ struct Lexer {
 	int column;
 };
 
-const struct Keyword keywords[] = { { "template", TEMPLATE }, { "typename", TYPENAME }, { "class", CLASS }, { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
+const struct Keyword keywords[] = { { "implicit", IMPLICIT }, { "template", TEMPLATE }, { "typename", TYPENAME }, { "class", CLASS }, { "nullptr", NULLPTR }, { "delete", DELETE }, { "discard", DISCARD }, { "const", CONST }, { "namespace", NAMESPACE }, { "fn", FN }, { "var", VAR }, { "return", RETURN }, { "import", IMPORT }, { "auto", AUTO }, { "struct", STRUCT }, { "union", UNION }, { "enum", ENUM }, { "sizeof", SIZEOF }, { "if", IF }, { "else", ELSE }, { "while", WHILE }, { "for", FOR }, { "switch", SWITCH }, { "case", CASE }, { "default", DEFAULT }, { "break", BREAK }, { "continue", CONTINUE }, { "true", TRUE }, { "false", FALSE }, { "virtual", VIRTUAL }, { "override", OVERRIDE }, { "final", FINAL } };
 
 const struct BuiltinType builtin_types[] = { { "i08", { SIGNED_INTEGER_TYPE, { 8 } } }, { "i16", { SIGNED_INTEGER_TYPE, { 16 } } }, { "i32", { SIGNED_INTEGER_TYPE, { 32 } } }, { "i64", { SIGNED_INTEGER_TYPE, { 64 } } }, { "u08", { UNSIGNED_INTEGER_TYPE, { 8 } } }, { "u16", { UNSIGNED_INTEGER_TYPE, { 16 } } }, { "u32", { UNSIGNED_INTEGER_TYPE, { 32 } } }, { "u64", { UNSIGNED_INTEGER_TYPE, { 64 } } }, { "usize", { UNSIGNED_INTEGER_TYPE, { sizeof(void*) * CHAR_BIT } } }, { "f32", { FLOAT_TYPE, { 32 } } }, { "f64", { FLOAT_TYPE, { 64 } } }, { "char", { CHAR_TYPE, { 0 } } }, { "bool", { BOOL_TYPE, { 0 } } }, { "void", { VOID_TYPE, { 0 } } }, { "null", { NULL_TYPE, { 0 } } } };
 
@@ -917,7 +931,7 @@ void diagnostic(struct Compiler* compiler, struct Token token, const char* forma
 		return;
 	}
 	compiler->failed = true;
-	fprintf(compiler->diagnostics, "%s:%d:%d: error: ", token.path ? token.path : "<source>", token.line, token.column);
+	fprintf(compiler->diagnostics, "%s:%d:%d: ", token.path ? token.path : "<source>", token.line, token.column);
 	va_list arguments;
 	va_start(arguments, format);
 	vfprintf(compiler->diagnostics, format, arguments);
@@ -2655,6 +2669,27 @@ postfix:
 		else if (compiler->token.kind == '.' || compiler->token.kind == ARROW) {
 			int kind = compiler->token.kind;
 			next_token(compiler);
+			if (take(compiler, '~')) {
+				struct Expression* destruction = new_expression(compiler, DESTRUCTION_EXPRESSION, expression->span.first);
+				if (!destruction) {
+					return NULL;
+				}
+				if (kind == ARROW) {
+					struct Expression* object = new_expression(compiler, DEREFERENCE_EXPRESSION, expression->span.first);
+					if (!object) {
+						return NULL;
+					}
+					object->data.operand = expression;
+					expression = object;
+				}
+				destruction->data.destruction.object = expression;
+				destruction->data.destruction.syntax = parse_type(compiler);
+				expect(compiler, '(', "'(' after destructor type");
+				expect(compiler, ')', "')' after destructor invocation");
+				destruction->span.last = previous_token(compiler);
+				expression = destruction;
+				continue;
+			}
 			struct Expression* field = new_expression(compiler, kind == '.' ? FIELD_EXPRESSION : POINTER_FIELD_EXPRESSION, expression->span.first);
 			if (!field) {
 				return NULL;
@@ -2969,7 +3004,14 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 		diagnostic(compiler, function->name, "constructors and destructors have no return type");
 	}
 	if (take(compiler, ':')) {
-		if (take(compiler, DELETE)) {
+		if (take(compiler, IMPLICIT)) {
+			if (function->role != CONSTRUCTOR_ROLE) {
+				diagnostic(compiler, function->name, "implicit modifier requires a constructor");
+				return;
+			}
+			function->conversion = IMPLICIT_CONSTRUCTOR;
+		}
+		else if (take(compiler, DELETE)) {
 			function->kind = FUNCTION_DELETED;
 		}
 		else if (take(compiler, VIRTUAL)) {
@@ -2982,7 +3024,7 @@ void parse_function(struct Compiler* compiler, struct Record* receiver) {
 			function->modification = FINAL_FUNCTION;
 		}
 		else {
-			diagnostic(compiler, compiler->token, "expected delete, virtual, override, or final modifier");
+			diagnostic(compiler, compiler->token, "expected implicit, delete, virtual, override, or final modifier");
 		}
 	}
 	if (function->modification != ORDINARY_FUNCTION) {
@@ -4380,6 +4422,9 @@ void register_functions(struct Compiler* compiler) {
 				diagnostic(compiler, function->name, "conflicting virtual relationships");
 				return;
 			}
+			if (function->conversion == IMPLICIT_CONSTRUCTOR) {
+				previous->conversion = IMPLICIT_CONSTRUCTOR;
+			}
 			if (function->modification != ORDINARY_FUNCTION) {
 				previous->modification = function->modification;
 			}
@@ -5195,6 +5240,17 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 		if (compiler->failed) {
 			break;
 		}
+		if (operand->kind == DESTRUCTION_EXPRESSION) {
+			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
+			if (!receiver) {
+				break;
+			}
+			receiver->data.operand = operand->data.destruction.object;
+			receiver->type = receiver->data.operand->type;
+			operand->data.destruction.object = receiver;
+			*expression = *operand;
+			break;
+		}
 		if (member_call && operand->data.call.callee->kind == FUNCTION_EXPRESSION && operand->data.call.binding->parameters && token_text(operand->data.call.binding->parameters->name, "this")) {
 			struct Argument* argument = operand->data.call.arguments;
 			struct Expression* receiver = new_expression(compiler, ACCESS_EXPRESSION, expression->span.first);
@@ -5221,6 +5277,18 @@ void bind_expression(struct Compiler* compiler, struct Expression* expression, s
 			expression->type = (struct Type){ VOID_TYPE, { 0 } };
 		}
 		break;
+	case DESTRUCTION_EXPRESSION: {
+		struct Expression* object = expression->data.destruction.object;
+		bind_expression(compiler, object, scope);
+		struct Type target = resolve_type(compiler, expression->data.destruction.syntax);
+		if ((target.kind != STRUCT_TYPE && target.kind != UNION_TYPE) || target.kind != object->type.kind || target.data.record != object->type.data.record) {
+			diagnostic(compiler, expression->data.destruction.syntax->span.first, "destructor type must match its object type");
+			break;
+		}
+		complete_type(compiler, target, expression->span.first);
+		expression->type = (struct Type){ VOID_TYPE, { 0 } };
+		break;
+	}
 	case COMPLEMENT_EXPRESSION:
 	case NEGATE_EXPRESSION:
 		bind_expression(compiler, expression->data.operand, scope);
@@ -5468,15 +5536,46 @@ void construct_value(struct Compiler* compiler, struct Expression* expression, s
 	expression->data.construction.slot = NULL;
 }
 
-bool special_argument_matches(struct Compiler* compiler, struct Type parameter, struct Expression* argument) {
+unsigned standard_argument_rank(struct Compiler* compiler, struct Type parameter, struct Expression* argument) {
 	struct Type value = parameter.kind == REFERENCE_TYPE ? *parameter.data.element : parameter;
 	if (!type_value_equal(value, argument->type) && !(is_void(argument->type) && numeric_type(value)) && !implicit_pointer_conversion(argument->type, value) && !(value.kind == POINTER_TYPE && zero_pointer_constant(argument))) {
-		return false;
+		return UINT_MAX;
 	}
-	if (parameter.kind != REFERENCE_TYPE) {
-		return !borrowed_value(argument);
+	if ((parameter.kind != REFERENCE_TYPE && borrowed_value(argument)) || (parameter.kind == REFERENCE_TYPE && value.qualifier != CONST_TYPE && !expression_mutable_access(argument))) {
+		return UINT_MAX;
 	}
-	return value.qualifier == CONST_TYPE || expression_mutable_access(argument);
+	unsigned rank = parameter.kind == REFERENCE_TYPE && !lvalue_expression(argument) ? 1 : 0;
+	if (!type_value_equal(value, argument->type) && (implicit_pointer_conversion(argument->type, value) || (value.kind == POINTER_TYPE && zero_pointer_constant(argument)))) {
+		rank += 2;
+	}
+	return rank;
+}
+
+unsigned user_argument_rank(struct Compiler* compiler, struct Type parameter, struct Expression* argument) {
+	unsigned standard = standard_argument_rank(compiler, parameter, argument);
+	if (standard != UINT_MAX) {
+		return standard;
+	}
+	struct Type value = parameter.kind == REFERENCE_TYPE ? *parameter.data.element : parameter;
+	if ((value.kind != STRUCT_TYPE && value.kind != UNION_TYPE) || (parameter.kind == REFERENCE_TYPE && value.qualifier != CONST_TYPE)) {
+		return UINT_MAX;
+	}
+	unsigned best = UINT_MAX;
+	for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
+		struct Function* function = symbol->function;
+		if (function->role != CONSTRUCTOR_ROLE || function->conversion != IMPLICIT_CONSTRUCTOR || !function->owner || function->owner->record != value.data.record) {
+			continue;
+		}
+		struct Variable* source = function->parameters ? function->parameters->next : NULL;
+		if (!source || source->next) {
+			continue;
+		}
+		unsigned rank = standard_argument_rank(compiler, source->type, argument);
+		if (rank < best) {
+			best = rank;
+		}
+	}
+	return best == UINT_MAX ? UINT_MAX : 16 + best;
 }
 
 void request_function(struct Function* function) {
@@ -5485,25 +5584,27 @@ void request_function(struct Function* function) {
 	}
 }
 
-struct Function* select_special_function(struct Compiler* compiler, struct Record* record, enum FunctionRole role, struct Argument* arguments, struct Token token) {
+struct Function* select_conversion_function(struct Compiler* compiler, struct Record* record, enum FunctionRole role, struct Argument* arguments, struct Token token, enum ConstructorConversion conversion) {
 	struct Function* selected = NULL;
 	unsigned best = UINT_MAX;
+	unsigned matches = 0;
 	for (struct FunctionSymbol* symbol = compiler->symbols; symbol; symbol = symbol->next) {
 		struct Function* function = symbol->function;
 		if (function->role != role || !function->owner || function->owner->record != record) {
 			continue;
 		}
+		if (conversion == IMPLICIT_CONSTRUCTOR && function->conversion != IMPLICIT_CONSTRUCTOR) {
+			continue;
+		}
 		struct Variable* parameter = function->parameters ? function->parameters->next : NULL;
 		struct Argument* argument = arguments;
 		unsigned rank = 0;
-		while (parameter && argument && special_argument_matches(compiler, parameter->type, argument->expression)) {
-			struct Type value = parameter->type.kind == REFERENCE_TYPE ? *parameter->type.data.element : parameter->type;
-			if (!type_value_equal(value, argument->expression->type) && (implicit_pointer_conversion(argument->expression->type, value) || (value.kind == POINTER_TYPE && zero_pointer_constant(argument->expression)))) {
-				rank += 2;
+		while (parameter && argument) {
+			unsigned argument_rank = conversion == IMPLICIT_CONSTRUCTOR ? standard_argument_rank(compiler, parameter->type, argument->expression) : user_argument_rank(compiler, parameter->type, argument->expression);
+			if (argument_rank == UINT_MAX) {
+				break;
 			}
-			if (parameter->type.kind == REFERENCE_TYPE && !lvalue_expression(argument->expression)) {
-				rank++;
-			}
+			rank += argument_rank;
 			parameter = parameter->next;
 			argument = argument->next;
 		}
@@ -5511,17 +5612,26 @@ struct Function* select_special_function(struct Compiler* compiler, struct Recor
 			continue;
 		}
 		if (selected && rank == best) {
-			diagnostic(compiler, token, "ambiguous special function invocation");
-			return NULL;
+			matches++;
+			continue;
 		}
 		selected = function;
 		best = rank;
+		matches = 1;
+	}
+	if (matches > 1) {
+		diagnostic(compiler, token, "ambiguous special function invocation");
+		return NULL;
 	}
 	if (selected && selected->kind == FUNCTION_DELETED) {
 		diagnostic(compiler, token, "selected function is deleted");
 	}
 	request_function(selected);
 	return selected;
+}
+
+struct Function* select_special_function(struct Compiler* compiler, struct Record* record, enum FunctionRole role, struct Argument* arguments, struct Token token) {
+	return select_conversion_function(compiler, record, role, arguments, token, EXPLICIT_CONSTRUCTOR);
 }
 
 bool contains_reference_fields(struct Type type);
@@ -5787,6 +5897,8 @@ void validate_reference_field_read(struct Compiler* compiler, struct Expression*
 	diagnostic(compiler, expression->span.first, "reference field used before binding");
 }
 
+void request_destruction(struct Compiler* compiler, struct Type type);
+
 void check_address_expression(struct Compiler* compiler, struct Expression* expression) {
 	if (!expression || compiler->failed) {
 		return;
@@ -5845,6 +5957,18 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		return;
 	}
 
+	if (expected && (expected->kind == STRUCT_TYPE || expected->kind == UNION_TYPE) && !type_value_equal(expression->type, *expected)) {
+		struct Argument argument = { 0 };
+		argument.expression = expression;
+		struct Function* constructor = select_conversion_function(compiler, expected->data.record, CONSTRUCTOR_ROLE, &argument, expression->span.first, IMPLICIT_CONSTRUCTOR);
+		if (constructor) {
+			construct_value(compiler, expression, *expected);
+			expression->data.construction.function = constructor;
+			check_expression(compiler, expression, NULL);
+			return;
+		}
+	}
+
 	uint64_t magnitude;
 	bool negative;
 	if (integer_constant(expression, &magnitude, &negative)) {
@@ -5867,6 +5991,16 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 			diagnostic(compiler, expression->span.first, "'@' requires mutable storage");
 		}
 		break;
+	case DESTRUCTION_EXPRESSION: {
+		struct Expression* object = expression->data.destruction.object;
+		if (!expression_mutable_access(object) || !addressable_expression(object)) {
+			diagnostic(compiler, object->span.first, "destructor invocation requires explicit mutable '@' access");
+			break;
+		}
+		check_address_expression(compiler, object);
+		request_destruction(compiler, object->type);
+		break;
+	}
 	case RELOCATE_EXPRESSION:
 		check_expression(compiler, expression->data.operand, NULL);
 		expression->type = expression->data.operand->type;
@@ -5888,7 +6022,9 @@ void check_expression(struct Compiler* compiler, struct Expression* expression, 
 		}
 		if (expression->type.kind == STRUCT_TYPE || expression->type.kind == UNION_TYPE) {
 			complete_type(compiler, expression->type, expression->span.first);
-			expression->data.construction.function = select_special_function(compiler, expression->type.data.record, CONSTRUCTOR_ROLE, argument, expression->span.first);
+			if (!expression->data.construction.function) {
+				expression->data.construction.function = select_special_function(compiler, expression->type.data.record, CONSTRUCTOR_ROLE, argument, expression->span.first);
+			}
 		}
 		struct Function* function = expression->data.construction.function;
 		if (function) {
@@ -7252,13 +7388,16 @@ void lifetime_merge(struct Compiler* compiler, struct LifetimeState* destination
 	}
 	for (struct LifetimeObject* object = destination->objects; object; object = object->next) {
 		struct LifetimeObject* other = lifetime_find(incoming, object->variable);
-		if ((!other && object->status != DEAD_OBJECT) || (other && object->status != other->status)) {
+		if ((!other && object->status == ALIVE_OBJECT) || (other && (object->status == ALIVE_OBJECT) != (other->status == ALIVE_OBJECT))) {
 			diagnostic(compiler, token, "inconsistent object lifetimes at reachable control-flow merge");
 			return;
 		}
+		if (other && object->status != other->status) {
+			object->status = ENDED_OBJECT;
+		}
 	}
 	for (struct LifetimeObject* object = incoming->objects; object; object = object->next) {
-		if (object->status != DEAD_OBJECT && !lifetime_find(destination, object->variable)) {
+		if (object->status == ALIVE_OBJECT && !lifetime_find(destination, object->variable)) {
 			diagnostic(compiler, token, "control flow bypasses a live object declaration");
 			return;
 		}
@@ -7267,7 +7406,7 @@ void lifetime_merge(struct Compiler* compiler, struct LifetimeState* destination
 
 void lifetime_enter(struct LifetimeAnalysis* analysis, struct Variable* variable) {
 	for (struct LifetimeObject* object = analysis->state.objects; object; object = object->next) {
-		if (object->status != DEAD_OBJECT && object->variable->scope_depth == variable->scope_depth && name_equal(object->variable->name, variable->name)) {
+		if (object->status == ALIVE_OBJECT && object->variable->scope_depth == variable->scope_depth && name_equal(object->variable->name, variable->name)) {
 			diagnostic(analysis->compiler, variable->name, "duplicate live variable declaration");
 			return;
 		}
@@ -7369,10 +7508,15 @@ void lifetime_expression(struct LifetimeAnalysis* analysis, struct Expression* e
 		return;
 	}
 	switch (expression->kind) {
+	case DESTRUCTION_EXPRESSION:
+		lifetime_expression(analysis, expression->data.destruction.object);
+		break;
 	case NAME_EXPRESSION: {
 		struct LifetimeObject* object = lifetime_find(&analysis->state, expression->data.variable.binding);
-		if (object && object->status == DEAD_OBJECT) {
-			diagnostic(analysis->compiler, expression->span.first, "object was relocated; declare a new binding before using it");
+		if (object && object->status != ALIVE_OBJECT) {
+			struct Token name = expression->data.variable.name;
+			const char* reason = object->status == RELOCATED_OBJECT ? "has been relocated" : object->status == DISCARDED_OBJECT ? "has been discarded" : "is no longer available";
+			diagnostic(analysis->compiler, name, "'%.*s' %s", (int)name.length, name.start, reason);
 		}
 		break;
 	}
@@ -7384,14 +7528,14 @@ void lifetime_expression(struct LifetimeAnalysis* analysis, struct Expression* e
 			diagnostic(analysis->compiler, expression->span.first, "relocation requires an owned local binding");
 			return;
 		}
-		object->status = DEAD_OBJECT;
+		object->status = RELOCATED_OBJECT;
 		break;
 	}
 	case ABANDON_EXPRESSION: {
 		lifetime_expression(analysis, expression->data.operand);
 		struct LifetimeObject* object = lifetime_find(&analysis->state, expression->data.operand->data.variable.binding);
 		if (object) {
-			object->status = DEAD_OBJECT;
+			object->status = DISCARDED_OBJECT;
 		}
 		break;
 	}
@@ -8895,6 +9039,11 @@ void emit_assign_storage(struct Compiler* compiler, struct Type type, LLVMValueR
 
 LLVMValueRef emit_expression(struct Compiler* compiler, struct Expression* expression) {
 	expression->temporary_address = NULL;
+	if (expression->kind == DESTRUCTION_EXPRESSION) {
+		struct Expression* object = expression->data.destruction.object;
+		emit_destroy_type(compiler, object->type, emit_address(compiler, object));
+		return NULL;
+	}
 	uint64_t magnitude;
 	bool negative;
 	struct Token decimal;
@@ -9747,7 +9896,7 @@ void rutile_compiler_destroy(struct Compiler* compiler) {
 
 int compile_module(struct Compiler* compiler, const char* const* source_paths, size_t source_count, const char* output_path, FILE* (*open_file)(const char*, const char*), const char* entry, int optimization, FILE* diagnostics, enum CompilationMode mode) {
 	if (!compiler) {
-		fprintf(diagnostics ? diagnostics : stderr, "error: compiler context unavailable\n");
+		fprintf(diagnostics ? diagnostics : stderr, "compiler context unavailable\n");
 		return 1;
 	}
 	rutile_compiler_clear(compiler);
@@ -9756,14 +9905,14 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 	compiler->open_file = open_file ? open_file : fopen;
 	compiler->optimization = optimization;
 	if (optimization < 0 || optimization > 3) {
-		fprintf(compiler->diagnostics, "error: optimization level must be between 0 and 3\n");
+		fprintf(compiler->diagnostics, "optimization level must be between 0 and 3\n");
 		compiler->failed = true;
 		compiler->diagnostics = NULL;
 		compiler->open_file = NULL;
 		return 1;
 	}
 	if (!source_count) {
-		fprintf(compiler->diagnostics, "error: no source files\n");
+		fprintf(compiler->diagnostics, "no source files\n");
 		compiler->failed = true;
 		compiler->diagnostics = NULL;
 		compiler->open_file = NULL;
@@ -9771,7 +9920,7 @@ int compile_module(struct Compiler* compiler, const char* const* source_paths, s
 	}
 	for (size_t i = 0; i < source_count; i++) {
 		if (!strcmp(source_paths[i], output_path)) {
-			fprintf(compiler->diagnostics, "%s: error: output cannot overwrite a source file\n", output_path);
+			fprintf(compiler->diagnostics, "%s: output cannot overwrite a source file\n", output_path);
 			compiler->failed = true;
 			compiler->diagnostics = NULL;
 			compiler->open_file = NULL;
