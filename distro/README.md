@@ -18,4 +18,9 @@ This first verifies self-hosting, then replaces the current compiler and source 
 Commit the refreshed distribution alongside its source and version change.
 
 For another native host, set `RUTILE_BOOTSTRAP_COMPILER` to a compatible compiler executable.
-`RUTILE_BOOTSTRAP_FROM_C=ON` enables the historical C seed as an explicit recovery option.
+
+Add language support using syntax the current Rutile compiler already accepts, then compile that
+compiler before adopting the new features in its source. Use `RUTILE_BOOTSTRAP_COMPILER` to select
+the intermediate executable until the refreshed distribution is ready.
+
+The historical C compiler is retained for reference and is not updated for current language changes.
