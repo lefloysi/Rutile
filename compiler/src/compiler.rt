@@ -163,7 +163,6 @@ enum parameter_arity : [i32] {
 
 struct ParameterSyntax {
 	Syntax* type;
-	Entity* entity;
 	ParameterSyntax* next;
 	Token name;
 };
@@ -478,7 +477,6 @@ struct ArrayType {
 
 struct Parameter {
 	Type* type;
-	Entity* entity;
 	Parameter* next;
 	Token name;
 };
@@ -506,6 +504,15 @@ struct Type {
 	TypeData data;
 	type_kind kind;
 	type_qualifier qualifier;
+};
+
+struct TypeRecord {
+	Type value;
+	TypeRecord* next;
+};
+
+struct TypeStore {
+	TypeRecord*[1024] buckets;
 };
 
 enum entity_kind : [i32] {
@@ -704,6 +711,11 @@ enum function_analysis : [i32] {
 	analyzed;
 };
 
+struct ParameterBinding {
+	Entity* entity;
+	ParameterBinding* next;
+};
+
 struct FunctionEntity {
 	Entity* overload_next;
 	Entity* interface_owner;
@@ -712,6 +724,7 @@ struct FunctionEntity {
 	Type* type;
 	Scope* scope;
 	Syntax* body;
+	ParameterBinding* parameter_bindings;
 	usize overload_index;
 	function_analysis analysis;
 	function_definition definition;
@@ -1257,6 +1270,7 @@ struct Backend :[BackendState] {
 };
 
 struct SemanticState {
+	TypeStore types;
 	IdentityMap<Type*> resolved_types;
 };
 
@@ -1546,15 +1560,10 @@ fn primitive_define(Compiler& compiler, char* name, type_kind kind, i32 bits) ->
 	@token.kind = token_kind::identifier;
 	@token.length := source->bytes.size;
 	@token.source = $source;
-	Type* type = (Type*)memory_allocate(@compiler, sizeof(Type));
+	Type* type = type_primitive(@compiler, $kind, $bits);
 	if (!type) {
 		return nullptr;
 	};
-
-	if (kind == type_kind::kw_signed || kind == type_kind::kw_unsigned || kind == type_kind::kw_float) {
-		@type->data.bits = (i32)bits;
-	};
-	@type->kind = $kind;
 	Entity* entity = entity_create(@compiler, entity_kind::primitive, $token);
 	if (!entity) {
 		return nullptr;
@@ -3085,8 +3094,7 @@ fn template_validate(Compiler& compiler, Entity* pattern) {
 		@binding->state = resolution::ready;
 		@binding->template_parameter := parameter;
 		if (parameter->kind == template_parameter_kind::type) {
-			Type* type = type_new(@compiler, type_kind::parameter);
-			@type->data.entity := binding;
+			Type* type = type_entity(@compiler, type_kind::parameter, (Entity*)binding);
 			@binding->data.primitive.type := type;
 			@argument->type := type;
 		}
@@ -4204,7 +4212,6 @@ fn Parser::named_declaration(Parser& this, DeclarationRule* rule) -> Syntax* {
 						Entity* entity = entity_create(@*this.compiler, entity_kind::variable, Token(parameter->name));
 						@entity->data.variable.storage = storage_kind::parameter;
 						scope_define(@*this.compiler, (Scope*)this.scope, (Entity*)entity);
-						@parameter->entity = $entity;
 					};
 					@parameter := parameter->next;
 				};
@@ -4671,26 +4678,118 @@ fn entity_type(Entity* entity) -> Type* {
 	};
 };
 
-fn type_new(Compiler& compiler, type_kind kind) -> Type* {
-	Type* type = (Type*)memory_allocate(@compiler, sizeof(Type));
-	if (!type) {
-		return nullptr;
+// ============================================================================
+// MODULE: TYPE STORAGE
+// FUTURE FILE: semantic/types.rt
+// PURPOSE: Publish complete type records and share identities with matching inputs.
+// DEPENDS ON: Compiler arena, type representation, and semantic state.
+// ============================================================================
+fn type_key_equal(const Type& first, const Type& second) -> bool {
+	if (first.kind != second.kind || first.qualifier != second.qualifier) {
+		return false;
+	};
+	switch (first.kind) {
+		case type_kind::named:
+		case type_kind::parameter:
+			return first.data.entity == second.data.entity;
+		case type_kind::pointer:
+		case type_kind::reference:
+			return first.data.element == second.data.element;
+		case type_kind::array:
+			return first.data.array.element == second.data.array.element && first.data.array.count == second.data.array.count;
+		case type_kind::function:
+			return first.data.function.result == second.data.function.result && first.data.function.parameters == second.data.function.parameters && first.data.function.arity == second.data.function.arity;
+		case type_kind::kw_signed:
+		case type_kind::kw_unsigned:
+		case type_kind::kw_float:
+			return first.data.bits == second.data.bits;
+		default:
+			return true;
+	};
+};
+
+fn type_intern(Compiler& compiler, const Type& value) -> Type* {
+	usize hash = (usize)value.kind * 33 + (usize)value.qualifier;
+	switch (value.kind) {
+		case type_kind::named:
+		case type_kind::parameter:
+			@hash = hash * 33 + ((usize)value.data.entity >> 4);
+			break;
+		case type_kind::pointer:
+		case type_kind::reference:
+			@hash = hash * 33 + ((usize)value.data.element >> 4);
+			break;
+		case type_kind::array:
+			@hash = (hash * 33 + ((usize)value.data.array.element >> 4)) * 33 + (usize)value.data.array.count;
+			break;
+		case type_kind::function:
+			@hash = (hash * 33 + ((usize)value.data.function.result >> 4)) * 33 + ((usize)value.data.function.parameters >> 4);
+			break;
+		case type_kind::kw_signed:
+		case type_kind::kw_unsigned:
+		case type_kind::kw_float:
+			@hash = hash * 33 + (usize)value.data.bits;
+			break;
+	};
+	usize bucket = hash % (sizeof(compiler.semantic.types.buckets) / sizeof(TypeRecord*));
+	TypeRecord* record := compiler.semantic.types.buckets[bucket];
+	while (record) {
+		if (type_key_equal(record->value, value)) {
+			return &record->value;
+		};
+		@record := record->next;
 	};
 
-	@type->kind = $kind;
+	@record = (TypeRecord*)memory_allocate(@compiler, sizeof(TypeRecord));
+	if (!record) {
+		return nullptr;
+	};
+	@record->value := value;
+	@record->next := compiler.semantic.types.buckets[bucket];
+	@compiler.semantic.types.buckets[bucket] := record;
+	return &record->value;
+};
 
-	return $type;
+fn type_primitive(Compiler& compiler, type_kind kind, i32 bits) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.bits = $bits;
+	return type_intern(@compiler, value);
+};
+
+fn type_entity(Compiler& compiler, type_kind kind, Entity* entity) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.entity = $entity;
+	return type_intern(@compiler, value);
+};
+
+fn type_indirect(Compiler& compiler, type_kind kind, Type* element) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.element = $element;
+	return type_intern(@compiler, value);
 };
 
 fn type_pointer(Compiler& compiler, Type* element) -> Type* {
-	Type* type = type_new(@compiler, type_kind::pointer);
-	if (!type) {
-		return nullptr;
-	};
+	return type_indirect(@compiler, type_kind::pointer, $element);
+};
 
-	@type->data.element = $element;
+fn type_array(Compiler& compiler, Type* element, u64 count) -> Type* {
+	Type value;
+	@value.kind = type_kind::array;
+	@value.data.array.element = $element;
+	@value.data.array.count = $count;
+	return type_intern(@compiler, value);
+};
 
-	return $type;
+fn type_function(Compiler& compiler, Type* result, Parameter* parameters, parameter_arity arity) -> Type* {
+	Type value;
+	@value.kind = type_kind::function;
+	@value.data.function.result = $result;
+	@value.data.function.parameters = $parameters;
+	@value.data.function.arity = $arity;
+	return type_intern(@compiler, value);
 };
 
 fn type_equal(Type* first, Type* second) -> i32 {
@@ -4741,10 +4840,9 @@ fn type_qualified(Compiler& compiler, Type* type, type_qualifier qualifier) -> T
 	if (type->qualifier == qualifier) {
 		return $type;
 	};
-	Type* result = (Type*)memory_allocate(@compiler, sizeof(Type));
-	@*result := *type;
-	@result->qualifier = $qualifier;
-	return $result;
+	Type value := *type;
+	@value.qualifier = $qualifier;
+	return type_intern(@compiler, value);
 };
 
 fn type_value_equal(Type* first, Type* second) -> bool {
@@ -4957,8 +5055,7 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 				return (Type*)compiler.void_type;
 			};
 			if (!entity_type((Entity*)entity) && entity->kind != entity_kind::primitive) {
-				Type* named = type_new(@compiler, type_kind::named);
-				@named->data.entity := entity;
+				Type* named = type_entity(@compiler, type_kind::named, (Entity*)entity);
 				if (entity->kind == entity_kind::kw_enum) {
 					@entity->data.enumeration.aggregate.type = (Type*)named;
 				}
@@ -4975,36 +5072,35 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 			if (syntax->kind == syntax_kind::type_reference) {
 				@kind = type_kind::reference;
 			};
-			@type = type_new(@compiler, (type_kind)kind);
-			@type->data.element = type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.expression);
+			@type = type_indirect(@compiler, (type_kind)kind, type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.expression));
 			if ((kind == type_kind::pointer && type->data.element->kind == type_kind::reference) || (kind == type_kind::reference && (type->data.element->kind == type_kind::kw_void || type->data.element->kind == type_kind::kw_null || type->data.element->kind == type_kind::reference))) {
 				compiler_error(@compiler, syntax->token, "reference requires an object or function referent type\0");
 			};
 			break;
 		};
-		case syntax_kind::type_array:
-			@type = type_new(@compiler, type_kind::array);
+		case syntax_kind::type_array: {
+			u64 count = 0;
 			if (syntax->data.array.count.kind == token_kind::identifier) {
 				Syntax length;
 				@length.kind = syntax_kind::expr_name;
 				@length.token := syntax->data.array.count;
-				@type->data.array.count = constant_integer(@compiler, (Scope*)scope, &length);
+				@count = constant_integer(@compiler, (Scope*)scope, &length);
 			}
 			else {
-				@type->data.array.count = integer_spelling(@compiler, syntax->data.array.count, (u64)18446744073709551615);
+				@count = integer_spelling(@compiler, syntax->data.array.count, (u64)18446744073709551615);
 			};
-			@type->data.array.element = type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.array.element);
+			@type = type_array(@compiler, type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.array.element), $count);
 			if (!type->data.array.count || type->data.array.element->kind == type_kind::kw_void || type->data.array.element->kind == type_kind::kw_null || type->data.array.element->kind == type_kind::function || type->data.array.element->kind == type_kind::reference) {
 				compiler_error(@compiler, syntax->token, "array requires a positive length and a storage element type\0");
 			};
 			break;
+		};
 		case syntax_kind::type_signature: {
-			@type = type_new(@compiler, type_kind::function);
-			@type->data.function.result = type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.signature.result);
-			if (type->data.function.result->kind == type_kind::kw_null) {
+			Type* result = type_resolve(@compiler, (Scope*)scope, (Syntax*)syntax->data.signature.result);
+			if (result->kind == type_kind::kw_null) {
 				compiler_error(@compiler, syntax->token, "null is an unsized type and cannot be a function result\0");
 			};
-			@type->data.function.arity := syntax->data.signature.arity;
+			Parameter* parameters = nullptr;
 			Parameter* last = nullptr;
 			ParameterSyntax* input := syntax->data.signature.parameters;
 			while (input) {
@@ -5018,11 +5114,12 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 					@last->next := parameter;
 				}
 				else {
-					@type->data.function.parameters := parameter;
+					@parameters := parameter;
 				};
 				@last = (Parameter*)parameter;
 				@input := input->next;
 			};
+			@type = type_function(@compiler, $result, $parameters, (parameter_arity)syntax->data.signature.arity);
 			break;
 		};
 		default:
@@ -5409,21 +5506,22 @@ fn constant_call(ConstantContext& context, Entity* function, Syntax* arguments, 
 	@child.scope := function->data.function.scope;
 	@child.steps := context.steps;
 	@child.depth = context.depth + 1;
-	Parameter* parameter := function->data.function.type->data.function.parameters;
+	ParameterBinding* parameter := function->data.function.parameter_bindings;
 	if (receiver && parameter) {
 		constant_bind(@child, (Entity*)parameter->entity, (ConstantValue*)receiver);
 		@parameter := parameter->next;
 	};
 	while (parameter && arguments) {
-		if (parameter->type->kind != type_kind::reference && type_requires_destruction((Type*)parameter->type)) {
+		Type* type = entity_type((Entity*)parameter->entity);
+		if (type->kind != type_kind::reference && type_requires_destruction((Type*)type)) {
 			return constant_failure(@context, "owned parameter destruction requires runtime execution\0");
 		};
 		ConstantValue* value = nullptr;
-		if (parameter->type->kind == type_kind::reference) {
+		if (type->kind == type_kind::reference) {
 			@value = constant_lvalue(@context, (Syntax*)arguments);
 		}
 		else {
-			@value = constant_expression(@context, (Syntax*)arguments, (Type*)parameter->type);
+			@value = constant_expression(@context, (Syntax*)arguments, (Type*)type);
 			@value = constant_copy(@*context.compiler, (ConstantValue*)value);
 		};
 		if (!value) {
@@ -6082,18 +6180,14 @@ fn enum_constructor(Compiler& compiler, Entity* owner, Syntax* body) {
 	@function->declaration := declaration;
 	Syntax* signature = @parser.new_syntax(syntax_kind::type_resolved, Token(location));
 	@declaration->data.declaration.type := signature;
-	Type* function_type = type_new(@compiler, type_kind::function);
-	@function_type->data.function.result := compiler.void_type;
-	@signature->data.resolved_type := function_type;
 	Parameter* receiver = (Parameter*)memory_allocate(@compiler, sizeof(Parameter));
 	@receiver->name = token_synthetic(@compiler, Token(location), "this\0");
-	@receiver->type = type_new(@compiler, type_kind::reference);
-	@receiver->type->data.element = entity_type((Entity*)owner);
+	@receiver->type = type_indirect(@compiler, type_kind::reference, entity_type((Entity*)owner));
 	Parameter* value = (Parameter*)memory_allocate(@compiler, sizeof(Parameter));
 	@value->name = token_synthetic(@compiler, Token(location), "value\0");
 	@value->type := owner->data.enumeration.underlying;
 	@receiver->next := value;
-	@function_type->data.function.parameters := receiver;
+	@signature->data.resolved_type = type_function(@compiler, (Type*)compiler.void_type, (Parameter*)receiver, parameter_arity::fixed);
 	Scope* scope = scope_create(@compiler, (Scope*)parser.scope, context_kind::function, (Entity*)function);
 	Entity* receiver_entity = entity_create(@compiler, entity_kind::variable, Token(receiver->name));
 	@receiver_entity->data.variable.storage = storage_kind::parameter;
@@ -6171,25 +6265,35 @@ fn entity_resolve(Compiler& compiler, Entity* entity) {
 		@entity->data.function.body := declaration->data.declaration.body;
 		if (entity->data.function.body) {
 			@entity->data.function.scope := entity->data.function.body->scope;
+			ParameterBinding** tail = &entity->data.function.parameter_bindings;
 			Parameter* parameter := entity->data.function.type->data.function.parameters;
 			while (parameter) {
 				if (!parameter->name.source) {
 					compiler_error(@compiler, entity->name, "function definition requires named parameters\0");
 					break;
 				};
-				@parameter->entity = scope_lookup((Scope*)entity->data.function.scope, parameter->name);
-				if (parameter->entity && parameter->entity->kind == entity_kind::variable) {
-					@parameter->entity->data.variable.type := parameter->type;
-					@parameter->entity->state = resolution::ready;
+				Entity* variable = scope_lookup((Scope*)entity->data.function.scope, parameter->name);
+				if (!variable || variable->kind != entity_kind::variable) {
+					compiler_error(@compiler, parameter->name, "function parameter binding is missing\0");
+					return;
 				};
+				@variable->data.variable.type := parameter->type;
+				@variable->state = resolution::ready;
+
+				ParameterBinding* binding = (ParameterBinding*)memory_allocate(@compiler, sizeof(ParameterBinding));
+				if (!binding) {
+					return;
+				};
+				@binding->entity = $variable;
+				@*tail := binding;
+				@tail = &binding->next;
 				@parameter := parameter->next;
 			};
 		};
 	}
 	else if (entity->kind == entity_kind::kw_struct || entity->kind == entity_kind::kw_union || entity->kind == entity_kind::kw_enum) {
 		if (!entity_type((Entity*)entity)) {
-			Type* type = type_new(@compiler, type_kind::named);
-			@type->data.entity := entity;
+			Type* type = type_entity(@compiler, type_kind::named, (Entity*)entity);
 			if (entity->kind == entity_kind::kw_enum) {
 				@entity->data.enumeration.aggregate.type = (Type*)type;
 			}
@@ -7721,8 +7825,7 @@ fn Semantic::member_project(Semantic& this, Syntax* member, Type* source, Type* 
 		@expected = type_pointer(@*this.compiler, (Type*)target);
 	}
 	else {
-		@expected = type_new(@*this.compiler, type_kind::reference);
-		@expected->data.element = (Type*)target;
+		@expected = type_indirect(@*this.compiler, type_kind::reference, (Type*)target);
 	};
 	if (!@this.base_conversion((Syntax*)member->data.member.object, (Type*)member->data.member.object->type, (Type*)expected)) {
 		compiler_error(@*this.compiler, member->token, "member owner is not an unambiguous base of its receiver\0");
@@ -7907,8 +8010,7 @@ fn Semantic::template_deduce(Semantic& this, Entity* pattern, Syntax* callable, 
 		if (parameter->kind == template_parameter_kind::type) {
 			Type* type := argument->type;
 			if (!type) {
-				@type = type_new(@compiler, type_kind::parameter);
-				@type->data.entity := binding;
+				@type = type_entity(@compiler, type_kind::parameter, (Entity*)binding);
 			};
 			@binding->data.primitive.type := type;
 		}
@@ -8470,8 +8572,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 			token_kind operation := syntax->data.unary.operation;
 			Type* context := expected;
 			if (context && context->kind == type_kind::kw_bool && !syntax_number_expression((Syntax*)syntax->data.unary.value) && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
-				@context = type_new(@compiler, type_kind::kw_float);
-				@context->data.bits = 64;
+				@context = type_primitive(@compiler, type_kind::kw_float, 64);
 			};
 			if (operation == token_kind::op_ampersand || operation == token_kind::op_star) {
 				@context = nullptr;
@@ -8486,8 +8587,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 				@operand := context;
 			}
 			else if (operation == token_kind::op_minus && syntax->data.unary.value->kind == syntax_kind::literal_number && context && context->kind == type_kind::kw_signed) {
-				Type* magnitude = type_new(@compiler, type_kind::kw_unsigned);
-				@magnitude->data.bits := context->data.bits;
+				Type* magnitude = type_primitive(@compiler, type_kind::kw_unsigned, (i32)context->data.bits);
 				@this.expression((Syntax*)syntax->data.unary.value, (Type*)magnitude);
 
 				u64 maximum = 1;
@@ -8648,8 +8748,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 
 			Type* operand := expected;
 			if (operand && operand->kind == type_kind::kw_bool && syntax_number_expression((Syntax*)left) && syntax_number_expression((Syntax*)right)) {
-				@operand = type_new(@compiler, type_kind::kw_float);
-				@operand->data.bits = 64;
+				@operand = type_primitive(@compiler, type_kind::kw_float, 64);
 			};
 			Type* a = nullptr;
 			Type* b = nullptr;
@@ -8771,8 +8870,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 					@syntax->data.call.receiver.value := receiver;
 					if (first && token_is(first->name, "this\0")) {
 						if (callable_syntax->data.member.qualifier && !type_equal((Type*)receiver->type, (Type*)owner)) {
-							Type* reference = type_new(@compiler, type_kind::reference);
-							@reference->data.element = (Type*)owner;
+							Type* reference = type_indirect(@compiler, type_kind::reference, (Type*)owner);
 							@this.expect((Syntax*)receiver, (Type*)receiver->type, (Type*)reference);
 						};
 						@this.expect((Syntax*)receiver, (Type*)receiver->type, (Type*)first->type);
@@ -9901,8 +9999,7 @@ fn Emitter::call(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
 		if (!parameter) {
 			Type* promoted := argument->type;
 			if (promoted->kind == type_kind::kw_float && promoted->data.bits == 32) {
-				@promoted = type_new(@compiler, type_kind::kw_float);
-				@promoted->data.bits = 64;
+				@promoted = type_primitive(@compiler, type_kind::kw_float, 64);
 			}
 			else if (type_integer((Type*)promoted) && type_bits((Type*)promoted) < 32) {
 				@promoted := compiler.i32_type;
@@ -11556,9 +11653,10 @@ fn emit_function_body(Compiler& compiler, Entity* entity, LLVMOpaqueValue* funct
 		};
 		return;
 	};
-	Parameter* parameter := entity->data.function.type->data.function.parameters;
+	ParameterBinding* parameter := entity->data.function.parameter_bindings;
 	u32 index = 0;
 	while (parameter) {
+		Type* type = entity_type((Entity*)parameter->entity);
 		LLVMOpaqueValue* value = LLVMGetParam(LLVMOpaqueValue*(function), (u32)index);
 		if (!index && receiver_offset) {
 			@value = @emitter.byte_offset(LLVMOpaqueValue*(value), (u64)receiver_offset);
@@ -11567,12 +11665,12 @@ fn emit_function_body(Compiler& compiler, Entity* entity, LLVMOpaqueValue* funct
 		if (!storage) {
 			return;
 		};
-		@storage->value = emit_slot(@compiler, (Type*)parameter->type);
-		if (type_has_views((Type*)parameter->type) && (parameter->type->kind != type_kind::named || parameter->type->data.entity->kind != entity_kind::kw_union)) {
-			LLVMOpaqueValue* incoming = emit_slot(@compiler, (Type*)parameter->type);
+		@storage->value = emit_slot(@compiler, (Type*)type);
+		if (type_has_views((Type*)type) && (type->kind != type_kind::named || type->data.entity->kind != entity_kind::kw_union)) {
+			LLVMOpaqueValue* incoming = emit_slot(@compiler, (Type*)type);
 			LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(value), LLVMOpaqueValue*(incoming));
-			@emitter.initialize_type((Type*)parameter->type, LLVMOpaqueValue*(storage->value));
-			@emitter.payload_copy((Type*)parameter->type, LLVMOpaqueValue*(storage->value), $incoming);
+			@emitter.initialize_type((Type*)type, LLVMOpaqueValue*(storage->value));
+			@emitter.payload_copy((Type*)type, LLVMOpaqueValue*(storage->value), $incoming);
 		}
 		else {
 			LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(value), LLVMOpaqueValue*(storage->value));
@@ -12444,7 +12542,7 @@ fn lifetime_function(Compiler& compiler, Entity* entity) {
 	LifetimeAnalysis analysis;
 	@analysis.compiler = &compiler;
 	@analysis.state.path = reachability::reachable;
-	Parameter* parameter := entity->data.function.type->data.function.parameters;
+	ParameterBinding* parameter := entity->data.function.parameter_bindings;
 	while (parameter) {
 		@analysis.enter((Entity*)parameter->entity);
 		@parameter := parameter->next;
