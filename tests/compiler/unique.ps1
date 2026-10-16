@@ -20,6 +20,9 @@ fn Tracker::~Tracker(Tracker& this) {
 struct Deleter {
 };
 fn Deleter::dispose(Tracker* pointer) {
+	if (!pointer) {
+		return;
+	};
 	@*pointer->count = *pointer->count + 10;
 	delete pointer;
 };
@@ -29,6 +32,7 @@ fn main() -> i32 {
 		unique<Tracker> empty;
 		var null_owner = unique<Tracker>(nullptr);
 		if (empty.get() || null_owner.get()) { return 1; };
+		@empty.reset(nullptr);
 		var first = unique<Tracker>(new Tracker(&count));
 		var second = $first;
 		var target = unique<Tracker>(new Tracker(&count));
@@ -44,6 +48,8 @@ fn main() -> i32 {
 	};
 	if (count != 4) { return 6; };
 	{
+		unique<Tracker, Deleter> empty;
+		@empty.reset(nullptr);
 		var custom = unique<Tracker, Deleter>(new Tracker(&count));
 	};
 	if (count != 15) { return 7; };
