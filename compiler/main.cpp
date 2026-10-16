@@ -1,13 +1,20 @@
-#include "rutile/compiler.hpp"
-#include "platform.hpp"
-#include "version.hpp"
-
 #include <CLI/CLI.hpp>
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
+
+struct Compiler;
+
+extern "C" struct Compiler* rutile_compiler_create();
+extern "C" void rutile_compiler_destroy(struct Compiler* compiler);
+extern "C" int rutile_compile_library(struct Compiler* compiler, const char* const* source_paths, std::size_t source_count, const char* output_path, std::FILE* (*open_file)(const char*, const char*), int optimization, std::FILE* diagnostics);
+
+std::FILE* platform_open_file(const std::filesystem::path& path, const char* mode);
+extern const std::string_view software_version;
 
 extern "C" std::FILE* bootstrap_open_file(const char* path, const char* mode) {
 	return platform_open_file(std::filesystem::u8path(path), mode);
@@ -46,7 +53,7 @@ int main(int argc, char* argv[]) {
 	}
 	std::unique_ptr<struct Compiler, decltype(&rutile_compiler_destroy)> compiler{ rutile_compiler_create(), rutile_compiler_destroy };
 	if (!compiler) {
-		std::fputs("Could not create the bootstrap compiler.\n", stderr);
+		std::fputs("Could not create the compiler.\n", stderr);
 		return 1;
 	}
 	std::vector<const char*> paths;

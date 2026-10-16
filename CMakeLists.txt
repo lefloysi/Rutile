@@ -37,38 +37,16 @@ include("cmake/linker.cmake")
 add_library("rutile-compiler" STATIC)
 rutile_configure_llvm("rutile-compiler")
 
-option(RUTILE_BOOTSTRAP_FROM_C "Use the historical C compiler instead of the distributed compiler" OFF)
 set(RUTILE_BOOTSTRAP_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" CACHE FILEPATH "Native bootstrap compiler")
 
-if(RUTILE_BOOTSTRAP_FROM_C)
-	add_library("rutile-bootstrap-compiler" STATIC)
-	target_sources("rutile-bootstrap-compiler" PRIVATE "compiler/src/compiler.c")
-	target_include_directories("rutile-bootstrap-compiler" PUBLIC "compiler/include")
-	set_target_properties("rutile-bootstrap-compiler" PROPERTIES C_STANDARD "17" C_STANDARD_REQUIRED "ON" C_EXTENSIONS "OFF")
-	target_link_libraries("rutile-bootstrap-compiler" PRIVATE "rutile-llvm")
-	if(MSVC)
-		target_compile_definitions("rutile-bootstrap-compiler" PRIVATE "_CRT_SECURE_NO_WARNINGS")
-	endif()
-
-	add_executable("rutile-bootstrap")
-	target_sources("rutile-bootstrap" PRIVATE "compiler/bootstrap.cpp")
-	target_link_libraries("rutile-bootstrap" PRIVATE "rutile-bootstrap-compiler" "rutile-version" "base" "CLI11::CLI11")
-	if(WIN32)
-		add_custom_command(TARGET "rutile-bootstrap" POST_BUILD COMMAND "${CMAKE_COMMAND}" "-E" "copy_if_different" "$<TARGET_FILE:rutile-llvm>" "$<TARGET_FILE_DIR:rutile-bootstrap>" VERBATIM)
-	endif()
-
-	set(rutile_seed_target "rutile-bootstrap")
-else()
-	if(NOT EXISTS "${RUTILE_BOOTSTRAP_COMPILER}")
-		message(FATAL_ERROR "Missing distributed compiler: ${RUTILE_BOOTSTRAP_COMPILER}. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
-	endif()
-	if(RUTILE_BOOTSTRAP_COMPILER STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" AND (NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL "8" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$"))
-		message(FATAL_ERROR "The bundled compiler requires Windows x64. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
-	endif()
-	add_executable("rutile-distro-compiler" IMPORTED GLOBAL)
-	set_target_properties("rutile-distro-compiler" PROPERTIES IMPORTED_LOCATION "${RUTILE_BOOTSTRAP_COMPILER}")
-	set(rutile_seed_target "rutile-distro-compiler")
+if(NOT EXISTS "${RUTILE_BOOTSTRAP_COMPILER}")
+	message(FATAL_ERROR "Missing distributed compiler: ${RUTILE_BOOTSTRAP_COMPILER}. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
 endif()
+if(RUTILE_BOOTSTRAP_COMPILER STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" AND (NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL "8" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$"))
+	message(FATAL_ERROR "The bundled compiler requires Windows x64. Supply a native RUTILE_BOOTSTRAP_COMPILER.")
+endif()
+add_executable("rutile-distro-compiler" IMPORTED GLOBAL)
+set_target_properties("rutile-distro-compiler" PROPERTIES IMPORTED_LOCATION "${RUTILE_BOOTSTRAP_COMPILER}")
 
 if(CMAKE_CROSSCOMPILING)
 	message(FATAL_ERROR "Bootstrapping the Rutile compiler currently requires a native build.")
@@ -79,17 +57,16 @@ else()
 	set(rutile_compiler_object "${CMAKE_BINARY_DIR}/compiler/compiler.o")
 endif()
 add_custom_command(OUTPUT "${rutile_compiler_object}"
-	COMMAND "$<TARGET_FILE:${rutile_seed_target}>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "${rutile_seed_target}" "$<TARGET_FILE:${rutile_seed_target}>" "compiler/src/compiler.rt"
+	COMMAND "$<TARGET_FILE:rutile-distro-compiler>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-distro-compiler" "$<TARGET_FILE:rutile-distro-compiler>" "compiler/src/compiler.rt"
 	VERBATIM)
 set_source_files_properties("${rutile_compiler_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 target_sources("rutile-compiler" PRIVATE "${rutile_compiler_object}")
-target_include_directories("rutile-compiler" PUBLIC "compiler/include")
 target_link_libraries("rutile-compiler" PRIVATE "rutile-llvm")
 set_target_properties("rutile-compiler" PROPERTIES LINKER_LANGUAGE "C")
 
 add_executable("rutile-selfhost" EXCLUDE_FROM_ALL)
-target_sources("rutile-selfhost" PRIVATE "compiler/bootstrap.cpp")
+target_sources("rutile-selfhost" PRIVATE "compiler/main.cpp")
 target_link_libraries("rutile-selfhost" PRIVATE "rutile-compiler" "rutile-version" "base" "CLI11::CLI11")
 
 if(WIN32)
@@ -105,8 +82,7 @@ add_custom_command(OUTPUT "${rutile_selfhost_object}"
 	VERBATIM)
 set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
-target_sources("rutile-stage2" PRIVATE "compiler/bootstrap.cpp" "${rutile_selfhost_object}")
-target_include_directories("rutile-stage2" PRIVATE "compiler/include")
+target_sources("rutile-stage2" PRIVATE "compiler/main.cpp" "${rutile_selfhost_object}")
 target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
 
 add_custom_command(OUTPUT "${rutile_stage3_object}"

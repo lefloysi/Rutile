@@ -61,7 +61,7 @@ Always use goals and subagents when performing work.
 
 - Evolve the compiler through staged self-hosting. Add support using syntax the current Rutile
   compiler understands, compile the updated compiler, then use the new features in its source.
-- Do not update the historical C compiler for routine language changes or bootstrap shortcuts.
+- Use the distributed Rutile compiler as the bootstrap seed and keep it matched to its source.
 
 - Commit completed, verified changes as work progresses.
 - Keep the release version in version/release.txt as the single source of truth.

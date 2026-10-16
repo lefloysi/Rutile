@@ -4,8 +4,9 @@ The Windows x64 compiler in `windows-x64/compiler.exe` is built from the include
 `compiler.rt` snapshot of `compiler/src/compiler.rt`. Its runtime DLLs are included beside it.
 `version.txt` identifies the release; `source.sha256` identifies the included source.
 
-CMake uses this compiler by default. Building the project does not require the original C compiler.
+CMake uses this compiler by default. The compiler implementation is written entirely in Rutile.
 The existing LLVM SDK, C++ toolchain, and vcpkg dependencies are still required.
+The single C++ driver in `compiler/main.cpp` supplies the command-line entry point.
 
 After a verified compiler change, refresh the distribution and release archive with:
 
@@ -22,5 +23,3 @@ For another native host, set `RUTILE_BOOTSTRAP_COMPILER` to a compatible compile
 Add language support using syntax the current Rutile compiler already accepts, then compile that
 compiler before adopting the new features in its source. Use `RUTILE_BOOTSTRAP_COMPILER` to select
 the intermediate executable until the refreshed distribution is ready.
-
-The historical C compiler is retained for reference and is not updated for current language changes.
