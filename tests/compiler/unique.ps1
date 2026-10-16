@@ -64,6 +64,17 @@ fn main() -> i32 {
 };
 '@
 $checks = @(
+	@{ name = 'namespace-type'; source = 'struct Box {}; namespace Box { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-union'; source = 'union Box { i32 value; }; namespace Box { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-enum'; source = 'enum Box { value; }; namespace Box { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-template-type'; source = 'template<typename T> struct Box {}; namespace Box { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-specialization'; source = 'template<typename T> struct Box {}; namespace Box<i32> { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-arguments'; source = 'namespace sample {}; namespace sample<i32> { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace|interpretation' },
+	@{ name = 'namespace-type-child'; source = 'struct Box {}; namespace Box::child { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-specialization-child'; source = 'template<typename T> struct Box {}; namespace Box<i32>::child { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
+	@{ name = 'namespace-before-type'; source = 'namespace Box {}; struct Box {}; fn main() -> i32 { return 42; };'; diagnostic = 'conflict|namespace|declaration' },
+	@{ name = 'namespace-template'; source = 'template<typename T> namespace Box {}; fn main() -> i32 { return 42; };'; diagnostic = 'template requires' },
+	@{ name = 'namespace-reopen'; source = 'namespace sample { fn first() -> i32 { return 20; }; }; namespace sample { fn second() -> i32 { return 22; }; }; fn main() -> i32 { return sample::first() + sample::second(); };'; exit = 42 },
 	@{ name = 'constructor-arguments'; source = (Get-Content -LiteralPath "$PSScriptRoot/cases/template-constructor-arguments/main.rt" -Raw); exit = 42 },
 	@{ name = 'runtime'; source = $runtime; exit = 42 },
 	@{ name = 'copy'; source = 'fn main() -> i32 { var first = make_unique<i32>(); var second := first; return 42; };'; diagnostic = 'selected function is deleted' },
