@@ -1,0 +1,78 @@
+template<typename T>
+struct default_delete {
+};
+
+template<typename T>
+fn default_delete<T>::dispose(T* pointer) {
+	delete pointer;
+};
+
+template<typename T, typename D = default_delete<T>>
+struct unique {
+	fn unique(unique& this) :[default];
+	fn unique(unique& this, null* pointer);
+	fn unique(unique& this, T* pointer);
+	fn unique(unique& this, const unique& other) :[delete];
+	fn operator=(unique& this, const unique& other) -> unique& :[delete];
+	fn operator=(unique& this, unique other) -> unique&;
+	fn ~unique(unique& this);
+
+	fn get(const unique& this) -> T*;
+	fn release(unique& this) -> T*;
+	fn reset(unique& this, T* pointer);
+
+	T* ptr;
+};
+
+template<typename T, typename D>
+fn unique<T, D>::unique(unique& this, null* pointer) {
+	@this.ptr = $pointer;
+};
+
+template<typename T, typename D>
+fn unique<T, D>::unique(unique& this, T* pointer) {
+	@this.ptr = $pointer;
+};
+
+template<typename T, typename D>
+fn unique<T, D>::operator=(unique& this, unique other) -> unique& {
+	@this.reset(other.get());
+	discard other;
+	return @this;
+};
+
+template<typename T, typename D>
+fn unique<T, D>::~unique(unique& this) {
+	if (!this.ptr) {
+		return;
+	};
+	D::dispose(T*(this.ptr));
+};
+
+template<typename T, typename D>
+fn unique<T, D>::get(const unique& this) -> T* {
+	return T*(this.ptr);
+};
+
+template<typename T, typename D>
+fn unique<T, D>::release(unique& this) -> T* {
+	T* pointer := this.ptr;
+	@this.ptr = nullptr;
+	return pointer;
+};
+
+template<typename T, typename D>
+fn unique<T, D>::reset(unique& this, T* pointer) {
+	T* previous := this.ptr;
+	@this.ptr = $pointer;
+	if (!previous) {
+		return;
+	};
+	D::dispose($previous);
+};
+
+template<typename T, typename D = default_delete<T>>
+fn make_unique() -> unique<T, D> {
+	return unique<T, D>(new T());
+};
+
