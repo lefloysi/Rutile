@@ -57,8 +57,8 @@ else()
 	set(rutile_compiler_object "${CMAKE_BINARY_DIR}/compiler/compiler.o")
 endif()
 add_custom_command(OUTPUT "${rutile_compiler_object}"
-	COMMAND "$<TARGET_FILE:rutile-distro-compiler>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-distro-compiler" "$<TARGET_FILE:rutile-distro-compiler>" "compiler/src/compiler.rt"
+	COMMAND "$<TARGET_FILE:rutile-distro-compiler>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-distro-compiler" "$<TARGET_FILE:rutile-distro-compiler>" "compiler/src/old.rt"
 	VERBATIM)
 set_source_files_properties("${rutile_compiler_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 target_sources("rutile-compiler" PRIVATE "${rutile_compiler_object}")
@@ -77,8 +77,8 @@ else()
 	set(rutile_stage3_object "${CMAKE_BINARY_DIR}/compiler/stage3.o")
 endif()
 add_custom_command(OUTPUT "${rutile_selfhost_object}"
-	COMMAND "$<TARGET_FILE:rutile-selfhost>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_selfhost_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-selfhost" "compiler/src/compiler.rt"
+	COMMAND "$<TARGET_FILE:rutile-selfhost>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_selfhost_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-selfhost" "compiler/src/old.rt"
 	VERBATIM)
 set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
@@ -86,8 +86,8 @@ target_sources("rutile-stage2" PRIVATE "compiler/src/main.cpp" "${rutile_selfhos
 target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
 
 add_custom_command(OUTPUT "${rutile_stage3_object}"
-	COMMAND "$<TARGET_FILE:rutile-stage2>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/compiler.rt" "--output" "${rutile_stage3_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-stage2" "compiler/src/compiler.rt"
+	COMMAND "$<TARGET_FILE:rutile-stage2>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_stage3_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-stage2" "compiler/src/old.rt"
 	VERBATIM)
 add_custom_target("rutile-bootstrap-check"
 	COMMAND "${CMAKE_COMMAND}" "-E" "compare_files" "${rutile_selfhost_object}" "${rutile_stage3_object}"

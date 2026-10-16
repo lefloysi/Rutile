@@ -35,7 +35,7 @@ if(DEFINED RUTILE_DISTRO_REFRESH)
 		file(COPY_FILE "${RUTILE_DISTRO_CRT}/${runtime}" "${distribution}/windows-x64/${runtime}" ONLY_IF_DIFFERENT)
 	endforeach()
 	file(COPY_FILE "${RUTILE_DISTRO_CLI_LICENSE}" "${distribution}/licenses/cli11.txt" ONLY_IF_DIFFERENT)
-	file(COPY_FILE "${RUTILE_DISTRO_SOURCE}/compiler/src/compiler.rt" "${distribution}/compiler.rt" ONLY_IF_DIFFERENT)
+	file(COPY_FILE "${RUTILE_DISTRO_SOURCE}/compiler/src/old.rt" "${distribution}/compiler.rt" ONLY_IF_DIFFERENT)
 
 	file(SHA256 "${distribution}/compiler.rt" source_hash)
 	file(WRITE "${distribution}/version.txt" "${release_version}\n")
