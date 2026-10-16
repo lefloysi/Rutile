@@ -122,6 +122,7 @@ enum syntax_kind : [i32] {
 	type_reference;
 	type_array;
 	type_signature;
+	type_resolved;
 	node_declaration;
 	expr_call;
 	expr_member;
@@ -293,6 +294,7 @@ struct BaseConversionSyntax {
 struct CastSyntax {
 	Syntax* type;
 	Syntax* value;
+	Type* resolved;
 };
 
 struct TypedApplySyntax {
@@ -327,6 +329,7 @@ union SyntaxData {
 	CastSyntax cast;
 	ConstructionSyntax construction;
 	TypedApplySyntax typed_apply;
+	Type* resolved_type;
 	BaseConversionSyntax base_conversion;
 };
 
@@ -1039,6 +1042,66 @@ fn Arena::clear(Arena& this) {
 	};
 };
 
+// ============================================================================
+// MODULE: IDENTITY MAP
+// FUTURE FILE: core/identity_map.rt
+// PURPOSE: Store arena-owned records by object identity and binding context.
+// DEPENDS ON: Arena and C allocation.
+// ============================================================================
+template<typename T>
+struct IdentityEntry {
+	const void* key;
+	const void* context;
+	IdentityEntry* next;
+	T value;
+};
+
+template<typename T>
+struct IdentityMap {
+	fn bucket(const IdentityMap& this, const void* key, const void* context) -> usize;
+	fn find(IdentityMap& this, const void* key, const void* context) -> T*;
+	fn define(IdentityMap& this, Arena& arena, const void* key, const void* context) -> T*;
+
+	IdentityEntry<T>*[1024] buckets;
+};
+
+template<typename T>
+fn IdentityMap<T>::bucket(const IdentityMap& this, const void* key, const void* context) -> usize {
+	usize hash = ((usize)key >> 4) ^ (((usize)context >> 4) * 33);
+	return hash % (sizeof(this.buckets) / sizeof(IdentityEntry<T>*));
+};
+
+template<typename T>
+fn IdentityMap<T>::find(IdentityMap& this, const void* key, const void* context) -> T* {
+	IdentityEntry<T>* entry := this.buckets[this.bucket((const void*)key, (const void*)context)];
+	while (entry) {
+		if (entry->key == key && entry->context == context) {
+			return &entry->value;
+		};
+		@entry := entry->next;
+	};
+	return nullptr;
+};
+
+template<typename T>
+fn IdentityMap<T>::define(IdentityMap& this, Arena& arena, const void* key, const void* context) -> T* {
+	T* existing = @this.find((const void*)key, (const void*)context);
+	if (existing) {
+		return $existing;
+	};
+
+	IdentityEntry<T>* entry = (IdentityEntry<T>*)@arena.adopt(calloc(1, sizeof(IdentityEntry<T>)));
+	if (!entry) {
+		return nullptr;
+	};
+	usize bucket = this.bucket((const void*)key, (const void*)context);
+	@entry->key = $key;
+	@entry->context = $context;
+	@entry->next := this.buckets[bucket];
+	@this.buckets[bucket] := entry;
+	return &entry->value;
+};
+
 struct LLVMContextDisposer {
 };
 
@@ -1163,8 +1226,6 @@ enum output_kind : [i32] {
 // DEPENDS ON: Entities, LLVM bindings, Compiler arena and allocation failure state.
 // ============================================================================
 struct BackendEntity {
-	Entity* entity;
-	BackendEntity* next;
 	LLVMOpaqueValue* wrapper;
 	LLVMOpaqueValue* value;
 	LLVMOpaqueType* type;
@@ -1173,15 +1234,13 @@ struct BackendEntity {
 };
 
 struct BackendSyntax {
-	Syntax* syntax;
-	BackendSyntax* next;
 	LLVMOpaqueValue* address;
 	LLVMOpaqueValue* constructed;
 };
 
 struct BackendState {
-	BackendEntity*[1024] entities;
-	BackendSyntax*[1024] expressions;
+	IdentityMap<BackendEntity> entities;
+	IdentityMap<BackendSyntax> expressions;
 	RuntimeView* runtime_views;
 	RuntimeThunk* runtime_thunks;
 	RuntimeWrapper* runtime_wrappers;
@@ -1195,6 +1254,10 @@ struct Backend :[BackendState] {
 	unique_ptr<LLVMOpaqueModule, LLVMModuleDisposer> llvm_module;
 	unique_ptr<LLVMOpaqueBuilder, LLVMBuilderDisposer> llvm_builder;
 	unique_ptr<LLVMOpaqueTargetData, LLVMLayoutDisposer> llvm_layout;
+};
+
+struct SemanticState {
+	IdentityMap<Type*> resolved_types;
 };
 
 struct CompilerState {
@@ -1228,6 +1291,7 @@ struct Compiler :[CompilerState] {
 
 	Arena allocations;
 	Backend backend;
+	SemanticState semantic;
 };
 
 fn Compiler::Compiler(Compiler& this) {
@@ -1244,6 +1308,7 @@ fn Backend::clear(Backend& this) {
 
 fn Compiler::clear(Compiler& this) {
 	@this.backend.clear();
+	@this.semantic = SemanticState();
 	@this.allocations.clear();
 	@((CompilerState&)this) = CompilerState();
 };
@@ -1303,6 +1368,15 @@ fn memory_allocate(Compiler& compiler, usize size) -> void* {
 		@compiler.result = compilation_result::failure;
 	};
 	return memory;
+};
+
+template<typename T>
+fn identity_record(Compiler& compiler, IdentityMap<T>& records, const void* key, const void* context) -> T* {
+	T* record = @records.define(@compiler.allocations, $key, $context);
+	if (!record) {
+		@compiler.result = compilation_result::failure;
+	};
+	return $record;
 };
 
 fn memory_text(Compiler& compiler, const char* text, usize length) -> char* {
@@ -4864,8 +4938,12 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 	if (!syntax) {
 		return (Type*)compiler.void_type;
 	};
-	if (syntax->type) {
-		return (Type*)syntax->type;
+	if (syntax->kind == syntax_kind::type_resolved) {
+		return (Type*)syntax->data.resolved_type;
+	};
+	Type** cached = @compiler.semantic.resolved_types.find((const void*)syntax, (const void*)scope);
+	if (cached) {
+		return (Type*)*cached;
 	};
 	Type* type = nullptr;
 	switch (syntax->kind) {
@@ -4878,7 +4956,6 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 				compiler_error(@compiler, syntax->token, "identifier does not name a type entity\0");
 				return (Type*)compiler.void_type;
 			};
-			@syntax->entity := entity;
 			if (!entity_type((Entity*)entity) && entity->kind != entity_kind::primitive) {
 				Type* named = type_new(@compiler, type_kind::named);
 				@named->data.entity := entity;
@@ -4953,7 +5030,14 @@ fn type_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
 			@type := compiler.void_type;
 			break;
 	};
-	@syntax->type := type;
+	if (compiler.result == compilation_result::failure) {
+		return $type;
+	};
+	Type** resolved = identity_record<Type*>(@compiler, @compiler.semantic.resolved_types, (const void*)syntax, (const void*)scope);
+	if (!resolved) {
+		return (Type*)compiler.void_type;
+	};
+	@*resolved := type;
 	return $type;
 };
 
@@ -5996,11 +6080,11 @@ fn enum_constructor(Compiler& compiler, Entity* owner, Syntax* body) {
 	@declaration->data.declaration.name := location;
 	@declaration->data.declaration.definition = function_definition::definition;
 	@function->declaration := declaration;
-	Syntax* signature = @parser.new_syntax(syntax_kind::type_signature, Token(location));
+	Syntax* signature = @parser.new_syntax(syntax_kind::type_resolved, Token(location));
 	@declaration->data.declaration.type := signature;
 	Type* function_type = type_new(@compiler, type_kind::function);
 	@function_type->data.function.result := compiler.void_type;
-	@signature->type := function_type;
+	@signature->data.resolved_type := function_type;
 	Parameter* receiver = (Parameter*)memory_allocate(@compiler, sizeof(Parameter));
 	@receiver->name = token_synthetic(@compiler, Token(location), "this\0");
 	@receiver->type = type_new(@compiler, type_kind::reference);
@@ -6029,8 +6113,8 @@ fn enum_constructor(Compiler& compiler, Entity* owner, Syntax* body) {
 	@value_name->entity = $value_entity;
 	Syntax* relocate = @parser.new_syntax(syntax_kind::expr_relocate, Token(location));
 	@relocate->data.expression = $value_name;
-	Syntax* enum_type = @parser.new_syntax(syntax_kind::expr_name, Token(location));
-	@enum_type->type = entity_type((Entity*)owner);
+	Syntax* enum_type = @parser.new_syntax(syntax_kind::type_resolved, Token(location));
+	@enum_type->data.resolved_type = entity_type((Entity*)owner);
 	Syntax* cast = @parser.new_syntax(syntax_kind::expr_cast, Token(location));
 	@cast->data.cast.type = $enum_type;
 	@cast->data.cast.value = $relocate;
@@ -6299,8 +6383,8 @@ fn syntax_storage_type(Syntax* syntax) -> Type* {
 	if (syntax->entity && syntax->entity->kind == entity_kind::variable) {
 		return entity_type((Entity*)syntax->entity);
 	};
-	if (syntax->kind == syntax_kind::expr_cast && syntax->data.cast.type->type && syntax->data.cast.type->type->kind == type_kind::reference) {
-		return (Type*)syntax->data.cast.type->type;
+	if (syntax->kind == syntax_kind::expr_cast && syntax->data.cast.resolved && syntax->data.cast.resolved->kind == type_kind::reference) {
+		return (Type*)syntax->data.cast.resolved;
 	};
 	if (syntax->kind == syntax_kind::expr_index) {
 		Type* object := syntax->data.binary.left->type;
@@ -8242,6 +8326,7 @@ fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type*
 			break;
 		case syntax_kind::expr_cast: {
 			@type = type_resolve(@compiler, (Scope*)this.scope, (Syntax*)syntax->data.cast.type);
+			@syntax->data.cast.resolved := type;
 			if (type->kind == type_kind::reference) {
 				Syntax* value := syntax->data.cast.value;
 				Type* source = @this.expression((Syntax*)value, nullptr);
@@ -8888,59 +8973,19 @@ fn llvm_body(Compiler& compiler, Entity* entity) -> LLVMOpaqueType* {
 };
 
 fn backend_entity(Backend& backend, Entity* entity) -> BackendEntity* {
-	BackendEntity* record := backend.entities[token_hash(entity->name) % (sizeof(backend.entities) / sizeof(BackendEntity*))];
-	while (record) {
-		if (record->entity == entity) {
-			return $record;
-		};
-		@record := record->next;
-	};
-	return nullptr;
+	return @backend.entities.find((const void*)entity, nullptr);
 };
 
 fn backend_entity_define(Compiler& compiler, Entity* entity) -> BackendEntity* {
-	BackendEntity* existing = backend_entity(@compiler.backend, (Entity*)entity);
-	if (existing) {
-		return $existing;
-	};
-
-	BackendEntity* record = (BackendEntity*)memory_allocate(@compiler, sizeof(BackendEntity));
-	if (!record) {
-		return nullptr;
-	};
-	usize bucket = token_hash(entity->name) % (sizeof(compiler.backend.entities) / sizeof(BackendEntity*));
-	@record->entity = $entity;
-	@record->next := compiler.backend.entities[bucket];
-	@compiler.backend.entities[bucket] := record;
-	return $record;
+	return identity_record<BackendEntity>(@compiler, @compiler.backend.entities, (const void*)entity, nullptr);
 };
 
 fn backend_syntax(Backend& backend, Syntax* syntax) -> BackendSyntax* {
-	BackendSyntax* record := backend.expressions[token_hash(syntax->token) % (sizeof(backend.expressions) / sizeof(BackendSyntax*))];
-	while (record) {
-		if (record->syntax == syntax) {
-			return $record;
-		};
-		@record := record->next;
-	};
-	return nullptr;
+	return @backend.expressions.find((const void*)syntax, nullptr);
 };
 
 fn backend_syntax_define(Compiler& compiler, Syntax* syntax) -> BackendSyntax* {
-	BackendSyntax* existing = backend_syntax(@compiler.backend, (Syntax*)syntax);
-	if (existing) {
-		return $existing;
-	};
-
-	BackendSyntax* record = (BackendSyntax*)memory_allocate(@compiler, sizeof(BackendSyntax));
-	if (!record) {
-		return nullptr;
-	};
-	usize bucket = token_hash(syntax->token) % (sizeof(compiler.backend.expressions) / sizeof(BackendSyntax*));
-	@record->syntax = $syntax;
-	@record->next := compiler.backend.expressions[bucket];
-	@compiler.backend.expressions[bucket] := record;
-	return $record;
+	return identity_record<BackendSyntax>(@compiler, @compiler.backend.expressions, (const void*)syntax, nullptr);
 };
 
 fn llvm_type(Compiler& compiler, Type* type) -> LLVMOpaqueType* {
