@@ -1,20 +1,20 @@
 union Storage {
-	[3]u08 bytes;
+	u08[3] bytes;
 	u64 number;
 };
 
 struct Wrapped {
 	u08 marker;
-	union Storage value;
+	Storage value;
 };
 
 fn main() -> i32 {
-	struct Wrapped storage;
-	storage.marker = 1;
-	storage.value.number = 42;
-	usize offset = (usize)&storage.value - (usize)&storage;
-	if (sizeof(union Storage) == 8 && sizeof(struct Wrapped) == 16 && offset == 8) {
+	Wrapped storage;
+	@storage.marker := 1;
+	@storage.value.number := 42;
+	usize offset := (usize)&storage.value - (usize)&storage;
+	if (sizeof(Storage) == 8 && sizeof(Wrapped) == 16 && offset == 8) {
 		return (i32)storage.value.number;
-	}
+	};
 	return 1;
-}
+};
