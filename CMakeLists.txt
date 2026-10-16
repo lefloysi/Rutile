@@ -66,7 +66,7 @@ target_link_libraries("rutile-compiler" PRIVATE "rutile-llvm")
 set_target_properties("rutile-compiler" PROPERTIES LINKER_LANGUAGE "C")
 
 add_executable("rutile-selfhost" EXCLUDE_FROM_ALL)
-target_sources("rutile-selfhost" PRIVATE "compiler/main.cpp")
+target_sources("rutile-selfhost" PRIVATE "compiler/src/main.cpp")
 target_link_libraries("rutile-selfhost" PRIVATE "rutile-compiler" "rutile-version" "base" "CLI11::CLI11")
 
 if(WIN32)
@@ -82,7 +82,7 @@ add_custom_command(OUTPUT "${rutile_selfhost_object}"
 	VERBATIM)
 set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
-target_sources("rutile-stage2" PRIVATE "compiler/main.cpp" "${rutile_selfhost_object}")
+target_sources("rutile-stage2" PRIVATE "compiler/src/main.cpp" "${rutile_selfhost_object}")
 target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
 
 add_custom_command(OUTPUT "${rutile_stage3_object}"

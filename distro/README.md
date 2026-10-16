@@ -6,7 +6,7 @@ The Windows x64 compiler in `windows-x64/compiler.exe` is built from the include
 
 CMake uses this compiler by default. The compiler implementation is written entirely in Rutile.
 The existing LLVM SDK, C++ toolchain, and vcpkg dependencies are still required.
-The single C++ driver in `compiler/main.cpp` supplies the command-line entry point.
+The single C++ driver in `compiler/src/main.cpp` supplies the command-line entry point.
 
 After a verified compiler change, refresh the distribution and release archive with:
 
