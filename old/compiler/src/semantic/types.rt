@@ -1,0 +1,550 @@
+// ============================================================================
+// MODULE: TYPE STORAGE
+// PURPOSE: Publish complete type records and share identities with matching inputs.
+// DEPENDS ON: Type representation and the store-owned allocation arena.
+// ============================================================================
+fn Type::key_equal(const Type& this, const Type& second) -> bool {
+	if (this.kind != second.kind || this.qualifier != second.qualifier) {
+		return false;
+	};
+	switch (this.kind) {
+		case type_kind::named:
+		case type_kind::parameter:
+			return this.data.entity == second.data.entity;
+		case type_kind::pointer:
+		case type_kind::reference:
+			return this.data.element == second.data.element;
+		case type_kind::array:
+			return this.data.array.element == second.data.array.element && this.data.array.count == second.data.array.count;
+		case type_kind::function: {
+			if (this.data.function.result != second.data.function.result || this.data.function.arity != second.data.function.arity) {
+				return false;
+			};
+			Parameter* a := this.data.function.parameters;
+			Parameter* b := second.data.function.parameters;
+			while (a && b) {
+				if (a->type != b->type) {
+					return false;
+				};
+				@a := a->next;
+				@b := b->next;
+			};
+			return !a && !b;
+		};
+		case type_kind::kw_signed:
+		case type_kind::kw_unsigned:
+		case type_kind::kw_float:
+			return this.data.bits == second.data.bits;
+		default:
+			return true;
+	};
+};
+
+fn Type::key_hash(const Type& this) -> usize {
+	usize hash = static_cast<usize>(this.kind) * 33 + static_cast<usize>(this.qualifier);
+	switch (this.kind) {
+		case type_kind::named:
+		case type_kind::parameter:
+			@hash = hash * 33 + (reinterpret_cast<usize>(this.data.entity) >> 4);
+			break;
+		case type_kind::pointer:
+		case type_kind::reference:
+			@hash = hash * 33 + (reinterpret_cast<usize>(this.data.element) >> 4);
+			break;
+		case type_kind::array:
+			@hash = (hash * 33 + (reinterpret_cast<usize>(this.data.array.element) >> 4)) * 33 + static_cast<usize>(this.data.array.count);
+			break;
+		case type_kind::function: {
+			@hash = (hash * 33 + (reinterpret_cast<usize>(this.data.function.result) >> 4)) * 33 + static_cast<usize>(this.data.function.arity);
+			Parameter* parameter := this.data.function.parameters;
+			while (parameter) {
+				@hash = hash * 33 + (reinterpret_cast<usize>(parameter->type) >> 4);
+				@parameter := parameter->next;
+			};
+			break;
+		};
+		case type_kind::kw_signed:
+		case type_kind::kw_unsigned:
+		case type_kind::kw_float:
+			@hash = hash * 33 + static_cast<usize>(this.data.bits);
+			break;
+	};
+	return $hash;
+};
+
+fn TypeStore::bind(TypeStore& this, compilation_result& result) {
+	@this.result = &result;
+};
+
+fn TypeStore::intern(TypeStore& this, const Type& value) -> Type* {
+	usize bucket = value.key_hash() % (sizeof(this.buckets) / sizeof(TypeRecord*));
+	TypeRecord* record := this.buckets[bucket];
+	while (record) {
+		if (record->value.key_equal(value)) {
+			return &record->value;
+		};
+		@record := record->next;
+	};
+
+	@record = static_cast<TypeRecord*>(@this.allocations.adopt(calloc(1, sizeof(TypeRecord)), &free));
+	if (!record) {
+		if (this.result) {
+			@*this.result = compilation_result::failure;
+		};
+		return nullptr;
+	};
+	@record->value := value;
+	@record->next := this.buckets[bucket];
+	@this.buckets[bucket] := record;
+	return &record->value;
+};
+
+fn TypeStore::primitive(TypeStore& this, type_kind kind, i32 bits) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.bits = $bits;
+	return @this.intern(value);
+};
+
+fn TypeStore::entity(TypeStore& this, type_kind kind, Entity* entity) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.entity = $entity;
+	return @this.intern(value);
+};
+
+fn TypeStore::indirect(TypeStore& this, type_kind kind, Type* element) -> Type* {
+	Type value;
+	@value.kind = $kind;
+	@value.data.element = $element;
+	return @this.intern(value);
+};
+
+fn TypeStore::pointer(TypeStore& this, Type* element) -> Type* {
+	return @this.indirect(type_kind::pointer, $element);
+};
+
+fn TypeStore::array(TypeStore& this, Type* element, u64 count) -> Type* {
+	Type value;
+	@value.kind = type_kind::array;
+	@value.data.array.element = $element;
+	@value.data.array.count = $count;
+	return @this.intern(value);
+};
+
+fn TypeStore::function(TypeStore& this, Type* result, Parameter* parameters, parameter_arity arity) -> Type* {
+	Type value;
+	@value.kind = type_kind::function;
+	@value.data.function.result = $result;
+	@value.data.function.parameters = $parameters;
+	@value.data.function.arity = $arity;
+	return @this.intern(value);
+};
+
+fn type_equal(Type* first, Type* second) -> bool {
+	if (first == second) {
+		return true;
+	};
+	if (!first || !second) {
+		return false;
+	};
+	return first->key_equal(*second);
+};
+
+fn TypeStore::qualified(TypeStore& this, Type* type, type_qualifier qualifier) -> Type* {
+	if (type->qualifier == qualifier) {
+		return $type;
+	};
+	Type value := *type;
+	@value.qualifier = $qualifier;
+	return @this.intern(value);
+};
+
+fn type_value_equal(Type* first, Type* second) -> bool {
+	if (!first || !second) {
+		return false;
+	};
+	Type a := *first;
+	Type b := *second;
+	@a.qualifier = type_qualifier::mutable;
+	@b.qualifier = type_qualifier::mutable;
+	return type_equal(&a, &b);
+};
+
+fn type_enum(Type* type) -> bool {
+	return type && type->kind == type_kind::named && type->data.entity->kind == entity_kind::kw_enum;
+};
+
+fn type_representation(Type* type) -> Type* {
+	while (type_enum(static_cast<Type*>(type)) && type->data.entity->data.enumeration.underlying) {
+		@type := type->data.entity->data.enumeration.underlying;
+	};
+	return $type;
+};
+
+fn type_builtin_copyable(Type* type) -> bool {
+	return type && (type->kind.is_numeric() || type->kind == type_kind::pointer);
+};
+
+fn type_null_pointer(Type* type) -> bool {
+	return type && type->kind == type_kind::pointer && type->data.element->kind == type_kind::kw_null;
+};
+fn type_pointer_conversion(Type* source, Type* target) -> bool {
+	if (!source || !target || source->kind != type_kind::pointer || target->kind != type_kind::pointer) {
+		return false;
+	};
+	if (type_null_pointer(static_cast<Type*>(source))) {
+		return true;
+	};
+	if (source->data.element->qualifier == type_qualifier::kw_const && target->data.element->qualifier != type_qualifier::kw_const) {
+		return false;
+	};
+	return type_value_equal(static_cast<Type*>(source->data.element), static_cast<Type*>(target->data.element)) || (target->data.element->kind == type_kind::kw_void && source->data.element->kind != type_kind::function);
+};
+
+fn type_aggregate(Type* type) -> bool {
+	@type = type_representation(Type*(type));
+	if (!type) {
+		return false;
+	};
+	if (type->kind == type_kind::array) {
+		return true;
+	};
+	return type->kind == type_kind::named && (type->data.entity->kind == entity_kind::kw_struct || type->data.entity->kind == entity_kind::kw_union);
+};
+
+fn type_bits(Type* type) -> i32 {
+	@type = type_representation(Type*(type));
+	if (type->kind == type_kind::kw_bool) {
+		return 1;
+	};
+	if (type->kind == type_kind::kw_char) {
+		return 8;
+	};
+	if (type->kind == type_kind::named) {
+		return 32;
+	};
+	return static_cast<i32>(type->data.bits);
+};
+
+fn type_unsigned(Type* type) -> bool {
+	@type = type_representation(Type*(type));
+	return type->kind.is_unsigned();
+};
+
+fn integer_spelling(Compiler& compiler, const Token& token, u64 maximum) -> u64 {
+	if (token.length && token.source->bytes.data[token.begin] == '\'') {
+		char character := token.source->bytes.data[token.begin + 1];
+
+		if (character == '\\') {
+			@character = literal_escape(@compiler, token, static_cast<char>(token.source->bytes.data[token.begin + 2]));
+		};
+
+		u64 value = static_cast<u64>(character);
+
+		if (value > maximum) {
+			@compiler.diagnostics.report(token, "character literal is outside the destination range\0");
+			return 0;
+		};
+
+		return $value;
+	};
+
+	u64 result = 0;
+	usize index = 0;
+	while (index < token.length) {
+		char character := token.source->bytes.data[token.begin + index];
+
+		if (!lexer_digit(static_cast<char>(character))) {
+			@compiler.diagnostics.report(token, "expected a decimal integer literal\0");
+			return 0;
+		};
+
+		u64 digit = static_cast<u64>((character - '0'));
+
+		if (result > maximum / 10 || (result == maximum / 10 && digit > maximum % 10)) {
+			@compiler.diagnostics.report(token, "integer literal is outside the destination range\0");
+			return 0;
+		};
+
+		@result = result * 10 + digit;
+		@index = index + 1;
+	};
+	return $result;
+};
+
+fn number_decimal(const Token& token) -> bool {
+	if (token.length && token.source->bytes.data[token.begin] == '\'') {
+		return false;
+	};
+	usize index = 0;
+	while (index < token.length) {
+		char character := token.source->bytes.data[token.begin + index];
+		if (character == '.' || character == 'e' || character == 'E') {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn decimal_integer(Compiler& compiler, const Token& token, Type* type, bool negative) -> u64 {
+	char* text = @compiler.copy_text(token.source->bytes.data + token.begin, usize(token.length));
+	f64 value = trunc(strtod($text, nullptr));
+	if (negative) {
+		@value = -value;
+	};
+	f64 upper = 1;
+	i32 bits = type_bits(static_cast<Type*>(type));
+	if (!type_unsigned(static_cast<Type*>(type)) && type->kind != type_kind::kw_char) {
+		@bits = bits - 1;
+	};
+	while (bits) {
+		@upper = upper * 2;
+		@bits = bits - 1;
+	};
+	f64 lower = 0;
+	if (!type_unsigned(static_cast<Type*>(type)) && type->kind != type_kind::kw_char) {
+		@lower = -upper;
+	};
+	if (value != value || value < lower || value >= upper) {
+		@compiler.diagnostics.report(token, "number literal is outside the destination range\0");
+		return 0;
+	};
+	if (value < 0) {
+		return static_cast<u64>(-value);
+	};
+	return static_cast<u64>(value);
+};
+
+fn number_truth(Compiler& compiler, const Token& token) -> u64 {
+	if (token.source->bytes.data[token.begin] == '\'') {
+		return integer_spelling(@compiler, token, 255) != 0;
+	};
+
+	usize index = 0;
+	while (index < token.length) {
+		char character := token.source->bytes.data[token.begin + index];
+		if (character == 'e' || character == 'E') {
+			break;
+		};
+		if (character >= '1' && character <= '9') {
+			return 1;
+		};
+
+		@index = index + 1;
+	};
+
+	return 0;
+};
+
+fn type_resolve(Compiler& compiler, Scope* scope, TypeSyntax* syntax) -> Type* {
+	@syntax = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax));
+	if (!syntax) {
+		return static_cast<Type*>(compiler.void_type);
+	};
+	TypeResolution* cached = @compiler.semantic.resolved_types.find(static_cast<const void*>(syntax), static_cast<const void*>(scope));
+	if (cached) {
+		return static_cast<Type*>(cached->type);
+	};
+	Type* type = nullptr;
+	TypeUse* use = nullptr;
+	switch (syntax->kind) {
+		case type_syntax_kind::automatic:
+		case type_syntax_kind::conditional: {
+			Scope* context := scope;
+			QualifierParameter* named = nullptr;
+			while (context && !named) {
+				@named := context->qualifier_parameters;
+				while (named && !named->name.same(syntax->data.qualified.condition)) {
+					@named := named->next;
+				};
+				@context := context->parent;
+			};
+			Type* parameter = nullptr;
+			bool constant = false;
+			if (named) {
+				@parameter := named->type;
+			}
+			else {
+				Entity* condition = scope->lookup(syntax->data.qualified.condition);
+				if (!condition || condition->kind != entity_kind::variable) {
+					@compiler.diagnostics.report(syntax->data.qualified.condition, "conditional const requires a named value\0");
+					return static_cast<Type*>(compiler.void_type);
+				};
+				@parameter := condition->data.variable.type;
+				if (condition->template_parameter && condition->template_parameter->constness) {
+					@constant = !!condition->data.variable.data.integer;
+					@parameter = nullptr;
+				};
+			};
+			if (parameter) {
+				@parameter = type_effective(static_cast<Type*>(parameter));
+				@constant = parameter->qualifier == type_qualifier::kw_const;
+			};
+			@type = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element));
+			if (constant) {
+				@type = @compiler.semantic.types.qualified(Type*(type), type_qualifier::kw_const);
+			};
+			@use = type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element));
+			break;
+		};
+		case type_syntax_kind::qualified:
+			@type = @compiler.semantic.types.qualified(type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element)), type_qualifier::kw_const);
+			@use = type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element));
+			break;
+		case type_syntax_kind::name: {
+			Entity* entity = name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(syntax->data.name));
+			if (!entity || (entity->kind != entity_kind::primitive && entity->kind != entity_kind::kw_struct && entity->kind != entity_kind::kw_union && entity->kind != entity_kind::kw_enum)) {
+				@compiler.diagnostics.report(syntax->token, "identifier does not name a type entity\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			if (!entity_type(static_cast<Entity*>(entity)) && entity->kind != entity_kind::primitive) {
+				Type* named = @compiler.semantic.types.entity(type_kind::named, static_cast<Entity*>(entity));
+				if (entity->kind == entity_kind::kw_enum) {
+					@entity->data.enumeration.aggregate.type = static_cast<Type*>(named);
+				}
+				else {
+					@entity->data.aggregate.type = static_cast<Type*>(named);
+				};
+			};
+			@type = entity_type(static_cast<Entity*>(entity));
+			if (entity->kind == entity_kind::primitive) {
+				entity_resolve(@compiler, static_cast<Entity*>(entity));
+				if (compiler.result == compilation_result::failure) {
+					return static_cast<Type*>(compiler.void_type);
+				};
+				@type = entity_type(static_cast<Entity*>(entity));
+				@use := entity->data.primitive.type_use;
+			};
+			break;
+		};
+		case type_syntax_kind::pointer:
+		case type_syntax_kind::reference: {
+			type_kind kind = type_kind::pointer;
+			if (syntax->kind == type_syntax_kind::reference) {
+				@kind = type_kind::reference;
+			};
+			@type = @compiler.semantic.types.indirect(static_cast<type_kind>(kind), type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element)));
+			@use = type_use_element(@compiler, type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.element)));
+			if ((kind == type_kind::pointer && type->data.element->kind == type_kind::reference) || (kind == type_kind::reference && (type->data.element->kind == type_kind::kw_void || type->data.element->kind == type_kind::kw_null || type->data.element->kind == type_kind::reference))) {
+				@compiler.diagnostics.report(syntax->token, "reference requires an object or function referent type\0");
+			};
+			break;
+		};
+		case type_syntax_kind::array: {
+			u64 count = 0;
+			if (syntax->data.array.count.kind == token_kind::identifier) {
+				Syntax length;
+				@length.kind = syntax_kind::expr_name;
+				@length.token := syntax->data.array.count;
+				@count = constant_integer(@compiler, static_cast<Scope*>(scope), &length);
+			}
+			else {
+				@count = integer_spelling(@compiler, syntax->data.array.count, static_cast<u64>(18446744073709551615));
+			};
+			@type = @compiler.semantic.types.array(type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.array.element)), $count);
+			@use = type_use_element(@compiler, type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax->data.array.element)));
+			if (!type->data.array.count || type->data.array.element->kind == type_kind::kw_void || type->data.array.element->kind == type_kind::kw_null || type->data.array.element->kind == type_kind::function || type->data.array.element->kind == type_kind::reference) {
+				@compiler.diagnostics.report(syntax->token, "array requires a positive length and a storage element type\0");
+			};
+			break;
+		};
+		case type_syntax_kind::function: {
+			Scope* signature_scope = @compiler.create_scope(static_cast<Scope*>(scope), context_kind::local, nullptr);
+			ParameterSyntax* named := syntax->data.signature.parameters;
+			while (named) {
+				Type* parameter = type_resolve(@compiler, static_cast<Scope*>(signature_scope), static_cast<TypeSyntax*>(named->type));
+				if (named->name.source) {
+					QualifierParameter* binding = static_cast<QualifierParameter*>(@compiler.allocate(sizeof(QualifierParameter)));
+					@binding->name := named->name;
+					@binding->type := parameter;
+					@binding->next := signature_scope->qualifier_parameters;
+					@signature_scope->qualifier_parameters = $binding;
+				};
+				@named := named->next;
+			};
+			Type* result = type_resolve(@compiler, static_cast<Scope*>(signature_scope), static_cast<TypeSyntax*>(syntax->data.signature.result));
+			if (result->kind == type_kind::kw_null) {
+				@compiler.diagnostics.report(syntax->token, "null is an unsized type and cannot be a function result\0");
+			};
+			@use = static_cast<TypeUse*>(@compiler.allocate(sizeof(TypeUse)));
+			if (!use) {
+				return static_cast<Type*>(compiler.void_type);
+			};
+			@use->data.callable.result = type_use_resolve(@compiler, static_cast<Scope*>(signature_scope), static_cast<TypeSyntax*>(syntax->data.signature.result));
+			ParameterUse** use_tail = &use->data.callable.parameters;
+			Parameter* parameters = nullptr;
+			Parameter* last = nullptr;
+			ParameterSyntax* input := syntax->data.signature.parameters;
+			while (input) {
+				Parameter* parameter = static_cast<Parameter*>(@compiler.allocate(sizeof(Parameter)));
+				@parameter->type = type_resolve(@compiler, static_cast<Scope*>(signature_scope), static_cast<TypeSyntax*>(input->type));
+				ParameterUse* label = static_cast<ParameterUse*>(@compiler.allocate(sizeof(ParameterUse)));
+				if (!label) {
+					return static_cast<Type*>(compiler.void_type);
+				};
+				@label->name := input->name;
+				@label->use = type_use_resolve(@compiler, static_cast<Scope*>(signature_scope), static_cast<TypeSyntax*>(input->type));
+				@*use_tail := label;
+				@use_tail = &label->next;
+				if (parameter->type->kind == type_kind::kw_void || parameter->type->kind == type_kind::kw_null || parameter->type->kind == type_kind::function) {
+					@compiler.diagnostics.report(input->type->token, "parameter requires a storage type\0");
+				};
+				if (last) {
+					@last->next := parameter;
+				}
+				else {
+					@parameters := parameter;
+				};
+				@last = static_cast<Parameter*>(parameter);
+				@input := input->next;
+			};
+			@type = @compiler.semantic.types.function($result, $parameters, static_cast<parameter_arity>(syntax->data.signature.arity));
+			break;
+		};
+		default:
+			@compiler.diagnostics.report(syntax->token, "expected type expression\0");
+			@type := compiler.void_type;
+			break;
+	};
+	if (compiler.result == compilation_result::failure) {
+		return $type;
+	};
+	TypeResolution* resolved = identity_record<TypeResolution>(@compiler, @compiler.semantic.resolved_types, static_cast<const void*>(syntax), static_cast<const void*>(scope));
+	if (!resolved) {
+		return static_cast<Type*>(compiler.void_type);
+	};
+	@resolved->type := type;
+	@resolved->use = $use;
+	return $type;
+};
+
+fn type_use_element(Compiler& compiler, TypeUse* element) -> TypeUse* {
+	if (!element) {
+		return nullptr;
+	};
+	TypeUse* use = static_cast<TypeUse*>(@compiler.allocate(sizeof(TypeUse)));
+	if (!use) {
+		return nullptr;
+	};
+	@use->data.element = $element;
+	return $use;
+};
+
+fn type_use_resolve(Compiler& compiler, Scope* scope, TypeSyntax* syntax) -> TypeUse* {
+	@syntax = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax));
+	if (!syntax) {
+		return nullptr;
+	};
+	type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax));
+	TypeResolution* resolved = @compiler.semantic.resolved_types.find(static_cast<const void*>(syntax), static_cast<const void*>(scope));
+	if (!resolved) {
+		return nullptr;
+	};
+	return static_cast<TypeUse*>(resolved->use);
+};
+
+const usize constant_evaluation_depth_limit = 128;
+const usize constant_evaluation_step_limit = 100000;
+

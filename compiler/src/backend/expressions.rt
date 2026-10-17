@@ -1,0 +1,148 @@
+fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+	if (!expression || this.backend->failed()) {
+		return nullptr;
+	};
+	LLVMOpaqueType* type = @this.backend->type(expression->type());
+	if (!type) {
+		return nullptr;
+	};
+	switch (expression->kind()) {
+		case semantic_kind::sizeof_type: {
+			const Type* queried = expression->item(0)->type();
+			if (queried->kind() == type_kind::void_type || queried->kind() == type_kind::null_type || queried->kind() == type_kind::function) {
+				@this.backend->error(expression->token(), rt::string_view("size query requires an object type\0"));
+				return nullptr;
+			};
+			return LLVMConstInt(type, LLVMABISizeOfType(this.backend->layout(), @this.backend->type(queried)), 0);
+		};
+		case semantic_kind::literal_integer:
+			return LLVMConstInt(type, expression->integer(), 0);
+		case semantic_kind::literal_real:
+			return LLVMConstReal(type, expression->real());
+		case semantic_kind::null_pointer:
+			return LLVMConstNull(type);
+		case semantic_kind::literal_text: {
+			var text = expression->text();
+			LLVMOpaqueValue* bytes = LLVMConstStringInContext2(this.backend->context(), text.data(), text.size(), 1);
+			LLVMOpaqueValue* global = LLVMAddGlobal(this.backend->module(), LLVMTypeOf(LLVMOpaqueValue*(bytes)), "literal\0");
+			LLVMSetInitializer(LLVMOpaqueValue*(global), bytes);
+			LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
+			LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
+			return global;
+		};
+		case semantic_kind::name: {
+			Entity* entity = expression->entity();
+			if (entity->kind() == entity_kind::function) {
+				return this.backend->symbol(entity);
+			};
+			if (entity->kind() == entity_kind::enumerator) {
+				return LLVMConstInt(type, entity->integer(), 0);
+			};
+			LLVMOpaqueValue* storage = @this.address(expression);
+			if (!storage) {
+				return nullptr;
+			};
+			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0");
+		};
+		case semantic_kind::access:
+		case semantic_kind::dereference:
+		case semantic_kind::index:
+		case semantic_kind::member: {
+			LLVMOpaqueValue* storage = @this.address(expression);
+			if (!storage) {
+				return nullptr;
+			};
+			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0");
+		};
+		case semantic_kind::address:
+			return @this.address(expression->item(0));
+		case semantic_kind::relocation: {
+			LLVMOpaqueValue* storage = @this.address(expression->item(0));
+			if (!storage) {
+				return nullptr;
+			};
+			LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, storage, "relocated\0");
+			@this.set_live(expression->item(0), false);
+			return value;
+		};
+		case semantic_kind::call: {
+			LLVMOpaqueValue* value = @this.call(expression);
+			if (!value) {
+				return nullptr;
+			};
+			const Type* signature = expression->item(0)->type();
+			if (signature->kind() == type_kind::pointer) {
+				@signature = signature->element();
+			};
+			if (signature->signature().result()->kind() == type_kind::reference) {
+				return LLVMBuildLoad2(this.backend->builder(), type, value, "call.reference\0");
+			};
+			return value;
+		};
+		case semantic_kind::binary:
+			return @this.binary(expression);
+		case semantic_kind::unary: {
+			SemanticExpression* operand = expression->item(0);
+			LLVMOpaqueValue* value = @this.value(operand);
+			if (!value) {
+				return nullptr;
+			};
+			switch (expression->operation()) {
+				case token_kind::op_plus:
+					return value;
+				case token_kind::op_minus:
+					if (expression->type()->kind() == type_kind::floating_point) {
+						return LLVMBuildFNeg(this.backend->builder(), value, "negate\0");
+					};
+					return LLVMBuildNeg(this.backend->builder(), value, "negate\0");
+				case token_kind::op_tilde:
+					return LLVMBuildNot(this.backend->builder(), value, "complement\0");
+				case token_kind::op_bang:
+					return LLVMBuildNot(this.backend->builder(), @this.truth(value, operand->type()), "not\0");
+			};
+			break;
+		};
+		case semantic_kind::cast:
+			if (expression->category() == value_category::place) {
+				LLVMOpaqueValue* storage = @this.address(expression);
+				if (!storage) {
+					return nullptr;
+				};
+				return LLVMBuildLoad2(this.backend->builder(), type, storage, "cast.reference\0");
+			};
+			return @this.convert(@this.take(expression->item(0)), expression->item(0)->type(), expression->type());
+		case semantic_kind::construction:
+			return @this.construct(expression);
+		case semantic_kind::allocation:
+			return @this.allocate(expression);
+		case semantic_kind::deallocation: {
+			LLVMOpaqueValue* pointer = @this.value(expression->item(0));
+			if (!pointer) {
+				return nullptr;
+			};
+			const Type* element = expression->item(0)->type()->element();
+			if (FunctionEmitter::needs_destruction(element)) {
+				LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy\0");
+				LLVMOpaqueBasicBlock* after = @this.block("delete.after\0");
+				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
+				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
+				if (!@this.destroy(element, pointer)) {
+					return nullptr;
+				};
+				LLVMOpaqueValue* disposed = LLVMBuildFree(this.backend->builder(), pointer);
+				LLVMBuildBr(this.backend->builder(), after);
+				LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+				return disposed;
+			};
+			return LLVMBuildFree(this.backend->builder(), pointer);
+		};
+		case semantic_kind::array_deallocation:
+			return @this.deallocate_array(expression);
+		case semantic_kind::discard_value:
+			return @this.take(expression->item(0));
+		case semantic_kind::noop:
+			return LLVMConstNull(type);
+	};
+	@this.backend->error(expression->token(), rt::string_view("expression has no implemented native lowering\0"));
+	return nullptr;
+};

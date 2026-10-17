@@ -1,0 +1,435 @@
+fn Semantic::conversion_rank(Semantic& this, Syntax* argument, Type* expected, constructor_conversion conversion) -> i32 {
+	if (argument->kind == syntax_kind::node_block) {
+		return 0;
+	};
+	Type* target := expected;
+	i32 rank = 0;
+	if (target->kind == type_kind::reference) {
+		@target := target->data.element;
+		if (target->qualifier != type_qualifier::kw_const && !syntax_mutable_access(static_cast<Syntax*>(argument))) {
+			return -1;
+		};
+		if (syntax_category(static_cast<Syntax*>(argument)) == value_category::temporary) {
+			@rank = 1;
+		};
+	}
+	else if (syntax_category(static_cast<Syntax*>(argument)) == value_category::storage) {
+		Type* actual = @this.expression(static_cast<Syntax*>(argument), nullptr);
+		if ((type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(target)) && implicit_copy_find(@*this.compiler, static_cast<Type*>(actual))) || (type_builtin_copyable(static_cast<Type*>(actual)) && (type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(target)) || type_pointer_conversion(static_cast<Type*>(actual), static_cast<Type*>(target))))) {
+			@rank = 8;
+		}
+		else {
+			@rank = -1;
+		};
+	};
+	if (rank >= 0) {
+		if (syntax_number_expression(static_cast<Syntax*>(argument))) {
+			if (target->kind == type_kind::pointer && syntax_zero_pointer_constant(static_cast<Syntax*>(argument))) {
+				return rank + 2;
+			};
+			if (target && target->kind.is_numeric()) {
+				return rank;
+			};
+		}
+		else {
+			Type* actual = @this.expression(static_cast<Syntax*>(argument), nullptr);
+			if (type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(target))) {
+				return rank;
+			};
+			if (type_pointer_conversion(static_cast<Type*>(actual), static_cast<Type*>(target))) {
+				return rank + 2;
+			};
+			if (expected->kind == type_kind::reference && base_search(@*this.compiler, static_cast<Type*>(actual), static_cast<Type*>(target)).count == 1) {
+				return rank;
+			};
+		};
+	};
+	if (conversion == constructor_conversion::kw_implicit || target->kind != type_kind::named || (target->data.entity->kind != entity_kind::kw_struct && target->data.entity->kind != entity_kind::kw_union) || (expected->kind == type_kind::reference && target->qualifier != type_qualifier::kw_const)) {
+		return -1;
+	};
+	Entity* candidate := target->data.entity->data.aggregate.constructors;
+	i32 best = 2147483647;
+	while (candidate) {
+		if (candidate->data.function.conversion == constructor_conversion::kw_implicit) {
+			entity_resolve(@*this.compiler, static_cast<Entity*>(candidate));
+			Parameter* parameter := candidate->data.function.type->data.function.parameters;
+			if (parameter && parameter->next && !parameter->next->next) {
+				i32 nested = @this.conversion_rank(static_cast<Syntax*>(argument), static_cast<Type*>(parameter->next->type), constructor_conversion::kw_implicit);
+				if (nested >= 0 && nested < best) {
+					@best := nested;
+				};
+			};
+		};
+		@candidate := candidate->data.function.overload_next;
+	};
+	if (best == 2147483647) {
+		return -1;
+	};
+	return best + 16;
+};
+
+fn Semantic::conversion_select(Semantic& this, Entity* owner, function_role role, Syntax* arguments, const Token& token, constructor_conversion conversion) -> Entity* {
+	Syntax* input := arguments;
+	while (input) {
+		if (input->kind != syntax_kind::node_block && !syntax_number_expression(static_cast<Syntax*>(input))) {
+			@this.expression(static_cast<Syntax*>(input), nullptr);
+		};
+		@input := input->next;
+	};
+	Entity* candidate := *special_functions($owner, $role);
+	Entity* selected = nullptr;
+	i32 best = 2147483647;
+	i32 matches = 0;
+	while (candidate && this.compiler->result != compilation_result::failure) {
+		if (conversion == constructor_conversion::kw_implicit && candidate->data.function.conversion != constructor_conversion::kw_implicit) {
+			@candidate := candidate->data.function.overload_next;
+			continue;
+		};
+		entity_resolve(@*this.compiler, static_cast<Entity*>(candidate));
+		Parameter* parameter := candidate->data.function.type->data.function.parameters;
+		if (parameter) {
+			@parameter := parameter->next;
+		};
+		Syntax* argument := arguments;
+		i32 rank = 0;
+		while (argument && parameter) {
+			i32 score = @this.conversion_rank(static_cast<Syntax*>(argument), static_cast<Type*>(parameter->type), static_cast<constructor_conversion>(conversion));
+			if (score < 0) {
+				break;
+			};
+			@rank = rank + score;
+			@parameter := parameter->next;
+			@argument := argument->next;
+		};
+		if (!argument && !parameter) {
+			if (rank < best) {
+				@selected := candidate;
+				@best = static_cast<i32>(rank);
+				@matches = 1;
+			}
+			else if (rank == best) {
+				@matches = matches + 1;
+			};
+		};
+		@candidate := candidate->data.function.overload_next;
+	};
+	if (matches > 1) {
+		@this.compiler->diagnostics.report(token, "ambiguous special function call\0");
+		return nullptr;
+	};
+	if (selected && selected->data.function.definition == function_definition::deleted) {
+		@this.compiler->diagnostics.report(token, "selected function is deleted\0");
+		return nullptr;
+	};
+	if (selected) {
+		function_request(static_cast<Entity*>(selected));
+		Parameter* parameter := selected->data.function.type->data.function.parameters->next;
+		ParameterUse* label = nullptr;
+		if (selected->data.function.type_use && selected->data.function.type_use->data.callable.parameters) {
+			@label := selected->data.function.type_use->data.callable.parameters->next;
+		};
+		Syntax* argument := arguments;
+		while (argument && parameter) {
+			if (argument->kind == syntax_kind::node_block) {
+				@this.argument_block(static_cast<Syntax*>(argument), static_cast<Type*>(parameter->type), static_cast<ParameterUse*>(label));
+			}
+			else {
+				@this.expression(static_cast<Syntax*>(argument), static_cast<Type*>(parameter->type));
+			};
+			if (parameter->type->kind != type_kind::reference) {
+				@this.owned(static_cast<Syntax*>(argument));
+			}
+			else {
+				@argument->use = value_use::observed;
+			};
+			@argument := argument->next;
+			@parameter := parameter->next;
+			if (label) {
+				@label := label->next;
+			};
+		};
+	};
+	return $selected;
+};
+
+fn Semantic::special_select(Semantic& this, Entity* owner, function_role role, Syntax* arguments, Token token) -> Entity* {
+	return @this.conversion_select($owner, $role, $arguments, token, constructor_conversion::kw_explicit);
+};
+
+fn syntax_zero_pointer_constant(Syntax* syntax) -> bool {
+	if (syntax->kind != syntax_kind::literal_number || !syntax->token.length) {
+		return false;
+	};
+	usize index = 0;
+	while (index < syntax->token.length) {
+		if (syntax->token.source->bytes.data[syntax->token.begin + index] != '0') {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+fn syntax_base_conversion(Compiler& compiler, Syntax* syntax, Type* target, BasePath* path, base_direction direction) {
+	Syntax* original = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+	@*original := *syntax;
+	@original->next = nullptr;
+	if (target->kind == type_kind::reference) {
+		@syntax->kind = syntax_kind::expr_base_reference;
+		@syntax->type := target->data.element;
+	}
+	else {
+		@syntax->kind = syntax_kind::expr_base_pointer;
+		@syntax->type := target;
+	};
+	@syntax->entity = nullptr;
+	@syntax->data.base_conversion.value = $original;
+	@syntax->data.base_conversion.target = $target;
+	@syntax->data.base_conversion.path = $path;
+	@syntax->data.base_conversion.direction = $direction;
+	@syntax->data.base_conversion.request = base_conversion_request::implicit_conversion;
+};
+
+fn Semantic::base_conversion(Semantic& this, Syntax* syntax, Type* actual, Type* expected) -> bool {
+	Type* source := actual;
+	Type* target := expected->data.element;
+	if (expected->kind == type_kind::pointer) {
+		if (actual->kind != type_kind::pointer) {
+			return false;
+		};
+		@source := actual->data.element;
+	}
+	else if (syntax_category(static_cast<Syntax*>(syntax)) != value_category::storage) {
+		return false;
+	};
+	BaseSearch result = base_search(@*this.compiler, $source, $target);
+	if (result.count > 1) {
+		@this.compiler->diagnostics.report(syntax->token, "ambiguous base subobject conversion\0");
+		return false;
+	};
+	if (!result.count) {
+		return false;
+	};
+	syntax_base_conversion(@*this.compiler, $syntax, $expected, static_cast<BasePath*>(result.path), base_direction::up);
+	return true;
+};
+
+fn Semantic::expect(Semantic& this, Syntax* syntax, Type* actual, Type* expected) -> Type* {
+	if (expected && actual && expected->kind == type_kind::reference) {
+		if (expected->data.element->qualifier == type_qualifier::kw_const && type_pointer_conversion(static_cast<Type*>(actual), static_cast<Type*>(expected->data.element))) {
+			return $expected;
+		};
+		if (expected->data.element->qualifier != type_qualifier::kw_const && !syntax_mutable_access(static_cast<Syntax*>(syntax)) && actual->kind != type_kind::function) {
+			@this.compiler->diagnostics.report(syntax->token, "mutable reference requires explicit '@' access\0");
+		};
+		if (type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(expected->data.element)) && (syntax_category(static_cast<Syntax*>(syntax)) == value_category::storage || expected->data.element->qualifier == type_qualifier::kw_const || actual->kind == type_kind::function)) {
+			return $expected;
+		};
+	};
+	if (expected && actual && !type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(expected))) {
+		if ((expected->kind == type_kind::kw_bool && actual->kind.is_scalar()) || (actual->kind == type_kind::kw_bool && expected->kind.is_numeric())) {
+			return $expected;
+		};
+		if ((expected->kind == type_kind::reference || expected->kind == type_kind::pointer) && @this.base_conversion(static_cast<Syntax*>(syntax), static_cast<Type*>(actual), static_cast<Type*>(expected))) {
+			return $expected;
+		};
+		if (actual->kind == type_kind::pointer && expected->kind == type_kind::pointer) {
+			if (type_null_pointer(static_cast<Type*>(actual))) {
+				return $expected;
+			};
+			if (actual->data.element->qualifier == type_qualifier::kw_const && expected->data.element->qualifier != type_qualifier::kw_const) {
+				@this.compiler->diagnostics.report(syntax->token, "pointer conversion cannot discard const qualification\0");
+				return $actual;
+			};
+			if (type_pointer_conversion(static_cast<Type*>(actual), static_cast<Type*>(expected))) {
+				return $expected;
+			};
+		};
+		@this.compiler->diagnostics.report(syntax->token, "expression type does not match its destination\0");
+	};
+	return $actual;
+};
+
+fn Semantic::base_cast(Semantic& this, Syntax* syntax, Syntax* value, Type* source, Type* target) -> bool {
+	Type* actual := source;
+	if (target->kind == type_kind::pointer) {
+		if (source->kind != type_kind::pointer) {
+			return false;
+		};
+		@actual := source->data.element;
+	}
+	else if (syntax_category(static_cast<Syntax*>(value)) != value_category::storage) {
+		@this.compiler->diagnostics.report(syntax->token, "reference cast requires an existing referent\0");
+		return false;
+	};
+	Type* destination := target->data.element;
+	BaseSearch up = base_search(@*this.compiler, static_cast<Type*>(actual), static_cast<Type*>(destination));
+	BaseSearch down;
+	if (!up.count) {
+		@down = base_search(@*this.compiler, static_cast<Type*>(destination), static_cast<Type*>(actual));
+	};
+	if (up.count > 1 || down.count > 1) {
+		@this.compiler->diagnostics.report(syntax->token, "ambiguous base subobject cast\0");
+		return false;
+	};
+	if (!up.count && !down.count) {
+		return false;
+	};
+	base_direction direction = base_direction::up;
+	BasePath* path := up.path;
+	if (down.count) {
+		if (base_path_virtual(static_cast<BasePath*>(down.path))) {
+			@this.compiler->diagnostics.report(syntax->token, "downcast through a virtual base is invalid\0");
+			return false;
+		};
+		@direction = base_direction::down;
+		@path := down.path;
+	};
+	@syntax->data.base_conversion.value = $value;
+	@syntax->data.base_conversion.target := target;
+	@syntax->data.base_conversion.path = $path;
+	@syntax->data.base_conversion.direction = $direction;
+	@syntax->data.base_conversion.request = base_conversion_request::explicit_conversion;
+	if (target->kind == type_kind::reference) {
+		@syntax->kind = syntax_kind::expr_base_reference;
+		@syntax->type := target->data.element;
+	}
+	else {
+		@syntax->kind = syntax_kind::expr_base_pointer;
+		@syntax->type = static_cast<Type*>(target);
+	};
+	return true;
+};
+
+fn cast_same_shape(Type* source, Type* target) -> bool {
+	if (source->kind != target->kind) {
+		return false;
+	};
+	if (source->kind == type_kind::pointer || source->kind == type_kind::reference) {
+		return cast_same_shape(static_cast<Type*>(source->data.element), static_cast<Type*>(target->data.element));
+	};
+	return type_value_equal(static_cast<Type*>(source), static_cast<Type*>(target));
+};
+
+fn cast_preserves_const(Type* source, Type* target) -> bool {
+	while ((source->kind == type_kind::pointer || source->kind == type_kind::reference) && (target->kind == type_kind::pointer || target->kind == type_kind::reference)) {
+		@source := source->data.element;
+		@target := target->data.element;
+		if (source->qualifier == type_qualifier::kw_const && target->qualifier != type_qualifier::kw_const) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn Semantic::cast_conversion(Semantic& this, Syntax* syntax, Syntax* value, Type* source, Type* target) -> Entity* {
+	Entity* candidate := this.compiler->semantic.conversions;
+	Entity* selected = nullptr;
+	i32 best = 2147483647;
+	while (candidate && this.compiler->result != compilation_result::failure) {
+		entity_resolve(@*this.compiler, static_cast<Entity*>(candidate));
+		Type* signature := candidate->data.function.type;
+		Parameter* parameter := signature->data.function.parameters;
+		if (type_equal(static_cast<Type*>(signature->data.function.result), static_cast<Type*>(target)) && parameter && type_value_equal(static_cast<Type*>(parameter->type->data.element), static_cast<Type*>(source))) {
+			i32 rank = @this.conversion_rank(static_cast<Syntax*>(value), static_cast<Type*>(parameter->type), constructor_conversion::kw_explicit);
+			if (rank >= 0 && rank < best) {
+				@selected := candidate;
+				@best = rank;
+			}
+			else if (rank >= 0 && rank == best) {
+				@this.compiler->diagnostics.report(syntax->token, "ambiguous conversion operator\0");
+				return nullptr;
+			};
+		};
+		@candidate := candidate->data.function.overload_next;
+	};
+	return static_cast<Entity*>(selected);
+};
+
+fn Semantic::cast_operand(Semantic& this, Syntax* value, Type* target) -> Type* {
+	if (!syntax_number_expression(static_cast<Syntax*>(value))) {
+		return @this.expression(static_cast<Syntax*>(value), nullptr);
+	};
+	Type* context := target;
+	if (target->kind == type_kind::pointer) {
+		@context := this.compiler->usize_type;
+	};
+	if (type_enum(static_cast<Type*>(target))) {
+		entity_resolve(@*this.compiler, static_cast<Entity*>(target->data.entity));
+		@context := target->data.entity->data.enumeration.underlying;
+	};
+	return @this.expression(static_cast<Syntax*>(value), static_cast<Type*>(context));
+};
+
+fn Semantic::named_cast(Semantic& this, Syntax* syntax, Type* target) -> Type* {
+	Syntax* value := syntax->data.cast.value;
+	Type* source = @this.cast_operand(static_cast<Syntax*>(value), static_cast<Type*>(target));
+	if (this.compiler->result == compilation_result::failure) {
+		return static_cast<Type*>(target);
+	};
+	bool reference = target->kind == type_kind::reference;
+	Type* comparison := source;
+	if (reference) {
+		if (syntax_category(static_cast<Syntax*>(value)) != value_category::storage) {
+			@this.compiler->diagnostics.report(syntax->token, "reference cast requires an existing referent\0");
+			return static_cast<Type*>(target);
+		};
+		@comparison = @this.compiler->semantic.types.indirect(type_kind::reference, static_cast<Type*>(source));
+	};
+	if (syntax->token.is("const_cast\0")) {
+		if ((target->kind != type_kind::pointer && !reference) || !cast_same_shape(static_cast<Type*>(comparison), static_cast<Type*>(target))) {
+			@this.compiler->diagnostics.report(syntax->token, "const_cast requires matching pointer or reference types\0");
+		};
+		return static_cast<Type*>(target);
+	};
+	if (!cast_preserves_const(static_cast<Type*>(comparison), static_cast<Type*>(target))) {
+		@this.compiler->diagnostics.report(syntax->token, "cast cannot discard const qualification; use const_cast\0");
+		return static_cast<Type*>(target);
+	};
+	if (syntax->token.is("reinterpret_cast\0")) {
+		bool source_pointer = comparison->kind == type_kind::pointer || comparison->kind == type_kind::reference;
+		bool target_pointer = target->kind == type_kind::pointer || reference;
+		Type* source_representation = type_representation(static_cast<Type*>(source));
+		Type* target_representation = type_representation(static_cast<Type*>(target));
+		bool source_integer = source_representation->kind == type_kind::kw_signed || source_representation->kind == type_kind::kw_unsigned;
+		bool target_integer = target_representation->kind == type_kind::kw_signed || target_representation->kind == type_kind::kw_unsigned;
+		if (!(source_pointer && target_pointer) && !(source_pointer && target_integer) && !(source_integer && target_pointer && !reference)) {
+			@this.compiler->diagnostics.report(syntax->token, "reinterpret_cast requires pointer or integer counterparts\0");
+		};
+		return static_cast<Type*>(target);
+	};
+	if (source->kind == type_kind::named && !type_enum(static_cast<Type*>(source))) {
+		Entity* conversion = @this.cast_conversion(static_cast<Syntax*>(syntax), static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(target));
+		if (conversion) {
+			Syntax* callable = syntax_create(@*this.compiler, syntax_kind::expr_name, Token(conversion->name));
+			@callable->entity = static_cast<Entity*>(conversion);
+			@value->next = nullptr;
+			@syntax->kind = syntax_kind::expr_call;
+			@syntax->type = nullptr;
+			@syntax->data.call = CallSyntax();
+			@syntax->data.call.callable = $callable;
+			@syntax->data.call.arguments = static_cast<Syntax*>(value);
+			return @this.expression(static_cast<Syntax*>(syntax), nullptr);
+		};
+	};
+	if (reference) {
+		if (@this.base_cast(static_cast<Syntax*>(syntax), static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(target))) {
+			return syntax_storage_type(static_cast<Syntax*>(syntax));
+		};
+		@this.expect(static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(target));
+		return static_cast<Type*>(target);
+	};
+	if (target->kind == type_kind::pointer && source->kind == type_kind::pointer) {
+		if (@this.base_cast(static_cast<Syntax*>(syntax), static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(target))) {
+			return static_cast<Type*>(target);
+		};
+		if (type_null_pointer(static_cast<Type*>(source)) || type_pointer_conversion(static_cast<Type*>(source), static_cast<Type*>(target)) || (source->data.element->kind == type_kind::kw_void && target->data.element->kind != type_kind::function)) {
+			return static_cast<Type*>(target);
+		};
+	};
+	if ((type_value_equal(static_cast<Type*>(source), static_cast<Type*>(target)) && (source && source->kind.is_scalar())) || (((source && source->kind.is_numeric()) || type_enum(static_cast<Type*>(source))) && ((target && target->kind.is_numeric()) || type_enum(static_cast<Type*>(target)))) || (target->kind == type_kind::kw_bool && source->kind == type_kind::pointer)) {
+		return static_cast<Type*>(target);
+	};
+	@this.compiler->diagnostics.report(syntax->token, "static_cast requires a numeric, related pointer, or reference conversion\0");
+	return static_cast<Type*>(target);
+};
+

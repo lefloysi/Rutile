@@ -1,0 +1,45 @@
+struct SemanticUnit {
+	fn entities(const SemanticUnit& this) -> const rt::buffer<rt::unique<Entity>>& {
+		return this.declarations;
+	};
+	fn root_scope(const SemanticUnit& this) -> Scope* {
+		return this.global_scope;
+	};
+	fn create_scope(SemanticUnit& this, Scope* parent, Entity* owner) -> Scope* {
+		var owned = rt::unique<Scope>(new Scope($parent, $owner));
+		Scope* result = owned.get();
+		if (!result) {
+			return nullptr;
+		};
+		if (!@this.scopes.push_back($owned)) {
+			return nullptr;
+		};
+		if (!this.global_scope) {
+			@this.global_scope := result;
+		};
+		return $result;
+	};
+	fn create_entity(SemanticUnit& this, entity_kind kind, const Token& token, Syntax* syntax, Scope* scope) -> Entity* {
+		var owned = rt::unique<Entity>(new Entity($kind, token, $syntax, scope));
+		Entity* result = owned.get();
+		if (!result) {
+			return nullptr;
+		};
+		@result->set_access(scope->access());
+		if (scope->owner() && scope->owner()->instantiated()) {
+			@result->set_instantiated();
+		};
+		if (!@this.declarations.push_back($owned)) {
+			return nullptr;
+		};
+		if (!@scope->define(Entity*(result))) {
+			return nullptr;
+		};
+		return $result;
+	};
+
+private:
+	Scope* global_scope;
+	rt::buffer<rt::unique<Scope>> scopes;
+	rt::buffer<rt::unique<Entity>> declarations;
+};

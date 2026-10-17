@@ -1,0 +1,74 @@
+fn Analyzer::supply_assignment(Analyzer& this, Entity* entity) -> bool {
+	if (!@this.supply_assignment_kind(entity, token_kind::op_assign)) {
+		return false;
+	};
+	return @this.supply_assignment_kind(entity, token_kind::op_copy);
+};
+
+fn Analyzer::supply_assignment_kind(Analyzer& this, Entity* entity, token_kind operation) -> bool {
+	const Type* receiver = @this.types->reference(entity->type());
+	if (!receiver) {
+		return false;
+	};
+	const Type* source = entity->type();
+	var operator_name = rt::string_view("operator=\0");
+	if (operation == token_kind::op_copy) {
+		@source = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
+		@operator_name = rt::string_view("operator:=\0");
+	};
+	usize index = 0;
+	while (index < entity->members()->bindings().size()) {
+		Entity* candidate = entity->members()->bindings().data()[index];
+		if (candidate->kind() == entity_kind::function && candidate->operator_kind() == operation && candidate->parameters().size() == 2 && candidate->parameters().data()[0]->type() == receiver && candidate->parameters().data()[1]->type() == source) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	Token location = entity->token();
+	@location.kind = token_kind(operation);
+	Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
+	if (!function || !@function->set_name(operator_name)) {
+		@this.error(entity->declaration(), "cannot declare compiler-supplied assignment\0");
+		return false;
+	};
+	@function->set_origin(declaration_origin::compiler_supplied);
+	@function->set_definition(function_definition::defaulted);
+	@function->set_role(function_role::assignment);
+	@function->set_operator_kind(token_kind(operation));
+	@function->set_access(access_kind::public_access);
+	Scope* parameters = @this.unit->create_scope(entity->members(), Entity*(function));
+	if (!parameters) {
+		return false;
+	};
+	@function->set_members(Scope*(parameters));
+	rt::buffer<const Type*> signature;
+	@index = 0;
+	while (index < 2) {
+		const Type* type = source;
+		var name = rt::string_view("other\0");
+		if (!index) {
+			@type = receiver;
+			@name = rt::string_view("this\0");
+		};
+		Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);
+		if (!parameter || !@parameter->set_name(name)) {
+			return false;
+		};
+		@parameter->set_type(type);
+		@parameter->set_index(usize(index));
+		@parameter->set_state(entity_state::ready);
+		if (!@function->add_parameter(Entity*(parameter))) {
+			return false;
+		};
+		if (!@signature.push_back(type)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@function->set_type(@this.types->function(receiver, $signature, parameter_arity::fixed));
+	if (!function->type()) {
+		return false;
+	};
+	@function->set_state(entity_state::ready);
+	return true;
+};

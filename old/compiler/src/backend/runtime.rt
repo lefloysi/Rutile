@@ -1,0 +1,144 @@
+fn subobject_offsets(Compiler& compiler, Subobject* object, u64 offset) {
+	@object->offset := offset;
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		if (edge->relation->kind == base_kind::nonvirtual) {
+			u64 child = offset + LLVMOffsetOfElement(compiler.backend.llvm_layout.get(), llvm_body(@compiler, static_cast<Entity*>(object->entity)), static_cast<u32>(edge->relation->component));
+			subobject_offsets(@compiler, static_cast<Subobject*>(edge->target), $child);
+		};
+		@edge := edge->next;
+	};
+};
+
+fn complete_offsets(Compiler& compiler, CompleteGraph* graph) {
+	LLVMOpaqueType* type = llvm_type(@compiler, entity_type(static_cast<Entity*>(graph->entity)));
+	subobject_offsets(@compiler, static_cast<Subobject*>(graph->root), 0);
+	Subobject* object := graph->virtuals;
+	while (object) {
+		u64 offset = LLVMOffsetOfElement(compiler.backend.llvm_layout.get(), LLVMOpaqueType*(type), static_cast<u32>(object->component));
+		subobject_offsets(@compiler, static_cast<Subobject*>(object), $offset);
+		@object := object->virtual_next;
+	};
+};
+
+fn virtual_callable_count(Entity* entity) -> usize {
+	usize count = 0;
+	VirtualCallable* callable := entity->data.aggregate.virtual_callables;
+	while (callable) {
+		@count = count + 1;
+		@callable := callable->next;
+	};
+	return $count;
+};
+
+fn virtual_base_count(Entity* entity) -> usize {
+	usize count = 0;
+	VirtualType* type := entity->data.aggregate.virtual_types;
+	while (type) {
+		@count = count + 1;
+		@type := type->next;
+	};
+	return $count;
+};
+
+fn runtime_view_type(Compiler& compiler, Entity* entity) -> LLVMOpaqueType* {
+	LLVMOpaqueType*[2] fields {};
+	@fields[0] = LLVMArrayType2(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), static_cast<u64>(virtual_base_count(static_cast<Entity*>(entity))));
+	@fields[1] = LLVMArrayType2(LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0), static_cast<u64>(virtual_callable_count($entity)));
+	return LLVMStructTypeInContext(compiler.backend.llvm_context.get(), &fields[0], 2, 0);
+};
+
+fn runtime_view_request(Compiler& compiler, CompleteGraph* graph, Subobject* object) -> LLVMOpaqueValue* {
+	BackendEntity* native = backend_entity_define(@compiler, static_cast<Entity*>(object->entity));
+	if (!native) {
+		return nullptr;
+	};
+	RuntimeView* existing := native->views;
+	while (existing) {
+		if (existing->object == object) {
+			return LLVMOpaqueValue*(existing->value);
+		};
+		@existing := existing->next;
+	};
+
+	RuntimeView* request = static_cast<RuntimeView*>(@compiler.allocate(sizeof(RuntimeView)));
+	if (!request) {
+		return nullptr;
+	};
+	LLVMOpaqueValue* view = LLVMAddGlobal(compiler.backend.llvm_module.get(), runtime_view_type(@compiler, static_cast<Entity*>(object->entity)), "rt.view\0");
+	LLVMSetLinkage(LLVMOpaqueValue*(view), 9);
+	LLVMSetGlobalConstant(LLVMOpaqueValue*(view), 1);
+	@request->value := view;
+	@request->graph = $graph;
+	@request->object = $object;
+	@request->next := native->views;
+	@native->views := request;
+	@request->pending_next := compiler.backend.runtime_views;
+	@compiler.backend.runtime_views = $request;
+	return $view;
+};
+
+fn emit_function_attributes(Compiler& compiler, LLVMOpaqueValue* function, Type* signature) {
+	LLVMOpaqueAttributeRef* extension = emit_extension(@compiler, static_cast<Type*>(signature->data.function.result));
+	if (extension) {
+		LLVMAddAttributeAtIndex(LLVMOpaqueValue*(function), 0, LLVMOpaqueAttributeRef*(extension));
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	u32 index = 1;
+	while (parameter) {
+		@extension = emit_extension(@compiler, static_cast<Type*>(parameter->type));
+		if (extension) {
+			LLVMAddAttributeAtIndex(LLVMOpaqueValue*(function), static_cast<u32>(index), LLVMOpaqueAttributeRef*(extension));
+		};
+		@index = index + 1;
+		@parameter := parameter->next;
+	};
+};
+
+fn runtime_thunk_request(Compiler& compiler, CompleteGraph* graph, Subobject* receiver, VirtualCallable* callable) -> LLVMOpaqueValue* {
+	VirtualTarget target = virtual_target(@compiler, $graph, static_cast<Subobject*>(receiver), static_cast<Entity*>(callable->function));
+	if (target.function == callable->function && target.object == receiver) {
+		return LLVMOpaqueValue*(backend_entity(@compiler.backend, static_cast<Entity*>(target.function))->value);
+	};
+	RuntimeThunk* thunk = static_cast<RuntimeThunk*>(@compiler.allocate(sizeof(RuntimeThunk)));
+	@thunk->receiver = $receiver;
+	@thunk->callable := callable;
+	@thunk->target = $target;
+	@thunk->function = LLVMAddFunction(compiler.backend.llvm_module.get(), "rt.virtual.thunk\0", llvm_type(@compiler, static_cast<Type*>(callable->function->data.function.type)));
+	LLVMSetLinkage(LLVMOpaqueValue*(thunk->function), 9);
+	emit_function_attributes(@compiler, LLVMOpaqueValue*(thunk->function), static_cast<Type*>(callable->function->data.function.type));
+	@thunk->next := compiler.backend.runtime_thunks;
+	@compiler.backend.runtime_thunks := thunk;
+	return LLVMOpaqueValue*(thunk->function);
+};
+
+fn runtime_views_emit(Compiler& compiler) {
+	while (compiler.backend.runtime_views && compiler.result != compilation_result::failure) {
+		RuntimeView* view := compiler.backend.runtime_views;
+		@compiler.backend.runtime_views := view->pending_next;
+		complete_offsets(@compiler, static_cast<CompleteGraph*>(view->graph));
+		usize count = virtual_base_count(static_cast<Entity*>(view->object->entity));
+		LLVMOpaqueValue** offsets = static_cast<LLVMOpaqueValue**>(@compiler.allocate(count * sizeof(LLVMOpaqueValue*)));
+		VirtualType* target := view->object->entity->data.aggregate.virtual_types;
+		while (target) {
+			Subobject* storage := view->graph->virtuals;
+			while (storage && storage->entity != target->entity) {
+				@storage := storage->virtual_next;
+			};
+			@offsets[target->index] = LLVMConstInt(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), storage->offset - view->object->offset, 0);
+			@target := target->next;
+		};
+		LLVMOpaqueValue*[2] fields {};
+		@fields[0] = LLVMConstArray2(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), $offsets, static_cast<u64>(count));
+		@count = virtual_callable_count(static_cast<Entity*>(view->object->entity));
+		LLVMOpaqueValue** functions = static_cast<LLVMOpaqueValue**>(@compiler.allocate(count * sizeof(LLVMOpaqueValue*)));
+		VirtualCallable* callable := view->object->entity->data.aggregate.virtual_callables;
+		while (callable) {
+			@functions[callable->index] = runtime_thunk_request(@compiler, static_cast<CompleteGraph*>(view->graph), static_cast<Subobject*>(view->object), static_cast<VirtualCallable*>(callable));
+			@callable := callable->next;
+		};
+		@fields[1] = LLVMConstArray2(LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0), $functions, static_cast<u64>(count));
+		LLVMSetInitializer(LLVMOpaqueValue*(view->value), LLVMConstStructInContext(compiler.backend.llvm_context.get(), &fields[0], 2, 0));
+	};
+};
+

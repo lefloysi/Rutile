@@ -1,0 +1,24 @@
+i32 copies;
+i32 moves;
+
+struct Value {
+	i32 number;
+	fn Value(Value& this) : [default];
+	fn Value(Value& this, const Value& other) {
+		@copies = copies + 1;
+		@this.number = other.number;
+	};
+	fn Value(Value& this, Value other) {
+		@moves = moves + 1;
+		@this.number = other.number;
+		discard $other;
+	};
+};
+
+fn main() -> i32 {
+	Value original;
+	@original.number = 20;
+	Value copied = original;
+	Value moved = $original;
+	return copied.number + moved.number + copies + moves;
+};

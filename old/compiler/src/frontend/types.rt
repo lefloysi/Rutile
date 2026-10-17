@@ -1,0 +1,357 @@
+struct TypeChoice {
+	TypeSyntax* type;
+	ParseGuard* guard;
+	TypeChoice* next;
+};
+
+struct ParameterParseResult {
+	ParameterSyntax* parameters;
+	ParseGuard* guard;
+	ParseCursor end;
+	ParameterParseResult* next;
+	parameter_arity arity;
+};
+
+fn type_source_select(Compiler& compiler, Scope* scope, TypeSyntax* type) -> TypeSyntax* {
+	while (type && type->kind == type_syntax_kind::choice && compiler.result != compilation_result::failure) {
+		TypeChoice* choice := type->data.choices;
+		while (choice && !parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(choice->guard))) {
+			@choice := choice->next;
+		};
+		if (!choice) {
+			@compiler.diagnostics.report(type->token, "no type interpretation matches the current scope\0");
+			return nullptr;
+		};
+		@type := choice->type;
+	};
+	return static_cast<TypeSyntax*>(type);
+};
+
+fn type_guarded(Compiler& compiler, TypeSyntax* type, ParseGuard* guard) -> TypeSyntax* {
+	if (!type || !guard) {
+		return static_cast<TypeSyntax*>(type);
+	};
+	TypeChoice* choice = static_cast<TypeChoice*>(@compiler.allocate(sizeof(TypeChoice)));
+	TypeSyntax* result = static_cast<TypeSyntax*>(@compiler.allocate(sizeof(TypeSyntax)));
+	if (!choice || !result) {
+		return nullptr;
+	};
+	@choice->type := type;
+	@choice->guard = static_cast<ParseGuard*>(guard);
+	@result->kind = type_syntax_kind::choice;
+	@result->token := type->token;
+	@result->data.choices = static_cast<TypeChoice*>(choice);
+	return static_cast<TypeSyntax*>(result);
+};
+
+fn type_signature_has_result(TypeSyntax* type) -> i32 {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == type_syntax_kind::choice) {
+		TypeChoice* choice := type->data.choices;
+		while (choice) {
+			if (type_signature_has_result(TypeSyntax*(choice->type))) {
+				return true;
+			};
+			@choice := choice->next;
+		};
+		return false;
+	};
+	return type->kind == type_syntax_kind::function && type->data.signature.result != nullptr;
+};
+
+fn parameter_results_add(Compiler& compiler, ParameterParseResult** results, ParameterSyntax* parameters, parameter_arity arity, ParseGuard* guard, const ParseCursor& end) {
+	ParameterParseResult* result = static_cast<ParameterParseResult*>(@compiler.allocate(sizeof(ParameterParseResult)));
+	if (!result) {
+		return;
+	};
+	@result->parameters = static_cast<ParameterSyntax*>(parameters);
+	@result->arity = static_cast<parameter_arity>(arity);
+	@result->guard = static_cast<ParseGuard*>(guard);
+	@result->end := end;
+	@result->next := *results;
+	@*results = static_cast<ParameterParseResult*>(result);
+};
+
+fn parser_failure_merge(Parser& parser, const ParseFailure& failure) {
+	if (failure.message && (!parser.failure.message || failure.offset > parser.failure.offset || (failure.offset == parser.failure.offset && failure.pending_greater > parser.failure.pending_greater))) {
+		@parser.failure := failure;
+	};
+};
+
+fn Parser::parameter_results(Parser& this) -> ParameterParseResult* {
+	ParseMemo* memo = @this.memo_begin(parse_memo_kind::signature_parameters, 0, 0, nullptr);
+	if (!memo) {
+		return nullptr;
+	};
+	if (memo->state == resolution::ready) {
+		return static_cast<ParameterParseResult*>(memo->parameters);
+	};
+
+	@memo->state = resolution::active;
+	ParameterParseResult* results = nullptr;
+	Parser ending := this;
+	if (@ending.take(token_kind::punct_right_paren)) {
+		parameter_results_add(@*this.compiler, &results, nullptr, parameter_arity::fixed, nullptr, parser_cursor(ending));
+	}
+	else if (@ending.take(token_kind::punct_ellipsis)) {
+		@ending.require(token_kind::punct_right_paren, "expected ')' after variadic signature\0");
+		if (!ending.failed()) {
+			parameter_results_add(@*this.compiler, &results, nullptr, parameter_arity::variadic, nullptr, parser_cursor(ending));
+		};
+	}
+	else {
+		ParseResult<TypeSyntax>* types = @ending.type_results();
+		while (types && this.compiler->result != compilation_result::failure) {
+			Parser candidate := this;
+			@candidate.failure = ParseFailure();
+			@candidate.offset := types->end.offset;
+			@candidate.pending_greater := types->end.pending_greater;
+			Token name;
+			if (candidate.at(token_kind::identifier)) {
+				@name = @candidate.require(token_kind::identifier, "expected parameter name\0");
+			};
+			ParameterParseResult* rest = nullptr;
+			if (@candidate.take(token_kind::punct_comma)) {
+				@rest = @candidate.parameter_results();
+			}
+			else {
+				@candidate.require(token_kind::punct_right_paren, "expected ')' after signature\0");
+				if (!candidate.failed()) {
+					parameter_results_add(@*this.compiler, &rest, nullptr, parameter_arity::fixed, nullptr, parser_cursor(candidate));
+				};
+			};
+			parser_failure_merge(@ending, candidate.failure);
+			while (rest && this.compiler->result != compilation_result::failure) {
+				ParameterSyntax* parameter = static_cast<ParameterSyntax*>(@this.compiler->allocate(sizeof(ParameterSyntax)));
+				if (!parameter) {
+					return nullptr;
+				};
+				@parameter->type := types->value;
+				@parameter->name := name;
+				@parameter->next := rest->parameters;
+				parameter_results_add(@*this.compiler, &results, static_cast<ParameterSyntax*>(parameter), static_cast<parameter_arity>(rest->arity), parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(types->guard), ParseGuard*(rest->guard)), rest->end);
+				@rest := rest->next;
+			};
+			@types := types->next;
+		};
+	};
+	if (results) {
+		@this.failure = ParseFailure();
+	}
+	else {
+		parser_failure_merge(@this, ending.failure);
+	};
+	@memo->parameters := results;
+	@this.memo_finish(static_cast<ParseMemo*>(memo));
+	return static_cast<ParameterParseResult*>(results);
+};
+
+fn Parser::signature_results(Parser& this, Token token) -> ParseResult<TypeSyntax>* {
+	Parser opening := this;
+	@opening.require(token_kind::punct_left_paren, "expected '(' in signature\0");
+	if (opening.failed()) {
+		parser_failure_merge(@this, opening.failure);
+		return nullptr;
+	};
+	ParameterParseResult* parameters = @opening.parameter_results();
+	ParseResult<TypeSyntax>* results = nullptr;
+	while (parameters && this.compiler->result != compilation_result::failure) {
+		Parser candidate := this;
+		@candidate.failure = ParseFailure();
+		@candidate.offset := parameters->end.offset;
+		@candidate.pending_greater := parameters->end.pending_greater;
+		ParseResult<TypeSyntax>* returns = nullptr;
+		if (@candidate.take(token_kind::op_arrow)) {
+			@returns = @candidate.type_results();
+		}
+		else {
+			parse_result_add<TypeSyntax>(@*this.compiler, &returns, nullptr, nullptr, parser_cursor(candidate), &pack_type);
+		};
+		parser_failure_merge(@opening, candidate.failure);
+		while (returns && this.compiler->result != compilation_result::failure) {
+			TypeSyntax* signature = @this.new_type(type_syntax_kind::function, Token(token));
+			if (!signature) {
+				return nullptr;
+			};
+			@signature->data.signature.parameters := parameters->parameters;
+			@signature->data.signature.arity := parameters->arity;
+			@signature->data.signature.result := returns->value;
+			parse_result_add<TypeSyntax>(@*this.compiler, &results, static_cast<TypeSyntax*>(signature), parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(parameters->guard), ParseGuard*(returns->guard)), returns->end, &pack_type);
+			@returns := returns->next;
+		};
+		@parameters := parameters->next;
+	};
+	if (results) {
+		@this.failure = ParseFailure();
+	}
+	else {
+		parser_failure_merge(@this, opening.failure);
+	};
+	return static_cast<ParseResult<TypeSyntax>*>(results);
+};
+
+enum type_parse_context : [i32] {
+	ordinary;
+	allocation;
+};
+
+fn Parser::type_suffix_results(Parser& this, TypeSyntax* type, ParseGuard* guard, ParseResult<TypeSyntax>** results, type_parse_context context) {
+	while (!this.failed()) {
+		Token token = this.token();
+		if (@this.take(token_kind::op_star) || @this.take(token_kind::op_ampersand)) {
+			type_syntax_kind kind = type_syntax_kind::pointer;
+			if (token.kind == token_kind::op_ampersand) {
+				@kind = type_syntax_kind::reference;
+			};
+			TypeSyntax* modified = @this.new_type(static_cast<type_syntax_kind>(kind), Token(token));
+			if (!modified) {
+				return;
+			};
+			@modified->data.element := type;
+			@type = static_cast<TypeSyntax*>(modified);
+			continue;
+		};
+		if (context != type_parse_context::allocation && @this.take(token_kind::punct_left_bracket)) {
+			TypeSyntax* modified = @this.new_type(type_syntax_kind::array, Token(token));
+			if (!modified) {
+				return;
+			};
+			@modified->data.array.element := type;
+			@modified->data.array.count = this.token();
+			if (!@this.take(token_kind::literal_number) && !@this.take(token_kind::identifier)) {
+				@this.error(modified->data.array.count, "array requires an explicit constant length\0");
+				return;
+			};
+			@this.require(token_kind::punct_right_bracket, "expected ']' after array length\0");
+			@type = static_cast<TypeSyntax*>(modified);
+			continue;
+		};
+		parse_result_add<TypeSyntax>(@*this.compiler, static_cast<ParseResult<TypeSyntax>**>(results), static_cast<TypeSyntax*>(type), static_cast<ParseGuard*>(guard), parser_cursor(this), &pack_type);
+		return;
+	};
+};
+
+fn Parser::type_context_results(Parser& this, type_parse_context context) -> ParseResult<TypeSyntax>* {
+	ParseMemo* memo = @this.memo_begin(parse_memo_kind::type, static_cast<i32>(context), 0, nullptr);
+	if (!memo) {
+		return nullptr;
+	};
+	if (memo->state == resolution::ready) {
+		return static_cast<ParseResult<TypeSyntax>*>(memo->types);
+	};
+
+	@memo->state = resolution::active;
+	Parser prefix := this;
+	Token token = prefix.token();
+	i32 automatic = prefix.at(token_kind::identifier) && (prefix.token()).is("auto\0");
+	if (automatic) {
+		@prefix.take(token_kind::identifier);
+	};
+	i32 constant = @prefix.take(token_kind::kw_const);
+	Token condition;
+	if (constant && @prefix.take(token_kind::punct_left_bracket)) {
+		@condition = @prefix.require(token_kind::identifier, "expected parameter name after 'const['\0");
+		@prefix.require(token_kind::punct_right_bracket, "expected ']' after conditional const parameter\0");
+	};
+	ParseResult<TypeSyntax>* heads = nullptr;
+	ParseResult<TypeSyntax>* results = nullptr;
+	if (prefix.at(token_kind::punct_left_paren)) {
+		Parser grouped := prefix;
+		@grouped.take(token_kind::punct_left_paren);
+		ParseResult<TypeSyntax>* inner = @grouped.type_results();
+		while (inner && this.compiler->result != compilation_result::failure) {
+			Parser ending := prefix;
+			@ending.failure = ParseFailure();
+			@ending.offset := inner->end.offset;
+			@ending.pending_greater := inner->end.pending_greater;
+			@ending.require(token_kind::punct_right_paren, "expected ')' after grouped type\0");
+			if (!ending.failed() && !ending.at(token_kind::op_arrow)) {
+				parse_result_add<TypeSyntax>(@*this.compiler, &heads, TypeSyntax*(inner->value), ParseGuard*(inner->guard), parser_cursor(ending), &pack_type);
+			};
+			parser_failure_merge(@grouped, ending.failure);
+			@inner := inner->next;
+		};
+		Parser callable := prefix;
+		@callable.failure = ParseFailure();
+		ParseResult<TypeSyntax>* signatures = @callable.signature_results(Token(token));
+		while (signatures && this.compiler->result != compilation_result::failure) {
+			// A bare function type has an arrow. Preserve the old early return:
+			// a leading const does not qualify this ungrouped signature.
+			TypeSyntax* signature := signatures->value;
+			if (type_signature_has_result(TypeSyntax*(signature))) {
+				parse_result_add<TypeSyntax>(@*this.compiler, &results, static_cast<TypeSyntax*>(signature), ParseGuard*(signatures->guard), signatures->end, &pack_type);
+			};
+			@signatures := signatures->next;
+		};
+		parser_failure_merge(@prefix, grouped.failure);
+		parser_failure_merge(@prefix, callable.failure);
+	}
+	else if (prefix.at(token_kind::identifier)) {
+		ParseResult<NameSyntax>* names = @prefix.source_name_results();
+		while (names && this.compiler->result != compilation_result::failure) {
+			TypeSyntax* type = @this.new_type(type_syntax_kind::name, Token(token));
+			if (!type) {
+				return nullptr;
+			};
+			@type->data.name := names->value;
+			parse_result_add<TypeSyntax>(@*this.compiler, &heads, static_cast<TypeSyntax*>(type), ParseGuard*(names->guard), names->end, &pack_type);
+			@names := names->next;
+		};
+	}
+	else {
+		@prefix.error(Token(token), "expected type\0");
+	};
+	while (heads && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.failure = ParseFailure();
+		@ending.offset := heads->end.offset;
+		@ending.pending_greater := heads->end.pending_greater;
+		TypeSyntax* type := heads->value;
+		if (constant) {
+			TypeSyntax* qualified = @this.new_type(type_syntax_kind::qualified, Token(token));
+			if (!qualified) {
+				return nullptr;
+			};
+			@qualified->data.element := type;
+			if (condition.source) {
+				@qualified->kind = type_syntax_kind::conditional;
+				@qualified->data.qualified.condition := condition;
+			};
+			@type = static_cast<TypeSyntax*>(qualified);
+		};
+		if (automatic) {
+			TypeSyntax* qualified = @this.new_type(type_syntax_kind::automatic, Token(token));
+			@qualified->data.element := type;
+			@type = $qualified;
+		};
+		@ending.type_suffix_results(static_cast<TypeSyntax*>(type), ParseGuard*(heads->guard), &results, static_cast<type_parse_context>(context));
+		parser_failure_merge(@prefix, ending.failure);
+		@heads := heads->next;
+	};
+	if (results) {
+		@this.failure = ParseFailure();
+	}
+	else {
+		parser_failure_merge(@this, prefix.failure);
+	};
+	@memo->types := results;
+	@this.memo_finish(static_cast<ParseMemo*>(memo));
+	return static_cast<ParseResult<TypeSyntax>*>(results);
+};
+
+fn Parser::type_results(Parser& this) -> ParseResult<TypeSyntax>* {
+	return @this.type_context_results(type_parse_context::ordinary);
+};
+
+fn Parser::new_type(Parser& this, type_syntax_kind kind, Token token) -> TypeSyntax* {
+	TypeSyntax* node = static_cast<TypeSyntax*>(@this.compiler->allocate(sizeof(TypeSyntax)));
+	if (!node) {
+		return nullptr;
+	};
+	@node->kind = static_cast<type_syntax_kind>(kind);
+	@node->token = Token(token);
+	return static_cast<TypeSyntax*>(node);
+};
+

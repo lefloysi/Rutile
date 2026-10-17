@@ -1,0 +1,59 @@
+fn Compiler::allocate(Compiler& this, usize size) -> void* {
+	void* memory = @this.allocations.adopt(calloc(1, $size), &free);
+	if (!memory) {
+		@this.result = compilation_result::failure;
+	};
+	return memory;
+};
+
+template<typename T>
+fn identity_record(Compiler& compiler, IdentityMap<T>& records, const void* key, const void* context) -> T* {
+	T* record = @records.define(@compiler.allocations, $key, $context);
+	if (!record) {
+		@compiler.result = compilation_result::failure;
+	};
+	return $record;
+};
+
+fn Compiler::copy_text(Compiler& this, const char* text, usize length) -> char* {
+	char* copy = static_cast<char*>(@this.allocate(length + 1));
+	if (!copy) {
+		return nullptr;
+	};
+
+	memcpy(char*(copy), $text, $length);
+
+	return $copy;
+};
+
+fn Token::text(const Token& this) -> rt::string_view {
+	if (!this.source) {
+		return rt::string_view();
+	};
+	return rt::string_view(this.source->bytes.data + this.begin, usize(this.length));
+};
+
+fn Token::is(const Token& this, const char* text) -> bool {
+	return this.source && (this.text() == rt::string_view(const char*(text), strlen(const char*(text))));
+};
+
+fn Token::same(const Token& this, const Token& second) -> bool {
+	return this.source && second.source && (this.text() == second.text());
+};
+
+fn Diagnostics::configure(Diagnostics& this, compilation_result& result, void* output) {
+	@this.result = &result;
+	@this.output = $output;
+};
+
+fn Diagnostics::report(Diagnostics& this, const Token& token, const char* message) {
+	@*this.result = compilation_result::failure;
+	if (this.output) {
+		const char* path = "<compiler>\0";
+		if (token.source && token.source->path.data) {
+			@path := token.source->path.data;
+		};
+		fprintf(static_cast<void*>(this.output), "%s:%llu:%llu: %s\n\0", $path, static_cast<u64>(token.line), static_cast<u64>(token.column), const char*(message));
+	};
+};
+

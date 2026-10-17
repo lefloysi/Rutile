@@ -1,0 +1,1008 @@
+fn type_has_views(Type* type) -> bool {
+	@type = type_representation(Type*(type));
+	if (!type) {
+		return false;
+	};
+	if (type->kind == type_kind::array) {
+		return type_has_views(static_cast<Type*>(type->data.array.element));
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return false;
+	};
+	Entity* entity := type->data.entity;
+	if (aggregate_header(static_cast<Entity*>(entity))) {
+		return true;
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (type_has_views(entity_type(static_cast<Entity*>(base->entity)))) {
+			return true;
+		};
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		if (type_has_views(entity_type(static_cast<Entity*>(field->entity)))) {
+			return true;
+		};
+		@field := field->next;
+	};
+	return false;
+};
+
+fn type_requires_union_choice(Type* type) -> bool {
+	return type_contains($type, type_property::union_selection);
+};
+
+fn Emitter::array_element(Emitter& this, Type* type, LLVMOpaqueValue* address, usize index) -> LLVMOpaqueValue* {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueValue*[2] indices {};
+	@indices[0] = LLVMConstInt(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), 0, 0);
+	@indices[1] = LLVMConstInt(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), static_cast<u64>(index), 0);
+	return LLVMBuildGEP2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, $type), $address, &indices[0], 2, "array.element\0");
+};
+
+fn Emitter::initialize_body_fields(Emitter& this, Entity* entity, LLVMOpaqueValue* address) {
+	if (entity->kind == entity_kind::kw_union) {
+		return;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		Type* type = entity_type(static_cast<Entity*>(field->entity));
+		if (type_has_views(static_cast<Type*>(type))) {
+			LLVMOpaqueValue* storage = LLVMBuildStructGEP2(this.compiler->backend.llvm_builder.get(), llvm_body(@*this.compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(address), static_cast<u32>(field->entity->data.variable.data.field.index), "member.object\0");
+			@this.initialize_type(static_cast<Type*>(type), $storage);
+		};
+		@field := field->next;
+	};
+};
+
+fn Emitter::initialize_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
+	Compiler& compiler = @*this.compiler;
+	if (type_enum(static_cast<Type*>(type))) {
+		@this.initialize_type(static_cast<Type*>(type->data.entity->data.enumeration.underlying), $address);
+		return;
+	};
+	if (!type_has_views(static_cast<Type*>(type))) {
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			@this.initialize_type(static_cast<Type*>(type->data.array.element), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(address), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		return;
+	};
+	Entity* entity := type->data.entity;
+
+	if (entity->kind == entity_kind::kw_union) {
+		return;
+	};
+	CompleteGraph* graph = complete_graph(@compiler, $entity);
+	complete_offsets(@compiler, static_cast<CompleteGraph*>(graph));
+	Subobject* object := graph->objects;
+	while (object) {
+		LLVMOpaqueValue* storage = @this.byte_offset(LLVMOpaqueValue*(address), static_cast<u64>(object->offset));
+		if (aggregate_header(static_cast<Entity*>(object->entity))) {
+			LLVMOpaqueValue* header = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(object->entity)), LLVMOpaqueValue*(storage), 0, "view.storage\0");
+			LLVMBuildStore(compiler.backend.llvm_builder.get(), runtime_view_request(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Subobject*>(object)), $header);
+		};
+		@this.initialize_body_fields(static_cast<Entity*>(object->entity), $storage);
+		@object := object->next;
+	};
+};
+
+fn Emitter::body_payload_copy(Emitter& this, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	Compiler& compiler = @*this.compiler;
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == base_kind::nonvirtual) {
+			LLVMOpaqueValue* target = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(destination), static_cast<u32>(base->component), "copy.base.destination\0");
+			LLVMOpaqueValue* origin = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(source), static_cast<u32>(base->component), "copy.base.source\0");
+			@this.body_payload_copy(static_cast<Entity*>(base->entity), $target, $origin);
+		};
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		LLVMOpaqueValue* target = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(destination), static_cast<u32>(field->entity->data.variable.data.field.index), "copy.field.destination\0");
+		LLVMOpaqueValue* origin = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(source), static_cast<u32>(field->entity->data.variable.data.field.index), "copy.field.source\0");
+		@this.payload_copy(entity_type(static_cast<Entity*>(field->entity)), $target, $origin);
+		@field := field->next;
+	};
+};
+
+fn Emitter::payload_copy(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	Compiler& compiler = @*this.compiler;
+	if (!type_has_views(static_cast<Type*>(type)) || (type->kind == type_kind::named && type->data.entity->kind == entity_kind::kw_union)) {
+		LLVMOpaqueValue* value = LLVMBuildLoad2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, static_cast<Type*>(type)), LLVMOpaqueValue*(source), "copy.value\0");
+		LLVMBuildStore(compiler.backend.llvm_builder.get(), $value, LLVMOpaqueValue*(destination));
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			@this.payload_copy(static_cast<Type*>(type->data.array.element), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(destination), static_cast<u64>(index)), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(source), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		return;
+	};
+	Entity* entity := type->data.entity;
+	@this.body_payload_copy(static_cast<Entity*>(entity), LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
+	CompleteGraph* graph = complete_graph(@compiler, static_cast<Entity*>(entity));
+	Subobject* target := graph->virtuals;
+	while (target) {
+		BasePath* path = nullptr;
+		subobject_find_path(@compiler, static_cast<Subobject*>(graph->root), static_cast<Subobject*>(target), &path);
+		LLVMOpaqueValue* origin = @this.base_address(LLVMOpaqueValue*(source), static_cast<Entity*>(entity), static_cast<BasePath*>(path), base_direction::up);
+		LLVMOpaqueValue* result = @this.base_address(LLVMOpaqueValue*(destination), static_cast<Entity*>(entity), $path, base_direction::up);
+		@this.body_payload_copy(static_cast<Entity*>(target->entity), $result, $origin);
+		@target := target->virtual_next;
+	};
+};
+
+fn Emitter::complete_read(Emitter& this, Type* type, LLVMOpaqueValue* source) -> LLVMOpaqueValue* {
+	Compiler& compiler = @*this.compiler;
+	if (!type_has_views(static_cast<Type*>(type)) || (type->kind == type_kind::named && type->data.entity->kind == entity_kind::kw_union)) {
+		return LLVMBuildLoad2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, static_cast<Type*>(type)), LLVMOpaqueValue*(source), "value\0");
+	};
+	LLVMOpaqueValue* value = emit_slot(@compiler, static_cast<Type*>(type));
+	@this.initialize_type(static_cast<Type*>(type), LLVMOpaqueValue*(value));
+	@this.payload_copy(static_cast<Type*>(type), LLVMOpaqueValue*(value), $source);
+	return LLVMBuildLoad2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, $type), $value, "complete.value\0");
+};
+
+fn Emitter::value_read(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
+	return @this.complete_read(static_cast<Type*>(syntax->type), @this.address($syntax));
+};
+
+fn Emitter::truth(Emitter& this, LLVMOpaqueValue* value, Type* type) -> LLVMOpaqueValue* {
+	@type = type_representation(Type*(type));
+	LLVMOpaqueValue* zero = LLVMConstNull(llvm_type(@*this.compiler, static_cast<Type*>(type)));
+	if (type->kind == type_kind::kw_float) {
+		return LLVMBuildFCmp(this.compiler->backend.llvm_builder.get(), 14, LLVMOpaqueValue*(value), LLVMOpaqueValue*(zero), "truth\0");
+	};
+	return LLVMBuildICmp(this.compiler->backend.llvm_builder.get(), 33, $value, $zero, "truth\0");
+};
+
+fn Emitter::address(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
+	if (syntax->kind == syntax_kind::expr_owned_component) {
+		return LLVMOpaqueValue*(this.component_source);
+	};
+	if (syntax->kind == syntax_kind::expr_access) {
+		return @this.address(static_cast<Syntax*>(syntax->data.expression));
+	};
+	if (syntax_category(static_cast<Syntax*>(syntax)) == value_category::temporary) {
+		LLVMOpaqueValue* value = @this.expression(static_cast<Syntax*>(syntax));
+		BackendSyntax* native = backend_syntax(@this.compiler->backend, static_cast<Syntax*>(syntax));
+		if (!native) {
+			return nullptr;
+		};
+		if (native->address) {
+			return LLVMOpaqueValue*(native->address);
+		};
+		LLVMOpaqueValue* slot = emit_slot(@*this.compiler, static_cast<Type*>(syntax->type));
+		LLVMBuildStore(this.compiler->backend.llvm_builder.get(), $value, LLVMOpaqueValue*(slot));
+		@native->address := slot;
+		return $slot;
+	};
+	LLVMOpaqueValue* address = @this.storage_address(static_cast<Syntax*>(syntax));
+	Type* storage = syntax_storage_type(static_cast<Syntax*>(syntax));
+	if (storage && storage->kind == type_kind::reference && syntax->kind != syntax_kind::expr_call && syntax->kind != syntax_kind::expr_cast && syntax->kind != syntax_kind::expr_base_reference) {
+		return LLVMBuildLoad2(this.compiler->backend.llvm_builder.get(), llvm_type(@*this.compiler, $storage), LLVMOpaqueValue*(address), "referent\0");
+	};
+	return $address;
+};
+
+fn Emitter::cast(Emitter& this, LLVMOpaqueValue* value, Type* source, Type* target) -> LLVMOpaqueValue* {
+	@source = type_representation(Type*(source));
+	@target = type_representation(Type*(target));
+	LLVMOpaqueBuilder* builder := this.compiler->backend.llvm_builder.get();
+	LLVMOpaqueType* type = llvm_type(@*this.compiler, static_cast<Type*>(target));
+	if (target->kind == type_kind::kw_bool && source->kind != type_kind::kw_bool) {
+		return @this.truth(LLVMOpaqueValue*(value), static_cast<Type*>(source));
+	};
+	if (type_equal(static_cast<Type*>(source), static_cast<Type*>(target))) {
+		return $value;
+	};
+	if (source->kind == type_kind::pointer || source->kind == type_kind::reference) {
+		if (target->kind == type_kind::pointer || target->kind == type_kind::reference) {
+			return $value;
+		};
+		return LLVMBuildPtrToInt(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+	};
+	if (target->kind == type_kind::pointer || target->kind == type_kind::reference) {
+		return LLVMBuildIntToPtr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+	};
+	if (source->kind == type_kind::kw_float && target->kind == type_kind::kw_float) {
+		return LLVMBuildFPCast(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+	};
+	if (source->kind == type_kind::kw_float) {
+		if (type_unsigned(static_cast<Type*>(target))) {
+			return LLVMBuildFPToUI(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+		};
+		return LLVMBuildFPToSI(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+	};
+	if (target->kind == type_kind::kw_float) {
+		if (type_unsigned(static_cast<Type*>(source)) || source->kind == type_kind::kw_char) {
+			return LLVMBuildUIToFP(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+		};
+		return LLVMBuildSIToFP(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueType*(type), "cast\0");
+	};
+	return LLVMBuildIntCast2($builder, $value, $type, !(type_unsigned(static_cast<Type*>(source)) || source->kind == type_kind::kw_char), "cast\0");
+};
+
+fn emit_extension(Compiler& compiler, Type* type) -> LLVMOpaqueAttributeRef* {
+	@type = type_representation(Type*(type));
+	if (!(type && type->kind.is_integer()) || type_bits(static_cast<Type*>(type)) >= 32) {
+		return nullptr;
+	};
+	char* name = "signext\0";
+	if (type_unsigned(static_cast<Type*>(type)) || type->kind == type_kind::kw_char) {
+		@name = "zeroext\0";
+	};
+	return LLVMCreateEnumAttribute(compiler.backend.llvm_context.get(), LLVMGetEnumAttributeKindForName(static_cast<char*>(name), strlen($name)), 0);
+};
+
+fn Emitter::binary(Emitter& this, Syntax* syntax, LLVMOpaqueValue* first, LLVMOpaqueValue* second) -> LLVMOpaqueValue* {
+	LLVMOpaqueBuilder* builder := this.compiler->backend.llvm_builder.get();
+	Type* type := syntax->data.binary.left->type;
+	token_kind operation := syntax->data.binary.operation;
+	if (operation != token_kind::op_equal && operation != token_kind::op_not_equal && operation != token_kind::op_less && operation != token_kind::op_greater && operation != token_kind::op_less_equal && operation != token_kind::op_greater_equal) {
+		@type := syntax->type;
+	};
+	@type = type_representation(Type*(type));
+	if (type->kind == type_kind::pointer && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
+		@second = @this.cast(LLVMOpaqueValue*(second), static_cast<Type*>(syntax->data.binary.right->type), static_cast<Type*>(this.compiler->usize_type));
+		if (operation == token_kind::op_minus) {
+			@second = LLVMBuildNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(second), "negative\0");
+		};
+		return LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type(@*this.compiler, static_cast<Type*>(type->data.element)), LLVMOpaqueValue*(first), &second, 1, "offset\0");
+	};
+	if (operation == token_kind::op_equal || operation == token_kind::op_not_equal || operation == token_kind::op_less || operation == token_kind::op_greater || operation == token_kind::op_less_equal || operation == token_kind::op_greater_equal) {
+		i32 predicate = 32;
+		if (operation == token_kind::op_not_equal) {
+			@predicate = 33;
+		};
+		if (operation == token_kind::op_greater) {
+			@predicate = 38;
+		};
+		if (operation == token_kind::op_greater_equal) {
+			@predicate = 39;
+		};
+		if (operation == token_kind::op_less) {
+			@predicate = 40;
+		};
+		if (operation == token_kind::op_less_equal) {
+			@predicate = 41;
+		};
+		LLVMOpaqueValue* result = nullptr;
+		if (type->kind == type_kind::kw_float) {
+			@predicate = 1;
+			if (operation == token_kind::op_not_equal) {
+				@predicate = 14;
+			};
+			if (operation == token_kind::op_greater) {
+				@predicate = 2;
+			};
+			if (operation == token_kind::op_greater_equal) {
+				@predicate = 3;
+			};
+			if (operation == token_kind::op_less) {
+				@predicate = 4;
+			};
+			if (operation == token_kind::op_less_equal) {
+				@predicate = 5;
+			};
+			@result = LLVMBuildFCmp(LLVMOpaqueBuilder*(builder), static_cast<i32>(predicate), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "compare\0");
+		}
+		else {
+			if ((type_unsigned(static_cast<Type*>(type)) || type->kind == type_kind::kw_char || type->kind == type_kind::pointer) && predicate >= 38) {
+				@predicate = predicate - 4;
+			};
+			@result = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), static_cast<i32>(predicate), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "compare\0");
+		};
+		return $result;
+	};
+	if (type->kind == type_kind::kw_float) {
+		switch (operation) {
+			case token_kind::op_plus:
+				return LLVMBuildFAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "sum\0");
+			case token_kind::op_minus:
+				return LLVMBuildFSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "difference\0");
+			case token_kind::op_star:
+				return LLVMBuildFMul(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "product\0");
+			case token_kind::op_slash:
+				return LLVMBuildFDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
+		};
+	};
+	switch (operation) {
+		case token_kind::op_plus:
+			return LLVMBuildAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "sum\0");
+		case token_kind::op_minus:
+			return LLVMBuildSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "difference\0");
+		case token_kind::op_star:
+			return LLVMBuildMul(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "product\0");
+		case token_kind::op_slash:
+			if (type_unsigned(static_cast<Type*>(type))) {
+				return LLVMBuildUDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
+			};
+			return LLVMBuildSDiv(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "quotient\0");
+		case token_kind::op_remainder:
+			if (type_unsigned(static_cast<Type*>(type))) {
+				return LLVMBuildURem(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "remainder\0");
+			};
+			return LLVMBuildSRem(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "remainder\0");
+		case token_kind::op_ampersand:
+			return LLVMBuildAnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "and\0");
+		case token_kind::op_pipe:
+			return LLVMBuildOr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "or\0");
+		case token_kind::op_caret:
+			return LLVMBuildXor(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "xor\0");
+		case token_kind::op_shift_left:
+			return LLVMBuildShl(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "shift\0");
+		case token_kind::op_shift_right:
+			if (type_unsigned(static_cast<Type*>(type))) {
+				return LLVMBuildLShr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueValue*(second), "shift\0");
+			};
+			return LLVMBuildAShr($builder, $first, $second, "shift\0");
+	};
+	@this.compiler->diagnostics.report(syntax->token, "unsupported numeric operation\0");
+	return nullptr;
+};
+
+fn Emitter::call(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	if (syntax->data.call.receiver.kind == receiver_kind::evaluate) {
+		Syntax* object := syntax->data.call.receiver.value;
+		if (syntax_category(static_cast<Syntax*>(object)) == value_category::storage) {
+			@this.address(static_cast<Syntax*>(object));
+		}
+		else {
+			@this.expression(static_cast<Syntax*>(object));
+		};
+	};
+	Syntax* callee := syntax->data.call.callable;
+	Type* signature := callee->type;
+	if (signature->kind == type_kind::pointer) {
+		@signature := signature->data.element;
+	};
+	u32 count = 0;
+	if (syntax->data.call.receiver.kind == receiver_kind::bind) {
+		@count = 1;
+	};
+	Syntax* argument := syntax->data.call.arguments;
+	while (argument) {
+		@count = count + 1;
+		@argument := argument->next;
+	};
+	LLVMOpaqueValue** values = static_cast<LLVMOpaqueValue**>(@compiler.allocate(static_cast<usize>(count) * sizeof(LLVMOpaqueValue*)));
+	Parameter* parameter := signature->data.function.parameters;
+	@argument := syntax->data.call.arguments;
+	u32 index = 0;
+	if (syntax->data.call.receiver.kind == receiver_kind::bind) {
+		Syntax* receiver := syntax->data.call.receiver.value;
+		if (parameter->type->kind == type_kind::reference) {
+			@values[0] = @this.address(static_cast<Syntax*>(receiver));
+		}
+		else {
+			@values[0] = @this.expression(static_cast<Syntax*>(receiver));
+		};
+		@parameter := parameter->next;
+		@index = 1;
+	};
+	while (argument) {
+		LLVMOpaqueValue* value = nullptr;
+		if (argument->kind != syntax_kind::node_block && parameter && parameter->type->kind == type_kind::reference) {
+			@value = @this.address(static_cast<Syntax*>(argument));
+		}
+		else {
+			@value = @this.expression(static_cast<Syntax*>(argument));
+		};
+		if (parameter && parameter->type->kind != type_kind::reference) {
+			@value = @this.cast(LLVMOpaqueValue*(value), static_cast<Type*>(argument->type), static_cast<Type*>(parameter->type));
+		};
+		if (!parameter) {
+			Type* promoted := argument->type;
+			if (promoted->kind == type_kind::kw_float && promoted->data.bits == 32) {
+				@promoted = @compiler.semantic.types.primitive(type_kind::kw_float, 64);
+			}
+			else if ((promoted && promoted->kind.is_integer()) && type_bits(static_cast<Type*>(promoted)) < 32) {
+				@promoted := compiler.i32_type;
+			};
+			@value = @this.cast(LLVMOpaqueValue*(value), static_cast<Type*>(argument->type), $promoted);
+		};
+		@values[index] = $value;
+		@index = index + 1;
+		@argument := argument->next;
+		if (parameter) {
+			@parameter := parameter->next;
+		};
+	};
+	char* name = "call\0";
+	if (signature->data.function.result->kind == type_kind::kw_void) {
+		@name = "\0";
+	};
+	LLVMOpaqueValue* target = nullptr;
+	if (callee->kind == syntax_kind::expr_name && callee->entity && callee->entity->kind == entity_kind::function) {
+		Entity* function := callee->entity;
+		if (function->data.function.callable && !syntax->data.call.qualified_owner && !callee->data.expression) {
+			@target = @this.dispatch_target(static_cast<Entity*>(function), LLVMOpaqueValue*(values[0]));
+		}
+		else {
+			@target := backend_entity(@compiler.backend, static_cast<Entity*>(function))->value;
+		};
+	}
+	else {
+		@target = @this.expression(static_cast<Syntax*>(callee));
+	};
+	LLVMOpaqueValue* call = LLVMBuildCall2($builder, llvm_type(@compiler, static_cast<Type*>(signature)), $target, $values, $count, $name);
+	emit_forward_attributes(@compiler, LLVMOpaqueValue*(call), static_cast<Type*>(signature));
+	return $call;
+};
+
+fn Emitter::special_call(Emitter& this, Entity* function, LLVMOpaqueValue* receiver, Syntax* arguments) -> LLVMOpaqueValue* {
+	Compiler& compiler = @*this.compiler;
+	Type* signature := function->data.function.type;
+	u32 count = 1;
+	Syntax* argument := arguments;
+	while (argument) {
+		@count = count + 1;
+		@argument := argument->next;
+	};
+	LLVMOpaqueValue** values = static_cast<LLVMOpaqueValue**>(@compiler.allocate(static_cast<usize>(count) * sizeof(LLVMOpaqueValue*)));
+	@values[0] = $receiver;
+	Parameter* parameter := signature->data.function.parameters->next;
+	@argument := arguments;
+	u32 index = 1;
+	while (argument && parameter) {
+		if (argument->kind != syntax_kind::node_block && parameter->type->kind == type_kind::reference) {
+			@values[index] = @this.address(static_cast<Syntax*>(argument));
+		}
+		else {
+			@values[index] = @this.cast(@this.expression(static_cast<Syntax*>(argument)), static_cast<Type*>(argument->type), static_cast<Type*>(parameter->type));
+		};
+		@argument := argument->next;
+		@parameter := parameter->next;
+		@index = index + 1;
+	};
+	BackendEntity* native = backend_entity(@compiler.backend, static_cast<Entity*>(function));
+	char* name = "special.call\0";
+	if (signature->data.function.result->kind == type_kind::kw_void) {
+		@name = "\0";
+	};
+	LLVMOpaqueValue* call = LLVMBuildCall2(compiler.backend.llvm_builder.get(), LLVMOpaqueType*(native->type), LLVMOpaqueValue*(native->value), $values, $count, $name);
+	emit_forward_attributes(@compiler, LLVMOpaqueValue*(call), $signature);
+	return $call;
+};
+
+fn Emitter::component_call(Emitter& this, Entity* function, LLVMOpaqueValue* receiver, Syntax* argument, LLVMOpaqueValue* source) -> LLVMOpaqueValue* {
+	LLVMOpaqueValue* previous := this.component_source;
+	@this.component_source = $source;
+	LLVMOpaqueValue* result = @this.special_call($function, $receiver, $argument);
+	@this.component_source = $previous;
+	return $result;
+};
+
+fn type_requires_destruction(Type* type) -> bool {
+	return type_contains($type, type_property::destruction);
+};
+
+fn Emitter::destroy_fields(Emitter& this, Field* field, LLVMOpaqueValue* address) {
+	if (!field) {
+		return;
+	};
+	@this.destroy_fields(static_cast<Field*>(field->next), LLVMOpaqueValue*(address));
+	Entity* entity := field->entity;
+	Entity* owner := entity->data.variable.data.field.owner;
+	LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.compiler->backend.llvm_builder.get(), llvm_body(@*this.compiler, $owner), $address, static_cast<u32>(entity->data.variable.data.field.index), "destroy.field\0");
+	@this.destroy_type(entity_type($entity), $member);
+};
+
+fn Emitter::destroy_bases(Emitter& this, Entity* owner, BaseRelation* base, LLVMOpaqueValue* address) {
+	if (!base) {
+		return;
+	};
+	@this.destroy_bases(static_cast<Entity*>(owner), static_cast<BaseRelation*>(base->next), LLVMOpaqueValue*(address));
+	if (base->kind == base_kind::nonvirtual) {
+		LLVMOpaqueValue* subobject = LLVMBuildStructGEP2(this.compiler->backend.llvm_builder.get(), llvm_body(@*this.compiler, static_cast<Entity*>(owner)), LLVMOpaqueValue*(address), static_cast<u32>(base->component), "destroy.base\0");
+		@this.destroy_body(static_cast<Entity*>(base->entity), $subobject);
+	};
+};
+
+fn Emitter::destroy_body(Emitter& this, Entity* entity, LLVMOpaqueValue* address) {
+	if (entity->data.aggregate.destructor) {
+		if (entity->data.aggregate.destructor->data.function.definition == function_definition::deleted) {
+			@this.compiler->diagnostics.report(entity->name, "selected destructor is deleted\0");
+			return;
+		};
+		if (entity->data.aggregate.destructor->data.function.definition != function_definition::defaulted) {
+			@this.special_call(static_cast<Entity*>(entity->data.aggregate.destructor), LLVMOpaqueValue*(address), nullptr);
+		};
+	};
+	if (entity->kind == entity_kind::kw_enum) {
+		@this.destroy_type(static_cast<Type*>(entity->data.enumeration.underlying), $address);
+		return;
+	};
+	if (entity->kind == entity_kind::kw_union) {
+		if (!entity->data.aggregate.destructor || entity->data.aggregate.destructor->data.function.definition == function_definition::defaulted) {
+			Field* field := entity->data.aggregate.fields;
+			while (field) {
+				if (type_requires_destruction(entity_type(static_cast<Entity*>(field->entity)))) {
+					@this.compiler->diagnostics.report(entity->name, "union with nontrivial members requires an explicit destructor\0");
+					return;
+				};
+				@field := field->next;
+			};
+		};
+		return;
+	};
+	@this.destroy_fields(static_cast<Field*>(entity->data.aggregate.fields), LLVMOpaqueValue*(address));
+	@this.destroy_bases(static_cast<Entity*>(entity), static_cast<BaseRelation*>(entity->data.aggregate.bases), $address);
+};
+
+fn Emitter::destroy_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
+	if (!type_requires_destruction(static_cast<Type*>(type))) {
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		u64 index := type->data.array.count;
+		while (index) {
+			@index = index - 1;
+			@this.destroy_type(static_cast<Type*>(type->data.array.element), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(address), static_cast<usize>(index)));
+		};
+		return;
+	};
+	if (type->kind != type_kind::named) {
+		return;
+	};
+	Entity* entity := type->data.entity;
+	if (type_has_views($type)) {
+		@this.compiler->diagnostics.report(entity->name, "nontrivial polymorphic lifetimes are not implemented\0");
+		return;
+	};
+	@this.destroy_body($entity, $address);
+};
+
+fn aggregate_default_constructor(Entity* entity) -> Entity* {
+	Entity* constructor := entity->data.aggregate.constructors;
+	while (constructor) {
+		Parameter* parameter := constructor->data.function.type->data.function.parameters;
+		if (parameter && !parameter->next) {
+			return $constructor;
+		};
+		@constructor := constructor->data.function.overload_next;
+	};
+	return nullptr;
+};
+
+fn type_has_lifecycle_callbacks(Type* type) -> bool {
+	return type_contains($type, type_property::lifecycle_callbacks);
+};
+
+fn Emitter::lifetime_polymorphism_supported(Emitter& this, Type* type) -> bool {
+	if (type_has_views(static_cast<Type*>(type)) && type_has_lifecycle_callbacks(static_cast<Type*>(type))) {
+		Token token;
+		if (type->kind == type_kind::named) {
+			@token := type->data.entity->name;
+		};
+		@this.compiler->diagnostics.report(token, "nontrivial polymorphic lifetimes are not implemented\0");
+		return false;
+	};
+	return true;
+};
+
+fn Emitter::default_body_members(Emitter& this, Entity* entity, LLVMOpaqueValue* address) {
+	if (entity->kind == entity_kind::kw_union) {
+		return;
+	};
+	Compiler& compiler = @*this.compiler;
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == base_kind::nonvirtual) {
+			LLVMOpaqueValue* subobject = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(address), static_cast<u32>(base->component), "construct.base\0");
+			@this.default_body(static_cast<Entity*>(base->entity), $subobject);
+		};
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		LLVMOpaqueValue* member = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(address), static_cast<u32>(field->entity->data.variable.data.field.index), "construct.field\0");
+		@this.default_type(entity_type(static_cast<Entity*>(field->entity)), $member);
+		@field := field->next;
+	};
+};
+
+fn Emitter::default_body(Emitter& this, Entity* entity, LLVMOpaqueValue* address) {
+	Entity* constructor = aggregate_default_constructor(static_cast<Entity*>(entity));
+	if (!constructor || constructor->data.function.definition != function_definition::defaulted) {
+		@this.default_body_members(static_cast<Entity*>(entity), LLVMOpaqueValue*(address));
+	};
+	if (constructor) {
+		@this.special_call(static_cast<Entity*>(constructor), LLVMOpaqueValue*(address), nullptr);
+	};
+};
+
+fn Emitter::default_members(Emitter& this, Type* type, LLVMOpaqueValue* address) {
+	if (!@this.lifetime_polymorphism_supported(static_cast<Type*>(type))) {
+		return;
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return;
+	};
+	Entity* entity := type->data.entity;
+	@this.default_body_members($entity, $address);
+};
+
+fn Emitter::default_type(Emitter& this, Type* type, LLVMOpaqueValue* address) {
+	if (type_enum(static_cast<Type*>(type))) {
+		@this.default_type(static_cast<Type*>(type->data.entity->data.enumeration.underlying), $address);
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			@this.default_type(static_cast<Type*>(type->data.array.element), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(address), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		return;
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return;
+	};
+	Entity* constructor = aggregate_default_constructor(static_cast<Entity*>(type->data.entity));
+	if (!constructor || constructor->data.function.definition != function_definition::defaulted) {
+		@this.default_members(static_cast<Type*>(type), LLVMOpaqueValue*(address));
+	};
+	if (constructor) {
+		@this.special_call(static_cast<Entity*>(constructor), LLVMOpaqueValue*(address), nullptr);
+	};
+};
+
+enum storage_extent : [i32] {
+	body;
+	complete;
+};
+
+fn Emitter::temporary_register(Emitter& this, Type* type, LLVMOpaqueValue* value, LLVMOpaqueValue* address) -> LLVMOpaqueValue* {
+	Temporary* temporary = static_cast<Temporary*>(@this.compiler->allocate(sizeof(Temporary)));
+	@temporary->type := type;
+	if (!address) {
+		@address = emit_slot(@*this.compiler, static_cast<Type*>(type));
+		LLVMBuildStore(this.compiler->backend.llvm_builder.get(), LLVMOpaqueValue*(value), LLVMOpaqueValue*(address));
+	};
+	@temporary->address := address;
+	@temporary->next := this.temporaries;
+	@this.temporaries = $temporary;
+	return $address;
+};
+
+fn Emitter::storage_special(Emitter& this, Type* type, function_role role, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, syntax_kind kind, storage_extent extent) -> bool {
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return false;
+	};
+	Syntax* argument = static_cast<Syntax*>(@this.compiler->allocate(sizeof(Syntax)));
+	if (!argument) {
+		return false;
+	};
+	@argument->kind := kind;
+	@argument->token := type->data.entity->name;
+	@argument->type := type;
+	@argument->use = value_use::transferred;
+	if (kind == syntax_kind::expr_borrowed_component) {
+		@argument->type = @this.compiler->semantic.types.qualified(static_cast<Type*>(type), type_qualifier::kw_const);
+	};
+	Semantic semantic;
+	@semantic.compiler := this.compiler;
+	@semantic.scope := this.compiler->module;
+	Entity* function = nullptr;
+	if (role == function_role::constructor && kind == syntax_kind::expr_owned_component) {
+		@function = move_constructor(@*this.compiler, static_cast<Type*>(type), argument->token);
+	}
+	else {
+		@function = @semantic.special_select(static_cast<Entity*>(type->data.entity), static_cast<function_role>(role), static_cast<Syntax*>(argument), Token(argument->token));
+	};
+	if (!function) {
+		return false;
+	};
+	if (function->data.function.definition == function_definition::defaulted) {
+		@this.default_transfer(static_cast<Entity*>(function), LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
+		if (role == function_role::assignment && kind == syntax_kind::expr_owned_component && function->data.function.type->data.function.parameters->next->type->kind == type_kind::reference) {
+			@this.destroy_type(static_cast<Type*>(type), LLVMOpaqueValue*(source));
+		};
+		return true;
+	};
+	if (role == function_role::constructor) {
+		if (extent == storage_extent::complete) {
+			@this.default_members(static_cast<Type*>(type), LLVMOpaqueValue*(destination));
+		}
+		else {
+			@this.default_body_members(static_cast<Entity*>(type->data.entity), LLVMOpaqueValue*(destination));
+		};
+	};
+	LLVMOpaqueValue* result = @this.component_call(static_cast<Entity*>(function), $destination, static_cast<Syntax*>(argument), LLVMOpaqueValue*(source));
+	Type* result_type := function->data.function.type->data.function.result;
+	if (role == function_role::assignment && result_type->kind != type_kind::reference && type_requires_destruction(static_cast<Type*>(result_type))) {
+		@this.temporary_register(static_cast<Type*>(result_type), LLVMOpaqueValue*(result), nullptr);
+	};
+	if (role == function_role::assignment && kind == syntax_kind::expr_owned_component && function->data.function.type->data.function.parameters->next->type->kind == type_kind::reference) {
+		@this.destroy_type(static_cast<Type*>(type), LLVMOpaqueValue*(source));
+	};
+	return true;
+};
+
+enum storage_transfer : [i32] {
+	copy_construct;
+	move_construct;
+	assign;
+	copy_assign;
+};
+
+fn Emitter::default_transfer(Emitter& this, Entity* function, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	Entity* entity := function->scope->owner;
+	Type* parameter := function->data.function.type->data.function.parameters->next->type;
+	storage_transfer operation = storage_transfer::copy_construct;
+	if (function->data.function.role == function_role::constructor && parameter->kind != type_kind::reference) {
+		@operation = storage_transfer::move_construct;
+	};
+	if (function->data.function.role == function_role::assignment) {
+		@operation = storage_transfer::assign;
+		if (parameter->kind == type_kind::reference) {
+			@operation = storage_transfer::copy_assign;
+		};
+	};
+	if (operation == storage_transfer::assign) {
+		@this.destroy_body(static_cast<Entity*>(entity), LLVMOpaqueValue*(destination));
+		@this.transfer_body($entity, $destination, $source, storage_transfer::move_construct);
+		return;
+	};
+	@this.transfer_members($entity, $destination, $source, $operation);
+};
+
+fn Emitter::transfer_body(Emitter& this, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, storage_transfer operation) {
+	Type* type = entity_type(static_cast<Entity*>(entity));
+	function_role role = function_role::constructor;
+	syntax_kind argument = syntax_kind::expr_borrowed_component;
+	if (operation == storage_transfer::move_construct) {
+		@argument = syntax_kind::expr_owned_component;
+	};
+	if (operation == storage_transfer::assign || operation == storage_transfer::copy_assign) {
+		@role = function_role::assignment;
+		if (operation == storage_transfer::assign) {
+			@argument = syntax_kind::expr_owned_component;
+		};
+	};
+	if (@this.storage_special(static_cast<Type*>(type), $role, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), $argument, storage_extent::body)) {
+		return;
+	};
+	if (operation == storage_transfer::assign) {
+		@this.destroy_body(static_cast<Entity*>(entity), LLVMOpaqueValue*(destination));
+		@this.transfer_body($entity, $destination, $source, storage_transfer::move_construct);
+		return;
+	};
+	@this.transfer_members($entity, $destination, $source, $operation);
+};
+
+fn Emitter::transfer_members(Emitter& this, Entity* entity, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, storage_transfer operation) {
+	Type* type = entity_type(static_cast<Entity*>(entity));
+	if (entity->kind == entity_kind::kw_union) {
+		@this.payload_copy($type, $destination, $source);
+		return;
+	};
+
+	Compiler& compiler = @*this.compiler;
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (base->kind == base_kind::nonvirtual) {
+			LLVMOpaqueValue* target = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(destination), static_cast<u32>(base->component), "transfer.base.target\0");
+			LLVMOpaqueValue* origin = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(source), static_cast<u32>(base->component), "transfer.base.source\0");
+			@this.transfer_body(static_cast<Entity*>(base->entity), $target, $origin, static_cast<storage_transfer>(operation));
+		};
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		LLVMOpaqueValue* target = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(destination), static_cast<u32>(field->entity->data.variable.data.field.index), "transfer.field.target\0");
+		LLVMOpaqueValue* origin = LLVMBuildStructGEP2(compiler.backend.llvm_builder.get(), llvm_body(@compiler, static_cast<Entity*>(entity)), LLVMOpaqueValue*(source), static_cast<u32>(field->entity->data.variable.data.field.index), "transfer.field.source\0");
+		@this.transfer_type(entity_type(static_cast<Entity*>(field->entity)), $target, $origin, static_cast<storage_transfer>(operation));
+		@field := field->next;
+	};
+};
+
+fn Emitter::transfer_type(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, storage_transfer operation) {
+	if (type_enum(static_cast<Type*>(type))) {
+		@this.transfer_type(static_cast<Type*>(type->data.entity->data.enumeration.underlying), $destination, $source, $operation);
+		return;
+	};
+	if (!@this.lifetime_polymorphism_supported(static_cast<Type*>(type))) {
+		return;
+	};
+	if ((operation == storage_transfer::assign || operation == storage_transfer::copy_assign) && (type->qualifier == type_qualifier::kw_const || type->kind == type_kind::reference)) {
+		Token token;
+		@this.compiler->diagnostics.report(token, "generated assignment cannot replace a const or reference component\0");
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		usize index = 0;
+		while (index < type->data.array.count) {
+			@this.transfer_type(static_cast<Type*>(type->data.array.element), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(destination), static_cast<u64>(index)), @this.array_element(static_cast<Type*>(type), LLVMOpaqueValue*(source), static_cast<u64>(index)), static_cast<storage_transfer>(operation));
+			@index = index + 1;
+		};
+		return;
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		@this.payload_copy($type, $destination, $source);
+		return;
+	};
+	if (operation == storage_transfer::copy_construct && @this.storage_special(static_cast<Type*>(type), function_role::constructor, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), syntax_kind::expr_borrowed_component, storage_extent::complete)) {
+		return;
+	};
+	if (operation == storage_transfer::move_construct && @this.storage_special(static_cast<Type*>(type), function_role::constructor, LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source), syntax_kind::expr_owned_component, storage_extent::complete)) {
+		return;
+	};
+	if (type_has_views(static_cast<Type*>(type))) {
+		@this.payload_copy($type, $destination, $source);
+		return;
+	};
+	@this.transfer_body(static_cast<Entity*>(type->data.entity), $destination, $source, $operation);
+};
+
+fn Emitter::copy_construct_type(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	@this.transfer_type($type, $destination, $source, storage_transfer::copy_construct);
+};
+
+fn Emitter::move_construct_type(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	@this.transfer_type($type, $destination, $source, storage_transfer::move_construct);
+};
+
+fn Emitter::assign_storage(Emitter& this, Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) {
+	@this.transfer_type($type, $destination, $source, storage_transfer::assign);
+};
+
+fn Emitter::failed_arguments(Emitter& this, Syntax* argument) {
+	if (!argument) {
+		return;
+	};
+
+	LLVMOpaqueValue* storage = nullptr;
+	if (argument->use == value_use::transferred && type_requires_destruction(static_cast<Type*>(argument->type))) {
+		@storage = @this.address(static_cast<Syntax*>(argument));
+	}
+	else {
+		@this.expression(static_cast<Syntax*>(argument));
+	};
+
+	@this.failed_arguments(static_cast<Syntax*>(argument->next));
+	if (storage) {
+		@this.destroy_type(static_cast<Type*>(argument->type), LLVMOpaqueValue*(storage));
+	};
+};
+
+fn Emitter::guard_temporaries(Emitter& this, Temporary* first, Temporary* boundary, LLVMOpaqueBasicBlock* created, LLVMOpaqueBasicBlock* skipped) {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueType* bool_type = LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1);
+	LLVMOpaqueBasicBlock*[2] blocks {};
+	@blocks[0] = $created;
+	@blocks[1] = $skipped;
+	while (first != boundary) {
+		LLVMOpaqueValue*[2] values {};
+		@values[0] := first->guard;
+		if (!values[0]) {
+			@values[0] = LLVMConstInt(LLVMOpaqueType*(bool_type), 1, 0);
+		};
+		@values[1] = LLVMConstInt(LLVMOpaqueType*(bool_type), 0, 0);
+		LLVMOpaqueValue* guard = LLVMBuildPhi(compiler.backend.llvm_builder.get(), LLVMOpaqueType*(bool_type), "temporary.created\0");
+		LLVMAddIncoming(LLVMOpaqueValue*(guard), &values[0], &blocks[0], 2);
+		@first->guard = $guard;
+		@first := first->next;
+	};
+};
+
+fn Emitter::construct_at(Emitter& this, Syntax* syntax, LLVMOpaqueValue* slot) {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	Type* target := syntax->data.construction.target;
+	Syntax* argument := syntax->data.construction.arguments;
+	if (syntax->data.construction.constructor) {
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, static_cast<Type*>(target))), LLVMOpaqueValue*(slot));
+		@this.initialize_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot));
+		if (syntax->data.construction.constructor->data.function.definition != function_definition::defaulted) {
+			@this.default_members(static_cast<Type*>(target), LLVMOpaqueValue*(slot));
+		};
+		@this.special_call(static_cast<Entity*>(syntax->data.construction.constructor), LLVMOpaqueValue*(slot), static_cast<Syntax*>(argument));
+	}
+	else if (!argument) {
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMConstNull(llvm_type(@compiler, static_cast<Type*>(target))), LLVMOpaqueValue*(slot));
+		@this.initialize_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot));
+		@this.default_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot));
+	}
+	else if (type_aggregate(static_cast<Type*>(target))) {
+		LLVMOpaqueValue* source = @this.address(static_cast<Syntax*>(argument));
+		@this.initialize_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot));
+		if (argument->use == value_use::transferred) {
+			if (argument->kind == syntax_kind::expr_relocate) {
+				@this.move_construct_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
+			}
+			else {
+				@this.payload_copy(static_cast<Type*>(target), LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
+			};
+		}
+		else {
+			@this.copy_construct_type(static_cast<Type*>(target), LLVMOpaqueValue*(slot), LLVMOpaqueValue*(source));
+		};
+	}
+	else {
+		LLVMOpaqueValue* value = @this.cast(@this.expression(static_cast<Syntax*>(argument)), static_cast<Type*>(argument->type), static_cast<Type*>(target));
+		LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(slot));
+	};
+};
+
+fn allocation_header_type(Compiler& compiler) -> LLVMOpaqueType* {
+	LLVMOpaqueType*[2] fields {};
+	@fields[0] = llvm_type(@compiler, static_cast<Type*>(compiler.usize_type));
+	@fields[1] = LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0);
+	return LLVMStructTypeInContext(compiler.backend.llvm_context.get(), &fields[0], 2, 0);
+};
+
+fn Emitter::allocation_header(Emitter& this, LLVMOpaqueValue* memory) -> LLVMOpaqueValue* {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueValue* offset = LLVMConstInt(llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), 0 - LLVMABISizeOfType(compiler.backend.llvm_layout.get(), allocation_header_type(@compiler)), 0);
+	return LLVMBuildGEP2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, static_cast<Type*>(compiler.char_type)), $memory, &offset, 1, "allocation.header\0");
+};
+
+fn Emitter::construct_array(Emitter& this, Syntax* construction, LLVMOpaqueValue* memory, LLVMOpaqueValue* count) {
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	LLVMOpaqueType* size_type = llvm_type(@compiler, static_cast<Type*>(compiler.usize_type));
+	LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+	LLVMOpaqueBasicBlock* check = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.array.check\0");
+	LLVMOpaqueBasicBlock* body = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.array.element\0");
+	LLVMOpaqueBasicBlock* done = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.array.end\0");
+	LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(check));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(check));
+	LLVMOpaqueValue* index = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(size_type), "new.array.index\0");
+	LLVMOpaqueValue* zero = LLVMConstNull(LLVMOpaqueType*(size_type));
+	LLVMAddIncoming(LLVMOpaqueValue*(index), &zero, &initial, 1);
+	LLVMOpaqueValue* more = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 36, LLVMOpaqueValue*(index), $count, "new.array.more\0");
+	LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $more, LLVMOpaqueBasicBlock*(body), LLVMOpaqueBasicBlock*(done));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $body);
+	LLVMOpaqueValue* element = LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, static_cast<Type*>(construction->data.construction.target)), $memory, &index, 1, "new.array.slot\0");
+	Temporary* boundary := this.temporaries;
+	@this.construct_at($construction, $element);
+	@this.flush_temporaries($boundary);
+	LLVMOpaqueValue* next = LLVMBuildAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(index), LLVMConstInt(LLVMOpaqueType*(size_type), 1, 0), "new.array.next\0");
+	LLVMOpaqueBasicBlock* ending = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+	LLVMBuildBr(LLVMOpaqueBuilder*(builder), $check);
+	LLVMAddIncoming($index, &next, &ending, 1);
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $done);
+};
+
+fn Emitter::destroy_allocation(Emitter& this, Type* target, LLVMOpaqueValue* memory, LLVMOpaqueValue* count) {
+	if (!type_requires_destruction(static_cast<Type*>(target))) {
+		return;
+	};
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	LLVMOpaqueType* size_type = llvm_type(@compiler, static_cast<Type*>(compiler.usize_type));
+	LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+	LLVMOpaqueBasicBlock* check = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "delete.array.check\0");
+	LLVMOpaqueBasicBlock* body = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "delete.array.element\0");
+	LLVMOpaqueBasicBlock* done = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "delete.array.end\0");
+	LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(check));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(check));
+	LLVMOpaqueValue* remaining = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(size_type), "delete.array.remaining\0");
+	LLVMAddIncoming(LLVMOpaqueValue*(remaining), &count, &initial, 1);
+	LLVMOpaqueValue* more = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 33, LLVMOpaqueValue*(remaining), LLVMConstNull(LLVMOpaqueType*(size_type)), "delete.array.more\0");
+	LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $more, LLVMOpaqueBasicBlock*(body), LLVMOpaqueBasicBlock*(done));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $body);
+	LLVMOpaqueValue* index = LLVMBuildSub(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(remaining), LLVMConstInt(LLVMOpaqueType*(size_type), 1, 0), "delete.array.index\0");
+	LLVMOpaqueValue* element = LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, static_cast<Type*>(target)), $memory, &index, 1, "delete.array.slot\0");
+	@this.destroy_type($target, $element);
+	LLVMOpaqueBasicBlock* ending = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+	LLVMBuildBr(LLVMOpaqueBuilder*(builder), $check);
+	LLVMAddIncoming($remaining, &index, &ending, 1);
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $done);
+};
+

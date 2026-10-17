@@ -1,0 +1,1185 @@
+fn Semantic::selection_validate(Semantic& this, Syntax* syntax, Type* type) {
+	Syntax* statement := syntax->data.selection.cases->data.statements;
+	CaseValue* values = nullptr;
+	Syntax* fallback = nullptr;
+	while (statement && this.compiler->result != compilation_result::failure) {
+		if (statement->kind != syntax_kind::kw_case) {
+			@statement := statement->next;
+			continue;
+		};
+
+		Syntax* expression := statement->data.selection_case.value;
+		if (!expression) {
+			if (fallback) {
+				@this.compiler->diagnostics.report(statement->token, "duplicate default label\0");
+				return;
+			};
+			@fallback := statement;
+			@statement := statement->next;
+			continue;
+		};
+
+		@expression->type := type;
+		@expression->scope := syntax->data.selection.cases->scope;
+		u64 value = constant_integer(@*this.compiler, static_cast<Scope*>(expression->scope), $expression);
+		@value = constant_selector(static_cast<u64>(value), static_cast<Type*>(type));
+		@statement->data.selection_case.selector := value;
+		CaseValue* previous := values;
+		while (previous) {
+			if (previous->value == value) {
+				@this.compiler->diagnostics.report(statement->token, "duplicate case value after conversion to the selector type\0");
+				return;
+			};
+			@previous := previous->next;
+		};
+
+		CaseValue* selected = static_cast<CaseValue*>(@this.compiler->allocate(sizeof(CaseValue)));
+		if (!selected) {
+			return;
+		};
+		@selected->value = $value;
+		@selected->next := values;
+		@values = $selected;
+		@statement := statement->next;
+	};
+};
+
+fn Semantic::argument_block(Semantic& this, Syntax* argument, Type* type, ParameterUse* label) {
+	var references = ReferenceAnalysis(this.compiler, this.scope);
+	if (argument->type) {
+		return;
+	};
+	Compiler& compiler = @*this.compiler;
+	Token name := argument->token;
+	if (label && label->name.source) {
+		@name := label->name;
+	};
+	@argument->scope->context = context_kind::arguments;
+	Entity* storage = entity_create(@compiler, entity_kind::variable, $name);
+	@storage->state = resolution::ready;
+	@storage->data.variable.type := type;
+	if (label) {
+		@storage->data.variable.type_use := label->use;
+	};
+	@storage->data.variable.storage = storage_kind::argument;
+	@storage->declaration := argument;
+	@storage->scope := argument->scope;
+	@argument->scope->owner := storage;
+	if (type->kind == type_kind::reference) {
+		@references.initializer(static_cast<Syntax*>(argument), static_cast<Entity*>(storage), Token(argument->token));
+	}
+	else {
+		if (label && label->name.source) {
+			@(argument->scope)->define(static_cast<Entity*>(storage));
+		};
+		@references.prepare_object(static_cast<Entity*>(storage), static_cast<Syntax*>(argument), Token(argument->token));
+		@argument->use = value_use::transferred;
+	};
+	@argument->entity = $storage;
+	@this.statement(static_cast<Syntax*>(argument));
+	@argument->type = $type;
+};
+
+fn Semantic::create_scope(Semantic& this, const Scope& parsed) -> Scope* {
+	Scope* created = @this.compiler->create_scope(Scope*(this.scope), context_kind(parsed.context), Entity*(parsed.owner));
+	if (!created) {
+		return nullptr;
+	};
+	Scope& scope = @*created;
+
+	Binding* binding := parsed.bindings;
+	while (binding) {
+		Entity& entity = @*binding->entity;
+		if (entity.kind != entity_kind::variable || entity.data.variable.storage == storage_kind::parameter || entity.data.variable.storage == storage_kind::argument || entity.data.variable.storage == storage_kind::constant) {
+			@(&scope)->define(&entity);
+		};
+		@binding := binding->next;
+	};
+
+	if (parsed.context == context_kind::function && parsed.parent) {
+		@binding := parsed.parent->bindings;
+		while (binding) {
+			if (binding->entity->kind == entity_kind::variable && binding->entity->data.variable.storage == storage_kind::parameter) {
+				@(&scope)->define(Entity*(binding->entity));
+			};
+			@binding := binding->next;
+		};
+	};
+
+	return &scope;
+};
+
+fn Semantic::member_project(Semantic& this, Syntax* member, Type* source, Type* target) -> Type* {
+	if (type_value_equal(static_cast<Type*>(source), static_cast<Type*>(target))) {
+		return $source;
+	};
+	@target = @this.compiler->semantic.types.qualified(static_cast<Type*>(target), static_cast<type_qualifier>(source->qualifier));
+	Type* expected = nullptr;
+	if (member->token.kind == token_kind::op_arrow) {
+		@expected = @this.compiler->semantic.types.pointer(static_cast<Type*>(target));
+	}
+	else {
+		@expected = @this.compiler->semantic.types.indirect(type_kind::reference, static_cast<Type*>(target));
+	};
+	if (!@this.base_conversion(static_cast<Syntax*>(member->data.member.object), static_cast<Type*>(member->data.member.object->type), static_cast<Type*>(expected))) {
+		@this.compiler->diagnostics.report(member->token, "member owner is not an unambiguous base of its receiver\0");
+	};
+	return static_cast<Type*>(expected->data.element);
+};
+
+fn Semantic::member_object(Semantic& this, Syntax* member) -> Type* {
+	Type* object = @this.expression(static_cast<Syntax*>(member->data.member.object), nullptr);
+	if (member->token.kind == token_kind::op_arrow) {
+		if (object->kind != type_kind::pointer) {
+			@this.compiler->diagnostics.report(member->token, "arrow member access requires a pointer\0");
+			return static_cast<Type*>(this.compiler->void_type);
+		};
+		@object := object->data.element;
+	};
+	if (!member->data.member.qualifier) {
+		return $object;
+	};
+	Type* owner = named_type(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(member->data.member.qualifier));
+	if (owner->kind != type_kind::named || (owner->data.entity->kind != entity_kind::kw_struct && owner->data.entity->kind != entity_kind::kw_union)) {
+		@this.compiler->diagnostics.report(member->token, "qualified instance access requires a record type\0");
+		return static_cast<Type*>(this.compiler->void_type);
+	};
+	return @this.member_project($member, $object, $owner);
+};
+
+fn Semantic::constructor_designates(Semantic& this, Type* owner, const Token& name) -> bool {
+	if (!owner->kind.is_object()) {
+		return false;
+	};
+	if (owner->kind == type_kind::named && name.same(owner->data.entity->name)) {
+		return true;
+	};
+	Entity* entity = this.scope->lookup(name);
+	if (!entity || (entity->kind != entity_kind::primitive && entity->kind != entity_kind::kw_struct && entity->kind != entity_kind::kw_union && entity->kind != entity_kind::kw_enum)) {
+		return false;
+	};
+	entity_resolve(@*this.compiler, static_cast<Entity*>(entity));
+	return type_value_equal(static_cast<Type*>(owner), entity_type($entity));
+};
+
+fn Semantic::method_receiver(Semantic& this, Syntax* member) -> Syntax* {
+	Syntax* receiver := member->data.member.object;
+	Type* type = @this.expression(static_cast<Syntax*>(receiver), nullptr);
+	if (member->token.kind != token_kind::op_arrow) {
+		return $receiver;
+	};
+	if (type->kind != type_kind::pointer) {
+		@this.compiler->diagnostics.report(member->token, "arrow member access requires a pointer\0");
+		return $receiver;
+	};
+	Syntax* object = static_cast<Syntax*>(@this.compiler->allocate(sizeof(Syntax)));
+	@object->kind = syntax_kind::expr_unary;
+	@object->token := member->token;
+	@object->data.unary.operation = token_kind::op_star;
+	@object->data.unary.value = $receiver;
+	@object->type = type_effective(static_cast<Type*>(type->data.element));
+	return $object;
+};
+
+fn Semantic::comparison_function_add(Semantic& this, Entity** selected, Entity* candidate, Syntax* left, Syntax* right, const Token& name) {
+	Compiler& compiler = @*this.compiler;
+	if (!candidate || candidate->kind != entity_kind::function || *selected == candidate) {
+		return;
+	};
+	entity_resolve(@compiler, static_cast<Entity*>(candidate));
+	if (compiler.result == compilation_result::failure || function_receiver(static_cast<Entity*>(candidate))) {
+		return;
+	};
+	Parameter* parameter := candidate->data.function.type->data.function.parameters;
+	if (!parameter || !parameter->next || parameter->next->next || @this.conversion_rank(static_cast<Syntax*>(left), static_cast<Type*>(parameter->type), constructor_conversion::kw_explicit) < 0 || @this.conversion_rank(static_cast<Syntax*>(right), static_cast<Type*>(parameter->next->type), constructor_conversion::kw_explicit) < 0) {
+		return;
+	};
+	if (*selected) {
+		@compiler.diagnostics.report(name, "ambiguous comparison operator\0");
+		return;
+	};
+	@*selected = $candidate;
+};
+
+fn Semantic::comparison_namespace_lookup(Semantic& this, Entity** selected, Type* type, Syntax* left, Syntax* right, const Token& name) {
+	if (!type || type->kind != type_kind::named) {
+		return;
+	};
+	Scope* scope := type->data.entity->scope;
+	while (scope && scope->owner && scope->owner->kind != entity_kind::kw_namespace) {
+		@scope := scope->parent;
+	};
+	if (scope) {
+		@this.comparison_function_add(static_cast<Entity**>(selected), scope->local(name), static_cast<Syntax*>(left), static_cast<Syntax*>(right), name);
+	};
+};
+
+fn Semantic::receiver_callable(Semantic& this, Type* type, Token name) -> Entity* {
+	Entity* associated = nullptr;
+	if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::kw_struct || type->data.entity->kind == entity_kind::kw_union || type->data.entity->kind == entity_kind::kw_enum)) {
+		entity_resolve(@*this.compiler, static_cast<Entity*>(type->data.entity));
+		@associated = associated_lookup(@*this.compiler, static_cast<Entity*>(type->data.entity), name);
+	};
+	if (associated) {
+		return $associated;
+	};
+	Entity* lexical = this.scope->lookup(name);
+	if (!lexical || lexical->kind != entity_kind::function) {
+		return nullptr;
+	};
+	entity_resolve(@*this.compiler, static_cast<Entity*>(lexical));
+	Parameter* first := lexical->data.function.type->data.function.parameters;
+	if (!first || !function_receiver(static_cast<Entity*>(lexical))) {
+		return nullptr;
+	};
+	return $lexical;
+};
+
+fn Semantic::address(Semantic& this, Syntax* syntax) -> Type* {
+	if (syntax->kind == syntax_kind::expr_access) {
+		Type* type = @this.address(static_cast<Syntax*>(syntax->data.expression));
+		if (syntax_category(static_cast<Syntax*>(syntax->data.expression)) != value_category::storage || type->qualifier == type_qualifier::kw_const) {
+			@this.compiler->diagnostics.report(syntax->token, "mutable access requires mutable storage\0");
+		};
+		@syntax->type := type;
+		return $type;
+	};
+	if (syntax->kind == syntax_kind::expr_unary && syntax->data.unary.operation == token_kind::op_star) {
+		Type* pointer = @this.expression(static_cast<Syntax*>(syntax->data.unary.value), nullptr);
+		if (pointer->kind != type_kind::pointer) {
+			@this.compiler->diagnostics.report(syntax->token, "dereference requires a pointer\0");
+			return static_cast<Type*>(this.compiler->void_type);
+		};
+		Type* type := pointer->data.element;
+		if (type->kind == type_kind::kw_void || type->kind == type_kind::kw_null) {
+			@this.compiler->diagnostics.report(syntax->token, "dereference requires an object or function type\0");
+		};
+		@syntax->type := type;
+		return $type;
+	};
+	return @this.expression($syntax, nullptr);
+};
+
+fn Semantic::expression(Semantic& this, Syntax* syntax, Type* expected) -> Type* {
+	var references = ReferenceAnalysis(this.compiler, this.scope);
+	Compiler& compiler = @*this.compiler;
+	if (!syntax) {
+		return static_cast<Type*>(compiler.void_type);
+	};
+	if (syntax->kind == syntax_kind::expr_typed_apply) {
+		construction_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax));
+		if (compiler.result == compilation_result::failure) {
+			return static_cast<Type*>(compiler.void_type);
+		};
+	};
+	Type* target := expected;
+	if (target && target->kind == type_kind::reference && target->data.element->qualifier == type_qualifier::kw_const) {
+		@target := target->data.element;
+	};
+	if (target && target->kind == type_kind::named && (target->data.entity->kind == entity_kind::kw_struct || target->data.entity->kind == entity_kind::kw_union)) {
+		Type* actual = nullptr;
+		if (!syntax_number_expression(static_cast<Syntax*>(syntax))) {
+			@actual = @this.expression(static_cast<Syntax*>(syntax), nullptr);
+		};
+		if (!actual || !type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(target))) {
+			Syntax* next := syntax->next;
+			@syntax->next = nullptr;
+			Entity* constructor = @this.conversion_select(static_cast<Entity*>(target->data.entity), function_role::constructor, static_cast<Syntax*>(syntax), syntax->token, constructor_conversion::kw_implicit);
+			@syntax->next = $next;
+			if (constructor) {
+				value_use argument_use := syntax->use;
+				syntax_construct(@compiler, static_cast<Syntax*>(syntax), static_cast<Type*>(target), nullptr);
+				@syntax->data.construction.arguments->use = $argument_use;
+				@syntax->use = value_use::observed;
+				@syntax->data.construction.constructor = $constructor;
+				Type* converted = @this.expression(static_cast<Syntax*>(syntax), nullptr);
+				return @this.expect(static_cast<Syntax*>(syntax), $converted, static_cast<Type*>(expected));
+			};
+		};
+	};
+	if (expected && expected->kind == type_kind::reference && syntax_number_expression(static_cast<Syntax*>(syntax))) {
+		Type* actual = @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected->data.element));
+		return @this.expect(static_cast<Syntax*>(syntax), $actual, static_cast<Type*>(expected));
+	};
+	if (expected && expected->kind == type_kind::reference && (syntax->kind == syntax_kind::expr_access || (syntax->kind == syntax_kind::expr_unary && syntax->data.unary.operation == token_kind::op_star))) {
+		Type* actual = @this.address(static_cast<Syntax*>(syntax));
+		return @this.expect(static_cast<Syntax*>(syntax), $actual, $expected);
+	};
+	if (syntax->type) {
+		return @this.expect(static_cast<Syntax*>(syntax), static_cast<Type*>(syntax->type), static_cast<Type*>(expected));
+	};
+	Type* type = nullptr;
+	switch (syntax->kind) {
+		case syntax_kind::kw_new: {
+			Syntax* construction := syntax->data.allocation.construction;
+			Syntax* count := syntax->data.allocation.count;
+			if (count) {
+				Type* context = nullptr;
+				if (syntax_number_expression(static_cast<Syntax*>(count))) {
+					@context := compiler.usize_type;
+				};
+				Type* length = @this.expression(static_cast<Syntax*>(count), $context);
+				if (!(length && length->kind.is_integer())) {
+					@compiler.diagnostics.report(count->token, "array allocation length requires an integer\0");
+				};
+			};
+			Type* allocated = @this.expression(static_cast<Syntax*>(construction), nullptr);
+			if (compiler.result == compilation_result::failure) {
+				return static_cast<Type*>(compiler.void_type);
+			};
+			@construction->use = value_use::transferred;
+			Syntax* argument := construction->data.construction.arguments;
+			while (argument) {
+				if (argument->use == value_use::transferred) {
+					destruction_request(static_cast<Type*>(argument->type));
+				};
+				@argument := argument->next;
+			};
+			if (allocated->kind == type_kind::kw_void || allocated->kind == type_kind::kw_null || allocated->kind == type_kind::reference || allocated->kind == type_kind::function) {
+				@compiler.diagnostics.report(syntax->token, "new requires a complete object type\0");
+			};
+			layout_validate(@compiler, static_cast<Type*>(allocated), nullptr, syntax->token);
+			@type = @compiler.semantic.types.pointer($allocated);
+			@syntax->type_use = type_use_element(@compiler, static_cast<TypeUse*>(construction->data.construction.type_use));
+			break;
+		};
+		case syntax_kind::kw_delete:
+		case syntax_kind::expr_delete_discard: {
+			Type* pointer = @this.expression(static_cast<Syntax*>(syntax->data.expression), nullptr);
+			if (pointer->kind != type_kind::pointer || pointer->data.element->kind == type_kind::function) {
+				@compiler.diagnostics.report(syntax->token, "delete requires an object pointer\0");
+				@type := compiler.void_type;
+				break;
+			};
+			if (syntax->kind == syntax_kind::kw_delete && pointer->data.element->kind != type_kind::kw_null) {
+				if (pointer->data.element->kind == type_kind::kw_void) {
+					@compiler.diagnostics.report(syntax->token, "delete requires a complete object type\0");
+				};
+				layout_validate(@compiler, static_cast<Type*>(pointer->data.element), nullptr, syntax->token);
+				destruction_request(static_cast<Type*>(pointer->data.element));
+			};
+			@type := compiler.void_type;
+			break;
+		};
+		case syntax_kind::kw_nullptr:
+			@type = @compiler.semantic.types.pointer(static_cast<Type*>(compiler.null_type));
+			break;
+		case syntax_kind::expr_destroy: {
+			Type* target := syntax->data.cast.resolved;
+			if (!target) {
+				@target = type_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.cast.type));
+			};
+			Type* actual = @this.address(static_cast<Syntax*>(syntax->data.cast.value));
+			if (!target->kind.is_object() || !type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(target))) {
+				@compiler.diagnostics.report(syntax->token, "destructor type must match the object type\0");
+			};
+			if (syntax_category(static_cast<Syntax*>(syntax->data.cast.value)) != value_category::storage || !syntax_mutable_access(static_cast<Syntax*>(syntax->data.cast.value))) {
+				@compiler.diagnostics.report(syntax->token, "destructor invocation requires explicit '@' access to storage\0");
+			};
+			layout_validate(@compiler, static_cast<Type*>(target), nullptr, syntax->token);
+			destruction_request(static_cast<Type*>(target));
+			@type := compiler.void_type;
+			break;
+		};
+		case syntax_kind::kw_discard:
+			@this.expression(static_cast<Syntax*>(syntax->data.expression), nullptr);
+			if (syntax->data.expression->kind != syntax_kind::expr_name || !syntax->data.expression->entity || syntax->data.expression->entity->kind != entity_kind::variable || storage_borrowed(static_cast<Syntax*>(syntax->data.expression)) || (syntax->data.expression->entity->data.variable.storage != storage_kind::local && syntax->data.expression->entity->data.variable.storage != storage_kind::parameter)) {
+				@compiler.diagnostics.report(syntax->token, "discard requires a directly owned local identifier\0");
+			};
+			@type := compiler.void_type;
+			break;
+		case syntax_kind::expr_access:
+		case syntax_kind::expr_relocate: {
+			Syntax* operand := syntax->data.expression;
+			if (syntax->kind == syntax_kind::expr_access && operand->kind == syntax_kind::expr_destroy) {
+				Syntax* access = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+				@access->kind = syntax_kind::expr_access;
+				@access->token := syntax->token;
+				@access->data.expression := operand->data.cast.value;
+				@operand->data.cast.value = $access;
+				Syntax* next := syntax->next;
+				@*syntax := *operand;
+				@syntax->next = $next;
+				return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+			};
+			if (syntax->kind == syntax_kind::expr_access && operand->kind == syntax_kind::expr_call && operand->data.call.callable->kind == syntax_kind::expr_member) {
+				Syntax* member := operand->data.call.callable;
+				Syntax* receiver = @this.method_receiver(static_cast<Syntax*>(member));
+				Type* owner := receiver->type;
+				if (member->data.member.qualifier) {
+					@owner = named_type(@compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(member->data.member.qualifier));
+				};
+				if (@this.constructor_designates(static_cast<Type*>(owner), member->data.member.name)) {
+					Syntax* access = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+					@access->kind = syntax_kind::expr_access;
+					@access->token := syntax->token;
+					@access->data.expression = $receiver;
+					@member->data.member.object = $access;
+					@member->token.kind = token_kind::op_dot;
+					Syntax* next := syntax->next;
+					@*syntax := *operand;
+					@syntax->next = $next;
+					return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+				};
+				Entity* function = @this.receiver_callable(static_cast<Type*>(owner), Token(member->data.member.name));
+				if (function && function->kind == entity_kind::function) {
+					entity_resolve(@compiler, static_cast<Entity*>(function));
+					Parameter* first := function->data.function.type->data.function.parameters;
+					if (first && function_receiver(static_cast<Entity*>(function))) {
+						Syntax* access = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+						@access->kind = syntax_kind::expr_access;
+						@access->token := syntax->token;
+						@access->data.expression = $receiver;
+						@member->data.member.object = $access;
+						@member->token.kind = token_kind::op_dot;
+						Syntax* next := syntax->next;
+						@*syntax := *operand;
+						@syntax->next = $next;
+						return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+					};
+				};
+			};
+			@type = @this.expression(static_cast<Syntax*>(operand), nullptr);
+			if (syntax_category(static_cast<Syntax*>(operand)) != value_category::storage) {
+				@compiler.diagnostics.report(syntax->token, "reference access and relocation require an existing object\0");
+			};
+			if (syntax->kind == syntax_kind::expr_access && type->qualifier == type_qualifier::kw_const) {
+				@compiler.diagnostics.report(syntax->token, "immutable object cannot provide mutable access\0");
+			};
+			if (syntax->kind == syntax_kind::expr_relocate && type->qualifier == type_qualifier::kw_const) {
+				@compiler.diagnostics.report(syntax->token, "relocation requires a mutable object\0");
+			};
+			if (syntax->kind == syntax_kind::expr_relocate && !operand->indirect_storage() && (operand->kind != syntax_kind::expr_name || !operand->entity || operand->entity->kind != entity_kind::variable || storage_borrowed(static_cast<Syntax*>(operand)))) {
+				@compiler.diagnostics.report(syntax->token, "relocation requires an owned local binding or indirect object storage\0");
+			};
+			break;
+		};
+		case syntax_kind::expr_construct: {
+			@type := syntax->data.construction.target;
+			if (type->kind == type_kind::kw_null) {
+				@compiler.diagnostics.report(syntax->token, "null is an unsized type and cannot be constructed\0");
+				break;
+			};
+			Syntax* argument := syntax->data.construction.arguments;
+			if (type->kind == type_kind::named && (type->data.entity->kind == entity_kind::kw_struct || type->data.entity->kind == entity_kind::kw_union || type->data.entity->kind == entity_kind::kw_enum)) {
+				if (!syntax->data.construction.constructor) {
+				@syntax->data.construction.constructor = @this.special_select(static_cast<Entity*>(type->data.entity), function_role::constructor, static_cast<Syntax*>(argument), Token(syntax->token));
+				};
+				if (syntax->data.construction.constructor || compiler.result == compilation_result::failure) {
+					if (syntax->data.construction.constructor && syntax->data.construction.constructor->data.function.definition != function_definition::defaulted) {
+						@this.constructor_members_validate(static_cast<Type*>(type), syntax->token);
+					};
+					if (syntax->data.construction.constructor && type_has_reference(static_cast<Type*>(type))) {
+						@compiler.diagnostics.report(syntax->token, "constructor reference-field binding syntax is not implemented\0");
+					};
+					break;
+				};
+			};
+			if (!argument) {
+				@this.generated_operation_validate(static_cast<Type*>(type), generated_operation::kw_default, syntax->token);
+				break;
+			};
+			if (argument->next) {
+				@compiler.diagnostics.report(syntax->token, "generated construction requires zero or one argument\0");
+				break;
+			};
+			Type* context := type;
+			if (type_enum(static_cast<Type*>(type))) {
+				entity_resolve(@compiler, static_cast<Entity*>(type->data.entity));
+				@context := type->data.entity->data.enumeration.underlying;
+			};
+			Type* argument_context = nullptr;
+			if (argument->kind == syntax_kind::node_block || syntax_number_expression(static_cast<Syntax*>(argument))) {
+				@argument_context := context;
+			};
+			if (argument->kind == syntax_kind::node_block) {
+				@this.argument_block(static_cast<Syntax*>(argument), static_cast<Type*>(context), nullptr);
+			};
+			Type* actual = @this.expression(static_cast<Syntax*>(argument), static_cast<Type*>(argument_context));
+			if (type_enum(static_cast<Type*>(type)) && type_value_equal(static_cast<Type*>(actual), static_cast<Type*>(type))) {
+				@context := type;
+			};
+			Type* representation = type_representation(static_cast<Type*>(actual));
+			if (!type_enum(static_cast<Type*>(actual)) || ((!(type && type->kind.is_numeric()) || !(representation && representation->kind.is_numeric())) && !type_value_equal(static_cast<Type*>(type), static_cast<Type*>(representation)))) {
+				@this.expect(static_cast<Syntax*>(argument), static_cast<Type*>(actual), static_cast<Type*>(context));
+			};
+			if (argument->kind == syntax_kind::expr_relocate) {
+				@this.owned(static_cast<Syntax*>(argument));
+				@this.generated_operation_validate(static_cast<Type*>(type), generated_operation::move, syntax->token);
+			}
+			else if (argument->use != value_use::transferred) {
+				@this.generated_operation_validate(static_cast<Type*>(type), generated_operation::copy, syntax->token);
+			};
+			break;
+		};
+		case syntax_kind::expr_name:
+			if (!syntax->entity) {
+				@syntax->entity = syntax_lookup(static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax));
+			};
+			if (!syntax->entity) {
+				@compiler.diagnostics.report(syntax->token, "unknown identifier\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			if (syntax->entity->kind != entity_kind::variable && syntax->entity->kind != entity_kind::function) {
+				@compiler.diagnostics.report(syntax->token, "type entity is not a runtime value\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			entity_resolve(@compiler, static_cast<Entity*>(syntax->entity));
+			if (syntax->entity->kind == entity_kind::function) {
+				function_request(static_cast<Entity*>(syntax->entity));
+			};
+			if (syntax->entity->kind == entity_kind::function && syntax->entity->data.function.definition == function_definition::deleted) {
+				@compiler.diagnostics.report(syntax->token, "selected function is deleted\0");
+			};
+			if (syntax->entity->kind == entity_kind::variable && syntax->entity->data.variable.storage == storage_kind::field) {
+				Token name := syntax->token;
+				Entity* receiver = this.scope->lookup(token_synthetic(@compiler, Token(name), "this\0"));
+				if (!receiver || receiver->kind != entity_kind::variable) {
+					@compiler.diagnostics.report(name, "field access requires an instance receiver\0");
+					return static_cast<Type*>(compiler.void_type);
+				};
+				Syntax* object = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+				@object->kind = syntax_kind::expr_name;
+				@object->token := receiver->name;
+				@object->entity = static_cast<Entity*>(receiver);
+				@syntax->kind = syntax_kind::expr_member;
+				@syntax->data.member.object = static_cast<Syntax*>(object);
+				@syntax->data.member.name = Token(name);
+				return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+			};
+			@type = type_effective(entity_type(static_cast<Entity*>(syntax->entity)));
+			break;
+		case syntax_kind::literal_number:
+			if (expected && expected->kind == type_kind::pointer && syntax_zero_pointer_constant(static_cast<Syntax*>(syntax))) {
+				@type := expected;
+				break;
+			};
+			if (!expected || !expected->kind.is_numeric()) {
+				@compiler.diagnostics.report(syntax->token, "number literal requires a numeric destination type\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			@type := expected;
+			if ((type && type->kind.is_integer()) && type->kind != type_kind::kw_bool && number_decimal(syntax->token)) {
+				decimal_integer(@compiler, syntax->token, static_cast<Type*>(type), false);
+			}
+			else if ((type && type->kind.is_integer()) && type->kind != type_kind::kw_bool) {
+				u64 maximum = 18446744073709551615;
+				i32 bits = type_bits(static_cast<Type*>(type));
+				if (bits < 64) {
+					@maximum = 1;
+					i32 bit = 0;
+					while (bit < bits) {
+						@maximum = maximum * 2;
+						@bit = bit + 1;
+					};
+					@maximum = maximum - 1;
+				};
+				if (!type_unsigned(static_cast<Type*>(type)) && type->kind != type_kind::kw_char) {
+					@maximum = maximum / 2;
+				};
+				integer_spelling(@compiler, syntax->token, static_cast<u64>(maximum));
+			};
+			break;
+		case syntax_kind::literal_string:
+			@type = @compiler.semantic.types.pointer(static_cast<Type*>(compiler.char_type));
+			break;
+		case syntax_kind::expr_cast: {
+			@type := syntax->data.cast.resolved;
+			if (syntax->data.cast.type) {
+				@type = type_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.cast.type));
+				@syntax->data.cast.resolved := type;
+				@syntax->data.cast.type_use = type_use_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.cast.type));
+			};
+			if (syntax->token.is("static_cast\0") || syntax->token.is("reinterpret_cast\0") || syntax->token.is("const_cast\0")) {
+				@type = @this.named_cast(static_cast<Syntax*>(syntax), static_cast<Type*>(type));
+				break;
+			};
+			if (type->kind == type_kind::reference) {
+				Syntax* value := syntax->data.cast.value;
+				Type* source = @this.expression(static_cast<Syntax*>(value), nullptr);
+				if (@this.base_cast(static_cast<Syntax*>(syntax), static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(type))) {
+					@type := syntax->type;
+				}
+				else {
+					@this.expect(static_cast<Syntax*>(value), static_cast<Type*>(source), static_cast<Type*>(type));
+				};
+				break;
+			};
+			Type* source = @this.cast_operand(static_cast<Syntax*>(syntax->data.cast.value), static_cast<Type*>(type));
+			if (source->kind == type_kind::named || source->kind == type_kind::array) {
+				layout_validate(@compiler, static_cast<Type*>(source), nullptr, syntax->token);
+			};
+			if (type->kind == type_kind::pointer && source->kind == type_kind::pointer && @this.base_cast(static_cast<Syntax*>(syntax), static_cast<Syntax*>(syntax->data.cast.value), static_cast<Type*>(source), static_cast<Type*>(type))) {
+				break;
+			};
+			if ((!(type && type->kind.is_scalar()) && !type_enum(static_cast<Type*>(type))) || (!(source && source->kind.is_scalar()) && !type_enum(static_cast<Type*>(source)))) {
+				if (!type_value_equal(type_representation(static_cast<Type*>(type)), type_representation(static_cast<Type*>(source)))) {
+				@compiler.diagnostics.report(syntax->token, "cast requires scalar types\0");
+				};
+			};
+			if (((type->kind == type_kind::pointer || type->kind == type_kind::reference) && source->kind == type_kind::kw_float) || ((source->kind == type_kind::pointer || source->kind == type_kind::reference) && type->kind == type_kind::kw_float)) {
+				@compiler.diagnostics.report(syntax->token, "pointer casts require an integer or pointer counterpart\0");
+			};
+			break;
+		};
+		case syntax_kind::kw_sizeof: {
+			Type* measured = nullptr;
+			if (syntax->data.sizeof_operand.type) {
+				@measured = type_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.sizeof_operand.type));
+			}
+			else {
+				@measured = @this.expression(static_cast<Syntax*>(syntax->data.sizeof_operand.value), nullptr);
+			};
+			@measured = type_effective(static_cast<Type*>(measured));
+			@syntax->data.sizeof_operand.measured := measured;
+			if (!measured || measured->kind == type_kind::kw_void || measured->kind == type_kind::kw_null || measured->kind == type_kind::function) {
+				@compiler.diagnostics.report(syntax->token, "sizeof requires a storage type\0");
+			};
+			layout_validate(@compiler, $measured, nullptr, syntax->token);
+			@type := compiler.usize_type;
+			break;
+		};
+		case syntax_kind::expr_member: {
+			Entity* owner = syntax_lookup(static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax->data.member.object));
+			if (owner && (owner->kind == entity_kind::kw_enum || owner->kind == entity_kind::kw_struct || owner->kind == entity_kind::kw_union || owner->kind == entity_kind::kw_namespace)) {
+				entity_resolve(@compiler, static_cast<Entity*>(owner));
+				Entity* member = associated_lookup(@compiler, static_cast<Entity*>(owner), syntax->data.member.name);
+				if (!member) {
+					@compiler.diagnostics.report(syntax->data.member.name, "unknown member of this entity\0");
+					return static_cast<Type*>(compiler.void_type);
+				};
+				@syntax->token := syntax->data.member.name;
+				@syntax->data.expression = nullptr;
+				@syntax->entity = $member;
+				@syntax->kind = syntax_kind::expr_name;
+				return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+			};
+			Type* object = @this.member_object(static_cast<Syntax*>(syntax));
+			if (object->kind != type_kind::named || (object->data.entity->kind != entity_kind::kw_struct && object->data.entity->kind != entity_kind::kw_union)) {
+				@compiler.diagnostics.report(syntax->token, "member access requires a record\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			entity_resolve(@compiler, static_cast<Entity*>(object->data.entity));
+			layout_validate(@compiler, static_cast<Type*>(object), nullptr, syntax->token);
+			if (compiler.result == compilation_result::failure) {
+				return static_cast<Type*>(compiler.void_type);
+			};
+			@syntax->entity = associated_lookup(@compiler, static_cast<Entity*>(object->data.entity), syntax->data.member.name);
+			if (!syntax->entity) {
+				@compiler.diagnostics.report(syntax->data.member.name, "unknown record field\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			if (syntax->entity->kind == entity_kind::variable && syntax->entity->data.variable.storage == storage_kind::field) {
+				@this.member_project(static_cast<Syntax*>(syntax), static_cast<Type*>(object), entity_type(static_cast<Entity*>(syntax->entity->data.variable.data.field.owner)));
+			};
+			if (syntax->entity->kind != entity_kind::variable || syntax->entity->data.variable.storage != storage_kind::field) {
+				@compiler.diagnostics.report(syntax->token, "associated declaration is not instance field storage\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			if (entity_type(static_cast<Entity*>(syntax->entity))->kind == type_kind::reference) {
+				@references.read_validate(static_cast<Syntax*>(syntax));
+			};
+			@type = type_effective(entity_type(static_cast<Entity*>(syntax->entity)));
+			if (object->qualifier == type_qualifier::kw_const && entity_type(static_cast<Entity*>(syntax->entity))->kind != type_kind::reference) {
+				@type = @compiler.semantic.types.qualified(static_cast<Type*>(type), type_qualifier::kw_const);
+			};
+			break;
+		};
+		case syntax_kind::expr_index: {
+			Type* object = @this.expression(static_cast<Syntax*>(syntax->data.binary.left), nullptr);
+			Type* index_context = nullptr;
+			if (syntax_number_expression(static_cast<Syntax*>(syntax->data.binary.right))) {
+				@index_context := compiler.usize_type;
+			};
+			Type* index = @this.expression(static_cast<Syntax*>(syntax->data.binary.right), static_cast<Type*>(index_context));
+			if (!(index && index->kind.is_integer())) {
+				@compiler.diagnostics.report(syntax->token, "index requires an integer\0");
+			};
+			if (object->kind == type_kind::array) {
+				@type := object->data.array.element;
+				if (object->qualifier == type_qualifier::kw_const) {
+					@type = @compiler.semantic.types.qualified(static_cast<Type*>(type), type_qualifier::kw_const);
+				};
+			}
+			else if (object->kind == type_kind::pointer) {
+				@type := object->data.element;
+			}
+			else {
+				@compiler.diagnostics.report(syntax->token, "index requires an array or pointer\0");
+				@type := compiler.void_type;
+			};
+			layout_validate(@compiler, static_cast<Type*>(type), nullptr, syntax->token);
+			break;
+		};
+		case syntax_kind::expr_unary: {
+			token_kind operation := syntax->data.unary.operation;
+			Type* context := expected;
+			if (context && context->kind == type_kind::kw_bool && !syntax_number_expression(static_cast<Syntax*>(syntax->data.unary.value)) && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
+				@context = @compiler.semantic.types.primitive(type_kind::kw_float, 64);
+			};
+			if (operation == token_kind::op_ampersand || operation == token_kind::op_star) {
+				@context = nullptr;
+			};
+			if (operation == token_kind::op_bang) {
+				@context := compiler.bool_type;
+			};
+			Type* operand = nullptr;
+			if (operation == token_kind::op_minus && syntax->data.unary.value->kind == syntax_kind::literal_number && context && context->kind.is_integer() && context->kind != type_kind::kw_bool && number_decimal(syntax->data.unary.value->token)) {
+				decimal_integer(@compiler, syntax->data.unary.value->token, static_cast<Type*>(context), true);
+				@syntax->data.unary.value->type := context;
+				@operand := context;
+			}
+			else if (operation == token_kind::op_minus && syntax->data.unary.value->kind == syntax_kind::literal_number && context && context->kind == type_kind::kw_signed) {
+				Type* magnitude = @compiler.semantic.types.primitive(type_kind::kw_unsigned, static_cast<i32>(context->data.bits));
+				@this.expression(static_cast<Syntax*>(syntax->data.unary.value), static_cast<Type*>(magnitude));
+
+				u64 maximum = 1;
+				i32 bit = 1;
+				while (bit < context->data.bits) {
+					@maximum = maximum * 2;
+					@bit = bit + 1;
+				};
+				integer_spelling(@compiler, syntax->data.unary.value->token, static_cast<u64>(maximum));
+				@syntax->data.unary.value->type := context;
+				@operand = static_cast<Type*>(context);
+			}
+			else if (operation == token_kind::op_ampersand) {
+				@operand = @this.address(static_cast<Syntax*>(syntax->data.unary.value));
+			}
+			else {
+				@operand = @this.expression(static_cast<Syntax*>(syntax->data.unary.value), static_cast<Type*>(context));
+			};
+			if (operation == token_kind::op_ampersand) {
+				if (syntax_category(static_cast<Syntax*>(syntax->data.unary.value)) != value_category::storage && operand->kind != type_kind::function) {
+					@compiler.diagnostics.report(syntax->token, "address-of requires storage or a function entity\0");
+				};
+				@type = @compiler.semantic.types.pointer(static_cast<Type*>(operand));
+				@syntax->type_use = type_use_element(@compiler, @this.expression_use(static_cast<Syntax*>(syntax->data.unary.value)));
+			}
+			else if (operation == token_kind::op_star) {
+				if (operand->kind != type_kind::pointer) {
+					@compiler.diagnostics.report(syntax->token, "dereference requires a pointer\0");
+					@type := compiler.void_type;
+				}
+				else {
+					@type := operand->data.element;
+					if (type->kind != type_kind::function) {
+						layout_validate(@compiler, static_cast<Type*>(type), nullptr, syntax->token);
+					};
+				};
+			}
+			else if (operation == token_kind::op_bang) {
+				if (!(operand && operand->kind.is_scalar())) {
+					@compiler.diagnostics.report(syntax->token, "logical negation requires a scalar\0");
+				};
+				@type := compiler.bool_type;
+			}
+			else {
+				if (!(operand && operand->kind.is_numeric()) || (operation == token_kind::op_tilde && !(operand && operand->kind.is_integer()))) {
+					@compiler.diagnostics.report(syntax->token, "unary operation requires a numeric operand\0");
+				};
+				@type = static_cast<Type*>(operand);
+				if (type->kind == type_kind::kw_bool && !syntax_number_expression(static_cast<Syntax*>(syntax->data.unary.value))) {
+					@type := compiler.i32_type;
+				};
+			};
+			break;
+		};
+		case syntax_kind::stmt_initialize:
+		case syntax_kind::expr_binary: {
+			token_kind operation := syntax->data.binary.operation;
+			Syntax* left := syntax->data.binary.left;
+			Syntax* right := syntax->data.binary.right;
+			if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
+				Syntax* storage = syntax_unaccess(static_cast<Syntax*>(left));
+				if (syntax->kind == syntax_kind::stmt_initialize && storage->entity && entity_type(static_cast<Entity*>(storage->entity)) && entity_type(static_cast<Entity*>(storage->entity))->kind == type_kind::reference) {
+					if (syntax->data.binary.access != initialization_access::access && left->kind != syntax_kind::expr_access) {
+						@compiler.diagnostics.report(left->token, "reference initialization requires explicit '@' access\0");
+					};
+					Type* reference := entity_type(static_cast<Entity*>(storage->entity));
+					if (storage->kind == syntax_kind::expr_member) {
+						Type* object = @this.member_object(static_cast<Syntax*>(storage));
+						@this.member_project(static_cast<Syntax*>(storage), static_cast<Type*>(object), entity_type(static_cast<Entity*>(storage->entity->data.variable.data.field.owner)));
+					};
+					@this.expression(static_cast<Syntax*>(right), static_cast<Type*>(reference));
+					if (syntax_category(static_cast<Syntax*>(right)) != value_category::storage && storage->entity->data.variable.storage != storage_kind::argument) {
+						@compiler.diagnostics.report(right->token, "a named reference cannot bind a temporary\0");
+					};
+					if (storage->entity->data.variable.storage != storage_kind::field) {
+						@this.scope->define(static_cast<Entity*>(storage->entity));
+					};
+					@left->type := reference->data.element;
+					@storage->type := reference->data.element;
+					@syntax->kind = syntax_kind::stmt_bind_reference;
+					@type := reference->data.element;
+					break;
+				};
+
+				Type* destination = @this.expression(static_cast<Syntax*>(left), nullptr);
+				Type* source_type = nullptr;
+				if (left->entity && left->entity->kind == entity_kind::variable && !left->entity->data.variable.type) {
+					@source_type = @this.expression(static_cast<Syntax*>(right), nullptr);
+					@destination := source_type;
+					@left->entity->data.variable.type := destination;
+					@left->entity->data.variable.type_use = @this.expression_use(static_cast<Syntax*>(right));
+					@left->type := destination;
+				};
+				if (syntax_category(static_cast<Syntax*>(left)) != value_category::storage) {
+					@compiler.diagnostics.report(left->token, "assignment requires writable storage\0");
+				};
+				if (syntax->data.binary.access != initialization_access::access && !syntax_mutable_access(static_cast<Syntax*>(left))) {
+					@compiler.diagnostics.report(left->token, "assignment requires explicit '@' mutable access\0");
+				};
+				if (operation == token_kind::op_assign && syntax->kind != syntax_kind::stmt_initialize && destination->kind == type_kind::named && (destination->data.entity->kind == entity_kind::kw_struct || destination->data.entity->kind == entity_kind::kw_union) && syntax_number_expression(static_cast<Syntax*>(right))) {
+					Entity* assignment = @this.special_select(static_cast<Entity*>(destination->data.entity), function_role::assignment, static_cast<Syntax*>(right), Token(syntax->token));
+					if (assignment) {
+						@syntax->entity := assignment;
+						@type = type_effective(static_cast<Type*>(assignment->data.function.type->data.function.result));
+						break;
+					};
+				};
+				if (operation == token_kind::op_copy) {
+					syntax_construct(@compiler, static_cast<Syntax*>(right), static_cast<Type*>(destination), @this.expression_use(static_cast<Syntax*>(left)));
+					@source_type = @this.expression(static_cast<Syntax*>(right), static_cast<Type*>(destination));
+				}
+				else if (!source_type) {
+					Type* context = nullptr;
+					if (syntax_number_expression(static_cast<Syntax*>(right))) {
+						@context := destination;
+					};
+					@source_type = @this.expression(static_cast<Syntax*>(right), static_cast<Type*>(context));
+				if (compiler.result == compilation_result::failure) {
+					return static_cast<Type*>(compiler.void_type);
+				};
+				};
+				if (syntax->kind != syntax_kind::stmt_initialize && destination->kind == type_kind::named && (destination->data.entity->kind == entity_kind::kw_struct || destination->data.entity->kind == entity_kind::kw_union)) {
+					Entity* assignment = @this.special_select(static_cast<Entity*>(destination->data.entity), function_role::assignment, static_cast<Syntax*>(right), Token(syntax->token));
+					if (assignment) {
+						@syntax->entity := assignment;
+						@type = type_effective(static_cast<Type*>(assignment->data.function.type->data.function.result));
+						break;
+					};
+				};
+				@this.expression(static_cast<Syntax*>(right), static_cast<Type*>(destination));
+				@this.owned(static_cast<Syntax*>(right));
+				@this.expect(static_cast<Syntax*>(right), static_cast<Type*>(right->type), static_cast<Type*>(destination));
+				if (syntax->kind == syntax_kind::stmt_initialize && right->kind == syntax_kind::expr_relocate) {
+					@this.generated_operation_validate(static_cast<Type*>(destination), generated_operation::move, syntax->token);
+				};
+				if (left->entity && left->entity->kind == entity_kind::variable && left->entity->data.variable.storage == storage_kind::field && left->entity->data.variable.data.field.owner->kind == entity_kind::kw_union && !type_has_reference(static_cast<Type*>(destination))) {
+					Scope* context := this.scope;
+					while (context && context->context != context_kind::initialization && context->context != context_kind::arguments) {
+						@context := context->parent;
+					};
+					if (context && context->owner == storage_root_entity(static_cast<Syntax*>(left)) && entity_type(static_cast<Entity*>(context->owner))->kind != type_kind::reference) {
+						@syntax->kind = syntax_kind::stmt_initialize;
+					};
+				};
+				if (syntax->kind != syntax_kind::stmt_initialize) {
+					@this.generated_operation_validate(static_cast<Type*>(destination), generated_operation::assignment, syntax->token);
+				};
+				if (operation == token_kind::op_assign) {
+					@this.move(static_cast<Syntax*>(right));
+				};
+				@type = static_cast<Type*>(destination);
+				break;
+			};
+			if (operation == token_kind::op_and || operation == token_kind::op_or) {
+				Type* a = @this.expression(static_cast<Syntax*>(left), static_cast<Type*>(compiler.bool_type));
+				Type* b = @this.expression(static_cast<Syntax*>(right), static_cast<Type*>(compiler.bool_type));
+				if (!(a && a->kind.is_scalar()) || !(b && b->kind.is_scalar())) {
+					@compiler.diagnostics.report(syntax->token, "logical operation requires scalars\0");
+				};
+				@type := compiler.bool_type;
+				break;
+			};
+
+			Type* operand := expected;
+			if (operand && operand->kind == type_kind::kw_bool && syntax_number_expression(static_cast<Syntax*>(left)) && syntax_number_expression(static_cast<Syntax*>(right))) {
+				@operand = @compiler.semantic.types.primitive(type_kind::kw_float, 64);
+			};
+			Type* a = nullptr;
+			Type* b = nullptr;
+			if (!syntax_number_expression(static_cast<Syntax*>(left))) {
+				@a = @this.expression(static_cast<Syntax*>(left), nullptr);
+				@operand := a;
+			}
+			else if (!syntax_number_expression(static_cast<Syntax*>(right))) {
+				@b = @this.expression(static_cast<Syntax*>(right), nullptr);
+				@operand := b;
+			};
+			if (!a) {
+				@a = @this.expression(static_cast<Syntax*>(left), static_cast<Type*>(operand));
+			};
+			const char* operator_spelling = comparison_operator_spelling(token_kind(operation));
+			if (operator_spelling && !b && !syntax_number_expression(static_cast<Syntax*>(right))) {
+				@b = @this.expression(static_cast<Syntax*>(right), nullptr);
+			};
+			if (operator_spelling && (a->kind == type_kind::named || (b && b->kind == type_kind::named))) {
+				Token name = token_synthetic(@compiler, Token(syntax->token), const char*(operator_spelling));
+				Entity* free_function = nullptr;
+				@this.comparison_function_add(&free_function, this.scope->lookup(name), static_cast<Syntax*>(left), static_cast<Syntax*>(right), name);
+				@this.comparison_namespace_lookup(&free_function, static_cast<Type*>(a), static_cast<Syntax*>(left), static_cast<Syntax*>(right), name);
+				@this.comparison_namespace_lookup(&free_function, static_cast<Type*>(b), static_cast<Syntax*>(left), static_cast<Syntax*>(right), name);
+				if (compiler.result == compilation_result::failure) {
+					return static_cast<Type*>(compiler.void_type);
+				};
+				if (free_function) {
+					Syntax* callable = syntax_create(@compiler, syntax_kind::expr_name, Token(name));
+					@callable->entity := free_function;
+					@left->next := right;
+					@right->next = nullptr;
+					@syntax->kind = syntax_kind::expr_call;
+					@syntax->data.call = CallSyntax();
+					@syntax->data.call.callable = $callable;
+					@syntax->data.call.arguments := left;
+					return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+				};
+				Entity* function = @this.receiver_callable(static_cast<Type*>(a), Token(name));
+				if (function) {
+					Syntax* member = syntax_create(@compiler, syntax_kind::expr_member, Token(syntax->token));
+					@member->token.kind = token_kind::op_dot;
+					@member->data.member.object := left;
+					@member->data.member.name = Token(name);
+					@syntax->kind = syntax_kind::expr_call;
+					@syntax->data.call = CallSyntax();
+					@syntax->data.call.callable = $member;
+					@syntax->data.call.arguments := right;
+					return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+				};
+			};
+
+			Type* right_context := operand;
+			if (a->kind == type_kind::pointer && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
+				@right_context = nullptr;
+				if (syntax_number_expression(static_cast<Syntax*>(right))) {
+					@right_context := compiler.usize_type;
+				};
+			};
+			if (!b) {
+				@b = @this.expression(static_cast<Syntax*>(right), static_cast<Type*>(right_context));
+			};
+			if (a->kind == type_kind::pointer && b->kind == type_kind::pointer && (operation == token_kind::op_equal || operation == token_kind::op_not_equal || operation == token_kind::op_less || operation == token_kind::op_greater || operation == token_kind::op_less_equal || operation == token_kind::op_greater_equal) && !type_equal(static_cast<Type*>(a), static_cast<Type*>(b))) {
+				BaseSearch forward = base_search(@compiler, static_cast<Type*>(b->data.element), static_cast<Type*>(a->data.element));
+				BaseSearch reverse = base_search(@compiler, static_cast<Type*>(a->data.element), static_cast<Type*>(b->data.element));
+				if (forward.count == 1) {
+					@this.expect(static_cast<Syntax*>(right), static_cast<Type*>(b), static_cast<Type*>(a));
+					@b := a;
+				}
+				else if (reverse.count == 1 || type_pointer_conversion(static_cast<Type*>(a), static_cast<Type*>(b))) {
+					@this.expect(static_cast<Syntax*>(left), static_cast<Type*>(a), static_cast<Type*>(b));
+					@a := b;
+					@right_context := b;
+				};
+			};
+			@this.expect(static_cast<Syntax*>(right), static_cast<Type*>(b), static_cast<Type*>(right_context));
+			if (a->kind == type_kind::pointer && (operation == token_kind::op_plus || operation == token_kind::op_minus)) {
+				layout_validate(@compiler, static_cast<Type*>(a->data.element), nullptr, syntax->token);
+				if (!(b && b->kind.is_integer())) {
+					@compiler.diagnostics.report(right->token, "pointer offset requires an integer\0");
+				};
+				@type := a;
+				break;
+			};
+			if (operation == token_kind::op_equal || operation == token_kind::op_not_equal || operation == token_kind::op_less || operation == token_kind::op_greater || operation == token_kind::op_less_equal || operation == token_kind::op_greater_equal) {
+				Type* representation = type_representation(static_cast<Type*>(a));
+				if ((!(a && a->kind.is_scalar()) || !(b && b->kind.is_scalar())) && !(type_enum(static_cast<Type*>(a)) && (representation && representation->kind.is_scalar()) && type_value_equal(static_cast<Type*>(a), static_cast<Type*>(b)))) {
+					@compiler.diagnostics.report(syntax->token, "comparison requires scalar operands or matching enum types\0");
+				};
+				@type := compiler.bool_type;
+			}
+			else {
+				if (!(a && a->kind.is_numeric()) || !type_value_equal(static_cast<Type*>(a), static_cast<Type*>(b))) {
+					@compiler.diagnostics.report(syntax->token, "arithmetic requires matching numeric operands\0");
+				};
+				if ((operation == token_kind::op_remainder || operation == token_kind::op_ampersand || operation == token_kind::op_pipe || operation == token_kind::op_caret || operation == token_kind::op_shift_left || operation == token_kind::op_shift_right) && !(a && a->kind.is_integer())) {
+					@compiler.diagnostics.report(syntax->token, "operation requires integer operands\0");
+				};
+				@type = static_cast<Type*>(a);
+				if (type->kind == type_kind::kw_bool) {
+					@type := compiler.i32_type;
+				};
+			};
+			break;
+		};
+		case syntax_kind::expr_call: {
+			Syntax* callable_syntax := syntax->data.call.callable;
+			if (callable_syntax->kind == syntax_kind::expr_name) {
+				Entity* callable_entity = syntax_lookup(static_cast<Scope*>(this.scope), static_cast<Syntax*>(callable_syntax));
+				if (callable_entity && callable_entity->kind == entity_kind::kw_template && callable_entity->data.template_pattern.declaration_kind == token_kind::kw_fn) {
+					@callable_entity = @this.template_deduce(static_cast<Entity*>(callable_entity), static_cast<Syntax*>(callable_syntax), static_cast<Syntax*>(syntax->data.call.arguments));
+					if (!callable_entity) {
+						return static_cast<Type*>(compiler.void_type);
+					};
+					@callable_syntax->entity := callable_entity;
+				};
+				if (callable_entity && (callable_entity->kind == entity_kind::primitive || callable_entity->kind == entity_kind::kw_struct || callable_entity->kind == entity_kind::kw_union || callable_entity->kind == entity_kind::kw_enum)) {
+					Syntax* arguments := syntax->data.call.arguments;
+					Type* target = named_type(@compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(callable_syntax));
+					TypeUse* target_use = nullptr;
+					if (callable_entity->kind == entity_kind::primitive) {
+						@target_use := callable_entity->data.primitive.type_use;
+					};
+					@syntax->kind = syntax_kind::expr_construct;
+					@syntax->data.construction.destination = nullptr;
+					@syntax->data.construction.target = static_cast<Type*>(target);
+					@syntax->data.construction.type_use = $target_use;
+					@syntax->data.construction.constructor = nullptr;
+					@syntax->data.construction.arguments = static_cast<Syntax*>(arguments);
+					return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+				};
+			};
+			if (callable_syntax->kind == syntax_kind::expr_member) {
+				Syntax* receiver = @this.method_receiver(static_cast<Syntax*>(callable_syntax));
+				Type* owner := receiver->type;
+				if (callable_syntax->data.member.qualifier) {
+					@owner = named_type(@compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(callable_syntax->data.member.qualifier));
+					BaseSearch path = base_search(@compiler, static_cast<Type*>(receiver->type), static_cast<Type*>(owner));
+					if (!path.count) {
+						@compiler.diagnostics.report(callable_syntax->token, "qualified callable owner is not a base of its receiver\0");
+						return static_cast<Type*>(compiler.void_type);
+					};
+					@syntax->data.call.qualified_owner := owner->data.entity;
+				};
+				if (@this.constructor_designates(static_cast<Type*>(owner), callable_syntax->data.member.name)) {
+					if (owner->qualifier == type_qualifier::kw_const || (callable_syntax->token.kind != token_kind::op_arrow && (syntax_category(static_cast<Syntax*>(receiver)) != value_category::storage || !syntax_mutable_access(static_cast<Syntax*>(receiver))))) {
+						@compiler.diagnostics.report(callable_syntax->token, "construction requires mutable storage\0");
+						return static_cast<Type*>(compiler.void_type);
+					};
+					Syntax* arguments := syntax->data.call.arguments;
+					@syntax->kind = syntax_kind::expr_construct;
+					@syntax->data.construction.type_use = @this.expression_use(static_cast<Syntax*>(receiver));
+					@syntax->data.construction.destination = $receiver;
+					@syntax->data.construction.target := owner;
+					@syntax->data.construction.constructor = nullptr;
+					@syntax->data.construction.arguments = $arguments;
+					return @this.expression(static_cast<Syntax*>(syntax), static_cast<Type*>(expected));
+				};
+				Entity* function = @this.receiver_callable(static_cast<Type*>(owner), Token(callable_syntax->data.member.name));
+				if (function && function->kind == entity_kind::kw_template && function->data.template_pattern.declaration_kind == token_kind::kw_fn) {
+					Syntax* input = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+					@*input := *receiver;
+					@input->next := syntax->data.call.arguments;
+					@function = @this.template_deduce(static_cast<Entity*>(function), static_cast<Syntax*>(callable_syntax), $input);
+				};
+				if (function && function->kind == entity_kind::function) {
+					entity_resolve(@compiler, static_cast<Entity*>(function));
+					Parameter* first := function->data.function.type->data.function.parameters;
+					@syntax->data.call.receiver.value := receiver;
+					if (first && function_receiver(static_cast<Entity*>(function))) {
+						if (callable_syntax->data.member.qualifier && !type_equal(static_cast<Type*>(receiver->type), static_cast<Type*>(owner))) {
+							Type* reference = @compiler.semantic.types.indirect(type_kind::reference, static_cast<Type*>(owner));
+							@this.expect(static_cast<Syntax*>(receiver), static_cast<Type*>(receiver->type), static_cast<Type*>(reference));
+						};
+						@this.expect(static_cast<Syntax*>(receiver), static_cast<Type*>(receiver->type), static_cast<Type*>(first->type));
+						@syntax->data.call.receiver.kind = receiver_kind::bind;
+					}
+					else {
+						@syntax->data.call.receiver.kind = receiver_kind::evaluate;
+					};
+					Syntax* direct = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+					@direct->kind = syntax_kind::expr_name;
+					@direct->token := callable_syntax->data.member.name;
+					@direct->entity = static_cast<Entity*>(function);
+					@syntax->data.call.callable = static_cast<Syntax*>(direct);
+				};
+			};
+			Type* callable = @this.expression(static_cast<Syntax*>(syntax->data.call.callable), nullptr);
+			TypeUse* callable_use = @this.expression_use(static_cast<Syntax*>(syntax->data.call.callable));
+			if (callable->kind == type_kind::pointer) {
+				@callable := callable->data.element;
+				if (callable_use) {
+					@callable_use := callable_use->data.element;
+				};
+			};
+			if (callable->kind != type_kind::function) {
+				@compiler.diagnostics.report(syntax->token, "call requires a function entity or function pointer\0");
+				return static_cast<Type*>(compiler.void_type);
+			};
+			if (callable->data.function.result->kind != type_kind::kw_void) {
+				layout_validate(@compiler, static_cast<Type*>(callable->data.function.result), nullptr, syntax->token);
+			};
+			Parameter* complete := callable->data.function.parameters;
+			while (complete) {
+				layout_validate(@compiler, static_cast<Type*>(complete->type), nullptr, syntax->token);
+				@complete := complete->next;
+			};
+			Parameter* parameter := callable->data.function.parameters;
+			ParameterUse* label = nullptr;
+			if (callable_use) {
+				@label := callable_use->data.callable.parameters;
+			};
+			Syntax* direct := syntax->data.call.callable;
+			if (syntax->data.call.receiver.kind == receiver_kind::none && direct->kind == syntax_kind::expr_name && !direct->data.expression && direct->entity && direct->entity->scope && direct->entity->scope->owner && (direct->entity->scope->owner->kind == entity_kind::kw_struct || direct->entity->scope->owner->kind == entity_kind::kw_union) && parameter && label && label->name.is("this\0")) {
+				Entity* current = this.scope->lookup(token_synthetic(@compiler, Token(direct->token), "this\0"));
+				if (current) {
+					Syntax* receiver = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+					@receiver->kind = syntax_kind::expr_name;
+					@receiver->token := current->name;
+					@receiver->entity = static_cast<Entity*>(current);
+					@this.expression(static_cast<Syntax*>(receiver), static_cast<Type*>(parameter->type));
+					@syntax->data.call.receiver.value = static_cast<Syntax*>(receiver);
+					@syntax->data.call.receiver.kind = receiver_kind::bind;
+				};
+			};
+			if (syntax->data.call.receiver.kind == receiver_kind::bind) {
+				@parameter := parameter->next;
+				if (label) {
+					@label := label->next;
+				};
+			};
+			Syntax* argument := syntax->data.call.arguments;
+			while (argument) {
+				if (!parameter && callable->data.function.arity != parameter_arity::variadic) {
+					@compiler.diagnostics.report(argument->token, "too many arguments\0");
+					break;
+				};
+				Type* destination = nullptr;
+				if (parameter) {
+					@destination := parameter->type;
+				};
+				if (argument->kind == syntax_kind::node_block) {
+					if (!parameter || !label || !label->name.source) {
+						@compiler.diagnostics.report(argument->token, "argument block requires a named parameter\0");
+					}
+					else {
+						@this.argument_block(static_cast<Syntax*>(argument), static_cast<Type*>(destination), static_cast<ParameterUse*>(label));
+					};
+				}
+				else {
+					Type* actual = @this.expression(static_cast<Syntax*>(argument), static_cast<Type*>(destination));
+					if (!destination || destination->kind != type_kind::reference) {
+						@this.owned(static_cast<Syntax*>(argument));
+					};
+					if (!parameter && type_aggregate(static_cast<Type*>(actual))) {
+						@compiler.diagnostics.report(argument->token, "aggregate C variadic arguments require ABI lowering that is not supported yet\0");
+					};
+				};
+				if (parameter) {
+					@parameter := parameter->next;
+				};
+				if (label) {
+					@label := label->next;
+				};
+				@argument := argument->next;
+			};
+			if (parameter) {
+				@compiler.diagnostics.report(syntax->token, "too few arguments\0");
+			};
+			@type = type_effective(static_cast<Type*>(callable->data.function.result));
+			break;
+		};
+		case syntax_kind::node_block:
+			@this.statement(static_cast<Syntax*>(syntax));
+			@type := compiler.void_type;
+			break;
+		default:
+			@compiler.diagnostics.report(syntax->token, "expected value expression\0");
+			@type := compiler.void_type;
+			break;
+	};
+	@type = type_effective(static_cast<Type*>(type));
+	@syntax->type := type;
+	return @this.expect($syntax, $type, $expected);
+};
+

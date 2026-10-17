@@ -1,0 +1,95 @@
+fn Parser::failed(const Parser& this) -> i32 {
+	return this.failure.message || this.compiler->result == compilation_result::failure;
+};
+
+fn Parser::error(Parser& this, const Token& token, const char* message) {
+	if (this.failure.message) {
+		return;
+	};
+	@this.failure.token := token;
+	@this.failure.message = $message;
+	@this.failure.offset := this.offset;
+	@this.failure.pending_greater := this.pending_greater;
+};
+
+fn Parser::token(const Parser& this) -> Token {
+	Token token := this.tokens[this.offset];
+	if (this.pending_greater) {
+		@token.kind = token_kind::op_greater;
+		@token.begin = token.begin + 1;
+		@token.length = 1;
+		@token.column = token.column + 1;
+	};
+	return token;
+};
+
+fn Parser::at(const Parser& this, token_kind kind) -> i32 {
+	return (this.token()).kind == kind;
+};
+
+fn Parser::take(Parser& this, token_kind kind) -> i32 {
+	if (!this.at($kind)) {
+		return 0;
+	};
+
+	if (this.offset + 1 < this.count) {
+		@this.offset = this.offset + 1;
+	};
+	@this.pending_greater = 0;
+
+	return 1;
+};
+
+fn Parser::require(Parser& this, token_kind kind, char* message) -> Token {
+	Token token = this.token();
+
+	if (!@this.take($kind)) {
+		@this.error(Token(token), const char*(message));
+	};
+
+	return $token;
+};
+
+fn syntax_append(Syntax** first, Syntax** last, Syntax* node) {
+	if (!node) {
+		return;
+	};
+
+	if (*last) {
+		(@*last)->next := node;
+	}
+	else {
+		@*first := node;
+	};
+	@*last = $node;
+};
+
+fn Parser::signature_arrow(Parser& this, usize offset) -> usize {
+	usize depth = 0;
+	while (offset < this.count) {
+		token_kind kind := this.tokens[offset].kind;
+		if (kind == token_kind::punct_left_paren) {
+			@depth = depth + 1;
+		};
+		if (kind == token_kind::punct_right_paren) {
+			@depth = depth - 1;
+			if (!depth) {
+				if (offset + 1 < this.count && this.tokens[offset + 1].kind == token_kind::op_arrow) {
+					return offset + 1;
+				};
+				return 0;
+			};
+		};
+		@offset = offset + 1;
+	};
+	return 0;
+};
+
+fn Parser::template_close(Parser& this) {
+	if (!this.pending_greater && this.tokens[this.offset].kind == token_kind::op_shift_right) {
+		@this.pending_greater = 1;
+		return;
+	};
+	@this.require(token_kind::op_greater, "expected '>' after template arguments\0");
+};
+

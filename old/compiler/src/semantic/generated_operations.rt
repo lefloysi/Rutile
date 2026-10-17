@@ -1,0 +1,265 @@
+fn function_request(Entity* function) {
+	if (function && function->kind == entity_kind::function && function->data.function.analysis == function_analysis::unrequested) {
+		@function->data.function.analysis = function_analysis::requested;
+	};
+};
+
+fn destruction_request(Type* type) {
+	if (!type) {
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		destruction_request(static_cast<Type*>(type->data.array.element));
+		return;
+	};
+	if (type->kind != type_kind::named) {
+		return;
+	};
+	Entity* owner := type->data.entity;
+	function_request(static_cast<Entity*>(owner->data.aggregate.destructor));
+	if (owner->kind == entity_kind::kw_enum) {
+		destruction_request(static_cast<Type*>(owner->data.enumeration.underlying));
+		return;
+	};
+	if (owner->kind == entity_kind::kw_union) {
+		return;
+	};
+	Field* field := owner->data.aggregate.fields;
+	while (field) {
+		destruction_request(entity_type(static_cast<Entity*>(field->entity)));
+		@field := field->next;
+	};
+	BaseRelation* base := owner->data.aggregate.bases;
+	while (base) {
+		destruction_request(entity_type(static_cast<Entity*>(base->entity)));
+		@base := base->next;
+	};
+};
+
+fn construction_resolve(Compiler& compiler, Scope* scope, Syntax* syntax) {
+	TypedApplySyntax parsed := syntax->data.typed_apply;
+	Type* target = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parsed.target));
+	TypeUse* use = type_use_resolve(@compiler, $scope, static_cast<TypeSyntax*>(parsed.target));
+	if (compiler.result == compilation_result::failure) {
+		return;
+	};
+
+	@syntax->kind = syntax_kind::expr_construct;
+	@syntax->data.construction.destination = nullptr;
+	@syntax->data.construction.target = $target;
+	@syntax->data.construction.type_use = $use;
+	@syntax->data.construction.constructor = nullptr;
+	@syntax->data.construction.arguments := parsed.arguments;
+};
+
+fn syntax_construct(Compiler& compiler, Syntax* syntax, Type* target, TypeUse* use) {
+	Syntax* argument = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+	@*argument := *syntax;
+	@argument->next = nullptr;
+	@argument->use = value_use::observed;
+	@syntax->kind = syntax_kind::expr_construct;
+	@syntax->type = nullptr;
+	@syntax->type_use = nullptr;
+	@syntax->entity = nullptr;
+	@syntax->data.construction.destination = nullptr;
+	@syntax->data.construction.target = $target;
+	@syntax->data.construction.type_use = $use;
+	@syntax->data.construction.constructor = nullptr;
+	@syntax->data.construction.arguments = $argument;
+};
+
+enum generated_operation : [i32] {
+	kw_default;
+	copy;
+	move;
+	assignment;
+	copy_assignment;
+};
+
+fn move_constructor(Compiler& compiler, Type* type, const Token& token) -> Entity* {
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return nullptr;
+	};
+	Entity* candidate := type->data.entity->data.aggregate.constructors;
+	while (candidate && compiler.result != compilation_result::failure) {
+		entity_resolve(@compiler, static_cast<Entity*>(candidate));
+		Parameter* parameter := candidate->data.function.type->data.function.parameters;
+		if (parameter && parameter->next && !parameter->next->next && parameter->next->type->kind != type_kind::reference && type_value_equal(static_cast<Type*>(parameter->next->type), static_cast<Type*>(type))) {
+			if (candidate->data.function.definition == function_definition::deleted) {
+				@compiler.diagnostics.report(token, "selected function is deleted\0");
+				return nullptr;
+			};
+			function_request(static_cast<Entity*>(candidate));
+			return static_cast<Entity*>(candidate);
+		};
+		@candidate := candidate->data.function.overload_next;
+	};
+	return nullptr;
+};
+
+fn Semantic::operation_function(Semantic& this, Type* type, generated_operation operation, Token token) -> Entity* {
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return nullptr;
+	};
+	if (operation == generated_operation::move) {
+		return move_constructor(@*this.compiler, $type, token);
+	};
+	function_role role = function_role::constructor;
+	Syntax input;
+	@input.kind = syntax_kind::expr_borrowed_component;
+	@input.type = @this.compiler->semantic.types.qualified(static_cast<Type*>(type), type_qualifier::kw_const);
+	@input.token := token;
+	@input.use = value_use::transferred;
+	if (operation == generated_operation::assignment || operation == generated_operation::copy_assignment) {
+		@role = function_role::assignment;
+		@input.kind = syntax_kind::expr_owned_component;
+		@input.type := type;
+		if (operation == generated_operation::copy_assignment) {
+			@input.kind = syntax_kind::expr_borrowed_component;
+			@input.type = @this.compiler->semantic.types.qualified(static_cast<Type*>(type), type_qualifier::kw_const);
+		};
+	};
+	Syntax* argument = &input;
+	if (operation == generated_operation::kw_default) {
+		@argument = nullptr;
+	};
+	return @this.special_select(static_cast<Entity*>(type->data.entity), $role, $argument, $token);
+};
+
+fn Semantic::operation_has_callback(Semantic& this, Type* type, generated_operation operation, const Token& token) -> bool {
+	if (type_has_views(static_cast<Type*>(type))) {
+		return true;
+	};
+	if (type->kind == type_kind::array) {
+		return @this.operation_has_callback(static_cast<Type*>(type->data.array.element), static_cast<generated_operation>(operation), token);
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return false;
+	};
+	Entity* function = @this.operation_function(static_cast<Type*>(type), static_cast<generated_operation>(operation), Token(token));
+	if (function && function->data.function.definition != function_definition::defaulted) {
+		return true;
+	};
+	BaseRelation* base := type->data.entity->data.aggregate.bases;
+	while (base) {
+		if (@this.operation_has_callback(entity_type(static_cast<Entity*>(base->entity)), static_cast<generated_operation>(operation), token)) {
+			return true;
+		};
+		@base := base->next;
+	};
+	Field* field := type->data.entity->data.aggregate.fields;
+	while (field) {
+		if (@this.operation_has_callback(entity_type(static_cast<Entity*>(field->entity)), static_cast<generated_operation>(operation), token)) {
+			return true;
+		};
+		@field := field->next;
+	};
+	return false;
+};
+
+fn Semantic::constructor_members_validate(Semantic& this, Type* type, const Token& token) {
+	if (type->kind != type_kind::named || type->data.entity->kind != entity_kind::kw_struct) {
+		return;
+	};
+	BaseRelation* base := type->data.entity->data.aggregate.bases;
+	while (base && this.compiler->result != compilation_result::failure) {
+		@this.generated_operation_validate(entity_type(static_cast<Entity*>(base->entity)), generated_operation::kw_default, token);
+		@base := base->next;
+	};
+	Field* field := type->data.entity->data.aggregate.fields;
+	while (field && this.compiler->result != compilation_result::failure) {
+		@this.generated_operation_validate(entity_type(static_cast<Entity*>(field->entity)), generated_operation::kw_default, token);
+		@field := field->next;
+	};
+};
+fn Semantic::generated_operation_validate(Semantic& this, Type* type, generated_operation operation, const Token& token) {
+	if (this.compiler->result == compilation_result::failure) {
+		return;
+	};
+	if (type->kind == type_kind::reference) {
+		if (operation != generated_operation::copy && operation != generated_operation::move) {
+			@this.compiler->diagnostics.report(token, "generated operation cannot default-bind or assign a reference component\0");
+		};
+		return;
+	};
+	if ((operation == generated_operation::assignment || operation == generated_operation::copy_assignment) && type->qualifier == type_qualifier::kw_const) {
+		@this.compiler->diagnostics.report(token, "generated assignment cannot replace a const component\0");
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		@this.generated_operation_validate(static_cast<Type*>(type->data.array.element), static_cast<generated_operation>(operation), token);
+		return;
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return;
+	};
+	Entity* function = @this.operation_function(static_cast<Type*>(type), static_cast<generated_operation>(operation), Token(token));
+	if (function && function->data.function.definition != function_definition::defaulted) {
+		if (operation != generated_operation::assignment) {
+			@this.constructor_members_validate(static_cast<Type*>(type), token);
+		};
+		if (operation != generated_operation::assignment && type_has_reference(static_cast<Type*>(type))) {
+			@this.compiler->diagnostics.report(token, "constructor reference-field binding syntax is not implemented\0");
+		};
+		return;
+	};
+	Entity* entity := type->data.entity;
+	if (function && function->data.function.definition == function_definition::defaulted && operation == generated_operation::assignment && function->data.function.type->data.function.parameters->next->type->kind == type_kind::reference) {
+		@operation = generated_operation::copy_assignment;
+	};
+	if (operation == generated_operation::assignment) {
+		destruction_request(static_cast<Type*>(type));
+		@this.generated_operation_validate(static_cast<Type*>(type), generated_operation::move, token);
+		return;
+	};
+	if (!function && operation == generated_operation::kw_default && entity->data.aggregate.constructors) {
+		@this.compiler->diagnostics.report(token, "user-declared constructors suppress the generated default constructor\0");
+		return;
+	};
+	if (entity->kind == entity_kind::kw_union) {
+		if (operation == generated_operation::kw_default && entity->data.aggregate.fields) {
+			Field* variant := entity->data.aggregate.fields;
+			usize mutable_variants = 0;
+			while (variant) {
+				Type* member = entity_type(static_cast<Entity*>(variant->entity));
+				while (member->kind == type_kind::array && member->qualifier != type_qualifier::kw_const) {
+					@member := member->data.array.element;
+				};
+				if (member->qualifier != type_qualifier::kw_const) {
+					@mutable_variants = mutable_variants + 1;
+				};
+				@variant := variant->next;
+			};
+			if (!mutable_variants) {
+				@this.compiler->diagnostics.report(token, "generated default constructor is deleted for a union with only const variant members\0");
+				return;
+			};
+		};
+		if (operation == generated_operation::kw_default && (type_has_reference(static_cast<Type*>(type)) || type_requires_union_choice(static_cast<Type*>(type)))) {
+			@this.compiler->diagnostics.report(token, "generated union construction requires explicit member initialization\0");
+			return;
+		};
+		Field* field := entity->data.aggregate.fields;
+		while (field) {
+			Type* member = entity_type(static_cast<Entity*>(field->entity));
+			if (@this.operation_has_callback(static_cast<Type*>(member), static_cast<generated_operation>(operation), token)) {
+				@this.compiler->diagnostics.report(token, "generated union operation is deleted for a nontrivial variant member\0");
+				return;
+			};
+			@this.generated_operation_validate($member, static_cast<generated_operation>(operation), token);
+			@field := field->next;
+		};
+		return;
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		@this.generated_operation_validate(entity_type(static_cast<Entity*>(base->entity)), static_cast<generated_operation>(operation), token);
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		@this.generated_operation_validate(entity_type(static_cast<Entity*>(field->entity)), static_cast<generated_operation>(operation), token);
+		@field := field->next;
+	};
+};
+

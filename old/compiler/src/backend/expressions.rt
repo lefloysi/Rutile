@@ -1,0 +1,392 @@
+fn Emitter::expression_value(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
+	if (syntax->kind == syntax_kind::expr_borrowed_component || syntax->kind == syntax_kind::expr_owned_component) {
+		return @this.complete_read(static_cast<Type*>(syntax->type), LLVMOpaqueValue*(this.component_source));
+	};
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	LLVMOpaqueType* type = llvm_type(@compiler, static_cast<Type*>(syntax->type));
+	switch (syntax->kind) {
+		case syntax_kind::node_block: {
+			BackendEntity* storage = backend_entity_define(@compiler, static_cast<Entity*>(syntax->entity));
+			if (!storage) {
+				return nullptr;
+			};
+			@storage->value = emit_slot(@compiler, static_cast<Type*>(syntax->type));
+			if (syntax->data.statements && syntax->type->kind != type_kind::reference) {
+				@this.initialize_type(static_cast<Type*>(syntax->type), LLVMOpaqueValue*(storage->value));
+			};
+			@this.region(static_cast<Syntax*>(syntax));
+			@backend_syntax(@compiler.backend, static_cast<Syntax*>(syntax))->address := storage->value;
+			return LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), $type, LLVMOpaqueValue*(storage->value), "argument\0");
+		};
+		case syntax_kind::kw_new: {
+			Syntax* construction := syntax->data.allocation.construction;
+			Type* target := construction->data.construction.target;
+			LLVMOpaqueType* size_type = llvm_type(@compiler, static_cast<Type*>(compiler.usize_type));
+			LLVMOpaqueType* element_type = llvm_type(@compiler, static_cast<Type*>(target));
+			LLVMOpaqueType* header_type = allocation_header_type(@compiler);
+			u64 element_size = LLVMABISizeOfType(compiler.backend.llvm_layout.get(), LLVMOpaqueType*(element_type));
+			u64 header_size = LLVMABISizeOfType(compiler.backend.llvm_layout.get(), LLVMOpaqueType*(header_type));
+			u64 alignment = static_cast<u64>(LLVMABIAlignmentOfType(compiler.backend.llvm_layout.get(), LLVMOpaqueType*(element_type)));
+			u64 prefix = (header_size + alignment - 1) / alignment * alignment;
+			u64 maximum = (~u64(0)) >> static_cast<u64>((64 - type_bits(static_cast<Type*>(compiler.usize_type))));
+			u64 maximum_count := maximum;
+			if (element_size) {
+				@maximum_count = (maximum - prefix) / element_size;
+			};
+			LLVMOpaqueValue* count = LLVMConstInt(LLVMOpaqueType*(size_type), 1, 0);
+			if (syntax->data.allocation.count) {
+				Syntax* length := syntax->data.allocation.count;
+				@count = @this.cast(@this.expression(static_cast<Syntax*>(length)), static_cast<Type*>(length->type), static_cast<Type*>(compiler.usize_type));
+			};
+			LLVMOpaqueBasicBlock* allocate = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.allocate\0");
+			LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.construct\0");
+			LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.end\0");
+			LLVMOpaqueBasicBlock* failed = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "new.failed\0");
+			LLVMOpaqueValue* overflow = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 34, LLVMOpaqueValue*(count), LLVMConstInt(LLVMOpaqueType*(size_type), static_cast<u64>(maximum_count), 0), "new.overflow\0");
+			if (syntax->data.allocation.count && !type_unsigned(static_cast<Type*>(syntax->data.allocation.count->type))) {
+				LLVMOpaqueValue* negative = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 40, LLVMOpaqueValue*(count), LLVMConstNull(LLVMOpaqueType*(size_type)), "new.negative\0");
+				@overflow = LLVMBuildOr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(overflow), $negative, "new.invalid\0");
+			};
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $overflow, LLVMOpaqueBasicBlock*(failed), LLVMOpaqueBasicBlock*(allocate));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $allocate);
+			LLVMOpaqueValue* bytes = LLVMBuildMul(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(count), LLVMConstInt(LLVMOpaqueType*(size_type), static_cast<u64>(element_size), 0), "new.element.bytes\0");
+			@bytes = LLVMBuildAdd(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(bytes), LLVMConstInt(LLVMOpaqueType*(size_type), static_cast<u64>(prefix), 0), "new.total.bytes\0");
+			LLVMOpaqueValue* memory = LLVMBuildArrayMalloc(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, static_cast<Type*>(compiler.char_type)), $bytes, "new.storage\0");
+			LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 32, LLVMOpaqueValue*(memory), LLVMConstNull(llvm_type(@compiler, static_cast<Type*>(syntax->type))), "new.null\0");
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $empty, LLVMOpaqueBasicBlock*(failed), LLVMOpaqueBasicBlock*(live));
+			Temporary* boundary := this.temporaries;
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(live));
+			LLVMOpaqueValue* offset = LLVMConstInt(LLVMOpaqueType*(size_type), static_cast<u64>(prefix), 0);
+			LLVMOpaqueValue* data = LLVMBuildGEP2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, static_cast<Type*>(compiler.char_type)), LLVMOpaqueValue*(memory), &offset, 1, "new.data\0");
+			LLVMOpaqueValue* header = @this.allocation_header(LLVMOpaqueValue*(data));
+			LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(count), LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(header_type), LLVMOpaqueValue*(header), 0, "new.count\0"));
+			LLVMBuildStore(LLVMOpaqueBuilder*(builder), $memory, LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(header_type), $header, 1, "new.base\0"));
+			if (syntax->data.allocation.count) {
+				@this.construct_array(static_cast<Syntax*>(construction), LLVMOpaqueValue*(data), LLVMOpaqueValue*(count));
+			}
+			else {
+				@this.construct_at(static_cast<Syntax*>(construction), LLVMOpaqueValue*(data));
+			};
+			@live = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+			Temporary* success := this.temporaries;
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(failed));
+			if (!syntax->data.allocation.count) {
+				@this.failed_arguments(static_cast<Syntax*>(construction->data.construction.arguments));
+			};
+			@failed = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $merge);
+			LLVMOpaqueValue* result = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(type), "new.result\0");
+			LLVMOpaqueValue* null = LLVMConstNull(LLVMOpaqueType*(type));
+			LLVMAddIncoming(LLVMOpaqueValue*(result), &data, &live, 1);
+			LLVMAddIncoming(LLVMOpaqueValue*(result), &null, &failed, 1);
+			@this.guard_temporaries(static_cast<Temporary*>(this.temporaries), static_cast<Temporary*>(success), LLVMOpaqueBasicBlock*(failed), LLVMOpaqueBasicBlock*(live));
+			@this.guard_temporaries($success, $boundary, $live, $failed);
+			return $result;
+		};
+		case syntax_kind::kw_delete:
+		case syntax_kind::expr_delete_discard: {
+			Syntax* operand := syntax->data.expression;
+			LLVMOpaqueValue* memory = @this.expression(static_cast<Syntax*>(operand));
+			LLVMOpaqueBasicBlock* live = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "delete.live\0");
+			LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "delete.end\0");
+			LLVMOpaqueValue* empty = LLVMBuildICmp(LLVMOpaqueBuilder*(builder), 32, LLVMOpaqueValue*(memory), LLVMConstNull(llvm_type(@compiler, static_cast<Type*>(operand->type))), "delete.null\0");
+			LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), $empty, LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(live));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $live);
+			LLVMOpaqueType* header_type = allocation_header_type(@compiler);
+			LLVMOpaqueValue* header = @this.allocation_header(LLVMOpaqueValue*(memory));
+			if (syntax->kind == syntax_kind::kw_delete) {
+				LLVMOpaqueValue* count_address = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), LLVMOpaqueType*(header_type), LLVMOpaqueValue*(header), 0, "delete.count.address\0");
+				LLVMOpaqueValue* count = LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, static_cast<Type*>(compiler.usize_type)), $count_address, "delete.count\0");
+				@this.destroy_allocation(static_cast<Type*>(operand->type->data.element), LLVMOpaqueValue*(memory), $count);
+			};
+			LLVMOpaqueValue* base_address = LLVMBuildStructGEP2(LLVMOpaqueBuilder*(builder), $header_type, $header, 1, "delete.base.address\0");
+			LLVMOpaqueValue* base = LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0), $base_address, "delete.base\0");
+			LLVMBuildFree(LLVMOpaqueBuilder*(builder), $base);
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+			LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), $merge);
+			return nullptr;
+		};
+		case syntax_kind::expr_destroy:
+			@this.destroy_type(static_cast<Type*>(syntax->data.cast.value->type), @this.address(static_cast<Syntax*>(syntax->data.cast.value)));
+			return nullptr;
+		case syntax_kind::kw_discard:
+			return nullptr;
+		case syntax_kind::expr_construct: {
+			Type* target := syntax->data.construction.target;
+			LLVMOpaqueValue* slot = nullptr;
+			if (syntax->data.construction.destination) {
+				@slot = @this.address(static_cast<Syntax*>(syntax->data.construction.destination));
+			}
+			else {
+				@slot = emit_slot(@compiler, static_cast<Type*>(target));
+			};
+			@backend_syntax(@compiler.backend, static_cast<Syntax*>(syntax))->constructed := slot;
+			@this.construct_at(static_cast<Syntax*>(syntax), LLVMOpaqueValue*(slot));
+			return LLVMBuildLoad2(LLVMOpaqueBuilder*(builder), llvm_type(@compiler, $target), $slot, "constructed\0");
+		};
+		case syntax_kind::expr_access:
+			return @this.expression(static_cast<Syntax*>(syntax->data.expression));
+		case syntax_kind::expr_relocate: {
+			LLVMOpaqueValue* address = @this.address(static_cast<Syntax*>(syntax->data.expression));
+			@backend_syntax(@compiler.backend, static_cast<Syntax*>(syntax))->address := address;
+			return @this.complete_read(static_cast<Type*>(syntax->type), $address);
+		};
+		case syntax_kind::expr_base_pointer:
+			return @this.base_conversion(static_cast<Syntax*>(syntax));
+		case syntax_kind::expr_base_reference:
+			return @this.value_read(static_cast<Syntax*>(syntax));
+		case syntax_kind::kw_nullptr:
+			return LLVMConstNull($type);
+		case syntax_kind::literal_number:
+			if (syntax->type->kind == type_kind::pointer) {
+				return LLVMConstNull($type);
+			};
+			if (syntax->type->kind == type_kind::kw_bool) {
+				return LLVMConstInt(LLVMOpaqueType*(type), number_truth(@compiler, syntax->token), 0);
+			};
+			if (syntax->type->kind == type_kind::kw_float) {
+				if (syntax->token.source->bytes.data[syntax->token.begin] == '\'') {
+					return LLVMConstReal(LLVMOpaqueType*(type), static_cast<f64>(integer_spelling(@compiler, syntax->token, static_cast<u64>(18446744073709551615))));
+				};
+				char* text = @compiler.copy_text(syntax->token.source->bytes.data + syntax->token.begin, static_cast<u64>(syntax->token.length));
+				return LLVMConstReal(LLVMOpaqueType*(type), strtod($text, nullptr));
+			};
+			if (number_decimal(syntax->token)) {
+				char* text = @compiler.copy_text(syntax->token.source->bytes.data + syntax->token.begin, usize(syntax->token.length));
+				return LLVMConstInt(LLVMOpaqueType*(type), static_cast<u64>(trunc(strtod($text, nullptr))), 0);
+			};
+			return LLVMConstInt(LLVMOpaqueType*(type), integer_spelling(@compiler, syntax->token, static_cast<u64>(18446744073709551615)), 0);
+		case syntax_kind::literal_string: {
+			LLVMOpaqueValue* value = LLVMConstStringInContext2(compiler.backend.llvm_context.get(), const_cast<char*>(syntax->data.string.data), static_cast<u64>(syntax->data.string.size), 1);
+			LLVMOpaqueValue* global = LLVMAddGlobal(compiler.backend.llvm_module.get(), LLVMTypeOf(LLVMOpaqueValue*(value)), "string\0");
+			LLVMSetInitializer(LLVMOpaqueValue*(global), LLVMOpaqueValue*(value));
+			LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
+			LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
+			return $global;
+		};
+		case syntax_kind::expr_name:
+			if (syntax->entity->kind == entity_kind::function) {
+				return runtime_callable(@compiler, static_cast<Entity*>(syntax->entity));
+			};
+			if (syntax->entity->data.variable.storage == storage_kind::constant) {
+				if (syntax->entity->data.variable.evaluation && syntax->entity->data.variable.evaluation->state == constant_state::constant) {
+					return @compiler.backend.constant(@compiler, static_cast<ConstantValue*>(syntax->entity->data.variable.evaluation->value));
+				};
+				return LLVMConstInt(LLVMOpaqueType*(type), static_cast<u64>(syntax->entity->data.variable.data.integer), 0);
+			};
+			if (syntax->type->kind == type_kind::function) {
+				return @this.address(static_cast<Syntax*>(syntax));
+			};
+			return @this.value_read(static_cast<Syntax*>(syntax));
+		case syntax_kind::expr_member:
+		case syntax_kind::expr_index:
+			if (syntax->type->kind == type_kind::function) {
+				return @this.address(static_cast<Syntax*>(syntax));
+			};
+			return @this.value_read(static_cast<Syntax*>(syntax));
+		case syntax_kind::kw_sizeof:
+			return LLVMConstInt($type, LLVMABISizeOfType(compiler.backend.llvm_layout.get(), llvm_type(@compiler, static_cast<Type*>(syntax->data.sizeof_operand.measured))), 0);
+		case syntax_kind::expr_cast:
+			if (syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) {
+				return @this.value_read(static_cast<Syntax*>(syntax));
+			};
+			return @this.cast(@this.expression(static_cast<Syntax*>(syntax->data.cast.value)), static_cast<Type*>(syntax->data.cast.value->type), static_cast<Type*>(syntax->type));
+		case syntax_kind::expr_unary: {
+			token_kind operation := syntax->data.unary.operation;
+			Syntax* operand := syntax->data.unary.value;
+			if (operation == token_kind::op_ampersand) {
+				if (operand->type->kind == type_kind::function) {
+					return @this.expression(static_cast<Syntax*>(operand));
+				};
+				return @this.address(static_cast<Syntax*>(operand));
+			};
+			if (operation == token_kind::op_star) {
+				if (syntax->type->kind == type_kind::function) {
+					return @this.expression(static_cast<Syntax*>(operand));
+				};
+				return @this.value_read(static_cast<Syntax*>(syntax));
+			};
+			LLVMOpaqueValue* value = @this.expression(static_cast<Syntax*>(operand));
+			if (operation == token_kind::op_bang) {
+				@value = LLVMBuildNot(LLVMOpaqueBuilder*(builder), @this.truth(LLVMOpaqueValue*(value), static_cast<Type*>(operand->type)), "not\0");
+				return $value;
+			};
+			@value = @this.cast(LLVMOpaqueValue*(value), static_cast<Type*>(operand->type), static_cast<Type*>(syntax->type));
+			if (operation == token_kind::op_tilde) {
+				return LLVMBuildNot(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "complement\0");
+			};
+			if (operation == token_kind::op_minus) {
+				if (syntax->type->kind == type_kind::kw_float) {
+					return LLVMBuildFNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "negative\0");
+				};
+				return LLVMBuildNeg(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), "negative\0");
+			};
+			return $value;
+		};
+		case syntax_kind::stmt_bind_reference: {
+			Syntax* left := syntax->data.binary.left;
+			LLVMOpaqueValue* referent = @this.address(static_cast<Syntax*>(syntax->data.binary.right));
+			LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(referent), @this.storage_address(static_cast<Syntax*>(left)));
+			return $referent;
+		};
+		case syntax_kind::stmt_initialize:
+		case syntax_kind::expr_binary: {
+			token_kind operation := syntax->data.binary.operation;
+			Syntax* left := syntax->data.binary.left;
+			Syntax* right := syntax->data.binary.right;
+			if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
+				if (syntax->entity && syntax->entity->kind == entity_kind::function && syntax->entity->data.function.role == function_role::assignment) {
+					LLVMOpaqueValue* result = @this.special_call(static_cast<Entity*>(syntax->entity), @this.address(static_cast<Syntax*>(left)), static_cast<Syntax*>(right));
+					Type* declared := syntax->entity->data.function.type->data.function.result;
+					if (declared->kind == type_kind::reference) {
+						return @this.complete_read(static_cast<Type*>(syntax->type), LLVMOpaqueValue*(result));
+					};
+					return $result;
+				};
+				if (type_aggregate(static_cast<Type*>(left->type))) {
+					LLVMOpaqueValue* destination = nullptr;
+					if (type_has_views(static_cast<Type*>(left->type))) {
+						@destination = @this.address(static_cast<Syntax*>(left));
+					};
+					LLVMOpaqueValue* source = nullptr;
+					if (syntax_category(static_cast<Syntax*>(right)) == value_category::storage) {
+						@source = @this.address(static_cast<Syntax*>(right));
+					}
+					else {
+						LLVMOpaqueValue* value = @this.expression(static_cast<Syntax*>(right));
+						@source = emit_slot(@compiler, static_cast<Type*>(right->type));
+						LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(source));
+					};
+					if (!destination) {
+						@destination = @this.address(static_cast<Syntax*>(left));
+					};
+					@backend_syntax(@compiler.backend, static_cast<Syntax*>(syntax))->address := destination;
+					if (syntax->kind == syntax_kind::stmt_initialize) {
+						if (left->kind != syntax_kind::expr_base_reference) {
+							@this.initialize_type(static_cast<Type*>(left->type), LLVMOpaqueValue*(destination));
+						};
+						if (right->kind == syntax_kind::expr_relocate) {
+							@this.move_construct_type(static_cast<Type*>(left->type), LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
+						}
+						else {
+							@this.payload_copy(static_cast<Type*>(left->type), LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
+						};
+					}
+					else {
+						@this.assign_storage(static_cast<Type*>(left->type), LLVMOpaqueValue*(destination), LLVMOpaqueValue*(source));
+					};
+					return @this.complete_read(static_cast<Type*>(left->type), $destination);
+				};
+				LLVMOpaqueValue* value = @this.expression(static_cast<Syntax*>(right));
+				@value = @this.cast(LLVMOpaqueValue*(value), static_cast<Type*>(right->type), static_cast<Type*>(left->type));
+				LLVMOpaqueValue* destination = @this.address(static_cast<Syntax*>(left));
+				@backend_syntax(@compiler.backend, static_cast<Syntax*>(syntax))->address := destination;
+				LLVMBuildStore(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueValue*(destination));
+				return $value;
+			};
+			if (operation == token_kind::op_and || operation == token_kind::op_or) {
+				LLVMOpaqueBasicBlock* initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+				LLVMOpaqueValue* function = LLVMGetBasicBlockParent(LLVMOpaqueBasicBlock*(initial));
+				LLVMOpaqueBasicBlock* rhs = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "logical.right\0");
+				LLVMOpaqueBasicBlock* merge = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "logical.end\0");
+				LLVMOpaqueValue* first = @this.truth(@this.expression(static_cast<Syntax*>(left)), static_cast<Type*>(left->type));
+				@initial = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+				if (operation == token_kind::op_and) {
+					LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueBasicBlock*(rhs), LLVMOpaqueBasicBlock*(merge));
+				}
+				else {
+					LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(first), LLVMOpaqueBasicBlock*(merge), LLVMOpaqueBasicBlock*(rhs));
+				};
+				LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(rhs));
+				Temporary* boundary := this.temporaries;
+				LLVMOpaqueValue* second = @this.truth(@this.expression(static_cast<Syntax*>(right)), static_cast<Type*>(right->type));
+				@rhs = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+				LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+				LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(merge));
+				LLVMOpaqueValue* phi = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1), "logical\0");
+				LLVMOpaqueValue*[2] values {};
+				LLVMOpaqueBasicBlock*[2] blocks {};
+				@values[0] = LLVMConstInt(LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1), static_cast<u64>((operation == token_kind::op_or)), 0);
+				@values[1] = LLVMOpaqueValue*(second);
+				@blocks[0] = LLVMOpaqueBasicBlock*(initial);
+				@blocks[1] = LLVMOpaqueBasicBlock*(rhs);
+				LLVMAddIncoming(LLVMOpaqueValue*(phi), &values[0], &blocks[0], 2);
+				Temporary* temporary := this.temporaries;
+				while (temporary != boundary) {
+					LLVMOpaqueValue* guard = LLVMBuildPhi(LLVMOpaqueBuilder*(builder), LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1), "temporary.created\0");
+					@values[0] = LLVMConstInt(LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1), 0, 0);
+					@values[1] := temporary->guard;
+					if (!values[1]) {
+						@values[1] = LLVMConstInt(LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 1), 1, 0);
+					};
+					LLVMAddIncoming(LLVMOpaqueValue*(guard), &values[0], &blocks[0], 2);
+					@temporary->guard = LLVMOpaqueValue*(guard);
+					@temporary := temporary->next;
+				};
+				return $phi;
+			};
+			LLVMOpaqueValue* first = @this.expression(static_cast<Syntax*>(left));
+			LLVMOpaqueValue* second = @this.expression(static_cast<Syntax*>(right));
+			if (left->type->kind != type_kind::pointer) {
+				Type* operand := left->type;
+				if (operation != token_kind::op_equal && operation != token_kind::op_not_equal && operation != token_kind::op_less && operation != token_kind::op_greater && operation != token_kind::op_less_equal && operation != token_kind::op_greater_equal) {
+					@operand := syntax->type;
+				};
+				@first = @this.cast(LLVMOpaqueValue*(first), static_cast<Type*>(left->type), static_cast<Type*>(operand));
+				@second = @this.cast(LLVMOpaqueValue*(second), static_cast<Type*>(right->type), static_cast<Type*>(operand));
+			};
+			return @this.binary(static_cast<Syntax*>(syntax), $first, $second);
+		};
+		case syntax_kind::expr_call: {
+			if (syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference && syntax->type->kind != type_kind::function) {
+				return @this.value_read(static_cast<Syntax*>(syntax));
+			};
+			return @this.call(static_cast<Syntax*>(syntax));
+		};
+	};
+	@compiler.diagnostics.report(syntax->token, "expression cannot be emitted\0");
+	return nullptr;
+};
+
+fn Emitter::expression(Emitter& this, Syntax* syntax) -> LLVMOpaqueValue* {
+	if (syntax->kind == syntax_kind::expr_borrowed_component || syntax->kind == syntax_kind::expr_owned_component) {
+		return @this.expression_value($syntax);
+	};
+	BackendSyntax* native = backend_syntax_define(@*this.compiler, static_cast<Syntax*>(syntax));
+	if (!native) {
+		return nullptr;
+	};
+	@native->address = nullptr;
+	LLVMOpaqueValue* value = @this.expression_value(static_cast<Syntax*>(syntax));
+	if (syntax->kind == syntax_kind::expr_construct) {
+		@native->address := native->constructed;
+	};
+	if (!value || syntax->use == value_use::transferred || syntax_category(static_cast<Syntax*>(syntax)) != value_category::temporary || !type_requires_destruction(static_cast<Type*>(syntax->type))) {
+		return $value;
+	};
+	@native->address = @this.temporary_register(static_cast<Type*>(syntax->type), LLVMOpaqueValue*(value), LLVMOpaqueValue*(native->address));
+	return $value;
+};
+
+fn Emitter::flush_temporaries(Emitter& this, Temporary* boundary) {
+	Compiler& compiler = @*this.compiler;
+	while (this.temporaries != boundary) {
+		Temporary* temporary := this.temporaries;
+		@this.temporaries := temporary->next;
+		if (!temporary->guard) {
+			@this.destroy_type(static_cast<Type*>(temporary->type), LLVMOpaqueValue*(temporary->address));
+			continue;
+		};
+		LLVMOpaqueBasicBlock* destroy = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "temporary.destroy\0");
+		LLVMOpaqueBasicBlock* continuation = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "temporary.end\0");
+		LLVMBuildCondBr(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(temporary->guard), LLVMOpaqueBasicBlock*(destroy), LLVMOpaqueBasicBlock*(continuation));
+		LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $destroy);
+		@this.destroy_type(static_cast<Type*>(temporary->type), LLVMOpaqueValue*(temporary->address));
+		LLVMBuildBr(compiler.backend.llvm_builder.get(), LLVMOpaqueBasicBlock*(continuation));
+		LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $continuation);
+	};
+};
+

@@ -1,0 +1,43 @@
+fn Type::representation(const Type& this) -> const Type* {
+	const Type* type = &this;
+	while (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::enumeration && type->entity()->underlying()) {
+		@type = type->entity()->underlying();
+	};
+	return $type;
+};
+
+fn Type::normalize_integer(const Type& this, u64 value) -> u64 {
+	const Type* type = this.representation();
+	if (!type->kind().is_integer()) {
+		return $value;
+	};
+	u32 bits = type->bits();
+	if (bits && bits < 64) {
+		return value & ((u64(1) << static_cast<u64>(bits)) - 1);
+	};
+	return $value;
+};
+
+fn Type::signed_value(const Type& this, u64 value) -> i64 {
+	const Type* type = this.representation();
+	u32 bits = type->bits();
+	@value = type->normalize_integer(value);
+	if (bits && bits < 64 && (value & (u64(1) << static_cast<u64>(bits - 1)))) {
+		@value = value | ~((u64(1) << static_cast<u64>(bits)) - 1);
+	};
+	return static_cast<i64>($value);
+};
+
+fn Type::derived_from(const Type& this, const Type& base) -> bool {
+	if (this.kind() != type_kind::named || base.kind() != type_kind::named || this.entity()->kind() != entity_kind::record || base.entity()->kind() != entity_kind::record) {
+		return false;
+	};
+	Entity* current = this.entity();
+	while (current->bases().size() == 1) {
+		@current = current->bases().data()[0]->entity();
+		if (current == base.entity()) {
+			return true;
+		};
+	};
+	return false;
+};

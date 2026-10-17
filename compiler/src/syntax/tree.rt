@@ -51,6 +51,8 @@ enum syntax_kind : [i32] {
 	access_label;
 	qualified_name;
 	conversion_name;
+	operator_name;
+	operator_array;
 	template_apply;
 };
 
@@ -379,6 +381,7 @@ fn Syntax::fixed_arity(const Syntax& this) -> usize {
 		case syntax_kind::break_loop:
 		case syntax_kind::continue_loop:
 		case syntax_kind::access_label:
+		case syntax_kind::operator_array:
 			return 0;
 		case syntax_kind::unary:
 		case syntax_kind::grouping:
@@ -411,6 +414,7 @@ fn Syntax::fixed_arity(const Syntax& this) -> usize {
 		case syntax_kind::type_const:
 		case syntax_kind::qualified_name:
 		case syntax_kind::template_apply:
+		case syntax_kind::operator_name:
 			return 2;
 		case syntax_kind::conditional:
 		case syntax_kind::variable:
@@ -474,4 +478,12 @@ fn Syntax::template_parameter_default(const Syntax& this) -> Syntax* {
 
 fn Syntax::operator_target(const Syntax& this) -> Syntax* {
 	return this.item(0);
+};
+
+fn Syntax::operator_token(const Syntax& this) -> Token {
+	return this.item(0)->token();
+};
+
+fn Syntax::operator_suffix(const Syntax& this) -> Syntax* {
+	return this.item(1);
 };

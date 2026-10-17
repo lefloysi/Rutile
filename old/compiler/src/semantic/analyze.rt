@@ -1,0 +1,145 @@
+fn global_variable_resolve(Compiler& compiler, Entity* entity) {
+	if (entity->state == resolution::ready) {
+		return;
+	};
+	if (entity->state == resolution::active) {
+		@compiler.diagnostics.report(entity->name, "circular global initializer\0");
+		return;
+	};
+	@entity->state = resolution::active;
+	Semantic semantic;
+	@semantic.compiler = &compiler;
+	@semantic.scope := entity->scope;
+	@semantic.statement(static_cast<Syntax*>(entity->declaration));
+	if (compiler.result == compilation_result::failure) {
+		return;
+	};
+	destruction_request(static_cast<Type*>(entity->data.variable.type));
+	LifetimeAnalysis lifetime;
+	@lifetime.compiler = &compiler;
+	@lifetime.state.path = reachability::reachable;
+	@lifetime.region(mir_region(@compiler, static_cast<Syntax*>(entity->declaration->data.declaration.body), nullptr));
+	@entity->state = resolution::ready;
+	if (entity->data.variable.type->qualifier == type_qualifier::kw_const) {
+		ConstantContext context;
+		@context.compiler = &compiler;
+		@context.scope := entity->scope;
+		@context.variable(static_cast<Entity*>(entity));
+	};
+};
+
+fn semantic_function(Compiler& compiler, Entity* entity) {
+	if ((!entity->data.function.body && entity->data.function.definition != function_definition::defaulted) || entity->data.function.analysis != function_analysis::requested) {
+		return;
+	};
+	@entity->data.function.analysis = function_analysis::analyzing;
+	Semantic semantic;
+	@semantic.compiler = &compiler;
+	@semantic.scope := entity->scope;
+	@semantic.function := entity;
+	if (entity->data.function.definition == function_definition::defaulted) {
+		if (entity->data.function.role != function_role::destructor) {
+			Parameter* source := entity->data.function.type->data.function.parameters->next;
+			generated_operation operation = generated_operation::kw_default;
+			if (source) {
+				@operation = generated_operation::copy;
+				if (source->type->kind != type_kind::reference) {
+					@operation = generated_operation::move;
+				};
+			};
+			if (entity->data.function.role == function_role::assignment) {
+				@operation = generated_operation::assignment;
+				if (source->type->kind == type_kind::reference) {
+					@operation = generated_operation::copy_assignment;
+				};
+			};
+			@semantic.generated_operation_validate(entity_type(static_cast<Entity*>(entity->scope->owner)), $operation, entity->name);
+		};
+		@entity->data.function.analysis = function_analysis::analyzed;
+		return;
+	};
+	@semantic.statement(static_cast<Syntax*>(entity->data.function.body));
+	if (compiler.result == compilation_result::success) {
+		lifetime_function(@compiler, static_cast<Entity*>(entity));
+	};
+	@entity->data.function.analysis = function_analysis::analyzed;
+};
+
+fn Compiler::analyze(Compiler& this) {
+	DeclarationIterator iterator;
+	@iterator.scope := this.module;
+	Binding* binding := this.module->bindings;
+	while (binding && this.result != compilation_result::failure) {
+		if (binding->entity->kind != entity_kind::variable) {
+			entity_resolve(@this, static_cast<Entity*>(binding->entity));
+		};
+		@binding = declaration_next(&iterator, static_cast<Binding*>(binding));
+	};
+
+	declarations_validate(@this);
+	virtual_validate(@this);
+	@iterator.scope := this.module;
+	@binding := this.module->bindings;
+	while (binding && this.result != compilation_result::failure) {
+		Entity* entity := binding->entity;
+		if (entity->kind != entity_kind::variable) {
+			entity_resolve(@this, static_cast<Entity*>(entity));
+			if (this.result == compilation_result::failure) {
+				return;
+			};
+		};
+		if ((entity->kind == entity_kind::kw_struct || entity->kind == entity_kind::kw_union) && entity->declaration && entity->declaration->data.declaration.body) {
+			layout_validate(@this, entity_type(static_cast<Entity*>(entity)), nullptr, entity->name);
+		};
+		if (entity->kind == entity_kind::function) {
+			external_validate(@this, static_cast<Entity*>(entity));
+			Type* signature := entity->data.function.type;
+			if (!entity->data.function.body && entity->data.function.definition == function_definition::declaration && type_aggregate(static_cast<Type*>(signature->data.function.result))) {
+				@this.diagnostics.report(entity->name, "external aggregate return requires C ABI lowering that is not supported yet\0");
+			};
+			if (signature->data.function.result->kind != type_kind::kw_void) {
+				layout_validate(@this, static_cast<Type*>(signature->data.function.result), nullptr, entity->name);
+			};
+			Parameter* parameter := signature->data.function.parameters;
+			while (parameter && this.result != compilation_result::failure) {
+				if (!entity->data.function.body && entity->data.function.definition == function_definition::declaration && type_aggregate(static_cast<Type*>(parameter->type))) {
+					@this.diagnostics.report(entity->name, "external aggregate parameter requires C ABI lowering that is not supported yet\0");
+					break;
+				};
+				layout_validate(@this, static_cast<Type*>(parameter->type), nullptr, entity->name);
+				@parameter := parameter->next;
+			};
+		};
+		if (entity->kind == entity_kind::function && (entity->data.function.body || entity->data.function.definition == function_definition::defaulted)) {
+			semantic_function(@this, static_cast<Entity*>(entity));
+		};
+		@binding = declaration_next(&iterator, static_cast<Binding*>(binding));
+	};
+	while (this.result == compilation_result::success) {
+		usize pending = 0;
+		virtual_validate(@this);
+		@iterator.scope := this.module;
+		@binding := this.module->bindings;
+		while (binding && this.result == compilation_result::success) {
+			Entity* entity := binding->entity;
+			if (entity->kind != entity_kind::variable) {
+				entity_resolve(@this, static_cast<Entity*>(entity));
+			};
+			if (entity->kind == entity_kind::kw_namespace && entity->specialization && entity->specialization->validation == resolution::pending) {
+				@entity->specialization->validation = resolution::active;
+				@pending = pending + 1;
+				declarations_validate_block(@this, static_cast<Syntax*>(entity->declaration->data.declaration.body));
+				@entity->specialization->validation = resolution::ready;
+			};
+			if (entity->kind == entity_kind::function && (entity->data.function.body || entity->data.function.definition == function_definition::defaulted) && entity->data.function.analysis == function_analysis::requested) {
+				@pending = pending + 1;
+				semantic_function(@this, static_cast<Entity*>(entity));
+			};
+			@binding = declaration_next(&iterator, static_cast<Binding*>(binding));
+		};
+		if (!pending) {
+			break;
+		};
+	};
+};
+

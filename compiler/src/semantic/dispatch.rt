@@ -1,0 +1,166 @@
+fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax* syntax, bool class_scope) -> bool {
+	if (syntax->kind() == syntax_kind::template_declaration) {
+		Syntax* declaration = syntax->template_declaration();
+		if (declaration->kind() == syntax_kind::function) {
+			usize index = 0;
+			while (index < declaration->function_attributes()->size()) {
+				Token token = declaration->function_attributes()->item(index)->token();
+				if (token.is(rt::string_view("virtual\0")) || token.is(rt::string_view("override\0")) || token.is(rt::string_view("final\0"))) {
+					@this.error(declaration, "virtual function templates are not implemented\0");
+					return false;
+				};
+				@index = index + 1;
+			};
+		};
+		return @this.validate_dispatch_syntax(declaration, $class_scope);
+	};
+	if (syntax->kind() == syntax_kind::record) {
+		return @this.validate_dispatch_syntax(syntax->record_members(), true);
+	};
+	if (syntax->kind() == syntax_kind::namespace_body) {
+		return @this.validate_dispatch_syntax(syntax->namespace_members(), false);
+	};
+	if (syntax->kind() == syntax_kind::list || syntax->kind() == syntax_kind::brace || syntax->kind() == syntax_kind::unit) {
+		usize index = 0;
+		while (index < syntax->size()) {
+			if (!@this.validate_dispatch_syntax(syntax->item(index), bool(class_scope))) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	if (syntax->kind() != syntax_kind::function) {
+		return true;
+	};
+	bool virtual_operation = false;
+	usize index = 0;
+	while (index < syntax->function_attributes()->size()) {
+		Token token = syntax->function_attributes()->item(index)->token();
+		if (token.is(rt::string_view("virtual\0")) || token.is(rt::string_view("override\0")) || token.is(rt::string_view("final\0"))) {
+			@virtual_operation = true;
+		};
+		@index = index + 1;
+	};
+	if (!virtual_operation) {
+		return true;
+	};
+	Syntax* parameters = syntax->function_parameters();
+	if ((!class_scope && syntax->function_name()->kind() != syntax_kind::qualified_name) || !parameters->size() || !parameters->item(0)->parameter_name()->token().is(rt::string_view("this\0")) || parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
+		@this.error(syntax, "virtual operation requires an explicit class receiver named this\0");
+		return false;
+	};
+	if (this.templates.qualifier_dependent(syntax)) {
+		@this.error(syntax, "virtual operation cannot have dependent receiver qualification\0");
+		return false;
+	};
+	return true;
+};
+
+fn dispatch_signature(const Entity& function, const Entity& inherited) -> bool {
+	if (function.operator_kind() != token_kind::identifier || inherited.operator_kind() != token_kind::identifier) {
+		if (function.operator_kind() != inherited.operator_kind()) {
+			return false;
+		};
+	}
+	else if (function.name() != inherited.name()) {
+		return false;
+	};
+	const rt::buffer<Entity*>& first = function.parameters();
+	const rt::buffer<Entity*>& second = inherited.parameters();
+	if (!first.size() || first.size() != second.size() || first.data()[0]->type()->kind() != type_kind::reference || second.data()[0]->type()->kind() != type_kind::reference || first.data()[0]->type()->element()->qualifier() != second.data()[0]->type()->element()->qualifier()) {
+		return false;
+	};
+	usize index = 1;
+	while (index < first.size()) {
+		if (first.data()[index]->type() != second.data()[index]->type()) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn dispatch_result(const Type& result, const Type& inherited) -> bool {
+	if (result.same_shape(inherited)) {
+		return true;
+	};
+	if (result.kind() != inherited.kind() || result.kind() != type_kind::pointer && result.kind() != type_kind::reference) {
+		return false;
+	};
+	const Type* source = result.element();
+	const Type* destination = inherited.element();
+	return source->derived_from(*destination) && (source->qualifier() != type_qualifier::immutable || destination->qualifier() == type_qualifier::immutable);
+};
+
+fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
+	usize inherited = 0;
+	if (entity->bases().size()) {
+		const rt::buffer<Entity*>& base = entity->bases().data()[0]->entity()->virtual_functions();
+		while (inherited < base.size()) {
+			if (!@entity->add_virtual(base.data()[inherited])) {
+				return false;
+			};
+			@inherited = inherited + 1;
+		};
+	};
+	rt::buffer<Entity*> seen;
+	usize index = 0;
+	while (index < entity->members()->bindings().size()) {
+		Entity* function = entity->members()->bindings().data()[index];
+		@index = index + 1;
+		if (function->kind() != entity_kind::function) {
+			continue;
+		};
+		if (!@this.resolve(Entity*(function))) {
+			return false;
+		};
+		@function = function->canonical();
+		usize prior = 0;
+		while (prior < seen.size() && seen.data()[prior] != function) {
+			@prior = prior + 1;
+		};
+		if (prior < seen.size()) {
+			continue;
+		};
+		if (!@seen.push_back(Entity*(function))) {
+			return false;
+		};
+		usize slot = 0;
+		while (slot < inherited && !dispatch_signature(*function, *entity->virtual_functions().data()[slot])) {
+			@slot = slot + 1;
+		};
+		if (slot < inherited) {
+			Entity* previous = entity->virtual_functions().data()[slot];
+			if (previous->is_final()) {
+				@this.error(function->declaration(), "final virtual operation cannot be overridden\0");
+				return false;
+			};
+			if (!function->requires_override() && !function->is_final()) {
+				@this.error(function->declaration(), "override of an inherited virtual operation requires override or final\0");
+				return false;
+			};
+			if (!dispatch_result(*function->type()->signature().result(), *previous->type()->signature().result())) {
+				@this.error(function->declaration(), "virtual override has an incompatible result type\0");
+				return false;
+			};
+			@entity->replace_virtual(usize(slot), @*function);
+			@function->set_virtual_slot(slot);
+		}
+		else if (function->requires_override() || function->is_final() && !function->declares_virtual()) {
+			@this.error(function->declaration(), "override requires a matching inherited virtual operation\0");
+			return false;
+		}
+		else if (function->declares_virtual()) {
+			@function->set_virtual_slot(entity->virtual_functions().size());
+			if (!@entity->add_virtual(Entity*(function))) {
+				return false;
+			};
+		};
+	};
+	if (entity->layout() == record_layout::overlapping && entity->virtual_functions().size()) {
+		@this.error(entity->declaration(), "union cannot contain virtual operations\0");
+		return false;
+	};
+	return true;
+};

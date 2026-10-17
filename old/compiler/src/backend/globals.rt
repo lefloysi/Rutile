@@ -1,0 +1,208 @@
+fn emit_global_collect(Syntax* module, Entity** globals, usize* count) {
+	Syntax* statement := module->data.statements;
+	while (statement) {
+		Entity* entity := statement->entity;
+		if (entity && entity->kind == entity_kind::kw_template && entity->data.template_pattern.declaration_kind == token_kind::kw_namespace) {
+			TemplateSpecialization* specialization := entity->data.template_pattern.specializations;
+			while (specialization) {
+				if (specialization->validation == resolution::ready) {
+					emit_global_collect(static_cast<Syntax*>(specialization->entity->declaration->data.declaration.body), Entity**(globals), usize*(count));
+				};
+				@specialization := specialization->next;
+			};
+		}
+		else if (entity && entity->kind == entity_kind::kw_namespace) {
+			emit_global_collect(static_cast<Syntax*>(statement->data.declaration.body), Entity**(globals), usize*(count));
+		}
+		else if (entity && entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::global) {
+			@globals[*count] := entity;
+			@*count = *count + 1;
+		};
+		@statement := statement->next;
+	};
+};
+
+fn emit_global_register(Compiler& compiler, LLVMOpaqueValue* function, const char* name) {
+	LLVMOpaqueType*[3] fields {};
+	@fields[0] = LLVMIntTypeInContext(compiler.backend.llvm_context.get(), 32);
+	@fields[1] = LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0);
+	@fields[2] := fields[1];
+	LLVMOpaqueType* record = LLVMStructTypeInContext(compiler.backend.llvm_context.get(), &fields[0], 3, 0);
+	LLVMOpaqueValue*[3] values {};
+	@values[0] = LLVMConstInt(LLVMOpaqueType*(fields[0]), 65535, 0);
+	@values[1] = $function;
+	@values[2] = LLVMConstNull(LLVMOpaqueType*(fields[2]));
+	LLVMOpaqueValue*[1] entries {};
+	@entries[0] = LLVMConstNamedStruct(LLVMOpaqueType*(record), &values[0], 3);
+	LLVMOpaqueValue* list = LLVMAddGlobal(compiler.backend.llvm_module.get(), LLVMArrayType2(LLVMOpaqueType*(record), 1), $name);
+	LLVMSetInitializer(LLVMOpaqueValue*(list), LLVMConstArray2($record, &entries[0], 1));
+	LLVMSetLinkage($list, 7);
+};
+
+fn emit_global_destructor(Compiler& compiler, Entity* entity) {
+	Type* type := entity->data.variable.type;
+	if (!type_requires_destruction(static_cast<Type*>(type))) {
+		return;
+	};
+
+	LLVMOpaqueBasicBlock* continuation = LLVMGetInsertBlock(compiler.backend.llvm_builder.get());
+	LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(compiler.backend.llvm_context.get()), nullptr, 0, 0);
+	LLVMOpaqueValue* function = LLVMAddFunction(compiler.backend.llvm_module.get(), "rt.global.destroy\0", $signature);
+	LLVMSetLinkage(LLVMOpaqueValue*(function), 9);
+	LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0"));
+	Emitter emitter;
+	@emitter.compiler = &compiler;
+	@emitter.llvm_function := function;
+	@emitter.destroy_type($type, LLVMOpaqueValue*(backend_entity(@compiler.backend, static_cast<Entity*>(entity))->value));
+	LLVMBuildRetVoid(compiler.backend.llvm_builder.get());
+	LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $continuation);
+
+	LLVMOpaqueType*[1] parameters {};
+	@parameters[0] = LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0);
+	LLVMOpaqueType* registration_type = LLVMFunctionType(llvm_type(@compiler, static_cast<Type*>(compiler.i32_type)), &parameters[0], 1, 0);
+	LLVMOpaqueValue* registration = LLVMGetNamedFunction(compiler.backend.llvm_module.get(), "atexit\0");
+	if (!registration) {
+		@registration = LLVMAddFunction(compiler.backend.llvm_module.get(), "atexit\0", LLVMOpaqueType*(registration_type));
+	};
+	if (LLVMGlobalGetValueType(LLVMOpaqueValue*(registration)) != registration_type) {
+		@compiler.diagnostics.report(entity->name, "atexit declaration conflicts with global destruction registration\0");
+		return;
+	};
+	LLVMBuildCall2(compiler.backend.llvm_builder.get(), $registration_type, $registration, &function, 1, "\0");
+};
+
+fn emit_global_initializers(Compiler& compiler, Entity** globals, usize count) {
+	usize pending = 0;
+	usize index = 0;
+	while (index < count) {
+		Entity* entity := globals[index];
+		if (type_requires_destruction(static_cast<Type*>(entity->data.variable.type)) || !entity->data.variable.evaluation || entity->data.variable.evaluation->state != constant_state::constant) {
+			@pending = pending + 1;
+		};
+		@index = index + 1;
+	};
+	if (!pending) {
+		return;
+	};
+
+	LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(compiler.backend.llvm_context.get()), nullptr, 0, 0);
+	LLVMOpaqueValue* function = LLVMAddFunction(compiler.backend.llvm_module.get(), "rt.global.initialize\0", $signature);
+	LLVMSetLinkage(LLVMOpaqueValue*(function), 9);
+	LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0"));
+	Emitter emitter;
+	@emitter.compiler = &compiler;
+	@emitter.llvm_function := function;
+
+	@index = 0;
+	while (index < count && compiler.result == compilation_result::success) {
+		Entity* entity := globals[index];
+		Type* type := entity->data.variable.type;
+		LLVMOpaqueValue* address := backend_entity(@compiler.backend, static_cast<Entity*>(entity))->value;
+		if (!entity->data.variable.evaluation || entity->data.variable.evaluation->state != constant_state::constant) {
+			Syntax* body := entity->declaration->data.declaration.body;
+			if (!body) {
+				@emitter.initialize_type(static_cast<Type*>(type), LLVMOpaqueValue*(address));
+				@emitter.default_type(static_cast<Type*>(type), LLVMOpaqueValue*(address));
+			}
+			else {
+				if (body->data.statements && type->kind != type_kind::reference) {
+					@emitter.initialize_type(static_cast<Type*>(type), LLVMOpaqueValue*(address));
+				};
+				@emitter.region(static_cast<Syntax*>(body));
+			};
+			@emitter.flush_temporaries(nullptr);
+		};
+		emit_global_destructor(@compiler, static_cast<Entity*>(entity));
+		@index = index + 1;
+	};
+	LLVMBuildRetVoid(compiler.backend.llvm_builder.get());
+	emit_global_register(@compiler, $function, "llvm.global_ctors\0");
+};
+
+fn Compiler::emit(Compiler& this) {
+	DeclarationIterator iterator;
+	@iterator.scope := this.module;
+	Binding* binding := this.module->bindings;
+	usize global_count = 0;
+	while (binding && this.result != compilation_result::failure) {
+		Entity* entity := binding->entity;
+		if (entity->kind == entity_kind::variable && entity->data.variable.storage == storage_kind::global) {
+			Type* type := entity->data.variable.type;
+			LLVMOpaqueValue* address = LLVMAddGlobal(this.backend.llvm_module.get(), llvm_type(@this, static_cast<Type*>(type)), entity_name(@this, static_cast<Entity*>(entity)));
+			BackendEntity* storage = backend_entity_define(@this, static_cast<Entity*>(entity));
+			if (!storage) {
+				return;
+			};
+			@storage->value := address;
+			LLVMSetLinkage(LLVMOpaqueValue*(address), 9);
+			LLVMOpaqueValue* initializer = LLVMConstNull(llvm_type(@this, static_cast<Type*>(type)));
+			ConstantEvaluation* evaluation := entity->data.variable.evaluation;
+			if (evaluation && evaluation->state == constant_state::constant) {
+				@initializer = @this.backend.constant(@this, static_cast<ConstantValue*>(evaluation->value));
+				if (type->qualifier == type_qualifier::kw_const && !type_requires_destruction(static_cast<Type*>(type))) {
+					LLVMSetGlobalConstant(LLVMOpaqueValue*(address), 1);
+				};
+			};
+			LLVMSetInitializer($address, $initializer);
+			@global_count = global_count + 1;
+		};
+		if (entity->kind == entity_kind::function && entity->data.function.definition != function_definition::deleted) {
+			BackendEntity* native = backend_entity_define(@this, static_cast<Entity*>(entity));
+			if (!native) {
+				return;
+			};
+			Type* signature := entity->data.function.type;
+			@native->type = llvm_type(@this, static_cast<Type*>(signature));
+			char* symbol = emit_symbol(@this, static_cast<Entity*>(entity));
+			LLVMOpaqueValue* existing = LLVMGetNamedFunction(this.backend.llvm_module.get(), static_cast<char*>(symbol));
+			if (existing && LLVMGlobalGetValueType(LLVMOpaqueValue*(existing)) != native->type) {
+				@this.diagnostics.report(entity->name, "conflicting native function signature\0");
+				return;
+			};
+			if (!existing) {
+				@existing = LLVMAddFunction(this.backend.llvm_module.get(), static_cast<char*>(symbol), LLVMOpaqueType*(native->type));
+			};
+			@native->value = $existing;
+			LLVMOpaqueAttributeRef* extension = emit_extension(@this, static_cast<Type*>(signature->data.function.result));
+			if (extension) {
+				LLVMAddAttributeAtIndex(LLVMOpaqueValue*(native->value), 0, LLVMOpaqueAttributeRef*(extension));
+			};
+			Parameter* parameter := signature->data.function.parameters;
+			u32 index = 1;
+			while (parameter) {
+				@extension = emit_extension(@this, static_cast<Type*>(parameter->type));
+				if (extension) {
+					LLVMAddAttributeAtIndex(LLVMOpaqueValue*(native->value), static_cast<u32>(index), LLVMOpaqueAttributeRef*(extension));
+				};
+				@index = index + 1;
+				@parameter := parameter->next;
+			};
+		};
+		@binding = declaration_next(&iterator, static_cast<Binding*>(binding));
+	};
+	if (global_count) {
+		Entity** globals = static_cast<Entity**>(@this.allocate(global_count * sizeof(Entity*)));
+		usize count = 0;
+		Syntax* module := this.declarations;
+		while (module) {
+			emit_global_collect(static_cast<Syntax*>(module), Entity**(globals), &count);
+			@module := module->next;
+		};
+		emit_global_initializers(@this, $globals, $count);
+	};
+	@iterator.scope := this.module;
+	@binding := this.module->bindings;
+	while (binding && this.result != compilation_result::failure) {
+		if (binding->entity->kind == entity_kind::function) {
+			emit_function(@this, static_cast<Entity*>(binding->entity));
+		};
+		@binding = declaration_next(&iterator, static_cast<Binding*>(binding));
+	};
+	if (this.output == output_kind::executable && this.result != compilation_result::failure) {
+		emit_entry(@this);
+	};
+	if (this.result == compilation_result::success) {
+		runtime_metadata_emit(@this);
+	};
+};
+

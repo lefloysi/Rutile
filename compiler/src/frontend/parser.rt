@@ -70,6 +70,8 @@ private:
 	fn node(Parser& this, syntax_kind kind, const Token& token) -> rt::unique<Syntax>;
 	fn absent(Parser& this) -> rt::unique<Syntax>;
 	fn add(Parser& this, Syntax& parent, rt::unique<Syntax> child) -> bool;
+	fn factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
+	fn factor_group(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
 	fn alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool;
 	fn statement_one(Parser& this) -> rt::unique<Syntax>;
 	fn statement(Parser& this) -> rt::unique<Syntax>;
@@ -298,9 +300,12 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 		return rt::unique<Syntax>();
 	};
 	var conversion_type = @this.absent();
+	var operator_symbol = @this.absent();
+	var operator_suffix = @this.absent();
 	if (first.is(rt::string_view("operator\0"))) {
 		usize beginning = this.offset;
 		Token operation = @this.take();
+		@operator_symbol = @this.node(syntax_kind::name, operation);
 		if (operation.kind == token_kind::punct_left_paren) {
 			@this.require(token_kind::punct_right_paren, "expected ')' in operator name\0");
 		}
@@ -308,9 +313,11 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 			@this.require(token_kind::punct_right_bracket, "expected ']' in operator name\0");
 		}
 		else if ((operation.kind == token_kind::kw_new || operation.kind == token_kind::kw_delete) && @this.accept(token_kind::punct_left_bracket)) {
+			@operator_suffix = @this.node(syntax_kind::operator_array, this.peek());
 			@this.require(token_kind::punct_right_bracket, "expected ']' in allocation operator name\0");
 		};
 		if (operation.kind == token_kind::literal_string) {
+			@operator_suffix = @this.node(syntax_kind::name, this.peek());
 			@this.require(token_kind::identifier, "expected literal operator suffix\0");
 		}
 		else if (operation.kind == token_kind::identifier) {
@@ -329,12 +336,19 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 		@first.length = end.begin + end.length - first.begin;
 	};
 	syntax_kind category = syntax_kind::name;
+	if (operator_symbol.get()->kind() != syntax_kind::absent) {
+		@category = syntax_kind::operator_name;
+	};
 	if (conversion_type.get()->kind() != syntax_kind::absent) {
 		@category = syntax_kind::conversion_name;
 	};
 	var result = @this.node($category, first);
 	if (conversion_type.get()->kind() != syntax_kind::absent) {
 		@this.add(@*result.get(), rt::unique<Syntax>(@conversion_type.release()));
+	}
+	else if (operator_symbol.get()->kind() != syntax_kind::absent) {
+		@this.add(@*result.get(), rt::unique<Syntax>(@operator_symbol.release()));
+		@this.add(@*result.get(), rt::unique<Syntax>(@operator_suffix.release()));
 	};
 	if (this.peek().kind != token_kind::op_less) {
 		return $result;
@@ -346,7 +360,7 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 	@candidate.discoveries = this.discoveries;
 	@candidate.take();
 	var arguments = @candidate.node(syntax_kind::list, candidate.peek());
-	while (!candidate.failure) {
+	while (!candidate.failure && candidate.peek().kind != token_kind::op_greater && candidate.peek().kind != token_kind::op_shift_right) {
 		var type_parser = Parser(*candidate.tokens);
 		@type_parser.offset = candidate.offset;
 		@type_parser.pending_greater = candidate.pending_greater;
@@ -560,8 +574,9 @@ fn Parser::postfix(Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax>
 			@this.take();
 			var member = @this.node(syntax_kind::member, token);
 			@this.add(@*member.get(), rt::unique<Syntax>(@value.release()));
+			Token tilde = this.peek();
 			if (@this.accept(token_kind::op_tilde)) {
-				var destructor = @this.node(syntax_kind::unary, token);
+				var destructor = @this.node(syntax_kind::unary, tilde);
 				@this.add(@*destructor.get(), @this.type());
 				@this.add(@*member.get(), rt::unique<Syntax>(@destructor.release()));
 			}
@@ -1167,16 +1182,7 @@ fn Parser::statement(Parser& this) -> rt::unique<Syntax> {
 	};
 	@this.offset = end;
 	@this.pending_greater = pending;
-	if (alternatives.size() == 1) {
-		return rt::unique<Syntax>(@((@alternatives).data()[0]).release());
-	};
-	var result = @this.node(syntax_kind::ambiguity, alternatives.data()[0].get()->token());
-	usize index = 0;
-	while (index < alternatives.size()) {
-		@this.add(@*result.get(), rt::unique<Syntax>(@((@alternatives).data()[index]).release()));
-		@index = index + 1;
-	};
-	return $result;
+	return @this.factor(@alternatives);
 };
 
 fn Parser::alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool {
@@ -1202,4 +1208,94 @@ fn Parser::alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alterna
 		return false;
 	};
 	return true;
+};
+
+fn Parser::factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
+	// Factor each parent shape before preserving alternatives of different grammar roles.
+	// This keeps type/value choices local even when declarations also compete with expressions.
+	rt::buffer<rt::unique<Syntax>> factored;
+	usize index = 0;
+	while (index < alternatives.size()) {
+		Syntax* first = alternatives.data()[index].get();
+		if (!first) {
+			@index = index + 1;
+			continue;
+		};
+		rt::buffer<rt::unique<Syntax>> group;
+		usize candidate = index;
+		while (candidate < alternatives.size()) {
+			Syntax* other = alternatives.data()[candidate].get();
+			if (other && other->kind() == first->kind() && other->token().source == first->token().source && other->token().begin == first->token().begin && other->token().length == first->token().length && other->size() == first->size()) {
+				if (!@this.alternative_add(@group, rt::unique<Syntax>(@((@alternatives).data()[candidate]).release()))) {
+					return rt::unique<Syntax>();
+				};
+			};
+			@candidate = candidate + 1;
+		};
+		if (!@this.alternative_add(@factored, @this.factor_group(@group))) {
+			return rt::unique<Syntax>();
+		};
+		@index = index + 1;
+	};
+	return @this.factor_group(@factored);
+};
+
+fn Parser::factor_group(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
+	if (alternatives.size() == 1) {
+		return rt::unique<Syntax>(@((@alternatives).data()[0]).release());
+	};
+	Syntax* first = alternatives.data()[0].get();
+	usize difference = ~usize(0);
+	bool compatible = true;
+	usize candidate = 1;
+	while (candidate < alternatives.size() && compatible) {
+		Syntax* other = alternatives.data()[candidate].get();
+		if (other->kind() != first->kind() || other->token().source != first->token().source || other->token().begin != first->token().begin || other->token().length != first->token().length || other->size() != first->size()) {
+			@compatible = false;
+			break;
+		};
+		usize index = 0;
+		while (index < first->size()) {
+			if (!first->item(index)->same_tree(*other->item(index))) {
+				if (difference != ~usize(0) && difference != index) {
+					@compatible = false;
+					break;
+				};
+				@difference = index;
+			};
+			@index = index + 1;
+		};
+		@candidate = candidate + 1;
+	};
+	if (compatible && difference != ~usize(0)) {
+		// Only one differing child is factored. Factoring several independently would
+		// invent combinations that were not produced by any source interpretation.
+		var result = @this.node(first->kind(), first->token());
+		usize index = 0;
+		while (index < first->size()) {
+			if (index == difference) {
+				rt::buffer<rt::unique<Syntax>> children;
+				@candidate = 0;
+				while (candidate < alternatives.size()) {
+					if (!@this.alternative_add(@children, @alternatives.data()[candidate].get()->take_item(index))) {
+						return rt::unique<Syntax>();
+					};
+					@candidate = candidate + 1;
+				};
+				@this.add(@*result.get(), @this.factor(@children));
+			}
+			else {
+				@this.add(@*result.get(), @first->take_item(index));
+			};
+			@index = index + 1;
+		};
+		return $result;
+	};
+	var result = @this.node(syntax_kind::ambiguity, first->token());
+	usize index = 0;
+	while (index < alternatives.size()) {
+		@this.add(@*result.get(), rt::unique<Syntax>(@((@alternatives).data()[index]).release()));
+		@index = index + 1;
+	};
+	return $result;
 };

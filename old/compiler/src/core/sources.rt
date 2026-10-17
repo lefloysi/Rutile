@@ -1,0 +1,79 @@
+fn Source::dispose(void* source) {
+	delete static_cast<Source*>($source);
+};
+
+fn Source::read(Source& this, Compiler& compiler, char* path) -> bool {
+	Token location;
+	@location.source = &this;
+	@location.line = 1;
+	@location.column = 1;
+	if (!@this.owned_path.append(rt::string_view(static_cast<char*>(path)))) {
+		@compiler.diagnostics.report(location, "source path exceeds compiler address limits or memory is unavailable\0");
+		return false;
+	};
+	@this.path = this.owned_path;
+
+	{
+		var file = File(&compiler, $path, file_purpose::source, Token(location));
+		if (!file.handle) {
+			return false;
+		};
+		usize maximum = ~usize(0) / sizeof(Token) - 1;
+		char[4096] chunk {};
+		while (true) {
+			usize count = fread(&chunk[0], 1, sizeof(chunk), void*(file.handle));
+			if (!count) {
+				break;
+			};
+			if (count > maximum - this.owned_bytes.size || !@this.owned_bytes.append(rt::string_view(&chunk[0], usize(count)))) {
+				@compiler.diagnostics.report(location, "source exceeds compiler address limits or memory is unavailable\0");
+				return false;
+			};
+		};
+		if (ferror(void*(file.handle))) {
+			@compiler.diagnostics.report(location, "cannot read source\0");
+		};
+	};
+	if (compiler.result == compilation_result::failure) {
+		return false;
+	};
+	@this.bytes = this.owned_bytes;
+	return true;
+};
+
+fn SourceManager::create(SourceManager& this, Compiler& compiler) -> Source* {
+	Source* source = static_cast<Source*>(@this.storage.adopt(new Source(), &Source::dispose));
+	if (!source) {
+		@compiler.result = compilation_result::failure;
+		return nullptr;
+	};
+	return $source;
+};
+
+fn SourceManager::load(SourceManager& this, Compiler& compiler, char* path) -> Source* {
+	Source* source = @this.create(@compiler);
+	if (!source) {
+		return nullptr;
+	};
+	if (!@source->read(@compiler, $path)) {
+		return nullptr;
+	};
+	if (this.last) {
+		@this.last->next := source;
+	}
+	else {
+		@this.first := source;
+	};
+	@this.last := source;
+	return $source;
+};
+
+fn SourceManager::head(const SourceManager& this) -> Source* {
+	return this.first;
+};
+
+fn SourceManager::clear(SourceManager& this) {
+	@this.storage.clear();
+	@this.first = nullptr;
+	@this.last = nullptr;
+};

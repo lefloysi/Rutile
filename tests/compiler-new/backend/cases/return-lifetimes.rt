@@ -1,0 +1,23 @@
+i32 destroyed;
+
+struct Probe {
+	i32 value;
+	fn ~Probe(Probe& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn make() -> Probe {
+	Probe value;
+	@value.value = 41;
+	return $value;
+};
+
+fn main() -> i32 {
+	i32 result;
+	{
+		Probe value = make();
+		@result = value.value;
+	};
+	return result + destroyed;
+};

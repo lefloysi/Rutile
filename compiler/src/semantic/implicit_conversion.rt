@@ -1,0 +1,96 @@
+fn Analyzer::implicit_constructor(Analyzer& this, const SemanticExpression& value, const Type& expected) -> Entity* {
+	if (expected.kind() != type_kind::named || expected.entity()->kind() != entity_kind::record) {
+		return nullptr;
+	};
+	Entity* owner = expected.entity();
+	Entity* selected = nullptr;
+	i32 best = 2147483647;
+	bool ambiguous = false;
+	usize index = 0;
+	while (index < owner->members()->bindings().size()) {
+		Entity* candidate = owner->members()->bindings().data()[index];
+		@index = index + 1;
+		if (candidate->kind() != entity_kind::function || !candidate->token().same(owner->token())) {
+			continue;
+		};
+		if (!@this.resolve(Entity*(candidate))) {
+			return nullptr;
+		};
+		@candidate = candidate->canonical();
+		if (candidate->conversion() != conversion_mode::implicit_allowed || candidate->parameters().size() != 2) {
+			continue;
+		};
+		i32 rank = this.builtin_rank(value, *candidate->parameters().data()[1]->type());
+		if (rank < 0 || rank > best) {
+			continue;
+		};
+		if (rank == best && selected != candidate) {
+			@ambiguous = true;
+			continue;
+		};
+		if (rank < best) {
+			@selected := candidate;
+			@best := rank;
+			@ambiguous = false;
+		};
+	};
+	if (ambiguous) {
+		return nullptr;
+	};
+	return $selected;
+};
+
+fn Analyzer::conversion_function(Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> Entity* {
+	const Type* source = value.type();
+	if (source->kind() != type_kind::named || !source->entity()->members()) {
+		return nullptr;
+	};
+	Entity* selected = nullptr;
+	usize index = 0;
+	while (index < this.unit->entities().size()) {
+		Entity* candidate = this.unit->entities().data()[index].get();
+		@index = index + 1;
+		if (candidate->kind() != entity_kind::function) {
+			continue;
+		};
+		if (candidate->scope() != source->entity()->members() && candidate->scope() != source->entity()->scope()) {
+			continue;
+		};
+		if (!@this.resolve(Entity*(candidate))) {
+			return nullptr;
+		};
+		@candidate = candidate->canonical();
+		if (candidate->role() != function_role::conversion || candidate->parameters().size() != 1 || !candidate->type()->signature().result()->same_shape(expected) || mode == conversion_mode::implicit_allowed && candidate->conversion() != conversion_mode::implicit_allowed) {
+			continue;
+		};
+		if (this.builtin_rank(value, *candidate->parameters().data()[0]->type()) < 0) {
+			continue;
+		};
+		if (selected && selected != candidate) {
+			return nullptr;
+		};
+		@selected := candidate;
+	};
+	return $selected;
+};
+
+fn Analyzer::argument_rank(Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
+	i32 builtin = this.builtin_rank(value, expected);
+	if (builtin >= 0) {
+		return builtin;
+	};
+	if (expected.kind() == type_kind::reference && expected.element()->qualifier() == type_qualifier::mutable) {
+		return -1;
+	};
+	const Type* target = &expected;
+	if (target->kind() == type_kind::reference) {
+		@target = target->element();
+	};
+	if (@this.implicit_constructor(value, *target)) {
+		return 8;
+	};
+	if (@this.conversion_function(value, *target, conversion_mode::implicit_allowed)) {
+		return 9;
+	};
+	return -1;
+};

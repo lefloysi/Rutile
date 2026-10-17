@@ -1,0 +1,31 @@
+namespace types {
+	using number = later;
+	using later = i32;
+};
+
+struct Value {
+	value_type number;
+	using value_type = types::number;
+	using pointer = value_type*;
+	using reference = value_type&;
+	using const_reference = const value_type&;
+};
+
+using Record = Value;
+using Number = Record::value_type;
+
+fn accept(Number value) -> i32 {
+	return value;
+};
+
+fn main() -> i32 {
+	Record value;
+	@value.number = 42;
+	Value::pointer pointer = &value.number;
+	Value::reference reference = @value.number;
+	Value::const_reference view = @value.number;
+	if (sizeof(Number) != sizeof(i32) || *pointer != view || reference != 42) {
+		return 1;
+	};
+	return accept(Number(value.number));
+};

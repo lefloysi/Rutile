@@ -1,0 +1,262 @@
+fn template_argument_slot(TemplateParameter* parameters, TemplateArgument* arguments, TemplateParameter* parameter) -> TemplateArgument* {
+	while (parameters && arguments) {
+		if (parameters == parameter) {
+			return arguments;
+		};
+		@parameters := parameters->next;
+		@arguments := arguments->next;
+	};
+	return nullptr;
+};
+
+fn parameter_use_type(ParameterUse* use) -> TypeUse* {
+	if (!use) {
+		return nullptr;
+	};
+	return static_cast<TypeUse*>(use->use);
+};
+
+fn template_unify(Compiler& compiler, Type* pattern, Type* actual, TypeUse* actual_use, TemplateParameter* parameters, TemplateArgument* arguments) -> bool {
+	if (!pattern || !actual) {
+		return false;
+	};
+	if (pattern->kind == type_kind::reference) {
+		if (actual->kind == type_kind::reference) {
+			@actual := actual->data.element;
+			@actual_use = type_use_child(static_cast<TypeUse*>(actual_use));
+		};
+		return template_unify(@compiler, static_cast<Type*>(pattern->data.element), static_cast<Type*>(actual), static_cast<TypeUse*>(actual_use), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments));
+	};
+	if (pattern->kind == type_kind::parameter) {
+		TemplateArgument* argument = template_argument_slot(static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments), static_cast<TemplateParameter*>(pattern->data.entity->template_parameter));
+		if (!argument) {
+			return false;
+		};
+		if (pattern->qualifier == type_qualifier::kw_const) {
+			@actual = @compiler.semantic.types.qualified(static_cast<Type*>(actual), type_qualifier::mutable);
+		};
+		if (argument->type) {
+			return type_equal(static_cast<Type*>(argument->type), static_cast<Type*>(actual));
+		};
+		@argument->type := actual;
+		@argument->type_use = $actual_use;
+		return true;
+	};
+	if (pattern->kind != actual->kind) {
+		return false;
+	};
+	if (pattern->kind == type_kind::pointer) {
+		return template_unify(@compiler, static_cast<Type*>(pattern->data.element), static_cast<Type*>(actual->data.element), type_use_child(static_cast<TypeUse*>(actual_use)), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments));
+	};
+	if (pattern->kind == type_kind::function) {
+		if (pattern->data.function.arity != actual->data.function.arity || !template_unify(@compiler, static_cast<Type*>(pattern->data.function.result), static_cast<Type*>(actual->data.function.result), type_use_result(static_cast<TypeUse*>(actual_use)), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments))) {
+			return false;
+		};
+		Parameter* first := pattern->data.function.parameters;
+		Parameter* second := actual->data.function.parameters;
+		ParameterUse* label = type_use_parameters(static_cast<TypeUse*>(actual_use));
+		while (first && second) {
+			if (!template_unify(@compiler, static_cast<Type*>(first->type), static_cast<Type*>(second->type), parameter_use_type(static_cast<ParameterUse*>(label)), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments))) {
+				return false;
+			};
+			@first := first->next;
+			@second := second->next;
+			if (label) {
+				@label := label->next;
+			};
+		};
+		return !first && !second;
+	};
+	if (pattern->kind == type_kind::array) {
+		return pattern->data.array.count == actual->data.array.count && template_unify(@compiler, static_cast<Type*>(pattern->data.array.element), static_cast<Type*>(actual->data.array.element), type_use_child(static_cast<TypeUse*>(actual_use)), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments));
+	};
+	if (pattern->kind == type_kind::named && pattern->data.entity->specialization && actual->data.entity->specialization && pattern->data.entity->template_origin == actual->data.entity->template_origin) {
+		TemplateArgument* formal := pattern->data.entity->specialization->arguments;
+		TemplateArgument* concrete := actual->data.entity->specialization->arguments;
+		while (formal && concrete) {
+			if (formal->kind != concrete->kind) {
+				return false;
+			};
+			if (formal->kind == template_parameter_kind::type) {
+				if (!template_unify(@compiler, static_cast<Type*>(formal->type), static_cast<Type*>(concrete->type), static_cast<TypeUse*>(concrete->type_use), static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments))) {
+					return false;
+				};
+			}
+			else if (formal->parameter) {
+				TemplateArgument* argument = template_argument_slot(static_cast<TemplateParameter*>(parameters), static_cast<TemplateArgument*>(arguments), static_cast<TemplateParameter*>(formal->parameter));
+				if (!argument || (argument->type && argument->value != concrete->value)) {
+					return false;
+				};
+				@argument->type := concrete->type;
+				@argument->value := concrete->value;
+			}
+			else if (formal->value != concrete->value) {
+				return false;
+			};
+			@formal := formal->next;
+			@concrete := concrete->next;
+		};
+		return !formal && !concrete;
+	};
+	return type_value_equal(static_cast<Type*>(pattern), static_cast<Type*>(actual));
+};
+
+fn type_constness_actual(Compiler& compiler, Scope* scope, TypeSyntax* syntax, Type* actual) -> Type* {
+	while (syntax && actual) {
+		@syntax = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax));
+		if (syntax->kind == type_syntax_kind::automatic) {
+			return $actual;
+		};
+		if (syntax->kind == type_syntax_kind::reference) {
+			if (actual->kind == type_kind::reference) {
+				@actual := actual->data.element;
+			};
+		}
+		else if (syntax->kind == type_syntax_kind::pointer && actual->kind == type_kind::pointer) {
+			@actual := actual->data.element;
+		}
+		else if (syntax->kind != type_syntax_kind::qualified && syntax->kind != type_syntax_kind::conditional) {
+			return nullptr;
+		};
+		@syntax := syntax->data.element;
+	};
+	return nullptr;
+};
+
+fn Semantic::template_deduce(Semantic& this, Entity* pattern, Syntax* callable, Syntax* values) -> Entity* {
+	Compiler& compiler = @*this.compiler;
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	Scope* scope = @compiler.create_scope(static_cast<Scope*>(pattern->scope), context_kind::local, nullptr);
+	TemplateArgument* arguments = nullptr;
+	TemplateArgument** link = &arguments;
+	TemplateArgument* explicit_argument := callable->template_arguments;
+	TemplateParameter* parameter := declaration->parameters;
+	while (parameter && compiler.result != compilation_result::failure) {
+		TemplateArgument* argument = static_cast<TemplateArgument*>(@compiler.allocate(sizeof(TemplateArgument)));
+		@argument->kind := parameter->kind;
+		if (explicit_argument && !parameter->constness) {
+			@*argument := *explicit_argument;
+			@argument->next = nullptr;
+			@explicit_argument := explicit_argument->next;
+		};
+		@*link := argument;
+		@link = &argument->next;
+		Entity* binding = entity_create(@compiler, entity_kind::primitive, Token(parameter->name));
+		@binding->state = resolution::ready;
+		@binding->template_parameter := parameter;
+		if (parameter->kind == template_parameter_kind::type) {
+			Type* type := argument->type;
+			if (!type) {
+				@type = @compiler.semantic.types.entity(type_kind::parameter, static_cast<Entity*>(binding));
+			};
+			@binding->data.primitive.type := type;
+			@binding->data.primitive.type_use := argument->type_use;
+		}
+		else {
+			@binding->kind = entity_kind::variable;
+			@binding->data.variable.storage = storage_kind::constant;
+			@binding->data.variable.type = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type));
+			@binding->data.variable.data.integer = 1;
+			if (argument->type) {
+				@binding->data.variable.data.integer := argument->value;
+			};
+		};
+		@scope->define($binding);
+		@parameter := parameter->next;
+	};
+	TypeSyntax* signature = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(declaration->signature));
+	if (!signature) {
+		return nullptr;
+	};
+	ParameterSyntax* formal := signature->data.signature.parameters;
+	Syntax* value := values;
+	while (formal && value && compiler.result != compilation_result::failure) {
+		if (syntax_number_expression(static_cast<Syntax*>(value))) {
+			TypeSyntax* syntax = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(formal->type));
+			TypeSyntax* automatic = type_automatic(static_cast<TypeSyntax*>(syntax));
+			if (automatic) {
+				Entity* bound = scope->local(automatic->data.qualified.condition);
+				TemplateArgument* argument = template_argument_slot(static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments), static_cast<TemplateParameter*>(bound->template_parameter));
+				@argument->type := compiler.bool_type;
+				@argument->value = 1;
+				@bound->data.variable.data.integer = 1;
+			};
+		};
+		if (!syntax_number_expression(static_cast<Syntax*>(value))) {
+			Type* actual = @this.expression(static_cast<Syntax*>(value), nullptr);
+			TypeUse* actual_use = @this.expression_use(static_cast<Syntax*>(value));
+			TypeSyntax* syntax = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(formal->type));
+			if (!syntax || !actual || compiler.result == compilation_result::failure) {
+				return nullptr;
+			};
+			Type* constness = type_constness_actual(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax), static_cast<Type*>(actual));
+			if (constness) {
+				TypeSyntax* automatic = type_automatic(static_cast<TypeSyntax*>(syntax));
+				Entity* bound = scope->local(automatic->data.qualified.condition);
+				if (bound && bound->template_parameter && bound->template_parameter->constness) {
+					TemplateArgument* argument = template_argument_slot(static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments), static_cast<TemplateParameter*>(bound->template_parameter));
+					@argument->type := compiler.bool_type;
+					@argument->value = static_cast<u64>((constness->qualifier == type_qualifier::kw_const || (syntax->kind == type_syntax_kind::reference && !syntax_mutable_access(static_cast<Syntax*>(value)))));
+					@bound->data.variable.data.integer := argument->value;
+				};
+			};
+			if (syntax->kind == type_syntax_kind::reference) {
+				@syntax := syntax->data.element;
+			}
+			else {
+				@actual = @compiler.semantic.types.qualified(static_cast<Type*>(actual), type_qualifier::mutable);
+			};
+			if (syntax->kind == type_syntax_kind::array && syntax->data.array.count.kind == token_kind::identifier && actual->kind == type_kind::array) {
+				Entity* bound = scope->lookup(syntax->data.array.count);
+				if (bound && bound->template_parameter) {
+					TemplateArgument* argument = template_argument_slot(static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments), static_cast<TemplateParameter*>(bound->template_parameter));
+					if (argument && argument->type && argument->value != actual->data.array.count) {
+						@compiler.diagnostics.report(callable->token, "conflicting non-type template argument deduction\0");
+						return nullptr;
+					};
+					@argument->type := bound->data.variable.type;
+					@argument->value := actual->data.array.count;
+					@syntax := syntax->data.array.element;
+					@actual := actual->data.array.element;
+					@actual_use = type_use_child(static_cast<TypeUse*>(actual_use));
+				};
+			};
+			Type* expected = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(syntax));
+			if (!template_unify(@compiler, static_cast<Type*>(expected), static_cast<Type*>(actual), static_cast<TypeUse*>(actual_use), static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments))) {
+				@compiler.diagnostics.report(callable->token, "conflicting function template argument deduction\0");
+				return nullptr;
+			};
+		};
+		@formal := formal->next;
+		@value := value->next;
+	};
+	@parameter := declaration->parameters;
+	TemplateArgument* argument := arguments;
+	while (parameter && argument && compiler.result != compilation_result::failure) {
+		if (!argument->type && parameter->default_argument) {
+			TemplateArgument* default_argument = template_argument_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TemplateParameter*>(parameter), static_cast<ArgumentSyntax*>(parameter->default_argument));
+			@argument->type := default_argument->type;
+			@argument->type_use := default_argument->type_use;
+			@argument->value := default_argument->value;
+		};
+		if (!argument->type || type_dependent(static_cast<Type*>(argument->type))) {
+			@compiler.diagnostics.report(callable->token, "function template argument cannot be deduced; provide it explicitly\0");
+			return nullptr;
+		};
+		Entity* binding = scope->local(parameter->name);
+		if (parameter->kind == template_parameter_kind::type) {
+			@binding->data.primitive.type := argument->type;
+			@binding->data.primitive.type_use := argument->type_use;
+		}
+		else {
+			@binding->data.variable.data.integer := argument->value;
+		};
+		@argument := argument->next;
+		@parameter := parameter->next;
+	};
+	return template_specialize(@compiler, static_cast<Entity*>(pattern), static_cast<TemplateArgument*>(arguments), callable->token);
+};
+

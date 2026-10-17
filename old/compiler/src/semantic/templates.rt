@@ -1,0 +1,328 @@
+fn template_apply(Compiler& compiler, Scope* scope, Entity* pattern, ArgumentListSyntax* sources, const Token& token, TemplateArgument** explicit_arguments) -> Entity* {
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	TemplateParameter* parameter := declaration->parameters;
+	ArgumentListSyntax* source := sources;
+	TemplateArgument* arguments = nullptr;
+	TemplateArgument** tail = &arguments;
+	Scope* bindings = @compiler.create_scope(static_cast<Scope*>(declaration->definition_scope), context_kind::local, nullptr);
+	while (parameter && compiler.result != compilation_result::failure) {
+		if (parameter->constness) {
+			break;
+		};
+		@source = argument_list_select(@compiler, static_cast<Scope*>(scope), static_cast<ArgumentListSyntax*>(source));
+		ArgumentSyntax* input = nullptr;
+		Scope* context := bindings;
+		if (source && source->first) {
+			@input := source->first;
+			@context := scope;
+		}
+		else {
+			@input := parameter->default_argument;
+		};
+		if (!input && pattern->data.template_pattern.declaration_kind == token_kind::kw_fn) {
+			break;
+		};
+		if (!input) {
+			@compiler.diagnostics.report(token, "not enough template arguments\0");
+			return nullptr;
+		};
+		TemplateArgument* argument = template_argument_resolve(@compiler, $context, static_cast<TemplateParameter*>(parameter), $input);
+		if (!argument) {
+			return nullptr;
+		};
+		@*tail := argument;
+		@tail = &argument->next;
+		template_bind(@compiler, static_cast<Scope*>(bindings), static_cast<TemplateParameter*>(parameter), static_cast<TemplateArgument*>(argument));
+		if (source && source->first) {
+			@source := source->rest;
+		};
+		@parameter := parameter->next;
+	};
+	@source = argument_list_select(@compiler, static_cast<Scope*>(scope), static_cast<ArgumentListSyntax*>(source));
+	if (source && source->first) {
+		@compiler.diagnostics.report(token, "too many template arguments\0");
+		return nullptr;
+	};
+	@*explicit_arguments := arguments;
+	if (parameter) {
+		return pattern;
+	};
+	return template_specialize(@compiler, $pattern, $arguments, token);
+};
+
+fn name_lookup(Compiler& compiler, Scope* scope, NameSyntax* name, TemplateArgument** arguments) -> Entity* {
+	if (!name) {
+		return nullptr;
+	};
+	Entity* entity = nullptr;
+	if (name->qualifier) {
+		Entity* owner = name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name->qualifier));
+		if (!owner || !entity_members(static_cast<Entity*>(owner))) {
+			return nullptr;
+		};
+		@entity = associated_lookup(@compiler, $owner, name->token);
+	}
+	else {
+		@entity = scope->lookup(name->token);
+	};
+	if (entity && !name->arguments && ((entity->kind == entity_kind::kw_template && entity->data.template_pattern.declaration_kind == token_kind::kw_namespace) || (entity->kind == entity_kind::kw_namespace && entity->template_origin))) {
+		@compiler.diagnostics.report(name->token, "namespace requires explicit template arguments\0");
+		return nullptr;
+	};
+	if (!name->arguments || !entity) {
+		return entity;
+	};
+	if (entity->template_origin) {
+		@entity := entity->template_origin;
+	};
+	if (entity->kind != entity_kind::kw_template) {
+		@compiler.diagnostics.report(name->token, "template arguments require a template entity\0");
+		return nullptr;
+	};
+	return template_apply(@compiler, $scope, $entity, static_cast<ArgumentListSyntax*>(name->arguments), name->token, $arguments);
+};
+
+fn name_binding_resolve(Compiler& compiler, Scope* scope, NameSyntax* name) -> NameResolution* {
+	if (!name) {
+		return nullptr;
+	};
+	NameResolution* resolved = @compiler.semantic.resolved_names.find(static_cast<const void*>(name), static_cast<const void*>(scope));
+	if (resolved) {
+		return $resolved;
+	};
+	TemplateArgument* arguments = nullptr;
+	NameSyntax* selected = name_source_select(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name));
+	if (!selected) {
+		return nullptr;
+	};
+	Entity* entity = name_lookup(@compiler, static_cast<Scope*>(scope), $selected, &arguments);
+	if (!entity || compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	@resolved = identity_record<NameResolution>(@compiler, @compiler.semantic.resolved_names, static_cast<const void*>(name), static_cast<const void*>(scope));
+	if (!resolved) {
+		return nullptr;
+	};
+	@resolved->entity = $entity;
+	@resolved->arguments = $arguments;
+	return $resolved;
+};
+
+fn name_resolve(Compiler& compiler, Scope* scope, NameSyntax* name) -> Entity* {
+	NameResolution* resolved = name_binding_resolve(@compiler, $scope, $name);
+	if (!resolved) {
+		return nullptr;
+	};
+	return static_cast<Entity*>(resolved->entity);
+};
+
+fn named_type(Compiler& compiler, Scope* scope, Syntax* syntax) -> Type* {
+	Entity* entity = syntax_lookup(static_cast<Scope*>(scope), static_cast<Syntax*>(syntax));
+	if (!entity || (entity->kind != entity_kind::primitive && entity->kind != entity_kind::kw_struct && entity->kind != entity_kind::kw_union && entity->kind != entity_kind::kw_enum)) {
+		@compiler.diagnostics.report(syntax->token, "identifier does not name a type entity\0");
+		return static_cast<Type*>(compiler.void_type);
+	};
+	if (entity->kind == entity_kind::primitive) {
+		entity_resolve(@compiler, static_cast<Entity*>(entity));
+	};
+	Type* type = entity_type(static_cast<Entity*>(entity));
+	if (!type && entity->kind != entity_kind::primitive) {
+		@type = @compiler.semantic.types.entity(type_kind::named, static_cast<Entity*>(entity));
+		@entity->data.aggregate.type := type;
+	};
+	return $type;
+};
+
+fn function_type_resolve(Compiler& compiler, Scope* scope, Entity* function) -> Type* {
+	TypeSyntax* signature := function->declaration->data.declaration.type;
+	if (signature) {
+		@function->data.function.type_use = type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(signature));
+		return type_resolve(@compiler, static_cast<Scope*>(scope), $signature);
+	};
+	return static_cast<Type*>(function->data.function.type);
+};
+
+fn syntax_lookup(Scope* scope, Syntax* syntax) -> Entity* {
+	if (!syntax) {
+		return nullptr;
+	};
+	if (syntax->entity) {
+		return static_cast<Entity*>(syntax->entity);
+	};
+	if (syntax->kind == syntax_kind::expr_member) {
+		Scope* members = entity_members(syntax_lookup(static_cast<Scope*>(scope), static_cast<Syntax*>(syntax->data.member.object)));
+		if (!members) {
+			return nullptr;
+		};
+		return associated_lookup(@*scope->compiler, static_cast<Entity*>(members->owner), syntax->data.member.name);
+	};
+	if (syntax->kind != syntax_kind::expr_name) {
+		return nullptr;
+	};
+	if (syntax->source_name) {
+		NameResolution* resolved = name_binding_resolve(@*scope->compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(syntax->source_name));
+		if (!resolved) {
+			return nullptr;
+		};
+		@syntax->template_arguments := resolved->arguments;
+		return static_cast<Entity*>(resolved->entity);
+	};
+	if (!syntax->data.expression) {
+		return scope->lookup(syntax->token);
+	};
+	Scope* members = entity_members(syntax_lookup(static_cast<Scope*>(scope), static_cast<Syntax*>(syntax->data.expression)));
+	if (!members) {
+		return nullptr;
+	};
+	return associated_lookup(@*scope->compiler, static_cast<Entity*>(members->owner), syntax->token);
+};
+
+fn template_arguments_equal(TemplateArgument* first, TemplateArgument* second) -> bool {
+	while (first && second) {
+		if (first->kind != second->kind || first->parameter != second->parameter || !type_equal(static_cast<Type*>(first->type), static_cast<Type*>(second->type))) {
+			return false;
+		};
+		if (first->kind == template_parameter_kind::value && first->value != second->value) {
+			return false;
+		};
+		@first := first->next;
+		@second := second->next;
+	};
+	return !first && !second;
+};
+
+fn template_bind(Compiler& compiler, Scope* scope, TemplateParameter* parameter, TemplateArgument* argument) {
+	while (parameter && argument && compiler.result != compilation_result::failure) {
+		if (!scope->local(parameter->name)) {
+			entity_kind kind = entity_kind::primitive;
+			if (parameter->kind == template_parameter_kind::value) {
+				@kind = entity_kind::variable;
+			};
+			Entity* entity = entity_create(@compiler, $kind, Token(parameter->name));
+			if (!entity) {
+				return;
+			};
+			@entity->state = resolution::ready;
+			@entity->template_parameter := argument->parameter;
+			if (parameter->constness) {
+				@entity->template_parameter := parameter;
+			};
+			if (parameter->kind == template_parameter_kind::type) {
+				@entity->data.primitive.type := argument->type;
+				@entity->data.primitive.type_use := argument->type_use;
+			}
+			else {
+				@entity->data.variable.storage = storage_kind::constant;
+				@entity->data.variable.type := argument->type;
+				@entity->data.variable.data.integer := argument->value;
+			};
+			@scope->define($entity);
+		};
+		@parameter := parameter->next;
+		@argument := argument->next;
+	};
+};
+
+fn template_instance_name(Compiler& compiler, Token token, usize index) -> Token {
+	char[22] digits {};
+	@digits[sizeof(digits) - 1] = '\0';
+	usize position = sizeof(digits) - 1;
+	while (true) {
+		@position = position - 1;
+		@digits[position] = static_cast<char>((static_cast<usize>('0') + index % 10));
+		@index = index / 10;
+		if (!index) {
+			break;
+		};
+	};
+	char* spelling = @compiler.copy_text(&digits[position], sizeof(digits) - position - 1);
+	return token_synthetic(@compiler, $token, $spelling);
+};
+
+fn type_dependent(Type* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (type->kind == type_kind::parameter) {
+		return true;
+	};
+	if (type->kind == type_kind::pointer || type->kind == type_kind::reference) {
+		return type_dependent(static_cast<Type*>(type->data.element));
+	};
+	if (type->kind == type_kind::array) {
+		return type_dependent(static_cast<Type*>(type->data.array.element));
+	};
+	if (type->kind == type_kind::named && type->data.entity->specialization) {
+		TemplateArgument* argument := type->data.entity->specialization->arguments;
+		while (argument) {
+			if (argument->parameter || type_dependent(static_cast<Type*>(argument->type))) {
+				return true;
+			};
+			@argument := argument->next;
+		};
+	};
+	return false;
+};
+
+fn template_argument_resolve(Compiler& compiler, Scope* scope, TemplateParameter* parameter, ArgumentSyntax* source) -> TemplateArgument* {
+	TemplateArgument* argument = static_cast<TemplateArgument*>(@compiler.allocate(sizeof(TemplateArgument)));
+	if (!argument || !source) {
+		return nullptr;
+	};
+	@argument->kind := parameter->kind;
+	if (parameter->kind == template_parameter_kind::type) {
+		if (!source->type || !parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(source->type_guard))) {
+			@compiler.diagnostics.report(parameter->name, "expected type template argument\0");
+			return argument;
+		};
+		@argument->type = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(source->type));
+		@argument->type_use = type_use_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(source->type));
+		return argument;
+	};
+	@argument->type = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type));
+	if (!(argument->type && argument->type->kind.is_integer())) {
+		@compiler.diagnostics.report(parameter->name, "non-type template parameter requires an integral type\0");
+		return argument;
+	};
+	if (!source->value || !parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(source->value_guard))) {
+		@compiler.diagnostics.report(parameter->name, "expected value template argument\0");
+		return argument;
+	};
+	Syntax* value = value_lower(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(source->value));
+	if (!value) {
+		@compiler.diagnostics.report(parameter->name, "expected value template argument\0");
+		return argument;
+	};
+	if (value->kind == syntax_kind::expr_name) {
+		Entity* entity = syntax_lookup(static_cast<Scope*>(scope), static_cast<Syntax*>(value));
+		if (entity) {
+			@argument->parameter := entity->template_parameter;
+		};
+	};
+	Semantic checking;
+	@checking.compiler = &compiler;
+	@checking.scope := scope;
+	@checking.expression(static_cast<Syntax*>(value), static_cast<Type*>(argument->type));
+	@argument->value = constant_integer(@compiler, static_cast<Scope*>(scope), static_cast<Syntax*>(value));
+	i32 bits = type_bits(static_cast<Type*>(argument->type));
+	if (bits < 64) {
+		u64 maximum = static_cast<u64>(18446744073709551615) >> static_cast<u64>((64 - bits));
+		if (type_unsigned(static_cast<Type*>(argument->type)) || argument->type->kind == type_kind::kw_bool || argument->type->kind == type_kind::kw_char) {
+			if (argument->value > maximum) {
+				@compiler.diagnostics.report(value->token, "template argument is outside its parameter type range\0");
+			};
+		}
+		else {
+			@maximum = maximum / 2;
+			i64 signed_value := static_cast<i64>(argument->value);
+			if (signed_value > static_cast<i64>(maximum) || signed_value < -static_cast<i64>(maximum) - 1) {
+				@compiler.diagnostics.report(value->token, "template argument is outside its parameter type range\0");
+			};
+		};
+	};
+	return argument;
+};
+

@@ -1,0 +1,137 @@
+enum compilation_result : [i32] {
+	success;
+	failure;
+};
+
+enum output_kind : [i32] {
+	executable;
+	library;
+};
+
+struct Diagnostics {
+	fn configure(Diagnostics& this, compilation_result& result, void* output);
+	fn report(Diagnostics& this, const Token& token, const char* message);
+
+private:
+	compilation_result* result;
+	void* output;
+};
+
+// ============================================================================
+// MODULE: BACKEND STATE
+// PURPOSE: Own native entity representations, LLVM resources, and emission queues.
+// DEPENDS ON: Entities, LLVM bindings, Compiler arena and allocation failure state.
+// ============================================================================
+struct BackendEntity {
+	LLVMOpaqueValue* wrapper;
+	LLVMOpaqueValue* value;
+	LLVMOpaqueType* type;
+	LLVMOpaqueType* body;
+	RuntimeView* views;
+};
+
+struct BackendSyntax {
+	LLVMOpaqueValue* address;
+	LLVMOpaqueValue* constructed;
+};
+
+struct BackendState {
+	IdentityMap<BackendEntity> entities;
+	IdentityMap<BackendSyntax> expressions;
+	RuntimeView* runtime_views;
+	RuntimeThunk* runtime_thunks;
+	RuntimeWrapper* runtime_wrappers;
+};
+
+struct Backend :[BackendState] {
+	fn clear(Backend& this);
+	fn constant(Backend& this, Compiler& compiler, ConstantValue* value) -> LLVMOpaqueValue*;
+
+	rt::unique<LLVMOpaqueContext, LLVMContextDisposer> llvm_context;
+	rt::unique<LLVMOpaqueTargetMachine, LLVMTargetMachineDisposer> llvm_machine;
+	rt::unique<LLVMOpaqueModule, LLVMModuleDisposer> llvm_module;
+	rt::unique<LLVMOpaqueBuilder, LLVMBuilderDisposer> llvm_builder;
+	rt::unique<LLVMOpaqueTargetData, LLVMLayoutDisposer> llvm_layout;
+};
+
+struct NameResolution {
+	Entity* entity;
+	TemplateArgument* arguments;
+};
+
+struct ImplicitCopy {
+	Type* type;
+	Entity* function;
+	ImplicitCopy* next;
+};
+
+struct SemanticState {
+	ImplicitCopy* implicit_copies;
+	Entity* conversions;
+	IdentityMap<MirRegion> regions;
+	IdentityMap<NameResolution> resolved_names;
+	IdentityMap<SourceBinding> source_bindings;
+	TypeStore types;
+	IdentityMap<TypeResolution> resolved_types;
+};
+
+struct CompilerState {
+	SourceManager sources;
+	Syntax* declarations;
+	TemplateDeclaration* templates;
+	Scope* module;
+	((char* path, char* mode) -> void*)* open_file;
+	Diagnostics diagnostics;
+	char* entry;
+	Type* void_type;
+	Type* null_type;
+	Type* bool_type;
+	Type* i32_type;
+	Type* usize_type;
+	Type* char_type;
+	DeclarationRule[4] declaration_rules;
+	i32 optimization;
+	compilation_result result;
+	output_kind output;
+};
+
+struct Compiler :[CompilerState] {
+	fn allocate(Compiler& this, usize size) -> void*;
+	fn create_scope(Compiler& this, Scope* parent, context_kind context, Entity* owner) -> Scope*;
+	fn copy_text(Compiler& this, const char* text, usize length) -> char*;
+	fn Compiler(Compiler& this);
+	fn clear(Compiler& this);
+	fn initialize(Compiler& this) -> i32;
+	fn verify(Compiler& this) -> i32;
+	fn optimize(Compiler& this) -> i32;
+	fn analyze(Compiler& this);
+	fn emit(Compiler& this);
+
+	Arena allocations;
+	Backend backend;
+	SemanticState semantic;
+};
+
+fn Compiler::Compiler(Compiler& this) {
+	@this.semantic.types.bind(@this.result);
+	@this.diagnostics.configure(@this.result, nullptr);
+};
+
+fn Backend::clear(Backend& this) {
+	@this.llvm_layout.reset(nullptr);
+	@this.llvm_builder.reset(nullptr);
+	@this.llvm_module.reset(nullptr);
+	@this.llvm_machine.reset(nullptr);
+	@this.llvm_context.reset(nullptr);
+	@(static_cast<BackendState&>(this)) = BackendState();
+};
+
+fn Compiler::clear(Compiler& this) {
+	@this.backend.clear();
+	@this.semantic = SemanticState();
+	@this.semantic.types.bind(@this.result);
+	@this.allocations.clear();
+	@(static_cast<CompilerState&>(this)) = CompilerState();
+	@this.diagnostics.configure(@this.result, nullptr);
+};
+

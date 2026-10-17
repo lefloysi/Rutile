@@ -1,0 +1,146 @@
+fn syntax_create(Compiler& compiler, syntax_kind kind, Token token) -> Syntax* {
+	Syntax* syntax = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+	if (!syntax) {
+		return nullptr;
+	};
+	@syntax->kind = $kind;
+	@syntax->token = $token;
+	return $syntax;
+};
+
+fn literal_string_create(Compiler& compiler, const Token& token) -> Syntax* {
+	Syntax* node = syntax_create(@compiler, syntax_kind::literal_string, Token(token));
+	char* bytes = static_cast<char*>(@compiler.allocate(static_cast<usize>(token.length)));
+	if (!node || !bytes) {
+		return nullptr;
+	};
+	usize index = 1;
+	usize length = 0;
+	while (index + 1 < token.length) {
+		char value := token.source->bytes.data[token.begin + index];
+		@index = index + 1;
+		if (value == '\\') {
+			@value = literal_escape(@compiler, token, static_cast<char>(token.source->bytes.data[token.begin + index]));
+			@index = index + 1;
+		};
+		@bytes[length] = $value;
+		@length = length + 1;
+	};
+	@node->data.string = rt::string_view($bytes, $length);
+	return $node;
+};
+
+struct ValueBinary {
+	ValueSyntax* left;
+	ValueSyntax* right;
+	token_kind operation;
+};
+
+struct ValueCall {
+	ValueSyntax* callable;
+	ValueSyntax* arguments;
+};
+
+struct ValueMember {
+	ValueSyntax* object;
+	NameSyntax* name;
+};
+
+struct ValueTyped {
+	TypeSyntax* type;
+	ValueSyntax* value;
+};
+
+struct ValueDeclaration {
+	TypeSyntax* type;
+	Token name;
+	ValueSyntax* body;
+	token_kind initialization;
+};
+
+struct ValueBranch {
+	ValueSyntax* condition;
+	ValueSyntax* first;
+	ValueSyntax* second;
+};
+
+struct ValueLoop {
+	ValueSyntax* initializer;
+	ValueSyntax* condition;
+	ValueSyntax* step;
+	ValueSyntax* body;
+};
+
+struct ValueSelection {
+	ValueSyntax* value;
+	ValueSyntax* cases;
+};
+
+struct ValueAllocation {
+	ValueSyntax* construction;
+	ValueSyntax* count;
+};
+
+union ValueSyntaxData {
+	SourceDeclaration* source_declaration;
+	SourceChoice* choice;
+	SourceExpression* chain;
+	ParseFailure* error;
+	NameSyntax* name;
+	ValueSyntax* expression;
+	ValueSyntax* statements;
+	ValueBinary binary;
+	ValueCall call;
+	ValueMember member;
+	ValueTyped typed;
+	ValueDeclaration declaration;
+	ValueBranch branch;
+	ValueLoop loop;
+	ValueSelection selection;
+	ValueAllocation allocation;
+};
+
+struct ValueSyntax {
+	ValueSyntax* next;
+	Token token;
+	ValueSyntaxData data;
+	syntax_kind kind;
+};
+
+fn value_name(Compiler& compiler, NameSyntax* name) -> ValueSyntax* {
+	ValueSyntax* value = static_cast<ValueSyntax*>(@compiler.allocate(sizeof(ValueSyntax)));
+	if (!value) {
+		return nullptr;
+	};
+	@value->kind = syntax_kind::expr_name;
+	@value->token := name->token;
+	@value->data.name = static_cast<NameSyntax*>(name);
+	return static_cast<ValueSyntax*>(value);
+};
+
+fn name_lower(Compiler& compiler, Scope* scope, NameSyntax* name) -> Syntax* {
+	if (!name) {
+		return nullptr;
+	};
+	Syntax* node = syntax_create(@compiler, syntax_kind::expr_name, Token(name->token));
+	if (!node) {
+		return nullptr;
+	};
+	@node->source_name = static_cast<NameSyntax*>(name);
+
+	return static_cast<Syntax*>(node);
+};
+
+fn Parser::new_value(Parser& this, syntax_kind kind, Token token) -> ValueSyntax* {
+	ValueSyntax* value = static_cast<ValueSyntax*>(@this.compiler->allocate(sizeof(ValueSyntax)));
+	if (!value) {
+		return nullptr;
+	};
+	@value->kind = static_cast<syntax_kind>(kind);
+	@value->token = Token(token);
+	return static_cast<ValueSyntax*>(value);
+};
+
+// A tail operation has a vacant left/callee/object edge; it is NEVER mutated.
+// Nodes are immutable after their containing source parse completes.
+

@@ -1,0 +1,186 @@
+fn memcpy(void* destination, const void* source, usize size) -> void*;
+fn memmove(void* destination, const void* source, usize size) -> void*;
+fn memcmp(const void* first, const void* second, usize size) -> i32;
+
+namespace rt {
+	fn cstrlen(const char* text) -> usize {
+		usize length = 0;
+		while (text[length]) {
+			@length = length + 1;
+		};
+		return length;
+	};
+
+	struct string_view {
+		using value_t = char;
+
+		fn string_view(string_view& this) : [default];
+		fn string_view(string_view& this, const value_t* data, usize size);
+		fn string_view(string_view& this, const value_t* text) : [implicit];
+		fn string_view(string_view& this, const string& text) : [implicit];
+
+		const value_t* data;
+		usize size;
+	};
+
+	struct string {
+		using value_t = char;
+
+		fn string(string& this) : [default];
+		fn string(string& this, const value_t* text);
+		fn string(string& this, const string_view& text);
+		fn string(string& this, const string& other);
+		fn string(string& this, string other) : [default];
+		fn operator=(string& this, const string& other) -> string&;
+		fn operator=(string& this, string other) -> string& : [default];
+		fn ~string(string& this);
+
+		fn append(string& this, const string_view& text) -> bool;
+		fn data(auto string& this) -> const[this] value_t*;
+		fn reset(string& this);
+		fn release(string& this) -> value_t*;
+
+	private:
+		fn capacity_for(usize required) -> usize;
+		usize size;
+		value_t* buffer;
+		usize capacity;
+	};
+
+	fn string_view::string_view(string_view& this, const string_view::value_t* data, usize size) {
+		@this.data = $data;
+		@this.size = $size;
+	};
+
+	fn string_view::string_view(string_view& this, const string_view::value_t* text) {
+		@this.size = cstrlen(const string_view::value_t*(text));
+		@this.data = $text;
+	};
+
+	fn string_view::string_view(string_view& this, const string& text) {
+		@this.data = text.data();
+		@this.size := text.size;
+	};
+
+	fn operator==(const string_view& lhs, const string_view& rhs) -> bool {
+		return lhs.size == rhs.size && (!lhs.size || !memcmp(const string_view::value_t*(lhs.data), const string_view::value_t*(rhs.data), usize(lhs.size)));
+	};
+
+	fn operator!=(const string_view& lhs, const string_view& rhs) -> bool {
+		return !(lhs == rhs);
+	};
+
+	fn operator<(const string_view& lhs, const string_view& rhs) -> bool {
+		usize count := lhs.size;
+		if (rhs.size < count) {
+			@count := rhs.size;
+		};
+		if (count) {
+			i32 result = memcmp(const string_view::value_t*(lhs.data), const string_view::value_t*(rhs.data), usize(count));
+			if (result) {
+				return result < 0;
+			};
+		};
+		return lhs.size < rhs.size;
+	};
+
+	fn operator<=(const string_view& lhs, const string_view& rhs) -> bool {
+		return !(rhs < lhs);
+	};
+
+	fn operator>(const string_view& lhs, const string_view& rhs) -> bool {
+		return rhs < lhs;
+	};
+
+	fn operator>=(const string_view& lhs, const string_view& rhs) -> bool {
+		return !(lhs < rhs);
+	};
+
+	fn string::string(string& this, const string::value_t* text) {
+		@this.append(string_view($text));
+	};
+
+	fn string::string(string& this, const string_view& text) {
+		@this.append(text);
+	};
+
+	fn string::string(string& this, const string& other) {
+		@this.append(other);
+	};
+
+	fn string::operator=(string& this, const string& other) -> string& {
+		if (this.data() == other.data()) {
+			return @this;
+		};
+		string replacement;
+		if (!@replacement.append(other)) {
+			return @this;
+		};
+		@this = $replacement;
+		return @this;
+	};
+
+	fn string::~string(string& this) {
+		delete string::value_t*(this.buffer);
+	};
+
+	fn string::data(auto string& this) -> const[this] string::value_t* {
+		return this.buffer;
+	};
+
+	fn string::reset(string& this) {
+		delete @this.release();
+	};
+
+	fn string::release(string& this) -> string::value_t* {
+		string::value_t* pointer := this.buffer;
+		@this.buffer = nullptr;
+		@this.size = 0;
+		@this.capacity = 0;
+		return $pointer;
+	};
+
+	fn string::capacity_for(usize required) -> usize {
+		u64 bits = u64(required) - 1;
+		@bits = bits | (bits >> 1);
+		@bits = bits | (bits >> 2);
+		@bits = bits | (bits >> 4);
+		@bits = bits | (bits >> 8);
+		@bits = bits | (bits >> 16);
+		@bits = bits | (bits >> 32);
+		if (bits == u64(~usize(0))) {
+			return required;
+		};
+		return usize(bits + 1);
+	};
+
+	fn string::append(string& this, const string_view& text) -> bool {
+		var maximum = ~usize(0);
+		if (this.size == maximum || text.size > maximum - this.size - 1) {
+			return false;
+		};
+		usize required = this.size + usize(text.size) + 1;
+		if (required > this.capacity) {
+			usize capacity = string::capacity_for(usize(required));
+			string::value_t* memory = new string::value_t[capacity]({});
+			if (!memory) {
+				return false;
+			};
+			if (this.size) {
+				memcpy(string::value_t*(memory), const string::value_t*(this.buffer), usize(this.size));
+			};
+			if (text.size) {
+				memcpy(memory + this.size, const string::value_t*(text.data), usize(text.size));
+			};
+			delete string::value_t*(this.buffer);
+			@this.buffer = $memory;
+			@this.capacity = $capacity;
+		}
+		else if (text.size) {
+			memmove(this.buffer + this.size, const string::value_t*(text.data), usize(text.size));
+		};
+		@this.size = required - 1;
+		@this.buffer[this.size] = '\0';
+		return true;
+	};
+};

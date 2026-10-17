@@ -1,0 +1,112 @@
+fn Backend::implementation(const Backend& this, Entity* entity) -> LLVMOpaqueValue* {
+	@entity = entity->canonical();
+	usize index = 0;
+	while (index < this.entities.size()) {
+		if (this.entities.data()[index].source == entity) {
+			return this.entities.data()[index].implementation;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn Backend::field_index(const Backend& this, Entity* entity, usize index) -> u32 {
+	return static_cast<u32>(entity->bases().size() + static_cast<usize>(entity->owns_dispatch()) + index);
+};
+
+fn Backend::table(Backend& this, Entity* entity) -> LLVMOpaqueValue* {
+	usize index = 0;
+	while (index < this.tables.size()) {
+		if (this.tables.data()[index].source == entity) {
+			return this.tables.data()[index].value;
+		};
+		@index = index + 1;
+	};
+	rt::buffer<LLVMOpaqueValue*> functions;
+	@index = 0;
+	while (index < entity->virtual_functions().size()) {
+		Entity* function = entity->virtual_functions().data()[index];
+		LLVMOpaqueValue* implementation = this.implementation(function);
+		if (!implementation) {
+			@this.error(function->token(), rt::string_view("virtual implementation has no prepared native declaration\0"));
+			return nullptr;
+		};
+		if (!@functions.push_back(implementation)) {
+			@this.error(function->token(), rt::string_view("cannot retain native virtual implementations\0"));
+			return nullptr;
+		};
+		@index = index + 1;
+	};
+	LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
+	LLVMOpaqueValue* contents = LLVMConstArray2(pointer, (@functions).data(), functions.size());
+	LLVMOpaqueValue* value = LLVMAddGlobal(this.module(), LLVMTypeOf(contents), "rt.vtable\0");
+	LLVMSetInitializer(value, contents);
+	LLVMSetGlobalConstant(value, 1);
+	LLVMSetLinkage(value, 9);
+	NativeTable table;
+	@table.source = entity;
+	@table.value = value;
+	if (!@this.tables.push_back($table)) {
+		@this.error(entity->token(), rt::string_view("cannot retain native virtual table\0"));
+		return nullptr;
+	};
+	return value;
+};
+
+fn Backend::dispatch_target(Backend& this, Entity* entity, LLVMOpaqueValue* receiver) -> LLVMOpaqueValue* {
+	Entity* owner = entity->scope()->owner()->virtual_owner();
+	if (!owner || !receiver) {
+		@this.error(entity->token(), rt::string_view("virtual dispatch has no owning receiver layout\0"));
+		return nullptr;
+	};
+	LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
+	LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.builder(), @this.type(owner->type()), receiver, static_cast<u32>(owner->bases().size()), "dispatch.header\0");
+	LLVMOpaqueValue* table = LLVMBuildLoad2(this.builder(), pointer, header, "dispatch.table\0");
+	LLVMOpaqueValue* index = LLVMConstInt(LLVMIntTypeInContext(this.context(), this.pointer_bits()), entity->virtual_slot(), 0);
+	LLVMOpaqueValue* slot = LLVMBuildGEP2(this.builder(), pointer, table, &index, 1, "dispatch.slot\0");
+	return LLVMBuildLoad2(this.builder(), pointer, slot, "dispatch.target\0");
+};
+
+fn Backend::emit_dispatch(Backend& this, Entity* entity) -> bool {
+	const FunctionSignature& signature = entity->type()->signature();
+	if (!signature.parameters().size() || signature.parameters().data()[0]->kind() != type_kind::reference || signature.arity() == parameter_arity::variadic) {
+		return @this.error(entity->token(), rt::string_view("virtual dispatch requires a fixed signature with an object receiver\0"));
+	};
+	LLVMOpaqueValue* function = this.symbol(entity);
+	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), function, "entry\0"));
+	rt::buffer<LLVMOpaqueValue*> arguments;
+	usize index = 0;
+	while (index < signature.parameters().size()) {
+		if (!@arguments.push_back(LLVMGetParam(function, static_cast<u32>(index)))) {
+			return @this.error(entity->token(), rt::string_view("cannot retain virtual call arguments\0"));
+		};
+		@index = index + 1;
+	};
+	LLVMOpaqueValue* target = @this.dispatch_target(entity, arguments.data()[0]);
+	if (!target) {
+		return false;
+	};
+	LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), target, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
+	if (signature.result()->kind() == type_kind::void_type) {
+		LLVMBuildRetVoid(this.builder());
+	}
+	else {
+		LLVMBuildRet(this.builder(), result);
+	};
+	return true;
+};
+
+fn FunctionEmitter::initialize_dispatch(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
+	Entity* record = type->entity();
+	Entity* owner = record->virtual_owner();
+	if (!owner) {
+		return true;
+	};
+	LLVMOpaqueValue* table = @this.backend->table(record);
+	if (!table) {
+		return false;
+	};
+	LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner->type()), address, static_cast<u32>(owner->bases().size()), "initialize.dispatch\0");
+	LLVMBuildStore(this.backend->builder(), table, header);
+	return true;
+};

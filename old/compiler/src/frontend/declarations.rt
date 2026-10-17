@@ -1,0 +1,797 @@
+struct SourceBase {
+	NameSyntax* name;
+	SourceBase* next;
+	base_kind kind;
+};
+
+struct SourceDeclaration {
+	Token token;
+	TypeSyntax* conversion_target;
+	NameSyntax* path;
+	TypeSyntax* type;
+	SourceBase* bases;
+	ValueSyntax* body;
+	TemplateParameter* parameters;
+	function_definition definition;
+	function_modification modification;
+	constructor_conversion conversion;
+	function_role spelling;
+};
+
+enum source_binding_kind : [i32] {
+	declaration;
+	instance;
+};
+
+struct SourceBinding {
+	Entity* entity;
+	Scope* owner;
+	Syntax* lowered;
+	source_binding_kind kind;
+};
+
+struct FunctionNameParseResult {
+	NameSyntax* name;
+	TypeSyntax* conversion_target;
+	function_role spelling;
+	ParseGuard* guard;
+	ParseCursor end;
+	FunctionNameParseResult* next;
+};
+
+fn name_guarded(Compiler& compiler, NameSyntax* name, ParseGuard* guard) -> NameSyntax* {
+	if (!guard || !name) {
+		return static_cast<NameSyntax*>(name);
+	};
+	NameSyntax* result = static_cast<NameSyntax*>(@compiler.allocate(sizeof(NameSyntax)));
+	NameChoice* arm = static_cast<NameChoice*>(@compiler.allocate(sizeof(NameChoice)));
+	if (!result || !arm) {
+		return nullptr;
+	};
+	@arm->name := name;
+	@arm->guard = static_cast<ParseGuard*>(guard);
+	@result->token := name->token;
+	@result->choices = static_cast<NameChoice*>(arm);
+	return static_cast<NameSyntax*>(result);
+};
+
+fn function_names_add(Compiler& compiler, FunctionNameParseResult** results, NameSyntax* name, function_role spelling, ParseGuard* guard, const ParseCursor& end) {
+	FunctionNameParseResult* existing := *results;
+	while (existing && (!parse_cursor_equal(existing->end, end) || existing->spelling != spelling)) {
+		@existing := existing->next;
+	};
+	if (!existing) {
+		FunctionNameParseResult* result = static_cast<FunctionNameParseResult*>(@compiler.allocate(sizeof(FunctionNameParseResult)));
+		if (!result) {
+			return;
+		};
+		@result->name = static_cast<NameSyntax*>(name);
+		@result->spelling = static_cast<function_role>(spelling);
+		@result->guard = static_cast<ParseGuard*>(guard);
+		@result->end := end;
+		@result->next := *results;
+		@*results = static_cast<FunctionNameParseResult*>(result);
+		return;
+	};
+	ParseResult<NameSyntax>* packed = nullptr;
+	parse_result_add<NameSyntax>(@compiler, &packed, NameSyntax*(existing->name), ParseGuard*(existing->guard), end, &pack_name);
+	parse_result_add<NameSyntax>(@compiler, &packed, static_cast<NameSyntax*>(name), static_cast<ParseGuard*>(guard), end, &pack_name);
+	if (!packed) {
+		return;
+	};
+	@existing->name := packed->value;
+	@existing->guard = parse_guard(@compiler, parse_guard_kind::disjunction, ParseGuard*(existing->guard), static_cast<ParseGuard*>(guard));
+};
+
+fn comparison_operator_spelling(token_kind operation) -> const char* {
+	switch (operation) {
+		case token_kind::op_equal:
+			return "operator==\0";
+		case token_kind::op_not_equal:
+			return "operator!=\0";
+		case token_kind::op_less:
+			return "operator<\0";
+		case token_kind::op_less_equal:
+			return "operator<=\0";
+		case token_kind::op_greater:
+			return "operator>\0";
+		case token_kind::op_greater_equal:
+			return "operator>=\0";
+		default:
+			return nullptr;
+	};
+};
+
+fn function_name_qualified(Compiler& compiler, NameSyntax* name, NameSyntax* qualifier) -> NameSyntax* {
+	NameSyntax* result = static_cast<NameSyntax*>(@compiler.allocate(sizeof(NameSyntax)));
+	if (!result) {
+		return nullptr;
+	};
+	@*result := *name;
+	if (!name->choices) {
+		@result->qualifier = static_cast<NameSyntax*>(qualifier);
+		return static_cast<NameSyntax*>(result);
+	};
+	@result->choices = nullptr;
+	NameChoice** tail = &result->choices;
+	NameChoice* source := name->choices;
+	while (source && compiler.result != compilation_result::failure) {
+		NameChoice* arm = static_cast<NameChoice*>(@compiler.allocate(sizeof(NameChoice)));
+		if (!arm) {
+			return nullptr;
+		};
+		@arm->guard := source->guard;
+		@arm->name = function_name_qualified(@compiler, static_cast<NameSyntax*>(source->name), static_cast<NameSyntax*>(qualifier));
+		@*tail := arm;
+		@tail = &arm->next;
+		@source := source->next;
+	};
+	return static_cast<NameSyntax*>(result);
+};
+
+fn Parser::source_function_name_results(Parser& this) -> FunctionNameParseResult* {
+	ParseMemo* memo = @this.memo_begin(parse_memo_kind::function_name, 0, 0, "non-consuming function name parse cycle\0");
+	if (!memo) {
+		return nullptr;
+	};
+	if (memo->state == resolution::ready) {
+		return static_cast<FunctionNameParseResult*>(memo->function_names);
+	};
+
+	@memo->state = resolution::active;
+	if (this.at(token_kind::identifier) && (this.token()).is("operator\0") && this.offset + 1 < this.count && (this.tokens[this.offset + 1].kind == token_kind::identifier || this.tokens[this.offset + 1].kind == token_kind::kw_const)) {
+		Token token = this.token();
+		@this.take(token_kind::identifier);
+		ParseResult<TypeSyntax>* types = @this.type_results();
+		FunctionNameParseResult* conversions = nullptr;
+		while (types && this.compiler->result != compilation_result::failure) {
+			FunctionNameParseResult* conversion = static_cast<FunctionNameParseResult*>(@this.compiler->allocate(sizeof(FunctionNameParseResult)));
+			NameSyntax* name = static_cast<NameSyntax*>(@this.compiler->allocate(sizeof(NameSyntax)));
+			if (!conversion || !name) {
+				return nullptr;
+			};
+			@name->token = token_synthetic(@*this.compiler, Token(token), "<conversion>\0");
+			@conversion->name = $name;
+			@conversion->conversion_target := types->value;
+			@conversion->spelling = function_role::conversion;
+			@conversion->guard := types->guard;
+			@conversion->end := types->end;
+			@conversion->next := conversions;
+			@conversions = $conversion;
+			@types := types->next;
+		};
+		@memo->function_names := conversions;
+		@this.memo_finish(static_cast<ParseMemo*>(memo));
+		return static_cast<FunctionNameParseResult*>(memo->function_names);
+	};
+	function_role initial = function_role::ordinary;
+	if (@this.take(token_kind::op_tilde)) {
+		@initial = function_role::destructor;
+	};
+	ParseResult<NameSyntax>* names = @this.source_name_results();
+	FunctionNameParseResult* result = nullptr;
+	ParseFailure failure := this.failure;
+	while (names && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.failure = ParseFailure();
+		@ending.offset := names->end.offset;
+		@ending.pending_greater := names->end.pending_greater;
+		if (initial == function_role::destructor && (names->value->qualifier || ending.at(token_kind::op_scope))) {
+			@ending.error(names->value->token, "destructor name must be the final qualified component\0");
+		}
+		else if (@ending.take(token_kind::op_scope)) {
+			@ending.require(token_kind::op_tilde, "expected destructor marker after qualified owner\0");
+			ParseResult<NameSyntax>* destructors = nullptr;
+			if (!ending.failed()) {
+				@destructors = @ending.source_name_results();
+			};
+			while (destructors && this.compiler->result != compilation_result::failure) {
+				Parser terminal := ending;
+				@terminal.failure = ParseFailure();
+				@terminal.offset := destructors->end.offset;
+				@terminal.pending_greater := destructors->end.pending_greater;
+				if (destructors->value->qualifier || terminal.at(token_kind::op_scope)) {
+					@terminal.error(destructors->value->token, "destructor name must be the final qualified component\0");
+				}
+				else {
+					NameSyntax* destructor = function_name_qualified(@*this.compiler, static_cast<NameSyntax*>(destructors->value), static_cast<NameSyntax*>(names->value));
+					if (!destructor) {
+						return nullptr;
+					};
+					ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(names->guard), ParseGuard*(destructors->guard));
+					function_names_add(@*this.compiler, &result, static_cast<NameSyntax*>(destructor), function_role::destructor, static_cast<ParseGuard*>(guard), parser_cursor(terminal));
+				};
+				if (terminal.failure.message && (!failure.message || terminal.failure.offset > failure.offset)) {
+					@failure := terminal.failure;
+				};
+				@destructors := destructors->next;
+			};
+		}
+		else {
+			function_role spelling := initial;
+			NameSyntax* name := names->value;
+			if (names->value->token.is("operator\0")) {
+				Token operation = ending.token();
+				const char* operator_spelling = comparison_operator_spelling(token_kind(operation.kind));
+				if (@ending.take(token_kind::op_assign)) {
+					@spelling = function_role::assignment;
+				}
+				else if (operator_spelling && @ending.take(token_kind(operation.kind))) {
+					@name = static_cast<NameSyntax*>(@this.compiler->allocate(sizeof(NameSyntax)));
+					if (!name) {
+						return nullptr;
+					};
+					@*name := *names->value;
+					@name->token = token_synthetic(@*this.compiler, Token(name->token), const char*(operator_spelling));
+				};
+			};
+			function_names_add(@*this.compiler, &result, static_cast<NameSyntax*>(name), static_cast<function_role>(spelling), ParseGuard*(names->guard), parser_cursor(ending));
+		};
+		if (ending.failure.message && (!failure.message || ending.failure.offset > failure.offset)) {
+			@failure := ending.failure;
+		};
+		@names := names->next;
+	};
+	if (result) {
+		@this.failure = ParseFailure();
+	}
+	else {
+		@this.failure := failure;
+	};
+	@memo->function_names = static_cast<FunctionNameParseResult*>(result);
+	@this.memo_finish(static_cast<ParseMemo*>(memo));
+	@this.offset := memo->offset;
+	@this.pending_greater := memo->pending_greater;
+	return static_cast<FunctionNameParseResult*>(memo->function_names);
+};
+
+fn Parser::source_enum_member_results(Parser& this) -> ParseResult<ValueSyntax>* {
+	if (this.at(token_kind::kw_fn)) {
+		return @this.source_declaration_results();
+	};
+	Parser member := this;
+	Token name = @member.require(token_kind::identifier, "expected enum member identifier\0");
+	if (member.failed()) {
+		@this.failure := member.failure;
+		return nullptr;
+	};
+	ParseResult<ValueSyntax>* values = nullptr;
+	if (@member.take(token_kind::op_assign)) {
+		@values = @member.value_until_results(2, source_delimiter::enum_member);
+	}
+	else {
+		@values = @member.empty_result();
+	};
+	ParseResult<ValueSyntax>* results = nullptr;
+	ParseFailureArm* failures = nullptr;
+	parse_failure_record(@*this.compiler, &failures, member.failure, nullptr);
+	while (values && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.failure = ParseFailure();
+		@ending.offset := values->end.offset;
+		@ending.pending_greater := values->end.pending_greater;
+		if (!@ending.take(token_kind::punct_semicolon) && !@ending.take(token_kind::punct_comma) && !ending.at(token_kind::punct_right_brace)) {
+			@ending.error(ending.token(), "expected '}' after enum members\0");
+		};
+		if (!ending.failed()) {
+			ValueSyntax* node = @this.new_value(syntax_kind::node_declaration, Token(name));
+			if (!node) {
+				return nullptr;
+			};
+			@node->data.declaration.name := name;
+			@node->data.declaration.body := values->value;
+			parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(node), ParseGuard*(values->guard), parser_cursor(ending), &pack_value);
+		};
+		parse_failure_record(@*this.compiler, &failures, ending.failure, ParseGuard*(values->guard));
+		@values := values->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::source_enum_members_results(Parser& this) -> ParseResult<ValueSyntax>* {
+	return @this.source_sequence_query(token_kind::punct_right_brace, parse_memo_kind::enum_members);
+};
+
+fn Parser::source_enum_body_results(Parser& this) -> ParseResult<ValueSyntax>* {
+	Parser opening := this;
+	Token token = @opening.require(token_kind::punct_left_brace, "expected '{' after enum name\0");
+	if (opening.failed()) {
+		@this.failure := opening.failure;
+		return nullptr;
+	};
+	ParseResult<ValueSyntax>* members = @opening.source_enum_members_results();
+	@this.failure := opening.failure;
+	ParseResult<ValueSyntax>* results = nullptr;
+	while (members && this.compiler->result != compilation_result::failure) {
+		ValueSyntax* block = @this.new_value(syntax_kind::node_block, Token(token));
+		if (!block) {
+			return nullptr;
+		};
+		@block->data.statements := members->value;
+		parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(block), ParseGuard*(members->guard), members->end, &pack_value);
+		@members := members->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(results);
+};
+
+fn source_header_copy(Compiler& compiler, SourceDeclaration* source) -> SourceDeclaration* {
+	SourceDeclaration* result = static_cast<SourceDeclaration*>(@compiler.allocate(sizeof(SourceDeclaration)));
+	if (result) {
+		@*result := *source;
+	};
+	return static_cast<SourceDeclaration*>(result);
+};
+
+fn Parser::source_parameter_rest(Parser& this, TemplateParameter* parameter, ParseGuard* guard, ParseResult<TemplateParameter>** results) {
+	ParseResult<TemplateParameter>* rest = nullptr;
+	if (@this.take(token_kind::punct_comma) && !this.at(token_kind::op_greater) && !this.at(token_kind::op_shift_right)) {
+		@rest = @this.source_parameter_results();
+	}
+	else {
+		@this.template_close();
+		if (this.failed()) {
+			return;
+		};
+		@rest = static_cast<ParseResult<TemplateParameter>*>(@this.compiler->allocate(sizeof(ParseResult<TemplateParameter>)));
+		if (rest) {
+			@rest->end = parser_cursor(this);
+		};
+	};
+	while (rest && this.compiler->result != compilation_result::failure) {
+		TemplateParameter* suffix := rest->value;
+		while (suffix) {
+			if (parameter->name.same(suffix->name)) {
+				@this.error(parameter->name, "duplicate template parameter\0");
+				return;
+			};
+			@suffix := suffix->next;
+		};
+		TemplateParameter* prefix = static_cast<TemplateParameter*>(@this.compiler->allocate(sizeof(TemplateParameter)));
+		if (!prefix) {
+			return;
+		};
+		@*prefix := *parameter;
+		@prefix->next := rest->value;
+		ParseGuard* selected = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(guard), static_cast<ParseGuard*>(rest->guard));
+		parse_result_push<TemplateParameter>(@*this.compiler, static_cast<ParseResult<TemplateParameter>**>(results), static_cast<TemplateParameter*>(prefix), static_cast<ParseGuard*>(selected), rest->end);
+		@rest := rest->next;
+	};
+};
+
+fn Parser::source_parameter_default_results(Parser& this, TemplateParameter* parameter, ParseResult<TemplateParameter>** results) {
+	@parameter->name = @this.require(token_kind::identifier, "expected template parameter name\0");
+	if (this.failed()) {
+		return;
+	};
+	if (!@this.take(token_kind::op_assign)) {
+		@this.source_parameter_rest(static_cast<TemplateParameter*>(parameter), nullptr, static_cast<ParseResult<TemplateParameter>**>(results));
+		return;
+	};
+	ParseResult<ArgumentSyntax>* defaults = @this.source_argument_results();
+	while (defaults && this.compiler->result != compilation_result::failure) {
+		if ((parameter->kind == template_parameter_kind::type && !defaults->value->type) || (parameter->kind == template_parameter_kind::value && !defaults->value->value)) {
+			@defaults := defaults->next;
+			continue;
+		};
+		ParseGuard* role := defaults->value->value_guard;
+		if (parameter->kind == template_parameter_kind::type) {
+			@role := defaults->value->type_guard;
+		};
+		ParseGuard* selected = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(defaults->guard), static_cast<ParseGuard*>(role));
+		Parser continuation := this;
+		@continuation.failure = ParseFailure();
+		@continuation.offset := defaults->end.offset;
+		@continuation.pending_greater := defaults->end.pending_greater;
+		TemplateParameter* input = static_cast<TemplateParameter*>(@this.compiler->allocate(sizeof(TemplateParameter)));
+		if (!input) {
+			return;
+		};
+		@*input := *parameter;
+		@input->default_argument := defaults->value;
+		@continuation.source_parameter_rest(static_cast<TemplateParameter*>(input), static_cast<ParseGuard*>(selected), static_cast<ParseResult<TemplateParameter>**>(results));
+		@defaults := defaults->next;
+	};
+};
+
+fn Parser::source_parameter_results(Parser& this) -> ParseResult<TemplateParameter>* {
+	ParseResult<TemplateParameter>* result = nullptr;
+	if (@this.take(token_kind::kw_typename) || @this.take(token_kind::kw_class)) {
+		TemplateParameter* parameter = static_cast<TemplateParameter*>(@this.compiler->allocate(sizeof(TemplateParameter)));
+		if (!parameter) {
+			return nullptr;
+		};
+		@parameter->kind = template_parameter_kind::type;
+		@this.source_parameter_default_results(static_cast<TemplateParameter*>(parameter), &result);
+		return static_cast<ParseResult<TemplateParameter>*>(result);
+	};
+	ParseResult<TypeSyntax>* types = @this.type_results();
+	while (types && this.compiler->result != compilation_result::failure) {
+		Parser continuation := this;
+		@continuation.failure = ParseFailure();
+		@continuation.offset := types->end.offset;
+		@continuation.pending_greater := types->end.pending_greater;
+		TemplateParameter* parameter = static_cast<TemplateParameter*>(@this.compiler->allocate(sizeof(TemplateParameter)));
+		if (!parameter) {
+			return nullptr;
+		};
+		@parameter->kind = template_parameter_kind::value;
+		@parameter->type = type_guarded(@*this.compiler, TypeSyntax*(types->value), ParseGuard*(types->guard));
+		@continuation.source_parameter_default_results(static_cast<TemplateParameter*>(parameter), &result);
+		@types := types->next;
+	};
+	return static_cast<ParseResult<TemplateParameter>*>(result);
+};
+
+fn Parser::source_parameters_results(Parser& this) -> ParseResult<TemplateParameter>* {
+	@this.require(token_kind::kw_template, "expected template\0");
+	@this.require(token_kind::op_less, "expected '<' after template\0");
+	if (this.at(token_kind::op_greater) || this.at(token_kind::op_shift_right)) {
+		@this.error(this.token(), "explicit template specialization is not supported yet\0");
+		return nullptr;
+	};
+	return @this.source_parameter_results();
+};
+
+fn Parser::source_bases_results(Parser& this) -> ParseResult<SourceBase>* {
+	base_kind kind = base_kind::nonvirtual;
+	if (@this.take(token_kind::kw_virtual)) {
+		@kind = base_kind::kw_virtual;
+	};
+	ParseResult<SourceBase>* result = nullptr;
+	ParseResult<NameSyntax>* names = @this.source_name_results();
+	while (names && this.compiler->result != compilation_result::failure) {
+		Parser continuation := this;
+		@continuation.failure = ParseFailure();
+		@continuation.offset := names->end.offset;
+		@continuation.pending_greater := names->end.pending_greater;
+		ParseResult<SourceBase>* rest = nullptr;
+		if (@continuation.take(token_kind::punct_comma)) {
+			@rest = @continuation.source_bases_results();
+		}
+		else {
+			@rest = static_cast<ParseResult<SourceBase>*>(@this.compiler->allocate(sizeof(ParseResult<SourceBase>)));
+			if (rest) {
+				@rest->end = parser_cursor(continuation);
+			};
+		};
+		while (rest && this.compiler->result != compilation_result::failure) {
+			SourceBase* base = static_cast<SourceBase*>(@this.compiler->allocate(sizeof(SourceBase)));
+			if (!base) {
+				return nullptr;
+			};
+			@base->name = name_guarded(@*this.compiler, NameSyntax*(names->value), ParseGuard*(names->guard));
+			@base->kind := kind;
+			@base->next := rest->value;
+			parse_result_push<SourceBase>(@*this.compiler, &result, static_cast<SourceBase*>(base), static_cast<ParseGuard*>(rest->guard), rest->end);
+			@rest := rest->next;
+		};
+		@names := names->next;
+	};
+	return static_cast<ParseResult<SourceBase>*>(result);
+};
+
+fn Parser::source_function_modifiers(Parser& this, SourceDeclaration& declaration) {
+	if (!@this.take(token_kind::punct_colon)) {
+		return;
+	};
+	@this.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
+	if (this.at(token_kind::punct_right_bracket)) {
+		@this.error(this.token(), "modifier list cannot be empty\0");
+		return;
+	};
+	while (!this.failed()) {
+		Token modifier = this.token();
+		if (@this.take(token_kind::kw_delete) || @this.take(token_kind::kw_default)) {
+			if (declaration.definition != function_definition::declaration) {
+				@this.error(modifier, "duplicate or conflicting function modifier\0");
+				return;
+			};
+			if (modifier.kind == token_kind::kw_delete) {
+				@declaration.definition = function_definition::deleted;
+			}
+			else {
+				@declaration.definition = function_definition::defaulted;
+			};
+		}
+		else if (@this.take(token_kind::kw_implicit)) {
+			if (declaration.conversion == constructor_conversion::kw_implicit) {
+				@this.error(modifier, "duplicate or conflicting function modifier\0");
+				return;
+			};
+			@declaration.conversion = constructor_conversion::kw_implicit;
+		}
+		else if (@this.take(token_kind::kw_virtual) || @this.take(token_kind::kw_override) || @this.take(token_kind::kw_final)) {
+			if (declaration.modification != function_modification::ordinary) {
+				@this.error(modifier, "duplicate or conflicting function modifier\0");
+				return;
+			};
+			if (modifier.kind == token_kind::kw_virtual) {
+				@declaration.modification = function_modification::kw_virtual;
+			}
+			else if (modifier.kind == token_kind::kw_override) {
+				@declaration.modification = function_modification::kw_override;
+			}
+			else {
+				@declaration.modification = function_modification::kw_final;
+			};
+		}
+		else {
+			@this.error(modifier, "expected delete, default, implicit, virtual, override, or final modifier\0");
+			return;
+		};
+		if (!@this.take(token_kind::punct_comma)) {
+			break;
+		};
+	};
+	@this.require(token_kind::punct_right_bracket, "expected ']' after function modifiers\0");
+};
+
+fn Parser::source_header_body_results(Parser& this, SourceDeclaration* header) -> ParseResult<ValueSyntax>* {
+	if (header->token.kind == token_kind::kw_fn) {
+		@this.source_function_modifiers(@*header);
+	};
+	if (this.failed()) {
+		return nullptr;
+	};
+	ParseResult<ValueSyntax>* bodies = nullptr;
+	if (this.at(token_kind::punct_left_brace)) {
+		if (header->definition == function_definition::deleted || header->definition == function_definition::defaulted) {
+			@this.error(header->token, "deleted or defaulted function cannot have a body\0");
+			return nullptr;
+		};
+		if (header->token.kind == token_kind::kw_enum) {
+			@bodies = @this.source_enum_body_results();
+		}
+		else if (header->token.kind == token_kind::kw_struct) {
+			@bodies = @this.source_block_results(parse_memo_kind::struct_members);
+		}
+		else {
+			@bodies = @this.source_block_results(parse_memo_kind::statements);
+		};
+	}
+	else if (header->token.kind == token_kind::kw_namespace) {
+		@this.error(this.token(), "expected namespace body\0");
+		return nullptr;
+	}
+	else {
+		@bodies = @this.empty_result();
+	};
+	ParseResult<ValueSyntax>* results = nullptr;
+	ParseFailureArm* failures = nullptr;
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (bodies && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.failure = ParseFailure();
+		@ending.offset := bodies->end.offset;
+		@ending.pending_greater := bodies->end.pending_greater;
+		SourceDeclaration* declaration = source_header_copy(@*this.compiler, static_cast<SourceDeclaration*>(header));
+		if (!declaration) {
+			return nullptr;
+		};
+		@declaration->body := bodies->value;
+		if (declaration->body && declaration->token.kind == token_kind::kw_fn) {
+			@declaration->definition = function_definition::definition;
+		};
+		if (declaration->bases && !declaration->body) {
+			@ending.error(declaration->token, "base relationships require a struct definition\0");
+		};
+		if (declaration->parameters && declaration->token.kind != token_kind::kw_fn) {
+			TemplateParameter* parameter := declaration->parameters;
+			TemplateParameter* defaulted = nullptr;
+			while (parameter) {
+				if (parameter->default_argument) {
+					@defaulted := parameter;
+				}
+				else if (defaulted) {
+					@ending.error(parameter->name, "class template parameters after a default must also have defaults\0");
+					break;
+				};
+				@parameter := parameter->next;
+			};
+		};
+		@ending.require(token_kind::punct_semicolon, "expected ';' after declaration\0");
+		parse_failure_record(@*this.compiler, &failures, ending.failure, ParseGuard*(bodies->guard));
+		if (!ending.failed()) {
+			ValueSyntax* node = @this.new_value(syntax_kind::node_source_declaration, Token(declaration->token));
+			if (!node) {
+				return nullptr;
+			};
+			@node->data.source_declaration = static_cast<SourceDeclaration*>(declaration);
+			parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(node), ParseGuard*(bodies->guard), parser_cursor(ending), &pack_value);
+		};
+		@bodies := bodies->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::source_header_modifiers_results(Parser& this, SourceDeclaration* header) -> ParseResult<ValueSyntax>* {
+	if (header->token.kind == token_kind::kw_fn || !@this.take(token_kind::punct_colon)) {
+		if (header->token.kind == token_kind::kw_enum) {
+			@this.error(header->token, "enum declaration requires an explicit underlying type ': [type]'\0");
+			return nullptr;
+		};
+		return @this.source_header_body_results(static_cast<SourceDeclaration*>(header));
+	};
+	@this.require(token_kind::punct_left_bracket, "expected '[' after modifier colon\0");
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	if (header->token.kind == token_kind::kw_enum) {
+		ParseResult<TypeSyntax>* types = @this.type_results();
+		while (types && this.compiler->result != compilation_result::failure) {
+			Parser continuation := this;
+			@continuation.failure = ParseFailure();
+			@continuation.offset := types->end.offset;
+			@continuation.pending_greater := types->end.pending_greater;
+			@continuation.require(token_kind::punct_right_bracket, "expected ']' after enum underlying type\0");
+			SourceDeclaration* declaration = source_header_copy(@*this.compiler, static_cast<SourceDeclaration*>(header));
+			if (!declaration) {
+				return nullptr;
+			};
+			@declaration->type = type_guarded(@*this.compiler, TypeSyntax*(types->value), ParseGuard*(types->guard));
+			ParseResult<ValueSyntax>* outputs = @continuation.source_header_body_results(static_cast<SourceDeclaration*>(declaration));
+			@outputs = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(outputs), static_cast<ParseGuard*>(types->guard));
+			parse_failure_record(@*this.compiler, &failures, continuation.failure, static_cast<ParseGuard*>(types->guard));
+			parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(outputs));
+			@types := types->next;
+		};
+	}
+	else if (header->token.kind == token_kind::kw_struct) {
+		if (this.at(token_kind::punct_right_bracket)) {
+			@this.error(this.token(), "modifier list cannot be empty\0");
+			return nullptr;
+		};
+		ParseResult<SourceBase>* bases = @this.source_bases_results();
+		while (bases && this.compiler->result != compilation_result::failure) {
+			Parser continuation := this;
+			@continuation.failure = ParseFailure();
+			@continuation.offset := bases->end.offset;
+			@continuation.pending_greater := bases->end.pending_greater;
+			@continuation.require(token_kind::punct_right_bracket, "expected ']' after base relationships\0");
+			SourceDeclaration* declaration = source_header_copy(@*this.compiler, static_cast<SourceDeclaration*>(header));
+			if (!declaration) {
+				return nullptr;
+			};
+			@declaration->bases := bases->value;
+			ParseResult<ValueSyntax>* outputs = @continuation.source_header_body_results(static_cast<SourceDeclaration*>(declaration));
+			@outputs = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(outputs), ParseGuard*(bases->guard));
+			parse_failure_record(@*this.compiler, &failures, continuation.failure, ParseGuard*(bases->guard));
+			parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(outputs));
+			@bases := bases->next;
+		};
+	}
+	else {
+		@this.error(header->token, "base relationships require a struct declaration\0");
+	};
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::source_named_header_results(Parser& this, TemplateParameter* parameters) -> ParseResult<ValueSyntax>* {
+	Token token = this.token();
+	@this.take(static_cast<token_kind>(token.kind));
+	if (parameters && token.kind != token_kind::kw_fn && token.kind != token_kind::kw_struct && token.kind != token_kind::kw_union && token.kind != token_kind::kw_namespace) {
+		@this.error(token, "template requires a struct, union, function, or namespace declaration\0");
+		return nullptr;
+	};
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	if (token.kind == token_kind::kw_fn) {
+		FunctionNameParseResult* names = @this.source_function_name_results();
+		while (names && this.compiler->result != compilation_result::failure) {
+			Parser signature := this;
+			@signature.failure = ParseFailure();
+			@signature.offset := names->end.offset;
+			@signature.pending_greater := names->end.pending_greater;
+			ParseResult<TypeSyntax>* types = @signature.signature_results(Token(token));
+			while (types && this.compiler->result != compilation_result::failure) {
+				Parser continuation := this;
+				@continuation.failure = ParseFailure();
+				@continuation.offset := types->end.offset;
+				@continuation.pending_greater := types->end.pending_greater;
+				SourceDeclaration* declaration = static_cast<SourceDeclaration*>(@this.compiler->allocate(sizeof(SourceDeclaration)));
+				if (!declaration) {
+					return nullptr;
+				};
+				@declaration->token := token;
+				@declaration->parameters := parameters;
+				@declaration->path = name_guarded(@*this.compiler, NameSyntax*(names->name), ParseGuard*(names->guard));
+				@declaration->spelling := names->spelling;
+				@declaration->conversion_target = type_guarded(@*this.compiler, TypeSyntax*(names->conversion_target), ParseGuard*(names->guard));
+				@declaration->type = type_guarded(@*this.compiler, TypeSyntax*(types->value), ParseGuard*(types->guard));
+				ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(names->guard), static_cast<ParseGuard*>(types->guard));
+				ParseResult<ValueSyntax>* outputs = @continuation.source_header_modifiers_results(static_cast<SourceDeclaration*>(declaration));
+				@outputs = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(outputs), static_cast<ParseGuard*>(guard));
+				parse_failure_record(@*this.compiler, &failures, continuation.failure, static_cast<ParseGuard*>(guard));
+				parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(outputs));
+				@types := types->next;
+			};
+			parse_failure_record(@*this.compiler, &failures, signature.failure, static_cast<ParseGuard*>(names->guard));
+			@names := names->next;
+		};
+	}
+	else {
+		ParseResult<NameSyntax>* names = @this.source_name_results();
+		while (names && this.compiler->result != compilation_result::failure) {
+			Parser continuation := this;
+			@continuation.failure = ParseFailure();
+			@continuation.offset := names->end.offset;
+			@continuation.pending_greater := names->end.pending_greater;
+			SourceDeclaration* declaration = static_cast<SourceDeclaration*>(@this.compiler->allocate(sizeof(SourceDeclaration)));
+			if (!declaration) {
+				return nullptr;
+			};
+			@declaration->token := token;
+			@declaration->parameters := parameters;
+			@declaration->path = name_guarded(@*this.compiler, NameSyntax*(names->value), ParseGuard*(names->guard));
+			ParseResult<ValueSyntax>* outputs = @continuation.source_header_modifiers_results(static_cast<SourceDeclaration*>(declaration));
+			parse_failure_record(@*this.compiler, &failures, continuation.failure, nullptr);
+			parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(outputs));
+			@names := names->next;
+		};
+	};
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::source_using_results(Parser& this) -> ParseResult<ValueSyntax>* {
+	Token token = @this.require(token_kind::kw_using, "expected 'using' before type alias\0");
+	Token name = @this.require(token_kind::identifier, "expected type alias identifier\0");
+	@this.require(token_kind::op_assign, "expected '=' after type alias identifier\0");
+	if (this.failed()) {
+		return nullptr;
+	};
+	ParseResult<TypeSyntax>* types = @this.type_results();
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (types && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.failure = ParseFailure();
+		@ending.offset := types->end.offset;
+		@ending.pending_greater := types->end.pending_greater;
+		@ending.require(token_kind::punct_semicolon, "expected ';' after type alias\0");
+		parse_failure_record(@*this.compiler, &failures, ending.failure, ParseGuard*(types->guard));
+		if (!ending.failed()) {
+			SourceDeclaration* declaration = static_cast<SourceDeclaration*>(@this.compiler->allocate(sizeof(SourceDeclaration)));
+			NameSyntax* path = static_cast<NameSyntax*>(@this.compiler->allocate(sizeof(NameSyntax)));
+			ValueSyntax* node = @this.new_value(syntax_kind::node_source_declaration, Token(token));
+			if (!declaration || !path || !node) {
+				return nullptr;
+			};
+			@path->token = Token(name);
+			@declaration->token = Token(token);
+			@declaration->path = $path;
+			@declaration->type = type_guarded(@*this.compiler, TypeSyntax*(types->value), ParseGuard*(types->guard));
+			@node->data.source_declaration = $declaration;
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(node), ParseGuard*(types->guard), parser_cursor(ending), &pack_value);
+		};
+		@types := types->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::source_declaration_results(Parser& this) -> ParseResult<ValueSyntax>* {
+	if (this.at(token_kind::kw_using)) {
+		return @this.source_using_results();
+	};
+	if (!this.at(token_kind::kw_template)) {
+		return @this.source_named_header_results(nullptr);
+	};
+	ParseResult<TemplateParameter>* parameters = @this.source_parameters_results();
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (parameters && this.compiler->result != compilation_result::failure) {
+		Parser continuation := this;
+		@continuation.failure = ParseFailure();
+		@continuation.offset := parameters->end.offset;
+		@continuation.pending_greater := parameters->end.pending_greater;
+		ParseResult<ValueSyntax>* outputs = @continuation.source_named_header_results(TemplateParameter*(parameters->value));
+		@outputs = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(outputs), ParseGuard*(parameters->guard));
+		parse_failure_record(@*this.compiler, &failures, continuation.failure, ParseGuard*(parameters->guard));
+		parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(outputs));
+		@parameters := parameters->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+

@@ -1,0 +1,59 @@
+// ============================================================================
+// MODULE: IDENTITY MAP
+// PURPOSE: Store arena-owned records by object identity and binding context.
+// DEPENDS ON: Arena and C allocation.
+// ============================================================================
+template<typename T>
+struct IdentityEntry {
+	const void* key;
+	const void* context;
+	IdentityEntry* next;
+	T value;
+};
+
+template<typename T>
+struct IdentityMap {
+	fn bucket(const IdentityMap& this, const void* key, const void* context) -> usize;
+	fn find(IdentityMap& this, const void* key, const void* context) -> T*;
+	fn define(IdentityMap& this, Arena& arena, const void* key, const void* context) -> T*;
+
+	IdentityEntry<T>*[1024] buckets;
+};
+
+template<typename T>
+fn IdentityMap<T>::bucket(const IdentityMap& this, const void* key, const void* context) -> usize {
+	usize hash = (reinterpret_cast<usize>(key) >> 4) ^ ((reinterpret_cast<usize>(context) >> 4) * 33);
+	return hash % (sizeof(this.buckets) / sizeof(IdentityEntry<T>*));
+};
+
+template<typename T>
+fn IdentityMap<T>::find(IdentityMap& this, const void* key, const void* context) -> T* {
+	IdentityEntry<T>* entry := this.buckets[this.bucket(static_cast<const void*>(key), static_cast<const void*>(context))];
+	while (entry) {
+		if (entry->key == key && entry->context == context) {
+			return &entry->value;
+		};
+		@entry := entry->next;
+	};
+	return nullptr;
+};
+
+template<typename T>
+fn IdentityMap<T>::define(IdentityMap& this, Arena& arena, const void* key, const void* context) -> T* {
+	T* existing = @this.find(static_cast<const void*>(key), static_cast<const void*>(context));
+	if (existing) {
+		return $existing;
+	};
+
+	IdentityEntry<T>* entry = static_cast<IdentityEntry<T>*>(@arena.adopt(calloc(1, sizeof(IdentityEntry<T>)), &free));
+	if (!entry) {
+		return nullptr;
+	};
+	usize bucket = this.bucket(static_cast<const void*>(key), static_cast<const void*>(context));
+	@entry->key = $key;
+	@entry->context = $context;
+	@entry->next := this.buckets[bucket];
+	@this.buckets[bucket] := entry;
+	return &entry->value;
+};
+

@@ -1,0 +1,40 @@
+i32 copies;
+i32 destroyed;
+i32 evaluations;
+
+struct Member {
+	i32 value;
+	fn Member(Member& this) : [default];
+	fn Member(Member& this, const Member& other) {
+		@copies = copies + 1;
+		@this.value = other.value;
+	};
+	fn ~Member(Member& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+struct Owner {
+	Member member;
+};
+
+fn source(Owner& owner) -> const Owner& {
+	@evaluations = evaluations + 1;
+	return owner;
+};
+
+fn main() -> i32 {
+	{
+		Owner first;
+		@first.member.value = 42;
+		Owner second;
+		@second := source(@first);
+		if (copies != 1 || evaluations != 1 || second.member.value != 42 || first.member.value != 42) {
+			return 1;
+		};
+	};
+	if (destroyed != 3) {
+		return 2;
+	};
+	return 42;
+};

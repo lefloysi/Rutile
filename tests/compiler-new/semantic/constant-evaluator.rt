@@ -1,0 +1,64 @@
+fn constant_tests() -> i32 {
+	var functions = TemplateFixture();
+	if (!@functions.build("fn fact(i32 n) -> i32 { if (n <= 1) return 1; return n * fact(n - 1); }; fn bump(i32& n) { @n = n + 1; }; fn compute() -> i32 { i32 n; for (i32 i = 0; i < 10; @i = i + 1) { if (i == 1) continue; if (i == 5) break; @n = n + i; }; while (n < 40) bump(@n); if (false && fact(1000)) return 0; return n + fact(2); }; enum Result : [i32] { answer = compute(); };\0")) {
+		return 1;
+	};
+	Entity* result = functions.unit.get()->root_scope()->local(rt::string_view("Result\0"));
+	Entity* answer = result->members()->local(rt::string_view("answer\0"));
+	if (!answer || answer->integer() != 42) {
+		return 2;
+	};
+	var rejected = TemplateFixture();
+	if (@rejected.build("i32 global = 42; fn read() -> i32 { return global; }; enum Result : [i32] { answer = read(); };\0")) {
+		return 3;
+	};
+	var floating = TemplateFixture();
+	if (!@floating.build("fn step(f32 value) -> f64 { return static_cast<f64>(value + static_cast<f32>(1.0)); }; enum Result : [i32] { answer = static_cast<i32>(step(static_cast<f32>(16777216.0)) == 16777216.0) * 42; };\0")) {
+		return 4;
+	};
+	Entity* floating_result = floating.unit.get()->root_scope()->local(rt::string_view("Result\0"));
+	if (floating_result->members()->local(rt::string_view("answer\0"))->integer() != 42) {
+		return 5;
+	};
+	var bounded = TemplateFixture();
+	if (@bounded.build("fn repeat() -> i32 { while (true) {}; }; enum Result : [i32] { answer = repeat(); };\0")) {
+		return 6;
+	};
+	var reference = TemplateFixture();
+	if (!@reference.build("fn add(const i32& first, i32 second) -> i32 { const i32& local = 2; return first + second + local - 2; }; enum Result : [i32] { answer = add(40, 2); };\0")) {
+		return 7;
+	};
+	Entity* reference_result = reference.unit.get()->root_scope()->local(rt::string_view("Result\0"));
+	if (reference_result->members()->local(rt::string_view("answer\0"))->integer() != 42) {
+		return 8;
+	};
+	var generic = TemplateFixture();
+	if (!@generic.build("fn multiply(i32 a, i32 b) -> i32 { return a * b; }; template<i32 N> struct Values { i32[N] data; }; var values : Values<(multiply(2, 3))>;\0")) {
+		return 9;
+	};
+	Entity* values = generic.unit.get()->root_scope()->local(rt::string_view("values\0"));
+	if (values->type()->entity()->fields().data()[0]->type()->count() != 6) {
+		return 10;
+	};
+	var dangling = TemplateFixture();
+	if (@dangling.build("fn leak() -> const i32& { i32 local = 42; return local; }; enum Result : [i32] { answer = leak(); };\0")) {
+		return 11;
+	};
+	var borrowed_return = TemplateFixture();
+	if (!@borrowed_return.build("fn borrow(const i32& value) -> const i32& { return value; }; fn read() -> i32 { i32 value = 42; { const i32& alias = value; }; return borrow(value); }; enum Result : [i32] { answer = read(); };\0")) {
+		return 12;
+	};
+	Entity* borrowed_result = borrowed_return.unit.get()->root_scope()->local(rt::string_view("Result\0"));
+	if (borrowed_result->members()->local(rt::string_view("answer\0"))->integer() != 42) {
+		return 13;
+	};
+	var relocated_alias = TemplateFixture();
+	if (@relocated_alias.build("fn read() -> i32 { i32 value = 42; const i32& alias = value; i32 moved = $value; return alias; }; enum Result : [i32] { answer = read(); };\0")) {
+		return 14;
+	};
+	var parameter_escape = TemplateFixture();
+	if (@parameter_escape.build("fn leak(i32 value) -> const i32& { return value; }; enum Result : [i32] { answer = leak(42); };\0")) {
+		return 15;
+	};
+	return 42;
+};

@@ -1,0 +1,259 @@
+fn FunctionEmitter::needs_destruction(const Type* type) -> bool {
+	if (type->kind() == type_kind::array) {
+		return FunctionEmitter::needs_destruction(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return false;
+	};
+	Entity* record = type->entity();
+	if (record->destructor()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (FunctionEmitter::needs_destruction(record->bases().data()[index])) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
+	if (!FunctionEmitter::needs_destruction(type)) {
+		return true;
+	};
+	if (type->kind() == type_kind::array) {
+		LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
+		LLVMOpaqueValue* count = LLVMConstInt(integer, type->count(), 0);
+		return @this.destroy_range(type->element(), address, count);
+	};
+	Entity* record = type->entity();
+	Entity* destructor = record->destructor();
+	if (!@this.initialize_dispatch(type, address)) {
+		return false;
+	};
+	if (record->layout() == record_layout::overlapping && (!destructor || destructor->definition() == function_definition::defaulted)) {
+		usize index = 0;
+		while (index < record->fields().size()) {
+			if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
+				return @this.backend->error(record->token(), rt::string_view("union with nontrivial members requires an explicit destructor\0"));
+			};
+			@index = index + 1;
+		};
+	};
+	if (destructor) {
+		if (destructor->definition() == function_definition::deleted) {
+			return @this.backend->error(destructor->token(), rt::string_view("selected destructor is deleted\0"));
+		};
+		LLVMOpaqueValue*[1] arguments {};
+		@arguments[0] = address;
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type()), this.backend->symbol(destructor), &arguments[0], 1, "\0");
+	};
+	if (record->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = record->fields().size();
+	while (index) {
+		@index = index - 1;
+		Entity* field = record->fields().data()[index];
+		if (FunctionEmitter::needs_destruction(field->type())) {
+			LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, this.backend->field_index(record, index), "destroy.field\0");
+			if (!@this.destroy(field->type(), member)) {
+				return false;
+			};
+		};
+	};
+	@index = record->bases().size();
+	while (index) {
+		@index = index - 1;
+		LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0");
+		if (!@this.destroy(record->bases().data()[index], base)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn FunctionEmitter::slot(FunctionEmitter& this, const Type* type) -> LLVMOpaqueValue* {
+	LLVMOpaqueType* native = @this.backend->type(type);
+	if (!native) {
+		return nullptr;
+	};
+	return @this.native_slot(native);
+};
+
+fn FunctionEmitter::live_flag(FunctionEmitter& this) -> LLVMOpaqueValue* {
+	LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
+	LLVMOpaqueValue* flag = @this.native_slot(boolean);
+	if (!flag) {
+		return nullptr;
+	};
+	var builder = rt::unique<LLVMOpaqueBuilder, BuilderDisposer>(LLVMCreateBuilderInContext(this.backend->context()));
+	if (!builder.get()) {
+		Token location;
+		@this.backend->error(location, rt::string_view("cannot create lifetime builder\0"));
+		return nullptr;
+	};
+	LLVMOpaqueValue* next = LLVMGetNextInstruction(flag);
+	if (next) {
+		LLVMPositionBuilderBefore(builder.get(), next);
+	}
+	else {
+		LLVMPositionBuilderAtEnd(builder.get(), LLVMGetEntryBasicBlock(this.function));
+	};
+	LLVMBuildStore(builder.get(), LLVMConstNull(boolean), flag);
+	return flag;
+};
+
+fn FunctionEmitter::temporary(const FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+	usize index = this.temporaries.size();
+	while (index) {
+		@index = index - 1;
+		if (this.temporaries.data()[index].expression == expression) {
+			return this.temporaries.data()[index].address;
+		};
+	};
+	return nullptr;
+};
+
+fn FunctionEmitter::remember(FunctionEmitter& this, SemanticExpression* expression, LLVMOpaqueValue* address) -> bool {
+	NativeTemporary temporary;
+	@temporary.expression = expression;
+	@temporary.address = address;
+	if (FunctionEmitter::needs_destruction(expression->type())) {
+		@temporary.live = @this.live_flag();
+		if (!temporary.live) {
+			return false;
+		};
+		LLVMBuildStore(this.backend->builder(), LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), 1, 0), temporary.live);
+	};
+	if (!@this.temporaries.push_back($temporary)) {
+		return @this.backend->error(expression->token(), rt::string_view("cannot retain a consumable lifetime\0"));
+	};
+	return true;
+};
+
+fn FunctionEmitter::value(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+	LLVMOpaqueValue* value = @this.evaluate(expression);
+	if (!value) {
+		return nullptr;
+	};
+	if (expression->category() == value_category::consumable && FunctionEmitter::needs_destruction(expression->type()) && !this.temporary(expression)) {
+		LLVMOpaqueValue* storage = @this.slot(expression->type());
+		if (!storage) {
+			return nullptr;
+		};
+		LLVMBuildStore(this.backend->builder(), value, storage);
+		if (!@this.remember(expression, storage)) {
+			return nullptr;
+		};
+	};
+	return value;
+};
+
+fn FunctionEmitter::take(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+	LLVMOpaqueValue* value = @this.value(expression);
+	usize index = this.temporaries.size();
+	while (index) {
+		@index = index - 1;
+		const NativeTemporary& temporary = this.temporaries.data()[index];
+		if (temporary.expression == expression && temporary.live) {
+			LLVMBuildStore(this.backend->builder(), LLVMConstNull(LLVMIntTypeInContext(this.backend->context(), 1)), temporary.live);
+			break;
+		};
+	};
+	return value;
+};
+
+fn FunctionEmitter::set_live(FunctionEmitter& this, SemanticExpression* expression, bool live) {
+	if (expression->indirect_storage()) {
+		return;
+	};
+	@this.binding_live(expression->owned_binding(), live);
+};
+
+fn FunctionEmitter::binding_live(FunctionEmitter& this, Entity* entity, bool live) {
+	usize index = this.bindings.size();
+	while (index) {
+		@index = index - 1;
+		const NativeBinding& binding = this.bindings.data()[index];
+		if (binding.entity == entity && binding.live) {
+			LLVMBuildStore(this.backend->builder(), LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), static_cast<u64>(live), 0), binding.live);
+			return;
+		};
+	};
+};
+
+fn FunctionEmitter::guarded_destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address, LLVMOpaqueValue* live) -> bool {
+	if (!live) {
+		return true;
+	};
+	LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy\0");
+	LLVMOpaqueBasicBlock* after = @this.block("cleanup.after\0");
+	LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
+	LLVMBuildCondBr(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), boolean, live, "live\0"), destroy, after);
+	LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
+	LLVMBuildStore(this.backend->builder(), LLVMConstNull(boolean), live);
+	if (!@this.destroy(type, address)) {
+		return false;
+	};
+	LLVMBuildBr(this.backend->builder(), after);
+	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+	return true;
+};
+
+fn FunctionEmitter::cleanup_temporaries(FunctionEmitter& this, usize begin) -> bool {
+	usize index = this.temporaries.size();
+	while (index > begin) {
+		@index = index - 1;
+		const NativeTemporary& temporary = this.temporaries.data()[index];
+		if (!@this.guarded_destroy(temporary.expression->type(), temporary.address, temporary.live)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn FunctionEmitter::cleanup_bindings(FunctionEmitter& this, usize begin) -> bool {
+	usize index = this.bindings.size();
+	while (index > begin) {
+		@index = index - 1;
+		const NativeBinding& binding = this.bindings.data()[index];
+		if (!@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn FunctionEmitter::forget_temporaries(FunctionEmitter& this, usize begin) {
+	while (this.temporaries.size() > begin) {
+		@this.temporaries.pop_back();
+	};
+};
+
+fn FunctionEmitter::leave_scope(FunctionEmitter& this, usize begin) -> bool {
+	if (!this.terminated() && !@this.cleanup_bindings(begin)) {
+		return false;
+	};
+	while (this.bindings.size() > begin) {
+		@this.bindings.pop_back();
+	};
+	return true;
+};
+
+fn FunctionEmitter::scoped_statement(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+	usize begin = this.bindings.size();
+	if (!@this.statement(expression)) {
+		return false;
+	};
+	return @this.leave_scope(begin);
+};

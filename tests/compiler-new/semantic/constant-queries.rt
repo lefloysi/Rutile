@@ -1,0 +1,88 @@
+fn query_literal(const Type* type, u64 value) -> rt::unique<SemanticExpression> {
+	Token token;
+	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_integer, type, token));
+	@result.get()->set_integer(value);
+	return $result;
+};
+
+fn query_binary(const Type* type, token_kind operation, rt::unique<SemanticExpression> first, rt::unique<SemanticExpression> second) -> rt::unique<SemanticExpression> {
+	Token token;
+	@token.kind = $operation;
+	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::binary, type, token));
+	@result.get()->append($first);
+	@result.get()->append($second);
+	return $result;
+};
+
+fn query_real(const Type* type, f64 value) -> rt::unique<SemanticExpression> {
+	Token token;
+	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_real, type, token));
+	@result.get()->set_real(value);
+	return $result;
+};
+
+fn main() -> i32 {
+	TypeStore types;
+	const Type* byte = @types.primitive(type_kind::unsigned_integer, 8);
+	const Type* signed_byte = @types.primitive(type_kind::signed_integer, 8);
+	u64 value = 0;
+	var wrapped = query_binary(byte, token_kind::op_plus, query_literal(byte, 255), query_literal(byte, 1));
+	if (!wrapped.get()->constant_integer(@value) || value) {
+		return 1;
+	};
+	var divided = query_binary(signed_byte, token_kind::op_slash, query_literal(signed_byte, 250), query_literal(signed_byte, 2));
+	if (!divided.get()->constant_integer(@value) || value != 253) {
+		return 2;
+	};
+	var shifted = query_binary(signed_byte, token_kind::op_shift_right, query_literal(signed_byte, 128), query_literal(signed_byte, 2));
+	if (!shifted.get()->constant_integer(@value) || value != 224) {
+		return 3;
+	};
+	var invalid = query_binary(byte, token_kind::op_shift_left, query_literal(byte, 1), query_literal(byte, 8));
+	if (invalid.get()->constant_integer(@value)) {
+		return 4;
+	};
+	var overflow = query_binary(signed_byte, token_kind::op_slash, query_literal(signed_byte, 128), query_literal(signed_byte, 255));
+	if (overflow.get()->constant_integer(@value)) {
+		return 5;
+	};
+	const Type* real = @types.primitive(type_kind::floating_point, 32);
+	const Type* truth = @types.primitive(type_kind::boolean, 1);
+	f64 floating = 0.0;
+	var rounded = query_binary(real, token_kind::op_plus, query_real(real, 16777216.0), query_real(real, 1.0));
+	if (!rounded.get()->constant_real(@floating) || floating != 16777216.0) {
+		return 6;
+	};
+	var comparison = query_binary(truth, token_kind::op_greater, query_real(real, 2.5), query_real(real, 1.5));
+	if (!comparison.get()->constant_integer(@value) || value != 1) {
+		return 7;
+	};
+	if (!signed_byte->integer_from_real(-128.75, @value) || value != 128) {
+		return 8;
+	};
+	if (signed_byte->integer_from_real(128.0, @value) || signed_byte->integer_from_real(-129.0, @value)) {
+		return 9;
+	};
+	if (!byte->integer_from_real(-0.5, @value) || value) {
+		return 10;
+	};
+	if (!byte->integer_from_real(255.75, @value) || value != 255 || byte->integer_from_real(256.0, @value)) {
+		return 11;
+	};
+	const Type* signed_wide = @types.primitive(type_kind::signed_integer, 64);
+	if (!signed_wide->integer_from_real(-9223372036854775808.0, @value) || value != 9223372036854775808) {
+		return 12;
+	};
+	const Type* pointer = @types.pointer(byte);
+	const Type* null_type = @types.primitive(type_kind::null_type, 0);
+	const Type* null_pointer = @types.pointer(null_type);
+	Token token;
+	var null_value = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::null_pointer, null_pointer, token));
+	var pointer_cast = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::cast, pointer, token));
+	@pointer_cast.get()->append($null_value);
+	var pointer_arithmetic = query_binary(pointer, token_kind::op_plus, $pointer_cast, query_literal(byte, 1));
+	if (pointer_arithmetic.get()->constant_integer(@value)) {
+		return 13;
+	};
+	return 42;
+};

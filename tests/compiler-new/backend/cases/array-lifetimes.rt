@@ -1,0 +1,38 @@
+i32 constructed;
+i32 destroyed;
+i32 calls;
+
+struct Item {
+	i32 index;
+	fn Item(Item& this) {
+		@constructed = constructed + 1;
+		@this.index = constructed;
+	};
+	fn ~Item(Item& this) {
+		@destroyed = destroyed * 10 + this.index;
+	};
+};
+
+fn length() -> usize {
+	@calls = calls + 1;
+	return 2;
+};
+
+fn main() -> i32 {
+	var items = new Item[length()]();
+	if (!items || calls != 1 || constructed != 2 || items[0].index != 1 || items[1].index != 2) {
+		return 1;
+	};
+	delete[] items;
+	if (destroyed != 21) {
+		return 2;
+	};
+	var empty = new Item[0]();
+	delete[] empty;
+	Item* absent = nullptr;
+	delete[] absent;
+	if (constructed != 2 || destroyed != 21) {
+		return 3;
+	};
+	return 42;
+};

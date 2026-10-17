@@ -1,0 +1,16 @@
+fn Backend::external_signature(Backend& this, Entity* entity) -> bool {
+	const FunctionSignature& signature = entity->type()->signature();
+	const Type* result = signature.result()->representation();
+	if (result->kind() == type_kind::array || result->kind() == type_kind::named) {
+		return @this.error(entity->token(), rt::string_view("external aggregate return requires unsupported C ABI lowering\0"));
+	};
+	usize index = 0;
+	while (index < signature.parameters().size()) {
+		const Type* parameter = signature.parameters().data()[index]->representation();
+		if (parameter->kind() == type_kind::array || parameter->kind() == type_kind::named) {
+			return @this.error(entity->token(), rt::string_view("external aggregate parameter requires unsupported C ABI lowering\0"));
+		};
+		@index = index + 1;
+	};
+	return true;
+};

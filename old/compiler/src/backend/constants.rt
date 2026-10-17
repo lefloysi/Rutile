@@ -1,0 +1,41 @@
+fn Backend::constant(Backend& this, Compiler& compiler, ConstantValue* value) -> LLVMOpaqueValue* {
+	if (!value || compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	LLVMOpaqueType* type = llvm_type(@compiler, static_cast<Type*>(value->type));
+	Type* representation = type_representation(static_cast<Type*>(value->type));
+	if (value->kind == constant_kind::text) {
+		LLVMOpaqueValue* text = LLVMConstStringInContext2(this.llvm_context.get(), const char*(value->data.text.data), usize(value->data.text.size), 1);
+		LLVMOpaqueValue* global = LLVMAddGlobal(this.llvm_module.get(), LLVMTypeOf(LLVMOpaqueValue*(text)), "constant.string\0");
+		LLVMSetInitializer(LLVMOpaqueValue*(global), $text);
+		LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
+		LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
+		return $global;
+	};
+	if (representation->kind == type_kind::kw_float) {
+		return LLVMConstReal($type, static_cast<f64>(value->data.real));
+	};
+	if (representation->kind == type_kind::pointer) {
+		return LLVMConstNull($type);
+	};
+	if (value->kind == constant_kind::aggregate) {
+		LLVMOpaqueValue** elements = static_cast<LLVMOpaqueValue**>(@compiler.allocate(value->count * sizeof(LLVMOpaqueValue*)));
+		if (!elements) {
+			return nullptr;
+		};
+		usize index = 0;
+		while (index < value->count) {
+			@elements[index] = @this.constant(@compiler, static_cast<ConstantValue*>(value->data.elements[index]));
+			if (!elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+		if (representation->kind == type_kind::array) {
+			return LLVMConstArray2(llvm_type(@compiler, static_cast<Type*>(representation->data.array.element)), $elements, static_cast<u64>(value->count));
+		};
+		return LLVMConstNamedStruct($type, $elements, static_cast<u32>(value->count));
+	};
+	return LLVMConstInt($type, static_cast<u64>(value->data.integer), 0);
+};
+

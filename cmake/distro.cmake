@@ -2,6 +2,9 @@ if(DEFINED RUTILE_DISTRO_REFRESH)
 	if(NOT RUTILE_DISTRO_CONFIGURATION STREQUAL "Release")
 		message(FATAL_ERROR "Refresh the compiler distribution from a Release build.")
 	endif()
+	if(NOT RUTILE_DISTRO_INPUTS)
+		message(FATAL_ERROR "The compiler distribution requires its source inputs.")
+	endif()
 
 	foreach(required IN ITEMS "RUTILE_DISTRO_COMPILER" "RUTILE_DISTRO_LLVM" "RUTILE_DISTRO_CLI_LICENSE")
 		if(NOT EXISTS "${${required}}")
@@ -35,7 +38,12 @@ if(DEFINED RUTILE_DISTRO_REFRESH)
 		file(COPY_FILE "${RUTILE_DISTRO_CRT}/${runtime}" "${distribution}/windows-x64/${runtime}" ONLY_IF_DIFFERENT)
 	endforeach()
 	file(COPY_FILE "${RUTILE_DISTRO_CLI_LICENSE}" "${distribution}/licenses/cli11.txt" ONLY_IF_DIFFERENT)
-	file(COPY_FILE "${RUTILE_DISTRO_SOURCE}/compiler/src/old.rt" "${distribution}/compiler.rt" ONLY_IF_DIFFERENT)
+	set(compiler_source "")
+	foreach(source IN LISTS RUTILE_DISTRO_INPUTS)
+		file(READ "${source}" source_content)
+		string(APPEND compiler_source "${source_content}\n")
+	endforeach()
+	file(WRITE "${distribution}/compiler.rt" "${compiler_source}")
 
 	file(SHA256 "${distribution}/compiler.rt" source_hash)
 	file(WRITE "${distribution}/version.txt" "${release_version}\n")
@@ -70,7 +78,7 @@ function(rutile_configure_distro target)
 	set(cli_license "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/cli11/copyright")
 
 	add_custom_target("rutile-distro"
-		COMMAND "${CMAKE_COMMAND}" "-DRUTILE_DISTRO_REFRESH=ON" "-DRUTILE_DISTRO_CONFIGURATION=$<CONFIG>" "-DRUTILE_DISTRO_COMPILER=$<TARGET_FILE:${target}>" "-DRUTILE_DISTRO_LLVM=$<TARGET_FILE:rutile-llvm>" "-DRUTILE_DISTRO_CRT=${crt_directory}" "-DRUTILE_DISTRO_CLI_LICENSE=${cli_license}" "-DRUTILE_DISTRO_SOURCE=${CMAKE_SOURCE_DIR}" "-DRUTILE_DISTRO_BUILD=${CMAKE_BINARY_DIR}" "-P" "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
+		COMMAND "${CMAKE_COMMAND}" "-DRUTILE_DISTRO_REFRESH=ON" "-DRUTILE_DISTRO_CONFIGURATION=$<CONFIG>" "-DRUTILE_DISTRO_COMPILER=$<TARGET_FILE:${target}>" "-DRUTILE_DISTRO_LLVM=$<TARGET_FILE:rutile-llvm>" "-DRUTILE_DISTRO_CRT=${crt_directory}" "-DRUTILE_DISTRO_CLI_LICENSE=${cli_license}" "-DRUTILE_DISTRO_SOURCE=${CMAKE_SOURCE_DIR}" "-DRUTILE_DISTRO_BUILD=${CMAKE_BINARY_DIR}" "-DRUTILE_DISTRO_INPUTS=${rutile_compiler_sources}" "-P" "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
 		DEPENDS "rutile-bootstrap-check" "${target}"
 		VERBATIM)
 endfunction()

@@ -1,0 +1,731 @@
+fn Parser::value_tail_results(Parser& this, i32 minimum, i32 delimiter) -> ParseResult<ExpressionTail>* {
+	ParseMemo* record = @this.memo_begin(parse_memo_kind::tail, static_cast<i32>(minimum), static_cast<i32>(delimiter), "non-consuming source parse cycle\0");
+	if (!record) {
+		return nullptr;
+	};
+	if (record->state == resolution::ready) {
+		return static_cast<ParseResult<ExpressionTail>*>(record->tails);
+	};
+
+	@record->state = resolution::active;
+	@record->tails = @this.value_tail_parse(static_cast<i32>(record->minimum), static_cast<i32>(record->delimiter));
+	@this.memo_finish(static_cast<ParseMemo*>(record));
+	@this.offset := record->offset;
+	@this.pending_greater := record->pending_greater;
+	return static_cast<ParseResult<ExpressionTail>*>(record->tails);
+};
+
+fn Parser::value_tails_finish(Parser& this, ParseResult<ExpressionTail>* result, ParseFailureArm* failures) -> ParseResult<ExpressionTail>* {
+	@this.failure = ParseFailure();
+	while (failures && this.compiler->result != compilation_result::failure) {
+		ParseResult<ExpressionTail>* sibling := result;
+		if (!sibling && (!this.failure.message || failures->failure.offset > this.failure.offset || (failures->failure.offset == this.failure.offset && failures->failure.pending_greater > this.failure.pending_greater))) {
+			@this.failure := failures->failure;
+		};
+		while (sibling && this.compiler->result != compilation_result::failure) {
+			ParseFailure* saved = static_cast<ParseFailure*>(@this.compiler->allocate(sizeof(ParseFailure)));
+			ValueSyntax* error = @this.new_value(syntax_kind::source_error, Token(failures->failure.token));
+			ExpressionTail* tail = static_cast<ExpressionTail*>(@this.compiler->allocate(sizeof(ExpressionTail)));
+			if (!saved || !error || !tail) {
+				return nullptr;
+			};
+			@*saved := failures->failure;
+			@error->data.error = static_cast<ParseFailure*>(saved);
+			@tail->kind = expression_tail_kind::operation;
+			@tail->operation = static_cast<ValueSyntax*>(error);
+			parse_result_add<ExpressionTail>(@*this.compiler, &result, static_cast<ExpressionTail*>(tail), ParseGuard*(failures->guard), sibling->end, &pack_tail);
+			@sibling := sibling->next;
+		};
+		@failures := failures->next;
+	};
+	return static_cast<ParseResult<ExpressionTail>*>(result);
+};
+
+// Postfix grammar returns operation nodes whose receiver/callee edge is vacant.
+// It recursively packs argument/index expressions before returning their cursor.
+// Binary grammar reuses the existing precedence table and assignment associativity.
+fn Parser::value_tail_parse(Parser& this, i32 minimum, i32 delimiter) -> ParseResult<ExpressionTail>* {
+	Token token = this.token();
+	ParseResult<ValueSyntax>* operations = nullptr;
+	ParseFailureArm* failures = nullptr;
+	if (delimiter == static_cast<i32>(source_delimiter::template_argument) && (token.kind == token_kind::op_greater || token.kind == token_kind::op_shift_right)) {
+		ParseResult<ExpressionTail>* result = static_cast<ParseResult<ExpressionTail>*>(@this.compiler->allocate(sizeof(ParseResult<ExpressionTail>)));
+		if (result) {
+			@result->end = parser_cursor(this);
+		};
+		return static_cast<ParseResult<ExpressionTail>*>(result);
+	};
+	if (token.kind == token_kind::punct_left_paren || token.kind == token_kind::punct_left_bracket || token.kind == token_kind::op_dot || token.kind == token_kind::op_arrow) {
+		@operations = @this.value_postfix_operation_results(static_cast<i32>(delimiter));
+	}
+	else {
+		i32 precedence = parser_precedence(static_cast<token_kind>(token.kind));
+		if (!precedence || precedence < minimum) {
+			ParseResult<ExpressionTail>* result = static_cast<ParseResult<ExpressionTail>*>(@this.compiler->allocate(sizeof(ParseResult<ExpressionTail>)));
+			if (result) {
+				@result->end.offset := this.offset;
+				@result->end.pending_greater := this.pending_greater;
+			};
+			return static_cast<ParseResult<ExpressionTail>*>(result);
+		};
+		@this.take(static_cast<token_kind>(token.kind));
+		i32 right_minimum = precedence + 1;
+		if (token.kind == token_kind::op_assign || token.kind == token_kind::op_copy) {
+			@right_minimum := precedence;
+		};
+		ParseResult<ValueSyntax>* right = @this.value_expression_results(static_cast<i32>(right_minimum), static_cast<i32>(delimiter));
+		while (right && this.compiler->result != compilation_result::failure) {
+			ValueSyntax* operation = static_cast<ValueSyntax*>(@this.compiler->allocate(sizeof(ValueSyntax)));
+			if (!operation) {
+				return nullptr;
+			};
+			@operation->kind = syntax_kind::expr_binary;
+			@operation->token := token;
+			@operation->data.binary.operation := token.kind;
+			@operation->data.binary.right := right->value;
+			parse_result_add<ValueSyntax>(@*this.compiler, &operations, static_cast<ValueSyntax*>(operation), ParseGuard*(right->guard), right->end, &pack_value);
+			@right := right->next;
+		};
+	};
+	ParseResult<ExpressionTail>* results = nullptr;
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	ParseResult<ValueSyntax>* operation := operations;
+	while (operation && this.compiler->result != compilation_result::failure) {
+		Parser suffix := this;
+		@suffix.failure = ParseFailure();
+		@suffix.offset := operation->end.offset;
+		@suffix.pending_greater := operation->end.pending_greater;
+		ParseResult<ExpressionTail>* rest = @suffix.value_tail_results(static_cast<i32>(minimum), static_cast<i32>(delimiter));
+		parse_failure_record(@*this.compiler, &failures, suffix.failure, ParseGuard*(operation->guard));
+		while (rest && this.compiler->result != compilation_result::failure) {
+			ExpressionTail* tail = static_cast<ExpressionTail*>(@this.compiler->allocate(sizeof(ExpressionTail)));
+			if (!tail) {
+				return nullptr;
+			};
+			@tail->kind = expression_tail_kind::operation;
+			@tail->operation := operation->value;
+			@tail->next := rest->value;
+			ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(operation->guard), ParseGuard*(rest->guard));
+			parse_result_add<ExpressionTail>(@*this.compiler, &results, static_cast<ExpressionTail*>(tail), static_cast<ParseGuard*>(guard), rest->end, &pack_tail);
+			@rest := rest->next;
+		};
+		@operation := operation->next;
+	};
+	return @this.value_tails_finish(static_cast<ParseResult<ExpressionTail>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_expression_parse(Parser& this, i32 minimum, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	ParseResult<ValueSyntax>* head = @this.value_head_results(static_cast<i32>(delimiter));
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (head && this.compiler->result != compilation_result::failure) {
+		Parser suffix := this;
+		@suffix.failure = ParseFailure();
+		@suffix.offset := head->end.offset;
+		@suffix.pending_greater := head->end.pending_greater;
+		ParseResult<ExpressionTail>* tail = @suffix.value_tail_results(static_cast<i32>(minimum), static_cast<i32>(delimiter));
+		parse_failure_record(@*this.compiler, &failures, suffix.failure, ParseGuard*(head->guard));
+		while (tail && this.compiler->result != compilation_result::failure) {
+			SourceExpression* chain = static_cast<SourceExpression*>(@this.compiler->allocate(sizeof(SourceExpression)));
+			ValueSyntax* expression = static_cast<ValueSyntax*>(@this.compiler->allocate(sizeof(ValueSyntax)));
+			if (!chain || !expression) {
+				return nullptr;
+			};
+			@chain->head := head->value;
+			@chain->tail := tail->value;
+			@expression->kind = syntax_kind::source_expression_chain;
+			@expression->token := head->value->token;
+			@expression->data.chain = static_cast<SourceExpression*>(chain);
+			ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(head->guard), ParseGuard*(tail->guard));
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(expression), static_cast<ParseGuard*>(guard), tail->end, &pack_value);
+			@tail := tail->next;
+		};
+		@head := head->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_result_query(Parser& this, parse_memo_kind kind, i32 minimum, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	ParseMemo* record = @this.memo_begin(static_cast<parse_memo_kind>(kind), static_cast<i32>(minimum), static_cast<i32>(delimiter), "non-consuming source parse cycle\0");
+	if (!record) {
+		return nullptr;
+	};
+	if (record->state == resolution::ready) {
+		return static_cast<ParseResult<ValueSyntax>*>(record->results);
+	};
+
+	@record->state = resolution::active;
+	if (record->kind == parse_memo_kind::arguments) {
+		@record->results = @this.value_argument_parse(static_cast<token_kind>(record->minimum), static_cast<i32>(record->delimiter));
+	}
+	else {
+		@record->results = @this.value_expression_parse(static_cast<i32>(record->minimum), static_cast<i32>(record->delimiter));
+	};
+	@this.memo_finish(static_cast<ParseMemo*>(record));
+	@this.offset := record->offset;
+	@this.pending_greater := record->pending_greater;
+	return static_cast<ParseResult<ValueSyntax>*>(record->results);
+};
+
+fn Parser::value_expression_results(Parser& this, i32 minimum, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	return @this.value_result_query(parse_memo_kind::expression, static_cast<i32>(minimum), static_cast<i32>(delimiter));
+};
+
+fn Parser::value_argument_results(Parser& this, token_kind closing, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	return @this.value_result_query(parse_memo_kind::arguments, static_cast<i32>(closing), static_cast<i32>(delimiter));
+};
+
+fn parse_delimiter_matches(const Parser& parser, source_delimiter delimiter) -> bool {
+	Token token = parser.token();
+	switch (delimiter) {
+		case source_delimiter::ordinary:
+			return true;
+		case source_delimiter::statement:
+		case source_delimiter::for_clause:
+			return token.kind == token_kind::punct_semicolon;
+		case source_delimiter::paren:
+			return token.kind == token_kind::punct_right_paren;
+		case source_delimiter::index:
+			return token.kind == token_kind::punct_right_bracket;
+		case source_delimiter::call_argument:
+			return token.kind == token_kind::punct_comma || token.kind == token_kind::punct_right_paren;
+		case source_delimiter::template_argument:
+			return token.kind == token_kind::punct_comma || token.kind == token_kind::op_greater || token.kind == token_kind::op_shift_right;
+		case source_delimiter::enum_member:
+			return token.kind == token_kind::punct_comma || token.kind == token_kind::punct_semicolon || token.kind == token_kind::punct_right_brace;
+		case source_delimiter::case_label:
+			return token.kind == token_kind::punct_colon;
+	};
+	return false;
+};
+
+fn Parser::value_until_results(Parser& this, i32 minimum, source_delimiter delimiter) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* candidates = @this.value_expression_results(static_cast<i32>(minimum), static_cast<i32>(delimiter));
+	ParseResult<ValueSyntax>* result = nullptr;
+	while (candidates && this.compiler->result != compilation_result::failure) {
+		Parser ending := this;
+		@ending.offset := candidates->end.offset;
+		@ending.pending_greater := candidates->end.pending_greater;
+		if (parse_delimiter_matches(ending, static_cast<source_delimiter>(delimiter))) {
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, ValueSyntax*(candidates->value), ParseGuard*(candidates->guard), candidates->end, &pack_value);
+		};
+		@candidates := candidates->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(result);
+};
+
+fn source_choice_select(Compiler& compiler, Scope* scope, const SourceChoice& choice) -> ValueSyntax* {
+	SourceArm* arm := choice.first;
+	while (arm && compiler.result != compilation_result::failure) {
+		if (parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(arm->guard))) {
+			return static_cast<ValueSyntax*>(arm->value);
+		};
+		@arm := arm->next;
+	};
+	if (compiler.result != compilation_result::failure) {
+		Token token;
+		if (choice.first && choice.first->value) {
+			@token := choice.first->value->token;
+		};
+		@compiler.diagnostics.report(token, "no source interpretation matches the current scope\0");
+	};
+	return nullptr;
+};
+
+fn source_tail_lower(Compiler& compiler, Scope* scope, ExpressionTail* tail, Syntax* left) -> Syntax* {
+	while (tail && compiler.result != compilation_result::failure) {
+		if (tail->kind == expression_tail_kind::stop) {
+			return static_cast<Syntax*>(left);
+		};
+		if (tail->kind == expression_tail_kind::choice) {
+			TailArm* arm := tail->choices;
+			while (arm && !parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(arm->guard))) {
+				@arm := arm->next;
+			};
+			if (!arm) {
+				@compiler.diagnostics.report(left->token, "no expression continuation matches the current scope\0");
+				return nullptr;
+			};
+			@tail := arm->tail;
+			continue;
+		};
+		@left = value_lower_operation(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(tail->operation), static_cast<Syntax*>(left));
+		@tail := tail->next;
+	};
+	return static_cast<Syntax*>(left);
+};
+
+fn Parser::value_wrap_results(Parser& this, syntax_kind kind, Token token, ParseResult<ValueSyntax>* inputs, TypeSyntax* type) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* results = nullptr;
+	while (inputs && this.compiler->result != compilation_result::failure) {
+		ValueSyntax* value = @this.new_value(static_cast<syntax_kind>(kind), Token(token));
+		if (!value) {
+			return nullptr;
+		};
+		if (kind == syntax_kind::expr_unary) {
+			@value->data.binary.operation := token.kind;
+			@value->data.binary.left := inputs->value;
+		}
+		else if (kind == syntax_kind::expr_cast || kind == syntax_kind::expr_typed_apply || kind == syntax_kind::kw_sizeof) {
+			@value->data.typed.type := type;
+			@value->data.typed.value := inputs->value;
+		}
+		else {
+			@value->data.expression := inputs->value;
+		};
+		parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(value), ParseGuard*(inputs->guard), inputs->end, &pack_value);
+		@inputs := inputs->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(results);
+};
+
+fn Parser::value_allocation_results(Parser& this, Token token) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* results = nullptr;
+	ParseFailureArm* failures = nullptr;
+	ParseResult<TypeSyntax>* types = @this.type_context_results(type_parse_context::allocation);
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (types && this.compiler->result != compilation_result::failure) {
+		Parser candidate := this;
+		@candidate.failure = ParseFailure();
+		@candidate.offset := types->end.offset;
+		@candidate.pending_greater := types->end.pending_greater;
+		ParseResult<ValueSyntax>* counts = nullptr;
+		if (@candidate.take(token_kind::punct_left_bracket)) {
+			@counts = @candidate.value_until_results(1, source_delimiter::index);
+		}
+		else {
+			parse_result_add<ValueSyntax>(@*this.compiler, &counts, nullptr, nullptr, parser_cursor(candidate), &pack_value);
+		};
+		parse_failure_record(@*this.compiler, &failures, candidate.failure, static_cast<ParseGuard*>(types->guard));
+		while (counts && this.compiler->result != compilation_result::failure) {
+			Parser ending := candidate;
+			@ending.failure = ParseFailure();
+			@ending.offset := counts->end.offset;
+			@ending.pending_greater := counts->end.pending_greater;
+			if (counts->value) {
+				@ending.require(token_kind::punct_right_bracket, "expected ']' after allocation length\0");
+			};
+			@ending.require(token_kind::punct_left_paren, "expected '(' after construction type\0");
+			ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(types->guard), static_cast<ParseGuard*>(counts->guard));
+			if (!ending.failed()) {
+				ParseResult<ValueSyntax>* arguments = @ending.value_argument_results(token_kind::punct_right_paren, static_cast<i32>(source_delimiter::call_argument));
+				ParseResult<ValueSyntax>* applications = @ending.value_wrap_results(syntax_kind::expr_typed_apply, Token(token), static_cast<ParseResult<ValueSyntax>*>(arguments), static_cast<TypeSyntax*>(types->value));
+				while (applications && this.compiler->result != compilation_result::failure) {
+					ValueSyntax* allocation = @this.new_value(syntax_kind::kw_new, Token(token));
+					if (!allocation) {
+						return nullptr;
+					};
+					@allocation->data.allocation.construction := applications->value;
+					@allocation->data.allocation.count := counts->value;
+					ParseGuard* combined = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(guard), static_cast<ParseGuard*>(applications->guard));
+					parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(allocation), $combined, applications->end, &pack_value);
+					@applications := applications->next;
+				};
+			};
+			parse_failure_record(@*this.compiler, &failures, ending.failure, $guard);
+			@counts := counts->next;
+		};
+		@types := types->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_parenthesized_results(Parser& this, Token token) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	@this.take(token_kind::punct_left_paren);
+	ParseResult<ValueSyntax>* inside = @this.value_expression_results(1, 0);
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (inside && this.compiler->result != compilation_result::failure) {
+		Parser closing := this;
+		@closing.failure = ParseFailure();
+		@closing.offset := inside->end.offset;
+		@closing.pending_greater := inside->end.pending_greater;
+		@closing.require(token_kind::punct_right_paren, "expected ')' after expression\0");
+		parse_failure_record(@*this.compiler, &failures, closing.failure, ParseGuard*(inside->guard));
+		if (!closing.failed()) {
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, ValueSyntax*(inside->value), ParseGuard*(inside->guard), parser_cursor(closing), &pack_value);
+		};
+		@inside := inside->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_sizeof_results(Parser& this, Token token) -> ParseResult<ValueSyntax>* {
+	@this.require(token_kind::punct_left_paren, "expected '(' after sizeof\0");
+	if (this.failed()) {
+		return nullptr;
+	};
+	ParseCursor begin = parser_cursor(this);
+	ParseResult<ValueSyntax>* results = nullptr;
+	ParseFailureArm* failures = nullptr;
+	ParseGuard* expression_guard = nullptr;
+	Parser typed := this;
+	ParseResult<TypeSyntax>* types = @typed.type_results();
+	while (types && this.compiler->result != compilation_result::failure) {
+		ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(types->guard), parse_decision(@*this.compiler, static_cast<TypeSyntax*>(types->value), nullptr, begin, 1));
+		@expression_guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(expression_guard), parse_guard_not(@*this.compiler, static_cast<ParseGuard*>(guard)));
+		Parser candidate := this;
+		@candidate.failure = ParseFailure();
+		@candidate.offset := types->end.offset;
+		@candidate.pending_greater := types->end.pending_greater;
+		@candidate.require(token_kind::punct_right_paren, "expected ')' after sizeof type\0");
+		parse_failure_record(@*this.compiler, &failures, candidate.failure, static_cast<ParseGuard*>(guard));
+		if (!candidate.failed()) {
+			ValueSyntax* value = @this.new_value(syntax_kind::kw_sizeof, Token(token));
+			if (!value) {
+				return nullptr;
+			};
+			@value->data.typed.type := types->value;
+			parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(value), static_cast<ParseGuard*>(guard), parser_cursor(candidate), &pack_value);
+		};
+		@types := types->next;
+	};
+	ParseResult<ValueSyntax>* operands = @this.value_until_results(1, source_delimiter::paren);
+	parse_failure_record(@*this.compiler, &failures, this.failure, static_cast<ParseGuard*>(expression_guard));
+	while (operands && this.compiler->result != compilation_result::failure) {
+		Parser candidate := this;
+		@candidate.failure = ParseFailure();
+		@candidate.offset := operands->end.offset;
+		@candidate.pending_greater := operands->end.pending_greater;
+		@candidate.require(token_kind::punct_right_paren, "expected ')' after sizeof operand\0");
+		ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(operands->guard), static_cast<ParseGuard*>(expression_guard));
+		parse_failure_record(@*this.compiler, &failures, candidate.failure, static_cast<ParseGuard*>(guard));
+		if (!candidate.failed()) {
+			ValueSyntax* value = @this.new_value(syntax_kind::kw_sizeof, Token(token));
+			if (!value) {
+				return nullptr;
+			};
+			@value->data.typed.value := operands->value;
+			parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(value), static_cast<ParseGuard*>(guard), parser_cursor(candidate), &pack_value);
+		};
+		@operands := operands->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_named_cast_results(Parser& this, Token token) -> ParseResult<ValueSyntax>* {
+	@this.take(token_kind::identifier);
+	@this.require(token_kind::op_less, "expected '<' after named cast\0");
+	ParseResult<TypeSyntax>* types = @this.type_results();
+	ParseResult<ValueSyntax>* results = nullptr;
+	ParseFailureArm* failures = nullptr;
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (types && this.compiler->result != compilation_result::failure) {
+		Parser candidate := this;
+		@candidate.failure = ParseFailure();
+		@candidate.offset := types->end.offset;
+		@candidate.pending_greater := types->end.pending_greater;
+		@candidate.template_close();
+		@candidate.require(token_kind::punct_left_paren, "expected '(' after named cast type\0");
+		if (!candidate.failed()) {
+			ParseResult<ValueSyntax>* operands = @candidate.value_until_results(1, source_delimiter::paren);
+			while (operands && this.compiler->result != compilation_result::failure) {
+				Parser ending := candidate;
+				@ending.failure = ParseFailure();
+				@ending.offset := operands->end.offset;
+				@ending.pending_greater := operands->end.pending_greater;
+				@ending.require(token_kind::punct_right_paren, "expected ')' after named cast operand\0");
+				ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(types->guard), static_cast<ParseGuard*>(operands->guard));
+				parse_failure_record(@*this.compiler, &failures, ending.failure, static_cast<ParseGuard*>(guard));
+				if (!ending.failed()) {
+					ValueSyntax* value = @this.new_value(syntax_kind::expr_cast, Token(token));
+					@value->data.typed.type := types->value;
+					@value->data.typed.value := operands->value;
+					parse_result_add<ValueSyntax>(@*this.compiler, &results, static_cast<ValueSyntax*>(value), static_cast<ParseGuard*>(guard), parser_cursor(ending), &pack_value);
+				};
+				@operands := operands->next;
+			};
+		};
+		parse_failure_record(@*this.compiler, &failures, candidate.failure, static_cast<ParseGuard*>(types->guard));
+		@types := types->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(results), static_cast<ParseFailureArm*>(failures));
+};
+
+fn Parser::value_head_results(Parser& this, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	Token token = this.token();
+	if (token.kind == token_kind::identifier && (token.is("static_cast\0") || token.is("reinterpret_cast\0") || token.is("const_cast\0"))) {
+		return @this.value_named_cast_results(Token(token));
+	};
+	ParseCursor begin = parser_cursor(this);
+	if (@this.take(token_kind::kw_new)) {
+		return @this.value_allocation_results(Token(token));
+	};
+	if (@this.take(token_kind::kw_sizeof)) {
+		return @this.value_sizeof_results(Token(token));
+	};
+	if (@this.take(token_kind::kw_discard)) {
+		return @this.value_wrap_results(syntax_kind::kw_discard, Token(token), @this.value_name_results(), nullptr);
+	};
+	if (@this.take(token_kind::kw_delete) || @this.take(token_kind::op_access) || @this.take(token_kind::op_relocate) || @this.take(token_kind::op_plus) || @this.take(token_kind::op_minus) || @this.take(token_kind::op_bang) || @this.take(token_kind::op_tilde) || @this.take(token_kind::op_star) || @this.take(token_kind::op_ampersand)) {
+		syntax_kind kind = syntax_kind::expr_unary;
+		if (token.kind == token_kind::kw_delete) {
+			@kind = syntax_kind::kw_delete;
+			if (@this.take(token_kind::kw_discard)) {
+				@kind = syntax_kind::expr_delete_discard;
+			};
+		}
+		else if (token.kind == token_kind::op_access) {
+			@kind = syntax_kind::expr_access;
+		}
+		else if (token.kind == token_kind::op_relocate) {
+			@kind = syntax_kind::expr_relocate;
+		};
+		return @this.value_wrap_results(static_cast<syntax_kind>(kind), Token(token), @this.value_expression_results(12, static_cast<i32>(delimiter)), nullptr);
+	};
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	ParseGuard* ordinary_guard = nullptr;
+	if ((token.kind == token_kind::identifier || token.kind == token_kind::kw_const || token.kind == token_kind::punct_left_paren) && !(token.kind == token_kind::punct_left_paren && @this.signature_arrow(static_cast<usize>(begin.offset)))) {
+		Parser typed := this;
+		ParseResult<TypeSyntax>* types = @typed.type_results();
+		while (types && this.compiler->result != compilation_result::failure) {
+			Parser application := this;
+			@application.failure = ParseFailure();
+			@application.offset := types->end.offset;
+			@application.pending_greater := types->end.pending_greater;
+			if (types->end.offset > begin.offset + 1 && application.at(token_kind::punct_left_paren) && !(token.kind == token_kind::punct_left_paren && this.tokens[types->end.offset - 1].kind == token_kind::punct_right_paren)) {
+				ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(types->guard), parse_decision(@*this.compiler, static_cast<TypeSyntax*>(types->value), nullptr, begin, 1));
+				@ordinary_guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(ordinary_guard), parse_guard_not(@*this.compiler, static_cast<ParseGuard*>(guard)));
+				@application.take(token_kind::punct_left_paren);
+				ParseResult<ValueSyntax>* arguments = @application.value_argument_results(token_kind::punct_right_paren, static_cast<i32>(source_delimiter::call_argument));
+				ParseResult<ValueSyntax>* applications = @application.value_wrap_results(syntax_kind::expr_typed_apply, Token(token), static_cast<ParseResult<ValueSyntax>*>(arguments), static_cast<TypeSyntax*>(types->value));
+				@applications = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(applications), static_cast<ParseGuard*>(guard));
+				parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(applications));
+				parse_failure_record(@*this.compiler, &failures, application.failure, static_cast<ParseGuard*>(guard));
+			};
+			@types := types->next;
+		};
+	};
+	if (token.kind == token_kind::punct_left_paren) {
+		Parser prefix := this;
+		@prefix.take(token_kind::punct_left_paren);
+		ParseResult<TypeSyntax>* types = @prefix.type_results();
+		ParseGuard* group_guard := ordinary_guard;
+		while (types && this.compiler->result != compilation_result::failure) {
+			Parser closing := this;
+			@closing.offset := types->end.offset;
+			@closing.pending_greater := types->end.pending_greater;
+			if (@closing.take(token_kind::punct_right_paren)) {
+				ParseGuard* role = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(types->guard), parse_decision(@*this.compiler, static_cast<TypeSyntax*>(types->value), nullptr, begin, 1));
+				@group_guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(group_guard), parse_guard_not(@*this.compiler, static_cast<ParseGuard*>(role)));
+			};
+			@types := types->next;
+		};
+		ParseResult<ValueSyntax>* grouped = @this.value_parenthesized_results(Token(token));
+		parse_failure_record(@*this.compiler, &failures, this.failure, static_cast<ParseGuard*>(group_guard));
+		ParseResult<ValueSyntax>* candidate := grouped;
+		while (candidate && this.compiler->result != compilation_result::failure) {
+			ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, static_cast<ParseGuard*>(candidate->guard), static_cast<ParseGuard*>(group_guard));
+			@candidate->value = source_guarded(@*this.compiler, static_cast<ValueSyntax*>(candidate->value), static_cast<ParseGuard*>(guard));
+			@candidate->guard = nullptr;
+			@candidate := candidate->next;
+		};
+		parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(grouped));
+		return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+	};
+	ParseResult<ValueSyntax>* ordinary = nullptr;
+	if (token.kind == token_kind::identifier) {
+		@ordinary = @this.value_name_results();
+	}
+	else if (@this.take(token_kind::literal_number)) {
+		@ordinary = @this.value_single_result(@this.new_value(syntax_kind::literal_number, Token(token)));
+	}
+	else if (@this.take(token_kind::literal_string)) {
+		@ordinary = @this.value_single_result(@this.new_value(syntax_kind::literal_string, Token(token)));
+	}
+	else if (@this.take(token_kind::kw_nullptr)) {
+		@ordinary = @this.value_single_result(@this.new_value(syntax_kind::kw_nullptr, Token(token)));
+	}
+	else if (token.kind == token_kind::punct_left_brace) {
+		@ordinary = @this.source_block_results(parse_memo_kind::statements);
+	}
+	else if (!result) {
+		@this.error(Token(token), "expected expression\0");
+	};
+	parse_failure_record(@*this.compiler, &failures, this.failure, static_cast<ParseGuard*>(ordinary_guard));
+	@ordinary = parse_results_guard(@*this.compiler, static_cast<ParseResult<ValueSyntax>*>(ordinary), static_cast<ParseGuard*>(ordinary_guard));
+	parse_results_merge(@*this.compiler, &result, static_cast<ParseResult<ValueSyntax>*>(ordinary));
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn parse_choice_name(Compiler& compiler, Scope* scope, NameSyntax* name, i32 application) -> Entity* {
+	@name = name_source_select(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name));
+	if (!name) {
+		return nullptr;
+	};
+	Entity* entity = nullptr;
+	if (!name->qualifier) {
+		@entity = scope->lookup(name->token);
+	}
+	else {
+		Entity* owner = parse_choice_name(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name->qualifier), 1);
+		if (!owner) {
+			return nullptr;
+		};
+		Scope* members = entity_members(static_cast<Entity*>(owner));
+		if (!members) {
+			return nullptr;
+		};
+		@entity = associated_lookup(@compiler, static_cast<Entity*>(members->owner), name->token);
+	};
+	if (application && entity && !name->arguments && ((entity->kind == entity_kind::kw_template && entity->data.template_pattern.declaration_kind == token_kind::kw_namespace) || (entity->kind == entity_kind::kw_namespace && entity->template_origin))) {
+		@compiler.diagnostics.report(name->token, "namespace requires explicit template arguments\0");
+		return nullptr;
+	};
+	if (application && entity && name->arguments && (entity->kind == entity_kind::kw_template || entity->template_origin)) {
+		return name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name));
+	};
+	return static_cast<Entity*>(entity);
+};
+
+fn parse_type_matches(Compiler& compiler, Scope* scope, TypeSyntax* type) -> i32 {
+	if (!type) {
+		return 1;
+	};
+	while (type) {
+		@type = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type));
+		if (!type) {
+			return 0;
+		};
+		switch (type->kind) {
+			case type_syntax_kind::automatic:
+			case type_syntax_kind::conditional:
+			case type_syntax_kind::qualified:
+			case type_syntax_kind::pointer:
+			case type_syntax_kind::reference:
+				@type := type->data.element;
+				continue;
+			case type_syntax_kind::array:
+				@type := type->data.array.element;
+				continue;
+			case type_syntax_kind::function: {
+				ParameterSyntax* parameter := type->data.signature.parameters;
+				while (parameter) {
+					if (!parse_type_matches(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type))) {
+						return 0;
+					};
+					@parameter := parameter->next;
+				};
+				return parse_type_matches(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.signature.result));
+			};
+			case type_syntax_kind::name: {
+				Entity* entity = parse_choice_name(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(type->data.name), 0);
+				return entity && (entity->kind == entity_kind::primitive || entity->kind == entity_kind::kw_struct || entity->kind == entity_kind::kw_union || entity->kind == entity_kind::kw_enum || (entity->kind == entity_kind::kw_template && (entity->data.template_pattern.declaration_kind == token_kind::kw_struct || entity->data.template_pattern.declaration_kind == token_kind::kw_union)));
+			};
+		};
+	};
+	return 0;
+};
+
+fn parse_choice_matches(Compiler& compiler, Scope* scope, const ParseChoice& choice) -> i32 {
+	if (choice.kind == parse_choice_kind::template_name) {
+		NameSyntax name := *choice.name;
+		@name.arguments = nullptr;
+		Entity* entity = parse_choice_name(@compiler, static_cast<Scope*>(scope), &name, 0);
+		return entity && (entity->kind == entity_kind::kw_template || entity->template_origin);
+	};
+	return parse_type_matches(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(choice.type));
+};
+
+fn value_lower_operation(Compiler& compiler, Scope* scope, ValueSyntax* operation, Syntax* left) -> Syntax* {
+	if (operation->kind == syntax_kind::source_error) {
+		@compiler.diagnostics.report(operation->data.error->token, static_cast<const char*>(operation->data.error->message));
+		return nullptr;
+	};
+	if (operation->kind == syntax_kind::source_choice) {
+		ValueSyntax* selected = source_choice_select(@compiler, static_cast<Scope*>(scope), *operation->data.choice);
+		if (!selected) {
+			return nullptr;
+		};
+		return value_lower_operation(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(selected), static_cast<Syntax*>(left));
+	};
+	Syntax* result = syntax_create(@compiler, static_cast<syntax_kind>(operation->kind), Token(operation->token));
+	if (!result) {
+		return nullptr;
+	};
+	switch (operation->kind) {
+		case syntax_kind::expr_binary:
+		case syntax_kind::expr_index:
+			@result->data.binary.left = static_cast<Syntax*>(left);
+			@result->data.binary.right = value_lower(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(operation->data.binary.right));
+			@result->data.binary.operation := operation->data.binary.operation;
+			break;
+		case syntax_kind::expr_call:
+			@result->data.call.callable = static_cast<Syntax*>(left);
+			@result->data.call.arguments = value_lower_list(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(operation->data.call.arguments));
+			break;
+		case syntax_kind::expr_member:
+			@result->data.member.object = static_cast<Syntax*>(left);
+			@result->data.member.name := operation->data.member.name->token;
+			@result->data.member.qualifier = name_lower(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(operation->data.member.name->qualifier));
+			break;
+		case syntax_kind::expr_destroy:
+			if (operation->token.kind == token_kind::op_arrow) {
+				Syntax* object = syntax_create(@compiler, syntax_kind::expr_unary, Token(operation->token));
+				if (!object) {
+					return nullptr;
+				};
+				@object->data.unary.operation = token_kind::op_star;
+				@object->data.unary.value = static_cast<Syntax*>(left);
+				@left = static_cast<Syntax*>(object);
+			};
+			@result->data.cast.type := operation->data.typed.type;
+			@result->data.cast.value = static_cast<Syntax*>(left);
+			break;
+	};
+	return static_cast<Syntax*>(result);
+};
+
+// type_resolve/type_use_resolve select source choices before using source fields.
+// All direct source signature metadata readers must select the source type first.
+
+fn parser_precedence(token_kind operation) -> i32 {
+	switch (operation) {
+		case token_kind::op_assign:
+			return 1;
+		case token_kind::op_copy:
+			return 1;
+		case token_kind::op_or:
+			return 2;
+		case token_kind::op_and:
+			return 3;
+		case token_kind::op_pipe:
+			return 4;
+		case token_kind::op_caret:
+			return 5;
+		case token_kind::op_ampersand:
+			return 6;
+		case token_kind::op_equal:
+			return 7;
+		case token_kind::op_not_equal:
+			return 7;
+		case token_kind::op_less:
+			return 8;
+		case token_kind::op_greater:
+			return 8;
+		case token_kind::op_less_equal:
+			return 8;
+		case token_kind::op_greater_equal:
+			return 8;
+		case token_kind::op_shift_left:
+			return 9;
+		case token_kind::op_shift_right:
+			return 9;
+		case token_kind::op_plus:
+			return 10;
+		case token_kind::op_minus:
+			return 10;
+		case token_kind::op_star:
+			return 11;
+		case token_kind::op_slash:
+			return 11;
+		case token_kind::op_remainder:
+			return 11;
+		default:
+			return 0;
+	};
+};
+

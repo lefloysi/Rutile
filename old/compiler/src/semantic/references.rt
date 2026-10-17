@@ -1,0 +1,577 @@
+struct ReferenceAnalysis {
+	fn ReferenceAnalysis(ReferenceAnalysis& this, Compiler* compiler, Scope* scope);
+	fn initializer(ReferenceAnalysis& this, Syntax* body, Entity* variable, Token token);
+	fn prepare_object(ReferenceAnalysis& this, Entity* variable, Syntax* body, Token token);
+	fn storage_same(ReferenceAnalysis& this, Syntax* first, Syntax* second) -> bool;
+	fn storage_contains(ReferenceAnalysis& this, Syntax* parent, Syntax* storage) -> bool;
+	fn read_validate(ReferenceAnalysis& this, Syntax* storage);
+
+private:
+	fn bases_match(ReferenceAnalysis& this, ReferencePath* expected, Type* source, BasePath* first, BasePath* second) -> bool;
+	fn cast_subobject(ReferenceAnalysis& this, ReferencePath* root, CompleteGraph* graph, Syntax* storage) -> Subobject*;
+	fn path_matches(ReferenceAnalysis& this, ReferencePath* path, Syntax* storage) -> bool;
+	fn path_contains(ReferenceAnalysis& this, ReferencePath* path, Syntax* storage) -> bool;
+	fn whole_prepare(ReferenceAnalysis& this, ReferencePath* path, Syntax* body) -> bool;
+	fn subobjects_bound(ReferenceAnalysis& this, Subobject* object, SubobjectVisit** visited);
+	fn subobjects_prepare(ReferenceAnalysis& this, Subobject* object, ReferencePath* path, Syntax* body, const Token& token, SubobjectVisit** visited);
+	fn fields_prepare(ReferenceAnalysis& this, Type* type, ReferencePath* path, Syntax* body, Token token);
+
+	Compiler* compiler;
+	Scope* scope;
+};
+
+fn ReferenceAnalysis::ReferenceAnalysis(ReferenceAnalysis& this, Compiler* compiler, Scope* scope) {
+	@this.compiler = $compiler;
+	@this.scope = $scope;
+};
+
+fn ReferenceAnalysis::initializer(ReferenceAnalysis& this, Syntax* body, Entity* variable, Token token) {
+	Syntax* statement = nullptr;
+	if (body) {
+		@statement := body->data.statements;
+	};
+	while (statement) {
+		Syntax* target = nullptr;
+		if (statement->kind == syntax_kind::expr_binary || statement->kind == syntax_kind::stmt_initialize) {
+			@target = syntax_unaccess(static_cast<Syntax*>(statement->data.binary.left));
+		};
+		if (target && (statement->data.binary.operation == token_kind::op_assign || statement->data.binary.operation == token_kind::op_copy) && target->kind == syntax_kind::expr_name && target->token.same(variable->name)) {
+			@statement->kind = syntax_kind::stmt_initialize;
+			@target->entity := variable;
+			return;
+		};
+		@statement := statement->next;
+	};
+	@this.compiler->diagnostics.report(token, "reference requires a bound initializer\0");
+};
+
+union ReferencePathData {
+	BaseRelation* base;
+	Entity* entity;
+	usize index;
+};
+
+struct ReferencePath {
+	ReferencePath* parent;
+	ReferencePathData data;
+	syntax_kind kind;
+};
+
+fn reference_path_type(ReferencePath* path) -> Type* {
+	if (path->kind == syntax_kind::expr_base_reference) {
+		return entity_type(static_cast<Entity*>(path->data.base->entity));
+	};
+	if (path->kind == syntax_kind::expr_index) {
+		return static_cast<Type*>(reference_path_type(static_cast<ReferencePath*>(path->parent))->data.array.element);
+	};
+	return type_effective(entity_type(static_cast<Entity*>(path->data.entity)));
+};
+
+fn reference_base_count(ReferencePath* path) -> usize {
+	if (path->kind != syntax_kind::expr_base_reference) {
+		return 0;
+	};
+	return 1 + reference_base_count(static_cast<ReferencePath*>(path->parent));
+};
+
+fn reference_base_at(ReferencePath* path, usize index) -> BaseRelation* {
+	usize depth = reference_base_count(static_cast<ReferencePath*>(path));
+	if (!depth || index >= depth) {
+		return nullptr;
+	};
+	if (index + 1 == depth) {
+		return static_cast<BaseRelation*>(path->data.base);
+	};
+	return reference_base_at(static_cast<ReferencePath*>(path->parent), $index);
+};
+
+fn ReferenceAnalysis::bases_match(ReferenceAnalysis& this, ReferencePath* expected, Type* source, BasePath* first, BasePath* second) -> bool {
+	CompleteGraph* graph = complete_graph(@*this.compiler, static_cast<Entity*>(source->data.entity));
+	Subobject* actual = subobject_path(subobject_path(static_cast<Subobject*>(graph->root), $first), $second);
+	Subobject* required := graph->root;
+	usize index = 0;
+	while (index < reference_base_count(static_cast<ReferencePath*>(expected))) {
+		@required = subobject_edge(static_cast<Subobject*>(required), reference_base_at(static_cast<ReferencePath*>(expected), static_cast<u64>(index)));
+		@index = index + 1;
+	};
+	return actual == required;
+};
+
+fn ReferenceAnalysis::cast_subobject(ReferenceAnalysis& this, ReferencePath* root, CompleteGraph* graph, Syntax* storage) -> Subobject* {
+	if (storage->kind != syntax_kind::expr_cast) {
+		if (@this.path_matches(static_cast<ReferencePath*>(root), static_cast<Syntax*>(storage))) {
+			return static_cast<Subobject*>(graph->root);
+		};
+		return nullptr;
+	};
+	Type* selected := storage->data.cast.resolved;
+	if (!selected) {
+		@selected = type_resolve(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(storage->data.cast.type));
+	};
+	if (selected->kind != type_kind::reference || selected->data.element->kind != type_kind::named) {
+		return nullptr;
+	};
+	Subobject* source = @this.cast_subobject($root, $graph, static_cast<Syntax*>(storage->data.cast.value));
+	if (!source) {
+		return nullptr;
+	};
+	BaseSearch path = base_search(@*this.compiler, entity_type(static_cast<Entity*>(source->entity)), static_cast<Type*>(selected->data.element));
+	if (path.count != 1) {
+		return nullptr;
+	};
+	return subobject_path($source, static_cast<BasePath*>(path.path));
+};
+
+fn ReferenceAnalysis::path_matches(ReferenceAnalysis& this, ReferencePath* path, Syntax* storage) -> bool {
+	while (storage && storage->kind == syntax_kind::expr_access) {
+		@storage := storage->data.expression;
+	};
+	if (storage && storage->kind == syntax_kind::expr_cast && path->kind == syntax_kind::expr_base_reference) {
+		ReferencePath* root := path;
+		while (root->kind == syntax_kind::expr_base_reference) {
+			@root := root->parent;
+		};
+		Type* source = reference_path_type(static_cast<ReferencePath*>(root));
+		CompleteGraph* graph = complete_graph(@*this.compiler, static_cast<Entity*>(source->data.entity));
+		Subobject* actual = @this.cast_subobject($root, static_cast<CompleteGraph*>(graph), static_cast<Syntax*>(storage));
+		Subobject* required := graph->root;
+		usize index = 0;
+		while (index < reference_base_count(static_cast<ReferencePath*>(path))) {
+			@required = subobject_edge(static_cast<Subobject*>(required), reference_base_at(static_cast<ReferencePath*>(path), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		return actual && actual == required;
+	};
+	if (!storage || storage->kind != path->kind) {
+		return false;
+	};
+	if (path->kind == syntax_kind::expr_name) {
+		return storage->token.same(path->data.entity->name);
+	};
+	if (path->kind == syntax_kind::expr_member) {
+		if (storage->token.kind == token_kind::op_arrow || !storage->data.member.name.same(path->data.entity->name)) {
+			return false;
+		};
+		ReferencePath* object := path->parent;
+		while (object->kind == syntax_kind::expr_base_reference) {
+			@object := object->parent;
+		};
+		if (!@this.path_matches(static_cast<ReferencePath*>(object), static_cast<Syntax*>(storage->data.member.object))) {
+			return false;
+		};
+		Type* source = reference_path_type($object);
+		Type* owner = entity_type(static_cast<Entity*>(path->data.entity->data.variable.data.field.owner));
+		Type* visible := source;
+		if (storage->data.member.qualifier) {
+			@visible = named_type(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(storage->data.member.qualifier));
+		};
+		if (visible->kind != type_kind::named || associated_lookup(@*this.compiler, static_cast<Entity*>(visible->data.entity), storage->data.member.name) != path->data.entity) {
+			return false;
+		};
+		BaseSearch first = base_search(@*this.compiler, static_cast<Type*>(source), static_cast<Type*>(owner));
+		BaseSearch second;
+		if (storage->data.member.qualifier) {
+			Type* selected = named_type(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(storage->data.member.qualifier));
+			@first = base_search(@*this.compiler, static_cast<Type*>(source), static_cast<Type*>(selected));
+			@second = base_search(@*this.compiler, $selected, static_cast<Type*>(owner));
+			if (second.count != 1) {
+				return false;
+			};
+		};
+		if (first.count > 1 || second.count > 1) {
+			@this.compiler->diagnostics.report(storage->token, "ambiguous inherited reference field subobject\0");
+			return false;
+		};
+		return first.count == 1 && @this.bases_match(static_cast<ReferencePath*>(path->parent), static_cast<Type*>(source), static_cast<BasePath*>(first.path), static_cast<BasePath*>(second.path));
+	};
+	if (path->kind == syntax_kind::expr_index) {
+		return @this.path_matches(static_cast<ReferencePath*>(path->parent), static_cast<Syntax*>(storage->data.binary.left)) && constant_integer(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(storage->data.binary.right)) == static_cast<u64>(path->data.index);
+	};
+	return false;
+};
+
+fn ReferenceAnalysis::path_contains(ReferenceAnalysis& this, ReferencePath* path, Syntax* storage) -> bool {
+	while (storage) {
+		if (storage->kind == syntax_kind::expr_access) {
+			@storage := storage->data.expression;
+			continue;
+		};
+		if (@this.path_matches(static_cast<ReferencePath*>(path), static_cast<Syntax*>(storage))) {
+			return true;
+		};
+		if (storage->kind == syntax_kind::expr_member && storage->token.kind != token_kind::op_arrow) {
+			@storage := storage->data.member.object;
+		}
+		else if (storage->kind == syntax_kind::expr_index) {
+			@storage := storage->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	return false;
+};
+
+fn ReferenceAnalysis::whole_prepare(ReferenceAnalysis& this, ReferencePath* path, Syntax* body) -> bool {
+	Syntax* statement = nullptr;
+	if (body) {
+		@statement := body->data.statements;
+	};
+	while (statement) {
+		if ((statement->kind == syntax_kind::expr_binary || statement->kind == syntax_kind::stmt_initialize) && (statement->data.binary.operation == token_kind::op_assign || statement->data.binary.operation == token_kind::op_copy) && @this.path_matches(static_cast<ReferencePath*>(path), static_cast<Syntax*>(statement->data.binary.left))) {
+			@statement->kind = syntax_kind::stmt_initialize;
+			if (path->kind == syntax_kind::expr_name || path->kind == syntax_kind::expr_member) {
+				@syntax_unaccess(static_cast<Syntax*>(statement->data.binary.left))->entity := path->data.entity;
+			};
+			return true;
+		};
+		@statement := statement->next;
+	};
+	return false;
+};
+
+fn ReferenceAnalysis::subobjects_bound(ReferenceAnalysis& this, Subobject* object, SubobjectVisit** visited) {
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		@previous := previous->next;
+	};
+	SubobjectVisit* visit = static_cast<SubobjectVisit*>(@this.compiler->allocate(sizeof(SubobjectVisit)));
+	@visit->object := object;
+	@visit->next := *visited;
+	@*visited = $visit;
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		@this.subobjects_bound(static_cast<Subobject*>(edge->target), static_cast<SubobjectVisit**>(visited));
+		@edge := edge->next;
+	};
+};
+
+fn ReferenceAnalysis::subobjects_prepare(ReferenceAnalysis& this, Subobject* object, ReferencePath* path, Syntax* body, const Token& token, SubobjectVisit** visited) {
+	if (@this.whole_prepare(static_cast<ReferencePath*>(path), static_cast<Syntax*>(body))) {
+		@this.subobjects_bound(static_cast<Subobject*>(object), static_cast<SubobjectVisit**>(visited));
+		return;
+	};
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		@previous := previous->next;
+	};
+	SubobjectVisit* visit = static_cast<SubobjectVisit*>(@this.compiler->allocate(sizeof(SubobjectVisit)));
+	@visit->object := object;
+	@visit->next := *visited;
+	@*visited = $visit;
+
+	SubobjectEdge* edge := object->edges;
+	while (edge && this.compiler->result != compilation_result::failure) {
+		ReferencePath inherited;
+		@inherited.kind = syntax_kind::expr_base_reference;
+		@inherited.parent := path;
+		@inherited.data.base := edge->relation;
+		@this.subobjects_prepare(static_cast<Subobject*>(edge->target), &inherited, static_cast<Syntax*>(body), token, static_cast<SubobjectVisit**>(visited));
+		@edge := edge->next;
+	};
+	Field* field := object->entity->data.aggregate.fields;
+	while (field && this.compiler->result != compilation_result::failure) {
+		ReferencePath member;
+		@member.kind = syntax_kind::expr_member;
+		@member.parent := path;
+		@member.data.entity := field->entity;
+		@this.fields_prepare(entity_type(static_cast<Entity*>(field->entity)), &member, static_cast<Syntax*>(body), Token(token));
+		@field := field->next;
+	};
+};
+
+fn ReferenceAnalysis::fields_prepare(ReferenceAnalysis& this, Type* type, ReferencePath* path, Syntax* body, Token token) {
+	if (!type || this.compiler->result == compilation_result::failure || !type_has_reference(static_cast<Type*>(type))) {
+		return;
+	};
+	if (@this.whole_prepare(static_cast<ReferencePath*>(path), static_cast<Syntax*>(body))) {
+		return;
+	};
+	Syntax* statement = nullptr;
+	if (type->kind == type_kind::reference) {
+		@this.compiler->diagnostics.report(token, "object requires an initializer binding every reference field\0");
+		return;
+	};
+	if (type->kind == type_kind::array) {
+		ReferencePath element;
+		@element.kind = syntax_kind::expr_index;
+		@element.parent := path;
+		usize index = 0;
+		while (index < type->data.array.count && this.compiler->result != compilation_result::failure) {
+			@element.data.index := index;
+			@this.fields_prepare(static_cast<Type*>(type->data.array.element), &element, static_cast<Syntax*>(body), Token(token));
+			@index = index + 1;
+		};
+		return;
+	};
+	if (type->kind != type_kind::named || type->data.entity->kind == entity_kind::kw_enum) {
+		return;
+	};
+	entity_resolve(@*this.compiler, static_cast<Entity*>(type->data.entity));
+	if (type->data.entity->kind == entity_kind::kw_union) {
+		if (body) {
+			@statement := body->data.statements;
+		};
+		while (statement) {
+			if ((statement->kind == syntax_kind::expr_binary || statement->kind == syntax_kind::stmt_initialize) && (statement->data.binary.operation == token_kind::op_assign || statement->data.binary.operation == token_kind::op_copy)) {
+				Field* field := type->data.entity->data.aggregate.fields;
+				while (field) {
+					ReferencePath member;
+					@member.kind = syntax_kind::expr_member;
+					@member.parent := path;
+					@member.data.entity := field->entity;
+					if (@this.path_contains(&member, static_cast<Syntax*>(statement->data.binary.left))) {
+						@this.fields_prepare(entity_type(static_cast<Entity*>(field->entity)), &member, static_cast<Syntax*>(body), Token(token));
+						return;
+					};
+					@field := field->next;
+				};
+			};
+			@statement := statement->next;
+		};
+		return;
+	};
+	CompleteGraph* graph = complete_graph(@*this.compiler, static_cast<Entity*>(type->data.entity));
+	SubobjectVisit* visited = nullptr;
+	@this.subobjects_prepare(static_cast<Subobject*>(graph->root), $path, $body, token, &visited);
+};
+
+fn ReferenceAnalysis::prepare_object(ReferenceAnalysis& this, Entity* variable, Syntax* body, Token token) {
+	Type* type := entity_type(static_cast<Entity*>(variable));
+	layout_validate(@*this.compiler, static_cast<Type*>(type), nullptr, token);
+	if (this.compiler->result == compilation_result::failure) {
+		return;
+	};
+	Syntax* whole = nullptr;
+	if (body) {
+		@whole := body->data.statements;
+	};
+	while (whole) {
+		Syntax* target = nullptr;
+		if (whole->kind == syntax_kind::expr_binary || whole->kind == syntax_kind::stmt_initialize) {
+			@target = syntax_unaccess(static_cast<Syntax*>(whole->data.binary.left));
+		};
+		if (target && (whole->data.binary.operation == token_kind::op_assign || whole->data.binary.operation == token_kind::op_copy) && target->kind == syntax_kind::expr_name && target->token.same(variable->name)) {
+			@whole->kind = syntax_kind::stmt_initialize;
+			@target->entity := variable;
+			return;
+		};
+		@whole := whole->next;
+	};
+	if (!type_has_reference(static_cast<Type*>(type))) {
+		return;
+	};
+	ReferencePath root;
+	@root.kind = syntax_kind::expr_name;
+	@root.data.entity = $variable;
+	@this.fields_prepare($type, &root, $body, $token);
+};
+
+fn syntax_base_count(Syntax* syntax) -> usize {
+	if (syntax->kind != syntax_kind::expr_base_reference) {
+		return 0;
+	};
+	usize count = syntax_base_count(static_cast<Syntax*>(syntax->data.base_conversion.value));
+	BasePath* path := syntax->data.base_conversion.path;
+	while (path) {
+		@count = count + 1;
+		@path := path->next;
+	};
+	return $count;
+};
+
+fn syntax_base_at(Syntax* syntax, usize index) -> BaseRelation* {
+	if (syntax->kind != syntax_kind::expr_base_reference) {
+		return nullptr;
+	};
+	usize before = syntax_base_count(static_cast<Syntax*>(syntax->data.base_conversion.value));
+	if (index < before) {
+		return syntax_base_at(static_cast<Syntax*>(syntax->data.base_conversion.value), static_cast<u64>(index));
+	};
+	@index = index - before;
+	BasePath* path := syntax->data.base_conversion.path;
+	while (path && index) {
+		@path := path->next;
+		@index = index - 1;
+	};
+	if (!path) {
+		return nullptr;
+	};
+	return static_cast<BaseRelation*>(path->relation);
+};
+
+fn syntax_base_root(Syntax* syntax) -> Syntax* {
+	while (syntax->kind == syntax_kind::expr_base_reference) {
+		@syntax := syntax->data.base_conversion.value;
+	};
+	return $syntax;
+};
+
+fn storage_root_entity(Syntax* syntax) -> Entity* {
+	while (syntax) {
+		if (syntax->kind == syntax_kind::expr_access) {
+			@syntax := syntax->data.expression;
+		}
+		else if (syntax->kind == syntax_kind::expr_base_reference) {
+			@syntax := syntax->data.base_conversion.value;
+		}
+		else if (syntax->kind == syntax_kind::expr_member && syntax->token.kind != token_kind::op_arrow) {
+			@syntax := syntax->data.member.object;
+		}
+		else if (syntax->kind == syntax_kind::expr_index && syntax->data.binary.left->type->kind == type_kind::array) {
+			@syntax := syntax->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	if (!syntax || syntax->kind != syntax_kind::expr_name) {
+		return nullptr;
+	};
+	return static_cast<Entity*>(syntax->entity);
+};
+
+fn ReferenceAnalysis::storage_same(ReferenceAnalysis& this, Syntax* first, Syntax* second) -> bool {
+	while (first && first->kind == syntax_kind::expr_access) {
+		@first := first->data.expression;
+	};
+	while (second && second->kind == syntax_kind::expr_access) {
+		@second := second->data.expression;
+	};
+	if (!first || !second) {
+		return false;
+	};
+	if (first->kind == syntax_kind::expr_base_reference || second->kind == syntax_kind::expr_base_reference) {
+		Syntax* root = syntax_base_root(static_cast<Syntax*>(first));
+		Syntax* other = syntax_base_root(static_cast<Syntax*>(second));
+		Type* type = type_effective(static_cast<Type*>(root->type));
+		if (!type || type->kind != type_kind::named || !type_equal(static_cast<Type*>(type), type_effective(static_cast<Type*>(other->type)))) {
+			return false;
+		};
+		CompleteGraph* graph = complete_graph(@*this.compiler, static_cast<Entity*>(type->data.entity));
+		Subobject* left := graph->root;
+		Subobject* right := graph->root;
+		usize index = 0;
+		while (index < syntax_base_count(static_cast<Syntax*>(first))) {
+			@left = subobject_edge(static_cast<Subobject*>(left), syntax_base_at(static_cast<Syntax*>(first), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		@index = 0;
+		while (index < syntax_base_count(static_cast<Syntax*>(second))) {
+			@right = subobject_edge(static_cast<Subobject*>(right), syntax_base_at(static_cast<Syntax*>(second), static_cast<u64>(index)));
+			@index = index + 1;
+		};
+		if (left != right) {
+			return false;
+		};
+		return @this.storage_same(syntax_base_root(static_cast<Syntax*>(first)), syntax_base_root(static_cast<Syntax*>(second)));
+	};
+	if (first->kind != second->kind) {
+		return false;
+	};
+	if (first->kind == syntax_kind::expr_name) {
+		return first->entity == second->entity;
+	};
+	if (first->kind == syntax_kind::expr_member) {
+		return first->entity == second->entity && @this.storage_same(static_cast<Syntax*>(first->data.member.object), static_cast<Syntax*>(second->data.member.object));
+	};
+	if (first->kind == syntax_kind::expr_index) {
+		return constant_integer(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(first->data.binary.right)) == constant_integer(@*this.compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(second->data.binary.right)) && @this.storage_same(static_cast<Syntax*>(first->data.binary.left), static_cast<Syntax*>(second->data.binary.left));
+	};
+	return false;
+};
+
+fn ReferenceAnalysis::storage_contains(ReferenceAnalysis& this, Syntax* parent, Syntax* storage) -> bool {
+	while (storage) {
+		if (storage->kind == syntax_kind::expr_access) {
+			@storage := storage->data.expression;
+			continue;
+		};
+		if (@this.storage_same(static_cast<Syntax*>(parent), static_cast<Syntax*>(storage))) {
+			return true;
+		};
+		if (storage->kind == syntax_kind::expr_member) {
+			@storage := storage->data.member.object;
+		}
+		else if (storage->kind == syntax_kind::expr_index) {
+			@storage := storage->data.binary.left;
+		}
+		else if (storage->kind == syntax_kind::expr_base_reference) {
+			@storage := storage->data.base_conversion.value;
+		}
+		else {
+			break;
+		};
+	};
+	return false;
+};
+
+fn ReferenceAnalysis::read_validate(ReferenceAnalysis& this, Syntax* storage) {
+	if (storage->token.kind == token_kind::op_arrow) {
+		return;
+	};
+	Syntax* object := storage->data.member.object;
+	while (object->kind == syntax_kind::expr_member || object->kind == syntax_kind::expr_index || object->kind == syntax_kind::expr_name || object->kind == syntax_kind::expr_base_reference) {
+		if (object->kind == syntax_kind::expr_base_reference) {
+			@object := object->data.base_conversion.value;
+			continue;
+		};
+		Type* type = syntax_storage_type(static_cast<Syntax*>(object));
+		if ((type && type->kind == type_kind::reference) || (object->kind == syntax_kind::expr_member && object->token.kind == token_kind::op_arrow)) {
+			return;
+		};
+		if (object->kind == syntax_kind::expr_member) {
+			@object := object->data.member.object;
+		}
+		else if (object->kind == syntax_kind::expr_index) {
+			@object := object->data.binary.left;
+		}
+		else {
+			break;
+		};
+	};
+	Scope* scope := this.scope;
+	while (scope) {
+		if ((scope->context == context_kind::initialization || scope->context == context_kind::arguments) && scope->owner && scope->owner->kind == entity_kind::variable && scope->owner->declaration) {
+			Syntax* body := scope->owner->declaration;
+			if (body->kind == syntax_kind::node_declaration) {
+				@body := body->data.declaration.body;
+			};
+			Syntax* root := storage;
+			while (root->kind == syntax_kind::expr_member || root->kind == syntax_kind::expr_index || root->kind == syntax_kind::expr_base_reference) {
+				if (root->kind == syntax_kind::expr_base_reference) {
+					@root := root->data.base_conversion.value;
+				}
+				else if (root->kind == syntax_kind::expr_member) {
+					@root := root->data.member.object;
+				}
+				else {
+					@root := root->data.binary.left;
+				};
+			};
+			if (root->kind != syntax_kind::expr_name || root->entity != scope->owner) {
+				return;
+			};
+			Syntax* statement := body->data.statements;
+			while (statement) {
+				if (statement->kind == syntax_kind::stmt_bind_reference && @this.storage_same(static_cast<Syntax*>(statement->data.binary.left), static_cast<Syntax*>(storage))) {
+					return;
+				};
+				if (statement->kind == syntax_kind::stmt_initialize && statement->type && @this.storage_contains(static_cast<Syntax*>(statement->data.binary.left), static_cast<Syntax*>(storage))) {
+					return;
+				};
+				@statement := statement->next;
+			};
+			@this.compiler->diagnostics.report(storage->token, "reference field must be bound before use\0");
+			return;
+		};
+		@scope := scope->parent;
+	};
+};
+

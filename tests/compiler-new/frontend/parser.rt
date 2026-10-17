@@ -100,5 +100,24 @@ fn parser_tests() -> i32 {
 	if (groups.tree.get()->item(0)->callable()->kind() != syntax_kind::grouping || groups.tree.get()->item(1)->callable()->kind() != syntax_kind::grouping || groups.tree.get()->item(2)->template_parameters()->item(0)->template_parameter_default()->kind() != syntax_kind::number || groups.tree.get()->item(3)->kind() != syntax_kind::discard_value) {
 		return 19;
 	};
+	var nested = ParseFixture();
+	if (!@nested.build("struct Manager { rt::buffer<rt::unique<SourceFile>> files; };\0")) {
+		return 20;
+	};
+	Syntax* choices = nested.tree.get()->item(0)->record_members()->item(0);
+	if (choices->kind() != syntax_kind::ambiguity) {
+		return 21;
+	};
+	usize declarations_found = 0;
+	usize choice = 0;
+	while (choice < choices->size()) {
+		if (choices->item(choice)->kind() == syntax_kind::variable) {
+			@declarations_found = declarations_found + 1;
+		};
+		@choice = choice + 1;
+	};
+	if (declarations_found != 1 || choices->size() != 3) {
+		return 22;
+	};
 	return 42;
 };

@@ -1,0 +1,95 @@
+fn puts(const char* message) -> i32;
+fn fopen(const char* path, const char* mode) -> NativeFile*;
+
+struct TemplateFixture {
+	SourceFile source;
+	TypeStore types;
+	rt::buffer<rt::unique<Syntax>> syntax;
+	rt::unique<SemanticUnit> unit;
+
+	fn build(TemplateFixture& this, const char* text) -> bool;
+};
+
+fn TemplateFixture::build(TemplateFixture& this, const char* text) -> bool {
+	if (!@this.source.assign(rt::string_view("templates.rt\0"), rt::string_view(text))) {
+		return false;
+	};
+	var lexer = Lexer(@this.source);
+	if (!@lexer.scan()) {
+		puts(lexer.error().data());
+		return false;
+	};
+	var parser = Parser(this.source.tokens());
+	var syntax = @parser.parse();
+	if (!syntax.get()) {
+		puts(parser.error().data());
+		return false;
+	};
+	if (!@this.syntax.push_back($syntax)) {
+		return false;
+	};
+	NativeFile* output = fopen("template-diagnostics.log\0", "wb\0");
+	var diagnostics = Diagnostics(output);
+	var analyzer = Analyzer(@this.types, @diagnostics, 64);
+	@this.unit = @analyzer.analyze(this.syntax);
+	fclose(output);
+	return this.unit.get() != nullptr;
+};
+
+fn template_tests() -> i32 {
+	var records = TemplateFixture();
+	if (!@records.build("template<typename T> struct Box { T value; }; template<typename T, typename D = Box<T>> struct Pair { T first; D second; }; var left : Pair<i32>; var right : Pair<i32, Box<i32>>;\0")) {
+		return 1;
+	};
+	Entity* left = records.unit.get()->root_scope()->local(rt::string_view("left\0"));
+	Entity* right = records.unit.get()->root_scope()->local(rt::string_view("right\0"));
+	if (!left || !right || left->type() != right->type() || left->type()->entity()->fields().size() != 2) {
+		return 2;
+	};
+	const Type* first = left->type()->entity()->fields().data()[0]->type();
+	const Type* second = left->type()->entity()->fields().data()[1]->type();
+	if (first->kind() != type_kind::signed_integer || first->bits() != 32 || second->entity()->fields().data()[0]->type() != first) {
+		return 3;
+	};
+
+	var recursive = TemplateFixture();
+	if (!@recursive.build("template<typename T> struct Node { Node<T>* next; T value; }; var node : Node<i32>;\0")) {
+		return 4;
+	};
+	const Type* node = recursive.unit.get()->root_scope()->local(rt::string_view("node\0"))->type();
+	if (node->entity()->fields().data()[0]->type()->element() != node) {
+		return 5;
+	};
+
+	var namespaces = TemplateFixture();
+	if (!@namespaces.build("template<typename T> namespace Values { fn identity(T value) -> T { return $value; }; }; fn use() -> i32 { return Values<i32>::identity(42); };\0")) {
+		return 6;
+	};
+
+	var calls = TemplateFixture();
+	if (!@calls.build("template<typename T> fn identity(T value) -> T { return $value; }; fn use() -> i32 { var one = identity<i32>(42); return identity(one); };\0")) {
+		return 7;
+	};
+
+	var members = TemplateFixture();
+	if (!@members.build("template<typename T> struct Box { fn number(const Box& this) -> T; T value; }; template<typename U> fn Box<U>::number(const Box& this) -> U { return this.value; }; fn use() -> i32 { var box : Box<i32>; return box.number(); };\0")) {
+		return 8;
+	};
+	var policies = TemplateFixture();
+	if (!@policies.build("namespace library { template<typename T> struct Policy { fn read() -> i32 { return 42; }; }; template<typename T, typename D = Policy<T>> struct Owner { fn read() -> i32 { return D::read(); }; }; }; fn use() -> i32 { return library::Owner<i32>::read(); };\0")) {
+		return 9;
+	};
+	var extension = TemplateFixture();
+	if (!@extension.build("template<typename T> struct Box { private: T value; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };\0")) {
+		return 10;
+	};
+	var hidden = TemplateFixture();
+	if (@hidden.build("template<typename T> struct Box { private: fn answer() -> i32; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };\0")) {
+		return 11;
+	};
+	var private_generic = TemplateFixture();
+	if (@private_generic.build("struct Owner { private: template<typename T> fn hidden(T value) -> i32 { return 42; }; }; fn use() -> i32 { return Owner::hidden<i32>(0); };\0")) {
+		return 12;
+	};
+	return 42;
+};

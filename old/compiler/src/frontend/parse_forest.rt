@@ -1,0 +1,654 @@
+struct ParseCursor {
+	usize offset;
+	usize pending_greater;
+};
+
+enum parse_guard_kind : [i32] {
+	never;
+	decision;
+	conjunction;
+	disjunction;
+	negation;
+};
+
+enum source_delimiter : [i32] {
+	ordinary;
+	statement;
+	paren;
+	index;
+	call_argument;
+	template_argument;
+	enum_member;
+	for_clause;
+	case_label;
+};
+
+struct ParseGuard {
+	ParseChoice choice;
+	ParseGuard* left;
+	ParseGuard* right;
+	parse_guard_kind kind;
+	i32 selected;
+};
+
+struct SourceArm {
+	ParseGuard* guard;
+	ValueSyntax* value;
+	SourceArm* next;
+};
+
+struct SourceChoice {
+	SourceArm* first;
+};
+
+enum expression_tail_kind : [i32] {
+	stop;
+	operation;
+	choice;
+};
+
+struct TailArm {
+	ParseGuard* guard;
+	ExpressionTail* tail;
+	TailArm* next;
+};
+
+struct ExpressionTail {
+	ValueSyntax* operation;
+	ExpressionTail* next;
+	TailArm* choices;
+	expression_tail_kind kind;
+};
+
+struct SourceExpression {
+	ValueSyntax* head;
+	ExpressionTail* tail;
+};
+
+template<typename T>
+struct ParseResult {
+	T* value;
+	ParseGuard* guard;
+	ParseCursor end;
+	ParseResult<T>* next;
+};
+
+template<typename T>
+fn parse_result_find(ParseResult<T>* result, const ParseCursor& end) -> ParseResult<T>* {
+	while (result && !parse_cursor_equal(result->end, end)) {
+		@result := result->next;
+	};
+	return static_cast<ParseResult<T>*>(result);
+};
+
+template<typename T>
+fn parse_result_push(Compiler& compiler, ParseResult<T>** results, T* value, ParseGuard* guard, const ParseCursor& end) -> ParseResult<T>* {
+	ParseResult<T>* result = static_cast<ParseResult<T>*>(@compiler.allocate(sizeof(ParseResult<T>)));
+	if (!result) {
+		return nullptr;
+	};
+	@result->value = static_cast<T*>(value);
+	@result->guard = static_cast<ParseGuard*>(guard);
+	@result->end := end;
+	@result->next := *results;
+	@*results = static_cast<ParseResult<T>*>(result);
+	return static_cast<ParseResult<T>*>(result);
+};
+
+template<typename T>
+fn parse_result_add(Compiler& compiler, ParseResult<T>** results, T* value, ParseGuard* guard, const ParseCursor& end, ((Compiler&, T*, ParseGuard*, T*, ParseGuard*)->T*)* pack) {
+	ParseResult<T>* existing = parse_result_find<T>(ParseResult<T>*( *results), end);
+	if (!existing) {
+		parse_result_push<T>(@compiler, static_cast<ParseResult<T>**>(results), static_cast<T*>(value), static_cast<ParseGuard*>(guard), end);
+		return;
+	};
+	T* packed = pack(@compiler, T*(existing->value), ParseGuard*(existing->guard), static_cast<T*>(value), static_cast<ParseGuard*>(guard));
+	if (!packed) {
+		return;
+	};
+	@existing->value = static_cast<T*>(packed);
+	@existing->guard = parse_guard(@compiler, parse_guard_kind::disjunction, ParseGuard*(existing->guard), static_cast<ParseGuard*>(guard));
+};
+
+fn pack_value(Compiler& compiler, ValueSyntax* left, ParseGuard* left_guard, ValueSyntax* right, ParseGuard* right_guard) -> ValueSyntax* {
+	SourceChoice* choice = static_cast<SourceChoice*>(@compiler.allocate(sizeof(SourceChoice)));
+	ValueSyntax* packed = static_cast<ValueSyntax*>(@compiler.allocate(sizeof(ValueSyntax)));
+	if (!choice || !packed) {
+		return nullptr;
+	};
+	@choice->first = parse_arm(@compiler, ValueSyntax*(left), ParseGuard*(left_guard), nullptr);
+	@choice->first = parse_arm(@compiler, static_cast<ValueSyntax*>(right), static_cast<ParseGuard*>(right_guard), SourceArm*(choice->first));
+	@packed->kind = syntax_kind::source_choice;
+	@packed->token := left->token;
+	@packed->data.choice = static_cast<SourceChoice*>(choice);
+	return static_cast<ValueSyntax*>(packed);
+};
+
+fn pack_tail(Compiler& compiler, ExpressionTail* left, ParseGuard* left_guard, ExpressionTail* right, ParseGuard* right_guard) -> ExpressionTail* {
+	ExpressionTail* packed = static_cast<ExpressionTail*>(@compiler.allocate(sizeof(ExpressionTail)));
+	TailArm* first = static_cast<TailArm*>(@compiler.allocate(sizeof(TailArm)));
+	TailArm* second = static_cast<TailArm*>(@compiler.allocate(sizeof(TailArm)));
+	if (!packed || !first || !second) {
+		return nullptr;
+	};
+	@first->tail := left;
+	@first->guard := left_guard;
+	@second->tail = static_cast<ExpressionTail*>(right);
+	@second->guard := right_guard;
+	@second->next = static_cast<TailArm*>(first);
+	@packed->kind = expression_tail_kind::choice;
+	@packed->choices = static_cast<TailArm*>(second);
+	return static_cast<ExpressionTail*>(packed);
+};
+
+fn pack_type(Compiler& compiler, TypeSyntax* left, ParseGuard* left_guard, TypeSyntax* right, ParseGuard* right_guard) -> TypeSyntax* {
+	TypeChoice* first = static_cast<TypeChoice*>(@compiler.allocate(sizeof(TypeChoice)));
+	TypeChoice* second = static_cast<TypeChoice*>(@compiler.allocate(sizeof(TypeChoice)));
+	TypeSyntax* packed = static_cast<TypeSyntax*>(@compiler.allocate(sizeof(TypeSyntax)));
+	if (!first || !second || !packed) {
+		return nullptr;
+	};
+	@first->type := left;
+	@first->guard := left_guard;
+	@second->type = static_cast<TypeSyntax*>(right);
+	@second->guard := right_guard;
+	@second->next = static_cast<TypeChoice*>(first);
+	@packed->kind = type_syntax_kind::choice;
+	@packed->token := left->token;
+	@packed->data.choices = static_cast<TypeChoice*>(second);
+	return static_cast<TypeSyntax*>(packed);
+};
+
+fn pack_name(Compiler& compiler, NameSyntax* left, ParseGuard* left_guard, NameSyntax* right, ParseGuard* right_guard) -> NameSyntax* {
+	NameSyntax* packed = static_cast<NameSyntax*>(@compiler.allocate(sizeof(NameSyntax)));
+	NameChoice* first = static_cast<NameChoice*>(@compiler.allocate(sizeof(NameChoice)));
+	NameChoice* second = static_cast<NameChoice*>(@compiler.allocate(sizeof(NameChoice)));
+	if (!packed || !first || !second) {
+		return nullptr;
+	};
+	@first->name := left;
+	@first->guard := left_guard;
+	@second->name = static_cast<NameSyntax*>(right);
+	@second->guard := right_guard;
+	@second->next = static_cast<NameChoice*>(first);
+	@packed->token := left->token;
+	@packed->choices = static_cast<NameChoice*>(second);
+	return static_cast<NameSyntax*>(packed);
+};
+
+fn pack_arguments(Compiler& compiler, ArgumentListSyntax* left, ParseGuard* left_guard, ArgumentListSyntax* right, ParseGuard* right_guard) -> ArgumentListSyntax* {
+	ArgumentListSyntax* packed = static_cast<ArgumentListSyntax*>(@compiler.allocate(sizeof(ArgumentListSyntax)));
+	ArgumentListArm* first = static_cast<ArgumentListArm*>(@compiler.allocate(sizeof(ArgumentListArm)));
+	ArgumentListArm* second = static_cast<ArgumentListArm*>(@compiler.allocate(sizeof(ArgumentListArm)));
+	if (!packed || !first || !second) {
+		return nullptr;
+	};
+	@first->arguments := left;
+	@first->guard := left_guard;
+	@second->arguments = static_cast<ArgumentListSyntax*>(right);
+	@second->guard := right_guard;
+	@second->next = static_cast<ArgumentListArm*>(first);
+	@packed->choices = static_cast<ArgumentListArm*>(second);
+	return static_cast<ArgumentListSyntax*>(packed);
+};
+
+struct ParseFailureArm {
+	ParseFailure failure;
+	ParseGuard* guard;
+	ParseFailureArm* next;
+};
+
+fn parse_failure_record(Compiler& compiler, ParseFailureArm** failures, const ParseFailure& failure, ParseGuard* guard) {
+	if (!failure.message) {
+		return;
+	};
+	ParseFailureArm* arm = static_cast<ParseFailureArm*>(@compiler.allocate(sizeof(ParseFailureArm)));
+	if (!arm) {
+		return;
+	};
+	@arm->failure := failure;
+	@arm->guard = static_cast<ParseGuard*>(guard);
+	@arm->next := *failures;
+	@*failures = static_cast<ParseFailureArm*>(arm);
+};
+
+fn Parser::value_results_finish(Parser& this, ParseResult<ValueSyntax>* result, ParseFailureArm* failures) -> ParseResult<ValueSyntax>* {
+	@this.failure = ParseFailure();
+	while (failures && this.compiler->result != compilation_result::failure) {
+		if (result) {
+			parse_results_failure(@*this.compiler, &result, failures->failure, ParseGuard*(failures->guard));
+		}
+		else if (!this.failure.message || failures->failure.offset > this.failure.offset || (failures->failure.offset == this.failure.offset && failures->failure.pending_greater > this.failure.pending_greater)) {
+			@this.failure := failures->failure;
+		};
+		@failures := failures->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(result);
+};
+
+enum parse_memo_kind : [i32] {
+	enum_members;
+	struct_members;
+	function_name;
+	type;
+	signature_parameters;
+	source_name;
+	neutral_argument;
+	argument_list;
+	argument_sequence;
+	tail;
+	expression;
+	arguments;
+	statement;
+	statements;
+	block;
+};
+
+fn parse_decision(Compiler& compiler, TypeSyntax* type, NameSyntax* name, const ParseCursor& cursor, i32 selected) -> ParseGuard* {
+	ParseGuard* result = static_cast<ParseGuard*>(@compiler.allocate(sizeof(ParseGuard)));
+	if (!result) {
+		return nullptr;
+	};
+	@result->kind = parse_guard_kind::decision;
+	@result->selected = static_cast<i32>(selected);
+	@result->choice.type = static_cast<TypeSyntax*>(type);
+	@result->choice.name = static_cast<NameSyntax*>(name);
+	@result->choice.offset := cursor.offset;
+	@result->choice.pending_greater := cursor.pending_greater;
+	if (result->choice.name) {
+		@result->choice.kind = parse_choice_kind::template_name;
+	};
+
+	return static_cast<ParseGuard*>(result);
+};
+
+fn parser_cursor(const Parser& parser) -> ParseCursor {
+	ParseCursor result;
+	@result.offset := parser.offset;
+	@result.pending_greater := parser.pending_greater;
+	return $result;
+};
+
+fn parse_results_guard(Compiler& compiler, ParseResult<ValueSyntax>* results, ParseGuard* guard) -> ParseResult<ValueSyntax>* {
+	ParseResult<ValueSyntax>* guarded = nullptr;
+	while (results && compiler.result != compilation_result::failure) {
+		ParseGuard* combined = parse_guard(@compiler, parse_guard_kind::conjunction, ParseGuard*(results->guard), static_cast<ParseGuard*>(guard));
+		parse_result_add<ValueSyntax>(@compiler, &guarded, ValueSyntax*(results->value), static_cast<ParseGuard*>(combined), results->end, &pack_value);
+		@results := results->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(guarded);
+};
+
+fn parse_results_merge(Compiler& compiler, ParseResult<ValueSyntax>** destination, ParseResult<ValueSyntax>* source) {
+	while (source && compiler.result != compilation_result::failure) {
+		parse_result_add<ValueSyntax>(@compiler, static_cast<ParseResult<ValueSyntax>**>(destination), ValueSyntax*(source->value), ParseGuard*(source->guard), source->end, &pack_value);
+		@source := source->next;
+	};
+};
+
+fn Parser::value_single_result(Parser& this, ValueSyntax* value) -> ParseResult<ValueSyntax>* {
+	if (!value || this.failed()) {
+		return nullptr;
+	};
+	ParseResult<ValueSyntax>* result = nullptr;
+	parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(value), nullptr, parser_cursor(this), &pack_value);
+	return static_cast<ParseResult<ValueSyntax>*>(result);
+};
+
+// Parses an argument suffix through its closing delimiter. Lists are persistent.
+fn Parser::value_argument_parse(Parser& this, token_kind closing, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	if (@this.take(static_cast<token_kind>(closing))) {
+		ParseResult<ValueSyntax>* empty = static_cast<ParseResult<ValueSyntax>*>(@this.compiler->allocate(sizeof(ParseResult<ValueSyntax>)));
+		if (empty) {
+			@empty->end = parser_cursor(this);
+		};
+		return static_cast<ParseResult<ValueSyntax>*>(empty);
+	};
+	ParseResult<ValueSyntax>* result = nullptr;
+	ParseFailureArm* failures = nullptr;
+	ParseResult<ValueSyntax>* first = @this.value_expression_results(1, static_cast<i32>(delimiter));
+	parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+	while (first && this.compiler->result != compilation_result::failure) {
+		Parser suffix := this;
+		@suffix.failure = ParseFailure();
+		@suffix.offset := first->end.offset;
+		@suffix.pending_greater := first->end.pending_greater;
+		ParseResult<ValueSyntax>* rest = nullptr;
+		if (@suffix.take(static_cast<token_kind>(closing))) {
+			@rest = static_cast<ParseResult<ValueSyntax>*>(@this.compiler->allocate(sizeof(ParseResult<ValueSyntax>)));
+			if (rest) {
+				@rest->end = parser_cursor(suffix);
+			};
+		}
+		else if (@suffix.take(token_kind::punct_comma)) {
+			@rest = @suffix.value_argument_results(static_cast<token_kind>(closing), static_cast<i32>(delimiter));
+		}
+		else {
+			@suffix.error(suffix.token(), "expected ',' or closing argument delimiter\0");
+		};
+		parse_failure_record(@*this.compiler, &failures, suffix.failure, ParseGuard*(first->guard));
+		while (rest && this.compiler->result != compilation_result::failure) {
+			ValueSyntax* list = @this.new_value(syntax_kind::source_list, Token(first->value->token));
+			if (!list) {
+				return nullptr;
+			};
+			@list->data.binary.left := first->value;
+			@list->data.binary.right := rest->value;
+			ParseGuard* guard = parse_guard(@*this.compiler, parse_guard_kind::conjunction, ParseGuard*(first->guard), ParseGuard*(rest->guard));
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(list), static_cast<ParseGuard*>(guard), rest->end, &pack_value);
+			@rest := rest->next;
+		};
+		@first := first->next;
+	};
+	return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+};
+
+fn value_member_operation(Compiler& compiler, const Token& token, ValueSyntax* name) -> ValueSyntax* {
+	if (!name || name->kind == syntax_kind::source_error) {
+		return name;
+	};
+	ValueSyntax* member = static_cast<ValueSyntax*>(@compiler.allocate(sizeof(ValueSyntax)));
+	if (!member) {
+		return nullptr;
+	};
+	@member->token := token;
+	if (name->kind == syntax_kind::source_choice) {
+		SourceChoice* choice = static_cast<SourceChoice*>(@compiler.allocate(sizeof(SourceChoice)));
+		if (!choice) {
+			return nullptr;
+		};
+		@member->kind = syntax_kind::source_choice;
+		@member->data.choice := choice;
+		SourceArm** tail = &choice->first;
+		SourceArm* arm := name->data.choice->first;
+		while (arm && compiler.result != compilation_result::failure) {
+			SourceArm* mapped = parse_arm(@compiler, value_member_operation(@compiler, token, static_cast<ValueSyntax*>(arm->value)), static_cast<ParseGuard*>(arm->guard), nullptr);
+			if (!mapped) {
+				return nullptr;
+			};
+			@*tail := mapped;
+			@tail = &mapped->next;
+			@arm := arm->next;
+		};
+		return static_cast<ValueSyntax*>(member);
+	};
+	@member->kind = syntax_kind::expr_member;
+	@member->data.member.name := name->data.name;
+	return static_cast<ValueSyntax*>(member);
+};
+
+fn Parser::value_postfix_operation_results(Parser& this, i32 delimiter) -> ParseResult<ValueSyntax>* {
+	Token token = this.token();
+	ParseResult<ValueSyntax>* result = nullptr;
+	if (@this.take(token_kind::punct_left_paren)) {
+		ParseResult<ValueSyntax>* arguments = @this.value_argument_results(token_kind::punct_right_paren, static_cast<i32>(source_delimiter::call_argument));
+		while (arguments && this.compiler->result != compilation_result::failure) {
+			ValueSyntax* call = @this.new_value(syntax_kind::expr_call, Token(token));
+			if (!call) {
+				return nullptr;
+			};
+			@call->data.call.arguments := arguments->value;
+			parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(call), ParseGuard*(arguments->guard), arguments->end, &pack_value);
+			@arguments := arguments->next;
+		};
+		return static_cast<ParseResult<ValueSyntax>*>(result);
+	};
+	if (@this.take(token_kind::punct_left_bracket)) {
+		ParseFailureArm* failures = nullptr;
+		ParseResult<ValueSyntax>* indexes = @this.value_expression_results(1, static_cast<i32>(source_delimiter::index));
+		parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+		while (indexes && this.compiler->result != compilation_result::failure) {
+			Parser suffix := this;
+			@suffix.failure = ParseFailure();
+			@suffix.offset := indexes->end.offset;
+			@suffix.pending_greater := indexes->end.pending_greater;
+			@suffix.require(token_kind::punct_right_bracket, "expected ']' after index\0");
+			parse_failure_record(@*this.compiler, &failures, suffix.failure, ParseGuard*(indexes->guard));
+			if (!suffix.failed()) {
+				ValueSyntax* index = @this.new_value(syntax_kind::expr_index, Token(token));
+				if (!index) {
+					return nullptr;
+				};
+				@index->data.binary.right := indexes->value;
+				parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(index), ParseGuard*(indexes->guard), parser_cursor(suffix), &pack_value);
+			};
+			@indexes := indexes->next;
+		};
+		return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+	};
+	@this.take(static_cast<token_kind>(token.kind));
+	if (@this.take(token_kind::op_tilde)) {
+		ParseFailureArm* failures = nullptr;
+		ParseResult<TypeSyntax>* types = @this.type_results();
+		parse_failure_record(@*this.compiler, &failures, this.failure, nullptr);
+		while (types && this.compiler->result != compilation_result::failure) {
+			Parser candidate := this;
+			@candidate.failure = ParseFailure();
+			@candidate.offset := types->end.offset;
+			@candidate.pending_greater := types->end.pending_greater;
+			@candidate.require(token_kind::punct_left_paren, "expected '(' after destructor type\0");
+			@candidate.require(token_kind::punct_right_paren, "destructor invocation takes no arguments\0");
+			parse_failure_record(@*this.compiler, &failures, candidate.failure, static_cast<ParseGuard*>(types->guard));
+			if (!candidate.failed()) {
+				ValueSyntax* destruction = @this.new_value(syntax_kind::expr_destroy, Token(token));
+				if (!destruction) {
+					return nullptr;
+				};
+				@destruction->data.typed.type := types->value;
+				parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(destruction), static_cast<ParseGuard*>(types->guard), parser_cursor(candidate), &pack_value);
+			};
+			@types := types->next;
+		};
+		return @this.value_results_finish(static_cast<ParseResult<ValueSyntax>*>(result), static_cast<ParseFailureArm*>(failures));
+	};
+	ParseResult<ValueSyntax>* names = @this.value_name_results();
+	while (names && this.compiler->result != compilation_result::failure) {
+		ValueSyntax* member = value_member_operation(@*this.compiler, token, static_cast<ValueSyntax*>(names->value));
+		if (!member) {
+			return nullptr;
+		};
+		parse_result_add<ValueSyntax>(@*this.compiler, &result, static_cast<ValueSyntax*>(member), ParseGuard*(names->guard), names->end, &pack_value);
+		@names := names->next;
+	};
+	return static_cast<ParseResult<ValueSyntax>*>(result);
+};
+
+fn parse_cursor_equal(const ParseCursor& first, const ParseCursor& second) -> bool {
+	return first.offset == second.offset && first.pending_greater == second.pending_greater;
+};
+
+fn parse_guard(Compiler& compiler, parse_guard_kind kind, ParseGuard* left, ParseGuard* right) -> ParseGuard* {
+	if (kind == parse_guard_kind::negation || kind == parse_guard_kind::never) {
+		if (kind == parse_guard_kind::negation && left && left->kind == parse_guard_kind::never) {
+			return nullptr;
+		};
+		if (kind == parse_guard_kind::negation && left && left->kind == parse_guard_kind::negation) {
+			return static_cast<ParseGuard*>(left->left);
+		};
+		ParseGuard* result = static_cast<ParseGuard*>(@compiler.allocate(sizeof(ParseGuard)));
+		if (!result) {
+			return nullptr;
+		};
+		@result->kind = static_cast<parse_guard_kind>(kind);
+		@result->left = static_cast<ParseGuard*>(left);
+
+		return static_cast<ParseGuard*>(result);
+	};
+	if (left == right) {
+		return static_cast<ParseGuard*>(left);
+	};
+	if (kind == parse_guard_kind::conjunction) {
+		if (!left) {
+			return static_cast<ParseGuard*>(right);
+		};
+		if (!right) {
+			return static_cast<ParseGuard*>(left);
+		};
+	}
+	else if (!left || !right) {
+		return nullptr;
+	};
+	ParseGuard* result = static_cast<ParseGuard*>(@compiler.allocate(sizeof(ParseGuard)));
+	if (!result) {
+		return nullptr;
+	};
+	@result->kind = static_cast<parse_guard_kind>(kind);
+	@result->left = static_cast<ParseGuard*>(left);
+	@result->right = static_cast<ParseGuard*>(right);
+
+	return static_cast<ParseGuard*>(result);
+};
+
+fn parse_guard_matches(Compiler& compiler, Scope* scope, ParseGuard* guard) -> bool {
+	if (!guard) {
+		return true;
+	};
+	switch (guard->kind) {
+		case parse_guard_kind::never:
+			return false;
+		case parse_guard_kind::decision:
+			return parse_choice_matches(@compiler, static_cast<Scope*>(scope), guard->choice) == guard->selected;
+		case parse_guard_kind::conjunction:
+			return parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->left)) && parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->right));
+		case parse_guard_kind::disjunction:
+			return parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->left)) || parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->right));
+		case parse_guard_kind::negation:
+			return !parse_guard_matches(@compiler, static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->left));
+	};
+	return false;
+};
+
+fn parse_arm(Compiler& compiler, ValueSyntax* value, ParseGuard* guard, SourceArm* next) -> SourceArm* {
+	SourceArm* arm = static_cast<SourceArm*>(@compiler.allocate(sizeof(SourceArm)));
+	if (!arm) {
+		return nullptr;
+	};
+	@arm->value = static_cast<ValueSyntax*>(value);
+	@arm->guard = static_cast<ParseGuard*>(guard);
+	@arm->next = static_cast<SourceArm*>(next);
+
+	return static_cast<SourceArm*>(arm);
+};
+
+// An error arm is diagnostic-only. It borrows successful siblings' continuation
+// endpoints, never represents another successful parse or consumes source tokens.
+// Retain it when a syntactically failed branch is selected by name resolution.
+fn parse_results_failure(Compiler& compiler, ParseResult<ValueSyntax>** results, const ParseFailure& failure, ParseGuard* guard) {
+	if (!failure.message) {
+		return;
+	};
+	ParseResult<ValueSyntax>* sibling := *results;
+	while (sibling && compiler.result != compilation_result::failure) {
+		ParseFailure* saved = static_cast<ParseFailure*>(@compiler.allocate(sizeof(ParseFailure)));
+		ValueSyntax* error = static_cast<ValueSyntax*>(@compiler.allocate(sizeof(ValueSyntax)));
+		if (!saved || !error) {
+			return;
+		};
+		@*saved := failure;
+		@error->kind = syntax_kind::source_error;
+		@error->token := failure.token;
+		@error->data.error = static_cast<ParseFailure*>(saved);
+		parse_result_add<ValueSyntax>(@compiler, static_cast<ParseResult<ValueSyntax>**>(results), static_cast<ValueSyntax*>(error), static_cast<ParseGuard*>(guard), sibling->end, &pack_value);
+		@sibling := sibling->next;
+	};
+};
+
+struct ParseMemoStore {
+	ParseMemo** buckets;
+	Token* tokens;
+	usize count;
+};
+
+struct ParseMemo {
+	FunctionNameParseResult* function_names;
+	ParseResult<TypeSyntax>* types;
+	ParameterParseResult* parameters;
+	ParseResult<NameSyntax>* names;
+	ParseResult<ArgumentSyntax>* neutral_arguments;
+	ParseResult<ArgumentListSyntax>* argument_lists;
+	ParseResult<ExpressionTail>* tails;
+	ParseResult<ValueSyntax>* results;
+	ParseMemo* next;
+	ParseFailure failure;
+	usize offset;
+	usize pending_greater;
+	i32 minimum;
+	i32 delimiter;
+	resolution state;
+	parse_memo_kind kind;
+};
+
+fn Parser::memo_initialize(Parser& this, Source& source) -> bool {
+	if (source.parsing) {
+		@this.memo := source.parsing;
+		return true;
+	};
+	if (!source.token_count || source.token_count > ~usize(0) / sizeof(ParseMemo*)) {
+		@this.compiler->diagnostics.report(this.token(), "source token count exceeds parser storage capacity\0");
+		return false;
+	};
+	ParseMemoStore* store = static_cast<ParseMemoStore*>(@this.compiler->allocate(sizeof(ParseMemoStore)));
+	if (!store) {
+		return false;
+	};
+	@store->buckets = static_cast<ParseMemo**>(@this.compiler->allocate(source.token_count * sizeof(ParseMemo*)));
+	if (!store->buckets) {
+		return false;
+	};
+	@store->tokens := source.tokens;
+	@store->count := source.token_count;
+	@source.parsing := store;
+	@this.memo = static_cast<ParseMemoStore*>(store);
+	return true;
+};
+
+fn Parser::memo_begin(Parser& this, parse_memo_kind kind, i32 minimum, i32 delimiter, const char* cycle_message) -> ParseMemo* {
+	ParseMemo* memo = @this.memo_record(static_cast<parse_memo_kind>(kind), static_cast<i32>(minimum), static_cast<i32>(delimiter));
+	if (!memo) {
+		return nullptr;
+	};
+	if (memo->state == resolution::ready) {
+		@this.failure := memo->failure;
+		return static_cast<ParseMemo*>(memo);
+	};
+	if (memo->state == resolution::active) {
+		if (cycle_message) {
+			@this.error(this.token(), static_cast<const char*>(cycle_message));
+		};
+		return nullptr;
+	};
+	return static_cast<ParseMemo*>(memo);
+};
+
+fn Parser::memo_finish(Parser& this, ParseMemo* memo) {
+	@memo->failure := this.failure;
+	@memo->state = resolution::ready;
+};
+
+fn Parser::memo_record(Parser& this, parse_memo_kind kind, i32 minimum, i32 delimiter) -> ParseMemo* {
+	ParseMemoStore* store := this.memo;
+	if (!store || store->tokens != this.tokens || this.offset >= store->count) {
+		@this.error(this.token(), "source parse cursor has no matching memo owner\0");
+		return nullptr;
+	};
+	ParseMemo* record := store->buckets[this.offset];
+	while (record) {
+		if (record->kind == kind && record->pending_greater == this.pending_greater && record->minimum == minimum && record->delimiter == delimiter) {
+			return static_cast<ParseMemo*>(record);
+		};
+		@record := record->next;
+	};
+	@record = static_cast<ParseMemo*>(@this.compiler->allocate(sizeof(ParseMemo)));
+	if (!record) {
+		return nullptr;
+	};
+	@record->offset := this.offset;
+	@record->pending_greater := this.pending_greater;
+	@record->minimum = static_cast<i32>(minimum);
+	@record->delimiter = static_cast<i32>(delimiter);
+	@record->kind = static_cast<parse_memo_kind>(kind);
+	@record->next := store->buckets[this.offset];
+	@store->buckets[this.offset] = static_cast<ParseMemo*>(record);
+	return static_cast<ParseMemo*>(store->buckets[this.offset]);
+};
+

@@ -37,6 +37,30 @@ include("cmake/linker.cmake")
 add_library("rutile-compiler" STATIC)
 rutile_configure_llvm("rutile-compiler")
 
+set(rutile_compiler_sources
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/unique.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/optional.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/buffer.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/string_view.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/string.rt")
+set(rutile_compiler_manifest "${CMAKE_CURRENT_SOURCE_DIR}/compiler/sources.list")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${rutile_compiler_manifest}")
+file(STRINGS "${rutile_compiler_manifest}" rutile_compiler_modules)
+foreach(module IN LISTS rutile_compiler_modules)
+	string(STRIP "${module}" module)
+	if(module STREQUAL "" OR module MATCHES "^#")
+		continue()
+	endif()
+	if(IS_ABSOLUTE "${module}" OR module MATCHES "(^|/)\\.\\.(/|$)" OR NOT module MATCHES "\\.rt$")
+		message(FATAL_ERROR "Invalid compiler source path: ${module}")
+	endif()
+	set(source "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/${module}")
+	if(NOT EXISTS "${source}" OR source IN_LIST rutile_compiler_sources)
+		message(FATAL_ERROR "Missing or duplicate compiler source: ${module}")
+	endif()
+	list(APPEND rutile_compiler_sources "${source}")
+endforeach()
+
 set(RUTILE_BOOTSTRAP_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/distro/windows-x64/compiler.exe" CACHE FILEPATH "Native bootstrap compiler")
 
 if(NOT EXISTS "${RUTILE_BOOTSTRAP_COMPILER}")
@@ -57,12 +81,15 @@ else()
 	set(rutile_compiler_object "${CMAKE_BINARY_DIR}/compiler/compiler.o")
 endif()
 add_custom_command(OUTPUT "${rutile_compiler_object}"
-	COMMAND "$<TARGET_FILE:rutile-distro-compiler>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-distro-compiler" "$<TARGET_FILE:rutile-distro-compiler>" "compiler/src/old.rt"
+	COMMAND "$<TARGET_FILE:rutile-distro-compiler>" ${rutile_compiler_sources} "--output" "${rutile_compiler_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-distro-compiler" "$<TARGET_FILE:rutile-distro-compiler>" ${rutile_compiler_sources}
 	VERBATIM)
 set_source_files_properties("${rutile_compiler_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 target_sources("rutile-compiler" PRIVATE "${rutile_compiler_object}")
 target_link_libraries("rutile-compiler" PRIVATE "rutile-llvm")
+if(MSVC)
+	target_link_libraries("rutile-compiler" PUBLIC "legacy_stdio_definitions")
+endif()
 set_target_properties("rutile-compiler" PROPERTIES LINKER_LANGUAGE "C")
 
 add_executable("rutile-selfhost" EXCLUDE_FROM_ALL)
@@ -77,17 +104,20 @@ else()
 	set(rutile_stage3_object "${CMAKE_BINARY_DIR}/compiler/stage3.o")
 endif()
 add_custom_command(OUTPUT "${rutile_selfhost_object}"
-	COMMAND "$<TARGET_FILE:rutile-selfhost>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_selfhost_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-selfhost" "compiler/src/old.rt"
+	COMMAND "$<TARGET_FILE:rutile-selfhost>" ${rutile_compiler_sources} "--output" "${rutile_selfhost_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-selfhost" ${rutile_compiler_sources}
 	VERBATIM)
 set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
 target_sources("rutile-stage2" PRIVATE "compiler/src/main.cpp" "${rutile_selfhost_object}")
 target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
+if(MSVC)
+	target_link_libraries("rutile-stage2" PRIVATE "legacy_stdio_definitions")
+endif()
 
 add_custom_command(OUTPUT "${rutile_stage3_object}"
-	COMMAND "$<TARGET_FILE:rutile-stage2>" "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/old.rt" "--output" "${rutile_stage3_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
-	DEPENDS "rutile-stage2" "compiler/src/old.rt"
+	COMMAND "$<TARGET_FILE:rutile-stage2>" ${rutile_compiler_sources} "--output" "${rutile_stage3_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-stage2" ${rutile_compiler_sources}
 	VERBATIM)
 add_custom_target("rutile-bootstrap-check"
 	COMMAND "${CMAKE_COMMAND}" "-E" "compare_files" "${rutile_selfhost_object}" "${rutile_stage3_object}"

@@ -1,0 +1,39 @@
+i32 trace;
+
+struct Base {
+	fn Base(Base& this) {
+		@trace = trace * 10 + 1;
+	};
+	fn ~Base(Base& this) {
+		@trace = trace * 10 + 6;
+	};
+};
+
+struct Member {
+	fn Member(Member& this) {
+		@trace = trace * 10 + 2;
+	};
+	fn ~Member(Member& this) {
+		@trace = trace * 10 + 5;
+	};
+};
+
+struct Derived : [Base] {
+	Member member;
+	fn Derived(Derived& this) {
+		@trace = trace * 10 + 3;
+	};
+	fn ~Derived(Derived& this) {
+		@trace = trace * 10 + 4;
+	};
+};
+
+fn main() -> i32 {
+	{
+		Derived value;
+	};
+	if (trace != 123456) {
+		return 1;
+	};
+	return 42;
+};

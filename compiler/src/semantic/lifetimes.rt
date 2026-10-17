@@ -1,0 +1,463 @@
+enum object_lifetime : [u08] {
+	live;
+	relocated;
+	discarded;
+	destroyed;
+};
+
+enum flow_exit : [u08] {
+	none;
+	unreachable;
+	return_function;
+	break_loop;
+	continue_loop;
+};
+
+enum flow_region : [u08] {
+	loop;
+	selection;
+};
+
+struct LiveBinding {
+	Entity* entity;
+	object_lifetime lifetime;
+};
+
+struct FlowState {
+	fn size(const FlowState& this) -> usize {
+		return this.bindings.size();
+	};
+	fn at(FlowState& this, usize index) -> LiveBinding* {
+		return (@this.bindings).data() + index;
+	};
+	fn find(FlowState& this, Entity* entity) -> LiveBinding* {
+		usize index = this.bindings.size();
+		while (index) {
+			@index = index - 1;
+			if (this.bindings.data()[index].entity == entity) {
+				return (@this.bindings).data() + index;
+			};
+		};
+		return nullptr;
+	};
+	fn declare(FlowState& this, Entity* entity) -> bool {
+		LiveBinding binding;
+		@binding.entity = $entity;
+		@binding.lifetime = object_lifetime::live;
+		return @this.bindings.push_back($binding);
+	};
+	fn copy_from(FlowState& this, const FlowState& other) -> bool {
+		@this.bindings.clear();
+		@this.exit = flow_exit(other.exit);
+		usize index = 0;
+		while (index < other.bindings.size()) {
+			LiveBinding binding := other.bindings.data()[index];
+			if (!@this.bindings.push_back($binding)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	fn truncate(FlowState& this, usize size) {
+		while (this.bindings.size() > size) {
+			@this.bindings.pop_back();
+		};
+	};
+	fn exited(const FlowState& this) -> bool {
+		return this.exit != flow_exit::none;
+	};
+	fn leave(FlowState& this, flow_exit exit) {
+		@this.exit = $exit;
+	};
+	fn resume(FlowState& this) {
+		@this.exit = flow_exit::none;
+	};
+
+private:
+	rt::buffer<LiveBinding> bindings;
+	flow_exit exit;
+};
+
+struct LoopFlow {
+	flow_region region;
+	usize break_boundary;
+	usize continue_boundary;
+	LoopFlow* parent;
+	rt::buffer<rt::unique<FlowState>> breaks;
+	rt::buffer<rt::unique<FlowState>> continues;
+};
+
+struct LoopScope {
+	fn LoopScope(LoopScope& this, LoopFlow*& current, LoopFlow& loop) {
+		@this.current = &current;
+		@this.previous := current;
+		@current = &loop;
+	};
+	fn ~LoopScope(LoopScope& this) {
+		@*this.current := this.previous;
+	};
+
+private:
+	LoopFlow** current;
+	LoopFlow* previous;
+};
+
+struct LifetimeAnalyzer {
+	fn LifetimeAnalyzer(LifetimeAnalyzer& this, Diagnostics& diagnostics) {
+		@this.diagnostics = &diagnostics;
+	};
+	fn validate(LifetimeAnalyzer& this, const SemanticUnit& unit) -> bool;
+
+private:
+	fn error(LifetimeAnalyzer& this, SemanticExpression* expression, const char* message) -> bool;
+	fn walk(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
+	fn storage(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
+	fn merge(LifetimeAnalyzer& this, FlowState& destination, FlowState& first, FlowState& second, SemanticExpression* expression) -> bool;
+	fn conditional(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
+	fn loop(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
+	fn selection(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
+	fn save(LifetimeAnalyzer& this, rt::buffer<rt::unique<FlowState>>& exits, FlowState& state, usize boundary, SemanticExpression* expression) -> bool;
+
+	Diagnostics* diagnostics;
+	LoopFlow* active_loop;
+};
+
+fn LifetimeAnalyzer::error(LifetimeAnalyzer& this, SemanticExpression* expression, const char* message) -> bool {
+	Token token;
+	if (expression) {
+		@token = expression->token();
+	};
+	@this.diagnostics->error(token, rt::string_view($message));
+	return false;
+};
+
+fn LifetimeAnalyzer::merge(LifetimeAnalyzer& this, FlowState& destination, FlowState& first, FlowState& second, SemanticExpression* expression) -> bool {
+	if (first.exited() && second.exited()) {
+		return @destination.copy_from(first);
+	};
+	if (first.exited()) {
+		return @destination.copy_from(second);
+	};
+	if (second.exited()) {
+		return @destination.copy_from(first);
+	};
+	usize index = 0;
+	while (index < destination.size()) {
+		LiveBinding* binding = @destination.at(index);
+		LiveBinding* a = @first.find(binding->entity);
+		LiveBinding* b = @second.find(binding->entity);
+		if (!a || !b || (a->lifetime == object_lifetime::live) != (b->lifetime == object_lifetime::live)) {
+			return @this.error($expression, "inconsistent object lifetimes at reachable control-flow merge\0");
+		};
+		@binding->lifetime = object_lifetime(a->lifetime);
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::conditional(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool {
+	if (!@this.walk(expression->item(0), @state)) {
+		return false;
+	};
+	bool truth = false;
+	if (expression->item(0)->constant_truth(@truth)) {
+		if (truth) {
+			return @this.walk(expression->item(1), @state);
+		};
+		return @this.walk(expression->item(2), @state);
+	};
+	FlowState first;
+	FlowState second;
+	if (!@first.copy_from(state) || !@second.copy_from(state)) {
+		return @this.error($expression, "lifetime state storage is unavailable\0");
+	};
+	if (!@this.walk(expression->item(1), @first) || !@this.walk(expression->item(2), @second)) {
+		return false;
+	};
+	return @this.merge(@state, @first, @second, $expression);
+};
+
+fn LifetimeAnalyzer::storage(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool {
+	Entity* owner = expression->owned_binding();
+	if (!owner) {
+		return @this.walk(expression, @state);
+	};
+	if (!@state.find(owner)) {
+		return @this.error(expression, "object storage does not reach this construction\0");
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::save(LifetimeAnalyzer& this, rt::buffer<rt::unique<FlowState>>& exits, FlowState& state, usize boundary, SemanticExpression* expression) -> bool {
+	var snapshot = rt::unique<FlowState>::make();
+	if (!snapshot.get() || !@snapshot.get()->copy_from(state)) {
+		return @this.error($expression, "lifetime state storage is unavailable\0");
+	};
+	@snapshot.get()->truncate($boundary);
+	@snapshot.get()->resume();
+	if (!@exits.push_back($snapshot)) {
+		return @this.error($expression, "lifetime state storage is unavailable\0");
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::loop(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool {
+	bool is_for = expression->kind() == semantic_kind::for_loop;
+	usize boundary = state.size();
+	if (is_for && !@this.walk(expression->item(0), @state)) {
+		return false;
+	};
+	FlowState entry;
+	if (!@entry.copy_from(state)) {
+		return @this.error($expression, "lifetime state storage is unavailable\0");
+	};
+	usize condition = 0;
+	usize body = 1;
+	if (is_for) {
+		@condition = 1;
+		@body = 3;
+	};
+	SemanticExpression* test = expression->item(condition);
+	if (!@this.walk(test, @state)) {
+		return false;
+	};
+	bool truth = true;
+	bool known = is_for && test->kind() == semantic_kind::noop;
+	if (!known) {
+		@known = test->constant_truth(@truth);
+	};
+	if (known && !truth) {
+		@state.truncate(boundary);
+		return true;
+	};
+	FlowState repeated;
+	if (!@repeated.copy_from(state)) {
+		return @this.error($expression, "lifetime state storage is unavailable\0");
+	};
+	LoopFlow loop;
+	@loop.parent := this.active_loop;
+	@loop.break_boundary := boundary;
+	@loop.continue_boundary = state.size();
+	var scope = LoopScope(@this.active_loop, @loop);
+	if (!@this.walk(expression->item(body), @repeated)) {
+		return false;
+	};
+	if (!repeated.exited() && !@this.save(@loop.continues, @repeated, loop.continue_boundary, expression)) {
+		return false;
+	};
+	usize body_exits = loop.continues.size();
+	usize index = 0;
+	while (index < body_exits) {
+		FlowState& backedge = @*loop.continues.data()[index].get();
+		if (is_for && !@this.walk(expression->item(2), @backedge)) {
+			return false;
+		};
+		if (!backedge.exited()) {
+			FlowState expected;
+			if (!@expected.copy_from(entry) || !@this.merge(@expected, @entry, @backedge, expression)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	while (index < loop.continues.size()) {
+		FlowState expected;
+		if (!@expected.copy_from(entry) || !@this.merge(@expected, @entry, @*loop.continues.data()[index].get(), expression)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@state.truncate(boundary);
+	bool has_exit = !known || !truth;
+	@index = 0;
+	while (index < loop.breaks.size()) {
+		FlowState& leaving = @*loop.breaks.data()[index].get();
+		if (!has_exit) {
+			if (!@state.copy_from(leaving)) {
+				return @this.error($expression, "lifetime state storage is unavailable\0");
+			};
+			@has_exit = true;
+		}
+		else {
+			FlowState previous;
+			if (!@previous.copy_from(state) || !@this.merge(@state, @previous, @leaving, expression)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	if (!has_exit) {
+		@state.leave(flow_exit::unreachable);
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::walk(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool {
+	if (!expression || state.exited()) {
+		return true;
+	};
+	switch (expression->kind()) {
+		case semantic_kind::binary:
+			if (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or) {
+				if (!@this.walk(expression->item(0), @state)) {
+					return false;
+				};
+				bool truth = false;
+				if (expression->item(0)->constant_truth(@truth)) {
+					if (expression->operation() == token_kind::op_and && !truth || expression->operation() == token_kind::op_or && truth) {
+						return true;
+					};
+					return @this.walk(expression->item(1), @state);
+				};
+				FlowState skipped;
+				FlowState evaluated;
+				if (!@skipped.copy_from(state) || !@evaluated.copy_from(state)) {
+					return @this.error($expression, "lifetime state storage is unavailable\0");
+				};
+				if (!@this.walk(expression->item(1), @evaluated)) {
+					return false;
+				};
+				return @this.merge(@state, @skipped, @evaluated, $expression);
+			};
+			break;
+		case semantic_kind::conditional:
+			return @this.conditional($expression, @state);
+		case semantic_kind::switch_expression:
+			return @this.selection(expression, @state);
+		case semantic_kind::while_loop:
+		case semantic_kind::for_loop:
+			return @this.loop($expression, @state);
+		case semantic_kind::name: {
+			Entity* entity = expression->entity();
+			if (!entity || (entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter)) {
+				return true;
+			};
+			LiveBinding* binding = @state.find($entity);
+			if (!binding) {
+				return @this.error($expression, "object construction does not reach this use\0");
+			};
+			if (binding->lifetime == object_lifetime::destroyed) {
+				return @this.error(expression, "object has been destroyed\0");
+			};
+			if (binding->lifetime != object_lifetime::live) {
+				return @this.error($expression, "object has been relocated or discarded\0");
+			};
+			return true;
+		};
+		case semantic_kind::variable: {
+			if (!@this.walk(expression->item(0), @state)) {
+				return false;
+			};
+			if (!@state.declare(expression->entity())) {
+				return @this.error($expression, "lifetime state storage is unavailable\0");
+			};
+			return true;
+		};
+		case semantic_kind::relocation: {
+			SemanticExpression* source = expression->item(0);
+			if (!@this.walk(source, @state)) {
+				return false;
+			};
+			Entity* owner = source->owned_binding();
+			if (owner) {
+				LiveBinding* binding = @state.find(owner);
+				if (binding) {
+					@binding->lifetime = object_lifetime::relocated;
+				};
+			};
+			return true;
+		};
+		case semantic_kind::destruction: {
+			SemanticExpression* object = expression->item(0);
+			if (!@this.walk(object, @state)) {
+				return false;
+			};
+			Entity* owner = object->owned_binding();
+			if (owner) {
+				LiveBinding* binding = @state.find(owner);
+				if (binding) {
+					@binding->lifetime = object_lifetime::destroyed;
+				};
+			};
+			return true;
+		};
+		case semantic_kind::construction: {
+			if (expression->size() < 2) {
+				return @this.walk(expression->item(0), @state);
+			};
+			SemanticExpression* destination = expression->item(1);
+			if (!@this.storage(destination, @state) || !@this.walk(expression->item(0), @state)) {
+				return false;
+			};
+			Entity* owner = destination->owned_binding();
+			if (owner) {
+				LiveBinding* binding = @state.find(owner);
+				if (binding) {
+					@binding->lifetime = object_lifetime::live;
+				};
+			};
+			return true;
+		};
+		case semantic_kind::return_value:
+			if (!@this.walk(expression->item(0), @state)) {
+				return false;
+			};
+			@state.leave(flow_exit::return_function);
+			return true;
+		case semantic_kind::break_loop:
+			if (!this.active_loop || !@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)) {
+				return @this.error($expression, "break requires an enclosing loop\0");
+			};
+			@state.leave(flow_exit::break_loop);
+			return true;
+		case semantic_kind::continue_loop: {
+			LoopFlow* loop = this.active_loop;
+			while (loop && loop->region == flow_region::selection) {
+				@loop = loop->parent;
+			};
+			if (!loop || !@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)) {
+				return @this.error($expression, "continue requires an enclosing loop\0");
+			};
+			@state.leave(flow_exit::continue_loop);
+			return true;
+		};
+		default:
+			break;
+	};
+	usize boundary = state.size();
+	usize index = 0;
+	while (index < expression->size()) {
+		if (!@this.walk(expression->item(index), @state)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	if (expression->kind() == semantic_kind::brace) {
+		@state.truncate(boundary);
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::validate(LifetimeAnalyzer& this, const SemanticUnit& unit) -> bool {
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		Entity* function = unit.entities().data()[index].get();
+		@index = index + 1;
+		if (function->kind() != entity_kind::function || !function->body()) {
+			continue;
+		};
+		FlowState state;
+		usize parameter = 0;
+		while (parameter < function->parameters().size()) {
+			if (!@state.declare(function->parameters().data()[parameter])) {
+				return @this.error(nullptr, "lifetime state storage is unavailable\0");
+			};
+			@parameter = parameter + 1;
+		};
+		if (!@this.walk(function->body(), @state)) {
+			return false;
+		};
+	};
+	return true;
+};

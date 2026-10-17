@@ -1,0 +1,428 @@
+fn entity_members(Entity* entity) -> Scope* {
+	if (entity && entity->kind == entity_kind::primitive) {
+		if (entity->data.primitive.source) {
+			entity_resolve(@*entity->scope->compiler, static_cast<Entity*>(entity));
+		};
+		if (entity->data.primitive.type && entity->data.primitive.type->kind == type_kind::named) {
+			return entity_members(static_cast<Entity*>(entity->data.primitive.type->data.entity));
+		};
+	};
+	if (entity && entity->kind == entity_kind::kw_template) {
+		return static_cast<Scope*>(entity->data.template_pattern.instances);
+	};
+	if (entity && entity->kind == entity_kind::kw_namespace) {
+		return static_cast<Scope*>(entity->data.namespace_entity.scope);
+	};
+	if (entity && (entity->kind == entity_kind::kw_struct || entity->kind == entity_kind::kw_union || entity->kind == entity_kind::kw_enum)) {
+		return static_cast<Scope*>(entity->data.aggregate.scope);
+	};
+	return nullptr;
+};
+
+fn aggregate_header(Entity* entity) -> bool {
+	return entity->data.aggregate.virtual_types || entity->data.aggregate.virtual_callables;
+};
+
+fn virtual_type_add(Compiler& compiler, Entity* owner, Entity* target) {
+	VirtualType* current := owner->data.aggregate.virtual_types;
+	VirtualType* last = nullptr;
+	usize index = 0;
+	while (current) {
+		if (current->entity == target) {
+			return;
+		};
+		@last := current;
+		@current := current->next;
+		@index = index + 1;
+	};
+	VirtualType* type = static_cast<VirtualType*>(@compiler.allocate(sizeof(VirtualType)));
+	@type->entity = $target;
+	@type->index = $index;
+	if (last) {
+		@last->next = static_cast<VirtualType*>(type);
+	}
+	else {
+		@owner->data.aggregate.virtual_types = static_cast<VirtualType*>(type);
+	};
+};
+
+fn virtual_type_index(Entity* owner, Entity* target) -> usize {
+	VirtualType* type := owner->data.aggregate.virtual_types;
+	while (type && type->entity != target) {
+		@type := type->next;
+	};
+	if (!type) {
+		return 0;
+	};
+	return static_cast<u64>(type->index);
+};
+
+fn bases_resolve(Compiler& compiler, Entity* record) {
+	if (record->kind != entity_kind::kw_struct || record->data.aggregate.bases_resolution == resolution::ready) {
+		return;
+	};
+	if (record->data.aggregate.bases_resolution == resolution::active) {
+		@compiler.diagnostics.report(record->name, "cyclic base relationship\0");
+		return;
+	};
+	@record->data.aggregate.bases_resolution = resolution::active;
+	BaseRelation* base := record->data.aggregate.bases;
+	usize component = 0;
+	while (base && compiler.result != compilation_result::failure) {
+		@base->entity = name_resolve(@compiler, static_cast<Scope*>(record->scope), static_cast<NameSyntax*>(base->name));
+		if (!base->entity || base->entity->kind != entity_kind::kw_struct) {
+			@compiler.diagnostics.report(base->name->token, "base relationship requires a struct entity\0");
+			return;
+		};
+		BaseRelation* previous := record->data.aggregate.bases;
+		while (previous != base) {
+			if (previous->entity == base->entity) {
+				@compiler.diagnostics.report(base->name->token, "duplicate direct base relationship\0");
+				return;
+			};
+			@previous := previous->next;
+		};
+		bases_resolve(@compiler, static_cast<Entity*>(base->entity));
+		if (base->kind == base_kind::kw_virtual) {
+			virtual_type_add(@compiler, static_cast<Entity*>(record), static_cast<Entity*>(base->entity));
+		};
+		VirtualType* inherited := base->entity->data.aggregate.virtual_types;
+		while (inherited) {
+			virtual_type_add(@compiler, static_cast<Entity*>(record), static_cast<Entity*>(inherited->entity));
+			@inherited := inherited->next;
+		};
+		@base := base->next;
+	};
+	if (aggregate_header(static_cast<Entity*>(record))) {
+		@component = 1;
+	};
+	@base := record->data.aggregate.bases;
+	while (base) {
+		if (base->kind == base_kind::nonvirtual) {
+			@base->component := component;
+			@component = component + 1;
+		}
+		else {
+			@base->component = virtual_type_index(static_cast<Entity*>(record), static_cast<Entity*>(base->entity));
+		};
+		@base := base->next;
+	};
+	@record->data.aggregate.bases_resolution = resolution::ready;
+};
+
+fn subobject_create(Compiler& compiler, CompleteGraph* graph, Entity* entity, subobject_kind kind) -> Subobject* {
+	Subobject* object = static_cast<Subobject*>(@compiler.allocate(sizeof(Subobject)));
+	@object->entity = $entity;
+	@object->kind := kind;
+	if (graph->last_object) {
+		@graph->last_object->next := object;
+	}
+	else {
+		@graph->objects := object;
+	};
+	@graph->last_object := object;
+	if (kind == subobject_kind::kw_virtual) {
+		if (graph->last_virtual) {
+			@object->component = graph->last_virtual->component + 1;
+			@graph->last_virtual->virtual_next := object;
+		}
+		else {
+			@object->component = 1;
+			@graph->virtuals := object;
+		};
+		@graph->last_virtual := object;
+	};
+	return $object;
+};
+
+fn subobject_virtual(Compiler& compiler, CompleteGraph* graph, Entity* entity) -> Subobject* {
+	Subobject* object := graph->virtuals;
+	while (object) {
+		if (object->entity == entity) {
+			return $object;
+		};
+		@object := object->virtual_next;
+	};
+	@object = subobject_create(@compiler, static_cast<CompleteGraph*>(graph), $entity, subobject_kind::kw_virtual);
+	subobject_expand(@compiler, $graph, static_cast<Subobject*>(object));
+	return $object;
+};
+
+fn subobject_expand(Compiler& compiler, CompleteGraph* graph, Subobject* object) {
+	BaseRelation* base := object->entity->data.aggregate.bases;
+	SubobjectEdge* last = nullptr;
+	while (base) {
+		SubobjectEdge* edge = static_cast<SubobjectEdge*>(@compiler.allocate(sizeof(SubobjectEdge)));
+		@edge->relation := base;
+		if (base->kind == base_kind::kw_virtual) {
+			@edge->target = subobject_virtual(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Entity*>(base->entity));
+		}
+		else {
+			@edge->target = subobject_create(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Entity*>(base->entity), subobject_kind::nonvirtual);
+			subobject_expand(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Subobject*>(edge->target));
+		};
+		if (last) {
+			@last->next := edge;
+		}
+		else {
+			@object->edges := edge;
+		};
+		@last = $edge;
+		@base := base->next;
+	};
+};
+
+fn complete_graph(Compiler& compiler, Entity* entity) -> CompleteGraph* {
+	if (entity->data.aggregate.complete_graph) {
+		return static_cast<CompleteGraph*>(entity->data.aggregate.complete_graph);
+	};
+	bases_resolve(@compiler, static_cast<Entity*>(entity));
+	if (compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	CompleteGraph* graph = static_cast<CompleteGraph*>(@compiler.allocate(sizeof(CompleteGraph)));
+	@graph->entity := entity;
+	@graph->root = subobject_create(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Entity*>(entity), subobject_kind::root);
+	@entity->data.aggregate.complete_graph := graph;
+	subobject_expand(@compiler, static_cast<CompleteGraph*>(graph), static_cast<Subobject*>(graph->root));
+	return $graph;
+};
+
+fn subobject_edge(Subobject* object, BaseRelation* relation) -> Subobject* {
+	if (!object) {
+		return nullptr;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge && edge->relation != relation) {
+		@edge := edge->next;
+	};
+	if (!edge) {
+		return nullptr;
+	};
+	return static_cast<Subobject*>(edge->target);
+};
+
+fn subobject_path(Subobject* object, BasePath* path) -> Subobject* {
+	while (path && object) {
+		@object = subobject_edge(static_cast<Subobject*>(object), static_cast<BaseRelation*>(path->relation));
+		@path := path->next;
+	};
+	return $object;
+};
+
+struct SubobjectVisit {
+	Subobject* object;
+	SubobjectVisit* next;
+};
+
+fn base_paths_graph(Compiler& compiler, Subobject* object, Entity* target, BasePath* prefix, SubobjectVisit** visited, BaseSearch* result) {
+	SubobjectVisit* previous := *visited;
+	while (previous) {
+		if (previous->object == object) {
+			return;
+		};
+		@previous := previous->next;
+	};
+	SubobjectVisit* current = static_cast<SubobjectVisit*>(@compiler.allocate(sizeof(SubobjectVisit)));
+	@current->object := object;
+	@current->next := *visited;
+	@*visited = $current;
+	if (object->entity == target) {
+		if (!result->count) {
+			@result->path := prefix;
+		};
+		@result->count = result->count + 1;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		BasePath* path = static_cast<BasePath*>(@compiler.allocate(sizeof(BasePath)));
+		@path->relation := edge->relation;
+		if (prefix) {
+			BasePath* first = static_cast<BasePath*>(@compiler.allocate(sizeof(BasePath)));
+			@*first := *prefix;
+			BasePath* last := first;
+			BasePath* next := prefix->next;
+			while (next) {
+				BasePath* copy = static_cast<BasePath*>(@compiler.allocate(sizeof(BasePath)));
+				@*copy := *next;
+				@last->next := copy;
+				@last = $copy;
+				@next := next->next;
+			};
+			@last->next := path;
+			@path = $first;
+		};
+		base_paths_graph(@compiler, static_cast<Subobject*>(edge->target), static_cast<Entity*>(target), $path, static_cast<SubobjectVisit**>(visited), static_cast<BaseSearch*>(result));
+		@edge := edge->next;
+	};
+};
+
+fn subobject_find_path(Compiler& compiler, Subobject* object, Subobject* target, BasePath** result) -> bool {
+	if (object == target) {
+		return true;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		BasePath* tail = nullptr;
+		if (subobject_find_path(@compiler, static_cast<Subobject*>(edge->target), static_cast<Subobject*>(target), &tail)) {
+			BasePath* path = static_cast<BasePath*>(@compiler.allocate(sizeof(BasePath)));
+			@path->relation := edge->relation;
+			@path->next = static_cast<BasePath*>(tail);
+			@*result = $path;
+			return true;
+		};
+		@edge := edge->next;
+	};
+	return false;
+};
+
+fn base_path_virtual(BasePath* path) -> bool {
+	while (path) {
+		if (path->relation->kind == base_kind::kw_virtual) {
+			return true;
+		};
+		@path := path->next;
+	};
+	return false;
+};
+
+enum member_lookup_kind : [i32] {
+	none;
+	found;
+	ambiguous;
+};
+
+struct LookupObject {
+	Subobject* object;
+	LookupObject* next;
+};
+
+struct MemberLookup {
+	Entity* entity;
+	LookupObject* objects;
+	member_lookup_kind kind;
+};
+
+fn subobject_contains(Subobject* derived, Subobject* base) -> bool {
+	if (derived == base) {
+		return true;
+	};
+	SubobjectEdge* edge := derived->edges;
+	while (edge) {
+		if (subobject_contains(static_cast<Subobject*>(edge->target), static_cast<Subobject*>(base))) {
+			return true;
+		};
+		@edge := edge->next;
+	};
+	return false;
+};
+
+fn lookup_dominates(LookupObject* derived, LookupObject* bases) -> bool {
+	while (bases) {
+		LookupObject* candidate := derived;
+		while (candidate && !subobject_contains(static_cast<Subobject*>(candidate->object), static_cast<Subobject*>(bases->object))) {
+			@candidate := candidate->next;
+		};
+		if (!candidate) {
+			return false;
+		};
+		@bases := bases->next;
+	};
+	return true;
+};
+
+fn lookup_objects_merge(Compiler& compiler, LookupObject** destination, LookupObject* source) {
+	while (source) {
+		LookupObject* existing := *destination;
+		while (existing && existing->object != source->object) {
+			@existing := existing->next;
+		};
+		if (!existing) {
+			LookupObject* entry = static_cast<LookupObject*>(@compiler.allocate(sizeof(LookupObject)));
+			@entry->object := source->object;
+			@entry->next := *destination;
+			@*destination = $entry;
+		};
+		@source := source->next;
+	};
+};
+
+fn member_find_object(Compiler& compiler, Subobject* object, const Token& name) -> MemberLookup {
+	MemberLookup result;
+	@result.entity = (entity_members(static_cast<Entity*>(object->entity)))->local(name);
+	if (result.entity) {
+		@result.kind = member_lookup_kind::found;
+		@result.objects = static_cast<LookupObject*>(@compiler.allocate(sizeof(LookupObject)));
+		@result.objects->object := object;
+		return $result;
+	};
+	SubobjectEdge* edge := object->edges;
+	while (edge) {
+		MemberLookup inherited = member_find_object(@compiler, static_cast<Subobject*>(edge->target), name);
+		if (inherited.kind == member_lookup_kind::none) {
+			@edge := edge->next;
+			continue;
+		};
+		if (result.kind == member_lookup_kind::none || lookup_dominates(static_cast<LookupObject*>(inherited.objects), static_cast<LookupObject*>(result.objects))) {
+			@result = MemberLookup(inherited);
+		}
+		else if (!lookup_dominates(static_cast<LookupObject*>(result.objects), static_cast<LookupObject*>(inherited.objects))) {
+			if (inherited.kind != member_lookup_kind::found || result.kind != member_lookup_kind::found || inherited.entity != result.entity) {
+				@result.kind = member_lookup_kind::ambiguous;
+				@result.entity = nullptr;
+			};
+			lookup_objects_merge(@compiler, &result.objects, static_cast<LookupObject*>(inherited.objects));
+		};
+		@edge := edge->next;
+	};
+	return $result;
+};
+
+fn member_find(Compiler& compiler, Entity* owner, Token name) -> MemberLookup {
+	if (owner->kind == entity_kind::kw_struct) {
+		CompleteGraph* graph = complete_graph(@compiler, static_cast<Entity*>(owner));
+		if (graph) {
+			return member_find_object(@compiler, static_cast<Subobject*>(graph->root), name);
+		};
+	};
+	MemberLookup result;
+	@result.entity = (entity_members($owner))->local(name);
+	if (result.entity) {
+		@result.kind = member_lookup_kind::found;
+	};
+	return $result;
+};
+
+fn associated_lookup(Compiler& compiler, Entity* owner, const Token& name) -> Entity* {
+	MemberLookup result = member_find(@compiler, $owner, Token(name));
+	if (result.kind == member_lookup_kind::ambiguous) {
+		@compiler.diagnostics.report(name, "ambiguous inherited declaration\0");
+		return nullptr;
+	};
+	return static_cast<Entity*>(result.entity);
+};
+
+fn base_paths(Compiler& compiler, Entity* source, Entity* target, BaseSearch* result) {
+	if (source == target) {
+		@result->count = result->count + 1;
+		return;
+	};
+	if (source->kind != entity_kind::kw_struct || target->kind != entity_kind::kw_struct) {
+		return;
+	};
+	CompleteGraph* graph = complete_graph(@compiler, $source);
+	if (!graph) {
+		return;
+	};
+	SubobjectVisit* visited = nullptr;
+	base_paths_graph(@compiler, static_cast<Subobject*>(graph->root), $target, nullptr, &visited, $result);
+};
+
+fn base_search(Compiler& compiler, Type* source, Type* target) -> BaseSearch {
+	BaseSearch result;
+	if (source && target && source->kind == type_kind::named && target->kind == type_kind::named) {
+		base_paths(@compiler, static_cast<Entity*>(source->data.entity), static_cast<Entity*>(target->data.entity), &result);
+	};
+	return $result;
+};
+

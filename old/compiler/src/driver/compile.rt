@@ -1,0 +1,223 @@
+fn LLVMGetVersion(u32* major, u32* minor, u32* patch);
+
+fn Compiler::initialize(Compiler& this) -> i32 {
+	Token token;
+	u32 major;
+	u32 minor;
+	u32 patch;
+	LLVMGetVersion(&major, &minor, &patch);
+	if (major != 21 || minor != 1 || patch != 0) {
+		@this.diagnostics.report(token, "LLVM runtime version must be 21.1.0\0");
+		return 0;
+	};
+
+	LLVMInitializeX86TargetInfo();
+	LLVMInitializeX86Target();
+	LLVMInitializeX86TargetMC();
+	LLVMInitializeX86AsmPrinter();
+	@this.backend.llvm_context.pointer = LLVMContextCreate();
+	if (!this.backend.llvm_context.pointer) {
+		@this.diagnostics.report(token, "cannot create LLVM context\0");
+		return 0;
+	};
+	@this.backend.llvm_module.pointer = LLVMModuleCreateWithNameInContext("rutile\0", this.backend.llvm_context.get());
+	if (!this.backend.llvm_module.pointer) {
+		@this.diagnostics.report(token, "cannot create LLVM module\0");
+		return 0;
+	};
+	@this.backend.llvm_builder.pointer = LLVMCreateBuilderInContext(this.backend.llvm_context.get());
+	if (!this.backend.llvm_builder.pointer) {
+		@this.diagnostics.report(token, "cannot create LLVM builder\0");
+		return 0;
+	};
+
+	var triple = rt::unique<char, LLVMMessageDisposer>(LLVMGetDefaultTargetTriple());
+	rt::unique<char, LLVMMessageDisposer> message;
+	LLVMTarget* target;
+	if (!triple.pointer) {
+		@this.diagnostics.report(token, "cannot obtain LLVM target triple\0");
+		return 0;
+	};
+	if (LLVMGetTargetFromTriple(static_cast<char*>(triple.pointer), &target, &message.pointer)) {
+		@this.diagnostics.report(token, static_cast<char*>(message.pointer));
+		return 0;
+	};
+
+	@this.backend.llvm_machine.pointer = LLVMCreateTargetMachine(LLVMTarget*(target), static_cast<char*>(triple.pointer), "generic\0", "\0", static_cast<i32>(this.optimization), 2, 0);
+	if (!this.backend.llvm_machine.pointer) {
+		@this.diagnostics.report(token, "cannot create LLVM target machine\0");
+		return 0;
+	};
+	@this.backend.llvm_layout.pointer = LLVMCreateTargetDataLayout(this.backend.llvm_machine.get());
+	if (!this.backend.llvm_layout.pointer) {
+		@this.diagnostics.report(token, "cannot create LLVM target data layout\0");
+		return 0;
+	};
+	var layout = rt::unique<char, LLVMMessageDisposer>(LLVMCopyStringRepOfTargetData(this.backend.llvm_layout.get()));
+	if (!layout.pointer) {
+		@this.diagnostics.report(token, "cannot obtain LLVM target data layout\0");
+		return 0;
+	};
+	LLVMSetTarget(this.backend.llvm_module.get(), static_cast<char*>(triple.pointer));
+	LLVMSetDataLayout(this.backend.llvm_module.get(), static_cast<char*>(layout.pointer));
+	return this.result == compilation_result::success;
+};
+
+fn Compiler::verify(Compiler& this) -> i32 {
+	rt::unique<char, LLVMMessageDisposer> message;
+	i32 invalid = LLVMVerifyModule(this.backend.llvm_module.get(), 2, &message.pointer);
+	if (invalid) {
+		Token token;
+		@this.diagnostics.report(token, static_cast<char*>(message.pointer));
+	};
+	return !invalid;
+};
+
+fn Compiler::optimize(Compiler& this) -> i32 {
+	if (!@this.verify()) {
+		return 0;
+	};
+
+	char*[4] pipelines {};
+	@pipelines[0] = "default<O0>\0";
+	@pipelines[1] = "default<O1>\0";
+	@pipelines[2] = "default<O2>\0";
+	@pipelines[3] = "default<O3>\0";
+	var options = rt::unique<LLVMOpaquePassBuilderOptions, LLVMPassOptionsDisposer>(LLVMCreatePassBuilderOptions());
+	if (!options.pointer) {
+		Token token;
+		@this.diagnostics.report(token, "cannot create LLVM pass options\0");
+		return 0;
+	};
+	LLVMPassBuilderOptionsSetVerifyEach(options.get(), 1);
+	LLVMOpaqueError* error = LLVMRunPasses(this.backend.llvm_module.get(), static_cast<char*>(pipelines[this.optimization]), this.backend.llvm_machine.get(), options.get());
+	if (error) {
+		var message = rt::unique<char, LLVMErrorMessageDisposer>(LLVMGetErrorMessage(LLVMOpaqueError*(error)));
+		Token token;
+		@this.diagnostics.report(token, static_cast<char*>(message.pointer));
+		return 0;
+	};
+
+	return @this.verify();
+};
+
+fn backend_publish(Compiler& compiler, char* output_path) -> i32 {
+	rt::unique<char, LLVMMessageDisposer> message;
+	rt::unique<LLVMOpaqueMemoryBuffer, LLVMMemoryBufferDisposer> buffer;
+	if (LLVMTargetMachineEmitToMemoryBuffer(compiler.backend.llvm_machine.get(), compiler.backend.llvm_module.get(), 1, &message.pointer, &buffer.pointer)) {
+		Token token;
+		@compiler.diagnostics.report(token, static_cast<char*>(message.pointer));
+		return 0;
+	};
+
+	{
+		Token token;
+		var file = File(&compiler, $output_path, file_purpose::object, Token(token));
+		if (!file.handle) {
+			return 0;
+		};
+		usize size = LLVMGetBufferSize(buffer.get());
+		usize written = fwrite(LLVMGetBufferStart(buffer.get()), 1, static_cast<u64>(size), static_cast<void*>(file.handle));
+		if (written != size) {
+			@compiler.diagnostics.report(token, "cannot write native object output\0");
+			return 0;
+		};
+	};
+	return compiler.result == compilation_result::success;
+};
+
+fn rutile_compiler_session(((Compiler*, void*) -> i32)* callback, void* data) -> i32 {
+	var compiler = rt::unique<Compiler>::make();
+	if (!compiler.get()) {
+		return 1;
+	};
+	return callback(compiler.get(), $data);
+};
+
+fn backend_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics, output_kind output) -> i32 {
+	if (!diagnostics) {
+		@diagnostics = platform_standard_error();
+	};
+	if (!compiler) {
+		fputs("compiler context unavailable\n\0", static_cast<void*>(diagnostics));
+		return 1;
+	};
+
+	@compiler->clear();
+	@compiler->diagnostics.configure(@compiler->result, $diagnostics);
+	@compiler->open_file = $open_file;
+	if (!compiler->open_file) {
+		@compiler->open_file = &fopen;
+	};
+	@compiler->output = $output;
+	@compiler->optimization := optimization;
+	@compiler->entry = "main\0";
+	if (entry) {
+		@compiler->entry = @compiler->copy_text(static_cast<char*>(entry), strlen(static_cast<char*>(entry)));
+	};
+	Token token;
+	if (optimization < 0 || optimization > 3) {
+		@compiler->diagnostics.report(token, "optimization level must be between 0 and 3\0");
+	};
+	if (!source_paths || !source_count) {
+		@compiler->diagnostics.report(token, "no source files\0");
+	};
+	if (!output_path) {
+		@compiler->diagnostics.report(token, "native object output path is required\0");
+	};
+
+	usize index = 0;
+	while (index < source_count && compiler->result != compilation_result::failure) {
+		if (!source_paths[index] || !strcmp(static_cast<char*>(source_paths[index]), static_cast<char*>(output_path))) {
+			@compiler->diagnostics.report(token, "output cannot overwrite a source file\0");
+			break;
+		};
+		Source* source = @compiler->sources.load(@*compiler, static_cast<char*>(source_paths[index]));
+		if (!source) {
+			break;
+		};
+		@index = index + 1;
+	};
+
+	if (compiler->result != compilation_result::failure && @compiler->initialize()) {
+		compiler_builtins(@*compiler, static_cast<i32>((LLVMPointerSize(compiler->backend.llvm_layout.get()) * 8)));
+		if (prepare_sources(@*compiler)) {
+			Source* source = compiler->sources.head();
+			Syntax* last_module;
+			while (source && compiler->result != compilation_result::failure) {
+				Syntax* module = parse_source(@*compiler, static_cast<Source*>(source));
+				if (last_module) {
+					@last_module->next := module;
+				}
+				else {
+					@compiler->declarations := module;
+				};
+				@last_module = $module;
+				@source := source->next;
+			};
+		};
+	};
+	if (compiler->result != compilation_result::failure) {
+		@compiler->analyze();
+	};
+	if (compiler->result != compilation_result::failure) {
+		@compiler->emit();
+	};
+	if (compiler->result != compilation_result::failure && @compiler->optimize()) {
+		backend_publish(@*compiler, static_cast<char*>(output_path));
+	};
+
+	@compiler->diagnostics.configure(@compiler->result, nullptr);
+	@compiler->open_file = reinterpret_cast<((char*, char*) -> void*)*>(0);
+	return static_cast<i32>(compiler->result);
+};
+
+fn rutile_compile(Compiler* compiler, char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, char* entry, i32 optimization, void* diagnostics) -> i32 {
+	return backend_compile($compiler, $source_paths, $source_count, $output_path, $open_file, $entry, $optimization, $diagnostics, output_kind::executable);
+};
+
+fn rutile_compile_library(char** source_paths, usize source_count, char* output_path, ((char* path, char* mode) -> void*)* open_file, i32 optimization, void* diagnostics) -> i32 {
+	var compiler = rt::unique<Compiler>::make();
+	return backend_compile(compiler.get(), $source_paths, $source_count, $output_path, $open_file, nullptr, $optimization, $diagnostics, output_kind::library);
+};
+

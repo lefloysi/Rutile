@@ -1,0 +1,33 @@
+struct Plain {
+	i32 first;
+};
+
+struct Base : [Plain] {
+	i32 second;
+	fn value(const Base& this) -> i32 : [virtual] {
+		return this.first;
+	};
+};
+
+struct Derived : [Base] {
+	i32 third;
+	fn value(const Derived& this) -> i32 : [override] {
+		return this.first + this.second + this.third;
+	};
+};
+
+fn dispatch(const Base& object) -> i32 {
+	return object.value();
+};
+
+fn main() -> i32 {
+	Derived object;
+	@object.first = 10;
+	@object.second = 12;
+	@object.third = 20;
+	Plain* plain = static_cast<Plain*>(&object);
+	if (reinterpret_cast<usize>(plain) != reinterpret_cast<usize>(&object)) {
+		return 1;
+	};
+	return dispatch(object);
+};

@@ -1,0 +1,185 @@
+fn Emitter::jump(Emitter& this, LLVMOpaqueBasicBlock* block) {
+	LLVMOpaqueBasicBlock* current = LLVMGetInsertBlock(this.compiler->backend.llvm_builder.get());
+	if (!LLVMGetBasicBlockTerminator($current)) {
+		LLVMBuildBr(this.compiler->backend.llvm_builder.get(), LLVMOpaqueBasicBlock*(block));
+	};
+};
+
+struct BackendMirBlock {
+	LLVMOpaqueBasicBlock* value;
+};
+
+fn Emitter::cleanups(Emitter& this, LifetimeCleanup* cleanup) {
+	while (cleanup) {
+		Entity* entity := cleanup->entity;
+		@this.destroy_type(entity_type(static_cast<Entity*>(entity)), LLVMOpaqueValue*(backend_entity(@this.compiler->backend, static_cast<Entity*>(entity))->value));
+		@cleanup := cleanup->next;
+	};
+};
+
+fn Emitter::mir_target(Emitter& this, MirEdge* edge, IdentityMap<BackendMirBlock>& blocks) -> LLVMOpaqueBasicBlock* {
+	BackendMirBlock* target = @blocks.find(static_cast<const void*>(edge->target), nullptr);
+	if (!target) {
+		@this.compiler->diagnostics.report(edge->token, "control edge has no native target\0");
+		return nullptr;
+	};
+	if (!edge->cleanup) {
+		return LLVMOpaqueBasicBlock*(target->value);
+	};
+	Compiler& compiler = @*this.compiler;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	LLVMOpaqueBasicBlock* previous = LLVMGetInsertBlock(LLVMOpaqueBuilder*(builder));
+	LLVMOpaqueBasicBlock* cleanup = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "edge.cleanup\0");
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(cleanup));
+	@this.cleanups(static_cast<LifetimeCleanup*>(edge->cleanup));
+	LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(target->value));
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(previous));
+	return LLVMOpaqueBasicBlock*(cleanup);
+};
+
+fn Emitter::declare(Emitter& this, Syntax* syntax) {
+	Entity* variable := syntax->entity;
+	BackendEntity* storage = backend_entity_define(@*this.compiler, static_cast<Entity*>(variable));
+	if (!storage) {
+		return;
+	};
+	Compiler& compiler = @*this.compiler;
+	if (!syntax->data.declaration.body) {
+		LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMConstNull(llvm_type(@compiler, static_cast<Type*>(variable->data.variable.type))), LLVMOpaqueValue*(storage->value));
+		@this.initialize_type(static_cast<Type*>(variable->data.variable.type), LLVMOpaqueValue*(storage->value));
+		@this.default_type(static_cast<Type*>(variable->data.variable.type), LLVMOpaqueValue*(storage->value));
+	}
+	else if (syntax->data.declaration.body->data.statements && variable->data.variable.type->kind != type_kind::reference) {
+		@this.initialize_type(static_cast<Type*>(variable->data.variable.type), LLVMOpaqueValue*(storage->value));
+	};
+};
+
+fn Emitter::region(Emitter& this, Syntax* syntax) {
+	if (!syntax || this.compiler->result == compilation_result::failure) {
+		return;
+	};
+	Compiler& compiler = @*this.compiler;
+	MirRegion* region = mir_region(@compiler, static_cast<Syntax*>(syntax), static_cast<MirScope*>(this.scope));
+	if (!region || compiler.result == compilation_result::failure) {
+		return;
+	};
+	MirScope* previous_scope := this.scope;
+	Temporary* boundary := this.temporaries;
+	LLVMOpaqueBuilder* builder := compiler.backend.llvm_builder.get();
+	IdentityMap<BackendMirBlock> blocks;
+	MirBlock* block := region->blocks;
+	while (block && compiler.result == compilation_result::success) {
+		BackendMirBlock* native = identity_record<BackendMirBlock>(@compiler, @blocks, static_cast<const void*>(block), nullptr);
+		if (!native) {
+			return;
+		};
+		if (block->kind == mir_kind::declare) {
+			Entity* variable := block->value->entity;
+			BackendEntity* storage = backend_entity_define(@compiler, static_cast<Entity*>(variable));
+			if (!storage) {
+				return;
+			};
+			@storage->value = emit_slot(@compiler, static_cast<Type*>(variable->data.variable.type));
+		};
+		@native->value = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "mir.block\0");
+		@block := block->next;
+	};
+	LLVMOpaqueBasicBlock* continuation = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(this.llvm_function), "mir.end\0");
+	BackendMirBlock* entry = @blocks.find(static_cast<const void*>(region->entry), nullptr);
+	@this.jump(LLVMOpaqueBasicBlock*(entry->value));
+	@block := region->blocks;
+	while (block && compiler.result == compilation_result::success) {
+		BackendMirBlock* native = @blocks.find(static_cast<const void*>(block), nullptr);
+		LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(native->value));
+		@this.scope := block->scope;
+		@this.temporaries := boundary;
+		if (block->kind == mir_kind::exit) {
+			LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(continuation));
+			@block := block->next;
+			continue;
+		};
+		LLVMOpaqueValue* value = nullptr;
+		if (block->kind == mir_kind::declare) {
+			@this.declare(static_cast<Syntax*>(block->value));
+		}
+		else if (block->value) {
+			if (block->kind == mir_kind::kw_return && this.function->data.function.type->data.function.result->kind == type_kind::reference) {
+				@value = @this.address(static_cast<Syntax*>(block->value));
+			}
+			else {
+				@value = @this.expression(static_cast<Syntax*>(block->value));
+			};
+		};
+		if (block->kind == mir_kind::kw_return) {
+			if (block->value) {
+				Type* result := this.function->data.function.type->data.function.result;
+				if (result->kind != type_kind::reference) {
+					@value = @this.cast(LLVMOpaqueValue*(value), static_cast<Type*>(block->value->type), static_cast<Type*>(result));
+				};
+				if (this.return_type && !type_equal(static_cast<Type*>(result), static_cast<Type*>(this.return_type))) {
+					@value = @this.covariant_result(LLVMOpaqueValue*(value), static_cast<Type*>(result), static_cast<Type*>(this.return_type));
+				};
+			};
+			@this.flush_temporaries(nullptr);
+			@this.cleanups(static_cast<LifetimeCleanup*>(block->edges->cleanup));
+			if (block->value) {
+				LLVMBuildRet(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value));
+			}
+			else {
+				LLVMBuildRetVoid(LLVMOpaqueBuilder*(builder));
+			};
+		}
+		else {
+			@this.flush_temporaries(static_cast<Temporary*>(boundary));
+			MirEdge* edge := block->edges;
+			if (block->kind == mir_kind::branch) {
+				LLVMOpaqueBasicBlock* first = nullptr;
+				LLVMOpaqueBasicBlock* second = nullptr;
+				while (edge) {
+					if (edge->kind == mir_edge_kind::when_true) {
+						@first = @this.mir_target(static_cast<MirEdge*>(edge), @blocks);
+					}
+					else {
+						@second = @this.mir_target(static_cast<MirEdge*>(edge), @blocks);
+					};
+					@edge := edge->next;
+				};
+				if (block->value) {
+					LLVMBuildCondBr(LLVMOpaqueBuilder*(builder), @this.truth(LLVMOpaqueValue*(value), static_cast<Type*>(block->value->type)), LLVMOpaqueBasicBlock*(first), LLVMOpaqueBasicBlock*(second));
+				}
+				else {
+					LLVMBuildBr(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(first));
+				};
+			}
+			else if (block->kind == mir_kind::dispatch) {
+				LLVMOpaqueBasicBlock* fallback = nullptr;
+				u32 count = 0;
+				while (edge) {
+					if (edge->kind == mir_edge_kind::otherwise) {
+						@fallback = @this.mir_target(static_cast<MirEdge*>(edge), @blocks);
+					}
+					else {
+						@count = count + 1;
+					};
+					@edge := edge->next;
+				};
+				LLVMOpaqueValue* instruction = LLVMBuildSwitch(LLVMOpaqueBuilder*(builder), LLVMOpaqueValue*(value), LLVMOpaqueBasicBlock*(fallback), static_cast<u32>(count));
+				@edge := block->edges;
+				while (edge) {
+					if (edge->kind == mir_edge_kind::case_value) {
+						LLVMAddCase(LLVMOpaqueValue*(instruction), LLVMConstInt(llvm_type(@compiler, static_cast<Type*>(block->value->type)), static_cast<u64>(edge->selector), 0), @this.mir_target(static_cast<MirEdge*>(edge), @blocks));
+					};
+					@edge := edge->next;
+				};
+			}
+			else if (edge) {
+				LLVMBuildBr(LLVMOpaqueBuilder*(builder), @this.mir_target(static_cast<MirEdge*>(edge), @blocks));
+			};
+		};
+		@block := block->next;
+	};
+	@this.scope := previous_scope;
+	@this.temporaries := boundary;
+	LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder*(builder), LLVMOpaqueBasicBlock*(continuation));
+};
+

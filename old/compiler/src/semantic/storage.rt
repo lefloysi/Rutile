@@ -1,0 +1,300 @@
+fn type_effective(Type* type) -> Type* {
+	if (type && type->kind == type_kind::reference) {
+		return static_cast<Type*>(type->data.element);
+	};
+	return $type;
+};
+
+fn syntax_storage_type(Syntax* syntax) -> Type* {
+	if (syntax->kind == syntax_kind::expr_binary && syntax->entity && syntax->entity->kind == entity_kind::function && syntax->entity->data.function.role == function_role::assignment) {
+		return static_cast<Type*>(syntax->entity->data.function.type->data.function.result);
+	};
+	if (syntax->kind == syntax_kind::expr_access) {
+		return syntax_storage_type(static_cast<Syntax*>(syntax->data.expression));
+	};
+	if (syntax->kind == syntax_kind::expr_base_reference || syntax->kind == syntax_kind::expr_base_pointer) {
+		return static_cast<Type*>(syntax->data.base_conversion.target);
+	};
+	if (syntax->entity && syntax->entity->kind == entity_kind::variable) {
+		return entity_type(static_cast<Entity*>(syntax->entity));
+	};
+	if (syntax->kind == syntax_kind::expr_cast && syntax->data.cast.resolved && syntax->data.cast.resolved->kind == type_kind::reference) {
+		return static_cast<Type*>(syntax->data.cast.resolved);
+	};
+	if (syntax->kind == syntax_kind::expr_index) {
+		Type* object := syntax->data.binary.left->type;
+		if (object->kind == type_kind::array) {
+			return static_cast<Type*>(object->data.array.element);
+		};
+		return static_cast<Type*>(object->data.element);
+	};
+	if (syntax->kind == syntax_kind::expr_unary && syntax->data.unary.operation == token_kind::op_star) {
+		return static_cast<Type*>(syntax->data.unary.value->type->data.element);
+	};
+	if (syntax->kind == syntax_kind::expr_call) {
+		Type* callable := syntax->data.call.callable->type;
+		if (callable->kind == type_kind::pointer) {
+			@callable := callable->data.element;
+		};
+		return static_cast<Type*>(callable->data.function.result);
+	};
+	return static_cast<Type*>(syntax->type);
+};
+
+fn syntax_category(Syntax* syntax) -> value_category {
+	if (syntax->kind == syntax_kind::expr_construct && syntax->data.construction.destination) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_borrowed_component) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_base_pointer && syntax->data.base_conversion.request == base_conversion_request::implicit_conversion) {
+		return syntax_category(static_cast<Syntax*>(syntax->data.base_conversion.value));
+	};
+	if (syntax->kind == syntax_kind::stmt_initialize || syntax->kind == syntax_kind::stmt_bind_reference) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_binary && (syntax->data.binary.operation == token_kind::op_assign || syntax->data.binary.operation == token_kind::op_copy) && !syntax->entity) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_binary && syntax->entity && syntax->entity->kind == entity_kind::function && syntax->entity->data.function.role == function_role::assignment && syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_access) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_name && syntax->entity && syntax->entity->kind == entity_kind::variable && syntax->entity->data.variable.storage != storage_kind::constant) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_base_reference || (syntax->kind == syntax_kind::expr_cast && syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) || syntax->kind == syntax_kind::expr_member || syntax->kind == syntax_kind::expr_index || (syntax->kind == syntax_kind::expr_call && syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) || (syntax->kind == syntax_kind::expr_unary && syntax->data.unary.operation == token_kind::op_star)) {
+		return value_category::storage;
+	};
+	if (syntax->kind == syntax_kind::expr_name && syntax->entity && syntax->entity->kind != entity_kind::variable) {
+		return value_category::entity;
+	};
+	return value_category::temporary;
+};
+
+fn syntax_mutable_access(Syntax* syntax) -> bool {
+	if (!syntax || !syntax->type || syntax->type->qualifier == type_qualifier::kw_const) {
+		return false;
+	};
+	if (syntax->kind == syntax_kind::expr_access || (syntax->kind == syntax_kind::expr_construct && syntax->data.construction.destination)) {
+		return true;
+	};
+	if (syntax->kind == syntax_kind::expr_binary && (syntax->data.binary.operation == token_kind::op_assign || syntax->data.binary.operation == token_kind::op_copy) && !syntax->entity) {
+		return syntax_mutable_access(static_cast<Syntax*>(syntax->data.binary.left));
+	};
+	if (syntax->kind == syntax_kind::expr_member) {
+		return syntax_mutable_access(static_cast<Syntax*>(syntax->data.member.object));
+	};
+	if (syntax->kind == syntax_kind::expr_index) {
+		return syntax_mutable_access(static_cast<Syntax*>(syntax->data.binary.left));
+	};
+	if (syntax->kind == syntax_kind::expr_base_reference) {
+		return syntax_mutable_access(static_cast<Syntax*>(syntax->data.base_conversion.value));
+	};
+	if (syntax->kind == syntax_kind::expr_cast && syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) {
+		return syntax_mutable_access(static_cast<Syntax*>(syntax->data.cast.value));
+	};
+	return false;
+};
+
+fn Semantic::owned(Semantic& this, Syntax* syntax) {
+	if (this.compiler->result == compilation_result::failure) {
+		return;
+	};
+	if (syntax_category(static_cast<Syntax*>(syntax)) == value_category::storage) {
+		Compiler& compiler = @*this.compiler;
+		ImplicitCopy* copy = implicit_copy_find(@compiler, static_cast<Type*>(syntax->type));
+		if (!copy) {
+			if (type_builtin_copyable(static_cast<Type*>(syntax->type))) {
+				syntax_construct(@compiler, static_cast<Syntax*>(syntax), static_cast<Type*>(syntax->type), @this.expression_use(static_cast<Syntax*>(syntax)));
+				@this.expression(static_cast<Syntax*>(syntax), nullptr);
+				@syntax->use = value_use::transferred;
+				return;
+			};
+			@compiler.diagnostics.report(syntax->token, "owned value requires an rvalue; relocate with '$' or construct a value\0");
+			return;
+		};
+		Syntax* argument = static_cast<Syntax*>(@compiler.allocate(sizeof(Syntax)));
+		Syntax* callable = syntax_create(@compiler, syntax_kind::expr_name, Token(copy->function->name));
+		@*argument := *syntax;
+		@argument->next = nullptr;
+		@argument->use = value_use::observed;
+		@callable->entity := copy->function;
+		@syntax->kind = syntax_kind::expr_call;
+		@syntax->type = nullptr;
+		@syntax->type_use = nullptr;
+		@syntax->entity = nullptr;
+		@syntax->data.call = CallSyntax();
+		@syntax->data.call.callable = $callable;
+		@syntax->data.call.arguments = $argument;
+		@this.expression(static_cast<Syntax*>(syntax), nullptr);
+	};
+	@syntax->use = value_use::transferred;
+};
+
+fn syntax_number_expression(Syntax* syntax) -> i32 {
+	if (syntax->kind == syntax_kind::literal_number) {
+		return 1;
+	};
+	if (syntax->kind == syntax_kind::expr_unary && (syntax->data.unary.operation == token_kind::op_plus || syntax->data.unary.operation == token_kind::op_minus)) {
+		return syntax_number_expression(static_cast<Syntax*>(syntax->data.unary.value));
+	};
+	if (syntax->kind == syntax_kind::expr_binary && syntax->data.binary.operation != token_kind::op_assign && syntax->data.binary.operation != token_kind::op_copy) {
+		return syntax_number_expression(static_cast<Syntax*>(syntax->data.binary.left)) && syntax_number_expression(static_cast<Syntax*>(syntax->data.binary.right));
+	};
+	return 0;
+};
+
+fn storage_borrowed(Syntax* syntax) -> i32 {
+	if (!syntax) {
+		return 0;
+	};
+	if (syntax_storage_type(static_cast<Syntax*>(syntax)) && syntax_storage_type(static_cast<Syntax*>(syntax))->kind == type_kind::reference) {
+		return 1;
+	};
+	switch (syntax->kind) {
+		case syntax_kind::expr_member:
+		case syntax_kind::expr_index:
+			return 1;
+		case syntax_kind::expr_unary:
+			return syntax->data.unary.operation == token_kind::op_star;
+		default:
+			return 0;
+	};
+};
+
+fn Syntax::indirect_storage(const Syntax& this) -> bool {
+	switch (this.kind) {
+		case syntax_kind::expr_unary:
+			return this.data.unary.operation == token_kind::op_star;
+		case syntax_kind::expr_index:
+			return this.data.binary.left->type->kind == type_kind::pointer || this.data.binary.left->indirect_storage();
+		case syntax_kind::expr_member:
+			return this.token.kind == token_kind::op_arrow || this.data.member.object->indirect_storage();
+		case syntax_kind::expr_access:
+			return this.data.expression->indirect_storage();
+		case syntax_kind::expr_base_reference:
+			return this.data.base_conversion.value->indirect_storage();
+		case syntax_kind::expr_cast:
+			return this.type->kind != type_kind::pointer && this.data.cast.value->indirect_storage();
+		default:
+			return false;
+	};
+};
+
+fn syntax_unaccess(Syntax* syntax) -> Syntax* {
+	while (syntax && syntax->kind == syntax_kind::expr_access) {
+		@syntax := syntax->data.expression;
+	};
+	return $syntax;
+};
+
+enum type_property : [i32] {
+	reference;
+	union_selection;
+	destruction;
+	lifecycle_callbacks;
+};
+
+fn type_contains(Type* type, type_property property) -> bool {
+	if (!type) {
+		return false;
+	};
+	if (property == type_property::reference && type->kind == type_kind::reference) {
+		return true;
+	};
+	if (type->kind == type_kind::array) {
+		return type_contains(static_cast<Type*>(type->data.array.element), $property);
+	};
+	if (type->kind != type_kind::named) {
+		return false;
+	};
+
+	Entity* entity := type->data.entity;
+	switch (property) {
+		case type_property::union_selection:
+			if (entity->kind == entity_kind::kw_union) {
+				return type_has_views(static_cast<Type*>(type)) || type_contains(static_cast<Type*>(type), type_property::reference);
+			};
+			break;
+		case type_property::destruction:
+			if (entity->data.aggregate.destructor && entity->data.aggregate.destructor->data.function.definition != function_definition::defaulted) {
+				return true;
+			};
+			break;
+		case type_property::lifecycle_callbacks:
+			Entity* constructor := entity->data.aggregate.constructors;
+			while (constructor) {
+				if (constructor->data.function.definition != function_definition::defaulted) {
+					return true;
+				};
+				@constructor := constructor->data.function.overload_next;
+			};
+			Entity* assignment := entity->data.aggregate.assignments;
+			while (assignment) {
+				if (assignment->data.function.definition != function_definition::defaulted) {
+					return true;
+				};
+				@assignment := assignment->data.function.overload_next;
+			};
+			if (entity->data.aggregate.destructor && entity->data.aggregate.destructor->data.function.definition != function_definition::defaulted) {
+				return true;
+			};
+			break;
+		case type_property::reference:
+			break;
+	};
+	if (entity->kind == entity_kind::kw_enum) {
+		return type_contains(static_cast<Type*>(entity->data.enumeration.underlying), $property);
+	};
+	BaseRelation* base := entity->data.aggregate.bases;
+	while (base) {
+		if (type_contains(entity_type(static_cast<Entity*>(base->entity)), static_cast<type_property>(property))) {
+			return true;
+		};
+		@base := base->next;
+	};
+	Field* field := entity->data.aggregate.fields;
+	while (field) {
+		if (type_contains(entity_type(static_cast<Entity*>(field->entity)), static_cast<type_property>(property))) {
+			return true;
+		};
+		@field := field->next;
+	};
+	return false;
+};
+
+fn type_has_reference(Type* type) -> bool {
+	return type_contains($type, type_property::reference);
+};
+
+fn Semantic::move(Semantic& this, Syntax* syntax) {
+	if (this.compiler->result == compilation_result::failure) {
+		return;
+	};
+	if (storage_borrowed(static_cast<Syntax*>(syntax))) {
+		@this.compiler->diagnostics.report(syntax->token, "cannot move a borrowed value\0");
+		return;
+	};
+	while (syntax->kind == syntax_kind::expr_cast || syntax->kind == syntax_kind::expr_base_pointer) {
+		if (syntax->kind == syntax_kind::expr_base_pointer) {
+			@syntax := syntax->data.base_conversion.value;
+		}
+		else {
+			@syntax := syntax->data.cast.value;
+		};
+	};
+	if (storage_borrowed(static_cast<Syntax*>(syntax))) {
+		@this.compiler->diagnostics.report(syntax->token, "cannot move a borrowed value\0");
+		return;
+	};
+
+	if (syntax->kind != syntax_kind::expr_name || !syntax->entity || syntax->entity->kind != entity_kind::variable || syntax->entity->data.variable.storage == storage_kind::constant) {
+		return;
+	};
+
+};
+

@@ -1,0 +1,26 @@
+struct Base {
+	i32 value;
+	fn get(const Base& this) -> i32 {
+		return this.value;
+	};
+};
+
+struct Derived : [Base] {
+	i32 other;
+};
+
+fn main() -> i32 {
+	Derived object;
+	@object.value = 20;
+	Base* base = static_cast<Base*>(&object);
+	Derived* derived = static_cast<Derived*>(base);
+	@derived->other = 22;
+	Base& reference = static_cast<Base&>(@object);
+	const Base& borrowed = object;
+	Derived* absent = nullptr;
+	Base* empty = static_cast<Base*>(absent);
+	if (&reference != base || &borrowed != base || derived != &object || empty || object.get() != 20) {
+		return 1;
+	};
+	return reference.value + object.other;
+};

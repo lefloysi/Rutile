@@ -1,0 +1,354 @@
+fn entity_name(Compiler& compiler, Entity* entity) -> char* {
+	Scope* scope := entity->scope;
+	char* parent = "\0";
+	if (scope && scope->owner && (scope->owner->kind == entity_kind::kw_namespace || scope->owner->kind == entity_kind::kw_struct || scope->owner->kind == entity_kind::kw_union || scope->owner->kind == entity_kind::kw_template)) {
+		@parent = entity_name(@compiler, static_cast<Entity*>(scope->owner));
+	};
+	usize length = strlen(static_cast<char*>(parent));
+	usize separator = 0;
+	if (length) {
+		@separator = 2;
+	};
+	char* name = static_cast<char*>(@compiler.allocate(length + separator + entity->name.length + 1));
+	if (!name) {
+		return nullptr;
+	};
+	memcpy(char*(name), $parent, static_cast<u64>(length));
+	if (separator) {
+		@name[length] = ':';
+		@name[length + 1] = ':';
+	};
+	memcpy(name + length + separator, entity->name.source->bytes.data + entity->name.begin, static_cast<u64>(entity->name.length));
+	return $name;
+};
+
+fn emit_symbol(Compiler& compiler, Entity* entity) -> char* {
+	if (!entity->data.function.body && (!entity->scope || !entity->scope->owner || (entity->scope->owner->kind != entity_kind::kw_struct && entity->scope->owner->kind != entity_kind::kw_union))) {
+		return @compiler.copy_text(entity->name.source->bytes.data + entity->name.begin, static_cast<u64>(entity->name.length));
+	};
+	char* qualified = entity_name(@compiler, static_cast<Entity*>(entity));
+	if (entity->data.function.role != function_role::ordinary) {
+		char[22] digits {};
+		usize position = sizeof(digits) - 1;
+		usize index := entity->data.function.overload_index;
+		while (true) {
+			@position = position - 1;
+			@digits[position] = static_cast<char>((static_cast<usize>('0') + index % 10));
+			@index = index / 10;
+			if (!index) {
+				break;
+			};
+		};
+		usize length = strlen(static_cast<char*>(qualified));
+		usize count = strlen(&digits[position]);
+		char* name = static_cast<char*>(@compiler.allocate(length + count + 3));
+		memcpy(char*(name), char*(qualified), static_cast<u64>(length));
+		@name[length] = '.';
+		@name[length + 1] = static_cast<char>((static_cast<i32>('a') + static_cast<i32>(entity->data.function.role)));
+		memcpy(name + length + 2, &digits[position], count + 1);
+		@qualified = $name;
+	};
+	if (compiler.output == output_kind::library) {
+		return $qualified;
+	};
+	char* prefix = "rt.function.\0";
+	usize prefix_length = strlen(static_cast<char*>(prefix));
+	usize length = strlen(static_cast<char*>(qualified));
+	char* name = static_cast<char*>(@compiler.allocate(prefix_length + length + 1));
+	if (!name) {
+		return nullptr;
+	};
+	memcpy(char*(name), $prefix, static_cast<u64>(prefix_length));
+	memcpy(name + prefix_length, $qualified, $length);
+	return $name;
+};
+
+fn emit_function_body(Compiler& compiler, Entity* entity, LLVMOpaqueValue* function, u64 receiver_offset, Type* return_type) {
+	if ((!entity->data.function.body && entity->data.function.definition != function_definition::defaulted) || entity->data.function.analysis == function_analysis::unrequested) {
+		return;
+	};
+	LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0");
+	LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $block);
+	Emitter emitter;
+	@emitter.llvm_function := function;
+	@emitter.return_type = $return_type;
+	@emitter.compiler = &compiler;
+	@emitter.function := entity;
+	if (entity->data.function.definition == function_definition::defaulted) {
+		Entity* record := entity->scope->owner;
+		LLVMOpaqueValue* destination = LLVMGetParam(LLVMOpaqueValue*(function), 0);
+		Parameter* source := entity->data.function.type->data.function.parameters->next;
+		if (!source && entity->data.function.role == function_role::constructor) {
+			@emitter.default_body_members(static_cast<Entity*>(record), LLVMOpaqueValue*(destination));
+		};
+		if (source) {
+			LLVMOpaqueValue* origin = LLVMGetParam(LLVMOpaqueValue*(function), 1);
+			if (source->type->kind != type_kind::reference) {
+				LLVMOpaqueValue* storage = emit_slot(@compiler, static_cast<Type*>(source->type));
+				LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(origin), LLVMOpaqueValue*(storage));
+				@origin = $storage;
+			};
+			@emitter.default_transfer(static_cast<Entity*>(entity), LLVMOpaqueValue*(destination), $origin);
+		};
+		@emitter.flush_temporaries(nullptr);
+		if (entity->data.function.role == function_role::assignment) {
+			LLVMBuildRet(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(destination));
+		}
+		else {
+			LLVMBuildRetVoid(compiler.backend.llvm_builder.get());
+		};
+		return;
+	};
+	ParameterBinding* parameter := entity->data.function.parameter_bindings;
+	u32 index = 0;
+	while (parameter) {
+		Type* type = entity_type(static_cast<Entity*>(parameter->entity));
+		LLVMOpaqueValue* value = LLVMGetParam(LLVMOpaqueValue*(function), static_cast<u32>(index));
+		if (!index && receiver_offset) {
+			@value = @emitter.byte_offset(LLVMOpaqueValue*(value), static_cast<u64>(receiver_offset));
+		};
+		BackendEntity* storage = backend_entity_define(@compiler, static_cast<Entity*>(parameter->entity));
+		if (!storage) {
+			return;
+		};
+		@storage->value = emit_slot(@compiler, static_cast<Type*>(type));
+		if (type_has_views(static_cast<Type*>(type)) && (type->kind != type_kind::named || type->data.entity->kind != entity_kind::kw_union)) {
+			LLVMOpaqueValue* incoming = emit_slot(@compiler, static_cast<Type*>(type));
+			LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(value), LLVMOpaqueValue*(incoming));
+			@emitter.initialize_type(static_cast<Type*>(type), LLVMOpaqueValue*(storage->value));
+			@emitter.payload_copy(static_cast<Type*>(type), LLVMOpaqueValue*(storage->value), $incoming);
+		}
+		else {
+			LLVMBuildStore(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(value), LLVMOpaqueValue*(storage->value));
+		};
+		@index = index + 1;
+		@parameter := parameter->next;
+	};
+	@emitter.region(static_cast<Syntax*>(entity->data.function.body));
+	if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(compiler.backend.llvm_builder.get()))) {
+		if (entity->data.function.lifetime_exit == reachability::unreachable) {
+			LLVMBuildUnreachable(compiler.backend.llvm_builder.get());
+		}
+		else if (entity->data.function.type->data.function.result->kind == type_kind::kw_void) {
+			LLVMBuildRetVoid(compiler.backend.llvm_builder.get());
+		}
+		else {
+			@compiler.diagnostics.report(entity->name, "function can finish without returning a value\0");
+		};
+	};
+};
+
+fn emit_function(Compiler& compiler, Entity* entity) {
+	if (entity->data.function.definition == function_definition::deleted) {
+		return;
+	};
+	emit_function_body(@compiler, static_cast<Entity*>(entity), LLVMOpaqueValue*(backend_entity(@compiler.backend, static_cast<Entity*>(entity))->value), 0, nullptr);
+};
+
+fn emit_forward_attributes(Compiler& compiler, LLVMOpaqueValue* call, Type* signature) {
+	LLVMOpaqueAttributeRef* extension = emit_extension(@compiler, static_cast<Type*>(signature->data.function.result));
+	if (extension) {
+		LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), 0, LLVMOpaqueAttributeRef*(extension));
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	u32 index = 1;
+	while (parameter) {
+		@extension = emit_extension(@compiler, static_cast<Type*>(parameter->type));
+		if (extension) {
+			LLVMAddCallSiteAttribute(LLVMOpaqueValue*(call), static_cast<u32>(index), LLVMOpaqueAttributeRef*(extension));
+		};
+		@index = index + 1;
+		@parameter := parameter->next;
+	};
+};
+
+fn emit_variadic_tail(Compiler& compiler, LLVMOpaqueValue* function, LLVMOpaqueValue* call) {
+	LLVMOpaqueAttributeRef* attribute = LLVMCreateStringAttribute(compiler.backend.llvm_context.get(), "thunk\0", 5, "\0", 0);
+	LLVMAddAttributeAtIndex($function, static_cast<u32>(4294967295), $attribute);
+	LLVMSetTailCallKind($call, 2);
+};
+
+fn emit_forward_return(Compiler& compiler, Type* result, LLVMOpaqueValue* call) {
+	if (result->kind == type_kind::kw_void) {
+		LLVMBuildRetVoid(compiler.backend.llvm_builder.get());
+	}
+	else {
+		LLVMBuildRet(compiler.backend.llvm_builder.get(), LLVMOpaqueValue*(call));
+	};
+};
+
+fn runtime_wrappers_emit(Compiler& compiler) {
+	while (compiler.backend.runtime_wrappers && compiler.result != compilation_result::failure) {
+		RuntimeWrapper* wrapper := compiler.backend.runtime_wrappers;
+		@compiler.backend.runtime_wrappers := wrapper->next;
+		Entity* entity := wrapper->entity;
+		LLVMOpaqueValue* function := backend_entity(@compiler.backend, static_cast<Entity*>(entity))->wrapper;
+		Type* signature := entity->data.function.type;
+		LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(function), "entry\0");
+		LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $block);
+		Emitter emitter;
+		@emitter.llvm_function := function;
+		@emitter.compiler = &compiler;
+		@emitter.function := entity;
+		usize count = 0;
+		Parameter* parameter := signature->data.function.parameters;
+		while (parameter) {
+			@count = count + 1;
+			@parameter := parameter->next;
+		};
+		LLVMOpaqueValue** arguments = static_cast<LLVMOpaqueValue**>(@compiler.allocate(count * sizeof(LLVMOpaqueValue*)));
+		usize index = 0;
+		while (index < count) {
+			@arguments[index] = LLVMGetParam(LLVMOpaqueValue*(function), static_cast<u32>(index));
+			@index = index + 1;
+		};
+		LLVMOpaqueValue* target = @emitter.dispatch_target($entity, LLVMOpaqueValue*(arguments[0]));
+		char* name = "virtual.call\0";
+		if (signature->data.function.result->kind == type_kind::kw_void) {
+			@name = "\0";
+		};
+		LLVMOpaqueValue* call = LLVMBuildCall2(compiler.backend.llvm_builder.get(), llvm_type(@compiler, static_cast<Type*>(signature)), $target, $arguments, static_cast<u32>(count), $name);
+		emit_forward_attributes(@compiler, LLVMOpaqueValue*(call), static_cast<Type*>(signature));
+		if (signature->data.function.arity == parameter_arity::variadic) {
+			emit_variadic_tail(@compiler, LLVMOpaqueValue*(function), LLVMOpaqueValue*(call));
+		};
+		emit_forward_return(@compiler, static_cast<Type*>(signature->data.function.result), $call);
+	};
+};
+
+fn runtime_thunks_emit(Compiler& compiler) {
+	while (compiler.backend.runtime_thunks && compiler.result != compilation_result::failure) {
+		RuntimeThunk* thunk := compiler.backend.runtime_thunks;
+		@compiler.backend.runtime_thunks := thunk->next;
+		Entity* implementation := thunk->target.function;
+		BackendEntity* native = backend_entity(@compiler.backend, static_cast<Entity*>(implementation));
+		Type* signature := thunk->callable->function->data.function.type;
+		Type* result := implementation->data.function.type->data.function.result;
+		u64 offset = thunk->target.object->offset - thunk->receiver->offset;
+		if (signature->data.function.arity == parameter_arity::variadic && covariance_adjustment_required(@compiler, static_cast<Type*>(result), static_cast<Type*>(signature->data.function.result))) {
+			if (!implementation->data.function.body) {
+				@compiler.diagnostics.report(implementation->name, "covariant variadic override requires an available implementation body\0");
+				return;
+			};
+			emit_function_body(@compiler, static_cast<Entity*>(implementation), LLVMOpaqueValue*(thunk->function), static_cast<u64>(offset), static_cast<Type*>(signature->data.function.result));
+			continue;
+		};
+		LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(thunk->function), "entry\0");
+		LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $block);
+		Emitter emitter;
+		@emitter.llvm_function := thunk->function;
+		@emitter.compiler = &compiler;
+		@emitter.function := implementation;
+		usize count = 0;
+		Parameter* parameter := signature->data.function.parameters;
+		while (parameter) {
+			@count = count + 1;
+			@parameter := parameter->next;
+		};
+		LLVMOpaqueValue** arguments = static_cast<LLVMOpaqueValue**>(@compiler.allocate(count * sizeof(LLVMOpaqueValue*)));
+		usize index = 0;
+		while (index < count) {
+			@arguments[index] = LLVMGetParam(LLVMOpaqueValue*(thunk->function), static_cast<u32>(index));
+			@index = index + 1;
+		};
+		@arguments[0] = @emitter.byte_offset(LLVMOpaqueValue*(arguments[0]), $offset);
+		char* name = "override.call\0";
+		if (result->kind == type_kind::kw_void) {
+			@name = "\0";
+		};
+		LLVMOpaqueValue* call = LLVMBuildCall2(compiler.backend.llvm_builder.get(), LLVMOpaqueType*(native->type), LLVMOpaqueValue*(native->value), $arguments, static_cast<u32>(count), $name);
+		emit_forward_attributes(@compiler, LLVMOpaqueValue*(call), static_cast<Type*>(implementation->data.function.type));
+		if (signature->data.function.arity == parameter_arity::variadic) {
+			emit_variadic_tail(@compiler, LLVMOpaqueValue*(thunk->function), LLVMOpaqueValue*(call));
+			emit_forward_return(@compiler, static_cast<Type*>(signature->data.function.result), LLVMOpaqueValue*(call));
+			continue;
+		};
+		if (!type_equal(static_cast<Type*>(result), static_cast<Type*>(signature->data.function.result))) {
+			@call = @emitter.covariant_result(LLVMOpaqueValue*(call), static_cast<Type*>(result), static_cast<Type*>(signature->data.function.result));
+		};
+		emit_forward_return(@compiler, static_cast<Type*>(signature->data.function.result), $call);
+	};
+};
+
+fn runtime_metadata_emit(Compiler& compiler) {
+	while ((compiler.backend.runtime_views || compiler.backend.runtime_thunks || compiler.backend.runtime_wrappers) && compiler.result != compilation_result::failure) {
+		runtime_wrappers_emit(@compiler);
+		runtime_views_emit(@compiler);
+		runtime_thunks_emit(@compiler);
+	};
+};
+
+fn entry_lookup(Compiler& compiler) -> Entity* {
+	Source source;
+	@source.bytes.data := compiler.entry;
+	@source.bytes.size = strlen(static_cast<char*>(compiler.entry));
+	Token name;
+	@name.source = &source;
+	Scope* scope := compiler.module;
+	while (name.begin < source.bytes.size) {
+		@name.length = 0;
+		while (name.begin + name.length < source.bytes.size && source.bytes.data[name.begin + name.length] != ':') {
+			@name.length = name.length + 1;
+		};
+		Entity* entity = scope->local(name);
+		if (!entity) {
+			return nullptr;
+		};
+		if (name.begin + name.length == source.bytes.size) {
+			return $entity;
+		};
+		@scope = entity_members($entity);
+		if (!scope || name.begin + name.length + 1 >= source.bytes.size || source.bytes.data[name.begin + name.length + 1] != ':') {
+			return nullptr;
+		};
+		@name.begin = name.begin + name.length + 2;
+	};
+	return nullptr;
+};
+
+fn emit_entry(Compiler& compiler) {
+	Entity* entry = entry_lookup(@compiler);
+	if (!entry || entry->kind != entity_kind::function || !entry->data.function.body) {
+		Token token;
+		if (compiler.declarations) {
+			@token := compiler.declarations->token;
+		};
+		@compiler.diagnostics.report(token, "entry function is missing or has no definition\0");
+		return;
+	};
+	BackendEntity* native = backend_entity(@compiler.backend, static_cast<Entity*>(entry));
+	Type* signature := entry->data.function.type;
+	if (signature->data.function.result->kind != type_kind::kw_void && !type_equal(static_cast<Type*>(signature->data.function.result), static_cast<Type*>(compiler.i32_type))) {
+		@compiler.diagnostics.report(entry->name, "entry function must return i32 or void\0");
+		return;
+	};
+	Parameter* parameter := signature->data.function.parameters;
+	LLVMOpaqueValue*[2] arguments {};
+	LLVMOpaqueType*[2] parameter_types {};
+	@parameter_types[0] = llvm_type(@compiler, static_cast<Type*>(compiler.i32_type));
+	@parameter_types[1] = LLVMPointerTypeInContext(compiler.backend.llvm_context.get(), 0);
+	if (parameter && (!parameter->next || parameter->next->next || !type_equal(static_cast<Type*>(parameter->type), static_cast<Type*>(compiler.i32_type)) || !type_equal(static_cast<Type*>(parameter->next->type), @compiler.semantic.types.pointer(@compiler.semantic.types.pointer(static_cast<Type*>(compiler.char_type)))))) {
+		@compiler.diagnostics.report(entry->name, "entry parameters must be empty or (i32, char**)\0");
+		return;
+	};
+	LLVMOpaqueType* main_type = LLVMFunctionType(LLVMOpaqueType*(parameter_types[0]), &parameter_types[0], 2, 0);
+	LLVMOpaqueValue* main_function = LLVMAddFunction(compiler.backend.llvm_module.get(), "main\0", $main_type);
+	LLVMOpaqueBasicBlock* block = LLVMAppendBasicBlockInContext(compiler.backend.llvm_context.get(), LLVMOpaqueValue*(main_function), "entry\0");
+	LLVMPositionBuilderAtEnd(compiler.backend.llvm_builder.get(), $block);
+	@arguments[0] = LLVMGetParam(LLVMOpaqueValue*(main_function), 0);
+	@arguments[1] = LLVMGetParam($main_function, 1);
+	u32 count = 0;
+	if (parameter) {
+		@count = 2;
+	};
+	char* name = "entry.result\0";
+	if (signature->data.function.result->kind == type_kind::kw_void) {
+		@name = "\0";
+	};
+	LLVMOpaqueValue* result = LLVMBuildCall2(compiler.backend.llvm_builder.get(), LLVMOpaqueType*(native->type), LLVMOpaqueValue*(native->value), &arguments[0], $count, $name);
+	if (signature->data.function.result->kind == type_kind::kw_void) {
+		@result = LLVMConstInt(LLVMOpaqueType*(parameter_types[0]), 0, 0);
+	};
+	LLVMBuildRet(compiler.backend.llvm_builder.get(), $result);
+};
+

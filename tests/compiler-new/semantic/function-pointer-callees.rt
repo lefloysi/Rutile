@@ -1,0 +1,34 @@
+using Callback = ((i32) -> i32)*;
+
+i32 evaluations;
+
+fn answer(i32 value) -> i32 {
+	return value;
+};
+
+struct Holder {
+	Callback callback;
+};
+
+fn returned() -> Callback {
+	@evaluations = evaluations + 1;
+	return &answer;
+};
+
+fn object(Holder& holder) -> Holder& {
+	@evaluations = evaluations + 1;
+	return @holder;
+};
+
+fn main() -> i32 {
+	Holder holder;
+	@holder.callback = &answer;
+	Callback local = &answer;
+	if (holder.callback(42) != 42 || local(42) != 42 || returned()(42) != 42) {
+		return 1;
+	};
+	if (object(@holder).callback(42) != 42 || evaluations != 2) {
+		return 2;
+	};
+	return 42;
+};

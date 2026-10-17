@@ -1,0 +1,118 @@
+fn function_receiver(Entity* function) -> bool {
+	TypeUse* use := function->data.function.type_use;
+	return use && use->data.callable.parameters && use->data.callable.parameters->name.is("this\0");
+};
+
+fn type_use_child(TypeUse* use) -> TypeUse* {
+	if (!use) {
+		return nullptr;
+	};
+	return static_cast<TypeUse*>(use->data.element);
+};
+
+fn type_use_result(TypeUse* use) -> TypeUse* {
+	if (!use) {
+		return nullptr;
+	};
+	return static_cast<TypeUse*>(use->data.callable.result);
+};
+
+fn type_use_parameters(TypeUse* use) -> ParameterUse* {
+	if (!use) {
+		return nullptr;
+	};
+	return static_cast<ParameterUse*>(use->data.callable.parameters);
+};
+
+fn type_use_effective(Type* type, TypeUse* use) -> TypeUse* {
+	if (type && type->kind == type_kind::reference && use) {
+		return static_cast<TypeUse*>(use->data.element);
+	};
+	return $use;
+};
+
+fn entity_type_use(Entity* entity) -> TypeUse* {
+	if (!entity) {
+		return nullptr;
+	};
+	if (entity->kind == entity_kind::function) {
+		return static_cast<TypeUse*>(entity->data.function.type_use);
+	};
+	if (entity->kind == entity_kind::variable) {
+		return type_use_effective(static_cast<Type*>(entity->data.variable.type), static_cast<TypeUse*>(entity->data.variable.type_use));
+	};
+	return nullptr;
+};
+
+fn Semantic::expression_use(Semantic& this, Syntax* syntax) -> TypeUse* {
+	if (!syntax) {
+		return nullptr;
+	};
+	switch (syntax->kind) {
+		case syntax_kind::node_block:
+		case syntax_kind::expr_name:
+		case syntax_kind::expr_member:
+			return entity_type_use(static_cast<Entity*>(syntax->entity));
+		case syntax_kind::kw_new:
+			return static_cast<TypeUse*>(syntax->type_use);
+		case syntax_kind::expr_access:
+		case syntax_kind::expr_relocate:
+			return @this.expression_use(static_cast<Syntax*>(syntax->data.expression));
+		case syntax_kind::expr_cast:
+			return type_use_effective(static_cast<Type*>(syntax->data.cast.resolved), static_cast<TypeUse*>(syntax->data.cast.type_use));
+		case syntax_kind::expr_construct:
+			return type_use_effective(static_cast<Type*>(syntax->data.construction.target), static_cast<TypeUse*>(syntax->data.construction.type_use));
+		case syntax_kind::expr_index: {
+			TypeUse* use = @this.expression_use(static_cast<Syntax*>(syntax->data.binary.left));
+			if (use) {
+				return static_cast<TypeUse*>(use->data.element);
+			};
+			return nullptr;
+		};
+		case syntax_kind::expr_unary: {
+			TypeUse* use = @this.expression_use(static_cast<Syntax*>(syntax->data.unary.value));
+			if (syntax->data.unary.operation == token_kind::op_ampersand) {
+				return static_cast<TypeUse*>(syntax->type_use);
+			};
+			if (syntax->data.unary.operation == token_kind::op_star && use) {
+				return static_cast<TypeUse*>(use->data.element);
+			};
+			return nullptr;
+		};
+		case syntax_kind::expr_call: {
+			Syntax* callee := syntax->data.call.callable;
+			Type* type := callee->type;
+			TypeUse* use = @this.expression_use(static_cast<Syntax*>(callee));
+			if (type->kind == type_kind::pointer) {
+				@type := type->data.element;
+				if (use) {
+					@use := use->data.element;
+				};
+			};
+			if (use) {
+				return type_use_effective(static_cast<Type*>(type->data.function.result), static_cast<TypeUse*>(use->data.callable.result));
+			};
+			return nullptr;
+		};
+		case syntax_kind::stmt_initialize:
+		case syntax_kind::stmt_bind_reference:
+			return @this.expression_use(static_cast<Syntax*>(syntax->data.binary.left));
+		case syntax_kind::expr_binary:
+			if (syntax->entity && syntax->entity->kind == entity_kind::function && syntax->entity->data.function.role == function_role::assignment) {
+				TypeUse* function_use := syntax->entity->data.function.type_use;
+				if (function_use) {
+					return type_use_effective(static_cast<Type*>(syntax->entity->data.function.type->data.function.result), static_cast<TypeUse*>(function_use->data.callable.result));
+				};
+				return nullptr;
+			};
+			if (syntax->data.binary.operation == token_kind::op_assign || syntax->data.binary.operation == token_kind::op_copy || (syntax->type && syntax->type->kind == type_kind::pointer && syntax->data.binary.left->type->kind == type_kind::pointer)) {
+				return @this.expression_use(static_cast<Syntax*>(syntax->data.binary.left));
+			};
+			if (syntax->type && syntax->type->kind == type_kind::pointer) {
+				return @this.expression_use(static_cast<Syntax*>(syntax->data.binary.right));
+			};
+			return nullptr;
+	};
+	return nullptr;
+};
+

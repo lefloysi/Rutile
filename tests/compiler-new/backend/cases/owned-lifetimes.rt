@@ -1,0 +1,29 @@
+i32 destroyed;
+
+struct Probe {
+	fn ~Probe(Probe& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn consume(Probe item) {
+};
+
+fn main() -> i32 {
+	{
+		Probe first;
+	};
+	{
+		Probe second;
+		discard $second;
+	};
+	{
+		Probe third;
+		$third;
+	};
+	{
+		Probe fourth;
+		consume($fourth);
+	};
+	return destroyed + 39;
+};

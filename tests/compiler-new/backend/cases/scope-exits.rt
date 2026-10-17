@@ -1,0 +1,31 @@
+i32 destroyed;
+
+struct Probe {
+	fn ~Probe(Probe& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn early() -> i32 {
+	Probe local;
+	return 7;
+};
+
+fn main() -> i32 {
+	{
+		Probe outer;
+		while (true) {
+			Probe inner;
+			break;
+		};
+	};
+	for (i32 index = 0; index < 3; @index = index + 1) {
+		Probe iteration;
+		if (index < 2) {
+			continue;
+		};
+	};
+	Probe();
+	early();
+	return destroyed + 35;
+};

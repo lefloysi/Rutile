@@ -1,0 +1,224 @@
+fn SemanticExpression::constant_truth(const SemanticExpression& this, bool& result) -> bool {
+	if (this.type()->kind() == type_kind::floating_point) {
+		f64 value = 0.0;
+		if (!this.constant_real(@value)) {
+			return false;
+		};
+		@result = value != 0.0;
+		return true;
+	};
+	u64 value = 0;
+	if (!this.constant_integer(@value)) {
+		return false;
+	};
+	@result = value != 0;
+	return true;
+};
+
+fn SemanticExpression::constant_integer(const SemanticExpression& this, u64& result) -> bool {
+	if (this.kind() == semantic_kind::null_pointer) {
+		@result = 0;
+		return true;
+	};
+	if (!this.type()->representation()->kind().is_integer()) {
+		return false;
+	};
+	if (this.kind() == semantic_kind::literal_integer) {
+		@result = this.type()->normalize_integer(this.integer());
+		return true;
+	};
+	if (this.kind() == semantic_kind::name && this.entity() && this.entity()->kind() == entity_kind::enumerator) {
+		@result = this.type()->normalize_integer(this.entity()->integer());
+		return true;
+	};
+	if (this.kind() == semantic_kind::cast) {
+		if (this.type()->kind() == type_kind::boolean) {
+			bool truth = false;
+			if (!this.item(0)->constant_truth(@truth)) {
+				return false;
+			};
+			@result = static_cast<u64>($truth);
+			return true;
+		};
+		if (!this.type()->representation()->kind().is_integer()) {
+			return false;
+		};
+		if (this.item(0)->type()->kind() == type_kind::floating_point) {
+			f64 value = 0.0;
+			if (!this.item(0)->constant_real(@value)) {
+				return false;
+			};
+			return this.type()->integer_from_real(value, @result);
+		};
+		if (!this.item(0)->constant_integer(@result)) {
+			return false;
+		};
+		@result = this.type()->normalize_integer(result);
+		return true;
+	};
+	if (this.kind() == semantic_kind::unary) {
+		if (this.operation() == token_kind::op_bang) {
+			bool truth = false;
+			if (!this.item(0)->constant_truth(@truth)) {
+				return false;
+			};
+			@truth = !truth;
+			@result = static_cast<u64>($truth);
+			return true;
+		};
+		if (!this.item(0)->constant_integer(@result)) {
+			return false;
+		};
+		if (this.operation() == token_kind::op_minus) {
+			@result = u64(0) - result;
+		}
+		else if (this.operation() == token_kind::op_tilde) {
+			@result = ~result;
+		}
+		else if (this.operation() != token_kind::op_plus) {
+			return false;
+		};
+		@result = this.type()->normalize_integer(result);
+		return true;
+	};
+	if (this.kind() != semantic_kind::binary) {
+		return false;
+	};
+	if (this.operation() == token_kind::op_and || this.operation() == token_kind::op_or) {
+		bool first = false;
+		if (!this.item(0)->constant_truth(@first)) {
+			return false;
+		};
+		if (this.operation() == token_kind::op_and && !first || this.operation() == token_kind::op_or && first) {
+			@result = static_cast<u64>($first);
+			return true;
+		};
+		bool second = false;
+		if (!this.item(1)->constant_truth(@second)) {
+			return false;
+		};
+		@result = static_cast<u64>($second);
+		return true;
+	};
+	if (this.item(0)->type()->kind() == type_kind::floating_point || this.item(1)->type()->kind() == type_kind::floating_point) {
+		return this.real_comparison(@result);
+	};
+	u64 first = 0;
+	u64 second = 0;
+	if (!this.item(0)->constant_integer(@first) || !this.item(1)->constant_integer(@second)) {
+		return false;
+	};
+	bool signed_ = this.item(0)->type()->representation()->kind() == type_kind::signed_integer;
+	i64 signed_first = 0;
+	i64 signed_second = 0;
+	if (signed_) {
+		@signed_first = this.item(0)->type()->signed_value(first);
+		@signed_second = this.item(1)->type()->signed_value(second);
+	};
+	bool comparison = false;
+	switch (this.operation()) {
+		case token_kind::op_plus:
+			@result = first + second;
+			break;
+		case token_kind::op_minus:
+			@result = first - second;
+			break;
+		case token_kind::op_star:
+			@result = first * second;
+			break;
+		case token_kind::op_slash:
+		case token_kind::op_remainder: {
+			if (!second) {
+				return false;
+			};
+			if (signed_) {
+				u32 bits = this.item(0)->type()->representation()->bits();
+				if (bits && first == (u64(1) << static_cast<u64>(bits - 1)) && signed_second == -1) {
+					return false;
+				};
+				i64 answer = 0;
+				if (this.operation() == token_kind::op_slash) {
+					@answer = signed_first / signed_second;
+				}
+				else {
+					@answer = signed_first % signed_second;
+				};
+				@result = static_cast<u64>($answer);
+			}
+			else if (this.operation() == token_kind::op_slash) {
+				@result = first / second;
+			}
+			else {
+				@result = first % second;
+			};
+			break;
+		};
+		case token_kind::op_ampersand:
+			@result = first & second;
+			break;
+		case token_kind::op_pipe:
+			@result = first | second;
+			break;
+		case token_kind::op_caret:
+			@result = first ^ second;
+			break;
+		case token_kind::op_shift_left:
+		case token_kind::op_shift_right:
+			const Type* representation = this.item(0)->type()->representation();
+			u64 width = static_cast<u64>(representation->bits());
+			if (second >= width) {
+				return false;
+			};
+			if (this.operation() == token_kind::op_shift_left) {
+				@result = first << second;
+			}
+			else if (signed_) {
+				i64 shifted = signed_first >> static_cast<i64>(second);
+				@result = static_cast<u64>($shifted);
+			}
+			else {
+				@result = first >> second;
+			};
+			break;
+		case token_kind::op_equal:
+			@comparison = first == second;
+			@result = static_cast<u64>($comparison);
+			return true;
+		case token_kind::op_not_equal:
+			@comparison = first != second;
+			@result = static_cast<u64>($comparison);
+			return true;
+		case token_kind::op_less:
+			@comparison = first < second;
+			if (signed_) {
+				@comparison = signed_first < signed_second;
+			};
+			@result = static_cast<u64>($comparison);
+			return true;
+		case token_kind::op_greater:
+			@comparison = first > second;
+			if (signed_) {
+				@comparison = signed_first > signed_second;
+			};
+			@result = static_cast<u64>($comparison);
+			return true;
+		case token_kind::op_less_equal:
+			@comparison = first <= second;
+			if (signed_) {
+				@comparison = signed_first <= signed_second;
+			};
+			@result = static_cast<u64>($comparison);
+			return true;
+		case token_kind::op_greater_equal:
+			@comparison = first >= second;
+			if (signed_) {
+				@comparison = signed_first >= signed_second;
+			};
+			@result = static_cast<u64>($comparison);
+			return true;
+		default:
+			return false;
+	};
+	@result = this.type()->normalize_integer(result);
+	return true;
+};

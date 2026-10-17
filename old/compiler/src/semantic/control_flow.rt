@@ -1,0 +1,299 @@
+
+// MODULE: EXECUTABLE CONTROL FLOW
+// PURPOSE: Resolve structured statements to shared executable blocks and edges.
+// DEPENDS ON: typed HIR, semantic arena, constant case values.
+
+enum mir_kind : [i32] {
+	tick;
+	evaluate;
+	declare;
+	branch;
+	dispatch;
+	jump;
+	kw_return;
+	exit;
+};
+
+enum mir_edge_kind : [i32] {
+	ordinary;
+	when_true;
+	when_false;
+	case_value;
+	otherwise;
+	backedge;
+};
+
+struct MirScope {
+	MirScope* parent;
+	Scope* bindings;
+};
+
+struct MirEdge {
+	MirBlock* target;
+	MirScope* retained_scope;
+	MirEdge* next;
+	LifetimeCleanup* cleanup;
+	Token token;
+	u64 selector;
+	mir_edge_kind kind;
+};
+
+struct MirBlock {
+	Syntax* value;
+	MirScope* scope;
+	MirEdge* edges;
+	MirBlock* next;
+	Token token;
+	usize ticks;
+	mir_kind kind;
+};
+
+struct MirRegion {
+	MirBlock* entry;
+	MirBlock* blocks;
+	MirScope* scope;
+	MirScope* parent;
+	resolution state;
+};
+
+struct MirControl {
+	MirBlock* breaking;
+	MirBlock* continuing;
+};
+
+struct MirSource {
+	Syntax* value;
+	MirSource* next;
+};
+
+struct MirBuilder {
+	Compiler* compiler;
+	MirRegion* region;
+};
+
+fn mir_scope(Compiler& compiler, MirScope* parent, Scope* bindings) -> MirScope* {
+	MirScope* scope = static_cast<MirScope*>(@compiler.allocate(sizeof(MirScope)));
+	if (scope) {
+		@scope->parent = static_cast<MirScope*>(parent);
+		@scope->bindings = static_cast<Scope*>(bindings);
+	};
+	return static_cast<MirScope*>(scope);
+};
+
+fn mir_scope_contains(MirScope* scope, MirScope* nested) -> bool {
+	while (nested && nested != scope) {
+		@nested := nested->parent;
+	};
+	return nested == scope;
+};
+
+fn MirBuilder::block(MirBuilder& this, mir_kind kind, Syntax* value, MirScope* scope, const Token& token, usize ticks) -> MirBlock* {
+	MirBlock* block = static_cast<MirBlock*>(@this.compiler->allocate(sizeof(MirBlock)));
+	if (!block) {
+		return nullptr;
+	};
+	@block->kind = static_cast<mir_kind>(kind);
+	@block->value = static_cast<Syntax*>(value);
+	@block->scope = static_cast<MirScope*>(scope);
+	@block->token := token;
+	@block->ticks = static_cast<usize>(ticks);
+	@block->next := this.region->blocks;
+	@this.region->blocks = static_cast<MirBlock*>(block);
+	return static_cast<MirBlock*>(block);
+};
+
+fn MirBuilder::edge(MirBuilder& this, MirBlock* source, MirBlock* target, mir_edge_kind kind, const Token& token) -> MirEdge* {
+	if (!source) {
+		return nullptr;
+	};
+	MirEdge* edge = static_cast<MirEdge*>(@this.compiler->allocate(sizeof(MirEdge)));
+	if (!edge) {
+		return nullptr;
+	};
+	@edge->target = static_cast<MirBlock*>(target);
+	@edge->kind = static_cast<mir_edge_kind>(kind);
+	@edge->token := token;
+	MirScope* retained = nullptr;
+	if (target) {
+		@retained := source->scope;
+		while (retained && !mir_scope_contains(static_cast<MirScope*>(retained), static_cast<MirScope*>(target->scope))) {
+			@retained := retained->parent;
+		};
+	};
+	@edge->retained_scope = static_cast<MirScope*>(retained);
+	@edge->next := source->edges;
+	@source->edges = static_cast<MirEdge*>(edge);
+	return static_cast<MirEdge*>(edge);
+};
+
+fn mir_reverse(Compiler& compiler, Syntax* statements) -> MirSource* {
+	MirSource* reversed = nullptr;
+	while (statements && compiler.result != compilation_result::failure) {
+		MirSource* source = static_cast<MirSource*>(@compiler.allocate(sizeof(MirSource)));
+		if (!source) {
+			return nullptr;
+		};
+		@source->value := statements;
+		@source->next := reversed;
+		@reversed := source;
+		@statements := statements->next;
+	};
+	return static_cast<MirSource*>(reversed);
+};
+
+fn MirBuilder::sequence(MirBuilder& this, Syntax* statements, MirScope* scope, MirBlock* next, const MirControl& control) -> MirBlock* {
+	MirSource* reversed = mir_reverse(@*this.compiler, static_cast<Syntax*>(statements));
+	while (reversed && this.compiler->result != compilation_result::failure) {
+		@next = @this.statement(static_cast<Syntax*>(reversed->value), static_cast<MirScope*>(scope), static_cast<MirBlock*>(next), control);
+		@reversed := reversed->next;
+	};
+	return static_cast<MirBlock*>(next);
+};
+
+fn MirBuilder::nested(MirBuilder& this, Syntax* syntax, MirScope* scope, MirBlock* next, const MirControl& control) -> MirBlock* {
+	if (syntax && syntax->kind != syntax_kind::node_block) {
+		@scope = mir_scope(@*this.compiler, static_cast<MirScope*>(scope), nullptr);
+	};
+	return @this.statement(static_cast<Syntax*>(syntax), static_cast<MirScope*>(scope), static_cast<MirBlock*>(next), control);
+};
+
+fn MirBuilder::statement(MirBuilder& this, Syntax* syntax, MirScope* scope, MirBlock* next, const MirControl& control) -> MirBlock* {
+	if (!syntax || this.compiler->result == compilation_result::failure) {
+		return static_cast<MirBlock*>(next);
+	};
+	MirBlock* block = nullptr;
+	switch (syntax->kind) {
+		case syntax_kind::node_block: {
+			MirScope* inner = mir_scope(@*this.compiler, static_cast<MirScope*>(scope), static_cast<Scope*>(syntax->scope));
+			MirBlock* body = @this.sequence(static_cast<Syntax*>(syntax->data.statements), static_cast<MirScope*>(inner), static_cast<MirBlock*>(next), control);
+			@block = @this.block(mir_kind::tick, nullptr, static_cast<MirScope*>(inner), syntax->token, 1);
+			@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(body), mir_edge_kind::ordinary, syntax->token);
+			return static_cast<MirBlock*>(block);
+		};
+		case syntax_kind::node_declaration:
+			if (syntax->entity->kind != entity_kind::variable) {
+				@block = @this.block(mir_kind::tick, nullptr, static_cast<MirScope*>(scope), syntax->token, 1);
+				break;
+			};
+			@next = @this.statement(static_cast<Syntax*>(syntax->data.declaration.body), static_cast<MirScope*>(scope), static_cast<MirBlock*>(next), control);
+			@block = @this.block(mir_kind::declare, static_cast<Syntax*>(syntax), static_cast<MirScope*>(scope), syntax->token, 1);
+			break;
+		case syntax_kind::kw_return:
+			@block = @this.block(mir_kind::kw_return, static_cast<Syntax*>(syntax->data.expression), static_cast<MirScope*>(scope), syntax->token, 1);
+			@this.edge(static_cast<MirBlock*>(block), nullptr, mir_edge_kind::ordinary, syntax->token);
+			return static_cast<MirBlock*>(block);
+		case syntax_kind::kw_break:
+		case syntax_kind::kw_continue:
+			if ((syntax->kind == syntax_kind::kw_break && !control.breaking) || (syntax->kind == syntax_kind::kw_continue && !control.continuing)) {
+				@this.compiler->diagnostics.report(syntax->token, "flow statement has no enclosing executable target\0");
+				return nullptr;
+			};
+			@block = @this.block(mir_kind::jump, nullptr, static_cast<MirScope*>(scope), syntax->token, 1);
+			if (syntax->kind == syntax_kind::kw_break) {
+				@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(control.breaking), mir_edge_kind::ordinary, syntax->token);
+			}
+			else {
+				@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(control.continuing), mir_edge_kind::ordinary, syntax->token);
+			};
+			return static_cast<MirBlock*>(block);
+		case syntax_kind::kw_if: {
+			@block = @this.block(mir_kind::branch, static_cast<Syntax*>(syntax->data.branch.condition), static_cast<MirScope*>(scope), syntax->token, 1);
+			MirBlock* first = @this.nested(static_cast<Syntax*>(syntax->data.branch.first), static_cast<MirScope*>(scope), static_cast<MirBlock*>(next), control);
+			MirBlock* second = @this.nested(static_cast<Syntax*>(syntax->data.branch.second), static_cast<MirScope*>(scope), static_cast<MirBlock*>(next), control);
+			@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(first), mir_edge_kind::when_true, syntax->token);
+			@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(second), mir_edge_kind::when_false, syntax->token);
+			return static_cast<MirBlock*>(block);
+		};
+		case syntax_kind::kw_for:
+		case syntax_kind::kw_while: {
+			MirScope* inner = mir_scope(@*this.compiler, static_cast<MirScope*>(scope), static_cast<Scope*>(syntax->scope));
+			MirBlock* header = @this.block(mir_kind::branch, static_cast<Syntax*>(syntax->data.loop.condition), static_cast<MirScope*>(inner), syntax->token, 0);
+			mir_kind kind = mir_kind::jump;
+			if (syntax->data.loop.step) {
+				@kind = mir_kind::evaluate;
+			};
+			MirBlock* step = @this.block(static_cast<mir_kind>(kind), static_cast<Syntax*>(syntax->data.loop.step), static_cast<MirScope*>(inner), syntax->token, static_cast<usize>((syntax->data.loop.step != nullptr)));
+			@this.edge(static_cast<MirBlock*>(step), static_cast<MirBlock*>(header), mir_edge_kind::backedge, syntax->token);
+			MirControl loop;
+			@loop.breaking = static_cast<MirBlock*>(next);
+			@loop.continuing = static_cast<MirBlock*>(step);
+			MirBlock* body = @this.nested(static_cast<Syntax*>(syntax->data.loop.body), static_cast<MirScope*>(inner), static_cast<MirBlock*>(step), loop);
+			@this.edge(static_cast<MirBlock*>(header), static_cast<MirBlock*>(body), mir_edge_kind::when_true, syntax->token);
+			@this.edge(static_cast<MirBlock*>(header), static_cast<MirBlock*>(next), mir_edge_kind::when_false, syntax->token);
+			MirBlock* initialization = @this.statement(static_cast<Syntax*>(syntax->data.loop.initializer), static_cast<MirScope*>(inner), static_cast<MirBlock*>(header), control);
+			@block = @this.block(mir_kind::tick, nullptr, static_cast<MirScope*>(inner), syntax->token, 1);
+			@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(initialization), mir_edge_kind::ordinary, syntax->token);
+			return static_cast<MirBlock*>(block);
+		};
+		case syntax_kind::kw_switch: {
+			@block = @this.block(mir_kind::dispatch, static_cast<Syntax*>(syntax->data.selection.value), static_cast<MirScope*>(scope), syntax->token, 1);
+			MirScope* inner = mir_scope(@*this.compiler, static_cast<MirScope*>(scope), static_cast<Scope*>(syntax->data.selection.cases->scope));
+			MirControl selection := control;
+			@selection.breaking = static_cast<MirBlock*>(next);
+			MirSource* reversed = mir_reverse(@*this.compiler, static_cast<Syntax*>(syntax->data.selection.cases->data.statements));
+			MirBlock* body = static_cast<MirBlock*>(next);
+			MirEdge* fallback = nullptr;
+			while (reversed && this.compiler->result != compilation_result::failure) {
+				Syntax* statement := reversed->value;
+				if (statement->kind == syntax_kind::kw_case) {
+					MirBlock* label = @this.block(mir_kind::jump, nullptr, static_cast<MirScope*>(inner), statement->token, 0);
+					@this.edge(static_cast<MirBlock*>(label), static_cast<MirBlock*>(body), mir_edge_kind::ordinary, statement->token);
+					mir_edge_kind kind = mir_edge_kind::otherwise;
+					if (statement->data.selection_case.value) {
+						@kind = mir_edge_kind::case_value;
+					};
+					MirEdge* edge = @this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(label), static_cast<mir_edge_kind>(kind), statement->token);
+					if (edge && statement->data.selection_case.value) {
+						@edge->selector := statement->data.selection_case.selector;
+					}
+					else {
+						@fallback = static_cast<MirEdge*>(edge);
+					};
+					@body = static_cast<MirBlock*>(label);
+				}
+				else {
+					@body = @this.statement(static_cast<Syntax*>(statement), static_cast<MirScope*>(inner), static_cast<MirBlock*>(body), selection);
+				};
+				@reversed := reversed->next;
+			};
+			if (!fallback) {
+				@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(next), mir_edge_kind::otherwise, syntax->token);
+			};
+			return static_cast<MirBlock*>(block);
+		};
+		case syntax_kind::kw_case:
+			@block = @this.block(mir_kind::tick, nullptr, static_cast<MirScope*>(scope), syntax->token, 1);
+			break;
+		default:
+			@block = @this.block(mir_kind::evaluate, static_cast<Syntax*>(syntax), static_cast<MirScope*>(scope), syntax->token, 1);
+			break;
+	};
+	@this.edge(static_cast<MirBlock*>(block), static_cast<MirBlock*>(next), mir_edge_kind::ordinary, syntax->token);
+	return static_cast<MirBlock*>(block);
+};
+
+fn mir_region(Compiler& compiler, Syntax* syntax, MirScope* parent) -> MirRegion* {
+	if (!syntax || compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	MirRegion* region = identity_record<MirRegion>(@compiler, @compiler.semantic.regions, static_cast<const void*>(syntax), static_cast<const void*>(parent));
+	if (!region || region->state == resolution::ready) {
+		return static_cast<MirRegion*>(region);
+	};
+	if (region->state == resolution::active) {
+		@compiler.diagnostics.report(syntax->token, "recursive executable region construction\0");
+		return nullptr;
+	};
+	@region->state = resolution::active;
+	@region->parent = static_cast<MirScope*>(parent);
+	@region->scope = mir_scope(@compiler, static_cast<MirScope*>(parent), nullptr);
+	MirBuilder builder;
+	@builder.compiler = &compiler;
+	@builder.region = static_cast<MirRegion*>(region);
+	MirBlock* exit = @builder.block(mir_kind::exit, nullptr, static_cast<MirScope*>(parent), syntax->token, 0);
+	MirControl control;
+	@region->entry = @builder.statement(static_cast<Syntax*>(syntax), static_cast<MirScope*>(region->scope), static_cast<MirBlock*>(exit), control);
+	@region->state = resolution::ready;
+	return static_cast<MirRegion*>(region);
+};
+

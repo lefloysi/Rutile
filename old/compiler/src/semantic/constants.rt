@@ -1,0 +1,762 @@
+fn ConstantContext::failure(ConstantContext& this, const char* reason) -> ConstantValue* {
+	if (!this.reason) {
+		@this.reason := reason;
+	};
+	return nullptr;
+};
+
+fn constant_value(Compiler& compiler, Type* type) -> ConstantValue* {
+	ConstantValue* value = static_cast<ConstantValue*>(@compiler.allocate(sizeof(ConstantValue)));
+	if (!value) {
+		return nullptr;
+	};
+	@value->type = type_effective($type);
+	return $value;
+};
+
+fn constant_zero(Compiler& compiler, Type* type) -> ConstantValue* {
+	ConstantValue* value = constant_value(@compiler, static_cast<Type*>(type));
+	if (!value) {
+		return nullptr;
+	};
+	if (type->kind == type_kind::array) {
+		@value->kind = constant_kind::aggregate;
+		@value->count := type->data.array.count;
+		@value->data.elements = static_cast<ConstantValue**>(@compiler.allocate(value->count * sizeof(ConstantValue*)));
+		if (!value->data.elements) {
+			return nullptr;
+		};
+		usize index = 0;
+		while (index < value->count) {
+			@value->data.elements[index] = constant_zero(@compiler, static_cast<Type*>(type->data.array.element));
+			if (!value->data.elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+	};
+	if (type->kind == type_kind::named && type->data.entity->kind == entity_kind::kw_struct) {
+		@value->kind = constant_kind::aggregate;
+		entity_resolve(@compiler, static_cast<Entity*>(type->data.entity));
+		@value->count := type->data.entity->data.aggregate.field_count;
+		@value->data.elements = static_cast<ConstantValue**>(@compiler.allocate(value->count * sizeof(ConstantValue*)));
+		if (!value->data.elements) {
+			return nullptr;
+		};
+		Field* field := type->data.entity->data.aggregate.fields;
+		usize index = 0;
+		while (field) {
+			@value->data.elements[index] = constant_zero(@compiler, static_cast<Type*>(field->entity->data.variable.type));
+			if (!value->data.elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+			@field := field->next;
+		};
+	};
+	return $value;
+};
+
+fn constant_copy(Compiler& compiler, ConstantValue* source) -> ConstantValue* {
+	if (!source) {
+		return nullptr;
+	};
+	ConstantValue* value = constant_value(@compiler, static_cast<Type*>(source->type));
+	if (!value) {
+		return nullptr;
+	};
+	@value->data := source->data;
+	@value->count := source->count;
+	@value->kind := source->kind;
+	if (source->count) {
+		@value->data.elements = static_cast<ConstantValue**>(@compiler.allocate(source->count * sizeof(ConstantValue*)));
+		if (!value->data.elements) {
+			return nullptr;
+		};
+		usize index = 0;
+		while (index < source->count) {
+			@value->data.elements[index] = constant_copy(@compiler, static_cast<ConstantValue*>(source->data.elements[index]));
+			if (!value->data.elements[index]) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+	};
+	return $value;
+};
+
+fn ConstantContext::storage_supported(ConstantContext& this, Type* type) -> bool {
+	@type = type_representation(static_cast<Type*>(type));
+	if (type->kind == type_kind::array) {
+		return @this.storage_supported(static_cast<Type*>(type->data.array.element));
+	};
+	if (type->kind != type_kind::named) {
+		return true;
+	};
+	Entity* record := type->data.entity;
+	if (record->kind != entity_kind::kw_struct || record->data.aggregate.bases || aggregate_header(static_cast<Entity*>(record))) {
+		@this.failure("this aggregate layout requires runtime construction\0");
+		return false;
+	};
+	Field* field := record->data.aggregate.fields;
+	while (field) {
+		if (type_has_lifecycle_callbacks(static_cast<Type*>(field->entity->data.variable.type))) {
+			@this.failure("member lifecycle operations require runtime execution\0");
+			return false;
+		};
+		@field := field->next;
+	};
+	return true;
+};
+
+fn constant_truth(ConstantValue* value) -> bool {
+	if (value->kind == constant_kind::text) {
+		return true;
+	};
+	if (type_representation(static_cast<Type*>(value->type))->kind == type_kind::kw_float) {
+		return value->data.real != 0;
+	};
+	return value->data.integer != 0;
+};
+
+fn ConstantContext::convert(ConstantContext& this, ConstantValue* source, Type* target) -> ConstantValue* {
+	if (!source || !target) {
+		return $source;
+	};
+	@target = type_effective(static_cast<Type*>(target));
+	Type* destination := target;
+	@target = type_representation(static_cast<Type*>(target));
+	Type* source_type = type_representation(static_cast<Type*>(source->type));
+	if (target->kind == type_kind::pointer && source_type->kind != type_kind::pointer && source->data.integer) {
+		return @this.failure("non-null integer-to-pointer conversion requires runtime execution\0");
+	};
+	if (source_type->kind == type_kind::pointer && target->kind != type_kind::pointer && target->kind != type_kind::kw_bool && (source->kind == constant_kind::text || source->data.integer)) {
+		return @this.failure("pointer-to-number conversion requires runtime execution\0");
+	};
+	ConstantValue* value = constant_copy(@*this.compiler, static_cast<ConstantValue*>(source));
+	if (!value) {
+		return nullptr;
+	};
+	@value->type = $destination;
+	if (target->kind == type_kind::kw_bool) {
+		@value->data.integer = static_cast<u64>(constant_truth($source));
+		return $value;
+	};
+	if (target->kind == type_kind::kw_float) {
+		if (source_type->kind != type_kind::kw_float) {
+			if (type_unsigned(static_cast<Type*>(source_type))) {
+				@value->data.real := static_cast<f64>(source->data.integer);
+			}
+			else {
+				@value->data.real := static_cast<f64>(static_cast<i64>(source->data.integer));
+			};
+		};
+		if (type_bits(static_cast<Type*>(target)) == 32) {
+			if (value->data.real > 340282346638528859811704183484516925440.0 || value->data.real < -340282346638528859811704183484516925440.0) {
+				return @this.failure("floating-point constant is outside the f32 range\0");
+			};
+			@value->data.real := static_cast<f64>(static_cast<f32>(value->data.real));
+		};
+		return $value;
+	};
+	if (target && target->kind.is_integer()) {
+		if (source_type->kind == type_kind::kw_float) {
+			if (source->data.real != source->data.real || source->data.real >= 18446744073709551616.0 || source->data.real < -9223372036854775808.0) {
+				return @this.failure("floating-point constant is outside the integer range\0");
+			};
+			if (source->data.real < 0) {
+				@value->data.integer := static_cast<u64>(static_cast<i64>(source->data.real));
+			}
+			else {
+				@value->data.integer := static_cast<u64>(source->data.real);
+			};
+		};
+		@value->data.integer = constant_selector(static_cast<u64>(value->data.integer), static_cast<Type*>(target));
+		i32 bits = type_bits(static_cast<Type*>(target));
+		if (!type_unsigned(static_cast<Type*>(target)) && bits < 64 && (value->data.integer & (u64(1) << static_cast<u64>((bits - 1))))) {
+			@value->data.integer = value->data.integer | (~u64(0) << static_cast<u64>(bits));
+		};
+	};
+	return $value;
+};
+
+fn ConstantContext::bind(ConstantContext& this, Entity* entity, ConstantValue* value) {
+	ConstantBinding* binding = static_cast<ConstantBinding*>(@this.compiler->allocate(sizeof(ConstantBinding)));
+	if (!binding) {
+		return;
+	};
+	@binding->entity = $entity;
+	@binding->value = $value;
+	@binding->next := this.bindings;
+	@this.bindings = $binding;
+};
+
+fn constant_initializer(Entity* entity) -> Syntax* {
+	if (!entity->declaration) {
+		return nullptr;
+	};
+	Syntax* body := entity->declaration->data.declaration.body;
+	if (!body || body->kind != syntax_kind::node_block || !body->data.statements || body->data.statements->next) {
+		return nullptr;
+	};
+	Syntax* statement := body->data.statements;
+	if (statement->kind != syntax_kind::stmt_initialize && statement->kind != syntax_kind::expr_binary) {
+		return nullptr;
+	};
+	return static_cast<Syntax*>(statement->data.binary.right);
+};
+
+fn ConstantContext::variable(ConstantContext& this, Entity* entity) -> ConstantValue* {
+	ConstantBinding* binding := this.bindings;
+	while (binding) {
+		if (binding->entity == entity) {
+			return static_cast<ConstantValue*>(binding->value);
+		};
+		@binding := binding->next;
+	};
+	if (entity->kind != entity_kind::variable) {
+		return @this.failure("constant expression requires a value\0");
+	};
+	if (!entity->data.variable.type && entity->declaration && entity->declaration->data.declaration.type) {
+		@entity->data.variable.type = type_resolve(@*this.compiler, static_cast<Scope*>(entity->scope), static_cast<TypeSyntax*>(entity->declaration->data.declaration.type));
+		@entity->data.variable.type_use = type_use_resolve(@*this.compiler, static_cast<Scope*>(entity->scope), static_cast<TypeSyntax*>(entity->declaration->data.declaration.type));
+	};
+	Type* type := entity->data.variable.type;
+	if (entity->data.variable.evaluation && entity->data.variable.evaluation->state == constant_state::constant) {
+		return static_cast<ConstantValue*>(entity->data.variable.evaluation->value);
+	};
+	if (entity->data.variable.storage == storage_kind::constant && !entity->data.variable.evaluation) {
+		if (entity->state == resolution::pending && entity->scope && entity->scope->owner && entity->scope->owner->kind == entity_kind::kw_enum) {
+			entity_resolve(@*this.compiler, static_cast<Entity*>(entity->scope->owner));
+		};
+		if (entity->data.variable.evaluation && entity->data.variable.evaluation->state == constant_state::constant) {
+			return static_cast<ConstantValue*>(entity->data.variable.evaluation->value);
+		};
+		ConstantValue* value = constant_value(@*this.compiler, static_cast<Type*>(entity->data.variable.type));
+		if (!value) {
+			return nullptr;
+		};
+		@value->data.integer := entity->data.variable.data.integer;
+		return $value;
+	};
+	if (!type || type->qualifier != type_qualifier::kw_const) {
+		return @this.failure("constant expression reads a runtime or mutable value\0");
+	};
+	if (!entity->data.variable.evaluation) {
+		@entity->data.variable.evaluation = static_cast<ConstantEvaluation*>(@this.compiler->allocate(sizeof(ConstantEvaluation)));
+	};
+	ConstantEvaluation* evaluation := entity->data.variable.evaluation;
+	if (!evaluation) {
+		return nullptr;
+	};
+	if (evaluation->state == constant_state::evaluating) {
+		@evaluation->state = constant_state::invalid;
+		@evaluation->reason = "circular constant initializer\0";
+		return @this.failure(static_cast<const char*>(evaluation->reason));
+	};
+	if (evaluation->state == constant_state::constant) {
+		return static_cast<ConstantValue*>(evaluation->value);
+	};
+	if (evaluation->state == constant_state::runtime || evaluation->state == constant_state::invalid) {
+		return @this.failure(static_cast<const char*>(evaluation->reason));
+	};
+	if (this.depth >= constant_evaluation_depth_limit) {
+		return @this.failure("constant evaluation exceeded the dependency-depth limit\0");
+	};
+	@evaluation->state = constant_state::evaluating;
+	ConstantContext child;
+	@child.compiler := this.compiler;
+	@child.scope := entity->scope;
+	@child.steps := this.steps;
+	@child.depth = this.depth + 1;
+	Syntax* initializer = constant_initializer(static_cast<Entity*>(entity));
+	if (initializer) {
+		@evaluation->value = @child.expression(static_cast<Syntax*>(initializer), static_cast<Type*>(type));
+	}
+	else if (!entity->declaration->data.declaration.body) {
+		if (@child.storage_supported(static_cast<Type*>(type))) {
+			@evaluation->value = constant_zero(@*this.compiler, static_cast<Type*>(type));
+		};
+		if (entity->declaration->data.declaration.constructor) {
+			if (!@child.call(static_cast<Entity*>(entity->declaration->data.declaration.constructor), nullptr, static_cast<ConstantValue*>(evaluation->value))) {
+				@evaluation->value = nullptr;
+			};
+		};
+	}
+	else {
+		@child.failure("initializer does not produce a compile-time value\0");
+	};
+	@this.steps := child.steps;
+	if (evaluation->value) {
+		@evaluation->state = constant_state::constant;
+		return static_cast<ConstantValue*>(evaluation->value);
+	};
+	@evaluation->reason := child.reason;
+	if (!evaluation->reason) {
+		@evaluation->reason = "initializer is not a constant expression\0";
+	};
+	if (evaluation->state != constant_state::invalid) {
+		@evaluation->state = constant_state::runtime;
+	};
+	return @this.failure(static_cast<const char*>(evaluation->reason));
+};
+
+fn ConstantContext::lvalue(ConstantContext& this, Syntax* syntax) -> ConstantValue* {
+	if (syntax->kind == syntax_kind::expr_access || syntax->kind == syntax_kind::expr_relocate || syntax->kind == syntax_kind::expr_borrowed_component) {
+		return @this.lvalue(static_cast<Syntax*>(syntax->data.expression));
+	};
+	if (syntax->kind == syntax_kind::expr_name) {
+		Entity* entity := syntax->entity;
+		if (!entity) {
+			@entity = syntax_lookup(static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax));
+		};
+		if (!entity) {
+			return @this.failure("unknown identifier in constant expression\0");
+		};
+		return @this.variable($entity);
+	};
+	if (syntax->kind == syntax_kind::expr_member) {
+		ConstantValue* object = @this.lvalue(static_cast<Syntax*>(syntax->data.member.object));
+		if (!object) {
+			return nullptr;
+		};
+		Entity* field := syntax->entity;
+		if (!field) {
+			@field = (entity_members(static_cast<Entity*>(object->type->data.entity)))->lookup(syntax->data.member.name);
+		};
+		if (!field || field->kind != entity_kind::variable || field->data.variable.storage != storage_kind::field || field->data.variable.data.field.index >= object->count) {
+			return @this.failure("constant member has no storage\0");
+		};
+		return static_cast<ConstantValue*>(object->data.elements[field->data.variable.data.field.index]);
+	};
+	if (syntax->kind == syntax_kind::expr_index) {
+		ConstantValue* object = @this.lvalue(static_cast<Syntax*>(syntax->data.binary.left));
+		ConstantValue* index = @this.expression(static_cast<Syntax*>(syntax->data.binary.right), static_cast<Type*>(this.compiler->usize_type));
+		if (!object || !index) {
+			return nullptr;
+		};
+		if (index->data.integer >= object->count) {
+			return @this.failure("constant array index is outside its bounds\0");
+		};
+		return static_cast<ConstantValue*>(object->data.elements[index->data.integer]);
+	};
+	return @this.failure("constant expression requires local storage\0");
+};
+
+fn ConstantContext::call(ConstantContext& this, Entity* function, Syntax* arguments, ConstantValue* receiver) -> ConstantValue* {
+	if (!function || function->kind != entity_kind::function) {
+		return @this.failure("indirect calls cannot be evaluated during compilation\0");
+	};
+	entity_resolve(@*this.compiler, static_cast<Entity*>(function));
+	if (!function->data.function.body) {
+		return @this.failure("external function calls cannot be evaluated during compilation\0");
+	};
+	if (this.depth >= constant_evaluation_depth_limit) {
+		return @this.failure("constant evaluation exceeded the call-depth limit\0");
+	};
+	function_request(static_cast<Entity*>(function));
+	if (function->data.function.analysis == function_analysis::requested) {
+		semantic_function(@*this.compiler, static_cast<Entity*>(function));
+	};
+	ConstantContext child;
+	@child.compiler := this.compiler;
+	@child.scope := function->data.function.scope;
+	@child.steps := this.steps;
+	@child.depth = this.depth + 1;
+	ParameterBinding* parameter := function->data.function.parameter_bindings;
+	if (receiver && parameter) {
+		@child.bind(static_cast<Entity*>(parameter->entity), static_cast<ConstantValue*>(receiver));
+		@parameter := parameter->next;
+	};
+	while (parameter && arguments) {
+		Type* type = entity_type(static_cast<Entity*>(parameter->entity));
+		if (type->kind != type_kind::reference && type_requires_destruction(static_cast<Type*>(type))) {
+			return @this.failure("owned parameter destruction requires runtime execution\0");
+		};
+		ConstantValue* value = nullptr;
+		if (type->kind == type_kind::reference) {
+			@value = @this.lvalue(static_cast<Syntax*>(arguments));
+		}
+		else {
+			@value = @this.expression(static_cast<Syntax*>(arguments), static_cast<Type*>(type));
+			@value = constant_copy(@*this.compiler, static_cast<ConstantValue*>(value));
+		};
+		if (!value) {
+			return nullptr;
+		};
+		@child.bind(static_cast<Entity*>(parameter->entity), $value);
+		@arguments := arguments->next;
+		@parameter := parameter->next;
+	};
+	if (parameter || arguments) {
+		return @this.failure("constant call has an incompatible argument list\0");
+	};
+	@child.region(static_cast<Syntax*>(function->data.function.body));
+	@this.steps := child.steps;
+	if (child.reason) {
+		return @this.failure(static_cast<const char*>(child.reason));
+	};
+	if (child.result) {
+		return @this.convert(static_cast<ConstantValue*>(child.result), static_cast<Type*>(function->data.function.type->data.function.result));
+	};
+	if (function->data.function.type->data.function.result->kind == type_kind::kw_void) {
+		return constant_value(@*this.compiler, static_cast<Type*>(this.compiler->void_type));
+	};
+	return @this.failure("constant function finished without returning a value\0");
+};
+
+fn ConstantContext::expression(ConstantContext& this, Syntax* syntax, Type* expected) -> ConstantValue* {
+	if (!syntax || this.reason || this.compiler->result == compilation_result::failure) {
+		return nullptr;
+	};
+	@this.steps = this.steps + 1;
+	if (this.steps > constant_evaluation_step_limit) {
+		return @this.failure("constant evaluation exceeded the execution-step limit\0");
+	};
+	Compiler& compiler = @*this.compiler;
+	if (syntax->kind == syntax_kind::expr_typed_apply) {
+		construction_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax));
+		if (compiler.result == compilation_result::failure) {
+			return nullptr;
+		};
+	};
+	Type* type := syntax->type;
+	if (!type) {
+		@type := expected;
+	};
+	if (!type) {
+		@type = entity_type(compiler.module->lookup(token_synthetic(@compiler, Token(syntax->token), "i64\0")));
+	};
+	switch (syntax->kind) {
+		case syntax_kind::literal_number: {
+			ConstantValue* value = constant_value(@compiler, static_cast<Type*>(type));
+			if (!value) {
+				return nullptr;
+			};
+			if (syntax->token.source->bytes.data[syntax->token.begin] == '\'') {
+				@value->type := compiler.char_type;
+				@value->data.integer = integer_spelling(@compiler, syntax->token, 255);
+			}
+			else if (number_decimal(syntax->token) || type->kind == type_kind::kw_float) {
+				char* text = @compiler.copy_text(syntax->token.source->bytes.data + syntax->token.begin, static_cast<usize>(syntax->token.length));
+				@value->data.real = strtod($text, nullptr);
+				@value->type = entity_type(compiler.module->lookup(token_synthetic(@compiler, Token(syntax->token), "f64\0")));
+			}
+			else if (type->kind == type_kind::kw_bool) {
+				@value->data.integer = number_truth(@compiler, syntax->token);
+			}
+			else {
+				@value->data.integer = integer_spelling(@compiler, syntax->token, ~u64(0));
+			};
+			return @this.convert($value, static_cast<Type*>(expected));
+		};
+		case syntax_kind::literal_string: {
+			ConstantValue* value = constant_value(@compiler, static_cast<Type*>(type));
+			if (!value) {
+				return nullptr;
+			};
+			@value->kind = constant_kind::text;
+			@value->data.text := syntax->data.string;
+			return $value;
+		};
+		case syntax_kind::kw_nullptr: {
+			return constant_value(@compiler, static_cast<Type*>(type));
+		};
+		case syntax_kind::expr_name:
+		case syntax_kind::expr_member:
+		case syntax_kind::expr_index:
+		case syntax_kind::expr_access:
+		case syntax_kind::expr_relocate:
+		case syntax_kind::expr_borrowed_component:
+			return @this.convert(@this.lvalue(static_cast<Syntax*>(syntax)), static_cast<Type*>(expected));
+		case syntax_kind::expr_cast: {
+			Type* target := syntax->data.cast.resolved;
+			if (!target) {
+				@target = type_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.cast.type));
+			};
+			return @this.convert(@this.expression(static_cast<Syntax*>(syntax->data.cast.value), static_cast<Type*>(target)), static_cast<Type*>(target));
+		};
+		case syntax_kind::expr_construct: {
+			Type* target := syntax->data.construction.target;
+			if (!@this.storage_supported(static_cast<Type*>(target))) {
+				return nullptr;
+			};
+			if (type_requires_destruction(static_cast<Type*>(target))) {
+				return @this.failure("temporary destruction requires runtime execution\0");
+			};
+			Syntax* arguments := syntax->data.construction.arguments;
+			if (!type_aggregate(static_cast<Type*>(target))) {
+				if (arguments) {
+					return @this.convert(@this.expression(static_cast<Syntax*>(arguments), static_cast<Type*>(target)), static_cast<Type*>(target));
+				};
+				return constant_zero(@compiler, static_cast<Type*>(target));
+			};
+			ConstantValue* object = constant_zero(@compiler, static_cast<Type*>(target));
+			if (syntax->data.construction.constructor) {
+				if (!@this.call(static_cast<Entity*>(syntax->data.construction.constructor), static_cast<Syntax*>(arguments), static_cast<ConstantValue*>(object))) {
+					return nullptr;
+				};
+			}
+			else if (arguments) {
+				@object = constant_copy(@compiler, @this.expression(static_cast<Syntax*>(arguments), static_cast<Type*>(target)));
+			};
+			return $object;
+		};
+		case syntax_kind::expr_call: {
+			Entity* function := syntax->data.call.callable->entity;
+			if (!function) {
+				@function = syntax_lookup(static_cast<Scope*>(this.scope), static_cast<Syntax*>(syntax->data.call.callable));
+			};
+			ConstantValue* receiver = nullptr;
+			if (syntax->data.call.receiver.kind == receiver_kind::bind) {
+				@receiver = @this.lvalue(static_cast<Syntax*>(syntax->data.call.receiver.value));
+			};
+			return @this.convert(@this.call($function, static_cast<Syntax*>(syntax->data.call.arguments), $receiver), static_cast<Type*>(expected));
+		};
+		case syntax_kind::expr_unary: {
+			ConstantValue* value = constant_copy(@compiler, @this.expression(static_cast<Syntax*>(syntax->data.unary.value), static_cast<Type*>(type)));
+			if (!value) {
+				return nullptr;
+			};
+			switch (syntax->data.unary.operation) {
+				case token_kind::op_plus:
+					break;
+				case token_kind::op_minus:
+					if (value->type->kind == type_kind::kw_float) {
+						@value->data.real = -value->data.real;
+					}
+					else {
+						@value->data.integer = u64(0) - value->data.integer;
+					};
+					break;
+				case token_kind::op_bang:
+					@value->data.integer = static_cast<u64>(!constant_truth(static_cast<ConstantValue*>(value)));
+					@value->type := compiler.bool_type;
+					break;
+				case token_kind::op_tilde:
+					@value->data.integer = ~value->data.integer;
+					break;
+				default:
+					return @this.failure("pointer operations require runtime storage\0");
+			};
+			return @this.convert($value, static_cast<Type*>(expected));
+		};
+		case syntax_kind::stmt_bind_reference: {
+			Syntax* name := syntax->data.binary.left;
+			while (name->kind == syntax_kind::expr_access) {
+				@name := name->data.expression;
+			};
+			if (!name->entity) {
+				return @this.failure("constant reference requires a local binding\0");
+			};
+			ConstantValue* value = @this.lvalue(static_cast<Syntax*>(syntax->data.binary.right));
+			@this.bind(static_cast<Entity*>(name->entity), static_cast<ConstantValue*>(value));
+			return $value;
+		};
+		case syntax_kind::stmt_initialize:
+		case syntax_kind::expr_binary: {
+			if (syntax->entity && syntax->entity->kind == entity_kind::function) {
+				return @this.failure("assignment operator calls require runtime execution\0");
+			};
+			token_kind operation := syntax->data.binary.operation;
+			if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
+				ConstantValue* destination = @this.lvalue(static_cast<Syntax*>(syntax->data.binary.left));
+				if (!destination) {
+					return nullptr;
+				};
+				ConstantValue* source = @this.expression(static_cast<Syntax*>(syntax->data.binary.right), static_cast<Type*>(destination->type));
+				if (!source) {
+					return nullptr;
+				};
+				@*destination := *constant_copy(@compiler, $source);
+				return $destination;
+			};
+			Type* operand_type := syntax->data.binary.left->type;
+			if (!operand_type) {
+				@operand_type := type;
+			};
+			ConstantValue* first = @this.expression(static_cast<Syntax*>(syntax->data.binary.left), static_cast<Type*>(operand_type));
+			if (!first) {
+				return nullptr;
+			};
+			if (type_representation(static_cast<Type*>(first->type))->kind == type_kind::pointer) {
+				return @this.failure("pointer operations require runtime storage\0");
+			};
+			if ((operation == token_kind::op_and && !constant_truth(static_cast<ConstantValue*>(first))) || (operation == token_kind::op_or && constant_truth(static_cast<ConstantValue*>(first)))) {
+				ConstantValue* value = constant_value(@compiler, static_cast<Type*>(compiler.bool_type));
+				if (!value) {
+					return nullptr;
+				};
+				@value->data.integer = static_cast<u64>((operation == token_kind::op_or));
+				return $value;
+			};
+			ConstantValue* second = @this.expression(static_cast<Syntax*>(syntax->data.binary.right), static_cast<Type*>(first->type));
+			if (!second) {
+				return nullptr;
+			};
+			ConstantValue* value = constant_value(@compiler, static_cast<Type*>(type));
+			if (!value) {
+				return nullptr;
+			};
+			if (first->type->kind == type_kind::kw_float) {
+				f64 a := first->data.real;
+				f64 b := second->data.real;
+				switch (operation) {
+					case token_kind::op_plus:
+						@value->data.real = a + b;
+						break;
+					case token_kind::op_minus:
+						@value->data.real = a - b;
+						break;
+					case token_kind::op_star:
+						@value->data.real = a * b;
+						break;
+					case token_kind::op_slash:
+						if (!b) {
+							return @this.failure("division by zero in constant expression\0");
+						};
+						@value->data.real = a / b; break;
+					case token_kind::op_equal:
+						@value->data.integer = static_cast<u64>((a == b));
+						break;
+					case token_kind::op_not_equal:
+						@value->data.integer = static_cast<u64>((a != b));
+						break;
+					case token_kind::op_less:
+						@value->data.integer = static_cast<u64>((a < b));
+						break;
+					case token_kind::op_greater:
+						@value->data.integer = static_cast<u64>((a > b));
+						break;
+					case token_kind::op_less_equal:
+						@value->data.integer = static_cast<u64>((a <= b));
+						break;
+					case token_kind::op_greater_equal:
+						@value->data.integer = static_cast<u64>((a >= b));
+						break;
+					default:
+						return @this.failure("unsupported floating-point constant operation\0");
+				};
+				return @this.convert($value, static_cast<Type*>(expected));
+			};
+			u64 a := first->data.integer;
+			u64 b := second->data.integer;
+			if ((operation == token_kind::op_slash || operation == token_kind::op_remainder) && (!b || (!type_unsigned(static_cast<Type*>(first->type)) && a == static_cast<u64>(9223372036854775808) && b == ~u64(0)))) {
+				return @this.failure("invalid division in constant expression\0");
+			};
+			if ((operation == token_kind::op_shift_left || operation == token_kind::op_shift_right) && b >= static_cast<u64>(type_bits(static_cast<Type*>(first->type)))) {
+				return @this.failure("constant shift count is outside the integer width\0");
+			};
+			bool unsigned_ = static_cast<bool>(type_unsigned(static_cast<Type*>(first->type)));
+			switch (operation) {
+				case token_kind::op_plus:
+					@value->data.integer = a + b;
+					break;
+				case token_kind::op_minus:
+					@value->data.integer = a - b;
+					break;
+				case token_kind::op_star:
+					@value->data.integer = a * b;
+					break;
+				case token_kind::op_ampersand:
+					@value->data.integer = a & b;
+					break;
+				case token_kind::op_pipe:
+					@value->data.integer = a | b;
+					break;
+				case token_kind::op_caret:
+					@value->data.integer = a ^ b;
+					break;
+				case token_kind::op_shift_left:
+					@value->data.integer = a << b;
+					break;
+				case token_kind::op_shift_right:
+					if (unsigned_) {
+						@value->data.integer = a >> b;
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) >> static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_slash:
+					if (unsigned_) {
+						@value->data.integer = a / b;
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) / static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_remainder:
+					if (unsigned_) {
+						@value->data.integer = a % b;
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) % static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_equal:
+					@value->data.integer = static_cast<u64>((a == b));
+					break;
+				case token_kind::op_not_equal:
+					@value->data.integer = static_cast<u64>((a != b));
+					break;
+				case token_kind::op_less:
+					if (unsigned_) {
+						@value->data.integer = static_cast<u64>((a < b));
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) < static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_greater:
+					if (unsigned_) {
+						@value->data.integer = static_cast<u64>((a > b));
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) > static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_less_equal:
+					if (unsigned_) {
+						@value->data.integer = static_cast<u64>((a <= b));
+					}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) <= static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_greater_equal:
+				if (unsigned_) {
+					@value->data.integer = static_cast<u64>((a >= b));
+				}
+					else {
+						@value->data.integer = static_cast<u64>((static_cast<i64>(a) >= static_cast<i64>(b)));
+					};
+					break;
+				case token_kind::op_and:
+					@value->data.integer = static_cast<u64>((constant_truth(static_cast<ConstantValue*>(first)) && constant_truth(static_cast<ConstantValue*>(second))));
+					break;
+				case token_kind::op_or:
+					@value->data.integer = static_cast<u64>((constant_truth(static_cast<ConstantValue*>(first)) || constant_truth(static_cast<ConstantValue*>(second))));
+					break;
+				default:
+					return @this.failure("unsupported integer constant operation\0");
+			};
+			@value = @this.convert(static_cast<ConstantValue*>(value), static_cast<Type*>(type));
+			return @this.convert($value, static_cast<Type*>(expected));
+		};
+		case syntax_kind::kw_sizeof: {
+			ConstantValue* value = constant_value(@compiler, static_cast<Type*>(compiler.usize_type));
+			if (!value) {
+				return nullptr;
+			};
+			Type* measured := syntax->data.sizeof_operand.measured;
+			if (!measured) {
+				@measured = type_resolve(@compiler, static_cast<Scope*>(this.scope), static_cast<TypeSyntax*>(syntax->data.sizeof_operand.type));
+			};
+			@value->data.integer = LLVMABISizeOfType(compiler.backend.llvm_layout.get(), llvm_type(@compiler, $measured));
+			return $value;
+		};
+		default:
+			return @this.failure("expression requires runtime execution\0");
+	};
+};

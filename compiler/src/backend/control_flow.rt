@@ -1,0 +1,216 @@
+fn FunctionEmitter::conditional(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+	SemanticExpression* condition = expression->item(0);
+	usize temporary_boundary = this.temporaries.size();
+	LLVMOpaqueValue* truth = @this.truth(@this.value(condition), condition->type());
+	if (!truth) {
+		return false;
+	};
+	if (!@this.cleanup_temporaries(temporary_boundary)) {
+		return false;
+	};
+	@this.forget_temporaries(temporary_boundary);
+	LLVMOpaqueBasicBlock* yes = @this.block("if.yes\0");
+	LLVMOpaqueBasicBlock* no = @this.block("if.no\0");
+	LLVMOpaqueBasicBlock* after = @this.block("if.after\0");
+	LLVMBuildCondBr(this.backend->builder(), truth, LLVMOpaqueBasicBlock*(yes), LLVMOpaqueBasicBlock*(no));
+	LLVMPositionBuilderAtEnd(this.backend->builder(), yes);
+	if (!@this.scoped_statement(expression->item(1))) {
+		return false;
+	};
+	bool yes_returns = this.terminated();
+	if (!yes_returns) {
+		LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(after));
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), no);
+	if (!@this.scoped_statement(expression->item(2))) {
+		return false;
+	};
+	bool no_returns = this.terminated();
+	if (!no_returns) {
+		LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(after));
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+	if (yes_returns && no_returns) {
+		LLVMBuildUnreachable(this.backend->builder());
+	};
+	return true;
+};
+
+fn FunctionEmitter::loop(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+	usize scope_boundary = this.bindings.size();
+	usize condition_index = 0;
+	usize body_index = 1;
+	if (expression->kind() == semantic_kind::for_loop) {
+		if (!@this.statement(expression->item(0))) {
+			return false;
+		};
+		@condition_index = 1;
+		@body_index = 3;
+	};
+	LLVMOpaqueBasicBlock* test = @this.block("loop.condition\0");
+	LLVMOpaqueBasicBlock* body = @this.block("loop.body\0");
+	LLVMOpaqueBasicBlock* step = test;
+	if (expression->kind() == semantic_kind::for_loop) {
+		@step = @this.block("loop.step\0");
+	};
+	LLVMOpaqueBasicBlock* after = @this.block("loop.after\0");
+	LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(test));
+	LLVMPositionBuilderAtEnd(this.backend->builder(), LLVMOpaqueBasicBlock*(test));
+	SemanticExpression* condition = expression->item(condition_index);
+	usize temporary_boundary = this.temporaries.size();
+	LLVMOpaqueValue* truth = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), 1, 0);
+	if (condition && condition->kind() != semantic_kind::noop) {
+		@truth = @this.truth(@this.value(condition), condition->type());
+	};
+	if (!truth) {
+		return false;
+	};
+	if (!@this.cleanup_temporaries(temporary_boundary)) {
+		return false;
+	};
+	@this.forget_temporaries(temporary_boundary);
+	LLVMBuildCondBr(this.backend->builder(), truth, LLVMOpaqueBasicBlock*(body), LLVMOpaqueBasicBlock*(after));
+	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
+	NativeControl loop;
+	@loop.leave := after;
+	@loop.resume := step;
+	@loop.parent := this.active_control;
+	@loop.binding_boundary = this.bindings.size();
+	@this.active_control = &loop;
+	bool emitted = @this.scoped_statement(expression->item(body_index));
+	@this.active_control := loop.parent;
+	if (!emitted) {
+		return false;
+	};
+	if (!this.terminated()) {
+		LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(step));
+	};
+	if (expression->kind() == semantic_kind::for_loop) {
+		LLVMPositionBuilderAtEnd(this.backend->builder(), step);
+		if (!@this.statement(expression->item(2))) {
+			return false;
+		};
+		if (!this.terminated()) {
+			LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(test));
+		};
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+	return @this.leave_scope(scope_boundary);
+};
+
+fn FunctionEmitter::lower_statement(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+	if (!expression || expression->kind() == semantic_kind::noop || this.terminated()) {
+		return true;
+	};
+	if (this.backend->failed()) {
+		return false;
+	};
+	switch (expression->kind()) {
+		case semantic_kind::brace: {
+			usize scope_boundary = this.bindings.size();
+			usize index = 0;
+			while (index < expression->size() && !this.terminated()) {
+				if (!@this.statement(expression->item(index))) {
+					return false;
+				};
+				@index = index + 1;
+			};
+			return @this.leave_scope(scope_boundary);
+		};
+		case semantic_kind::variable: {
+			Entity* entity = expression->entity();
+			LLVMOpaqueType* type = @this.backend->type(entity->type());
+			if (!type) {
+				return false;
+			};
+			LLVMOpaqueValue* slot = @this.slot(entity->type());
+			if (!slot || !@this.bind(Entity*(entity), LLVMOpaqueValue*(slot))) {
+				return false;
+			};
+			return @this.initialize_value(entity->type(), slot, expression->item(0));
+		};
+		case semantic_kind::return_value: {
+			if (this.result->kind() == type_kind::void_type) {
+				SemanticExpression* operand = expression->item(0);
+				if (operand && operand->kind() != semantic_kind::noop && !@this.statement(operand)) {
+					return false;
+				};
+				if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(0)) {
+					return false;
+				};
+				LLVMBuildRetVoid(this.backend->builder());
+				return true;
+			};
+			LLVMOpaqueValue* value;
+			if (this.result->kind() == type_kind::reference) {
+				@value = @this.address(expression->item(0));
+			}
+			else {
+				@value = @this.take(expression->item(0));
+			};
+			if (!value) {
+				return false;
+			};
+			if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(0)) {
+				return false;
+			};
+			LLVMBuildRet(this.backend->builder(), value);
+			return true;
+		};
+		case semantic_kind::conditional:
+			return @this.conditional(expression);
+		case semantic_kind::destruction: {
+			SemanticExpression* object = expression->item(0);
+			LLVMOpaqueValue* address = @this.address(object);
+			if (!address || !@this.destroy(object->type(), address)) {
+				return false;
+			};
+			@this.set_live(object, false);
+			return true;
+		};
+		case semantic_kind::while_loop:
+		case semantic_kind::for_loop:
+			return @this.loop(expression);
+		case semantic_kind::switch_expression:
+			return @this.selection(expression);
+		case semantic_kind::break_loop:
+		case semantic_kind::continue_loop: {
+			NativeControl* target = this.active_control;
+			if (expression->kind() == semantic_kind::continue_loop) {
+				while (target && !target->resume) {
+					@target = target->parent;
+				};
+			};
+			if (!target) {
+				return @this.backend->error(expression->token(), rt::string_view("control transfer has no enclosing native destination\0"));
+			};
+			if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(target->binding_boundary)) {
+				return false;
+			};
+			if (expression->kind() == semantic_kind::break_loop) {
+				@target->leave_edges = target->leave_edges + 1;
+				LLVMBuildBr(this.backend->builder(), target->leave);
+			}
+			else {
+				LLVMBuildBr(this.backend->builder(), target->resume);
+			};
+			return true;
+		};
+	};
+	return @this.value(expression) != nullptr;
+};
+
+fn FunctionEmitter::statement(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+	if (!expression || expression->kind() == semantic_kind::noop || this.terminated()) {
+		return true;
+	};
+	usize begin = this.temporaries.size();
+	if (!@this.lower_statement(expression)) {
+		return false;
+	};
+	if (!this.terminated() && !@this.cleanup_temporaries(begin)) {
+		return false;
+	};
+	@this.forget_temporaries(begin);
+	return true;
+};

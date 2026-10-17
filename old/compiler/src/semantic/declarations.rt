@@ -1,0 +1,1261 @@
+fn source_namespace_scope(Compiler& compiler, Scope* scope, NameSyntax* path) -> Scope* {
+	@path = name_source_select(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(path));
+	if (!path) {
+		return nullptr;
+	};
+	if (path->arguments) {
+		@compiler.diagnostics.report(path->token, "namespace names cannot have template arguments\0");
+		return nullptr;
+	};
+	if (path->qualifier) {
+		@scope = source_namespace_scope(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(path->qualifier));
+		if (!scope) {
+			return nullptr;
+		};
+	};
+	Entity* entity = namespace_define(@compiler, static_cast<Scope*>(scope), Token(path->token));
+	if (!entity) {
+		return nullptr;
+	};
+	return entity_members(static_cast<Entity*>(entity));
+};
+
+fn source_bases_lower(Compiler& compiler, SourceBase* source) -> BaseRelation* {
+	BaseRelation* first = nullptr;
+	BaseRelation** tail = &first;
+	while (source) {
+		BaseRelation* base = static_cast<BaseRelation*>(@compiler.allocate(sizeof(BaseRelation)));
+		if (!base) {
+			return nullptr;
+		};
+		@base->kind := source->kind;
+		@base->name := source->name;
+		@*tail := base;
+		@tail = &base->next;
+		@source := source->next;
+	};
+	return static_cast<BaseRelation*>(first);
+};
+
+fn source_declaration_role(Scope* owner, SourceDeclaration* source) -> function_role {
+	if (source->token.kind != token_kind::kw_fn) {
+		return function_role::ordinary;
+	};
+	if (source->spelling != function_role::ordinary) {
+		return static_cast<function_role>(source->spelling);
+	};
+	Entity* aggregate := owner->owner;
+	if (aggregate && (aggregate->kind == entity_kind::kw_struct || aggregate->kind == entity_kind::kw_union || aggregate->kind == entity_kind::kw_enum) && source->path->token.same(aggregate->name)) {
+		return function_role::constructor;
+	};
+	return function_role::ordinary;
+};
+
+struct SourceTraversal {
+	ValueSyntax* value;
+	SourceTraversal* next;
+};
+
+struct SourceVisit {
+	resolution state;
+};
+
+fn source_traversal_push(Compiler& compiler, SourceTraversal** pending, ValueSyntax* value) {
+	if (!value) {
+		return;
+	};
+	SourceTraversal* item = static_cast<SourceTraversal*>(@compiler.allocate(sizeof(SourceTraversal)));
+	if (!item) {
+		return;
+	};
+	@item->value := value;
+	@item->next := *pending;
+	@*pending := item;
+};
+
+fn source_collect_sequence(Compiler& compiler, Scope* scope, ValueSyntax* source, declaration_phase phase) {
+	IdentityMap<SourceVisit> visited;
+	SourceTraversal* pending = nullptr;
+	source_traversal_push(@compiler, &pending, static_cast<ValueSyntax*>(source));
+	while (pending && compiler.result != compilation_result::failure) {
+		@source := pending->value;
+		@pending := pending->next;
+		while (source && compiler.result != compilation_result::failure) {
+			SourceVisit* visit = identity_record<SourceVisit>(@compiler, @visited, static_cast<const void*>(source), static_cast<const void*>(scope));
+			if (!visit || visit->state == resolution::ready) {
+				break;
+			};
+			@visit->state = resolution::ready;
+			if (source->kind == syntax_kind::source_list) {
+				source_traversal_push(@compiler, &pending, static_cast<ValueSyntax*>(source->data.binary.right));
+				@source := source->data.binary.left;
+				continue;
+			};
+			if (source->kind == syntax_kind::source_choice) {
+				SourceArm* arm := source->data.choice->first;
+				while (arm) {
+					source_traversal_push(@compiler, &pending, static_cast<ValueSyntax*>(arm->value));
+					@arm := arm->next;
+				};
+			}
+			else if (source->kind == syntax_kind::node_source_declaration) {
+				source_collect_declaration(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(source->data.source_declaration), static_cast<declaration_phase>(phase));
+			};
+			@source := source->next;
+		};
+	};
+};
+
+fn source_collect_block(Compiler& compiler, Scope* scope, ValueSyntax* block, declaration_phase phase) {
+	if (!block) {
+		return;
+	};
+	source_collect_sequence(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(block->data.statements), static_cast<declaration_phase>(phase));
+};
+
+fn type_automatic(TypeSyntax* syntax) -> TypeSyntax* {
+	while (syntax) {
+		if (syntax->kind == type_syntax_kind::automatic) {
+			return $syntax;
+		};
+		if (syntax->kind != type_syntax_kind::qualified && syntax->kind != type_syntax_kind::conditional && syntax->kind != type_syntax_kind::pointer && syntax->kind != type_syntax_kind::reference) {
+			return nullptr;
+		};
+		@syntax := syntax->data.element;
+	};
+	return nullptr;
+};
+
+fn constness_parameter_name(Compiler& compiler, const Token& parameter) -> Token {
+	char* spelling = static_cast<char*>(@compiler.allocate(static_cast<usize>(parameter.length) + 8));
+	memcpy(char*(spelling), "$const.\0", 7);
+	memcpy(spelling + 7, parameter.source->bytes.data + parameter.begin, static_cast<usize>(parameter.length));
+	@spelling[7 + parameter.length] = '\0';
+	return token_synthetic(@compiler, Token(parameter), $spelling);
+};
+
+fn source_constness_parameters(Compiler& compiler, Scope* scope, SourceDeclaration* source) {
+	if (source->token.kind != token_kind::kw_fn) {
+		return;
+	};
+	TypeSyntax* signature = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(source->type));
+	if (!signature || signature->kind != type_syntax_kind::function) {
+		return;
+	};
+	ParameterSyntax* input := signature->data.signature.parameters;
+	TemplateParameter** tail = &source->parameters;
+	while (*tail) {
+		@tail = &(*tail)->next;
+	};
+	while (input) {
+		TypeSyntax* type = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(input->type));
+		TypeSyntax* automatic = type_automatic(static_cast<TypeSyntax*>(type));
+		if (automatic && !automatic->data.qualified.condition.source) {
+			if (!input->name.source) {
+				@compiler.diagnostics.report(automatic->token, "expected type and named parameter after 'auto'\0");
+				return;
+			};
+			TemplateParameter* parameter = static_cast<TemplateParameter*>(@compiler.allocate(sizeof(TemplateParameter)));
+			TypeSyntax* boolean = static_cast<TypeSyntax*>(@compiler.allocate(sizeof(TypeSyntax)));
+			NameSyntax* name = static_cast<NameSyntax*>(@compiler.allocate(sizeof(NameSyntax)));
+			@name->token = token_synthetic(@compiler, Token(input->name), "bool\0");
+			@boolean->kind = type_syntax_kind::name;
+			@boolean->token := name->token;
+			@boolean->data.name = $name;
+			@parameter->type = $boolean;
+			@parameter->name = constness_parameter_name(@compiler, input->name);
+			@parameter->kind = template_parameter_kind::value;
+			@parameter->constness := type;
+			@automatic->data.qualified.condition := parameter->name;
+			@*tail := parameter;
+			@tail = &parameter->next;
+		};
+		@input := input->next;
+	};
+};
+
+fn source_has_constness(SourceDeclaration* source) -> bool {
+	TemplateParameter* parameter := source->parameters;
+	while (parameter) {
+		if (parameter->constness) {
+			return true;
+		};
+		@parameter := parameter->next;
+	};
+	return false;
+};
+
+fn source_collect_declaration(Compiler& compiler, Scope* scope, SourceDeclaration* source, declaration_phase phase) -> SourceBinding* {
+	source_constness_parameters(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(source));
+	SourceBinding* binding = identity_record<SourceBinding>(@compiler, @compiler.semantic.source_bindings, static_cast<const void*>(source), static_cast<const void*>(scope));
+	if (!binding) {
+		return nullptr;
+	};
+	if (source->parameters && binding->kind != source_binding_kind::instance) {
+		if (!binding->entity) {
+			@binding->entity = source_template_register(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(source));
+			@binding->owner := scope;
+		};
+		return static_cast<SourceBinding*>(binding);
+	};
+	NameSyntax* path = name_source_select(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(source->path));
+	if (!path) {
+		return nullptr;
+	};
+	if (source->token.kind == token_kind::kw_namespace) {
+		if (scope->context != context_kind::module) {
+			@compiler.diagnostics.report(source->token, "namespace requires module context\0");
+			return nullptr;
+		};
+		Scope* members = source_namespace_scope(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(source->path));
+		if (!members) {
+			return nullptr;
+		};
+		@binding->entity := members->owner;
+		@binding->owner := scope;
+		source_collect_block(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(source->body), static_cast<declaration_phase>(phase));
+		return static_cast<SourceBinding*>(binding);
+	};
+	Scope* owner := scope;
+	if (path->qualifier && !(binding->kind == source_binding_kind::instance && source_has_constness(static_cast<SourceDeclaration*>(source))) && source->spelling != function_role::conversion && phase == declaration_phase::identities) {
+		return static_cast<SourceBinding*>(binding);
+	};
+	if (path->qualifier && !(binding->kind == source_binding_kind::instance && source_has_constness(static_cast<SourceDeclaration*>(source))) && source->spelling != function_role::conversion) {
+		Entity* entity = name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(path->qualifier));
+		@owner = entity_members(static_cast<Entity*>(entity));
+		if (!owner) {
+			if (phase == declaration_phase::identities) {
+				return static_cast<SourceBinding*>(binding);
+			};
+			@compiler.diagnostics.report(path->token, "qualified declaration owner has no associated scope\0");
+			return nullptr;
+		};
+	};
+	@binding->owner := owner;
+	if (source->token.kind == token_kind::kw_using) {
+		if (!binding->entity) {
+			Entity* alias = entity_create(@compiler, entity_kind::primitive, Token(path->token));
+			if (!alias) {
+				return nullptr;
+			};
+			@alias->scope := owner;
+			@alias->data.primitive.source := source->type;
+			@owner->define(static_cast<Entity*>(alias));
+			@binding->entity = $alias;
+		};
+		return static_cast<SourceBinding*>(binding);
+	};
+	DeclarationRule* rule = declaration_rule(@compiler, static_cast<token_kind>(source->token.kind));
+	function_role role = source_declaration_role(static_cast<Scope*>(owner), static_cast<SourceDeclaration*>(source));
+	if (role == function_role::conversion && !binding->entity) {
+		@binding->entity = entity_create(@compiler, entity_kind::function, Token(path->token));
+		if (binding->entity) {
+			@binding->entity->scope := owner;
+			@binding->entity->data.function.role = function_role::conversion;
+		};
+	};
+	if (rule && role == function_role::ordinary && !binding->entity) {
+		@binding->entity = declaration_entity(@compiler, static_cast<Scope*>(owner), static_cast<entity_kind>(rule->entity), Token(path->token));
+	};
+	Entity* entity := binding->entity;
+	if (entity && entity->kind == entity_kind::kw_struct && source->bases && !entity->data.aggregate.bases) {
+		@entity->data.aggregate.bases = source_bases_lower(@compiler, static_cast<SourceBase*>(source->bases));
+	};
+	if (entity && source->body && (entity->kind == entity_kind::kw_struct || entity->kind == entity_kind::kw_union)) {
+		source_collect_block(@compiler, entity_members(static_cast<Entity*>(entity)), static_cast<ValueSyntax*>(source->body), static_cast<declaration_phase>(phase));
+	};
+	return static_cast<SourceBinding*>(binding);
+};
+
+fn source_block_lower(Compiler& compiler, Scope* scope, ValueSyntax* source) -> Syntax* {
+	if (!source) {
+		return nullptr;
+	};
+	Syntax* block = syntax_create(@compiler, syntax_kind::node_block, Token(source->token));
+	if (!block) {
+		return nullptr;
+	};
+	@block->scope := scope;
+	@block->data.statements = value_lower_list(@compiler, static_cast<Scope*>(scope), static_cast<ValueSyntax*>(source->data.statements));
+	return static_cast<Syntax*>(block);
+};
+
+// Call after all module identities/member declarations have been collected, when
+// lowering a source template declaration. Never instantiate a dummy specialization.
+// This pass checks names and declaration shape; it deliberately does not resolve
+// ordinary field storage types (an unused void& field is accepted by the seed).
+
+fn generic_entity_dependent(Entity* entity) -> bool {
+	if (!entity) {
+		return false;
+	};
+	if (entity->template_parameter) {
+		return true;
+	};
+	return entity->kind == entity_kind::primitive && type_dependent(static_cast<Type*>(entity->data.primitive.type));
+};
+
+fn generic_type_dependent(Scope* scope, TypeSyntax* type) -> bool {
+	if (!type) {
+		return false;
+	};
+	switch (type->kind) {
+		case type_syntax_kind::choice: {
+			TypeChoice* choice := type->data.choices;
+			while (choice) {
+				if (generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(choice->type))) {
+					return true;
+				};
+				@choice := choice->next;
+			};
+			return false;
+		};
+		case type_syntax_kind::name:
+			return generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(type->data.name));
+		case type_syntax_kind::automatic:
+		case type_syntax_kind::conditional:
+		case type_syntax_kind::qualified:
+		case type_syntax_kind::pointer:
+		case type_syntax_kind::reference:
+			return generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.element));
+		case type_syntax_kind::array:
+			return generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.array.element)) || (type->data.array.count.kind == token_kind::identifier && generic_entity_dependent(scope->lookup(type->data.array.count)));
+		case type_syntax_kind::function: {
+			if (generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.signature.result))) {
+				return true;
+			};
+			ParameterSyntax* parameter := type->data.signature.parameters;
+			while (parameter) {
+				if (generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type))) {
+					return true;
+				};
+				@parameter := parameter->next;
+			};
+			return false;
+		};
+	};
+	return false;
+};
+
+fn generic_value_dependent(Scope* scope, ValueSyntax* value) -> bool {
+	if (!value) {
+		return false;
+	};
+	switch (value->kind) {
+		case syntax_kind::source_choice: {
+			SourceArm* arm := value->data.choice->first;
+			while (arm) {
+				if (generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(arm->value))) {
+					return true;
+				};
+				@arm := arm->next;
+			};
+			return false;
+		};
+		case syntax_kind::source_expression_chain:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.chain->head)) || generic_tail_dependent(static_cast<Scope*>(scope), static_cast<ExpressionTail*>(value->data.chain->tail));
+		case syntax_kind::node_block:
+			return generic_value_list_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.statements));
+		case syntax_kind::node_declaration:
+			return generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(value->data.declaration.type)) || generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.declaration.body));
+		case syntax_kind::expr_name:
+			return generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(value->data.name));
+		case syntax_kind::expr_destroy:
+		case syntax_kind::expr_cast:
+		case syntax_kind::expr_typed_apply:
+		case syntax_kind::kw_sizeof:
+			return generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(value->data.typed.type)) || generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.typed.value));
+		case syntax_kind::expr_call:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.call.callable)) || generic_value_list_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.call.arguments));
+		case syntax_kind::expr_member:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.member.object)) || generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(value->data.member.name));
+		case syntax_kind::source_list:
+		case syntax_kind::expr_binary:
+		case syntax_kind::expr_index:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.binary.left)) || generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.binary.right));
+		case syntax_kind::expr_unary:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.binary.left));
+		case syntax_kind::kw_new:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.allocation.construction)) || generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.allocation.count));
+		case syntax_kind::kw_delete:
+		case syntax_kind::expr_delete_discard:
+		case syntax_kind::kw_discard:
+		case syntax_kind::expr_access:
+		case syntax_kind::expr_relocate:
+			return generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value->data.expression));
+	};
+	return false;
+};
+
+fn generic_value_list_dependent(Scope* scope, ValueSyntax* value) -> bool {
+	while (value) {
+		if (generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(value))) {
+			return true;
+		};
+		@value := value->next;
+	};
+	return false;
+};
+
+fn generic_name_dependent(Scope* scope, NameSyntax* name) -> bool {
+	if (!name) {
+		return false;
+	};
+	NameChoice* choice := name->choices;
+	while (choice) {
+		if (generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(choice->name))) {
+			return true;
+		};
+		@choice := choice->next;
+	};
+	if (name->qualifier && generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(name->qualifier))) {
+		return true;
+	};
+	if (!name->qualifier && generic_entity_dependent(scope->lookup(name->token))) {
+		return true;
+	};
+	return generic_arguments_dependent(static_cast<Scope*>(scope), static_cast<ArgumentListSyntax*>(name->arguments));
+};
+
+fn generic_arguments_dependent(Scope* scope, ArgumentListSyntax* arguments) -> bool {
+	while (arguments) {
+		ArgumentListArm* choice := arguments->choices;
+		while (choice) {
+			if (generic_arguments_dependent(static_cast<Scope*>(scope), static_cast<ArgumentListSyntax*>(choice->arguments))) {
+				return true;
+			};
+			@choice := choice->next;
+		};
+		ArgumentSyntax* argument := arguments->first;
+		if (argument && (generic_type_dependent(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(argument->type)) || generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(argument->value)))) {
+			return true;
+		};
+		@arguments := arguments->rest;
+	};
+	return false;
+};
+
+fn generic_tail_dependent(Scope* scope, ExpressionTail* tail) -> bool {
+	while (tail) {
+		TailArm* choice := tail->choices;
+		while (choice) {
+			if (generic_tail_dependent(static_cast<Scope*>(scope), static_cast<ExpressionTail*>(choice->tail))) {
+				return true;
+			};
+			@choice := choice->next;
+		};
+		if (generic_value_dependent(static_cast<Scope*>(scope), static_cast<ValueSyntax*>(tail->operation))) {
+			return true;
+		};
+		@tail := tail->next;
+	};
+	return false;
+};
+
+fn generic_type_names_validate(Compiler& compiler, Scope* scope, TypeSyntax* type) {
+	if (!type || compiler.result == compilation_result::failure) {
+		return;
+	};
+	if (!generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type))) {
+		return;
+	};
+	@type = type_source_select(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type));
+	if (!type) {
+		return;
+	};
+	switch (type->kind) {
+		case type_syntax_kind::name: {
+			NameSyntax* name := type->data.name;
+			if (generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(name))) {
+				return;
+			};
+			Entity* entity = name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name));
+			if (!entity || (entity->kind != entity_kind::primitive && entity->kind != entity_kind::kw_struct && entity->kind != entity_kind::kw_union && entity->kind != entity_kind::kw_enum && entity->kind != entity_kind::kw_template)) {
+				if (compiler.result != compilation_result::failure) {
+					@compiler.diagnostics.report(name->token, "identifier does not name a type entity\0");
+				};
+			};
+			break;
+		};
+		case type_syntax_kind::automatic:
+		case type_syntax_kind::conditional:
+		case type_syntax_kind::qualified:
+		case type_syntax_kind::pointer:
+		case type_syntax_kind::reference:
+			generic_type_names_validate(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.element));
+			break;
+		case type_syntax_kind::array:
+			generic_type_names_validate(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.array.element));
+			break;
+		case type_syntax_kind::function: {
+			generic_type_names_validate(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.signature.result));
+			ParameterSyntax* parameter := type->data.signature.parameters;
+			while (parameter && compiler.result != compilation_result::failure) {
+				generic_type_names_validate(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type));
+				@parameter := parameter->next;
+			};
+			break;
+		};
+	};
+};
+
+fn generic_parameters_scope(Compiler& compiler, Scope* parent, TemplateParameter* parameters) -> Scope* {
+	Scope* scope = @compiler.create_scope(static_cast<Scope*>(parent), context_kind::module, nullptr);
+	if (!scope) {
+		return nullptr;
+	};
+	TemplateParameter* parameter := parameters;
+	while (parameter && compiler.result != compilation_result::failure) {
+		Entity* entity = entity_create(@compiler, entity_kind::primitive, Token(parameter->name));
+		if (!entity) {
+			return nullptr;
+		};
+		@entity->state = resolution::ready;
+		@entity->template_parameter := parameter;
+		if (parameter->kind == template_parameter_kind::type) {
+			@entity->data.primitive.type = @compiler.semantic.types.entity(type_kind::parameter, static_cast<Entity*>(entity));
+		}
+		else {
+			Type* type = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type));
+			if (compiler.result == compilation_result::failure) {
+				return nullptr;
+			};
+			if (!(type && type->kind.is_integer()) && !type_dependent(static_cast<Type*>(type))) {
+				@compiler.diagnostics.report(parameter->name, "non-type template parameter requires an integral type\0");
+				return nullptr;
+			};
+			@entity->kind = entity_kind::variable;
+			@entity->data.variable.storage = storage_kind::constant;
+			@entity->data.variable.type = static_cast<Type*>(type);
+		};
+		@scope->define(static_cast<Entity*>(entity));
+		@parameter := parameter->next;
+	};
+	return static_cast<Scope*>(scope);
+};
+
+fn generic_name_role_safe(Scope* scope, NameSyntax* name) -> bool {
+	if (!name) {
+		return true;
+	};
+	NameChoice* choice := name->choices;
+	while (choice) {
+		if (!generic_guard_safe(static_cast<Scope*>(scope), static_cast<ParseGuard*>(choice->guard)) || !generic_name_role_safe(static_cast<Scope*>(scope), static_cast<NameSyntax*>(choice->name))) {
+			return false;
+		};
+		@choice := choice->next;
+	};
+	return !name->qualifier || !generic_name_dependent(static_cast<Scope*>(scope), static_cast<NameSyntax*>(name->qualifier));
+};
+
+fn generic_type_role_safe(Scope* scope, TypeSyntax* type) -> bool {
+	if (!type) {
+		return true;
+	};
+	switch (type->kind) {
+		case type_syntax_kind::choice: {
+			TypeChoice* choice := type->data.choices;
+			while (choice) {
+				if (!generic_guard_safe(static_cast<Scope*>(scope), static_cast<ParseGuard*>(choice->guard)) || !generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(choice->type))) {
+					return false;
+				};
+				@choice := choice->next;
+			};
+			return true;
+		};
+		case type_syntax_kind::name: return generic_name_role_safe(static_cast<Scope*>(scope), static_cast<NameSyntax*>(type->data.name));
+		case type_syntax_kind::automatic:
+		case type_syntax_kind::conditional:
+		case type_syntax_kind::qualified:
+		case type_syntax_kind::pointer:
+		case type_syntax_kind::reference: return generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.element));
+		case type_syntax_kind::array: return generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.array.element));
+		case type_syntax_kind::function: {
+			ParameterSyntax* parameter := type->data.signature.parameters;
+			while (parameter) {
+				if (!generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(parameter->type))) {
+					return false;
+				};
+				@parameter := parameter->next;
+			};
+			return generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(type->data.signature.result));
+		};
+	};
+	return true;
+};
+
+fn generic_guard_safe(Scope* scope, ParseGuard* guard) -> bool {
+	if (!guard) {
+		return true;
+	};
+	if (guard->kind == parse_guard_kind::decision) {
+		if (guard->choice.kind == parse_choice_kind::template_name) {
+			return generic_name_role_safe(static_cast<Scope*>(scope), static_cast<NameSyntax*>(guard->choice.name));
+		};
+		return generic_type_role_safe(static_cast<Scope*>(scope), static_cast<TypeSyntax*>(guard->choice.type));
+	};
+	return generic_guard_safe(static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->left)) && generic_guard_safe(static_cast<Scope*>(scope), static_cast<ParseGuard*>(guard->right));
+};
+
+fn generic_members_validate(Compiler& compiler, Scope* members, ValueSyntax* statement, declaration_phase phase) {
+	while (statement && compiler.result != compilation_result::failure) {
+		if (statement->kind == syntax_kind::source_list) {
+			generic_members_validate(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(statement->data.binary.left), static_cast<declaration_phase>(phase));
+			@statement := statement->data.binary.right;
+			continue;
+		};
+		if (statement->kind == syntax_kind::source_choice) {
+			SourceArm* arm := statement->data.choice->first;
+			while (arm) {
+				if (!generic_guard_safe(static_cast<Scope*>(members), static_cast<ParseGuard*>(arm->guard))) {
+					return;
+				};
+				@arm := arm->next;
+			};
+			@statement = source_choice_select(@compiler, static_cast<Scope*>(members), *statement->data.choice);
+			continue;
+		};
+		if (statement->kind == syntax_kind::source_error) {
+			@compiler.diagnostics.report(statement->data.error->token, static_cast<const char*>(statement->data.error->message));
+			return;
+		};
+		if (statement->kind == syntax_kind::node_source_declaration) {
+			SourceDeclaration* declaration := statement->data.source_declaration;
+			NameSyntax* path = name_declaration_spelling(static_cast<NameSyntax*>(declaration->path));
+			if (phase == declaration_phase::identities) {
+				if (declaration->token.kind == token_kind::kw_fn && !path->qualifier && (declaration->spelling != function_role::ordinary || declaration->modification != function_modification::ordinary || (members->owner && path->token.same(members->owner->name))) && generic_type_role_safe(static_cast<Scope*>(members), static_cast<TypeSyntax*>(declaration->type))) {
+					TypeSyntax* signature = type_source_select(@compiler, static_cast<Scope*>(members), static_cast<TypeSyntax*>(declaration->type));
+					if (!signature) {
+						return;
+					};
+					ParameterSyntax* first := signature->data.signature.parameters;
+					if (!first || !first->name.is("this\0")) {
+						@compiler.diagnostics.report(declaration->token, "instance function requires an explicit 'this' reference parameter\0");
+						return;
+					};
+				};
+				if (declaration->token.kind == token_kind::kw_struct || declaration->token.kind == token_kind::kw_union || declaration->token.kind == token_kind::kw_enum || declaration->token.kind == token_kind::kw_using) {
+					Entity* nested = members->local(path->token);
+					if (!nested) {
+						@nested = entity_create(@compiler, entity_kind::primitive, Token(path->token));
+						if (!nested) {
+							return;
+						};
+						@nested->state = resolution::ready;
+						@nested->data.primitive.type = @compiler.semantic.types.entity(type_kind::parameter, static_cast<Entity*>(nested));
+						@members->define(static_cast<Entity*>(nested));
+					};
+				};
+			}
+			else {
+				generic_declaration_validate(@compiler, static_cast<Scope*>(members), static_cast<SourceDeclaration*>(declaration));
+			};
+		}
+		else if (phase == declaration_phase::members && statement->kind == syntax_kind::node_declaration) {
+			generic_type_names_validate(@compiler, static_cast<Scope*>(members), static_cast<TypeSyntax*>(statement->data.declaration.type));
+			Entity* field = entity_create(@compiler, entity_kind::variable, Token(statement->data.declaration.name));
+			if (!field) {
+				return;
+			};
+			@field->state = resolution::ready;
+			@field->data.variable.storage = storage_kind::field;
+			@members->define(static_cast<Entity*>(field));
+		};
+		@statement := statement->next;
+	};
+};
+
+fn generic_declaration_validate(Compiler& compiler, Scope* scope, SourceDeclaration* source) {
+	if (!source || compiler.result == compilation_result::failure) {
+		return;
+	};
+	if (source->token.kind == token_kind::kw_using) {
+		generic_type_names_validate(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(source->type));
+		return;
+	};
+	if (source->parameters) {
+		@scope = generic_parameters_scope(@compiler, static_cast<Scope*>(scope), static_cast<TemplateParameter*>(source->parameters));
+		if (!scope) {
+			return;
+		};
+	};
+	if (!source->body || (source->token.kind != token_kind::kw_struct && source->token.kind != token_kind::kw_union && source->token.kind != token_kind::kw_namespace)) {
+		return;
+	};
+	Scope* lexical = @compiler.create_scope(static_cast<Scope*>(scope), context_kind::module, nullptr);
+	if (!lexical) {
+		return;
+	};
+	Scope* members = @compiler.create_scope(static_cast<Scope*>(lexical), context_kind::module, nullptr);
+	if (!members) {
+		return;
+	};
+	if (source->token.kind != token_kind::kw_namespace) {
+		// A symbolic owning type makes its unqualified self name visible without
+		// creating a fake specialization or choosing concrete generic values.
+		Entity* self = entity_create(@compiler, entity_kind::primitive, Token(source->path->token));
+		if (!self) {
+			return;
+		};
+		@self->state = resolution::ready;
+		@self->data.primitive.type = @compiler.semantic.types.entity(type_kind::parameter, static_cast<Entity*>(self));
+		@members->owner := self;
+		@(members->parent)->define(static_cast<Entity*>(self));
+	};
+	generic_members_validate(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(source->body->data.statements), declaration_phase::identities);
+	generic_members_validate(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(source->body->data.statements), declaration_phase::members);
+};
+
+fn source_declaration_lower(Compiler& compiler, Scope* scope, SourceDeclaration* source) -> Syntax* {
+	SourceBinding* binding = source_collect_declaration(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(source), declaration_phase::members);
+	if (!binding || compiler.result == compilation_result::failure) {
+		return nullptr;
+	};
+	if (binding->lowered) {
+		return static_cast<Syntax*>(binding->lowered);
+	};
+	Syntax* node = syntax_create(@compiler, syntax_kind::node_declaration, Token(source->token));
+	if (!node) {
+		return nullptr;
+	};
+	@binding->lowered := node;
+	if (source->parameters && binding->kind != source_binding_kind::instance) {
+		generic_declaration_validate(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(source));
+		@node->entity := binding->entity;
+		return static_cast<Syntax*>(node);
+	};
+	NameSyntax* path = name_source_select(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(source->path));
+	if (!path) {
+		return nullptr;
+	};
+	Scope* owner := binding->owner;
+	if (source->token.kind == token_kind::kw_namespace) {
+		@node->entity := binding->entity;
+		@node->data.declaration.body = source_block_lower(@compiler, entity_members(static_cast<Entity*>(binding->entity)), static_cast<ValueSyntax*>(source->body));
+		if (binding->kind == source_binding_kind::instance) {
+			@binding->entity->declaration := node;
+		};
+		return static_cast<Syntax*>(node);
+	};
+	TypeSyntax* signature = nullptr;
+	if (source->token.kind == token_kind::kw_fn) {
+		@signature = type_source_select(@compiler, static_cast<Scope*>(owner), static_cast<TypeSyntax*>(source->type));
+		if (!signature) {
+			return nullptr;
+		};
+	};
+	function_role role = source_declaration_role(static_cast<Scope*>(owner), static_cast<SourceDeclaration*>(source));
+	Entity* aggregate := owner->owner;
+	if (role == function_role::assignment && (!aggregate || (aggregate->kind != entity_kind::kw_struct && aggregate->kind != entity_kind::kw_union && aggregate->kind != entity_kind::kw_enum))) {
+		@compiler.diagnostics.report(source->token, "assignment function requires an aggregate owner\0");
+		return nullptr;
+	};
+	if (role == function_role::destructor && (!aggregate || (aggregate->kind != entity_kind::kw_struct && aggregate->kind != entity_kind::kw_union && aggregate->kind != entity_kind::kw_enum) || !path->token.same(aggregate->name))) {
+		@compiler.diagnostics.report(source->token, "destructor name must match its owning type\0");
+		return nullptr;
+	};
+	Entity* entity := binding->entity;
+	if (role != function_role::ordinary && !entity) {
+		@entity = entity_create(@compiler, entity_kind::function, Token(path->token));
+		if (!entity) {
+			return nullptr;
+		};
+		@entity->scope := owner;
+		@entity->data.function.role := role;
+		@binding->entity := entity;
+	};
+	if (!entity) {
+		return nullptr;
+	};
+	@node->entity := entity;
+	@node->data.declaration.path = name_lower(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(source->path));
+	@node->data.declaration.conversion_target := source->conversion_target;
+	@node->data.declaration.name := path->token;
+	@node->data.declaration.type := source->type;
+	@node->data.declaration.definition := source->definition;
+	@node->data.declaration.modification := source->modification;
+	if (source->token.kind == token_kind::kw_fn) {
+		if (aggregate && scope_template_member(static_cast<Scope*>(owner))) {
+			@entity->data.function.analysis = function_analysis::unrequested;
+		};
+		if (role != function_role::ordinary && !path->qualifier) {
+			ParameterSyntax* first := signature->data.signature.parameters;
+			if (!first || !first->name.is("this\0")) {
+				@compiler.diagnostics.report(source->token, "instance function requires an explicit 'this' reference parameter\0");
+				return nullptr;
+			};
+		};
+		if ((role == function_role::constructor || role == function_role::destructor) && signature->data.signature.result) {
+			@compiler.diagnostics.report(source->token, "constructors and destructors have no return type\0");
+			return nullptr;
+		};
+		if (source->conversion == constructor_conversion::kw_implicit) {
+			if (role != function_role::constructor && role != function_role::conversion) {
+				@compiler.diagnostics.report(source->token, "implicit applies only to constructors or conversion operators\0");
+				return nullptr;
+			};
+			@entity->data.function.conversion = constructor_conversion::kw_implicit;
+		};
+		if (scope->context == context_kind::kw_struct && !path->qualifier) {
+			@entity->data.function.interface_owner := scope->owner;
+			if (entity->data.function.modification != function_modification::ordinary && entity->data.function.modification != source->modification) {
+				@compiler.diagnostics.report(source->token, "conflicting virtual relationship declarations\0");
+				return nullptr;
+			};
+			@entity->data.function.modification := source->modification;
+			if (source->modification != function_modification::ordinary && !entity->data.function.callable) {
+				VirtualCallable* callable = static_cast<VirtualCallable*>(@compiler.allocate(sizeof(VirtualCallable)));
+				if (!callable) {
+					return nullptr;
+				};
+				@callable->function := entity;
+				VirtualCallable** tail = &scope->owner->data.aggregate.virtual_callables;
+				while (*tail) {
+					@callable->index = callable->index + 1;
+					@tail = &(*tail)->next;
+				};
+				@entity->data.function.callable := callable;
+				@*tail = static_cast<VirtualCallable*>(callable);
+			};
+		};
+	};
+	if (source->body) {
+		if (source->token.kind == token_kind::kw_fn && role == function_role::ordinary && entity->declaration && (entity->declaration->data.declaration.body || entity->declaration->data.declaration.definition == function_definition::deleted)) {
+			@compiler.diagnostics.report(source->token, "duplicate function definition\0");
+			return nullptr;
+		};
+		if (source->token.kind == token_kind::kw_struct || source->token.kind == token_kind::kw_union) {
+			Scope* members = entity_members(static_cast<Entity*>(entity));
+			@members->context = context_kind::kw_struct;
+			if (source->token.kind == token_kind::kw_union) {
+				@members->context = context_kind::kw_union;
+			};
+			@node->data.declaration.bases := entity->data.aggregate.bases;
+			@node->data.declaration.body = source_block_lower(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(source->body));
+			@members->context = context_kind::module;
+		}
+		else if (source->token.kind == token_kind::kw_enum) {
+			Scope* members = entity_members(static_cast<Entity*>(entity));
+			@members->context = context_kind::kw_enum;
+			@node->data.declaration.body = source_block_lower(@compiler, static_cast<Scope*>(members), static_cast<ValueSyntax*>(source->body));
+		}
+		else {
+			Scope* parameters = @compiler.create_scope(static_cast<Scope*>(owner), context_kind::function, static_cast<Entity*>(entity));
+			ParameterSyntax* parameter := signature->data.signature.parameters;
+			while (parameter && compiler.result != compilation_result::failure) {
+				if (parameter->name.source) {
+					Entity* variable = entity_create(@compiler, entity_kind::variable, Token(parameter->name));
+					if (!variable) {
+						return nullptr;
+					};
+					@variable->data.variable.storage = storage_kind::parameter;
+					@parameters->define(static_cast<Entity*>(variable));
+				};
+				@parameter := parameter->next;
+			};
+			Scope* body = @compiler.create_scope(static_cast<Scope*>(parameters), context_kind::function, static_cast<Entity*>(entity));
+			@node->data.declaration.body = source_block_lower(@compiler, static_cast<Scope*>(body), static_cast<ValueSyntax*>(source->body));
+		};
+	};
+	if (!entity->declaration || source->body || source->definition == function_definition::deleted || source->definition == function_definition::defaulted) {
+		@entity->declaration := node;
+	};
+	if (role != function_role::ordinary) {
+		declaration_special_register(@compiler, static_cast<Scope*>(owner), static_cast<Syntax*>(node));
+	};
+	return static_cast<Syntax*>(node);
+};
+
+fn name_declaration_spelling(NameSyntax* name) -> NameSyntax* {
+	while (name && name->choices) {
+		@name := name->choices->name;
+	};
+	return static_cast<NameSyntax*>(name);
+};
+
+fn source_template_qualifier(NameSyntax* name) -> NameSyntax* {
+	while (name) {
+		@name = name_declaration_spelling(static_cast<NameSyntax*>(name));
+		if (name->arguments) {
+			return static_cast<NameSyntax*>(name);
+		};
+		@name := name->qualifier;
+	};
+	return nullptr;
+};
+
+fn source_template_register(Compiler& compiler, Scope* scope, SourceDeclaration* source) -> Entity* {
+	if (scope->context != context_kind::module && scope->context != context_kind::kw_struct && scope->context != context_kind::kw_union) {
+		@compiler.diagnostics.report(source->token, "template declarations require module or aggregate scope\0");
+		return nullptr;
+	};
+	NameSyntax* path = name_declaration_spelling(static_cast<NameSyntax*>(source->path));
+	NameSyntax* member = nullptr;
+	if (source->token.kind == token_kind::kw_fn) {
+		@member = source_template_qualifier(static_cast<NameSyntax*>(path->qualifier));
+	};
+	NameSyntax* name = static_cast<NameSyntax*>(path);
+	if (member) {
+		@name := member;
+	};
+	Scope* owner := scope;
+	if (name->qualifier) {
+		@owner = entity_members(name_resolve(@compiler, static_cast<Scope*>(scope), static_cast<NameSyntax*>(name->qualifier)));
+		if (!owner) {
+			@compiler.diagnostics.report(name->token, "qualified template owner has no scope\0");
+			return nullptr;
+		};
+	};
+	Entity* pattern = owner->local(name->token);
+	if (member) {
+		if (!pattern || pattern->kind != entity_kind::kw_template || pattern->data.template_pattern.declaration_kind == token_kind::kw_fn) {
+			@compiler.diagnostics.report(name->token, "template member requires a class template owner\0");
+			return nullptr;
+		};
+	}
+	else {
+		if (pattern && (pattern->kind != entity_kind::kw_template || pattern->data.template_pattern.declaration_kind != source->token.kind)) {
+			@compiler.diagnostics.report(name->token, "template conflicts with an existing entity\0");
+			return nullptr;
+		};
+		if (!pattern) {
+			@pattern = entity_create(@compiler, entity_kind::kw_template, Token(name->token));
+			if (!pattern) {
+				return nullptr;
+			};
+			@pattern->state = resolution::ready;
+			@pattern->scope := owner;
+			@pattern->data.template_pattern.declaration_kind := source->token.kind;
+			@pattern->data.template_pattern.instances = @compiler.create_scope(static_cast<Scope*>(owner), context_kind::module, static_cast<Entity*>(pattern));
+			@owner->define(static_cast<Entity*>(pattern));
+		};
+	};
+	TemplateDeclaration* declaration = static_cast<TemplateDeclaration*>(@compiler.allocate(sizeof(TemplateDeclaration)));
+	if (!declaration) {
+		return nullptr;
+	};
+	@declaration->source := source;
+	@declaration->signature := source->type;
+	@declaration->parameters := source->parameters;
+	@declaration->definition_scope := scope;
+	@declaration->pattern := pattern;
+	if (!member && source->body) {
+		if (pattern->data.template_pattern.definition) {
+			@compiler.diagnostics.report(source->token, "duplicate template definition\0");
+			return nullptr;
+		};
+		@pattern->data.template_pattern.definition := declaration;
+	};
+	TemplateDeclaration** tail = &compiler.templates;
+	while (*tail) {
+		@tail = &(*tail)->next;
+	};
+	@*tail := declaration;
+	@tail = &pattern->data.template_pattern.declarations;
+	while (*tail) {
+		@tail = &(*tail)->pattern_next;
+	};
+	@*tail = static_cast<TemplateDeclaration*>(declaration);
+	return static_cast<Entity*>(pattern);
+};
+
+fn template_specialize(Compiler& compiler, Entity* pattern, TemplateArgument* arguments, const Token& token) -> Entity* {
+	TemplateSpecialization* specialization := pattern->data.template_pattern.specializations;
+	while (specialization) {
+		if (template_arguments_equal(static_cast<TemplateArgument*>(specialization->arguments), static_cast<TemplateArgument*>(arguments))) {
+			return static_cast<Entity*>(specialization->entity);
+		};
+		@specialization := specialization->next;
+	};
+	TemplateDeclaration* declaration := pattern->data.template_pattern.definition;
+	if (!declaration) {
+		@declaration := pattern->data.template_pattern.declarations;
+	};
+	Scope* instances := pattern->data.template_pattern.instances;
+	Token name = template_instance_name(@compiler, Token(token), static_cast<usize>(instances->binding_count));
+	Entity* wrapper = nullptr;
+	TemplateArgument* argument := arguments;
+	while (argument) {
+		if (argument->parameter || type_dependent(static_cast<Type*>(argument->type))) {
+			@wrapper = entity_create(@compiler, entity_kind::kw_namespace, Token(name));
+			if (!wrapper) {
+				return nullptr;
+			};
+			@wrapper->state = resolution::ready;
+			@wrapper->scope := instances;
+			@wrapper->data.namespace_entity.scope = @compiler.create_scope(static_cast<Scope*>(instances), context_kind::module, static_cast<Entity*>(wrapper));
+			break;
+		};
+		@argument := argument->next;
+	};
+	if (!wrapper) {
+		@wrapper = namespace_define(@compiler, static_cast<Scope*>(instances), Token(name));
+	};
+	if (!wrapper) {
+		return nullptr;
+	};
+	Scope* scope = entity_members(static_cast<Entity*>(wrapper));
+	template_bind(@compiler, static_cast<Scope*>(scope), static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments));
+	@specialization = static_cast<TemplateSpecialization*>(@compiler.allocate(sizeof(TemplateSpecialization)));
+	SourceBinding* binding = identity_record<SourceBinding>(@compiler, @compiler.semantic.source_bindings, static_cast<const void*>(declaration->source), static_cast<const void*>(scope));
+	if (!specialization || !binding) {
+		return nullptr;
+	};
+	@specialization->arguments := arguments;
+	@specialization->scope := scope;
+	@specialization->next := pattern->data.template_pattern.specializations;
+	@pattern->data.template_pattern.specializations := specialization;
+	@binding->kind = source_binding_kind::instance;
+	source_collect_declaration(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(declaration->source), declaration_phase::identities);
+	@specialization->entity := binding->entity;
+	if (!specialization->entity) {
+		@compiler.diagnostics.report(token, "could not instantiate template declaration\0");
+		return nullptr;
+	};
+	@specialization->entity->template_origin := pattern;
+	@specialization->entity->specialization := specialization;
+	source_collect_declaration(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(declaration->source), declaration_phase::members);
+	source_declaration_lower(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(declaration->source));
+	TemplateDeclaration* extension := pattern->data.template_pattern.declarations;
+	while (extension && compiler.result != compilation_result::failure) {
+		if (extension != declaration && extension->source->token.kind == token_kind::kw_fn && pattern->data.template_pattern.declaration_kind != token_kind::kw_fn) {
+			template_bind(@compiler, static_cast<Scope*>(scope), static_cast<TemplateParameter*>(extension->parameters), static_cast<TemplateArgument*>(arguments));
+			SourceBinding* member = identity_record<SourceBinding>(@compiler, @compiler.semantic.source_bindings, static_cast<const void*>(extension->source), static_cast<const void*>(scope));
+			if (!member) {
+				return nullptr;
+			};
+			@member->kind = source_binding_kind::instance;
+			source_collect_declaration(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(extension->source), declaration_phase::members);
+			source_declaration_lower(@compiler, static_cast<Scope*>(scope), static_cast<SourceDeclaration*>(extension->source));
+		};
+		@extension := extension->pattern_next;
+	};
+	return static_cast<Entity*>(specialization->entity);
+};
+fn implicit_copy_registered(Compiler& compiler, Type* type) -> ImplicitCopy* {
+	ImplicitCopy* copy := compiler.semantic.implicit_copies;
+	while (copy) {
+		if (type_value_equal(static_cast<Type*>(copy->type), static_cast<Type*>(type))) {
+			return $copy;
+		};
+		@copy := copy->next;
+	};
+	return nullptr;
+};
+
+fn implicit_copy_register(Compiler& compiler, Type* type, Entity* function) {
+	ImplicitCopy* copy = implicit_copy_registered(@compiler, static_cast<Type*>(type));
+	if (!copy) {
+		@copy = static_cast<ImplicitCopy*>(@compiler.allocate(sizeof(ImplicitCopy)));
+		if (!copy) {
+			return;
+		};
+		@copy->type := type;
+		@copy->next := compiler.semantic.implicit_copies;
+		@compiler.semantic.implicit_copies := copy;
+	};
+	@copy->function = $function;
+};
+
+fn implicit_copy_find(Compiler& compiler, Type* type) -> ImplicitCopy* {
+	ImplicitCopy* copy = implicit_copy_registered(@compiler, static_cast<Type*>(type));
+	if (copy || !type || type_dependent(static_cast<Type*>(type))) {
+		return $copy;
+	};
+	TemplateDeclaration* declaration := compiler.templates;
+	while (declaration && compiler.result != compilation_result::failure) {
+		SourceDeclaration* source := declaration->source;
+		if (source->spelling != function_role::conversion || source->conversion != constructor_conversion::kw_implicit || !source->body) {
+			@declaration := declaration->next;
+			continue;
+		};
+		Scope* scope = generic_parameters_scope(@compiler, static_cast<Scope*>(declaration->definition_scope), static_cast<TemplateParameter*>(declaration->parameters));
+		TemplateArgument* arguments = nullptr;
+		TemplateArgument** tail = &arguments;
+		TemplateParameter* parameter := declaration->parameters;
+		while (parameter) {
+			TemplateArgument* argument = static_cast<TemplateArgument*>(@compiler.allocate(sizeof(TemplateArgument)));
+			if (!argument) {
+				return nullptr;
+			};
+			@argument->kind := parameter->kind;
+			@*tail := argument;
+			@tail = &argument->next;
+			@parameter := parameter->next;
+		};
+		Type* pattern = type_resolve(@compiler, static_cast<Scope*>(scope), static_cast<TypeSyntax*>(source->conversion_target));
+		Type* actual = @compiler.semantic.types.qualified(static_cast<Type*>(type), type_qualifier::mutable);
+		if (template_unify(@compiler, static_cast<Type*>(pattern), static_cast<Type*>(actual), nullptr, static_cast<TemplateParameter*>(declaration->parameters), static_cast<TemplateArgument*>(arguments))) {
+			TemplateArgument* argument := arguments;
+			while (argument && argument->type) {
+				@argument := argument->next;
+			};
+			if (!argument) {
+				template_specialize(@compiler, static_cast<Entity*>(declaration->pattern), static_cast<TemplateArgument*>(arguments), source->token);
+				@copy = implicit_copy_registered(@compiler, static_cast<Type*>(type));
+				if (copy) {
+					return $copy;
+				};
+			};
+		};
+		@declaration := declaration->next;
+	};
+	return nullptr;
+};
+
+fn declaration_special_register(Compiler& compiler, Scope* owner, Syntax* declaration) {
+	Entity* function := declaration->entity;
+	function_role role := function->data.function.role;
+	Type* signature = function_type_resolve(@compiler, static_cast<Scope*>(owner), static_cast<Entity*>(function));
+	Entity** tail = nullptr;
+	Type* target = nullptr;
+	Parameter* parameter = nullptr;
+	if (role == function_role::conversion) {
+		@target = type_resolve(@compiler, static_cast<Scope*>(owner), static_cast<TypeSyntax*>(declaration->data.declaration.conversion_target));
+		@parameter := signature->data.function.parameters;
+		if (!parameter || parameter->next || signature->data.function.arity != parameter_arity::fixed || !function_receiver(static_cast<Entity*>(function)) || parameter->type->kind != type_kind::reference || signature->data.function.result->kind == type_kind::reference || !type_equal(static_cast<Type*>(signature->data.function.result), static_cast<Type*>(target))) {
+			@compiler.diagnostics.report(declaration->token, "conversion requires one reference receiver named this and a result matching its target\0");
+			return;
+		};
+		if (function->data.function.conversion == constructor_conversion::kw_implicit && type_value_equal(static_cast<Type*>(parameter->type->data.element), static_cast<Type*>(target)) && parameter->type->data.element->qualifier != type_qualifier::kw_const) {
+			@compiler.diagnostics.report(declaration->token, "self conversion requires a const reference receiver\0");
+			return;
+		};
+		@tail = &compiler.semantic.conversions;
+	}
+	else {
+		@tail = special_functions(static_cast<Entity*>(owner->owner), static_cast<function_role>(role));
+	};
+	usize index = 0;
+	while (*tail) {
+		Entity* existing := *tail;
+		Type* other = function_type_resolve(@compiler, static_cast<Scope*>(existing->scope), static_cast<Entity*>(existing));
+		if (type_equal(static_cast<Type*>(signature), static_cast<Type*>(other))) {
+			if (declaration->data.declaration.definition != function_definition::declaration && existing->declaration->data.declaration.definition != function_definition::declaration) {
+				@compiler.diagnostics.report(declaration->token, "duplicate special function definition\0");
+				return;
+			};
+			if (function->data.function.conversion == constructor_conversion::kw_implicit) {
+				@existing->data.function.conversion = constructor_conversion::kw_implicit;
+				if (role == function_role::conversion && parameter->type->data.element->qualifier == type_qualifier::kw_const && type_value_equal(static_cast<Type*>(parameter->type->data.element), static_cast<Type*>(target))) {
+					implicit_copy_register(@compiler, static_cast<Type*>(signature->data.function.result), static_cast<Entity*>(existing));
+				};
+			};
+			@declaration->entity := existing;
+			if (declaration->data.declaration.definition != function_definition::declaration) {
+				@existing->declaration := declaration;
+				if (declaration->data.declaration.body) {
+					@declaration->data.declaration.body->scope->owner := existing;
+				};
+			};
+			return;
+		};
+		@index = index + 1;
+		@tail = &existing->data.function.overload_next;
+	};
+	if (role == function_role::destructor && index) {
+		@compiler.diagnostics.report(declaration->token, "a type has exactly one destructor signature\0");
+		return;
+	};
+	@function->data.function.overload_index = static_cast<usize>(index);
+	@*tail := function;
+	if (role == function_role::conversion && function->data.function.conversion == constructor_conversion::kw_implicit && parameter->type->data.element->qualifier == type_qualifier::kw_const && type_value_equal(static_cast<Type*>(parameter->type->data.element), static_cast<Type*>(target))) {
+		implicit_copy_register(@compiler, static_cast<Type*>(signature->data.function.result), static_cast<Entity*>(function));
+	};
+	Token alias = token_synthetic(@compiler, Token(function->name), "<special-function>\0");
+	@owner->bind_named(Token(alias), static_cast<Entity*>(function), static_cast<Scope*>(owner), static_cast<Source*>(declaration->token.source));
+};
+
+fn token_synthetic(Compiler& compiler, Token location, const char* spelling) -> Token {
+	Source* source = @compiler.sources.create(@compiler);
+	if (!source) {
+		return Token(location);
+	};
+	@source->path := location.source->path;
+	@source->bytes.size = strlen(const char*(spelling));
+	@source->bytes.data = static_cast<const char*>(spelling);
+	@location.source = static_cast<Source*>(source);
+	@location.begin = 0;
+	@location.length := location.source->bytes.size;
+	@location.kind = token_kind::identifier;
+	return Token(location);
+};
+
+fn special_functions(Entity* owner, function_role role) -> Entity** {
+	if (role == function_role::constructor) {
+		return &owner->data.aggregate.constructors;
+	};
+	if (role == function_role::assignment) {
+		return &owner->data.aggregate.assignments;
+	};
+	return &owner->data.aggregate.destructor;
+};
+
+fn scope_template_member(Scope* scope) -> bool {
+	while (scope) {
+		Entity* owner := scope->owner;
+		if (owner && (owner->kind == entity_kind::kw_struct || owner->kind == entity_kind::kw_union || owner->kind == entity_kind::kw_namespace) && owner->template_origin) {
+			return true;
+		};
+		@scope := scope->parent;
+	};
+	return false;
+};
+
+fn prepare_source(Compiler& compiler, Source* source) -> i32 {
+	if (source->parsed) {
+		return compiler.result == compilation_result::success;
+	};
+	if (!source->tokens && !tokenize(@compiler, static_cast<Source*>(source), &source->tokens, &source->token_count)) {
+		return 0;
+	};
+	Parser parser;
+	@parser.compiler = &compiler;
+	@parser.tokens := source->tokens;
+	@parser.count := source->token_count;
+	if (!@parser.memo_initialize(@*source)) {
+		return 0;
+	};
+	ParseResult<ValueSyntax>* parsed = @parser.source_file_results();
+	if (parser.failure.message) {
+		@compiler.diagnostics.report(parser.failure.token, const char*(parser.failure.message));
+	};
+	if (compiler.result == compilation_result::failure) {
+		return 0;
+	};
+	if (!parsed || parsed->next || parsed->end.offset + 1 != source->token_count || parsed->end.pending_greater) {
+		@compiler.diagnostics.report(parser.token(), "source file did not reach one complete interpretation\0");
+		return 0;
+	};
+	@source->parsed := parsed->value;
+	return 1;
+};
+
+fn prepare_sources(Compiler& compiler) -> i32 {
+	Source* source = compiler.sources.head();
+	while (source && compiler.result != compilation_result::failure) {
+		if (!prepare_source(@compiler, static_cast<Source*>(source))) {
+			return 0;
+		};
+		@source := source->next;
+	};
+	@source = compiler.sources.head();
+	while (source && compiler.result != compilation_result::failure) {
+		source_collect_block(@compiler, static_cast<Scope*>(compiler.module), static_cast<ValueSyntax*>(source->parsed), declaration_phase::identities);
+		@source := source->next;
+	};
+	@source = compiler.sources.head();
+	while (source && compiler.result != compilation_result::failure) {
+		source_collect_block(@compiler, static_cast<Scope*>(compiler.module), static_cast<ValueSyntax*>(source->parsed), declaration_phase::members);
+		@source := source->next;
+	};
+	return compiler.result == compilation_result::success;
+};
+
+fn parse_source(Compiler& compiler, Source* source) -> Syntax* {
+	if (!prepare_source(@compiler, static_cast<Source*>(source))) {
+		return nullptr;
+	};
+	return source_block_lower(@compiler, static_cast<Scope*>(compiler.module), static_cast<ValueSyntax*>(source->parsed));
+};
+

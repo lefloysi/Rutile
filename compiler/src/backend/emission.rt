@@ -1,0 +1,137 @@
+fn Backend::entry(Backend& this, Entity* entity) -> bool {
+	const FunctionSignature& signature = entity->type()->signature();
+	if (signature.parameters().size() || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
+		return @this.error(entity->token(), rt::string_view("executable entry requires no parameters and an integer or void result\0"));
+	};
+	LLVMOpaqueType* integer = LLVMIntTypeInContext(this.context(), 32);
+	LLVMOpaqueType* type = LLVMFunctionType(LLVMOpaqueType*(integer), nullptr, 0, 0);
+	LLVMOpaqueValue* main = LLVMAddFunction(this.module(), "main\0", type);
+	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), main, "entry\0"));
+	LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), this.symbol(entity), nullptr, 0, "\0");
+	if (signature.result()->kind() == type_kind::void_type) {
+		@result = LLVMConstInt(integer, 0, 0);
+	}
+	else if (@this.type(signature.result()) != integer) {
+		u32 bits = signature.result()->bits();
+		if (signature.result()->kind() == type_kind::boolean) {
+			@bits = 1;
+		};
+		if (signature.result()->kind() == type_kind::character) {
+			@bits = 8;
+		};
+		if (bits > 32) {
+			@result = LLVMBuildTrunc(this.builder(), LLVMOpaqueValue*(result), integer, "entry.result\0");
+		}
+		else if (signature.result()->kind() == type_kind::unsigned_integer || signature.result()->kind() == type_kind::boolean) {
+			@result = LLVMBuildZExt(this.builder(), LLVMOpaqueValue*(result), integer, "entry.result\0");
+		}
+		else {
+			@result = LLVMBuildSExt(this.builder(), LLVMOpaqueValue*(result), integer, "entry.result\0");
+		};
+	};
+	LLVMBuildRet(this.builder(), result);
+	return true;
+};
+
+fn Backend::emit(Backend& this, const SemanticUnit& unit, const rt::string_view& entry, output_kind output) -> bool {
+	if (output == output_kind::executable) {
+		Entity* selected = unit.root_scope()->lookup(entry);
+		if (!selected || selected->kind() != entity_kind::function || !selected->body() || selected->body()->kind() == semantic_kind::noop) {
+			Token location;
+			return @this.error(location, rt::string_view("executable entry requires a defined function\0"));
+		};
+		@this.selected_entry = selected->canonical();
+	};
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		if (!@this.declare(unit.entities().data()[index].get())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < unit.entities().size()) {
+		Entity* entity = unit.entities().data()[index].get();
+		if (this.required(entity) && entity->kind() == entity_kind::function && (entity->definition() == function_definition::defaulted || entity->body() && entity->body()->kind() != semantic_kind::noop)) {
+			var emitter = FunctionEmitter(@this, this.implementation(entity), entity->type()->signature().result());
+			if (!@emitter.emit(entity)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < unit.entities().size()) {
+		Entity* entity = unit.entities().data()[index].get();
+		if (this.required(entity) && entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary && !@this.emit_dispatch(entity)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	LLVMOpaqueValue* initialize;
+	@index = 0;
+	while (index < unit.entities().size()) {
+		Entity* entity = unit.entities().data()[index].get();
+		if (entity->canonical() == entity && entity->kind() == entity_kind::global) {
+			if (!initialize) {
+				@initialize = LLVMAddFunction(this.module(), "rt.initialize\0", LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
+				LLVMSetLinkage(LLVMOpaqueValue*(initialize), 9);
+				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), LLVMOpaqueValue*(initialize), "entry\0"));
+			};
+			var emitter = FunctionEmitter(@this, LLVMOpaqueValue*(initialize), nullptr);
+			if (!@emitter.initialize_value(entity->type(), this.symbol(entity), entity->body()) || !@emitter.finish_expression()) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	if (initialize) {
+		LLVMBuildRetVoid(this.builder());
+		@this.register_lifecycle(initialize, "llvm.global_ctors\0");
+	};
+	LLVMOpaqueValue* finalize;
+	@index = unit.entities().size();
+	while (index) {
+		@index = index - 1;
+		Entity* entity = unit.entities().data()[index].get();
+		if (entity->canonical() == entity && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
+			if (!finalize) {
+				@finalize = LLVMAddFunction(this.module(), "rt.finalize\0", LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
+				LLVMSetLinkage(finalize, 9);
+				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), finalize, "entry\0"));
+			};
+			var emitter = FunctionEmitter(@this, finalize, nullptr);
+			if (!@emitter.destroy(entity->type(), this.symbol(entity))) {
+				return false;
+			};
+		};
+	};
+	if (finalize) {
+		LLVMBuildRetVoid(this.builder());
+		@this.register_lifecycle(finalize, "llvm.global_dtors\0");
+	};
+
+	if (output == output_kind::executable) {
+		if (!@this.entry(this.selected_entry)) {
+			return false;
+		};
+	};
+	return @this.verify();
+};
+
+fn Backend::register_lifecycle(Backend& this, LLVMOpaqueValue* function, const char* name) {
+	LLVMOpaqueType*[3] fields {};
+	@fields[0] = LLVMIntTypeInContext(this.context(), 32);
+	@fields[1] = LLVMPointerTypeInContext(this.context(), 0);
+	@fields[2] := fields[1];
+	LLVMOpaqueType* record = LLVMStructTypeInContext(this.context(), &fields[0], 3, 0);
+	LLVMOpaqueValue*[3] values {};
+	@values[0] = LLVMConstInt(LLVMOpaqueType*(fields[0]), 65535, 0);
+	@values[1] = function;
+	@values[2] = LLVMConstNull(LLVMOpaqueType*(fields[2]));
+	LLVMOpaqueValue*[1] records {};
+	@records[0] = LLVMConstNamedStruct(LLVMOpaqueType*(record), &values[0], 3);
+	LLVMOpaqueValue* global = LLVMAddGlobal(this.module(), LLVMArrayType2(LLVMOpaqueType*(record), 1), name);
+	LLVMSetInitializer(global, LLVMConstArray2(record, &records[0], 1));
+	LLVMSetLinkage(global, 7);
+};

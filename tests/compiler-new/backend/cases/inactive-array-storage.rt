@@ -1,0 +1,37 @@
+i32 constructed;
+i32 destroyed;
+
+struct Item {
+	fn Item(Item& this) {
+		@constructed = constructed + 1;
+	};
+	fn ~Item(Item& this) {
+		@destroyed = destroyed + 1;
+	};
+	i32 number;
+};
+
+union Slot {
+	fn Slot(Slot& this) {
+	};
+	fn ~Slot(Slot& this) {
+	};
+	u08 empty;
+	Item value;
+};
+
+fn main() -> i32 {
+	Slot* storage = new Slot[8]();
+	if (constructed || destroyed) {
+		return 1;
+	};
+	@storage[0].value.Item();
+	@storage[0].value.number = 42;
+	i32 result = storage[0].value.number;
+	@storage[0].value.~Item();
+	delete[] storage;
+	if (constructed != 1 || destroyed != 1) {
+		return 2;
+	};
+	return $result;
+};

@@ -1,0 +1,265 @@
+struct FunctionAnalysisScope {
+	fn FunctionAnalysisScope(FunctionAnalysisScope& this, Entity*& function, usize& loop_depth, SwitchAnalysis*& selection, const rt::optional_ref<Entity>& current) {
+		@this.function_slot = &function;
+		@this.loop_slot = &loop_depth;
+		@this.switch_slot = &selection;
+		@this.previous_function := function;
+		@this.previous_loop := loop_depth;
+		@this.previous_switch := selection;
+		@function = current.get();
+		@loop_depth = 0;
+		@selection = nullptr;
+	};
+	fn ~FunctionAnalysisScope(FunctionAnalysisScope& this) {
+		@*this.function_slot := this.previous_function;
+		@*this.loop_slot := this.previous_loop;
+		@*this.switch_slot := this.previous_switch;
+	};
+
+private:
+	Entity** function_slot;
+	usize* loop_slot;
+	SwitchAnalysis** switch_slot;
+	Entity* previous_function;
+	usize previous_loop;
+	SwitchAnalysis* previous_switch;
+};
+
+fn Analyzer::constant_integer(Analyzer& this, const SemanticExpression& expression, u64& result) -> bool {
+	ConstantEvaluator evaluator;
+	return @evaluator.integer(@this, expression, @result);
+};
+
+fn Analyzer::prepare_lifetime(Analyzer& this, const Type* type) -> bool {
+	if (type->kind() == type_kind::array) {
+		return @this.prepare_lifetime(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	Entity* owner = type->entity();
+	if (!@this.resolve(Entity*(owner))) {
+		return false;
+	};
+	if (owner->virtual_functions().size()) {
+		@owner->require_dispatch();
+		usize slot = 0;
+		while (slot < owner->virtual_functions().size()) {
+			if (!@this.function_body(owner->virtual_functions().data()[slot])) {
+				return false;
+			};
+			@slot = slot + 1;
+		};
+	};
+	Entity* destructor = owner->destructor();
+	if (destructor && !@this.function_body(Entity*(destructor))) {
+		return false;
+	};
+	if (owner->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = 0;
+	while (index < owner->bases().size()) {
+		if (!@this.prepare_lifetime(owner->bases().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < owner->fields().size()) {
+		if (!@this.prepare_lifetime(owner->fields().data()[index]->type())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Analyzer::prepare_default(Analyzer& this, const Type* type) -> bool {
+	if (!@this.prepare_lifetime(type)) {
+		return false;
+	};
+	if (type->kind() == type_kind::array) {
+		return @this.prepare_default(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	Entity* owner = type->entity();
+	Entity* constructor = nullptr;
+	Entity* group = owner->members()->local(owner->name());
+	if (group && group->kind() == entity_kind::function) {
+		rt::buffer<rt::unique<SemanticExpression>> arguments;
+		@constructor = @this.select(group, arguments, 1, conversion_mode::explicit_only, owner->declaration());
+		if (!constructor || constructor->definition() == function_definition::deleted) {
+			@this.error(owner->declaration(), "default initialization has no available constructor\0");
+			return false;
+		};
+	};
+	if (constructor) {
+		return @this.function_body(constructor);
+	};
+	if (owner->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = 0;
+	while (index < owner->bases().size()) {
+		if (!@this.prepare_default(owner->bases().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < owner->fields().size()) {
+		Entity* field = owner->fields().data()[index];
+		if (!@this.field_initializer(Entity*(field))) {
+			return false;
+		};
+		if (field->body()) {
+			if (!@this.prepare_expression(field->body())) {
+				return false;
+			};
+		}
+		else if (!@this.prepare_default(field->type())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Analyzer::prepare_expression(Analyzer& this, SemanticExpression* expression) -> bool {
+	if (!expression) {
+		return true;
+	};
+	Entity* selected = expression->entity();
+	if (selected && selected->kind() == entity_kind::function && !@this.function_body(Entity*(selected))) {
+		return false;
+	};
+	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name) && selected && !@this.prepare_lifetime(selected->type())) {
+		return false;
+	};
+	if (expression->kind() == semantic_kind::construction) {
+		if (!@this.prepare_lifetime(expression->type())) {
+			return false;
+		};
+		if (!selected && expression->type()->kind() == type_kind::named && expression->type()->entity()->layout() != record_layout::overlapping) {
+			const rt::buffer<Entity*>& fields = expression->type()->entity()->fields();
+			usize field = expression->item(0)->size();
+			while (field < fields.size()) {
+				Entity* member = fields.data()[field];
+				if (!@this.field_initializer(Entity*(member))) {
+					return false;
+				};
+				if (!member->body() && !@this.prepare_default(member->type())) {
+					return false;
+				};
+				if (member->body() && !@this.prepare_expression(member->body())) {
+					return false;
+				};
+				@field = field + 1;
+			};
+		};
+	};
+	usize index = 0;
+	while (index < expression->size()) {
+		if (!@this.prepare_expression(expression->item(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+fn Analyzer::field_initializer(Analyzer& this, Entity* entity) -> bool {
+	if (entity->body_state() == entity_state::ready) {
+		return true;
+	};
+	if (entity->body_state() == entity_state::resolving) {
+		@this.error(entity->declaration(), "member initializer has a circular dependency\0");
+		return false;
+	};
+	Syntax* initializer = entity->declaration()->variable_initializer();
+	if (initializer->kind() == syntax_kind::absent) {
+		@entity->set_body_state(entity_state::ready);
+		return true;
+	};
+	if (entity->scope()->owner()->layout() == record_layout::overlapping) {
+		@this.error(initializer, "union default member initializers are not implemented\0");
+		return false;
+	};
+	@entity->set_body_state(entity_state::resolving);
+	var context = FunctionAnalysisScope(@this.function, @this.loop_depth, @this.active_switch, rt::optional_ref<Entity>());
+	if (initializer->kind() == syntax_kind::unary) {
+		@initializer = initializer->operand();
+	};
+	rt::optional_ref<const Type> expected;
+	if (entity->type()->kind() != type_kind::reference && !(entity->type()->kind() == type_kind::named && entity->type()->entity()->kind() == entity_kind::record)) {
+		@expected.bind(*entity->type());
+	};
+	var value = @this.expression(entity->scope(), initializer, expected);
+	if (!value.get()) {
+		return false;
+	};
+	if (entity->type()->kind() == type_kind::reference && value.get()->category() == value_category::consumable) {
+		@this.error(initializer, "reference member initializer requires a live place\0");
+		return false;
+	};
+	@value = @this.initialize(initializer, entity->type(), rt::unique<SemanticExpression>(@value.release()));
+	if (!value.get()) {
+		return false;
+	};
+	@entity->set_body($value);
+	@entity->set_body_state(entity_state::ready);
+	return @this.prepare_expression(entity->body());
+};
+fn Analyzer::prepare_copy(Analyzer& this, const Type* type) -> bool {
+	if (type->kind() == type_kind::array) {
+		return @this.prepare_copy(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	Entity* owner = type->entity();
+	Entity* group = owner->members()->local(owner->name());
+	if (group && group->kind() == entity_kind::function) {
+		rt::buffer<rt::unique<SemanticExpression>> arguments;
+		const Type* source_type = @this.types->qualified(*type, type_qualifier::immutable);
+		var source = @this.node(semantic_kind::name, source_type, owner->declaration());
+		if (!source.get()) {
+			return false;
+		};
+		@source.get()->set_category(value_category::place);
+		if (!@arguments.push_back($source)) {
+			return false;
+		};
+		Entity* constructor = @this.select(group, arguments, 1, conversion_mode::explicit_only, owner->declaration());
+		if (this.diagnostics->failed()) {
+			return false;
+		};
+		if (constructor && constructor->definition() == function_definition::deleted) {
+			@this.error(owner->declaration(), "member copy selects a deleted or unavailable constructor\0");
+			return false;
+		};
+		if (constructor) {
+			return @this.function_body(constructor);
+		};
+	};
+	if (owner->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = 0;
+	while (index < owner->bases().size()) {
+		if (!@this.prepare_copy(owner->bases().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < owner->fields().size()) {
+		if (!@this.prepare_copy(owner->fields().data()[index]->type())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
