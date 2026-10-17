@@ -42,7 +42,10 @@ set(rutile_compiler_sources
 	"${CMAKE_CURRENT_SOURCE_DIR}/std/optional.rt"
 	"${CMAKE_CURRENT_SOURCE_DIR}/std/buffer.rt"
 	"${CMAKE_CURRENT_SOURCE_DIR}/std/string_view.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/string.rt")
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/string.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/hash.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/equal.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/std/unordered_map.rt")
 set(rutile_compiler_manifest "${CMAKE_CURRENT_SOURCE_DIR}/compiler/sources.list")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${rutile_compiler_manifest}")
 file(STRINGS "${rutile_compiler_manifest}" rutile_compiler_modules)

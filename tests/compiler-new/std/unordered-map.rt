@@ -1,0 +1,32 @@
+fn main() -> i32 {
+	rt::unordered_map<rt::string_view, i32, rt::string_view_hash> values;
+	var first = rt::string_view("alpha\0");
+	var prefix = rt::string_view("alph\0");
+	if (!values.empty() || values.find(first) || @values.erase(first)) {
+		return 1;
+	};
+	if (!@values.insert(rt::string_view(first), 20) || !@values.insert(rt::string_view("beta\0"), 22)) {
+		return 2;
+	};
+	if (@values.insert(rt::string_view(first), 100) || values.size() != 2 || values.find(prefix)) {
+		return 3;
+	};
+	i32* stable = (@values).find(first);
+	if (!stable || *stable != 20 || !@values.reserve(1000) || (@values).find(first) != stable) {
+		return 4;
+	};
+	const rt::unordered_map<rt::string_view, i32, rt::string_view_hash>& borrowed = values;
+	if (!borrowed.find(first) || *borrowed.find(first) != 20) {
+		return 5;
+	};
+	var second = rt::string_view("beta\0");
+	i32 result = *stable + *values.find(second);
+	if (!@values.erase(second) || @values.erase(second) || values.size() != 1) {
+		return 6;
+	};
+	@values.clear();
+	if (!values.empty() || values.find(first)) {
+		return 7;
+	};
+	return result;
+};
