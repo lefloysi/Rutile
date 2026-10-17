@@ -1,0 +1,36 @@
+i32 destructions = 0;
+
+struct Tracked {
+	fn Tracked(Tracked& this) : [default];
+	fn ~Tracked(Tracked& this) {
+		@destructions = destructions + 1;
+	};
+	i32 number;
+};
+
+fn main() -> i32 {
+	Tracked target;
+	@target.number = 42;
+	{
+		var borrowed = rt::optional_ref<const Tracked>(target);
+		if (!borrowed.has_value() || borrowed.value().number != 42) {
+			return 1;
+		};
+		var copied = rt::optional_ref<const Tracked>(borrowed);
+		@borrowed.reset();
+		if (borrowed.has_value() || !copied.has_value() || copied.value().number != 42 || destructions) {
+			return 2;
+		};
+	};
+	if (destructions || target.number != 42) {
+		return 3;
+	};
+	i32 number = 0;
+	var mutable = rt::optional_ref<i32>(@number);
+	@*mutable.get() = 42;
+	if (number != 42) {
+		return 4;
+	};
+	return 42;
+};
+

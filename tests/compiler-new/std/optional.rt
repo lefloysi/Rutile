@@ -1,0 +1,29 @@
+fn main() -> i32 {
+	var empty = rt::optional<i32>();
+	if (empty.has_value() || empty.get()) {
+		return 1;
+	};
+	@empty.emplace(42);
+	if (!empty.has_value() || empty.value() != 42) {
+		return 2;
+	};
+	@empty.reset();
+	if (empty.has_value()) {
+		return 3;
+	};
+	var value = rt::optional<i32>(42);
+	var moved = rt::optional<i32>($value);
+	if (!moved.has_value() || moved.value() != 42) {
+		return 4;
+	};
+	var copied = rt::optional<i32>(moved);
+	if (copied.value() != 42 || moved.value() != 42) {
+		return 5;
+	};
+	@copied = rt::optional<i32>(7);
+	if (copied.value() != 7) {
+		return 6;
+	};
+	return 42;
+};
+

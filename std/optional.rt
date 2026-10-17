@@ -1,0 +1,111 @@
+namespace rt {
+	enum optional_state : [u08] {
+		empty;
+		engaged;
+	};
+
+	template<typename T>
+	union optional_storage {
+		fn optional_storage(optional_storage& this) {
+			@this.empty = 0;
+		};
+		fn ~optional_storage(optional_storage& this) {
+		};
+
+		u08 empty;
+		T value;
+	};
+
+	template<typename T>
+	struct optional {
+		fn optional(optional& this) {
+		};
+		fn optional(optional& this, T value) {
+			@this.storage.value.T($value);
+			@this.state = optional_state::engaged;
+		};
+		fn optional(optional& this, const optional& other) {
+			if (other.has_value()) {
+				@this.storage.value.T(other.storage.value);
+				@this.state = optional_state::engaged;
+			};
+		};
+		fn optional(optional& this, optional other) {
+			if (other.has_value()) {
+				T* source = &other.storage.value;
+				@this.storage.value.T($(*source));
+				@this.state = optional_state::engaged;
+				@other.state = optional_state::empty;
+			};
+		};
+		fn operator=(optional& this, optional other) -> optional& : [default];
+		fn ~optional(optional& this) {
+			@this.reset();
+		};
+
+		fn has_value(const optional& this) -> bool {
+			return this.state == optional_state::engaged;
+		};
+		fn get(auto optional& this) -> const[this] T* {
+			if (!this.has_value()) {
+				return nullptr;
+			};
+			return &this.storage.value;
+		};
+		// Requires has_value(). The reference borrows the contained object's lifetime.
+		fn value(auto optional& this) -> const[this] T& {
+			return static_cast<const[this] T&>(this.storage.value);
+		};
+		fn reset(optional& this) {
+			if (!this.has_value()) {
+				return;
+			};
+			@this.storage.value.~T();
+			@this.state = optional_state::empty;
+		};
+		fn emplace(optional& this, T value) -> T& {
+			@this.reset();
+			@this.storage.value.T($value);
+			@this.state = optional_state::engaged;
+			return @this.storage.value;
+		};
+
+	private:
+		optional_storage<T> storage;
+		optional_state state;
+	};
+
+	template<typename T>
+	struct optional_ref {
+		fn optional_ref(optional_ref& this) : [default];
+		fn optional_ref(optional_ref& this, T& value) {
+			@this.pointer = &value;
+		};
+		fn optional_ref(optional_ref& this, const optional_ref& other) : [implicit] {
+			@this.pointer := other.pointer;
+		};
+		fn optional_ref(optional_ref& this, optional_ref other) : [default];
+		fn operator=(optional_ref& this, optional_ref other) -> optional_ref& : [default];
+
+		fn has_value(const optional_ref& this) -> bool {
+			return this.pointer != nullptr;
+		};
+		fn get(const optional_ref& this) -> T* {
+			return this.pointer;
+		};
+		// Requires has_value(). Resetting the optional never destroys its referent.
+		fn value(const optional_ref& this) -> T& {
+			return static_cast<T&>(*this.pointer);
+		};
+		fn reset(optional_ref& this) {
+			@this.pointer = nullptr;
+		};
+		fn bind(optional_ref& this, T& value) {
+			@this.pointer = &value;
+		};
+
+	private:
+		T* pointer;
+	};
+};
+
