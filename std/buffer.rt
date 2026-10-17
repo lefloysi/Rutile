@@ -47,16 +47,12 @@ namespace rt {
 			return false;
 		};
 
-		usize count := this.allocation_count;
-		if (!count) {
-			@count = 1;
-		};
-		while (count < required) {
-			if (count > maximum / 2) {
-				@count := required;
-				break;
+		usize count := required;
+		if (this.allocation_count <= (maximum >> 1)) {
+			usize grown = this.allocation_count << 1;
+			if (grown > count) {
+				@count = $grown;
 			};
-			@count = count * 2;
 		};
 		usize bytes = count * element_size;
 		if (!bytes) {
