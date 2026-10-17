@@ -1,0 +1,42 @@
+struct Tracker {
+	fn Tracker(Tracker& this, i32* count) {
+		@this.count = $count;
+	};
+	fn ~Tracker(Tracker& this) {
+		@*this.count = *this.count + 1;
+	};
+	i32* count;
+};
+
+struct Empty {
+};
+
+fn main() -> i32 {
+	i32 count = 0;
+	{
+		rt::buffer<rt::unique<Tracker>> owners;
+		if (!@owners.push_back(rt::unique<Tracker>(new Tracker(&count))) || !@owners.push_back(rt::unique<Tracker>(new Tracker(&count)))) {
+			return 1;
+		};
+		if (!@owners.reserve(32) || count || owners.size() != 2 || !owners.data()[0].get()) {
+			return 2;
+		};
+		@owners.clear();
+		if (count != 2) {
+			return 3;
+		};
+	};
+	if (count != 2) {
+		return 4;
+	};
+	rt::buffer<Empty> empty;
+	if (!@empty.reserve(8) || !@empty.push_back(Empty()) || empty.size() != 1) {
+		return 5;
+	};
+	@empty.clear();
+	rt::buffer<i32*> pointers;
+	if (!@pointers.push_back(&count) || !@pointers.push_back(nullptr) || *pointers.data()[0] != 2 || pointers.data()[1]) {
+		return 6;
+	};
+	return 42;
+};

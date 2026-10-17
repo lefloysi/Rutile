@@ -1,0 +1,118 @@
+fn malloc(usize size) -> void*;
+fn free(void* memory);
+
+namespace rt {
+	template<typename T>
+	struct buffer {
+		fn buffer(buffer& this) : [default];
+		fn buffer(buffer& this, const buffer& other) : [delete];
+		fn operator=(buffer& this, const buffer& other) -> buffer& : [delete];
+		fn buffer(buffer& this, buffer other) : [default];
+		fn operator=(buffer& this, buffer other) -> buffer& : [default];
+		fn ~buffer(buffer& this);
+
+		fn reserve(buffer& this, usize required) -> bool;
+		fn push_back(buffer& this, T value) -> bool;
+		fn pop_back(buffer& this) -> bool;
+		fn clear(buffer& this);
+		fn data(auto buffer& this) -> const[this] T* {
+			return this.storage;
+		};
+		fn size(const buffer& this) -> usize;
+		fn capacity(const buffer& this) -> usize;
+
+	private:
+		T* storage;
+		usize length;
+		usize allocation_count;
+	};
+
+	template<typename T>
+	fn buffer<T>::~buffer(buffer& this) {
+		@this.clear();
+		free(this.storage);
+	};
+
+	template<typename T>
+	fn buffer<T>::reserve(buffer& this, usize required) -> bool {
+		if (required <= this.allocation_count) {
+			return true;
+		};
+		usize element_size = sizeof(T);
+		usize maximum = ~usize(0);
+		if (element_size) {
+			@maximum = maximum / element_size;
+		};
+		if (required > maximum) {
+			return false;
+		};
+
+		usize count := this.allocation_count;
+		if (!count) {
+			@count = 1;
+		};
+		while (count < required) {
+			if (count > maximum / 2) {
+				@count := required;
+				break;
+			};
+			@count = count * 2;
+		};
+		usize bytes = count * element_size;
+		if (!bytes) {
+			@bytes = 1;
+		};
+		T* replacement = static_cast<T*>(malloc($bytes));
+		if (!replacement) {
+			return false;
+		};
+
+		usize index = 0;
+		while (index < this.length) {
+			@replacement[index].T($(this.storage[index]));
+			@index = index + 1;
+		};
+		free(this.storage);
+		@this.storage = $replacement;
+		@this.allocation_count = $count;
+		return true;
+	};
+
+	template<typename T>
+	fn buffer<T>::push_back(buffer& this, T value) -> bool {
+		if (this.length == ~usize(0) || !@this.reserve(this.length + 1)) {
+			return false;
+		};
+		@this.storage[this.length].T($value);
+		@this.length = this.length + 1;
+		return true;
+	};
+
+	template<typename T>
+	fn buffer<T>::pop_back(buffer& this) -> bool {
+		if (!this.length) {
+			return false;
+		};
+		@this.length = this.length - 1;
+		@this.storage[this.length].~T();
+		return true;
+	};
+
+	template<typename T>
+	fn buffer<T>::clear(buffer& this) {
+		while (this.length) {
+			@this.length = this.length - 1;
+			@this.storage[this.length].~T();
+		};
+	};
+
+	template<typename T>
+	fn buffer<T>::size(const buffer& this) -> usize {
+		return this.length;
+	};
+
+	template<typename T>
+	fn buffer<T>::capacity(const buffer& this) -> usize {
+		return this.allocation_count;
+	};
+};

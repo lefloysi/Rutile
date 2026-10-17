@@ -1,0 +1,191 @@
+struct Entity;
+
+enum type_kind : [u08] {
+	void_type;
+	null_type;
+	boolean;
+	character;
+	signed_integer;
+	unsigned_integer;
+	floating_point;
+	named;
+	pointer;
+	reference;
+	array;
+	function;
+	parameter;
+};
+
+enum type_qualifier : [u08] {
+	mutable;
+	immutable;
+};
+
+enum parameter_arity : [u08] {
+	fixed;
+	variadic;
+};
+
+fn type_kind::is_integer(const type_kind& this) -> bool {
+	return this == type_kind::boolean || this == type_kind::character || this == type_kind::signed_integer || this == type_kind::unsigned_integer;
+};
+
+fn type_kind::is_numeric(const type_kind& this) -> bool {
+	return this.is_integer() || this == type_kind::floating_point;
+};
+
+fn type_kind::is_scalar(const type_kind& this) -> bool {
+	return this.is_numeric() || this == type_kind::pointer || this == type_kind::reference;
+};
+
+struct FunctionSignature {
+	fn FunctionSignature(FunctionSignature& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) {
+		@this.return_type = $result;
+		@this.parameter_types = $parameters;
+		@this.argument_arity = $arity;
+	};
+
+	fn result(const FunctionSignature& this) -> const Type* {
+		return this.return_type;
+	};
+	fn parameters(const FunctionSignature& this) -> const rt::buffer<const Type*>& {
+		return this.parameter_types;
+	};
+	fn arity(const FunctionSignature& this) -> parameter_arity {
+		return parameter_arity(this.argument_arity);
+	};
+	fn equals(const FunctionSignature& this, const FunctionSignature& other) -> bool {
+		if (this.return_type != other.return_type || this.argument_arity != other.argument_arity || this.parameter_types.size() != other.parameter_types.size()) {
+			return false;
+		};
+		usize index = 0;
+		while (index < this.parameter_types.size()) {
+			if (this.parameter_types.data()[index] != other.parameter_types.data()[index]) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+
+private:
+	const Type* return_type;
+	rt::buffer<const Type*> parameter_types;
+	parameter_arity argument_arity;
+};
+
+struct ArrayShape {
+	const Type* element;
+	u64 count;
+};
+
+union TypeShape {
+	u32 bits;
+	Entity* entity;
+	const Type* element;
+	ArrayShape array;
+	const FunctionSignature* signature;
+};
+
+struct Type {
+	fn Type(Type& this) : [default];
+	fn Type(Type& this, type_kind kind, TypeShape shape) {
+		@this.category = $kind;
+		@this.shape = $shape;
+	};
+	fn kind(const Type& this) -> type_kind {
+		return type_kind(this.category);
+	};
+	fn qualifier(const Type& this) -> type_qualifier {
+		return type_qualifier(this.qualification);
+	};
+	fn bits(const Type& this) -> u32 {
+		return this.shape.bits;
+	};
+	fn entity(const Type& this) -> Entity* {
+		return this.shape.entity;
+	};
+	fn element(const Type& this) -> const Type* {
+		if (this.category == type_kind::array) {
+			return this.shape.array.element;
+		};
+		return this.shape.element;
+	};
+	fn count(const Type& this) -> u64 {
+		return this.shape.array.count;
+	};
+	fn signature(const Type& this) -> const FunctionSignature& {
+		return *this.shape.signature;
+	};
+	fn qualified(const Type& this, type_qualifier qualifier) -> Type {
+		Type result := this;
+		@result.qualification = $qualifier;
+		return $result;
+	};
+	fn equals(const Type& this, const Type& other) -> bool;
+	fn same_shape(const Type& this, const Type& other) -> bool {
+		Type first = this.qualified(type_qualifier::mutable);
+		Type second = other.qualified(type_qualifier::mutable);
+		return first.equals(second);
+	};
+	fn hash(const Type& this) -> usize;
+
+private:
+	TypeShape shape;
+	type_kind category;
+	type_qualifier qualification;
+};
+
+fn Type::equals(const Type& this, const Type& other) -> bool {
+	if (this.category != other.category || this.qualification != other.qualification) {
+		return false;
+	};
+	switch (this.category) {
+		case type_kind::named:
+		case type_kind::parameter:
+			return this.shape.entity == other.shape.entity;
+		case type_kind::pointer:
+		case type_kind::reference:
+			return this.shape.element == other.shape.element;
+		case type_kind::array:
+			return this.shape.array.element == other.shape.array.element && this.shape.array.count == other.shape.array.count;
+		case type_kind::function:
+			return this.shape.signature->equals(*other.shape.signature);
+		case type_kind::signed_integer:
+		case type_kind::unsigned_integer:
+		case type_kind::floating_point:
+			return this.shape.bits == other.shape.bits;
+		default:
+			return true;
+	};
+};
+
+fn Type::hash(const Type& this) -> usize {
+	usize hash = static_cast<usize>(this.category) * 37 + static_cast<usize>(this.qualification);
+	switch (this.category) {
+		case type_kind::named:
+		case type_kind::parameter:
+			return hash * 37 + (reinterpret_cast<usize>(this.shape.entity) >> 3);
+		case type_kind::pointer:
+		case type_kind::reference:
+			return hash * 37 + (reinterpret_cast<usize>(this.shape.element) >> 3);
+		case type_kind::array:
+			return (hash * 37 + (reinterpret_cast<usize>(this.shape.array.element) >> 3)) * 37 + static_cast<usize>(this.shape.array.count);
+		case type_kind::function: {
+			const FunctionSignature& signature = *this.shape.signature;
+			@hash = (hash * 37 + (reinterpret_cast<usize>(signature.result()) >> 3)) * 37 + static_cast<usize>(signature.arity());
+			usize index = 0;
+			while (index < signature.parameters().size()) {
+				@hash = hash * 37 + (reinterpret_cast<usize>(signature.parameters().data()[index]) >> 3);
+				@index = index + 1;
+			};
+			return $hash;
+		};
+		case type_kind::signed_integer:
+		case type_kind::unsigned_integer:
+		case type_kind::floating_point:
+			return hash * 37 + static_cast<usize>(this.shape.bits);
+		default:
+			return $hash;
+	};
+};

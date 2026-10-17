@@ -1,0 +1,292 @@
+fn frontend_expect(const SourceFile& source, usize index, token_kind kind, const rt::string_view& spelling, usize line, usize column) -> bool {
+	if (index >= source.token_count()) {
+		return false;
+	};
+	const Token& token = source.tokens().data()[index];
+	return token.kind == kind && token.text() == spelling && token.line == line && token.column == column;
+};
+
+fn frontend_rejects(const rt::string_view& text, const rt::string_view& message) -> bool {
+	SourceFile source;
+	if (!@source.assign(rt::string_view("invalid.rt\0"), text)) {
+		return false;
+	};
+	var lexer = Lexer(@source);
+	return !@lexer.scan() && lexer.error() == message && lexer.error_token().source == &source;
+};
+
+fn rutile_frontend_tests() -> i32 {
+	SourceFile source;
+	if (!@source.assign(rt::string_view("sample.rt\0"), rt::string_view("// header\r\nfn main() -> i32 { return 42; }\n\0"))) {
+		return 1;
+	};
+	var lexer = Lexer(@source);
+	if (!@lexer.scan() || source.token_count() != 12) {
+		return 2;
+	};
+	if (!frontend_expect(source, 0, token_kind::kw_fn, rt::string_view("fn\0"), 2, 1)
+		|| !frontend_expect(source, 1, token_kind::identifier, rt::string_view("main\0"), 2, 4)
+		|| !frontend_expect(source, 4, token_kind::op_arrow, rt::string_view("->\0"), 2, 11)
+		|| !frontend_expect(source, 8, token_kind::literal_number, rt::string_view("42\0"), 2, 27)
+		|| !frontend_expect(source, 11, token_kind::eof, rt::string_view("\0"), 3, 1)) {
+		return 3;
+	};
+	if (source.line(1) != rt::string_view("// header\0") || source.line(2) != rt::string_view("fn main() -> i32 { return 42; }\0") || !source.line(3).empty()) {
+		return 4;
+	};
+	if (!@lexer.scan() || source.token_count() != 12) {
+		return 5;
+	};
+
+	if (!frontend_rejects(rt::string_view("/* missing\0"), rt::string_view("unterminated comment\0"))
+		|| !frontend_rejects(rt::string_view("12e+\0"), rt::string_view("expected exponent digits\0"))
+		|| !frontend_rejects(rt::string_view("?\0"), rt::string_view("unknown source character\0"))
+		|| !frontend_rejects(rt::string_view("a\0b\0", 3), rt::string_view("NUL byte in source\0"))
+		|| !frontend_rejects(rt::string_view("\"missing\0"), rt::string_view("unterminated string literal\0"))
+		|| !frontend_rejects(rt::string_view("\"line\n\"\0"), rt::string_view("newline in string literal\0"))
+		|| !frontend_rejects(rt::string_view("''\0"), rt::string_view("expected one character in literal\0"))
+		|| !frontend_rejects(rt::string_view("'xy'\0"), rt::string_view("expected closing quote after character\0"))) {
+		return 6;
+	};
+
+	SourceManager sources;
+	var first = @sources.add(rt::string_view("first.rt\0"), rt::string_view("var first = 1;\0"));
+	if (!first) {
+		return 7;
+	};
+	var first_lexer = Lexer(@*first);
+	if (!@first_lexer.scan()) {
+		return 8;
+	};
+	usize index = 0;
+	while (index < 128) {
+		if (!@sources.add(rt::string_view("next.rt\0"), rt::string_view("var next = 2;\0"))) {
+			return 9;
+		};
+		@index = index + 1;
+	};
+	if (sources.count() != 129 || @sources.at(0) != first || first->path() != rt::string_view("first.rt\0") || first->tokens().data()[1].text() != rt::string_view("first\0")) {
+		return 10;
+	};
+	@sources.clear();
+	if (sources.count() || @sources.at(0)) {
+		return 11;
+	};
+
+	if (!@source.assign(rt::string_view("keywords.rt\0"), rt::string_view("fn using const discard delete new implicit nullptr template typename class var struct union enum namespace virtual override final return if else while for switch case default break continue sizeof\0")) || !@lexer.scan() || source.token_count() != 31) {
+		return 12;
+	};
+	if (source.tokens().data()[0].kind != token_kind::kw_fn) {
+		return 13;
+	};
+	if (source.tokens().data()[1].kind != token_kind::kw_using) {
+		return 13;
+	};
+	if (source.tokens().data()[2].kind != token_kind::kw_const) {
+		return 13;
+	};
+	if (source.tokens().data()[3].kind != token_kind::kw_discard) {
+		return 13;
+	};
+	if (source.tokens().data()[4].kind != token_kind::kw_delete) {
+		return 13;
+	};
+	if (source.tokens().data()[5].kind != token_kind::kw_new) {
+		return 13;
+	};
+	if (source.tokens().data()[6].kind != token_kind::kw_implicit) {
+		return 13;
+	};
+	if (source.tokens().data()[7].kind != token_kind::kw_nullptr) {
+		return 13;
+	};
+	if (source.tokens().data()[8].kind != token_kind::kw_template) {
+		return 13;
+	};
+	if (source.tokens().data()[9].kind != token_kind::kw_typename) {
+		return 13;
+	};
+	if (source.tokens().data()[10].kind != token_kind::kw_class) {
+		return 13;
+	};
+	if (source.tokens().data()[11].kind != token_kind::kw_var) {
+		return 13;
+	};
+	if (source.tokens().data()[12].kind != token_kind::kw_struct) {
+		return 13;
+	};
+	if (source.tokens().data()[13].kind != token_kind::kw_union) {
+		return 13;
+	};
+	if (source.tokens().data()[14].kind != token_kind::kw_enum) {
+		return 13;
+	};
+	if (source.tokens().data()[15].kind != token_kind::kw_namespace) {
+		return 13;
+	};
+	if (source.tokens().data()[16].kind != token_kind::kw_virtual) {
+		return 13;
+	};
+	if (source.tokens().data()[17].kind != token_kind::kw_override) {
+		return 13;
+	};
+	if (source.tokens().data()[18].kind != token_kind::kw_final) {
+		return 13;
+	};
+	if (source.tokens().data()[19].kind != token_kind::kw_return) {
+		return 13;
+	};
+	if (source.tokens().data()[20].kind != token_kind::kw_if) {
+		return 13;
+	};
+	if (source.tokens().data()[21].kind != token_kind::kw_else) {
+		return 13;
+	};
+	if (source.tokens().data()[22].kind != token_kind::kw_while) {
+		return 13;
+	};
+	if (source.tokens().data()[23].kind != token_kind::kw_for) {
+		return 13;
+	};
+	if (source.tokens().data()[24].kind != token_kind::kw_switch) {
+		return 13;
+	};
+	if (source.tokens().data()[25].kind != token_kind::kw_case) {
+		return 13;
+	};
+	if (source.tokens().data()[26].kind != token_kind::kw_default) {
+		return 13;
+	};
+	if (source.tokens().data()[27].kind != token_kind::kw_break) {
+		return 13;
+	};
+	if (source.tokens().data()[28].kind != token_kind::kw_continue) {
+		return 13;
+	};
+	if (source.tokens().data()[29].kind != token_kind::kw_sizeof) {
+		return 13;
+	};
+
+	if (!@source.assign(rt::string_view("operators.rt\0"), rt::string_view("... -> := == != <= >= && || << >> ( ) [ ] { } ; , :: . = + - * / % & | ^ ! ~ < > : @ $\0")) || !@lexer.scan() || source.token_count() != 38) {
+		return 14;
+	};
+	if (source.tokens().data()[0].kind != token_kind::punct_ellipsis) {
+		return 15;
+	};
+	if (source.tokens().data()[1].kind != token_kind::op_arrow) {
+		return 15;
+	};
+	if (source.tokens().data()[2].kind != token_kind::op_copy) {
+		return 15;
+	};
+	if (source.tokens().data()[3].kind != token_kind::op_equal) {
+		return 15;
+	};
+	if (source.tokens().data()[4].kind != token_kind::op_not_equal) {
+		return 15;
+	};
+	if (source.tokens().data()[5].kind != token_kind::op_less_equal) {
+		return 15;
+	};
+	if (source.tokens().data()[6].kind != token_kind::op_greater_equal) {
+		return 15;
+	};
+	if (source.tokens().data()[7].kind != token_kind::op_and) {
+		return 15;
+	};
+	if (source.tokens().data()[8].kind != token_kind::op_or) {
+		return 15;
+	};
+	if (source.tokens().data()[9].kind != token_kind::op_shift_left) {
+		return 15;
+	};
+	if (source.tokens().data()[10].kind != token_kind::op_shift_right) {
+		return 15;
+	};
+	if (source.tokens().data()[11].kind != token_kind::punct_left_paren) {
+		return 15;
+	};
+	if (source.tokens().data()[12].kind != token_kind::punct_right_paren) {
+		return 15;
+	};
+	if (source.tokens().data()[13].kind != token_kind::punct_left_bracket) {
+		return 15;
+	};
+	if (source.tokens().data()[14].kind != token_kind::punct_right_bracket) {
+		return 15;
+	};
+	if (source.tokens().data()[15].kind != token_kind::punct_left_brace) {
+		return 15;
+	};
+	if (source.tokens().data()[16].kind != token_kind::punct_right_brace) {
+		return 15;
+	};
+	if (source.tokens().data()[17].kind != token_kind::punct_semicolon) {
+		return 15;
+	};
+	if (source.tokens().data()[18].kind != token_kind::punct_comma) {
+		return 15;
+	};
+	if (source.tokens().data()[19].kind != token_kind::op_scope) {
+		return 15;
+	};
+	if (source.tokens().data()[20].kind != token_kind::op_dot) {
+		return 15;
+	};
+	if (source.tokens().data()[21].kind != token_kind::op_assign) {
+		return 15;
+	};
+	if (source.tokens().data()[22].kind != token_kind::op_plus) {
+		return 15;
+	};
+	if (source.tokens().data()[23].kind != token_kind::op_minus) {
+		return 15;
+	};
+	if (source.tokens().data()[24].kind != token_kind::op_star) {
+		return 15;
+	};
+	if (source.tokens().data()[25].kind != token_kind::op_slash) {
+		return 15;
+	};
+	if (source.tokens().data()[26].kind != token_kind::op_remainder) {
+		return 15;
+	};
+	if (source.tokens().data()[27].kind != token_kind::op_ampersand) {
+		return 15;
+	};
+	if (source.tokens().data()[28].kind != token_kind::op_pipe) {
+		return 15;
+	};
+	if (source.tokens().data()[29].kind != token_kind::op_caret) {
+		return 15;
+	};
+	if (source.tokens().data()[30].kind != token_kind::op_bang) {
+		return 15;
+	};
+	if (source.tokens().data()[31].kind != token_kind::op_tilde) {
+		return 15;
+	};
+	if (source.tokens().data()[32].kind != token_kind::op_less) {
+		return 15;
+	};
+	if (source.tokens().data()[33].kind != token_kind::op_greater) {
+		return 15;
+	};
+	if (source.tokens().data()[34].kind != token_kind::punct_colon) {
+		return 15;
+	};
+	if (source.tokens().data()[35].kind != token_kind::op_access) {
+		return 15;
+	};
+	if (source.tokens().data()[36].kind != token_kind::op_relocate) {
+		return 15;
+	};
+
+	if (!@source.assign(rt::string_view("numbers.rt\0"), rt::string_view("12 3.5 6e+2 'x' '\\n' \"a\\\"b\"\0")) || !@lexer.scan() || source.token_count() != 7) {
+		return 16;
+	};
+	if (source.tokens().data()[0].kind != token_kind::literal_number || source.tokens().data()[5].kind != token_kind::literal_string) {
+		return 17;
+	};
+	return 0;
+};

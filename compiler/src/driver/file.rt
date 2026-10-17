@@ -1,0 +1,49 @@
+struct NativeFile;
+
+fn fclose(NativeFile* file) -> i32;
+fn fread(void* destination, usize size, usize count, NativeFile* file) -> usize;
+fn fwrite(const void* source, usize size, usize count, NativeFile* file) -> usize;
+fn ferror(NativeFile* file) -> i32;
+
+using FileOpener = ((const char*, const char*) -> NativeFile*)*;
+
+struct FileCloser {
+	fn dispose(NativeFile* file) {
+		if (file) {
+			fclose($file);
+		};
+	};
+};
+
+struct File {
+	fn File(File& this, NativeFile* file) {
+		@this.handle = rt::unique<NativeFile, FileCloser>($file);
+	};
+	fn File(File& this, const File& other) : [delete];
+	fn operator=(File& this, const File& other) -> File& : [delete];
+	fn File(File& this, File other) : [default];
+	fn operator=(File& this, File other) -> File& : [default];
+
+	fn is_open(const File& this) -> bool {
+		return this.handle.get() != nullptr;
+	};
+	fn failed(const File& this) -> bool {
+		return !this.handle.get() || ferror(this.handle.get());
+	};
+	fn read(File& this, char* destination, usize capacity) -> usize {
+		return fread($destination, 1, $capacity, this.handle.get());
+	};
+	fn write(File& this, const rt::string_view& bytes) -> bool {
+		return fwrite(bytes.data(), 1, bytes.size(), this.handle.get()) == bytes.size();
+	};
+	fn close(File& this) -> bool {
+		NativeFile* handle = @this.handle.release();
+		if (!handle) {
+			return true;
+		};
+		return !fclose($handle);
+	};
+
+private:
+	rt::unique<NativeFile, FileCloser> handle;
+};

@@ -1,0 +1,36 @@
+fn tmpfile() -> NativeFile*;
+fn rewind(NativeFile* file);
+
+fn open_test_source(const char* path, const char* mode) -> NativeFile* {
+	if (rt::string_view(path) == rt::string_view("missing.rt\0")) {
+		return nullptr;
+	};
+	NativeFile* file = tmpfile();
+	if (!file) {
+		return nullptr;
+	};
+	fwrite("fn answer() -> i32 { return 42; };\n\0", 1, 34, file);
+	rewind(file);
+	return $file;
+};
+
+fn main() -> i32 {
+	SourceManager sources;
+	var diagnostics = Diagnostics(nullptr);
+	var reader = SourceReader(&open_test_source, @sources, @diagnostics);
+	SourceFile* source = @reader.load("answer.rt\0");
+	if (!source || diagnostics.failed() || source->path() != rt::string_view("answer.rt\0")) {
+		return 1;
+	};
+	if (source->text().size() != 34) {
+		return 2;
+	};
+	var lexer = Lexer(@*source);
+	if (!@lexer.scan()) {
+		return 3;
+	};
+	if (@reader.load("missing.rt\0") || !diagnostics.failed() || sources.count() != 1) {
+		return 4;
+	};
+	return 42;
+};

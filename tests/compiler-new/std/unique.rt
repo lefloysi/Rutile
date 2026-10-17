@@ -1,0 +1,57 @@
+struct Tracker {
+	fn Tracker(Tracker& this) : [default];
+	fn Tracker(Tracker& this, i32* count) {
+		@this.count = $count;
+	};
+	fn ~Tracker(Tracker& this) {
+		if (this.count) {
+			@*this.count = *this.count + 1;
+		};
+	};
+	i32* count;
+};
+
+struct Deleter {
+	fn dispose(Tracker* pointer) {
+		if (pointer) {
+			@*pointer->count = *pointer->count + 10;
+		};
+		delete pointer;
+	};
+};
+
+fn main() -> i32 {
+	i32 count = 0;
+	{
+		rt::unique<Tracker> empty;
+		@empty.reset(nullptr);
+		var first = rt::unique<Tracker>(new Tracker(&count));
+		var second = $first;
+		var destination = rt::unique<Tracker>(new Tracker(&count));
+		@destination = $second;
+		if (count != 1) {
+			return 1;
+		};
+		Tracker* released = @destination.release();
+		if (destination.get()) {
+			return 2;
+		};
+		delete released;
+		if (count != 2) {
+			return 3;
+		};
+		var custom = rt::unique<Tracker, Deleter>(new Tracker(&count));
+		@custom.reset(nullptr);
+		if (count != 13) {
+			return 4;
+		};
+		var generated = rt::unique<Tracker>::make();
+		if (!generated.get()) {
+			return 5;
+		};
+	};
+	if (count != 13) {
+		return 6;
+	};
+	return 42;
+};

@@ -1,0 +1,29 @@
+fn fopen(const char* path, const char* mode) -> NativeFile*;
+fn puts(const char* text) -> i32;
+
+fn parse_source_file(const char* path) -> i32 {
+	SourceManager sources;
+	var diagnostics = Diagnostics(nullptr);
+	var reader = SourceReader(&fopen, @sources, @diagnostics);
+	SourceFile* source = @reader.load(path);
+	if (!source) {
+		puts(path);
+		return 1;
+	};
+	var lexer = Lexer(@*source);
+	if (!@lexer.scan()) {
+		puts(path);
+		puts(lexer.error().data());
+		return 2;
+	};
+	var parser = Parser(source->tokens());
+	var tree = @parser.parse();
+	if (!tree.get()) {
+		puts(path);
+		puts(parser.error().data());
+		Token location = parser.error_token();
+		usize line = location.line;
+		return static_cast<i32>($line);
+	};
+	return 0;
+};

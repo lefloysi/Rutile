@@ -1,0 +1,91 @@
+namespace rt {
+	struct string {
+		fn string(string& this) : [default];
+		fn string(string& this, const string& other) {
+			@this.append(other.view());
+		};
+		fn string(string& this, const string_view& text) {
+			@this.append(text);
+		};
+		fn string(string& this, const char* text) {
+			@this.append(string_view($text));
+		};
+		fn string(string& this, string other) : [default];
+		fn operator=(string& this, string other) -> string& : [default];
+		fn operator=(string& this, const string& other) -> string& {
+			string replacement;
+			if (!@replacement.append(other.view())) {
+				return @this;
+			};
+			@this = $replacement;
+			return @this;
+		};
+		fn size(const string& this) -> usize {
+			if (!this.bytes.size()) {
+				return 0;
+			};
+			return this.bytes.size() - 1;
+		};
+		fn empty(const string& this) -> bool {
+			return !this.size();
+		};
+		fn data(auto string& this) -> const[this] char* {
+			return const_cast<const[this] char*>(this.bytes.data());
+		};
+		fn c_str(const string& this) -> const char* {
+			if (!this.bytes.size()) {
+				return "\0";
+			};
+			return this.bytes.data();
+		};
+		fn view(const string& this) -> string_view {
+			return string_view(this.bytes.data(), this.size());
+		};
+		fn clear(string& this) {
+			@this.bytes.clear();
+		};
+		fn append(string& this, const string_view& text) -> bool;
+
+	private:
+		buffer<char> bytes;
+	};
+
+	fn string_view::string_view(string_view& this, const string& text) {
+		@this.bytes = text.data();
+		@this.length = text.size();
+	};
+
+	fn string::append(string& this, const string_view& text) -> bool {
+		if (text.empty()) {
+			return true;
+		};
+		usize size = this.size();
+		if (text.size() > ~usize(0) - size - 1) {
+			return false;
+		};
+
+		const char* source = text.data();
+		usize offset = 0;
+		usize address = reinterpret_cast<usize>(source);
+		usize begin = reinterpret_cast<usize>(this.bytes.data());
+		bool aliases = address >= begin && address - begin < this.bytes.size();
+		if (aliases) {
+			@offset = address - begin;
+		};
+		if (!@this.bytes.reserve(size + text.size() + 1)) {
+			return false;
+		};
+		if (aliases) {
+			@source = this.bytes.data() + offset;
+		};
+
+		@this.bytes.pop_back();
+		usize index = 0;
+		while (index < text.size()) {
+			@this.bytes.push_back(char(source[index]));
+			@index = index + 1;
+		};
+		@this.bytes.push_back('\0');
+		return true;
+	};
+};
