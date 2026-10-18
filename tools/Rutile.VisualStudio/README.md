@@ -62,9 +62,10 @@ Select Visual Studio 2022 and restart it if the installer requests it. Open the 
 or its solution, then open a `.rt` file. Use F12 on a symbol to navigate to its definition.
 Completion and signature help use Visual Studio's normal editor commands.
 
-The template-context selector above the editor defaults to **Generic**. Choose an available
-instantiation there to inspect that context. Generic hover stays concise instead of listing every
-instantiation in the tooltip.
+Place the caret inside a template to show an argument field above its declaration. Type the
+arguments, then press Enter or **Apply**. The compiler resolves those arguments even when the
+program has no existing instantiation. **Generic** restores the unselected context. Argument
+errors appear beside the field and do not change build diagnostics. Generic hover stays concise.
 
 ## Verification
 
@@ -82,6 +83,16 @@ Run lexical and semantic-color mapping checks without starting Visual Studio:
 
 These compile against the installed SDK and check keyword categories, comments, literals,
 UTF-16 spans, document synchronization, and explicit semantic classification delivery.
+
+Check late document attachment and the editable template control after building the extension:
+
+```powershell
+./tools/Rutile.VisualStudio/tests/RunClassifierLifetime.ps1
+./tools/Rutile.VisualStudio/tests/RunTemplateArguments.ps1
+```
+
+These check function classification and its yellow default format, measured WPF layout,
+pending responses, and stale snapshots. They do not inspect the installed editor's rendering.
 
 The process checks exercise the actual stream implementation with an isolated child:
 working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,
@@ -104,7 +115,7 @@ It does not invoke F12 or inspect the Error List. Hidden navigation blocked duri
 external-change diagnostics were not observed reliably through hidden Error List automation.
 Check navigation and external source/configuration diagnostics manually in an interactive editor.
 
-Add `-Palette` to install a separate test-only MEF client into that isolated profile. It checks actual
+Add `-Palette` to install a separate test-only MEF client into that isolated profile. It checks
 aggregate editor classifications and effective foreground brushes, then inserts a newline to check
 that cached semantic spans move immediately. The probe is excluded from the shipping VSIX.
 

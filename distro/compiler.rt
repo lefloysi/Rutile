@@ -382,10 +382,11 @@ namespace rt {
 
 	template<typename T>
 	fn buffer<T>::clear(var buffer& this) {
-		while (this._size) {
-			@this._size = this._size - 1;
-			@this._storage[this._size].~T();
+		for (usize index = 0; index < this._size; @index = index + 1) {
+			@this._storage[index].~T();
 		};
+
+		@this._size = 0;
 	};
 
 	template<typename T>
@@ -6569,6 +6570,7 @@ struct Analyzer {
 
 	fn set_editor(var Analyzer& this, bool enabled);
 	fn analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
+	fn editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool;
 	fn analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer<rt::unique<Syntax>>& syntax) -> bool;
 	fn error(var Analyzer& this, var Syntax* syntax, rt::string_view& message);
 	fn report(var Analyzer& this, Token& token, rt::string_view& message);
@@ -15756,6 +15758,15 @@ fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function,
 	LLVMSetLinkage(global, 7);
 };
 
+struct EditorTemplateSelection {
+	rt::string path;
+	usize anchor;
+	rt::string arguments;
+	SourceFile input;
+	rt::unique<Syntax> syntax;
+	rt::string label;
+};
+
 struct Analysis {
 	fn Analysis(var Analysis& this) : [default];
 	fn Analysis(var Analysis& this, var NativeFile* output);
@@ -15763,6 +15774,8 @@ struct Analysis {
 	fn add_source(var Analysis& this, rt::string_view& path, rt::string_view& text) -> bool;
 	fn load_source(var Analysis& this, rt::string_view& path, FileOpener opener) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
+	fn request_template_context(var Analysis& this, rt::string_view& path, usize anchor, rt::string_view& arguments) -> bool;
+	fn template_context_label(Analysis& this) -> rt::string_view;
 	fn analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 
 	fn source_count(Analysis& this) -> usize;
@@ -15779,6 +15792,7 @@ struct Analysis {
 private:
 	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
 
+	rt::unique<EditorTemplateSelection> template_selection;
 	SourceManager sources;
 	TypeStore types;
 	rt::buffer<rt::unique<Syntax>> syntax;
@@ -15853,6 +15867,25 @@ fn Analysis::primitive_name(Analysis& this, rt::string_view& name) -> bool {
 
 fn Analysis::syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>& {
 	return this.syntax;
+};
+
+fn Analysis::request_template_context(var Analysis& this, rt::string_view& path, usize anchor, rt::string_view& arguments) -> bool {
+	var selection = rt::unique<EditorTemplateSelection>::make();
+	if (!selection.get()) {
+		return false;
+	};
+	@selection.get()->path = rt::string(path);
+	@selection.get()->anchor = $anchor;
+	@selection.get()->arguments = rt::string(arguments);
+	@this.template_selection = $selection;
+	return true;
+};
+
+fn Analysis::template_context_label(Analysis& this) -> rt::string_view {
+	if (!this.template_selection.get()) {
+		return rt::string_view();
+	};
+	return this.template_selection.get()->label.view();
 };
 
 struct RuntimeMutex;
@@ -20362,6 +20395,7 @@ struct TemplateMemberDefinition {
 struct TemplateEngine {
 	fn clear(var TemplateEngine& this);
 	fn collect(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source) -> bool;
+	fn editor_context(var TemplateEngine& this, var Analyzer& analyzer, var Entity& pattern, var Syntax& arguments) -> var Entity*;
 	fn apply(var TemplateEngine& this, var Analyzer& analyzer, var Scope& lookup_scope, var Scope& argument_scope, var Syntax& source) -> var Entity*;
 	fn deduce(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, rt::buffer<rt::unique<SemanticExpression>>& values, var Syntax& request) -> var Entity*;
 	fn call_pattern(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& name) -> var Entity*;
@@ -21804,6 +21838,61 @@ fn TemplateEngine::auto_argument(TemplateEngine& this, var Syntax& syntax, TypeU
 
 fn TemplateArgument::same(TemplateArgument& this, TemplateArgument& other) -> bool {
 	return this.kind == other.kind && this.type == other.type && (this.kind == template_argument_kind::type || this.value == other.value);
+};
+
+fn TemplateEngine::editor_context(var TemplateEngine& this, var Analyzer& analyzer, var Entity& pattern, var Syntax& arguments) -> var Entity* {
+	return @this.instantiate(@analyzer, @*pattern.resolution_scope(), @pattern, TemplateInput(@arguments));
+};
+
+fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool {
+	@this.unit = &@unit;
+	var Entity* pattern = nullptr;
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		var Entity* candidate = unit.entities().data()[index].get();
+		Token token = candidate->token();
+		if (candidate->kind() == entity_kind::template_pattern && token.source == &@source && token.begin == anchor) {
+			@pattern = candidate;
+			break;
+		};
+		@index = index + 1;
+	};
+	if (!pattern) {
+		@this.unit = nullptr;
+		Token token;
+		@this.report(token, rt::string_view("the selected template declaration is no longer available", 56));
+		return false;
+	};
+	var Entity* instance = @this.templates.editor_context(@this, @*pattern, @arguments);
+	if (!instance) {
+		@this.unit = nullptr;
+		return false;
+	};
+	@index = 0;
+	while (index < unit.entities().size() && !this.failed()) {
+		var Entity* entity = unit.entities().data()[index].get();
+		@index = index + 1;
+		var Scope* scope = entity->scope();
+		while (scope && scope->owner() != instance) {
+			@scope = scope->parent();
+		};
+		if (entity != instance && !scope) {
+			continue;
+		};
+		if (!@this.resolve(entity)) {
+			break;
+		};
+		if (entity->kind() == entity_kind::function && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !@this.function_body(entity)) {
+			break;
+		};
+	};
+	if (!this.failed()) {
+		var detail = DiagnosticMessage();
+		diagnostic_entity(@detail, *instance);
+		@label = rt::string(detail.view());
+	};
+	@this.unit = nullptr;
+	return !this.failed();
 };
 
 enum template_validation_role : [u08] {
@@ -23620,6 +23709,49 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
 		@this.messages.error(location, rt::string_view("internal compiler error: semantic analysis failed without a diagnostic", 70));
+	};
+	if (analyzed && this.template_selection.get()) {
+		var EditorTemplateSelection& selection = @*this.template_selection.get();
+		rt::string input;
+		@input.append(rt::string_view("using __context = __arguments<", 30));
+		@input.append(selection.arguments.view());
+		@input.append(rt::string_view(">;", 2));
+		@selection.input.assign(selection.path.view(), input.view());
+		var lexer = Lexer(@selection.input);
+		if (!@lexer.scan()) {
+			@this.messages.syntax_error(lexer.error_token(), lexer.error());
+			@analyzed = false;
+		}
+		else {
+			var parser = Parser(selection.input.tokens());
+			@parser.set_cancellation(cancelled, context);
+			@selection.syntax = @parser.parse();
+			if (!selection.syntax.get()) {
+				@this.messages.syntax_error(parser.error_token(), parser.error());
+				@analyzed = false;
+			}
+			else if (selection.syntax.get()->size() != 1 || selection.syntax.get()->item(0)->kind() != syntax_kind::using_alias) {
+				@this.messages.error(location, rt::string_view("enter only template arguments, without declarations or statements", 65));
+				@analyzed = false;
+			}
+			else {
+				usize source = 0;
+				while (source < this.sources.count() && this.sources.at(source)->path() != selection.path.view()) {
+					@source = source + 1;
+				};
+				var Syntax* applied = selection.syntax.get()->item(0)->alias_type();
+				while (applied->kind() == syntax_kind::type_name) {
+					@applied = applied->designated_type();
+				};
+				if (source == this.sources.count() || applied->kind() != syntax_kind::template_apply) {
+					@this.messages.error(location, rt::string_view("cannot read the template argument list", 38));
+					@analyzed = false;
+				}
+				else {
+					@analyzed = @analyzer.editor_template_context(@*this.semantic_unit.get(), @*(@this.sources).at(source), selection.anchor, @*applied->arguments(), @selection.label);
+				};
+			};
+		};
 	};
 	if (analyzed) {
 		var lifetimes = LifetimeAnalyzer(@this.messages);

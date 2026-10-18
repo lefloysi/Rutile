@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
@@ -14,14 +15,32 @@ namespace Rutile.VisualStudio {
 		[Import]
 		internal ITextDocumentFactoryService Documents = null!;
 
+		private readonly ConditionalWeakTable<ITextBuffer, RutileLexicalClassifier> waiting = new ConditionalWeakTable<ITextBuffer, RutileLexicalClassifier>();
+		private int subscribed;
+
 		public IClassifier GetClassifier(ITextBuffer buffer) {
+			if (Interlocked.CompareExchange(ref subscribed, 1, 0) == 0) {
+				Documents.TextDocumentCreated += OnDocumentCreated;
+			}
 			return buffer.Properties.GetOrCreateSingletonProperty(() => {
-				SemanticBufferColors? semantic = null;
+				var classifier = new RutileLexicalClassifier(buffer, Types, null);
+				waiting.Add(buffer, classifier);
 				if (Documents.TryGetTextDocument(buffer, out var document)) {
-					semantic = RutileSemanticStore.Instance.Register(buffer, document.FilePath);
+					Attach(document);
 				}
-				return new RutileLexicalClassifier(buffer, Types, semantic);
+				return classifier;
 			});
+		}
+
+		private void OnDocumentCreated(object sender, TextDocumentEventArgs args) {
+			Attach(args.TextDocument);
+		}
+
+		private void Attach(ITextDocument document) {
+			if (waiting.TryGetValue(document.TextBuffer, out var classifier)) {
+				classifier.AttachSemantic(RutileSemanticStore.Instance.Register(document.TextBuffer, document.FilePath));
+				waiting.Remove(document.TextBuffer);
+			}
 		}
 	}
 
@@ -38,7 +57,7 @@ namespace Rutile.VisualStudio {
 		}
 
 		private CachedSpans? cache;
-		private readonly SemanticBufferColors? semantic;
+		private SemanticBufferColors? semantic;
 		private readonly ITextBuffer buffer;
 
 		public event EventHandler<ClassificationChangedEventArgs>? ClassificationChanged;
@@ -51,6 +70,14 @@ namespace Rutile.VisualStudio {
 				semantic.Changed += OnSemanticChanged;
 			}
 			buffer.Changed += OnChanged;
+		}
+
+		internal void AttachSemantic(SemanticBufferColors state) {
+			if (Interlocked.CompareExchange(ref semantic, state, null) != null) {
+				return;
+			}
+			state.Changed += OnSemanticChanged;
+			OnSemanticChanged(this, EventArgs.Empty);
 		}
 
 		private void OnSemanticChanged(object sender, EventArgs args) {

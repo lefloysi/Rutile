@@ -108,7 +108,7 @@ check("native-unique-policy", "tests/compiler-new/std/unique-policy.rt",
 	dependencies=["kiln/compiler/std/unique.rt"])
 standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt",
 	"kiln/compiler/std/string.rt", "kiln/compiler/std/hash.rt", "kiln/compiler/std/equal.rt", "kiln/compiler/std/unordered_map.rt"]
-for name in ["buffer", "buffer-copy", "buffer-lifetime", "buffer-alias", "buffer-owners", "unique", "text",
+for name in ["buffer", "buffer-copy", "buffer-lifetime", "buffer-clear-order", "buffer-alias", "buffer-owners", "unique", "text",
 	"hash", "unordered-map", "unordered-map-collisions", "unordered-map-default-hash",
 	"unordered-map-function-hash"]:
 	check("native-" + name, "tests/compiler-new/std/" + name + ".rt", dependencies=standard)

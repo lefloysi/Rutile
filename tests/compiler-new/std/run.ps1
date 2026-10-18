@@ -26,6 +26,7 @@ $libraries = @(
 $checks = @(
 	@{ name = 'buffer'; fixture = 'buffer.rt' },
 	@{ name = 'buffer-lifetime'; fixture = 'buffer-lifetime.rt' },
+	@{ name = 'buffer-clear-order'; fixture = 'buffer-clear-order.rt' },
 	@{ name = 'buffer-alias'; fixture = 'buffer-alias.rt' },
 	@{ name = 'buffer-owners'; fixture = 'buffer-owners.rt' },
 	@{ name = 'unique'; fixture = 'unique.rt' },

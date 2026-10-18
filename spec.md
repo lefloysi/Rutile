@@ -65,6 +65,8 @@
   - [11.1 Template declarations](#temp.decl)
   - [11.2 Template parameters](#temp.param)
 - [Appendix A: Kiln build and compiler system](#impl.kiln)
+- [B Standard library containers](#lib.containers)
+  - [B.1 Buffer clearing](#lib.buffer)
 
 <a id="foreword"></a>
 
@@ -1141,3 +1143,19 @@ The language rules added for size queries, loops, and switches are supported by
 `kiln/compiler/src/frontend/parser.rt`, `kiln/compiler/src/semantic/size_query.rt`,
 `kiln/compiler/src/semantic/expressions.rt`, `kiln/compiler/src/semantic/switch.rt`,
 `kiln/compiler/src/backend/control_flow.rt`, and `kiln/compiler/src/backend/switch.rt`.
+
+<a id="lib.containers"></a>
+
+# B Standard library containers [lib.containers]
+
+<a id="lib.buffer"></a>
+
+## B.1 Buffer clearing [lib.buffer]
+
+<sup>1</sup> The elements of an `rt::buffer<T>` have indices in the range `[0, size())`.
+`clear()` invokes the destructor of each element once, in increasing index order. After all
+these destructor calls, the buffer's size is zero. Its capacity and allocated storage are
+unchanged.
+
+<sup>2</sup> Clearing an empty buffer invokes no element destructors. Destroying a buffer
+clears its elements before releasing its allocated storage.

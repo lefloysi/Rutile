@@ -1,0 +1,48 @@
+struct Element {
+	fn Element(var Element& this, var i32* order, i32 value);
+	fn ~Element(var Element& this);
+
+	var i32* order;
+	i32 value;
+};
+
+fn Element::Element(var Element& this, var i32* order, i32 value) {
+	@this.order = $order;
+	@this.value = $value;
+};
+
+fn Element::~Element(var Element& this) {
+	@*this.order = *this.order * 10 + this.value;
+};
+
+fn main() -> i32 {
+	i32 order;
+	{
+		rt::buffer<Element> values;
+		if (!@values.reserve(8) || !@values.push_back(Element(&@order, 1)) || !@values.push_back(Element(&@order, 2))) {
+			return 1;
+		};
+
+		usize capacity = values.capacity();
+		Element* storage = values.data();
+		@values.clear();
+		if (order != 12 || values.size() || values.capacity() != capacity || values.data() != storage) {
+			return 2;
+		};
+
+		@values.clear();
+		if (order != 12) {
+			return 3;
+		};
+
+		if (!@values.push_back(Element(&@order, 3)) || !@values.push_back(Element(&@order, 4))) {
+			return 4;
+		};
+	};
+
+	if (order != 1234) {
+		return 5;
+	};
+
+	return 42;
+};

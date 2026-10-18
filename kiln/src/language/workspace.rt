@@ -33,6 +33,8 @@ struct LanguageDocument {
 	u64 opened_revision;
 	rt::buffer<LanguageEdit> edits;
 	rt::string template_context;
+	rt::optional<usize> template_anchor;
+	rt::string template_arguments;
 };
 
 enum language_group_kind : [u08] {
@@ -85,10 +87,26 @@ struct LanguageIndexedSymbol {
 	rt::string detail;
 };
 
+struct LanguageTemplate {
+	SourceRange range;
+	SourceRange anchor;
+	rt::string name;
+	rt::buffer<rt::string> parameters;
+};
+
+struct LanguageTemplateResult {
+	rt::string key;
+	usize anchor;
+	rt::string arguments;
+	rt::string label;
+	rt::string error;
+};
+
 struct LanguageIndex {
 	fn source(var LanguageIndex& this, Analysis& analysis, usize source, LanguageJob& job) -> usize;
 	fn append(var LanguageIndex& this, Analysis& analysis, LanguageJob& job) -> bool;
 	fn finish(var LanguageIndex& this) -> bool;
+	fn append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool;
 	fn classify_source(var LanguageIndex& this, Analysis& analysis, usize original, usize target) -> bool;
 	fn classify_syntax(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax) -> bool;
 	fn classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool;
@@ -115,6 +133,8 @@ struct LanguageIndex {
 	rt::unordered_map<u64, rt::buffer<usize>> references;
 	rt::unique<rt::json_value> diagnostics;
 	rt::buffer<rt::string> targets;
+	rt::buffer<LanguageTemplate> templates;
+	rt::buffer<LanguageTemplateResult> template_results;
 	rt::unique<LanguageIndex> retired_next;
 };
 
@@ -575,6 +595,16 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 		@edit.end = usize(end);
 		@edit.inserted = inserted.size();
 		@document->revision = this.revision;
+		if (document->template_anchor.has_value()) {
+			usize anchor = document->template_anchor.value();
+			if (anchor >= end) {
+				@document->template_anchor = rt::optional<usize>(anchor - (end - begin) + inserted.size());
+			}
+			else if (anchor >= begin) {
+				@document->template_anchor.reset();
+				@document->template_arguments.clear();
+			};
+		};
 		if (!@document->edits.push_back($edit) || !@document->text.assign(replacement.view())) {
 			return false;
 		};

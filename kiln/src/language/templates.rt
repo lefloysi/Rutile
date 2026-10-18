@@ -1,3 +1,39 @@
+fn LanguageIndex::append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool {
+	if (!analysis.semantics()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < analysis.semantics()->entities().size()) {
+		Entity& entity = *analysis.semantics()->entities().data()[index].get();
+		@index = index + 1;
+		var Syntax* wrapper = entity.declaration();
+		if (entity.kind() != entity_kind::template_pattern || !wrapper || wrapper->kind() != syntax_kind::template_declaration) {
+			continue;
+		};
+		LanguageTemplate item;
+		@item.range = analysis.navigation().syntax_range(*wrapper);
+		@item.anchor = analysis.navigation().range(entity.token());
+		if (item.range.source >= mapping.size() || item.anchor.source >= mapping.size()) {
+			continue;
+		};
+		@item.range.source = mapping.data()[item.range.source];
+		@item.anchor.source = mapping.data()[item.anchor.source];
+		@item.name = rt::string(entity.name());
+		usize parameter = 0;
+		while (parameter < wrapper->template_parameters()->size()) {
+			var Syntax* name = wrapper->template_parameters()->item(parameter)->item(1);
+			if (!@item.parameters.push_back(rt::string(name->token().text()))) {
+				return false;
+			};
+			@parameter = parameter + 1;
+		};
+		if (!@this.templates.push_back($item)) {
+			return false;
+		};
+	};
+	return true;
+};
+
 fn LanguageIndex::template_owner(LanguageIndex& this, u64 context) -> u64 {
 	usize remaining = this.symbols.size();
 	while (context && remaining) {
@@ -22,7 +58,20 @@ fn LanguageWorkspace::template_context(var LanguageWorkspace& this, LanguageInde
 		return 0;
 	};
 	var LanguageDocument* document = @this.document_key(index.sources.data()[source].key.view());
-	if (!document || document->template_context.empty()) {
+	if (!document) {
+		return 0;
+	};
+	rt::string_view selected = document->template_context.view();
+	usize result = 0;
+	while (result < index.template_results.size()) {
+		LanguageTemplateResult& context = index.template_results.data()[result];
+		if (context.key.view() == document->key.view() && context.arguments.view() == document->template_arguments.view() && document->template_anchor.has_value() && context.anchor == document->template_anchor.value()) {
+			@selected = context.label.view();
+			break;
+		};
+		@result = result + 1;
+	};
+	if (selected.empty()) {
 		return 0;
 	};
 
@@ -35,8 +84,11 @@ fn LanguageWorkspace::template_context(var LanguageWorkspace& this, LanguageInde
 		};
 		u64 context = index.template_owner(u64(scope.context));
 		var symbol = index.symbol_ids.find(context);
-		if (symbol && index.symbols.data()[*symbol].detail.view() == document->template_context.view()) {
-			return context;
+		if (symbol) {
+			rt::string_view detail = index.symbols.data()[*symbol].detail.view();
+			if (detail == selected || detail.size() > selected.size() && detail.slice(0, selected.size()) == selected && detail.data()[selected.size()] == ':') {
+				return context;
+			};
 		};
 	};
 	return 0;
@@ -55,6 +107,59 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		return rt::json_value::make_null();
 	};
 
+	LanguageTemplate* declaration = nullptr;
+	usize descriptor = 0;
+	while (descriptor < index.templates.size()) {
+		LanguageTemplate& candidate = index.templates.data()[descriptor];
+		if (candidate.range.source == source && candidate.range.begin <= offset && offset <= candidate.range.end && (!declaration || candidate.range.end - candidate.range.begin < declaration->range.end - declaration->range.begin)) {
+			@declaration = &candidate;
+		};
+		@descriptor = descriptor + 1;
+	};
+	if (select && parameters.member(rt::string_view("arguments", 9)) && declaration) {
+		usize other = 0;
+		while (other < this.documents.size()) {
+			var LanguageDocument& previous = @*(@this.documents).data()[other].get();
+			@previous.template_anchor.reset();
+			@previous.template_arguments.clear();
+			@other = other + 1;
+		};
+		@document->template_anchor = rt::optional<usize>(usize(declaration->anchor.begin));
+		@document->template_arguments = rt::string(LanguageJson::text(parameters, rt::string_view("arguments", 9)));
+		@document->template_context.clear();
+		if (!@this.schedule()) {
+			return rt::unique<rt::json_value>();
+		};
+	};
+	if (declaration) {
+		var description = rt::json_value::make_object();
+		var names = rt::json_value::make_array();
+		usize parameter = 0;
+		while (parameter < declaration->parameters.size()) {
+			@names.get()->append(rt::json_value::make_string(declaration->parameters.data()[parameter].view()));
+			@parameter = parameter + 1;
+		};
+		@description.get()->set(rt::string_view("name", 4), rt::json_value::make_string(declaration->name.view()));
+		@description.get()->set(rt::string_view("parameters", 10), $names);
+		@description.get()->set(rt::string_view("range", 5), LanguageJson::range(index.sources.data()[source].text, usize(declaration->range.begin), usize(declaration->range.end)));
+		@result.get()->set(rt::string_view("template", 8), $description);
+	};
+	bool selected_declaration = declaration && document->template_anchor.has_value() && declaration->anchor.begin == document->template_anchor.value();
+	rt::string_view selected_arguments;
+	if (selected_declaration) {
+		@selected_arguments = document->template_arguments.view();
+	};
+	@result.get()->set(rt::string_view("arguments", 9), rt::json_value::make_string(selected_arguments));
+	usize status = 0;
+	while (status < index.template_results.size()) {
+		LanguageTemplateResult& context = index.template_results.data()[status];
+		if (selected_declaration && context.key.view() == document->key.view() && context.arguments.view() == document->template_arguments.view() && context.anchor == document->template_anchor.value()) {
+			@result.get()->set(rt::string_view("error", 5), rt::json_value::make_string(context.error.view()));
+			@result.get()->set(rt::string_view("label", 5), rt::json_value::make_string(context.label.view()));
+			break;
+		};
+		@status = status + 1;
+	};
 	usize width = usize::max;
 	usize region = 0;
 	while (region < index.scopes.size()) {
@@ -88,8 +193,14 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 			@accepted = true;
 		};
 	};
-	if (select && accepted) {
+	if (select && accepted && !parameters.member(rt::string_view("arguments", 9))) {
+		bool typed_context = document->template_anchor.has_value();
+		@document->template_anchor.reset();
+		@document->template_arguments.clear();
 		@document->template_context = rt::string(requested);
+		if (typed_context && !@this.schedule()) {
+			return rt::unique<rt::json_value>();
+		};
 	};
 	if (!@result.get()->set(rt::string_view("items", 5), $items) || !@result.get()->set(rt::string_view("selected", 8), rt::json_value::make_string(document->template_context.view()))) {
 		return rt::unique<rt::json_value>();

@@ -151,9 +151,74 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 2);
 	@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
+	var contextual = rt::unique<Analysis>();
+	LanguageTemplateResult context_result;
+	usize requested = 0;
+	while (requested < job.documents.size()) {
+		LanguageDocument& document = job.documents.data()[requested];
+		if (!document.template_anchor.has_value()) {
+			@requested = requested + 1;
+			continue;
+		};
+		usize original = 0;
+		while (original < analysis.get()->source_count()) {
+			rt::string source_key;
+			if (!LanguageUri::key(analysis.get()->source_path(original), @source_key)) {
+				return false;
+			};
+			if (source_key.view() == document.key.view()) {
+				break;
+			};
+			@original = original + 1;
+		};
+		if (original == analysis.get()->source_count()) {
+			@requested = requested + 1;
+			continue;
+		};
+		@context_result.key = rt::string(document.key);
+		@context_result.anchor = document.template_anchor.value();
+		@context_result.arguments = rt::string(document.template_arguments);
+		@contextual = rt::unique<Analysis>::make();
+		if (!contextual.get()) {
+			return false;
+		};
+		usize source = 0;
+		while (source < analysis.get()->source_count()) {
+			if (!@contextual.get()->add_source(analysis.get()->source_path(source), analysis.get()->source_text(source))) {
+				return false;
+			};
+			@source = source + 1;
+		};
+		if (!@contextual.get()->request_template_context(analysis.get()->source_path(original), document.template_anchor.value(), document.template_arguments.view()) || !@contextual.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation)) {
+			return false;
+		};
+		if (contextual.get()->diagnostics().failed()) {
+			rt::buffer<DiagnosticRecord>& errors = contextual.get()->diagnostics().records();
+			usize error = 0;
+			while (error < errors.size()) {
+				if (error) {
+					@context_result.error.append(rt::string_view("\n", 1));
+				};
+				@context_result.error.append(errors.data()[error].message.view());
+				@error = error + 1;
+			};
+			@contextual.reset(nullptr);
+		}
+		else {
+			@context_result.label = rt::string(contextual.get()->template_context_label());
+		};
+		break;
+	};
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 3);
-	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*analysis.get(), job)) {
+	Analysis* indexed = analysis.get();
+	if (contextual.get()) {
+		@indexed = contextual.get();
+	};
+	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*indexed, job)) {
+		return false;
+	};
+	if (!context_result.key.empty() && !@index.template_results.push_back($context_result)) {
 		return false;
 	};
 	if (group.kind == language_group_kind::analysis) {
@@ -240,6 +305,10 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 			return false;
 		};
 		@source = source + 1;
+	};
+
+	if (!@this.append_templates(analysis, mapping)) {
+		return false;
 	};
 
 	u64 maximum = 0;

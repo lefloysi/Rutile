@@ -79,6 +79,49 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	if (!analyzed && !this.messages.failed()) {
 		@this.messages.error(location, rt::string_view("internal compiler error: semantic analysis failed without a diagnostic", 70));
 	};
+	if (analyzed && this.template_selection.get()) {
+		var EditorTemplateSelection& selection = @*this.template_selection.get();
+		rt::string input;
+		@input.append(rt::string_view("using __context = __arguments<", 30));
+		@input.append(selection.arguments.view());
+		@input.append(rt::string_view(">;", 2));
+		@selection.input.assign(selection.path.view(), input.view());
+		var lexer = Lexer(@selection.input);
+		if (!@lexer.scan()) {
+			@this.messages.syntax_error(lexer.error_token(), lexer.error());
+			@analyzed = false;
+		}
+		else {
+			var parser = Parser(selection.input.tokens());
+			@parser.set_cancellation(cancelled, context);
+			@selection.syntax = @parser.parse();
+			if (!selection.syntax.get()) {
+				@this.messages.syntax_error(parser.error_token(), parser.error());
+				@analyzed = false;
+			}
+			else if (selection.syntax.get()->size() != 1 || selection.syntax.get()->item(0)->kind() != syntax_kind::using_alias) {
+				@this.messages.error(location, rt::string_view("enter only template arguments, without declarations or statements", 65));
+				@analyzed = false;
+			}
+			else {
+				usize source = 0;
+				while (source < this.sources.count() && this.sources.at(source)->path() != selection.path.view()) {
+					@source = source + 1;
+				};
+				var Syntax* applied = selection.syntax.get()->item(0)->alias_type();
+				while (applied->kind() == syntax_kind::type_name) {
+					@applied = applied->designated_type();
+				};
+				if (source == this.sources.count() || applied->kind() != syntax_kind::template_apply) {
+					@this.messages.error(location, rt::string_view("cannot read the template argument list", 38));
+					@analyzed = false;
+				}
+				else {
+					@analyzed = @analyzer.editor_template_context(@*this.semantic_unit.get(), @*(@this.sources).at(source), selection.anchor, @*applied->arguments(), @selection.label);
+				};
+			};
+		};
+	};
 	if (analyzed) {
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
