@@ -98,8 +98,19 @@ fn Analyzer::prepare_default(Analyzer& this, const Type* type) -> bool {
 		rt::buffer<rt::unique<SemanticExpression>> arguments;
 		@constructor = @this.select(group, arguments, 1, conversion_mode::explicit_only, @*owner->declaration());
 
-		if (!constructor || constructor->definition() == function_definition::deleted) {
-			@this.error(owner->declaration(), "default initialization has no available constructor\0");
+		if (!constructor) {
+			if (!this.failed()) {
+				var message = DiagnosticMessage();
+				@message.text("default initialization of '\0");
+				diagnostic_type(@message, *type);
+				@message.text("' has no applicable constructor for an empty argument list\0");
+				@this.report(owner->token(), message.view());
+				diagnostic_candidates(@*this.diagnostics, *group);
+			};
+			return false;
+		};
+		if (constructor->definition() == function_definition::deleted) {
+			@this.deleted_function(owner->token(), *constructor);
 			return false;
 		};
 	};
@@ -153,6 +164,13 @@ fn Analyzer::prepare_expression(Analyzer& this, SemanticExpression* expression) 
 	Entity* selected = expression->entity();
 
 	if (selected && selected->kind() == entity_kind::function && !@this.function_body(Entity*(selected))) {
+		if (this.failed() && (selected->instantiated() || selected->scope() && this.unit->reference_context(@*selected->scope()))) {
+			var message = DiagnosticMessage();
+			@message.text("while instantiating function '\0");
+			diagnostic_entity(@message, *selected);
+			@message.text("' requested here\0");
+			@this.note(expression->token(), message.view());
+		};
 		return false;
 	};
 
@@ -211,7 +229,13 @@ fn Analyzer::global_initializer(Analyzer& this, Entity& entity) -> bool {
 	};
 
 	if (entity.body_state() == entity_state::resolving) {
-		@this.error(entity.declaration(), "global initializer has a circular dependency\0");
+		var message = DiagnosticMessage();
+		@message.text("global initializer for '\0");
+		diagnostic_entity(@message, entity);
+		@message.text("' of type '\0");
+		diagnostic_type(@message, *entity.type());
+		@message.text("' has a circular dependency\0");
+		@this.report(entity.token(), message.view());
 		return false;
 	};
 
@@ -259,7 +283,13 @@ fn Analyzer::field_initializer(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (entity->body_state() == entity_state::resolving) {
-		@this.error(entity->declaration(), "member initializer has a circular dependency\0");
+		var message = DiagnosticMessage();
+		@message.text("member initializer for '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' of type '\0");
+		diagnostic_type(@message, *entity->type());
+		@message.text("' has a circular dependency\0");
+		@this.report(entity->token(), message.view());
 		return false;
 	};
 
@@ -272,7 +302,14 @@ fn Analyzer::field_initializer(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (entity->scope()->owner()->layout() == record_layout::overlapping) {
-		@this.error(initializer, "union default member initializers are not implemented\0");
+		var message = DiagnosticMessage();
+		@message.text("default initializer for union member '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' of type '\0");
+		diagnostic_type(@message, *entity->type());
+		@message.text("' is not implemented\0");
+		@this.report(initializer->token(), message.view());
+		@this.note(entity->token(), "union member is declared here\0");
 		return false;
 	};
 
@@ -296,7 +333,16 @@ fn Analyzer::field_initializer(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (entity->type()->kind() == type_kind::reference && value.get()->category() == value_category::consumable) {
-		@this.error(initializer, "reference member initializer requires a live place\0");
+		var message = DiagnosticMessage();
+		@message.text("initializer for reference member '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' of type '\0");
+		diagnostic_type(@message, *entity->type());
+		@message.text("' requires a live place; received a consumable of type '\0");
+		diagnostic_type(@message, *value.get()->type());
+		@message.text("'\0");
+		@this.report(initializer->token(), message.view());
+		@this.note(entity->token(), "reference member is declared here\0");
 		return false;
 	};
 
@@ -346,7 +392,7 @@ fn Analyzer::prepare_copy(Analyzer& this, const Type* type) -> bool {
 		};
 
 		if (constructor && constructor->definition() == function_definition::deleted) {
-			@this.error(owner->declaration(), "member copy selects a deleted or unavailable constructor\0");
+			@this.deleted_function(owner->token(), *constructor);
 			return false;
 		};
 
@@ -383,7 +429,23 @@ fn Analyzer::prepare_copy(Analyzer& this, const Type* type) -> bool {
 
 fn Analyzer::prepare_copy_assignment(Analyzer& this, const Type* type) -> bool {
 	if (type->qualifier() == type_qualifier::immutable || type->kind() == type_kind::reference) {
-		@this.error(nullptr, "generated assignment cannot replace a const or reference component\0");
+		var message = DiagnosticMessage();
+		@message.text("generated assignment cannot replace component of type '\0");
+		diagnostic_type(@message, *type);
+		if (type->kind() == type_kind::reference) {
+			@message.text("' because it is a reference\0");
+		}
+		else {
+			@message.text("' because it is const-qualified\0");
+		};
+		Token location;
+		if (this.function) {
+			@location = this.function->token();
+			@message.text(" in function '\0");
+			diagnostic_entity(@message, *this.function);
+			@message.text("'\0");
+		};
+		@this.report(location, message.view());
 
 		return false;
 	};
@@ -461,9 +523,24 @@ fn Analyzer::prepare_copy_assignment(Analyzer& this, const Type* type) -> bool {
 
 	Entity* selected = @this.select_candidates(candidates, arguments, 0, conversion_mode::explicit_only, @*owner->declaration());
 
-	if (!selected || selected->definition() == function_definition::deleted) {
-		@this.error(owner->declaration(), "generated member assignment selects a deleted or unavailable function\0");
-
+	if (!selected) {
+		if (!this.failed()) {
+			var message = DiagnosticMessage();
+			@message.text("generated member assignment for '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' has no applicable assignment function with arguments \0");
+			diagnostic_arguments(@message, arguments);
+			@this.report(owner->token(), message.view());
+			usize candidate_index = 0;
+			while (candidate_index < candidates.size()) {
+				diagnostic_candidate(@*this.diagnostics, *candidates.data()[candidate_index]);
+				@candidate_index = candidate_index + 1;
+			};
+		};
+		return false;
+	};
+	if (selected->definition() == function_definition::deleted) {
+		@this.deleted_function(owner->token(), *selected);
 		return false;
 	};
 

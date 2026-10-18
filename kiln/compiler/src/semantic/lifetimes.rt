@@ -70,6 +70,7 @@ struct LifetimeAnalyzer {
 
 private:
 	fn error(LifetimeAnalyzer& this, SemanticExpression* expression, const char* message) -> bool;
+	fn binding_error(LifetimeAnalyzer& this, SemanticExpression* expression, const rt::string_view& reason, const Entity& entity) -> bool;
 	fn walk(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
 	fn storage(LifetimeAnalyzer& this, SemanticExpression* expression, FlowState& state) -> bool;
 	fn merge(LifetimeAnalyzer& this, FlowState& destination, FlowState& first, FlowState& second, SemanticExpression* expression) -> bool;
@@ -94,6 +95,26 @@ fn LifetimeAnalyzer::error(LifetimeAnalyzer& this, SemanticExpression* expressio
 	return false;
 };
 
+fn LifetimeAnalyzer::binding_error(LifetimeAnalyzer& this, SemanticExpression* expression, const rt::string_view& reason, const Entity& entity) -> bool {
+	if (this.diagnostics->failed()) {
+		return false;
+	};
+	var message = DiagnosticMessage();
+	@message.text(reason);
+	@message.text("; object '\0");
+	diagnostic_entity(@message, entity);
+	@message.text("' has type '\0");
+	diagnostic_type(@message, *entity.type());
+	@message.text("'\0");
+	Token location = entity.token();
+	if (expression) {
+		@location = expression->token();
+	};
+	@this.diagnostics->error(location, message.view());
+	@this.diagnostics->note(entity.token(), "object is declared here\0");
+	return false;
+};
+
 fn LifetimeAnalyzer::merge(LifetimeAnalyzer& this, FlowState& destination, FlowState& first, FlowState& second, SemanticExpression* expression) -> bool {
 	if (first.exited() && second.exited()) {
 		return @destination.copy_from(first);
@@ -114,7 +135,7 @@ fn LifetimeAnalyzer::merge(LifetimeAnalyzer& this, FlowState& destination, FlowS
 		LiveBinding* b = @second.find(binding->entity);
 
 		if (!a || !b) {
-			return @this.error($expression, "inconsistent object lifetimes at reachable control-flow merge\0");
+			return @this.binding_error(expression, "inconsistent object lifetimes at reachable control-flow merge\0", *binding->entity);
 		};
 
 		if (a->lifetime == object_lifetime::indeterminate || b->lifetime == object_lifetime::indeterminate || (a->lifetime == object_lifetime::live) != (b->lifetime == object_lifetime::live)) {
@@ -144,7 +165,7 @@ fn LifetimeAnalyzer::validate_backedge(LifetimeAnalyzer& this, FlowState& entry,
 		LiveBinding* repeated = @incoming.find(binding->entity);
 
 		if (!repeated || (binding->lifetime == object_lifetime::indeterminate) != (repeated->lifetime == object_lifetime::indeterminate) || (binding->lifetime == object_lifetime::live) != (repeated->lifetime == object_lifetime::live)) {
-			return @this.error(expression, "inconsistent object lifetimes at reachable control-flow merge\0");
+			return @this.binding_error(expression, "inconsistent object lifetimes at reachable loop backedge\0", *binding->entity);
 		};
 
 		@index = index + 1;
@@ -190,7 +211,7 @@ fn LifetimeAnalyzer::storage(LifetimeAnalyzer& this, SemanticExpression* express
 	};
 
 	if (!@state.find(owner)) {
-		return @this.error(expression, "object storage does not reach this construction\0");
+		return @this.binding_error(expression, "object storage does not reach this construction\0", *owner);
 	};
 
 	return true;
@@ -393,15 +414,21 @@ fn LifetimeAnalyzer::walk(LifetimeAnalyzer& this, SemanticExpression* expression
 			};
 
 			if (!binding) {
-				return @this.error($expression, "object construction does not reach this use\0");
+				return @this.binding_error(expression, "object construction does not reach this use\0", *expression->entity());
 			};
 
 			if (binding->lifetime == object_lifetime::destroyed) {
-				return @this.error(expression, "object has been destroyed\0");
+				return @this.binding_error(expression, "object has been destroyed\0", *binding->entity);
 			};
 
 			if (binding->lifetime != object_lifetime::live) {
-				return @this.error($expression, "object has been relocated or discarded\0");
+				if (binding->lifetime == object_lifetime::relocated) {
+					return @this.binding_error(expression, "object has been relocated\0", *binding->entity);
+				};
+				if (binding->lifetime == object_lifetime::discarded) {
+					return @this.binding_error(expression, "object has been discarded\0", *binding->entity);
+				};
+				return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths\0", *binding->entity);
 			};
 
 			return true;
@@ -494,8 +521,11 @@ fn LifetimeAnalyzer::walk(LifetimeAnalyzer& this, SemanticExpression* expression
 
 			return true;
 		case semantic_kind::break_loop:
-			if (!this.active_loop || !@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)) {
-				return @this.error($expression, "break requires an enclosing loop\0");
+			if (!this.active_loop) {
+				return @this.error(expression, "break requires an enclosing loop or switch\0");
+			};
+			if (!@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)) {
+				return false;
 			};
 
 			@state.leave(flow_exit::break_loop);
@@ -508,8 +538,11 @@ fn LifetimeAnalyzer::walk(LifetimeAnalyzer& this, SemanticExpression* expression
 				@loop = loop->parent;
 			};
 
-			if (!loop || !@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)) {
-				return @this.error($expression, "continue requires an enclosing loop\0");
+			if (!loop) {
+				return @this.error(expression, "continue requires an enclosing loop\0");
+			};
+			if (!@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)) {
+				return false;
 			};
 
 			@state.leave(flow_exit::continue_loop);

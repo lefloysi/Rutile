@@ -1,6 +1,19 @@
 fn Analyzer::construct(Analyzer& this, Scope& scope, Syntax& syntax, const Type* type, Syntax& arguments) -> rt::unique<SemanticExpression> {
 	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
-		@this.error(&syntax, "construction requires an object type\0");
+		if (this.failed()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var message = DiagnosticMessage();
+		@message.text("construction requires an object type; \0");
+		if (type) {
+			@message.text("requested type is '\0");
+			diagnostic_type(@message, *type);
+			@message.text("'\0");
+		}
+		else {
+			@message.text("the destination type is unavailable\0");
+		};
+		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -87,13 +100,29 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 		};
 
 		if (!constructor && !transfer && raw.size() > owner->fields().size()) {
-			@this.error(&syntax, "too many aggregate initializer arguments\0");
+			var message = DiagnosticMessage();
+			@message.text("too many aggregate initializer arguments for '\0");
+			diagnostic_type(@message, *type);
+			@message.text("': expected at most \0");
+			@message.number(u64(owner->fields().size()));
+			@message.text(", received \0");
+			@message.number(u64(raw.size()));
+			@message.text(" with types \0");
+			diagnostic_arguments(@message, raw);
+			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else if (raw.size() > 1) {
-		@this.error(&syntax, "scalar construction accepts at most one argument\0");
+		var message = DiagnosticMessage();
+		@message.text("scalar construction of '\0");
+		diagnostic_type(@message, *type);
+		@message.text("' accepts at most one argument; received \0");
+		@message.number(u64(raw.size()));
+		@message.text(" with types \0");
+		diagnostic_arguments(@message, raw);
+		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -262,7 +291,13 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 
 		if (source->token().kind == token_kind::op_arrow) {
 			if (owner->kind() != type_kind::pointer) {
-				@this.error(source, "arrow method access requires a pointer\0");
+				var message = DiagnosticMessage();
+				@message.text("arrow method access to '\0");
+				diagnostic_name(@message, *source->member_name());
+				@message.text("' requires a pointer; receiver has type '\0");
+				diagnostic_type(@message, *owner);
+				@message.text("'\0");
+				@this.report(source->token(), message.view());
 
 				return rt::unique<SemanticExpression>();
 			};
@@ -285,10 +320,19 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		if (owner->kind() != type_kind::named || !owner->entity()->members()) {
 			if (source->member_name()->kind() != syntax_kind::unary) {
 				Entity* alias = @this.lookup(@scope, @*source->member_name());
+				if (this.failed()) {
+					return rt::unique<SemanticExpression>();
+				};
 				const Type* builtin = this.types->find_primitive(source->member_name()->token().text());
 
 				if (!builtin && (!alias || !alias->denotes_type())) {
-					@this.error(source, "method requires a class or enum object\0");
+					var message = DiagnosticMessage();
+					@message.text("method '\0");
+					diagnostic_name(@message, *source->member_name());
+					@message.text("' requires a class or enum object; receiver has type '\0");
+					diagnostic_type(@message, *owner);
+					@message.text("'\0");
+					@this.report(source->token(), message.view());
 
 					return rt::unique<SemanticExpression>();
 				};
@@ -305,6 +349,9 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		else {
 			@designated = this.types->find_primitive(member->token().text());
 			Entity* alias = @this.lookup(@scope, @*member);
+			if (this.failed()) {
+				return rt::unique<SemanticExpression>();
+			};
 
 			if (alias && alias->denotes_type()) {
 				if (!@this.resolve(Entity*(alias))) {
@@ -317,14 +364,34 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 
 		if (designated && designated->same_shape(*owner)) {
 			if (owner->qualifier() == type_qualifier::immutable || !accessed && receiver.get()->kind() != semantic_kind::access) {
-				@this.error(source, "explicit construction or destruction requires mutable access\0");
+				var message = DiagnosticMessage();
+				if (destructor) {
+					@message.text("explicit destruction of '\0");
+				}
+				else {
+					@message.text("explicit construction of '\0");
+				};
+				diagnostic_type(@message, *owner);
+				@message.text("' requires mutable access; \0");
+				if (owner->qualifier() == type_qualifier::immutable) {
+					@message.text("the object is const\0");
+				}
+				else {
+					@message.text("the object was not accessed through '@'\0");
+				};
+				@this.report(source->token(), message.view());
 
 				return rt::unique<SemanticExpression>();
 			};
 
 			if (destructor) {
 				if (arguments->size()) {
-					@this.error(source, "destructor accepts no arguments after its receiver\0");
+					var message = DiagnosticMessage();
+					@message.text("destructor for '\0");
+					diagnostic_type(@message, *owner);
+					@message.text("' accepts no arguments after its receiver; received \0");
+					@message.number(u64(arguments->size()));
+					@this.report(source->token(), message.view());
 
 					return rt::unique<SemanticExpression>();
 				};
@@ -366,13 +433,28 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		};
 
 		if (destructor) {
-			@this.error(source, "destructor type does not match its object\0");
+			if (this.failed()) {
+				return rt::unique<SemanticExpression>();
+			};
+			var message = DiagnosticMessage();
+			@message.text("destructor type '\0");
+			diagnostic_name(@message, *member->operand());
+			@message.text("' does not match its object of type '\0");
+			diagnostic_type(@message, *owner);
+			@message.text("'\0");
+			@this.report(source->token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};
 
 		if (owner->kind() != type_kind::named) {
-			@this.error(source, "explicit construction type does not match its destination\0");
+			var message = DiagnosticMessage();
+			@message.text("explicit construction type '\0");
+			diagnostic_name(@message, *member);
+			@message.text("' does not match its destination of type '\0");
+			diagnostic_type(@message, *owner);
+			@message.text("'\0");
+			@this.report(source->token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -563,7 +645,15 @@ fn Analyzer::invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique
 			@value = @this.convert(rt::unique<SemanticExpression>(@value.release()), rt::optional_ref<const Type>(*signature->signature().parameters().data()[index]), @syntax);
 		}
 		else if (!value.get()->type()->representation()->kind().is_scalar()) {
-			@this.error(&syntax, "variadic argument requires a scalar value\0");
+			var message = DiagnosticMessage();
+			@message.text("variadic argument \0");
+			@message.number(u64(index + 1));
+			@message.text(" requires a scalar value; received '\0");
+			diagnostic_type(@message, *value.get()->type());
+			@message.text("' for callable type '\0");
+			diagnostic_type(@message, *signature);
+			@message.text("'\0");
+			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};

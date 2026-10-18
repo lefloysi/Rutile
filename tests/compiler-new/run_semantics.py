@@ -34,11 +34,11 @@ for name in ["lifetime-constant-path", "lifetime-pointer-relocation", "lifetime-
 	check(name, sources + name + ".rt")
 
 check("lifetime-access-relocation", sources + "lifetime-access-relocation.rt",
-	reject="relocated or discarded")
+	reject="object has been relocated")
 check("lifetime-destroyed-use", sources + "lifetime-destroyed-use.rt",
 	reject="object has been destroyed")
 check("lifetime-reference-relocation", sources + "lifetime-reference-relocation.rt",
-	reject="relocated or discarded")
+	reject="object has been relocated")
 check("contextual-reference-escape", sources + "contextual-reference-escape.rt",
 	reject="sequence result refers to local storage")
 check("contextual-ambiguous", sources + "contextual-ambiguous.rt", reject="function selection is ambiguous")
@@ -78,7 +78,7 @@ for name in ["owned-lifetimes", "scope-exits", "allocation-lifetimes", "return-l
 	"contextual-argument-lifetimes"]:
 	check(name, "tests/compiler-new/backend/cases/" + name + ".rt")
 check("lifetime-conditional-use", "tests/compiler-new/backend/cases/lifetime-conditional-use.rt",
-	reject="relocated or discarded")
+	reject="object lifetime differs across reachable control-flow paths")
 
 for name in ["automatic-move", "generated-copy-members", "generated-copy-assignment",
 	"explicit-copy-preserved", "user-move-preserved", "primitive-constants", "index-extension"]:

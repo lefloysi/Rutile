@@ -1,6 +1,10 @@
 fn Analyzer::size_query(Analyzer& this, Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression> {
 	if (!type.has_layout()) {
-		@this.error(&syntax, "sizeof requires a complete object storage type\0");
+		var message = DiagnosticMessage();
+		@message.text("sizeof requires a complete object storage type; received '\0");
+		diagnostic_type(@message, type);
+		@message.text("'\0");
+		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};

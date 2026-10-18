@@ -58,7 +58,9 @@ private:
 	fn same_auto_signature(TemplateEngine& this, Analyzer& analyzer, Scope& first_scope, Syntax& first, Scope& second_scope, Syntax& second) -> bool;
 	fn same_type_pattern(TemplateEngine& this, Analyzer& analyzer, Scope& first_scope, Syntax& first, Scope& second_scope, Syntax& second, Syntax& first_parameters, Syntax& second_parameters) -> bool;
 	fn pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity*;
-	fn argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, TemplateArgument& result) -> bool;
+	fn argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, Entity& pattern, usize position, TemplateArgument& result) -> bool;
+	fn instantiation_context(const TemplateEngine& this, Analyzer& analyzer, Entity& entity, const Token& request);
+	fn argument_context(const TemplateEngine& this, Analyzer& analyzer, Entity& pattern, Syntax& parameter, usize position);
 	fn bind(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& parameter, const TemplateArgument& argument) -> bool;
 	fn instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, const TemplateInput& input) -> Entity*;
 	fn member_definitions(TemplateEngine& this, Analyzer& analyzer, TemplateInstance& instance) -> bool;
@@ -161,7 +163,10 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scop
 	Syntax* name = this.declaration_name(@*declaration);
 
 	if (!name) {
-		@analyzer.error(&source, "template requires a record, function, namespace, or alias declaration\0");
+		var message = DiagnosticMessage();
+		@message.text("template requires a record, function, namespace, or alias declaration; received construct beginning with \0");
+		@message.quoted(declaration->token().text());
+		@analyzer.report(declaration->token(), message.view());
 
 		return false;
 	};
@@ -170,7 +175,11 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scop
 		Entity* owner = @this.pattern_owner(@analyzer, @scope, @*name->left());
 
 		if (!owner || owner->kind() != entity_kind::template_pattern) {
-			@analyzer.error(&source, "qualified template member requires a declared owner template\0");
+			var message = DiagnosticMessage();
+			@message.text("template declaration '\0");
+			diagnostic_name(@message, *name);
+			@message.text("': qualified template member requires a declared owner template\0");
+			@analyzer.report(source.token(), message.view());
 
 			return false;
 		};
@@ -197,13 +206,21 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scop
 			};
 			@owner = owner->member_owner();
 			if (!owner || !owner->members()) {
-				@analyzer.error(&source, "qualified function owner has no member scope\0");
+				var message = DiagnosticMessage();
+				@message.text("template declaration '\0");
+				diagnostic_name(@message, *name);
+				@message.text("': qualified function owner has no member scope\0");
+				@analyzer.report(source.token(), message.view());
 				return false;
 			};
 			return @this.auto_declaration(@analyzer, @*owner->members(), @*owner->members(), @source, scope.access());
 		};
 
-		@analyzer.error(&source, "template declaration requires an unqualified name\0");
+		var message = DiagnosticMessage();
+		@message.text("template declaration '\0");
+		diagnostic_name(@message, *name);
+		@message.text("': requires an unqualified name\0");
+		@analyzer.report(source.token(), message.view());
 
 		return false;
 	};
@@ -214,7 +231,12 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scop
 	Entity* previous = scope.local(name->token().text());
 
 	if (previous && previous->kind() != entity_kind::template_pattern) {
-		@analyzer.error(&source, "template name conflicts with another declaration\0");
+		var message = DiagnosticMessage();
+		@message.text("template declaration '\0");
+		diagnostic_name(@message, *name);
+		@message.text("': name conflicts with another declaration\0");
+		@analyzer.report(source.token(), message.view());
+		@analyzer.note(previous->token(), "conflicting declaration is here\0");
 
 		return false;
 	};
@@ -223,14 +245,27 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scop
 		Syntax* existing = previous->declaration()->template_declaration();
 
 		if (existing->kind() != syntax_kind::record || previous->declaration()->template_parameters()->size() != source.template_parameters()->size()) {
-			@analyzer.error(&source, "template redeclaration has a different parameter list\0");
+			var message = DiagnosticMessage();
+			@message.text("template redeclaration '\0");
+			diagnostic_name(@message, *name);
+			@message.text("' has a different parameter list; previous declaration has \0");
+			@message.number(previous->declaration()->template_parameters()->size());
+			@message.text(" parameters, received \0");
+			@message.number(source.template_parameters()->size());
+			@analyzer.report(source.token(), message.view());
+			@analyzer.note(previous->token(), "previous template declaration is here\0");
 
 			return false;
 		};
 
 		if (declaration->record_members()->kind() != syntax_kind::noop) {
 			if (existing->record_members()->kind() != syntax_kind::noop) {
-				@analyzer.error(&source, "duplicate template definition\0");
+				var message = DiagnosticMessage();
+				@message.text("template declaration '\0");
+				diagnostic_name(@message, *name);
+				@message.text("': duplicate template definition\0");
+				@analyzer.report(source.token(), message.view());
+				@analyzer.note(previous->token(), "previous template definition is here\0");
 
 				return false;
 			};
@@ -334,7 +369,12 @@ fn TemplateEngine::auto_declaration(TemplateEngine& this, Analyzer& analyzer, Sc
 			continue;
 		};
 		if (previous->kind() != entity_kind::template_pattern || previous->declaration()->kind() != syntax_kind::function) {
-			@analyzer.error(&declaration, "template name conflicts with another declaration\0");
+			var message = DiagnosticMessage();
+			@message.text("function template '\0");
+			diagnostic_name(@message, *name);
+			@message.text("': name conflicts with another declaration\0");
+			@analyzer.report(declaration.token(), message.view());
+			@analyzer.note(previous->token(), "previous declaration is here\0");
 			return false;
 		};
 		if (!@this.same_auto_signature(@analyzer, @*previous->resolution_scope(), @*previous->declaration(), @bindings, @declaration)) {
@@ -342,7 +382,12 @@ fn TemplateEngine::auto_declaration(TemplateEngine& this, Analyzer& analyzer, Sc
 		};
 		if (declaration.function_body()->kind() != syntax_kind::noop) {
 			if (previous->declaration()->function_body()->kind() != syntax_kind::noop) {
-				@analyzer.error(&declaration, "duplicate function definition\0");
+				var message = DiagnosticMessage();
+				@message.text("function template '\0");
+				diagnostic_name(@message, *name);
+				@message.text("': duplicate function definition\0");
+				@analyzer.report(declaration.token(), message.view());
+				@analyzer.note(previous->token(), "previous declaration is here\0");
 				return false;
 			};
 			@previous->replace_declaration(&declaration);
@@ -380,7 +425,7 @@ fn TemplateEngine::argument_syntax(const TemplateEngine& this, Syntax& source, t
 	return nullptr;
 };
 
-fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, TemplateArgument& result) -> bool {
+fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, Entity& pattern, usize position, TemplateArgument& result) -> bool {
 	Syntax* source = &input;
 	if (parameter.token().kind == token_kind::kw_typename) {
 		@result.kind = template_argument_kind::type;
@@ -390,7 +435,13 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& sco
 			var message = DiagnosticMessage();
 			@message.text("template argument for type parameter \0");
 			@message.quoted(this.parameter_name(@parameter)->token().text());
-			@message.text(" must name a type\0");
+			@message.text(" of template '\0");
+			diagnostic_entity(@message, pattern);
+			@message.text("' at position \0");
+			@message.number(position + 1);
+			@message.text(" must name a type; received '\0");
+			diagnostic_name(@message, input);
+			@message.text("'\0");
 			@analyzer.report(input.token(), message.view());
 			@analyzer.note(parameter.token(), "type parameter is declared here\0");
 
@@ -400,6 +451,7 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& sco
 		@result.type = @analyzer.type(@scope, @*source);
 
 		if (!result.type) {
+			this.argument_context(@analyzer, @pattern, @parameter, usize(position));
 			return false;
 		};
 
@@ -418,21 +470,47 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& sco
 	@source = this.argument_syntax(@*source, template_argument_kind::value);
 	const Type* expected = @analyzer.type(@scope, @*parameter.template_parameter_type());
 
-	if (!source || !expected) {
+	if (!source || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
+		var message = DiagnosticMessage();
+		@message.text("template argument for value parameter \0");
+		@message.quoted(this.parameter_name(@parameter)->token().text());
+		@message.text(" of template '\0");
+		diagnostic_entity(@message, pattern);
+		@message.text("' at position \0");
+		@message.number(position + 1);
+		@message.text(" requires a value expression; received '\0");
+		diagnostic_name(@message, input);
+		@message.text("'\0");
+		@analyzer.report(input.token(), message.view());
+		@analyzer.note(parameter.token(), "value parameter is declared here\0");
+		return false;
+	};
+	if (!expected) {
+		this.argument_context(@analyzer, @pattern, @parameter, usize(position));
 		return false;
 	};
 
 	var value = @analyzer.expression(@scope, @*source, rt::optional_ref<const Type>(*expected));
 
 	if (!value.get()) {
+		this.argument_context(@analyzer, @pattern, @parameter, usize(position));
 		return false;
 	};
 	if (!@analyzer.constant_integer(*value.get(), @result.value)) {
 		var message = DiagnosticMessage();
 		@message.text("template argument for value parameter \0");
 		@message.quoted(this.parameter_name(@parameter)->token().text());
+		@message.text(" of template '\0");
+		diagnostic_entity(@message, pattern);
+		@message.text("' at position \0");
+		@message.number(position + 1);
 		@message.text(" must be an integer constant of type '\0");
 		diagnostic_type(@message, *expected);
+		@message.text("'\0");
+		@message.text("; supplied expression '\0");
+		diagnostic_name(@message, *source);
+		@message.text("' has type '\0");
+		diagnostic_type(@message, *value.get()->type());
 		@message.text("'\0");
 		@analyzer.report(source->token(), message.view());
 		@analyzer.note(parameter.token(), "value parameter is declared here\0");
@@ -443,6 +521,21 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& sco
 	@result.type = $expected;
 
 	return true;
+};
+
+fn TemplateEngine::argument_context(const TemplateEngine& this, Analyzer& analyzer, Entity& pattern, Syntax& parameter, usize position) {
+	if (!analyzer.failed()) {
+		return;
+	};
+	var message = DiagnosticMessage();
+	@message.text("while checking argument \0");
+	@message.number(position + 1);
+	@message.text(" for parameter \0");
+	@message.quoted(this.parameter_name(@parameter)->token().text());
+	@message.text(" of template '\0");
+	diagnostic_entity(@message, pattern);
+	@message.text("'\0");
+	@analyzer.note(parameter.token(), message.view());
 };
 
 fn TemplateEngine::bind(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& parameter, const TemplateArgument& argument) -> bool {
@@ -485,7 +578,19 @@ fn TemplateEngine::apply(TemplateEngine& this, Analyzer& analyzer, Scope& lookup
 	};
 
 	if (!pattern || pattern->kind() != entity_kind::template_pattern) {
-		@analyzer.error(&source, "template arguments require a template declaration\0");
+		var message = DiagnosticMessage();
+		@message.text("template arguments for '\0");
+		diagnostic_name(@message, *source.callable());
+		@message.text("' require a template declaration\0");
+		if (pattern) {
+			@message.text("; resolved declaration is '\0");
+			diagnostic_entity(@message, *pattern);
+			@message.text("'\0");
+		};
+		@analyzer.report(source.token(), message.view());
+		if (pattern) {
+			@analyzer.note(pattern->token(), "non-template declaration is here\0");
+		};
 
 		return nullptr;
 	};
@@ -543,7 +648,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 		TemplateArgument argument;
 
 		if (input.kind == template_input_kind::explicit_arguments && index < input.storage.explicit_arguments->size()) {
-			if (!@this.argument(@analyzer, @scope, @*input.storage.explicit_arguments->item(index), @*parameter, @argument)) {
+			if (!@this.argument(@analyzer, @scope, @*input.storage.explicit_arguments->item(index), @*parameter, @pattern, usize(index), @argument)) {
 				return nullptr;
 			};
 		}
@@ -570,7 +675,17 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 				return nullptr;
 			};
 
-			if (!@this.argument(@analyzer, @*bindings, @*fallback, @*parameter, @argument)) {
+			if (!@this.argument(@analyzer, @*bindings, @*fallback, @*parameter, @pattern, usize(index), @argument)) {
+				if (analyzer.failed()) {
+					var message = DiagnosticMessage();
+					@message.text("while evaluating default argument for parameter \0");
+					@message.quoted(this.parameter_name(@*parameter)->token().text());
+					@message.text(" of template '\0");
+					diagnostic_entity(@message, pattern);
+					@message.text("'\0");
+					@analyzer.note(fallback->token(), message.view());
+					@analyzer.note(input.request, "template instantiation is requested here\0");
+				};
 				return nullptr;
 			};
 		};
@@ -580,6 +695,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 		};
 
 		if (!@instance.get()->arguments.push_back($argument)) {
+			@analyzer.error(wrapper, "template argument storage is unavailable\0");
 			return nullptr;
 		};
 
@@ -637,7 +753,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 	@entity->set_access(pattern.access());
 	@instance.get()->entity = entity;
 	@entity->set_instantiated();
-	if (!@analyzer.semantic_unit()->record_origin(@*entity, @pattern, instance.get()->arguments)) {
+	if (!@analyzer.semantic_unit()->record_origin(@*entity, @pattern, instance.get()->arguments, this.explicit_count(@pattern))) {
 		@analyzer.error(declaration, "template navigation storage is unavailable\0");
 		return nullptr;
 	};
@@ -654,6 +770,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 		Scope* members = @analyzer.semantic_unit()->create_scope(bindings, Entity*(entity));
 
 		if (!members) {
+			@analyzer.error(declaration, "template member scope storage is unavailable\0");
 			return nullptr;
 		};
 
@@ -665,15 +782,28 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& 
 		};
 
 		if (!@analyzer.collect(@*members, @*body) || !@this.member_definitions(@analyzer, @*published)) {
+			this.instantiation_context(@analyzer, @*entity, input.request);
 			return nullptr;
 		};
 	};
 
 	if (!@analyzer.resolve(Entity*(entity))) {
+		this.instantiation_context(@analyzer, @*entity, input.request);
 		return nullptr;
 	};
 
 	return $entity;
+};
+
+fn TemplateEngine::instantiation_context(const TemplateEngine& this, Analyzer& analyzer, Entity& entity, const Token& request) {
+	if (!analyzer.failed()) {
+		return;
+	};
+	var message = DiagnosticMessage();
+	@message.text("while instantiating '\0");
+	diagnostic_entity(@message, entity);
+	@message.text("' requested here\0");
+	@analyzer.note(request, message.view());
 };
 
 fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, TemplateInstance& instance) -> bool {
@@ -689,7 +819,17 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 		Syntax* parameters = definition.source->template_parameters();
 
 		if (parameters->size() != instance.arguments.size()) {
-			@analyzer.error(definition.source, "member definition template parameters do not match the owning template\0");
+			var message = DiagnosticMessage();
+			@message.text("member definition '\0");
+			diagnostic_name(@message, *definition.source->template_declaration()->function_name());
+			@message.text("' has \0");
+			@message.number(parameters->size());
+			@message.text(" template parameters; owning template '\0");
+			diagnostic_entity(@message, *instance.pattern);
+			@message.text("' requires \0");
+			@message.number(instance.arguments.size());
+			@analyzer.report(definition.source->token(), message.view());
+			@analyzer.note(instance.pattern->token(), "owning template is declared here\0");
 
 			return false;
 		};
@@ -697,6 +837,7 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 		Scope* bindings = @analyzer.semantic_unit()->create_scope(instance.entity->members(), Entity*(instance.entity));
 
 		if (!bindings) {
+			@analyzer.error(definition.source, "template member binding scope storage is unavailable\0");
 			return false;
 		};
 
@@ -1026,6 +1167,8 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 			@message.number(u64(declaration->function_parameters()->size()));
 			@message.text(" call arguments, received \0");
 			@message.number(u64(values.size()));
+			@message.text(" with types \0");
+			diagnostic_arguments(@message, values);
 		}
 		else {
 			@message.text("' does not declare a callable function\0");
@@ -1060,11 +1203,12 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 	while (index < visible) {
 		TemplateArgument argument;
 
-		if (index < provided && !@this.argument(@analyzer, @scope, @*supplied.value().item(index), @*this.parameter_at(@pattern, index), @argument)) {
+		if (index < provided && !@this.argument(@analyzer, @scope, @*supplied.value().item(index), @*this.parameter_at(@pattern, index), @pattern, usize(index), @argument)) {
 			return nullptr;
 		};
 
 		if (!@arguments.push_back($argument)) {
+			@analyzer.error(&request, "template deduction argument storage is unavailable\0");
 			return nullptr;
 		};
 
@@ -1111,6 +1255,37 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 					@analyzer.report(request.token(), message.view());
 					@analyzer.note(pattern.token(), "function template is declared here\0");
 					@analyzer.note(parameter->token(), "deduction failed for this parameter type\0");
+					usize binding = 0;
+					while (binding < visible && binding < arguments.size()) {
+						const TemplateArgument& bound = arguments.data()[binding];
+						Syntax* bound_parameter = this.parameter_at(@pattern, binding);
+						@binding = binding + 1;
+						if (!bound.type) {
+							continue;
+						};
+						var binding_message = DiagnosticMessage();
+						@binding_message.text("template parameter \0");
+						@binding_message.quoted(this.parameter_name(@*bound_parameter)->token().text());
+						if (bound.kind == template_argument_kind::type) {
+							@binding_message.text(" is bound to type '\0");
+							diagnostic_type(@binding_message, *bound.type);
+							@binding_message.text("'\0");
+						}
+						else {
+							@binding_message.text(" is bound to value \0");
+							if (bound.type->kind() == type_kind::signed_integer && bound.type->signed_value(bound.value) < 0) {
+								@binding_message.text("-\0");
+								@binding_message.number(u64(0) - u64(bound.type->signed_value(bound.value)));
+							}
+							else {
+								@binding_message.number(bound.value);
+							};
+							@binding_message.text(" of type '\0");
+							diagnostic_type(@binding_message, *bound.type);
+							@binding_message.text("'\0");
+						};
+						@analyzer.note(bound_parameter->token(), binding_message.view());
+					};
 				};
 				return nullptr;
 			};
@@ -1118,6 +1293,15 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 	};
 
 	if (!@this.qualifications(@analyzer, @*declaration, values, @arguments)) {
+		if (!analyzer.failed()) {
+			var message = DiagnosticMessage();
+			@message.text("cannot deduce automatic qualification for function template '\0");
+			diagnostic_entity(@message, pattern);
+			@message.text("' with argument types \0");
+			diagnostic_arguments(@message, values);
+			@analyzer.report(request.token(), message.view());
+			@analyzer.note(pattern.token(), "function template is declared here\0");
+		};
 		return nullptr;
 	};
 

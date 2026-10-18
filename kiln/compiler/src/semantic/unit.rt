@@ -14,6 +14,7 @@ struct TemplateArgument {
 
 struct TemplateInstantiation {
 	Entity* pattern;
+	usize source_argument_count;
 	rt::buffer<TemplateArgument> arguments;
 };
 
@@ -64,7 +65,7 @@ struct SemanticUnit {
 
 	fn record_name(SemanticUnit& this, Analyzer& analyzer, Scope& scope, Syntax& name, Entity& target, u32 roles) -> bool;
 	fn record_reference(SemanticUnit& this, const Token& token, Entity& target, Entity* context, u32 roles) -> bool;
-	fn record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments) -> bool;
+	fn record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments, usize source_argument_count) -> bool;
 	fn reference_context(const SemanticUnit& this, Scope& scope) -> Entity*;
 	fn template_origin(const SemanticUnit& this, const Entity& entity) -> Entity*;
 	fn record_scope(SemanticUnit& this, Scope& scope, Syntax& syntax) -> bool;
@@ -155,12 +156,13 @@ fn SemanticUnit::record_reference(SemanticUnit& this, const Token& token, Entity
 	return @this.resolved_references.push_back($reference);
 };
 
-fn SemanticUnit::record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments) -> bool {
+fn SemanticUnit::record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments, usize source_argument_count) -> bool {
 	var metadata = rt::unique<TemplateInstantiation>::make();
 	if (!metadata.get()) {
 		return false;
 	};
 	@metadata.get()->pattern = &pattern;
+	@metadata.get()->source_argument_count = $source_argument_count;
 	usize index = 0;
 	while (index < arguments.size()) {
 		const TemplateArgument& source = arguments.data()[index];
