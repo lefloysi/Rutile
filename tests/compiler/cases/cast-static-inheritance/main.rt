@@ -1,0 +1,20 @@
+struct Base {
+	i32 value;
+};
+
+struct Derived : [Base] {
+	i32 other;
+};
+
+fn main() -> i32 {
+	Derived object;
+	Base* base = static_cast<Base*>(&object);
+	@base->value = 20;
+	Derived* derived = static_cast<Derived*>(base);
+	@derived->other = 22;
+	Base& reference = static_cast<Base&>(@object);
+	if (&reference != base || derived != &object) {
+		return 1;
+	};
+	return reference.value + object.other;
+};

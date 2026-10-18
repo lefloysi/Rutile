@@ -1,0 +1,38 @@
+fn owned(usize value) -> usize {
+	return $value;
+};
+
+fn copied_return(const usize& value) -> usize {
+	return value;
+};
+
+fn borrowed(const usize& value) -> usize {
+	return usize(value);
+};
+
+fn change(usize& value) {
+	@value = 22;
+};
+
+fn main() -> i32 {
+	usize source = 20;
+	usize initialized = source;
+	usize assigned = 0;
+	@assigned = source;
+	if (owned(source) != 20 || copied_return(source) != 20 || initialized != 20 || assigned != 20 || source != 20) {
+		return 1;
+	};
+	change(@source);
+	if (borrowed(source) != 22 || source != 22) {
+		return 2;
+	};
+	const usize immutable = 20;
+	if (owned(immutable) != 20 || copied_return(immutable) != 20) {
+		return 3;
+	};
+	usize moved = $initialized;
+	if (owned($moved) != 20) {
+		return 4;
+	};
+	return 42;
+};

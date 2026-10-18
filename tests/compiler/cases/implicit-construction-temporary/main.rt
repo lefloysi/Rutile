@@ -1,0 +1,32 @@
+struct Source {
+	fn Source(Source& this, i32 value);
+	i32 value;
+};
+
+fn Source::Source(Source& this, i32 value) {
+	@this.value = $value;
+};
+
+struct View {
+	fn View(View& this, const Source& source) : [implicit];
+	i32 value;
+};
+
+fn View::View(View& this, const Source& source) {
+	@this.value := source.value;
+};
+
+fn read(const View& view) -> i32 {
+	return i32(view.value);
+};
+
+fn main() -> i32 {
+	if (read(Source(42)) != 42) {
+		return 1;
+	};
+	var source = Source(42);
+	if (read(source) != 42) {
+		return 2;
+	};
+	return read(View(Source(42)));
+};

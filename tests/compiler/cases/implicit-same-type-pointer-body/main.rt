@@ -1,0 +1,49 @@
+struct Counter {
+	i32 conversions;
+};
+
+fn operator Counter*(const (Counter*)& this) -> Counter* : [implicit] {
+	@this->conversions = this->conversions + 1;
+	return Counter*(this);
+};
+
+fn owned(Counter* value) -> i32 {
+	return value->conversions;
+};
+
+fn copied_return(const (Counter*)& value) -> Counter* {
+	return value;
+};
+
+fn borrowed(const (Counter*)& value) -> i32 {
+	return value->conversions;
+};
+
+fn main() -> i32 {
+	Counter counter;
+	Counter* source = &counter;
+	Counter* initialized = source;
+	if (counter.conversions != 1 || initialized != &counter || source != &counter) {
+		return 1;
+	};
+	if (owned(source) != 2 || counter.conversions != 2 || source != &counter) {
+		return 2;
+	};
+	var returned = copied_return(source);
+	if (counter.conversions != 3 || returned != &counter || source != &counter) {
+		return 3;
+	};
+	Counter* assigned = nullptr;
+	@assigned = source;
+	if (counter.conversions != 4 || assigned != &counter || source != &counter) {
+		return 4;
+	};
+	if (borrowed(source) != 4 || counter.conversions != 4) {
+		return 5;
+	};
+	var moved = $initialized;
+	if (owned($moved) != 4 || counter.conversions != 4 || source != &counter) {
+		return 6;
+	};
+	return 42;
+};

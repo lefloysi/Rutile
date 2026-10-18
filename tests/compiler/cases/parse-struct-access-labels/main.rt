@@ -1,0 +1,56 @@
+struct Empty {
+public:
+private:
+protected:
+};
+
+struct Value {
+private:
+	i32 first;
+protected:
+	i32 second;
+public:
+	fn sum(const Value& this) -> i32;
+private:
+	struct Nested {
+	protected:
+		i32 value;
+	public:
+	};
+};
+
+fn Value::sum(const Value& this) -> i32 {
+	return this.first + this.second;
+};
+
+template<typename T>
+struct Box {
+private:
+	T value;
+public:
+	fn read(const Box& this) -> T;
+protected:
+};
+
+template<typename T>
+fn Box<T>::read(const Box& this) -> T {
+	return T(this.value);
+};
+
+fn main() -> i32 {
+	Empty empty;
+	Value value;
+	@value.first = 20;
+	@value.second = 22;
+	if (value.sum() != 42) {
+		return 1;
+	};
+	Value::Nested nested;
+	@nested.value = 42;
+	Box<i32> box;
+	@box.value := nested.value;
+	i32 public = 0;
+	i32 private = 0;
+	i32 protected = 0;
+	return box.read() + public + private + protected;
+};

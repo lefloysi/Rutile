@@ -1,0 +1,45 @@
+template<typename T>
+namespace Foo {
+	struct Bar {
+		fn Bar(Bar& this, T value, i32* destroyed);
+		fn Bar(Bar& this, const Bar& other);
+		fn ~Bar(Bar& this);
+		fn read(const Bar& this) -> T;
+		T value;
+		i32* destroyed;
+	};
+
+	fn Bar::Bar(Bar& this, T value, i32* destroyed) {
+		@this.value = $value;
+		@this.destroyed = $destroyed;
+	};
+
+	fn Bar::Bar(Bar& this, const Bar& other) {
+		@this.value := other.value;
+		@this.destroyed := other.destroyed;
+	};
+
+	fn Bar::~Bar(Bar& this) {
+		@*this.destroyed = *this.destroyed + 1;
+	};
+
+	fn Bar::read(const Bar& this) -> T {
+		return T(this.value);
+	};
+};
+
+fn main() -> i32 {
+	i32 destroyed = 0;
+	{
+		var first = Foo<i32>::Bar(20, &destroyed);
+		Foo<i32>::Bar copied := first;
+		var second = Foo<i64>::Bar(i64(22), &destroyed);
+		if (first.read() != 20 || copied.read() != 20 || second.read() != 22) {
+			return 1;
+		};
+	};
+	if (destroyed != 3) {
+		return 2;
+	};
+	return 42;
+};

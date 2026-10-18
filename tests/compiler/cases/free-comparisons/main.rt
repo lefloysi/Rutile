@@ -1,0 +1,65 @@
+namespace comparisons {
+	struct Source {
+		fn Source(Source& this, i32 value);
+		i32 value;
+	};
+
+	fn Source::Source(Source& this, i32 value) {
+		@this.value = $value;
+	};
+
+	struct View {
+		fn View(View& this, const Source& source) : [implicit];
+		i32 value;
+	};
+
+	fn View::View(View& this, const Source& source) {
+		@this.value := source.value;
+	};
+
+	fn operator==(const View& lhs, const View& rhs) -> bool {
+		return lhs.value == rhs.value;
+	};
+
+	fn operator!=(const View& lhs, const View& rhs) -> bool {
+		return lhs.value != rhs.value;
+	};
+
+	fn operator<(const View& lhs, const View& rhs) -> bool {
+		return lhs.value < rhs.value;
+	};
+
+	fn operator<=(const View& lhs, const View& rhs) -> bool {
+		return lhs.value <= rhs.value;
+	};
+
+	fn operator>(const View& lhs, const View& rhs) -> bool {
+		return lhs.value > rhs.value;
+	};
+
+	fn operator>=(const View& lhs, const View& rhs) -> bool {
+		return lhs.value >= rhs.value;
+	};
+
+	fn run() -> i32 {
+		var first = Source(1);
+		var second = Source(2);
+		var view = View(first);
+		if (!(first == view) || !(view == first) || !(first != second) || !(first < second) || !(first <= view) || !(second > view) || !(view >= first)) {
+			return 1;
+		};
+		if (!(Source(1) == Source(1)) || !(Source(1) != Source(2)) || !(Source(1) < Source(2)) || !(Source(1) <= Source(1)) || !(Source(2) > Source(1)) || !(Source(1) >= Source(1))) {
+			return 2;
+		};
+		return 42;
+	};
+};
+
+fn main() -> i32 {
+	var source = comparisons::Source(1);
+	var view = comparisons::View(source);
+	if (!(source == view) || !(view == source) || !(comparisons::Source(1) == comparisons::Source(1)) || !(comparisons::Source(1) != comparisons::Source(2)) || !(comparisons::Source(1) < comparisons::Source(2)) || !(comparisons::Source(1) <= comparisons::Source(1)) || !(comparisons::Source(2) > comparisons::Source(1)) || !(comparisons::Source(1) >= comparisons::Source(1))) {
+		return 3;
+	};
+	return comparisons::run();
+};

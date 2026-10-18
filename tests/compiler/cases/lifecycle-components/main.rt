@@ -1,0 +1,84 @@
+struct Counts {
+	i32 copies;
+	i32 assignments;
+	i32 destroyed;
+	i32 order;
+};
+
+struct Tracker {
+	fn Tracker(Tracker& this) :[default];
+	fn Tracker(Tracker& this, const Tracker& other);
+	fn operator=(Tracker& this, const Tracker& other) -> Tracker&;
+	fn ~Tracker(Tracker& this);
+	Counts* counts;
+	i32 id;
+};
+
+fn Tracker::Tracker(Tracker& this, const Tracker& other) {
+	@this.counts := other.counts;
+	@this.id := other.id;
+	@this.counts->copies = this.counts->copies + 1;
+};
+
+fn Tracker::operator=(Tracker& this, const Tracker& other) -> Tracker& {
+	@this.counts := other.counts;
+	@this.id := other.id;
+	@this.counts->assignments = this.counts->assignments + 1;
+	return @this;
+};
+
+fn Tracker::~Tracker(Tracker& this) {
+	if (this.counts) {
+		@this.counts->destroyed = this.counts->destroyed + 1;
+		@this.counts->order = this.counts->order * 10 + this.id;
+	};
+};
+
+struct Pair {
+	Tracker first;
+	Tracker second;
+};
+
+struct DefaultPair {
+	fn operator=(DefaultPair& this, const DefaultPair& other) -> DefaultPair& :[default];
+	Tracker first;
+	Tracker second;
+};
+
+fn main() -> i32 {
+	Counts counts;
+	{
+		Pair original;
+		@original.first.counts = &counts;
+		@original.first.id = 1;
+		@original.second.counts = &counts;
+		@original.second.id = 2;
+		Pair copy := original;
+		Pair target;
+		@target = $copy;
+		if (counts.copies != 2 || counts.assignments || counts.destroyed) {
+			return 1;
+		};
+	};
+	if (counts.destroyed != 4 || counts.order != 2121) {
+		return 2;
+	};
+	Counts default_counts;
+	{
+		DefaultPair original;
+		@original.first.counts = &default_counts;
+		@original.first.id = 1;
+		@original.second.counts = &default_counts;
+		@original.second.id = 2;
+		DefaultPair copy := original;
+		DefaultPair target;
+		@target = $copy;
+		if (default_counts.copies != 2 || default_counts.assignments || default_counts.destroyed) {
+			return 3;
+		};
+	};
+	if (default_counts.destroyed != 4 || default_counts.order != 2121) {
+		return 4;
+	};
+	return 42;
+};

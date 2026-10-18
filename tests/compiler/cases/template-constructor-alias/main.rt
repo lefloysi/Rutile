@@ -1,0 +1,26 @@
+fn malloc(usize size) -> void*;
+fn free(void* memory);
+
+struct Value {
+	fn Value(Value& this, i32 number);
+	fn Value(Value& this, Value other) : [default];
+
+	i32 number;
+};
+
+fn Value::Value(Value& this, i32 number) {
+	@this.number = $number;
+};
+
+template<typename T>
+fn construct(T* destination, T value) {
+	@destination->T($value);
+};
+
+fn main() -> i32 {
+	Value* destination = static_cast<Value*>(malloc(sizeof(Value)));
+	construct<Value>(destination, Value(42));
+	i32 result := destination->number;
+	free(destination);
+	return result;
+};

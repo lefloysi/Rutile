@@ -1,0 +1,43 @@
+struct Counts {
+	i32 assigned;
+	i32 results;
+};
+
+struct Result {
+	fn ~Result(Result& this);
+	Counts* counts;
+};
+
+fn Result::~Result(Result& this) {
+	@this.counts->results = this.counts->results + 1;
+};
+
+struct Value {
+	fn Value(Value& this) :[default];
+	fn operator=(Value& this, const Value& other) -> Result;
+	Counts* counts;
+};
+
+fn Value::operator=(Value& this, const Value& other) -> Result {
+	@this.counts := other.counts;
+	@this.counts->assigned = this.counts->assigned + 1;
+	Result result;
+	@result.counts := this.counts;
+	return $result;
+};
+
+struct Wrapper {
+	Value member;
+};
+
+fn main() -> i32 {
+	Counts counts;
+	Wrapper source;
+	@source.member.counts = &counts;
+	Wrapper target;
+	@target = $source;
+	if (!counts.assigned && !counts.results) {
+		return 42;
+	};
+	return 1;
+};
