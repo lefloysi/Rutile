@@ -1,4 +1,4 @@
-fn FunctionEmitter::truth(var FunctionEmitter& this, var LLVMOpaqueValue* value, const Type* type) -> var LLVMOpaqueValue* {
+fn FunctionEmitter::truth(var FunctionEmitter& this, var LLVMOpaqueValue* value, Type* type) -> var LLVMOpaqueValue* {
 	if (!value) {
 		return nullptr;
 	};
@@ -16,7 +16,7 @@ fn FunctionEmitter::truth(var FunctionEmitter& this, var LLVMOpaqueValue* value,
 	return LLVMBuildICmp(this.backend->builder(), 33, value, zero, "truth\0");
 };
 
-fn FunctionEmitter::convert(var FunctionEmitter& this, var LLVMOpaqueValue* value, const Type* source, const Type* target) -> var LLVMOpaqueValue* {
+fn FunctionEmitter::convert(var FunctionEmitter& this, var LLVMOpaqueValue* value, Type* source, Type* target) -> var LLVMOpaqueValue* {
 	if (!value || !source || !target) {
 		return nullptr;
 	};
@@ -110,8 +110,8 @@ fn FunctionEmitter::logical(var FunctionEmitter& this, var SemanticExpression* e
 
 	@this.forget_temporaries(temporary_boundary);
 	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	var LLVMOpaqueBasicBlock* right = @this.block("logical.right\0");
-	var LLVMOpaqueBasicBlock* after = @this.block("logical.after\0");
+	var LLVMOpaqueBasicBlock* right = @this.block(rt::string_view("logical.right", 13));
+	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("logical.after", 13));
 	u64 immediate = 0;
 
 	if (expression->operation() == token_kind::op_and) {
@@ -181,8 +181,8 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 			return LLVMBuildIntCast2(this.backend->builder(), difference, @this.backend->type(expression->type()), 1, "pointer.distance\0");
 		};
 
-		const Type* pointer_type = left->type();
-		const Type* offset_type = right->type();
+		Type* pointer_type = left->type();
+		Type* offset_type = right->type();
 
 		if (right->type()->kind() == type_kind::pointer) {
 			@pointer_type = right->type();
@@ -193,7 +193,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 		};
 
 		if (pointer_type->element()->kind() == type_kind::void_type || pointer_type->element()->kind() == type_kind::null_type || pointer_type->element()->kind() == type_kind::function) {
-			@this.backend->error(expression->token(), rt::string_view("pointer arithmetic requires an object element type\0"));
+			@this.backend->error(expression->token(), rt::string_view("pointer arithmetic requires an object element type", 50));
 			return nullptr;
 		};
 
@@ -211,7 +211,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 		return LLVMBuildGEP2(this.backend->builder(), native, first, &@second, 1, "pointer.advance\0");
 	};
 
-	const Type* operand_type = FunctionEmitter::representation(left->type());
+	Type* operand_type = FunctionEmitter::representation(left->type());
 	bool real = operand_type->kind() == type_kind::floating_point;
 	bool unsigned_value = operand_type->kind() == type_kind::unsigned_integer || operand_type->kind() == type_kind::boolean || operand_type->kind() == type_kind::pointer;
 	var LLVMOpaqueBuilder* builder = this.backend->builder();
@@ -325,7 +325,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 	};
 
 	if (predicate < 0) {
-		@this.backend->error(expression->token(), rt::string_view("operator has no native lowering\0"));
+		@this.backend->error(expression->token(), rt::string_view("operator has no native lowering", 31));
 		return nullptr;
 	};
 
@@ -340,7 +340,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 	return LLVMBuildICmp(builder, $predicate, first, second, "compare\0");
 };
 
-fn FunctionEmitter::representation(const Type* type) -> const Type* {
+fn FunctionEmitter::representation(Type* type) -> Type* {
 	while (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::enumeration) {
 		@type = type->entity()->underlying();
 	};

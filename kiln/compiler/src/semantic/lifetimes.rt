@@ -27,15 +27,15 @@ struct LiveBinding {
 
 struct FlowState {
 	fn declare(var FlowState& this, var Entity* entity) -> bool;
-	fn copy_from(var FlowState& this, const FlowState& other) -> bool;
+	fn copy_from(var FlowState& this, FlowState& other) -> bool;
 	fn truncate(var FlowState& this, usize size);
 	fn leave(var FlowState& this, flow_exit exit);
 	fn resume(var FlowState& this);
 
-	fn size(const FlowState& this) -> usize;
+	fn size(FlowState& this) -> usize;
 	fn at(var FlowState& this, usize index) -> var LiveBinding*;
 	fn find(var FlowState& this, var Entity* entity) -> var LiveBinding*;
-	fn exited(const FlowState& this) -> bool;
+	fn exited(FlowState& this) -> bool;
 
 private:
 	rt::buffer<LiveBinding> bindings;
@@ -52,11 +52,11 @@ struct LoopFlow {
 };
 
 struct LoopScope {
-	fn LoopScope(var LoopScope& this, var (var LoopFlow*)& current, var LoopFlow& loop);
+	fn LoopScope(var LoopScope& this, var LoopFlow var*& current, var LoopFlow& loop);
 	fn ~LoopScope(var LoopScope& this);
 
 private:
-	var (var LoopFlow*)* current;
+	var LoopFlow var** current;
 	var LoopFlow* previous;
 };
 
@@ -64,13 +64,13 @@ struct LifetimeAnalyzer {
 	fn LifetimeAnalyzer(var LifetimeAnalyzer& this, var Diagnostics& diagnostics);
 
 	fn sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> bool;
-	fn validate(var LifetimeAnalyzer& this, const SemanticUnit& unit) -> bool;
+	fn validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool;
 
-	fn storage_owner(const LifetimeAnalyzer& this, const SemanticExpression& expression, var FlowState& state) -> rt::optional_ref<Entity>;
+	fn storage_owner(LifetimeAnalyzer& this, SemanticExpression& expression, var FlowState& state) -> rt::optional_ref<Entity>;
 
 private:
-	fn error(var LifetimeAnalyzer& this, var SemanticExpression* expression, const char* message) -> bool;
-	fn binding_error(var LifetimeAnalyzer& this, var SemanticExpression* expression, const rt::string_view& reason, const Entity& entity) -> bool;
+	fn error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view& message) -> bool;
+	fn binding_error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view& reason, Entity& entity) -> bool;
 	fn walk(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 	fn storage(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 	fn merge(var LifetimeAnalyzer& this, var FlowState& destination, var FlowState& first, var FlowState& second, var SemanticExpression* expression) -> bool;
@@ -84,34 +84,34 @@ private:
 	var LoopFlow* active_loop;
 };
 
-fn LifetimeAnalyzer::error(var LifetimeAnalyzer& this, var SemanticExpression* expression, const char* message) -> bool {
+fn LifetimeAnalyzer::error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view& message) -> bool {
 	Token token;
 
 	if (expression) {
 		@token = expression->token();
 	};
 
-	@this.diagnostics->error(token, rt::string_view($message));
+	@this.diagnostics->error(token, message);
 	return false;
 };
 
-fn LifetimeAnalyzer::binding_error(var LifetimeAnalyzer& this, var SemanticExpression* expression, const rt::string_view& reason, const Entity& entity) -> bool {
+fn LifetimeAnalyzer::binding_error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view& reason, Entity& entity) -> bool {
 	if (this.diagnostics->failed()) {
 		return false;
 	};
 	var message = DiagnosticMessage();
 	@message.text(reason);
-	@message.text("; object '\0");
+	@message.text(rt::string_view("; object '", 10));
 	diagnostic_entity(@message, entity);
-	@message.text("' has type '\0");
+	@message.text(rt::string_view("' has type '", 12));
 	diagnostic_type(@message, *entity.type());
-	@message.text("'\0");
+	@message.text(rt::string_view("'", 1));
 	Token location = entity.token();
 	if (expression) {
 		@location = expression->token();
 	};
 	@this.diagnostics->error(location, message.view());
-	@this.diagnostics->note(entity.token(), "object is declared here\0");
+	@this.diagnostics->note(entity.token(), rt::string_view("object is declared here", 23));
 	return false;
 };
 
@@ -193,7 +193,7 @@ fn LifetimeAnalyzer::conditional(var LifetimeAnalyzer& this, var SemanticExpress
 	FlowState second;
 
 	if (!@first.copy_from(state) || !@second.copy_from(state)) {
-		return @this.error($expression, "lifetime state storage is unavailable\0");
+		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 	};
 
 	if (!@this.walk(expression->item(1), @first) || !@this.walk(expression->item(2), @second)) {
@@ -221,14 +221,14 @@ fn LifetimeAnalyzer::save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<
 	var snapshot = rt::unique<FlowState>::make();
 
 	if (!snapshot.get() || !@snapshot.get()->copy_from(state)) {
-		return @this.error($expression, "lifetime state storage is unavailable\0");
+		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 	};
 
 	@snapshot.get()->truncate($boundary);
 	@snapshot.get()->resume();
 
 	if (!@exits.push_back($snapshot)) {
-		return @this.error($expression, "lifetime state storage is unavailable\0");
+		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 	};
 
 	return true;
@@ -245,7 +245,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	FlowState entry;
 
 	if (!@entry.copy_from(state)) {
-		return @this.error($expression, "lifetime state storage is unavailable\0");
+		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 	};
 
 	usize condition = 0;
@@ -278,7 +278,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	FlowState repeated;
 
 	if (!@repeated.copy_from(state)) {
-		return @this.error($expression, "lifetime state storage is unavailable\0");
+		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 	};
 
 	LoopFlow loop;
@@ -330,7 +330,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 
 		if (!has_exit) {
 			if (!@state.copy_from(leaving)) {
-				return @this.error($expression, "lifetime state storage is unavailable\0");
+				return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 			};
 
 			@has_exit = true;
@@ -379,7 +379,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				FlowState evaluated;
 
 				if (!@skipped.copy_from(state) || !@evaluated.copy_from(state)) {
-					return @this.error($expression, "lifetime state storage is unavailable\0");
+					return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 				};
 
 				if (!@this.walk(expression->item(1), @evaluated)) {
@@ -441,7 +441,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			var owner = this.storage_owner(*expression->item(0), @state);
 
 			if (!@state.declare(expression->entity())) {
-				return @this.error($expression, "lifetime state storage is unavailable\0");
+				return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
 			};
 
 			if (expression->entity()->type()->kind() == type_kind::reference && owner.has_value()) {
@@ -522,7 +522,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			return true;
 		case semantic_kind::break_loop:
 			if (!this.active_loop) {
-				return @this.error(expression, "break requires an enclosing loop or switch\0");
+				return @this.error(expression, rt::string_view("break requires an enclosing loop or switch", 42));
 			};
 			if (!@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)) {
 				return false;
@@ -539,7 +539,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			};
 
 			if (!loop) {
-				return @this.error(expression, "continue requires an enclosing loop\0");
+				return @this.error(expression, rt::string_view("continue requires an enclosing loop", 35));
 			};
 			if (!@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)) {
 				return false;
@@ -570,7 +570,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	return true;
 };
 
-fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, const SemanticUnit& unit) -> bool {
+fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool {
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();
@@ -585,7 +585,7 @@ fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, const SemanticUnit& un
 
 		while (parameter < function->parameters().size()) {
 			if (!@state.declare(function->parameters().data()[parameter])) {
-				return @this.error(nullptr, "lifetime state storage is unavailable\0");
+				return @this.error(nullptr, rt::string_view("lifetime state storage is unavailable", 37));
 			};
 
 			@parameter = parameter + 1;
@@ -607,7 +607,7 @@ fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, const SemanticUnit& un
 	return true;
 };
 
-fn FlowState::size(const FlowState& this) -> usize {
+fn FlowState::size(FlowState& this) -> usize {
 	return this.bindings.size();
 };
 
@@ -636,7 +636,7 @@ fn FlowState::declare(var FlowState& this, var Entity* entity) -> bool {
 	return @this.bindings.push_back($binding);
 };
 
-fn FlowState::copy_from(var FlowState& this, const FlowState& other) -> bool {
+fn FlowState::copy_from(var FlowState& this, FlowState& other) -> bool {
 	@this.bindings.clear();
 	@this.exit = flow_exit(other.exit);
 	usize index = 0;
@@ -659,7 +659,7 @@ fn FlowState::truncate(var FlowState& this, usize size) {
 	};
 };
 
-fn FlowState::exited(const FlowState& this) -> bool {
+fn FlowState::exited(FlowState& this) -> bool {
 	return this.exit != flow_exit::none;
 };
 
@@ -671,7 +671,7 @@ fn FlowState::resume(var FlowState& this) {
 	@this.exit = flow_exit::none;
 };
 
-fn LoopScope::LoopScope(var LoopScope& this, var (var LoopFlow*)& current, var LoopFlow& loop) {
+fn LoopScope::LoopScope(var LoopScope& this, var LoopFlow var*& current, var LoopFlow& loop) {
 	@this.current = &@current;
 	@this.previous := current;
 	@current = &@loop;

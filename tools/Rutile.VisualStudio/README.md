@@ -8,15 +8,18 @@ The server provides diagnostics, hover, definitions, declarations, references, c
 signature help, document and workspace symbols, and compiler-backed semantic tokens.
 Rename is not advertised by the server.
 
-Highlighting follows Visual Studio's existing C++ classifications and theme settings: ordinary
-keywords use the keyword style, control-flow words use the distinct C++ control-keyword style,
-and bound user types use the C++ type style. Primitive types use the ordinary keyword style.
-Functions and enum values share the C++ function palette; methods retain the C++ member-function
-style, and namespaces use the C++ namespace style. These respect Visual Studio theme and user
-Fonts and Colors settings rather than fixing RGB values independently.
-Comments, strings, and numbers are colored immediately.
-User-defined type names and aliases come from compiler bindings, not naming patterns.
-Contextual words such as access labels and casts are classified from compiler syntax.
+Highlighting uses Rutile-specific editor styles. Functions, methods, and enum values default to
+pale yellow; namespaces to light gray; user types to green; ordinary keywords and primitive types
+to blue; and control-flow words to purple. The **Rutile** entries in Visual Studio's Fonts and
+Colors
+settings can customize these defaults without changing C++ or other languages.
+Comments, strings, and numbers are colored immediately. User types and aliases come from compiler
+bindings, and contextual words such as access labels and casts come from compiler syntax.
+
+Compiler tokens are rendered by Rutile's classifier rather than relying on Visual Studio's optional
+C++ classifications. Bound spans remain visible and move with unchanged text while an edit is
+being analyzed. The compiler's completed-index notification refreshes their semantic
+classifications.
 
 Visual Studio watches `.rt`, `rutile.yaml`, and `.list` files throughout the active workspace and
 forwards external changes to Kiln. Opening a different folder or solution replaces the owned
@@ -59,6 +62,10 @@ Select Visual Studio 2022 and restart it if the installer requests it. Open the 
 or its solution, then open a `.rt` file. Use F12 on a symbol to navigate to its definition.
 Completion and signature help use Visual Studio's normal editor commands.
 
+The template-context selector above the editor defaults to **Generic**. Choose an available
+instantiation there to inspect that context. Generic hover stays concise instead of listing every
+instantiation in the tooltip.
+
 ## Verification
 
 Run the process ownership checks without starting Visual Studio:
@@ -74,7 +81,7 @@ Run lexical and semantic-color mapping checks without starting Visual Studio:
 ```
 
 These compile against the installed SDK and check keyword categories, comments, literals,
-UTF-16 spans, and semantic legend mapping without changing token indices or modifiers.
+UTF-16 spans, document synchronization, and explicit semantic classification delivery.
 
 The process checks exercise the actual stream implementation with an isolated child:
 working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,
@@ -97,6 +104,10 @@ It does not invoke F12 or inspect the Error List. Hidden navigation blocked duri
 external-change diagnostics were not observed reliably through hidden Error List automation.
 Check navigation and external source/configuration diagnostics manually in an interactive editor.
 
+Add `-Palette` to install a separate test-only MEF client into that isolated profile. It checks actual
+aggregate editor classifications and effective foreground brushes, then inserts a newline to check
+that cached semantic spans move immediately. The probe is excluded from the shipping VSIX.
+
 Build and inspect the VSIX payload before installing. Protocol tests exercise the server
 separately; a successful extension build does not establish language feature correctness.
 An interactive Visual Studio test should open a `.rt` file and check completion, hover,
@@ -107,3 +118,7 @@ The isolated Debug profile loaded the extension and started its packaged IDE-own
 It also passed solution close, replacement project startup, and replacement owner shutdown.
 Editor navigation and watcher notifications remain interactive verification steps.
 Process ownership checks passed.
+
+The 0.0.70 palette probe could not complete in the hidden isolated host: solution automation
+was rejected with `RPC_E_CALL_REJECTED`. Effective host brush and visual palette checks remain
+unverified. The extension SDK build and lexical/semantic classifier tests passed.

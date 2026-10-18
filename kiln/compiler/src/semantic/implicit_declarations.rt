@@ -1,6 +1,6 @@
 fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) -> bool {
-	const Type* source = entity->type();
-	const Type* copy = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
+	Type* source = entity->type();
+	Type* copy = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
 
 	if (!copy) {
 		return false;
@@ -49,8 +49,8 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 	return @this.supply_special(entity, function_role::assignment, token_kind::op_copy, copy, function_definition::defaulted) != nullptr;
 };
 
-fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> var Entity* {
-	const Type* receiver = @this.types->reference(entity->type());
+fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_role role, token_kind operation, Type* source, function_definition definition) -> var Entity* {
+	Type* receiver = @this.types->reference(entity->type());
 
 	if (!receiver) {
 		return nullptr;
@@ -84,22 +84,22 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 
 	Token location = entity->token();
 	var name = entity->name();
-	const Type* result = this.types->find_primitive(rt::string_view("void\0"));
+	Type* result = this.types->find_primitive(rt::string_view("void", 4));
 
 	if (role == function_role::assignment) {
 		@location.kind = token_kind(operation);
-		@name = rt::string_view("operator=\0");
+		@name = rt::string_view("operator=", 9);
 		@result := receiver;
 
 		if (operation == token_kind::op_copy) {
-			@name = rt::string_view("operator:=\0");
+			@name = rt::string_view("operator:=", 10);
 		};
 	};
 
 	var Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
 
 	if (!function || !@function->set_name(name)) {
-		@this.error(entity->declaration(), "cannot declare compiler-supplied special function\0");
+		@this.error(entity->declaration(), rt::string_view("cannot declare compiler-supplied special function", 49));
 		return nullptr;
 	};
 
@@ -115,16 +115,16 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 	};
 
 	@function->set_members((var Scope*(parameters)));
-	rt::buffer<const Type*> signature;
+	rt::buffer<Type*> signature;
 	@index = 0;
 
 	while (index < parameter_count) {
-		const Type* type = source;
-		var parameter_name = rt::string_view("other\0");
+		Type* type = source;
+		var parameter_name = rt::string_view("other", 5);
 
 		if (!index) {
 			@type = receiver;
-			@parameter_name = rt::string_view("this\0");
+			@parameter_name = rt::string_view("this", 4);
 		};
 
 		var Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);

@@ -1,5 +1,5 @@
-fn TypeStore::register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, const Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool {
-	const Type* type = @this.primitive($kind, $bits);
+fn TypeStore::register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool {
+	Type* type = @this.primitive($kind, $bits);
 
 	if (!type) {
 		return false;
@@ -9,7 +9,7 @@ fn TypeStore::register_primitive(var TypeStore& this, var rt::unordered_map<rt::
 };
 
 fn TypeStore::initialize_primitives(var TypeStore& this, u32 pointer_bits) -> bool {
-	rt::unordered_map<rt::string_view, const Type*> names;
+	rt::unordered_map<rt::string_view, Type*> names;
 
 	if (!@names.reserve(20)) {
 		return false;
@@ -43,7 +43,7 @@ fn TypeStore::initialize_primitives(var TypeStore& this, u32 pointer_bits) -> bo
 	return true;
 };
 
-fn TypeStore::find_primitive(const TypeStore& this, const rt::string_view& name) -> const Type* {
+fn TypeStore::find_primitive(TypeStore& this, rt::string_view& name) -> Type* {
 	var found = this.primitive_names.find(name);
 
 	if (!found) {

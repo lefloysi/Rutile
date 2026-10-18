@@ -26,15 +26,15 @@ struct TargetAnalysis {
 
 struct AnalysisLease {
 	fn AnalysisLease(var AnalysisLease& this) : [default];
-	fn AnalysisLease(var AnalysisLease& this, const AnalysisLease& other) : [delete];
-	fn operator=(var AnalysisLease& this, const AnalysisLease& other) -> var AnalysisLease& : [delete];
-	fn operator:=(var AnalysisLease& this, const AnalysisLease& other) -> var AnalysisLease& : [delete];
+	fn AnalysisLease(var AnalysisLease& this, AnalysisLease& other) : [delete];
+	fn operator=(var AnalysisLease& this, AnalysisLease& other) -> var AnalysisLease& : [delete];
+	fn operator:=(var AnalysisLease& this, AnalysisLease& other) -> var AnalysisLease& : [delete];
 	fn AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry);
 	fn ~AnalysisLease(var AnalysisLease& this);
 
-	fn get(const AnalysisLease& this) -> const Analysis*;
-	fn value(const AnalysisLease& this) -> const Analysis&;
-	fn revision(const AnalysisLease& this) -> u64;
+	fn get(AnalysisLease& this) -> Analysis*;
+	fn value(AnalysisLease& this) -> Analysis&;
+	fn revision(AnalysisLease& this) -> u64;
 
 private:
 	var Compiler* owner;
@@ -42,34 +42,34 @@ private:
 };
 
 struct Compilation {
-	fn Compilation(var Compilation& this, const Analysis& analysis, FileOpener opener, var NativeFile* output);
-	fn run(var Compilation& this, var char* output_path, var char* entry, i32 optimization, output_kind kind) -> i32;
+	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output);
+	fn run(var Compilation& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, output_kind kind) -> i32;
 
 private:
-	const Analysis* analysis;
+	Analysis* analysis;
 	FileOpener opener;
 	Diagnostics diagnostics;
 	rt::unique<Backend> backend;
 
-	fn failure(var Compilation& this, const char* message) -> i32;
-	fn output_failure(var Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32;
+	fn failure(var Compilation& this, rt::string_view& message) -> i32;
+	fn output_failure(var Compilation& this, rt::string_view& operation, rt::string_view& path) -> i32;
 };
 
 struct Compiler {
 	fn Compiler(var Compiler& this);
 	fn ~Compiler(var Compiler& this);
 
-	fn expect_target(var Compiler& this, const rt::string_view& key, u64 revision) -> bool;
-	fn publish_target(var Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
-	fn acquire_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease;
-	fn acquire_current_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease;
-	fn emit_target(var Compiler& this, const rt::string_view& key, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn expect_target(var Compiler& this, rt::string_view& key, u64 revision) -> bool;
+	fn publish_target(var Compiler& this, rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
+	fn acquire_target(var Compiler& this, rt::string_view& key) -> AnalysisLease;
+	fn acquire_current_target(var Compiler& this, rt::string_view& key) -> AnalysisLease;
+	fn emit_target(var Compiler& this, rt::string_view& key, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 	fn publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool;
 	fn acquire_analysis(var Compiler& this) -> AnalysisLease;
 	fn release_analysis(var Compiler& this, var PublishedAnalysis& entry);
-	fn emit_current(var Compiler& this, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
-	fn compile(var Compiler& this, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn emit_current(var Compiler& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view& output_path, FileOpener opener, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 private:
 	fn collect_retired(var Compiler& this);
@@ -90,14 +90,15 @@ fn AnalysisLease::~AnalysisLease(var AnalysisLease& this) {
 	};
 };
 
-fn AnalysisLease::get(const AnalysisLease& this) -> const Analysis* {
+fn AnalysisLease::get(AnalysisLease& this) -> Analysis* {
 	if (!this.entry) {
 		return nullptr;
 	};
+
 	return this.entry->analysis.get();
 };
 
-fn AnalysisLease::value(const AnalysisLease& this) -> const Analysis& {
+fn AnalysisLease::value(AnalysisLease& this) -> Analysis& {
 	return *this.get();
 };
 
@@ -109,17 +110,19 @@ fn Compiler::~Compiler(var Compiler& this) {
 	runtime_mutex_destroy(this.publication_mutex);
 };
 
-fn AnalysisLease::revision(const AnalysisLease& this) -> u64 {
+fn AnalysisLease::revision(AnalysisLease& this) -> u64 {
 	if (!this.entry) {
 		return 0;
 	};
+
 	return this.entry->revision;
 };
 
-fn Compiler::expect_target(var Compiler& this, const rt::string_view& key, u64 revision) -> bool {
+fn Compiler::expect_target(var Compiler& this, rt::string_view& key, u64 revision) -> bool {
 	if (!this.publication_mutex) {
 		return false;
 	};
+
 	var fresh = rt::unique<TargetAnalysis>::make();
 	if (!fresh.get() || !@fresh.get()->key.append(key)) {
 		return false;
@@ -137,16 +140,18 @@ fn Compiler::expect_target(var Compiler& this, const rt::string_view& key, u64 r
 		runtime_mutex_unlock(this.publication_mutex);
 		return true;
 	};
+
 	var owned_key = fresh.get()->key.view();
 	bool inserted = @this.targets.insert(owned_key, $fresh);
 	runtime_mutex_unlock(this.publication_mutex);
 	return $inserted;
 };
 
-fn Compiler::publish_target(var Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
+fn Compiler::publish_target(var Compiler& this, rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
 	if (!this.publication_mutex || !analysis.get()) {
 		return analysis_publication::unavailable;
 	};
+
 	var next = rt::unique<PublishedAnalysis>::make();
 	if (!next.get()) {
 		return analysis_publication::unavailable;
@@ -160,11 +165,13 @@ fn Compiler::publish_target(var Compiler& this, const rt::string_view& key, u64 
 		runtime_mutex_unlock(this.publication_mutex);
 		return analysis_publication::unavailable;
 	};
+
 	var TargetAnalysis* target = found->get();
 	if (target->expected_revision != revision) {
 		runtime_mutex_unlock(this.publication_mutex);
 		return analysis_publication::obsolete;
 	};
+
 	if (target->published.get()) {
 		usize index = 0;
 		while (index < this.retired.size() && this.retired.data()[index].get()) {
@@ -190,10 +197,11 @@ fn Compiler::publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool 
 	if (!@this.expect_target(key, 0)) {
 		return false;
 	};
+
 	return @this.publish_target(key, 0, $analysis) == analysis_publication::published;
 };
 
-fn Compiler::acquire_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_target(var Compiler& this, rt::string_view& key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
@@ -203,6 +211,7 @@ fn Compiler::acquire_target(var Compiler& this, const rt::string_view& key) -> A
 	if (found) {
 		@entry = found->get()->published.get();
 	};
+
 	if (entry) {
 		@entry->readers = entry->readers + 1;
 	};
@@ -210,7 +219,7 @@ fn Compiler::acquire_target(var Compiler& this, const rt::string_view& key) -> A
 	return AnalysisLease(@this, $entry);
 };
 
-fn Compiler::acquire_current_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_current_target(var Compiler& this, rt::string_view& key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
@@ -259,130 +268,149 @@ fn Compiler::collect_retired(var Compiler& this) {
 	};
 };
 
-fn Compilation::Compilation(var Compilation& this, const Analysis& analysis, FileOpener opener, var NativeFile* output) {
+fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output) {
 	@this.opener = $opener;
 	@this.analysis = &@analysis;
 	@this.diagnostics = Diagnostics($output);
 };
 
-fn Compilation::failure(var Compilation& this, const char* message) -> i32 {
+fn Compilation::failure(var Compilation& this, rt::string_view& message) -> i32 {
 	if (!this.diagnostics.failed()) {
 		Token location;
-		@this.diagnostics.error(location, rt::string_view($message));
+		@this.diagnostics.error(location, message);
 	};
+
 	return 1;
 };
 
-fn Compilation::output_failure(var Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32 {
+fn Compilation::output_failure(var Compilation& this, rt::string_view& operation, rt::string_view& path) -> i32 {
 	var message = DiagnosticMessage();
 	@message.text(operation);
-	@message.text(" native object output \0");
+	@message.text(rt::string_view(" native object output ", 22));
 	@message.quoted(path);
 	Token location;
+
 	if (this.diagnostics.failed()) {
 		@this.diagnostics.note(location, message.view());
 	}
 	else {
 		@this.diagnostics.error(location, message.view());
 	};
+
 	return 1;
 };
 
-fn Compilation::run(var Compilation& this, var char* output_path, var char* entry, i32 optimization, output_kind kind) -> i32 {
-	Token location;
+fn Compilation::run(var Compilation& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, output_kind kind) -> i32 {
 	if (this.analysis->diagnostics().failed() || !this.analysis->semantics()) {
 		return 1;
 	};
-	if (!output_path) {
-		return @this.failure("native object output path is required\0");
+
+	if (output_path.empty()) {
+		return @this.failure(rt::string_view("native object output path is required", 37));
 	};
+
 	if (optimization < 0 || optimization > 3) {
-		return @this.failure("optimization level must be between 0 and 3\0");
+		return @this.failure(rt::string_view("optimization level must be between 0 and 3", 42));
 	};
 	@this.backend = rt::unique<Backend>(new var Backend(@this.diagnostics));
+
 	if (!this.backend.get() || !@this.backend.get()->initialize($optimization)) {
-		return @this.failure("internal compiler error: target initialization failed without a diagnostic\0");
+		return @this.failure(rt::string_view("internal compiler error: target initialization failed without a diagnostic", 74));
 	};
+
 	if (this.backend.get()->pointer_bits() != this.analysis->pointer_bits()) {
-		return @this.failure("analysis target pointer width does not match the native output target\0");
+		return @this.failure(rt::string_view("analysis target pointer width does not match the native output target", 69));
 	};
-	var entry_name = rt::string_view("main\0");
-	if (entry) {
-		@entry_name = rt::string_view(entry);
+
+	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)) {
+		return @this.failure(rt::string_view("internal compiler error: native emission failed without a diagnostic", 68));
 	};
-	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry_name, $kind)) {
-		return @this.failure("internal compiler error: native emission failed without a diagnostic\0");
-	};
-	var output = File(this.opener(output_path, "wb\0"));
+
+	var native_output_path = rt::string(output_path);
+	var output = File(this.opener(native_output_path.c_str(), "wb\0"));
 	if (!output.is_open()) {
-		return @this.output_failure("cannot open\0", rt::string_view(output_path));
+		return @this.output_failure(rt::string_view("cannot open", 11), output_path);
 	};
+
 	if (!@this.backend.get()->write(@output)) {
-		return @this.output_failure("cannot write\0", rt::string_view(output_path));
+		return @this.output_failure(rt::string_view("cannot write", 12), output_path);
 	};
+
 	if (!@output.close()) {
-		return @this.output_failure("cannot close\0", rt::string_view(output_path));
+		return @this.output_failure(rt::string_view("cannot close", 12), output_path);
 	};
+
 	return 0;
 };
 
-fn Compiler::emit_target(var Compiler& this, const rt::string_view& key, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::emit_target(var Compiler& this, rt::string_view& key, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var lease = @this.acquire_current_target(key);
 	if (!lease.get()) {
 		var errors = Diagnostics($diagnostics);
 		Token location;
-		@errors.error(location, "no current target analysis is available for native emission\0");
+		@errors.error(location, rt::string_view("no current target analysis is available for native emission", 59));
 		return 1;
 	};
+
 	if (lease.value().diagnostics().failed()) {
 		lease.value().diagnostics().replay(diagnostics);
 		return 1;
 	};
+
 	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics);
-	return @compilation.run($output_path, $entry, $optimization, $kind);
+	return @compilation.run(output_path, entry, $optimization, $kind);
 };
 
-fn Compiler::emit_current(var Compiler& this, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
-	return @this.emit_target(rt::string_view(), $output_path, $entry, $optimization, $diagnostics, $kind);
+fn Compiler::emit_current(var Compiler& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+	return @this.emit_target(rt::string_view(), output_path, entry, $optimization, $diagnostics, $kind);
 };
 
-fn Compiler::compile(var Compiler& this, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view& output_path, FileOpener opener, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var errors = Diagnostics(diagnostics);
 	Token location;
-	if (!paths || !count) {
-		@errors.error(location, "no source files\0");
+
+	if (!paths.size()) {
+		@errors.error(location, rt::string_view("no source files", 15));
 		return 1;
 	};
-	if (!output_path) {
-		@errors.error(location, "native object output path is required\0");
+
+	if (output_path.empty()) {
+		@errors.error(location, rt::string_view("native object output path is required", 37));
 		return 1;
 	};
+
 	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
 	if (!analysis.get()) {
-		@errors.error(location, "analysis storage is unavailable\0");
+		@errors.error(location, rt::string_view("analysis storage is unavailable", 31));
 		return 1;
 	};
+
 	usize index = 0;
-	while (index < count) {
-		var char* path = paths[index];
-		if (!path || rt::string_view(path) == rt::string_view(output_path)) {
-			@errors.error(location, "output cannot overwrite a source file\0");
+	while (index < paths.size()) {
+		rt::string_view path := paths.data()[index];
+
+		if (path.empty() || path == output_path) {
+			@errors.error(location, rt::string_view("output cannot overwrite a source file", 37));
 			return 1;
 		};
-		if (!@analysis.get()->load_source($path, opener)) {
+		if (!@analysis.get()->load_source(path, opener)) {
 			return 1;
 		};
 		@index = index + 1;
 	};
+
 	if (!@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)) {
-		@errors.error(location, "internal compiler error: analysis could not complete\0");
+		@errors.error(location, rt::string_view("internal compiler error: analysis could not complete", 52));
 		return 1;
 	};
+
 	var compilation = Compilation(*analysis.get(), opener, diagnostics);
-	i32 result = @compilation.run($output_path, $entry, $optimization, $kind);
+	i32 result = @compilation.run(output_path, entry, $optimization, $kind);
+
 	if (!@this.publish($analysis)) {
-		@errors.error(location, "could not publish the completed analysis\0");
+		@errors.error(location, rt::string_view("could not publish the completed analysis", 40));
 		return 1;
 	};
+
 	return $result;
 };

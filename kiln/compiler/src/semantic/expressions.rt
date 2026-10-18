@@ -1,10 +1,10 @@
-fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (this.diagnostics->failed()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	const Type* void_type = this.types->find_primitive(rt::string_view("void\0"));
-	const Type* bool_type = this.types->find_primitive(rt::string_view("bool\0"));
+	Type* void_type = this.types->find_primitive(rt::string_view("void", 4));
+	Type* bool_type = this.types->find_primitive(rt::string_view("bool", 4));
 	syntax_kind kind = syntax.kind();
 
 	if (this.editor && kind == syntax_kind::error_expression) {
@@ -47,7 +47,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	};
 
 	if (kind == syntax_kind::sizeof_type) {
-		const Type* target = @this.type(@scope, @*syntax.designated_type());
+		Type* target = @this.type(@scope, @*syntax.designated_type());
 
 		if (!target) {
 			return rt::unique<SemanticExpression>();
@@ -106,9 +106,9 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		};
 
 		var message = DiagnosticMessage();
-		@message.text("syntax beginning with \0");
+		@message.text(rt::string_view("syntax beginning with ", 22));
 		@message.quoted(syntax.token().text());
-		@message.text(" has no interpretation in this scope\0");
+		@message.text(rt::string_view(" has no interpretation in this scope", 36));
 		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -120,17 +120,17 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		u64 integer = 0;
 
 		if (@this.integer(@syntax, @integer)) {
-			const Type* type = expected.get();
+			Type* type = expected.get();
 
 			if (!type || !type->kind().is_integer() || type->kind() == type_kind::boolean) {
-				@type = this.types->find_primitive(rt::string_view("i32\0"));
+				@type = this.types->find_primitive(rt::string_view("i32", 3));
 
 				if (integer > static_cast<u64>(i32::max)) {
-					@type = this.types->find_primitive(rt::string_view("i64\0"));
+					@type = this.types->find_primitive(rt::string_view("i64", 3));
 				};
 
 				if (integer > static_cast<u64>(i64::max)) {
-					@type = this.types->find_primitive(rt::string_view("u64\0"));
+					@type = this.types->find_primitive(rt::string_view("u64", 3));
 				};
 			};
 
@@ -149,15 +149,15 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		if (!end || end[0]) {
 			var message = DiagnosticMessage();
-			@message.text("numeric literal \0");
+			@message.text(rt::string_view("numeric literal ", 16));
 			@message.quoted(syntax.token().text());
-			@message.text(" is not representable as an integer or floating-point value\0");
+			@message.text(rt::string_view(" is not representable as an integer or floating-point value", 59));
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* type = this.types->find_primitive(rt::string_view("f64\0"));
+		Type* type = this.types->find_primitive(rt::string_view("f64", 3));
 
 		if (expected.has_value() && expected.value().kind() == type_kind::floating_point) {
 			@type = expected.get();
@@ -198,9 +198,9 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 				}
 				else if (character != '\\' && character != '\'' && character != '"') {
 					var message = DiagnosticMessage();
-					@message.text("unsupported escape \0");
+					@message.text(rt::string_view("unsupported escape ", 19));
 					@message.quoted(rt::string_view(text.data() + index - 2, 2));
-					@message.text(" in literal \0");
+					@message.text(rt::string_view(" in literal ", 12));
 					@message.quoted(text);
 					@this.report(syntax.token(), message.view());
 
@@ -213,14 +213,14 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			};
 		};
 
-		const Type* character_type = this.types->find_primitive(rt::string_view("char\0"));
+		Type* character_type = this.types->find_primitive(rt::string_view("char", 4));
 
 		if (text.data()[0] == '\'') {
 			if (decoded.size() != 1) {
 				var message = DiagnosticMessage();
-				@message.text("character literal \0");
+				@message.text(rt::string_view("character literal ", 18));
 				@message.quoted(text);
-				@message.text(" shall contain one character; decoded length is \0");
+				@message.text(rt::string_view(" shall contain one character; decoded length is ", 48));
 				@message.number(u64(decoded.size()));
 				@this.report(syntax.token(), message.view());
 
@@ -237,7 +237,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return @this.convert($result, expected, @syntax);
 		};
 
-		const Type* element = @this.types->qualified(*character_type, type_qualifier::immutable);
+		Type* element = @this.types->qualified(*character_type, type_qualifier::immutable);
 		var result = @this.node(semantic_kind::literal_text, @this.types->pointer(element), &@syntax);
 
 		if (result.get()) {
@@ -248,13 +248,13 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	};
 
 	if (kind == syntax_kind::null_pointer) {
-		const Type* element = @this.types->qualified(*this.types->find_primitive(rt::string_view("null\0")), type_qualifier::immutable);
+		Type* element = @this.types->qualified(*this.types->find_primitive(rt::string_view("null", 4)), type_qualifier::immutable);
 
 		if (!element) {
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* type = @this.types->pointer(element);
+		Type* type = @this.types->pointer(element);
 
 		return @this.convert(@this.node(semantic_kind::null_pointer, type, &@syntax), expected, @syntax);
 	};
@@ -262,10 +262,10 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
 		Token token = syntax.token();
 
-		if (token.is(rt::string_view("true\0")) || token.is(rt::string_view("false\0"))) {
+		if (token.is(rt::string_view("true", 4)) || token.is(rt::string_view("false", 5))) {
 			var result = @this.node(semantic_kind::literal_integer, bool_type, &@syntax);
 
-			if (result.get() && token.is(rt::string_view("true\0"))) {
+			if (result.get() && token.is(rt::string_view("true", 4))) {
 				@result.get()->set_integer(1);
 			};
 
@@ -277,9 +277,9 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		if (!entity) {
 			if (!this.diagnostics->failed()) {
 				var message = DiagnosticMessage();
-				@message.text("unknown identifier '\0");
+				@message.text(rt::string_view("unknown identifier '", 20));
 				diagnostic_name(@message, syntax);
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				@this.diagnostics->error(syntax.token(), message.view());
 			};
 			return rt::unique<SemanticExpression>();
@@ -291,7 +291,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		@entity = entity->canonical();
 
 		if (entity->kind() != entity_kind::function && !@this.unit->record_name(@this, @scope, @syntax, @*entity, 4)) {
-			@this.error(&@syntax, "navigation index storage is unavailable\0");
+			@this.error(&@syntax, rt::string_view("navigation index storage is unavailable", 39));
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -311,11 +311,11 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		if (entity->kind() != entity_kind::function && entity->kind() != entity_kind::global && entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter && entity->kind() != entity_kind::field) {
 			var message = DiagnosticMessage();
-			@message.text("identifier '\0");
+			@message.text(rt::string_view("identifier '", 12));
 			diagnostic_entity(@message, *entity);
-			@message.text("' does not denote a value\0");
+			@message.text(rt::string_view("' does not denote a value", 25));
 			@this.report(syntax.token(), message.view());
-			@this.note(entity->token(), "referenced declaration is here\0");
+			@this.note(entity->token(), rt::string_view("referenced declaration is here", 30));
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -327,23 +327,23 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		};
 
 		if (entity->kind() == entity_kind::field) {
-			var Entity* receiver = scope.lookup(rt::string_view("this\0"));
+			var Entity* receiver = scope.lookup(rt::string_view("this", 4));
 
 			if (!receiver || receiver->type()->kind() != type_kind::reference || receiver->type()->element()->kind() != type_kind::named || receiver->type()->element()->entity() != entity->scope()->owner()) {
 				var message = DiagnosticMessage();
-				@message.text("field access to '\0");
+				@message.text(rt::string_view("field access to '", 17));
 				diagnostic_entity(@message, *entity);
-				@message.text("' requires an instance receiver of '\0");
+				@message.text(rt::string_view("' requires an instance receiver of '", 36));
 				diagnostic_entity(@message, *entity->scope()->owner());
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				@this.report(syntax.token(), message.view());
-				@this.note(entity->token(), "field is declared here\0");
+				@this.note(entity->token(), rt::string_view("field is declared here", 22));
 
 				return rt::unique<SemanticExpression>();
 			};
 
-			const Type* owner = receiver->type()->element();
-			const Type* field_type = entity->type();
+			Type* owner = receiver->type()->element();
+			Type* field_type = entity->type();
 
 			if (field_type->kind() == type_kind::reference) {
 				@field_type = field_type->element();
@@ -374,7 +374,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return @this.convert($member, expected, @syntax);
 		};
 
-		const Type* type = entity->type();
+		Type* type = entity->type();
 
 		if (type->kind() == type_kind::reference) {
 			@type = type->element();
@@ -391,7 +391,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 	if (kind == syntax_kind::brace || kind == syntax_kind::list) {
 		if (kind == syntax_kind::brace && !syntax.size() && expected.has_value() && expected.value().kind() == type_kind::array) {
-			const Type* element = expected.get();
+			Type* element = expected.get();
 
 			while (element->kind() == type_kind::array) {
 				@element = element->element();
@@ -399,9 +399,9 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 			if (!element->representation()->kind().is_scalar()) {
 				var message = DiagnosticMessage();
-				@message.text("empty initialization of object arrays is not specified; array type is '\0");
+				@message.text(rt::string_view("empty initialization of object arrays is not specified; array type is '", 71));
 				diagnostic_type(@message, expected.value());
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				@this.report(syntax.token(), message.view());
 
 				return rt::unique<SemanticExpression>();
@@ -463,15 +463,15 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		var Entity* previous = scope.local(name.text());
 		if (previous) {
 			var message = DiagnosticMessage();
-			@message.text("duplicate local declaration of \0");
+			@message.text(rt::string_view("duplicate local declaration of ", 31));
 			@message.quoted(name.text());
 			@this.diagnostics->error(name, message.view());
-			@this.diagnostics->note(previous->token(), "previous declaration is here\0");
+			@this.diagnostics->note(previous->token(), rt::string_view("previous declaration is here", 28));
 
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* type = @this.type(@scope, @*syntax.variable_type());
+		Type* type = @this.type(@scope, @*syntax.variable_type());
 		var Syntax* initializer = syntax.variable_initializer();
 
 		if (initializer->kind() == syntax_kind::unary) {
@@ -499,16 +499,16 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function) {
 			var message = DiagnosticMessage();
-			@message.text("variable \0");
+			@message.text(rt::string_view("variable ", 9));
 			@message.quoted(name.text());
-			@message.text(" requires object storage or a reference; \0");
+			@message.text(rt::string_view(" requires object storage or a reference; ", 41));
 			if (type) {
-				@message.text("declared type is '\0");
+				@message.text(rt::string_view("declared type is '", 18));
 				diagnostic_type(@message, *type);
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 			}
 			else {
-				@message.text("neither a declared type nor an inferred initializer type is available\0");
+				@message.text(rt::string_view("neither a declared type nor an inferred initializer type is available", 69));
 			};
 			@this.report(name, message.view());
 
@@ -517,11 +517,11 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		if (type->kind() == type_kind::reference && value.get()->kind() == semantic_kind::noop) {
 			var message = DiagnosticMessage();
-			@message.text("reference \0");
+			@message.text(rt::string_view("reference ", 10));
 			@message.quoted(name.text());
-			@message.text(" of type '\0");
+			@message.text(rt::string_view(" of type '", 10));
 			diagnostic_type(@message, *type);
-			@message.text("' requires an initializer\0");
+			@message.text(rt::string_view("' requires an initializer", 25));
 			@this.report(name, message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -558,12 +558,12 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 	if (kind == syntax_kind::return_value) {
 		if (!this.function) {
-			@this.error(&@syntax, "return requires an enclosing function\0");
+			@this.error(&@syntax, rt::string_view("return requires an enclosing function", 37));
 
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* result_type = this.function->type()->signature().result();
+		Type* result_type = this.function->type()->signature().result();
 		var result = @this.node(semantic_kind::return_value, void_type, &@syntax);
 		var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*result_type));
 
@@ -638,10 +638,10 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	if (kind == syntax_kind::break_loop || kind == syntax_kind::continue_loop) {
 		if (!this.loop_depth && (kind == syntax_kind::continue_loop || !this.active_switch)) {
 			if (kind == syntax_kind::continue_loop) {
-				@this.report(syntax.token(), "'continue' requires an enclosing loop\0");
+				@this.report(syntax.token(), rt::string_view("'continue' requires an enclosing loop", 37));
 			}
 			else {
-				@this.report(syntax.token(), "'break' requires an enclosing loop or switch\0");
+				@this.report(syntax.token(), rt::string_view("'break' requires an enclosing loop or switch", 44));
 			};
 
 			return rt::unique<SemanticExpression>();
@@ -683,9 +683,9 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		if (value.get()->category() != value_category::consumable) {
 			var message = DiagnosticMessage();
-			@message.text("discard requires a consumable; operand is a place of type '\0");
+			@message.text(rt::string_view("discard requires a consumable; operand is a place of type '", 59));
 			diagnostic_type(@message, *value.get()->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -713,7 +713,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			@type_syntax = type_syntax->designated_type();
 		};
 
-		const Type* target = @this.type(@scope, @*type_syntax);
+		Type* target = @this.type(@scope, @*type_syntax);
 
 		if (!target) {
 			return rt::unique<SemanticExpression>();
@@ -725,7 +725,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* pointee = target;
+		Type* pointee = target;
 
 		if (!type_syntax->explicitly_qualified()) {
 			@pointee = @this.types->qualified(*target, type_qualifier::immutable);
@@ -754,11 +754,11 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 
 			if (!extent.get()->type()->kind().is_integer()) {
 				var message = DiagnosticMessage();
-				@message.text("array allocation count requires an integer; received '\0");
+				@message.text(rt::string_view("array allocation count requires an integer; received '", 54));
 				diagnostic_type(@message, *extent.get()->type());
-				@message.text("' when allocating elements of type '\0");
+				@message.text(rt::string_view("' when allocating elements of type '", 36));
 				diagnostic_type(@message, *target);
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				@this.report(count->token(), message.view());
 
 				return rt::unique<SemanticExpression>();
@@ -782,14 +782,14 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		if (pointer.get()->type()->kind() != type_kind::pointer) {
 			var message = DiagnosticMessage();
 			if (kind == syntax_kind::array_deallocation) {
-				@message.text("delete[]\0");
+				@message.text(rt::string_view("delete[]", 8));
 			}
 			else {
-				@message.text("delete\0");
+				@message.text(rt::string_view("delete", 6));
 			};
-			@message.text(" requires a pointer; operand has type '\0");
+			@message.text(rt::string_view(" requires a pointer; operand has type '", 39));
 			diagnostic_type(@message, *pointer.get()->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -815,7 +815,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	};
 
 	var message = DiagnosticMessage();
-	@message.text("semantic analysis for this expression is not implemented; expression begins with \0");
+	@message.text(rt::string_view("semantic analysis for this expression is not implemented; expression begins with ", 81));
 	@message.quoted(syntax.token().text());
 	@this.report(syntax.token(), message.view());
 

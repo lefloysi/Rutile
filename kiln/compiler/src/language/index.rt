@@ -1,11 +1,11 @@
-fn NavigationIndex::range(const NavigationIndex& this, const Token& token) -> SourceRange {
+fn NavigationIndex::range(NavigationIndex& this, Token& token) -> SourceRange {
 	SourceRange result;
 	@result.source = usize::max;
 	if (!token.source) {
 		return $result;
 	};
-	const SourceFile* source = token.source;
-	const usize* id = this.source_ids.find(source);
+	SourceFile* source = token.source;
+	usize* id = this.source_ids.find(source);
 	if (id) {
 		@result.source = *id;
 		@result.begin = token.begin;
@@ -14,19 +14,19 @@ fn NavigationIndex::range(const NavigationIndex& this, const Token& token) -> So
 	return $result;
 };
 
-fn NavigationIndex::symbol_id(const NavigationIndex& this, const Entity* entity) -> u64 {
+fn NavigationIndex::symbol_id(NavigationIndex& this, Entity* entity) -> u64 {
 	if (!entity) {
 		return 0;
 	};
-	const Entity* canonical = entity->canonical();
-	const u64* id = this.ids.find(canonical);
+	Entity* canonical = entity->canonical();
+	u64* id = this.ids.find(canonical);
 	if (!id) {
 		return 0;
 	};
 	return *id;
 };
 
-fn NavigationIndex::declaration_name(const NavigationIndex& this, var Syntax& declaration) -> Token {
+fn NavigationIndex::declaration_name(NavigationIndex& this, var Syntax& declaration) -> Token {
 	var Syntax* source = &@declaration;
 	if (source->kind() == syntax_kind::template_declaration) {
 		@source = source->template_declaration();
@@ -61,7 +61,7 @@ fn NavigationIndex::declaration_name(const NavigationIndex& this, var Syntax& de
 	return name->token();
 };
 
-fn NavigationIndex::symbol_kind(const NavigationIndex& this, const Entity& entity) -> u32 {
+fn NavigationIndex::symbol_kind(NavigationIndex& this, Entity& entity) -> u32 {
 	if (entity.declaration() && entity.declaration()->kind() == syntax_kind::template_parameter) {
 		return 26;
 	};
@@ -98,8 +98,8 @@ fn NavigationIndex::symbol_kind(const NavigationIndex& this, const Entity& entit
 	return 13;
 };
 
-fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semantics) -> bool {
-	const rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
+fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+	rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
 	usize index = 0;
 	while (index < entities.size()) {
 		var Entity* entity = entities.data()[index].get()->canonical();
@@ -122,7 +122,7 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		var detail = DiagnosticMessage();
 		diagnostic_entity(@detail, *entity);
 		if (entity->type()) {
-			@detail.text(": \0");
+			@detail.text(rt::string_view(": ", 2));
 			diagnostic_type(@detail, *entity->type());
 		};
 		if (!@entry.get()->detail.append(detail.view())) {
@@ -140,7 +140,7 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 			};
 			var parameter_detail = DiagnosticMessage();
 			@parameter_detail.text(parameter->name());
-			@parameter_detail.text(": \0");
+			@parameter_detail.text(rt::string_view(": ", 2));
 			if (parameter->type()) {
 				diagnostic_type(@parameter_detail, *parameter->type());
 			};
@@ -176,7 +176,7 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		if (entity->instantiated()) {
 			@entry.get()->value.flags = entry.get()->value.flags | 4;
 		};
-		const Entity* key = entity;
+		Entity* key = entity;
 		if (!@this.ids.insert($key, u64(entry.get()->value.id)) || !@this.symbols.push_back($entry)) {
 			return false;
 		};
@@ -216,10 +216,10 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		@index = index + 1;
 	};
 
-	const rt::buffer<ResolvedReference>& references = semantics.references();
+	rt::buffer<ResolvedReference>& references = semantics.references();
 	@index = 0;
 	while (index < references.size()) {
-		const ResolvedReference& reference = references.data()[index];
+		ResolvedReference& reference = references.data()[index];
 		NavigationOccurrence occurrence;
 		@occurrence.range = this.range(reference.location);
 		@occurrence.symbol = this.symbol_id(reference.target);
@@ -232,7 +232,7 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 	};
 	@index = 0;
 	while (index < semantics.classifications().size()) {
-		const SemanticClassification& source = semantics.classifications().data()[index];
+		SemanticClassification& source = semantics.classifications().data()[index];
 		NavigationClassification classification;
 		@classification.range = this.range(source.location);
 		@classification.type = source.type;
@@ -246,33 +246,33 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 };
 
 fn NavigationIndex::register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool {
-	const SourceFile* key = &@source;
+	SourceFile* key = &@source;
 	return @this.source_ids.insert($key, $index);
 };
 
-fn NavigationIndex::symbol_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::symbol_count(NavigationIndex& this) -> usize {
 	return this.symbols.size();
 };
 
-fn NavigationIndex::symbol_at(const NavigationIndex& this, usize index) -> const NavigationSymbol* {
+fn NavigationIndex::symbol_at(NavigationIndex& this, usize index) -> NavigationSymbol* {
 	if (index >= this.symbols.size()) {
 		return nullptr;
 	};
 	return &@this.symbols.data()[index].get()->value;
 };
 
-fn NavigationIndex::occurrence_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::occurrence_count(NavigationIndex& this) -> usize {
 	return this.occurrences.size();
 };
 
-fn NavigationIndex::occurrence_at(const NavigationIndex& this, usize index) -> const NavigationOccurrence* {
+fn NavigationIndex::occurrence_at(NavigationIndex& this, usize index) -> NavigationOccurrence* {
 	if (index >= this.occurrences.size()) {
 		return nullptr;
 	};
 	return &@this.occurrences.data()[index];
 };
 
-fn NavigationIndex::syntax_range(const NavigationIndex& this, const Syntax& syntax) -> SourceRange {
+fn NavigationIndex::syntax_range(NavigationIndex& this, Syntax& syntax) -> SourceRange {
 	var result = this.range(syntax.token());
 	usize index = 0;
 	while (index < syntax.size()) {
@@ -298,7 +298,7 @@ fn NavigationIndex::syntax_range(const NavigationIndex& this, const Syntax& synt
 		@result.end = opening.source->text().size();
 	};
 	if (opening.source && (opening.kind == token_kind::punct_left_brace || opening.kind == token_kind::punct_left_paren || opening.kind == token_kind::punct_left_bracket)) {
-		const rt::buffer<Token>& tokens = opening.source->tokens();
+		rt::buffer<Token>& tokens = opening.source->tokens();
 		usize depth = 0;
 		@index = 0;
 		while (index < tokens.size()) {
@@ -323,9 +323,9 @@ fn NavigationIndex::syntax_range(const NavigationIndex& this, const Syntax& synt
 	return $result;
 };
 
-fn NavigationIndex::scope_id(var NavigationIndex& this, const Scope& scope) -> u64 {
-	const Scope* key = &@scope;
-	const u64* present = this.scope_ids.find(key);
+fn NavigationIndex::scope_id(var NavigationIndex& this, Scope& scope) -> u64 {
+	Scope* key = &@scope;
+	u64* present = this.scope_ids.find(key);
 	if (present) {
 		return *present;
 	};
@@ -337,28 +337,31 @@ fn NavigationIndex::scope_id(var NavigationIndex& this, const Scope& scope) -> u
 			return 0;
 		};
 	};
-	const Scope* cursor = &@scope;
+	Scope* cursor = &@scope;
 	while (cursor) {
 		if (cursor->owner() && cursor->owner()->instantiated()) {
 			@descriptor.context = this.symbol_id(cursor->owner());
+			if (cursor == &@scope && cursor->owner()->declaration()) {
+				@descriptor.range = this.syntax_range(*cursor->owner()->declaration());
+			};
 			break;
 		};
 		@cursor = cursor->parent();
 	};
 	u64 id = u64(this.scope_ids.size()) + 1;
 	@descriptor.id = id;
-	const Scope* retained_scope = &@scope;
+	Scope* retained_scope = &@scope;
 	if (!@this.scope_ids.insert($key, u64(id)) || !@this.scope_locations.push_back($descriptor) || !@this.scope_records.push_back($retained_scope)) {
 		return 0;
 	};
 	return $id;
 };
 
-fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit& semantics) -> bool {
-	const rt::buffer<SemanticScopeRegion>& regions = semantics.scope_regions();
+fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+	rt::buffer<SemanticScopeRegion>& regions = semantics.scope_regions();
 	usize index = 0;
 	while (index < regions.size()) {
-		const SemanticScopeRegion& source = regions.data()[index];
+		SemanticScopeRegion& source = regions.data()[index];
 		NavigationScope region;
 		@region.id = @this.scope_id(*source.scope);
 		if (source.scope->parent()) {
@@ -371,7 +374,7 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 		};
 		@index = index + 1;
 	};
-	const rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
+	rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
 	@index = 0;
 	while (index < entities.size()) {
 		var Entity* entity = entities.data()[index].get();
@@ -391,7 +394,7 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 		var NavigationEntry* entry = this.symbols.data()[index].get();
 		@index = index + 1;
 		var Entity* owner = entry->entity->member_owner();
-		const Type* type = entry->entity->type();
+		Type* type = entry->entity->type();
 		while (type && (type->kind() == type_kind::pointer || type->kind() == type_kind::reference)) {
 			@type = type->element();
 		};
@@ -410,10 +413,10 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 			};
 		};
 	};
-	const rt::buffer<SemanticCallSite>& sites = semantics.call_sites();
+	rt::buffer<SemanticCallSite>& sites = semantics.call_sites();
 	@index = 0;
 	while (index < sites.size()) {
-		const SemanticCallSite& source = sites.data()[index];
+		SemanticCallSite& source = sites.data()[index];
 		@index = index + 1;
 		var call = rt::unique<NavigationCall>::make();
 		if (!call.get()) {
@@ -422,10 +425,10 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 		@call.get()->symbol = this.symbol_id(source.selected);
 		@call.get()->bound_receiver = source.bound_receiver;
 		if (source.candidates && source.candidates->scope()) {
-			const rt::buffer<var Entity*>& candidates = source.candidates->scope()->bindings();
+			rt::buffer<var Entity*>& candidates = source.candidates->scope()->bindings();
 			usize candidate = 0;
 			while (candidate < candidates.size()) {
-				const Entity& function = *candidates.data()[candidate];
+				Entity& function = *candidates.data()[candidate];
 				@candidate = candidate + 1;
 				if (function.kind() != entity_kind::function || function.name() != source.candidates->name() || !function.accessible_from(*source.scope)) {
 					continue;
@@ -455,76 +458,76 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 	return true;
 };
 
-fn NavigationIndex::scope_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::scope_count(NavigationIndex& this) -> usize {
 	return this.scope_locations.size();
 };
 
-fn NavigationIndex::scope_at(const NavigationIndex& this, usize index) -> const NavigationScope* {
+fn NavigationIndex::scope_at(NavigationIndex& this, usize index) -> NavigationScope* {
 	if (index >= this.scope_locations.size()) {
 		return nullptr;
 	};
 	return this.scope_locations.data() + index;
 };
 
-fn NavigationIndex::binding_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::binding_count(NavigationIndex& this) -> usize {
 	return this.bindings.size();
 };
 
-fn NavigationIndex::binding_at(const NavigationIndex& this, usize index) -> const NavigationBinding* {
+fn NavigationIndex::binding_at(NavigationIndex& this, usize index) -> NavigationBinding* {
 	if (index >= this.bindings.size()) {
 		return nullptr;
 	};
 	return this.bindings.data() + index;
 };
 
-fn NavigationIndex::call_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::call_count(NavigationIndex& this) -> usize {
 	return this.calls.size();
 };
 
-fn NavigationIndex::call_at(const NavigationIndex& this, usize index) -> const NavigationCall* {
+fn NavigationIndex::call_at(NavigationIndex& this, usize index) -> NavigationCall* {
 	if (index >= this.calls.size()) {
 		return nullptr;
 	};
 	return this.calls.data()[index].get();
 };
 
-fn NavigationIndex::parameter_count(const NavigationIndex& this, u64 symbol) -> usize {
+fn NavigationIndex::parameter_count(NavigationIndex& this, u64 symbol) -> usize {
 	if (!symbol || symbol > this.symbols.size()) {
 		return 0;
 	};
 	return this.symbols.data()[symbol - 1].get()->parameters.size();
 };
 
-fn NavigationIndex::parameter_at(const NavigationIndex& this, u64 symbol, usize index) -> const NavigationParameter* {
+fn NavigationIndex::parameter_at(NavigationIndex& this, u64 symbol, usize index) -> NavigationParameter* {
 	if (index >= this.parameter_count(symbol)) {
 		return nullptr;
 	};
 	return &@this.symbols.data()[symbol - 1].get()->parameters.data()[index].get()->value;
 };
 
-fn NavigationIndex::member_scope(const NavigationIndex& this, u64 symbol) -> u64 {
+fn NavigationIndex::member_scope(NavigationIndex& this, u64 symbol) -> u64 {
 	if (!symbol || symbol > this.symbols.size()) {
 		return 0;
 	};
 	return this.symbols.data()[symbol - 1].get()->member_scope;
 };
 
-fn NavigationIndex::accessible(const NavigationIndex& this, u64 symbol, u64 scope) -> bool {
+fn NavigationIndex::accessible(NavigationIndex& this, u64 symbol, u64 scope) -> bool {
 	if (!symbol || symbol > this.symbols.size() || !scope || scope > this.scope_records.size()) {
 		return false;
 	};
 	return this.symbols.data()[symbol - 1].get()->entity->accessible_from(*this.scope_records.data()[scope - 1]);
 };
 
-fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, const Entity& owner, const Entity& visible_owner, const Scope& scope) -> bool {
+fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, Entity& owner, Entity& visible_owner, Scope& scope) -> bool {
 	if (!owner.members()) {
 		return true;
 	};
 
-	const rt::buffer<var Entity*>& members = owner.members()->bindings();
+	rt::buffer<var Entity*>& members = owner.members()->bindings();
 	usize index = 0;
 	while (index < members.size()) {
-		const Entity& member = *members.data()[index];
+		Entity& member = *members.data()[index];
 		@index = index + 1;
 		var Entity* visible = visible_owner.find_member(member.name());
 		if (!visible || visible->scope() != member.scope() || !member.accessible_from(scope)) {
@@ -549,11 +552,11 @@ fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var Navigatio
 	return true;
 };
 
-fn NavigationIndex::build_receivers(var NavigationIndex& this, const SemanticUnit& semantics) -> bool {
-	const rt::buffer<SemanticReceiverSite>& sites = semantics.receiver_sites();
+fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+	rt::buffer<SemanticReceiverSite>& sites = semantics.receiver_sites();
 	usize index = 0;
 	while (index < sites.size()) {
-		const SemanticReceiverSite& source = sites.data()[index];
+		SemanticReceiverSite& source = sites.data()[index];
 		@index = index + 1;
 		var receiver = rt::unique<NavigationReceiver>::make();
 		if (!receiver.get()) {
@@ -562,6 +565,14 @@ fn NavigationIndex::build_receivers(var NavigationIndex& this, const SemanticUni
 		@receiver.get()->scope = @this.scope_id(*source.scope);
 		@receiver.get()->context = this.symbol_id(semantics.reference_context(@*source.scope));
 		@receiver.get()->range = this.syntax_range(*source.syntax->left());
+		const Syntax* root = source.syntax->left();
+		while (root && root->kind() == syntax_kind::member) {
+			@root = root->left();
+		};
+		@receiver.get()->root.source = usize::max;
+		if (root && root->kind() == syntax_kind::name) {
+			@receiver.get()->root = this.syntax_range(*root);
+		};
 		@receiver.get()->selector = this.range(source.syntax->token());
 		SourceRange member = this.syntax_range(*source.syntax->right());
 		if (member.source == receiver.get()->selector.source && member.end > receiver.get()->selector.end) {
@@ -574,22 +585,22 @@ fn NavigationIndex::build_receivers(var NavigationIndex& this, const SemanticUni
 	return true;
 };
 
-fn NavigationIndex::receiver_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::receiver_count(NavigationIndex& this) -> usize {
 	return this.receivers.size();
 };
 
-fn NavigationIndex::receiver_at(const NavigationIndex& this, usize index) -> const NavigationReceiver* {
+fn NavigationIndex::receiver_at(NavigationIndex& this, usize index) -> NavigationReceiver* {
 	if (index >= this.receivers.size()) {
 		return nullptr;
 	};
 	return this.receivers.data()[index].get();
 };
 
-fn NavigationIndex::type_symbol(const NavigationIndex& this, u64 symbol) -> u64 {
+fn NavigationIndex::type_symbol(NavigationIndex& this, u64 symbol) -> u64 {
 	if (!symbol || symbol > this.symbols.size()) {
 		return 0;
 	};
-	const Type* type = this.symbols.data()[symbol - 1].get()->entity->type();
+	Type* type = this.symbols.data()[symbol - 1].get()->entity->type();
 	while (type && (type->kind() == type_kind::pointer || type->kind() == type_kind::reference || type->kind() == type_kind::array)) {
 		@type = type->element();
 	};
@@ -599,11 +610,11 @@ fn NavigationIndex::type_symbol(const NavigationIndex& this, u64 symbol) -> u64 
 	return this.symbol_id(type->entity());
 };
 
-fn NavigationIndex::semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32 {
+fn NavigationIndex::semantic_token_type(NavigationIndex& this, u64 symbol) -> u32 {
 	if (!symbol || symbol > this.symbols.size()) {
 		return 8;
 	};
-	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
 	switch (entity.kind()) {
 		case entity_kind::namespace_body: return 0;
 		case entity_kind::alias: return 1;
@@ -620,7 +631,7 @@ fn NavigationIndex::semantic_token_type(const NavigationIndex& this, u64 symbol)
 			return 11;
 		};
 	};
-	const NavigationSymbol& value = this.symbols.data()[symbol - 1].get()->value;
+	NavigationSymbol& value = this.symbols.data()[symbol - 1].get()->value;
 	if (value.kind == 23) {
 		return 5;
 	};
@@ -630,23 +641,23 @@ fn NavigationIndex::semantic_token_type(const NavigationIndex& this, u64 symbol)
 	return 8;
 };
 
-fn NavigationIndex::symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool {
+fn NavigationIndex::symbol_readonly(NavigationIndex& this, u64 symbol) -> bool {
 	if (!symbol || symbol > this.symbols.size()) {
 		return false;
 	};
-	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
-	const Type* type = entity.type();
+	Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	Type* type = entity.type();
 	if (type && type->kind() == type_kind::reference) {
 		@type = type->element();
 	};
 	return entity.kind() == entity_kind::constant || entity.kind() == entity_kind::enumerator || type && type->qualifier() == type_qualifier::immutable;
 };
 
-fn NavigationIndex::classification_count(const NavigationIndex& this) -> usize {
+fn NavigationIndex::classification_count(NavigationIndex& this) -> usize {
 	return this.classifications.size();
 };
 
-fn NavigationIndex::classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification* {
+fn NavigationIndex::classification_at(NavigationIndex& this, usize index) -> NavigationClassification* {
 	if (index >= this.classifications.size()) {
 		return nullptr;
 	};

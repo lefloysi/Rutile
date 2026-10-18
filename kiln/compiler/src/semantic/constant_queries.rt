@@ -1,4 +1,4 @@
-fn SemanticExpression::constant_truth(const SemanticExpression& this, var bool& result) -> bool {
+fn SemanticExpression::constant_truth(SemanticExpression& this, var bool& result) -> bool {
 	if (this.type()->kind() == type_kind::floating_point) {
 		f64 value = 0.0;
 
@@ -22,7 +22,7 @@ fn SemanticExpression::constant_truth(const SemanticExpression& this, var bool& 
 	return true;
 };
 
-fn SemanticExpression::constant_integer(const SemanticExpression& this, var u64& result) -> bool {
+fn SemanticExpression::constant_integer(SemanticExpression& this, var u64& result) -> bool {
 	if (this.kind() == semantic_kind::null_pointer) {
 		@result = 0;
 
@@ -218,7 +218,7 @@ fn SemanticExpression::constant_integer(const SemanticExpression& this, var u64&
 			break;
 		case token_kind::op_shift_left:
 		case token_kind::op_shift_right:
-			const Type* representation = this.item(0)->type()->representation();
+			Type* representation = this.item(0)->type()->representation();
 			u64 width = static_cast<u64>(representation->bits());
 
 			if (second >= width) {
@@ -296,7 +296,7 @@ fn SemanticExpression::constant_integer(const SemanticExpression& this, var u64&
 	return true;
 };
 
-fn SemanticExpression::copy_constant(const SemanticExpression& this) -> rt::unique<SemanticExpression> {
+fn SemanticExpression::copy_constant(SemanticExpression& this) -> rt::unique<SemanticExpression> {
 	if (this.type()->representation()->kind() == type_kind::floating_point) {
 		f64 value = 0.0;
 

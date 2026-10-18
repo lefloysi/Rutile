@@ -23,10 +23,11 @@ namespace Rutile.VisualStudio {
 		public object InitializationOptions => null!;
 		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/rutile.yaml", "**/*.list" };
 		public bool ShowNotificationOnInitializeFailed => true;
-		public object MiddleLayer { get; } = new RutileSemanticColors();
-		public object CustomMessageTarget => null!;
+		public object MiddleLayer { get; } = new RutileSemanticColors(RutileSemanticStore.Instance);
+		public object CustomMessageTarget => RutileEditorConnection.Instance;
 
 		public Task AttachForCustomMessageAsync(JsonRpc rpc) {
+			RutileEditorConnection.Instance.Attach(rpc);
 			return Task.CompletedTask;
 		}
 

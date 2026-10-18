@@ -1,17 +1,17 @@
-fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, const Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
+fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
 	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
 		if (this.failed()) {
 			return rt::unique<SemanticExpression>();
 		};
 		var message = DiagnosticMessage();
-		@message.text("construction requires an object type; \0");
+		@message.text(rt::string_view("construction requires an object type; ", 38));
 		if (type) {
-			@message.text("requested type is '\0");
+			@message.text(rt::string_view("requested type is '", 19));
 			diagnostic_type(@message, *type);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 		}
 		else {
-			@message.text("the destination type is unavailable\0");
+			@message.text(rt::string_view("the destination type is unavailable", 35));
 		};
 		@this.report(syntax.token(), message.view());
 
@@ -37,8 +37,8 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 	return @this.construct_values(@syntax, type, $raw);
 };
 
-fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression> {
-	var values = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression> {
+	var values = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 	if (!values.get()) {
 		return rt::unique<SemanticExpression>();
@@ -87,9 +87,9 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type
 
 		if (!constructor && declared_constructor && !transfer) {
 			var message = DiagnosticMessage();
-			@message.text("no applicable constructor for '\0");
+			@message.text(rt::string_view("no applicable constructor for '", 31));
 			diagnostic_type(@message, *type);
-			@message.text("' with arguments \0");
+			@message.text(rt::string_view("' with arguments ", 17));
 			diagnostic_arguments(@message, raw);
 			@this.report(syntax.token(), message.view());
 			if (candidate && candidate->kind() == entity_kind::function) {
@@ -101,13 +101,13 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type
 
 		if (!constructor && !transfer && raw.size() > owner->fields().size()) {
 			var message = DiagnosticMessage();
-			@message.text("too many aggregate initializer arguments for '\0");
+			@message.text(rt::string_view("too many aggregate initializer arguments for '", 46));
 			diagnostic_type(@message, *type);
-			@message.text("': expected at most \0");
+			@message.text(rt::string_view("': expected at most ", 20));
 			@message.number(u64(owner->fields().size()));
-			@message.text(", received \0");
+			@message.text(rt::string_view(", received ", 11));
 			@message.number(u64(raw.size()));
-			@message.text(" with types \0");
+			@message.text(rt::string_view(" with types ", 12));
 			diagnostic_arguments(@message, raw);
 			@this.report(syntax.token(), message.view());
 
@@ -116,11 +116,11 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type
 	}
 	else if (raw.size() > 1) {
 		var message = DiagnosticMessage();
-		@message.text("scalar construction of '\0");
+		@message.text(rt::string_view("scalar construction of '", 24));
 		diagnostic_type(@message, *type);
-		@message.text("' accepts at most one argument; received \0");
+		@message.text(rt::string_view("' accepts at most one argument; received ", 41));
 		@message.number(u64(raw.size()));
-		@message.text(" with types \0");
+		@message.text(rt::string_view(" with types ", 12));
 		diagnostic_arguments(@message, raw);
 		@this.report(syntax.token(), message.view());
 
@@ -131,7 +131,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type
 	var rt::unique<SemanticExpression>* owned = (@raw).data();
 
 	while (index < raw.size()) {
-		const Type* expected = type;
+		Type* expected = type;
 
 		if (constructor) {
 			@expected = constructor->parameters().data()[index + 1]->type();
@@ -190,7 +190,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type
 	return $result;
 };
 
-fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, const Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
+fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
 	if (!type) {
 		return $value;
 	};
@@ -233,7 +233,7 @@ fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, const Type* type
 	return @this.construct_values(@syntax, type, $arguments);
 };
 
-fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
+fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
 	var Syntax* source = syntax.callable();
 	var Syntax* arguments = syntax.arguments();
 	var Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
@@ -250,7 +250,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 	};
 
 	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
-		const Type* target = @this.type(@scope, @*source);
+		Type* target = @this.type(@scope, @*source);
 
 		if (!target) {
 			return rt::unique<SemanticExpression>();
@@ -260,7 +260,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 	};
 
 	if (!explicit_pattern && (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply)) {
-		const Type* target = nullptr;
+		Type* target = nullptr;
 		var Entity* named = @this.lookup(@scope, @*source);
 
 		if (source->kind() == syntax_kind::name && !named) {
@@ -287,16 +287,16 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* owner = receiver.get()->type();
+		Type* owner = receiver.get()->type();
 
 		if (source->token().kind == token_kind::op_arrow) {
 			if (owner->kind() != type_kind::pointer) {
 				var message = DiagnosticMessage();
-				@message.text("arrow method access to '\0");
+				@message.text(rt::string_view("arrow method access to '", 24));
 				diagnostic_name(@message, *source->member_name());
-				@message.text("' requires a pointer; receiver has type '\0");
+				@message.text(rt::string_view("' requires a pointer; receiver has type '", 41));
 				diagnostic_type(@message, *owner);
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				@this.report(source->token(), message.view());
 
 				return rt::unique<SemanticExpression>();
@@ -323,15 +323,15 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 				if (this.failed()) {
 					return rt::unique<SemanticExpression>();
 				};
-				const Type* builtin = this.types->find_primitive(source->member_name()->token().text());
+				Type* builtin = this.types->find_primitive(source->member_name()->token().text());
 
 				if (!builtin && (!alias || !alias->denotes_type())) {
 					var message = DiagnosticMessage();
-					@message.text("method '\0");
+					@message.text(rt::string_view("method '", 8));
 					diagnostic_name(@message, *source->member_name());
-					@message.text("' requires a class or enum object; receiver has type '\0");
+					@message.text(rt::string_view("' requires a class or enum object; receiver has type '", 54));
 					diagnostic_type(@message, *owner);
-					@message.text("'\0");
+					@message.text(rt::string_view("'", 1));
 					@this.report(source->token(), message.view());
 
 					return rt::unique<SemanticExpression>();
@@ -341,7 +341,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 
 		var Syntax* member = source->member_name();
 		bool destructor = member->kind() == syntax_kind::unary && member->token().kind == token_kind::op_tilde;
-		const Type* designated = nullptr;
+		Type* designated = nullptr;
 
 		if (destructor) {
 			@designated = @this.type(@scope, @*member->operand());
@@ -366,18 +366,18 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			if (owner->qualifier() == type_qualifier::immutable || !accessed && receiver.get()->kind() != semantic_kind::access) {
 				var message = DiagnosticMessage();
 				if (destructor) {
-					@message.text("explicit destruction of '\0");
+					@message.text(rt::string_view("explicit destruction of '", 25));
 				}
 				else {
-					@message.text("explicit construction of '\0");
+					@message.text(rt::string_view("explicit construction of '", 26));
 				};
 				diagnostic_type(@message, *owner);
-				@message.text("' requires mutable access; \0");
+				@message.text(rt::string_view("' requires mutable access; ", 27));
 				if (owner->qualifier() == type_qualifier::immutable) {
-					@message.text("the object is const\0");
+					@message.text(rt::string_view("the object is const", 19));
 				}
 				else {
-					@message.text("the object was not accessed through '@'\0");
+					@message.text(rt::string_view("the object was not accessed through '@'", 39));
 				};
 				@this.report(source->token(), message.view());
 
@@ -387,16 +387,16 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			if (destructor) {
 				if (arguments->size()) {
 					var message = DiagnosticMessage();
-					@message.text("destructor for '\0");
+					@message.text(rt::string_view("destructor for '", 16));
 					diagnostic_type(@message, *owner);
-					@message.text("' accepts no arguments after its receiver; received \0");
+					@message.text(rt::string_view("' accepts no arguments after its receiver; received ", 52));
 					@message.number(u64(arguments->size()));
 					@this.report(source->token(), message.view());
 
 					return rt::unique<SemanticExpression>();
 				};
 
-				var result = @this.node(semantic_kind::destruction, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+				var result = @this.node(semantic_kind::destruction, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 				if (!result.get()) {
 					return rt::unique<SemanticExpression>();
@@ -437,11 +437,11 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 				return rt::unique<SemanticExpression>();
 			};
 			var message = DiagnosticMessage();
-			@message.text("destructor type '\0");
+			@message.text(rt::string_view("destructor type '", 17));
 			diagnostic_name(@message, *member->operand());
-			@message.text("' does not match its object of type '\0");
+			@message.text(rt::string_view("' does not match its object of type '", 37));
 			diagnostic_type(@message, *owner);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(source->token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -449,11 +449,11 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 
 		if (owner->kind() != type_kind::named) {
 			var message = DiagnosticMessage();
-			@message.text("explicit construction type '\0");
+			@message.text(rt::string_view("explicit construction type '", 28));
 			diagnostic_name(@message, *member);
-			@message.text("' does not match its destination of type '\0");
+			@message.text(rt::string_view("' does not match its destination of type '", 42));
 			diagnostic_type(@message, *owner);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(source->token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -503,7 +503,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			@missing = missing + 1;
 		};
 		if (missing < arguments->size()) {
-			const rt::buffer<var Entity*>& candidates = group->scope()->bindings();
+			rt::buffer<var Entity*>& candidates = group->scope()->bindings();
 			usize candidate = 0;
 			while (candidate < candidates.size()) {
 				var Entity* function = candidates.data()[candidate];
@@ -515,7 +515,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			if (!@this.unit->record_incomplete_call(@scope, @syntax, @*group, receiver.get() != nullptr)) {
 				return rt::unique<SemanticExpression>();
 			};
-			return @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+			return @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 		};
 	};
 
@@ -532,7 +532,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 		rt::unique<SemanticExpression> value;
 
 		if (arguments->item(index)->kind() == syntax_kind::brace) {
-			@value = @this.node(semantic_kind::deferred_argument, this.types->find_primitive(rt::string_view("void\0")), arguments->item(index));
+			@value = @this.node(semantic_kind::deferred_argument, this.types->find_primitive(rt::string_view("void", 4)), arguments->item(index));
 		}
 		else {
 			@value = @this.expression(@scope, @*arguments->item(index), rt::optional_ref<const Type>());
@@ -565,9 +565,9 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 		if (!selected) {
 			if (!this.diagnostics->failed()) {
 				var message = DiagnosticMessage();
-				@message.text("no applicable function for call to '\0");
+				@message.text(rt::string_view("no applicable function for call to '", 36));
 				diagnostic_entity(@message, *group);
-				@message.text("' with arguments \0");
+				@message.text(rt::string_view("' with arguments ", 17));
 				diagnostic_arguments(@message, values);
 				@this.diagnostics->error(syntax.token(), message.view());
 				diagnostic_candidates(@*this.diagnostics, *group);
@@ -584,13 +584,13 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 
 		if (!this.accessible(*selected, @scope)) {
 			var message = DiagnosticMessage();
-			@message.text("selected function '\0");
+			@message.text(rt::string_view("selected function '", 19));
 			diagnostic_entity(@message, *selected);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *selected->type());
-			@message.text("' is not accessible from this scope\0");
+			@message.text(rt::string_view("' is not accessible from this scope", 35));
 			@this.report(syntax.token(), message.view());
-			@this.note(selected->token(), "function is declared here\0");
+			@this.note(selected->token(), rt::string_view("function is declared here", 25));
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -614,12 +614,12 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 	return @this.invoke(@syntax, selected, $callable, $values, expected);
 };
 
-fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (!callable.get()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	const Type* signature = callable.get()->type();
+	Type* signature = callable.get()->type();
 
 	if (signature->kind() == type_kind::pointer) {
 		@signature = signature->element();
@@ -627,9 +627,9 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 
 	if (signature->kind() != type_kind::function) {
 		var message = DiagnosticMessage();
-		@message.text("cannot call an expression of type '\0");
+		@message.text(rt::string_view("cannot call an expression of type '", 35));
 		diagnostic_type(@message, *callable.get()->type());
-		@message.text("'; a function or pointer to function is required\0");
+		@message.text(rt::string_view("'; a function or pointer to function is required", 48));
 		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -639,23 +639,23 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 
 	if (values.size() < fixed || signature->signature().arity() != parameter_arity::variadic && values.size() != fixed) {
 		var message = DiagnosticMessage();
-		@message.text("call to function of type '\0");
+		@message.text(rt::string_view("call to function of type '", 26));
 		diagnostic_type(@message, *signature);
-		@message.text("' requires \0");
+		@message.text(rt::string_view("' requires ", 11));
 		if (signature->signature().arity() == parameter_arity::variadic) {
-			@message.text("at least \0");
+			@message.text(rt::string_view("at least ", 9));
 		};
 		@message.number(u64(fixed));
-		@message.text(" arguments, received \0");
+		@message.text(rt::string_view(" arguments, received ", 21));
 		@message.number(u64(values.size()));
-		@message.text(" with types \0");
+		@message.text(rt::string_view(" with types ", 12));
 		diagnostic_arguments(@message, values);
 		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
 
-	var converted = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	var converted = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 	if (!converted.get()) {
 		return rt::unique<SemanticExpression>();
@@ -672,13 +672,13 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 		}
 		else if (!value.get()->type()->representation()->kind().is_scalar()) {
 			var message = DiagnosticMessage();
-			@message.text("variadic argument \0");
+			@message.text(rt::string_view("variadic argument ", 18));
 			@message.number(u64(index + 1));
-			@message.text(" requires a scalar value; received '\0");
+			@message.text(rt::string_view(" requires a scalar value; received '", 36));
 			diagnostic_type(@message, *value.get()->type());
-			@message.text("' for callable type '\0");
+			@message.text(rt::string_view("' for callable type '", 21));
 			diagnostic_type(@message, *signature);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -695,7 +695,7 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 		@index = index + 1;
 	};
 
-	const Type* result_type = signature->signature().result();
+	Type* result_type = signature->signature().result();
 	value_category category = value_category::consumable;
 
 	if (result_type->kind() == type_kind::reference) {
@@ -718,7 +718,7 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 	};
 
 	if (selected && this.function && this.function->members() && !@this.unit->record_name(@this, @*this.function->members(), @syntax, @*selected, 16)) {
-		@this.error(&@syntax, "navigation index storage is unavailable\0");
+		@this.error(&@syntax, rt::string_view("navigation index storage is unavailable", 39));
 		return rt::unique<SemanticExpression>();
 	};
 	@result.get()->bind(selected, $category);

@@ -2,21 +2,21 @@ struct Analysis {
 	fn Analysis(var Analysis& this) : [default];
 	fn Analysis(var Analysis& this, var NativeFile* output);
 
-	fn add_source(var Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool;
-	fn load_source(var Analysis& this, const char* path, FileOpener opener) -> bool;
+	fn add_source(var Analysis& this, rt::string_view& path, rt::string_view& text) -> bool;
+	fn load_source(var Analysis& this, rt::string_view& path, FileOpener opener) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 	fn analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 
-	fn source_count(const Analysis& this) -> usize;
-	fn source_path(const Analysis& this, usize index) -> rt::string_view;
-	fn syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>&;
-	fn source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>*;
-	fn primitive_name(const Analysis& this, const rt::string_view& name) -> bool;
-	fn source_text(const Analysis& this, usize index) -> rt::string_view;
-	fn semantics(const Analysis& this) -> const SemanticUnit*;
-	fn diagnostics(const Analysis& this) -> const Diagnostics&;
-	fn navigation(const Analysis& this) -> const NavigationIndex&;
-	fn pointer_bits(const Analysis& this) -> u32;
+	fn source_count(Analysis& this) -> usize;
+	fn source_path(Analysis& this, usize index) -> rt::string_view;
+	fn syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>&;
+	fn source_tokens(Analysis& this, usize index) -> rt::buffer<Token>*;
+	fn primitive_name(Analysis& this, rt::string_view& name) -> bool;
+	fn source_text(Analysis& this, usize index) -> rt::string_view;
+	fn semantics(Analysis& this) -> SemanticUnit*;
+	fn diagnostics(Analysis& this) -> Diagnostics&;
+	fn navigation(Analysis& this) -> NavigationIndex&;
+	fn pointer_bits(Analysis& this) -> u32;
 
 private:
 	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
@@ -34,65 +34,65 @@ fn Analysis::Analysis(var Analysis& this, var NativeFile* output) {
 	@this.messages = Diagnostics($output);
 };
 
-fn Analysis::add_source(var Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool {
+fn Analysis::add_source(var Analysis& this, rt::string_view& path, rt::string_view& text) -> bool {
 	var SourceFile* source = @this.sources.add(path, text);
 	return source && @this.index.register_source(@*source, this.sources.count() - 1);
 };
 
-fn Analysis::load_source(var Analysis& this, const char* path, FileOpener opener) -> bool {
+fn Analysis::load_source(var Analysis& this, rt::string_view& path, FileOpener opener) -> bool {
 	var reader = SourceReader($opener, @this.sources, @this.messages);
-	var SourceFile* source = @reader.load($path);
+	var SourceFile* source = @reader.load(path);
 	return source && @this.index.register_source(@*source, this.sources.count() - 1);
 };
 
-fn Analysis::source_count(const Analysis& this) -> usize {
+fn Analysis::source_count(Analysis& this) -> usize {
 	return this.sources.count();
 };
 
-fn Analysis::source_path(const Analysis& this, usize index) -> rt::string_view {
-	const SourceFile* source = this.sources.at($index);
+fn Analysis::source_path(Analysis& this, usize index) -> rt::string_view {
+	SourceFile* source = this.sources.at($index);
 	if (!source) {
 		return rt::string_view();
 	};
 	return source->path();
 };
 
-fn Analysis::source_text(const Analysis& this, usize index) -> rt::string_view {
-	const SourceFile* source = this.sources.at($index);
+fn Analysis::source_text(Analysis& this, usize index) -> rt::string_view {
+	SourceFile* source = this.sources.at($index);
 	if (!source) {
 		return rt::string_view();
 	};
 	return source->text();
 };
 
-fn Analysis::semantics(const Analysis& this) -> const SemanticUnit* {
+fn Analysis::semantics(Analysis& this) -> SemanticUnit* {
 	return this.semantic_unit.get();
 };
 
-fn Analysis::diagnostics(const Analysis& this) -> const Diagnostics& {
+fn Analysis::diagnostics(Analysis& this) -> Diagnostics& {
 	return this.messages;
 };
 
-fn Analysis::navigation(const Analysis& this) -> const NavigationIndex& {
+fn Analysis::navigation(Analysis& this) -> NavigationIndex& {
 	return this.index;
 };
 
-fn Analysis::pointer_bits(const Analysis& this) -> u32 {
+fn Analysis::pointer_bits(Analysis& this) -> u32 {
 	return this.target_pointer_bits;
 };
 
-fn Analysis::source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>* {
-	const SourceFile* source = this.sources.at($index);
+fn Analysis::source_tokens(Analysis& this, usize index) -> rt::buffer<Token>* {
+	SourceFile* source = this.sources.at($index);
 	if (!source) {
 		return nullptr;
 	};
 	return &@source->tokens();
 };
 
-fn Analysis::primitive_name(const Analysis& this, const rt::string_view& name) -> bool {
+fn Analysis::primitive_name(Analysis& this, rt::string_view& name) -> bool {
 	return this.types.find_primitive(name) != nullptr;
 };
 
-fn Analysis::syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>& {
+fn Analysis::syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>& {
 	return this.syntax;
 };

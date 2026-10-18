@@ -3,8 +3,8 @@ struct Lexer {
 
 	fn scan(var Lexer& this) -> bool;
 
-	fn error(const Lexer& this) -> rt::string_view;
-	fn error_token(const Lexer& this) -> Token;
+	fn error(Lexer& this) -> rt::string_view;
+	fn error_token(Lexer& this) -> Token;
 
 private:
 	var SourceFile* source;
@@ -15,17 +15,17 @@ private:
 	Token failure_token;
 
 	fn advance(var Lexer& this) -> char;
-	fn fail(var Lexer& this, const Token& token, const rt::string_view& message) -> bool;
+	fn fail(var Lexer& this, Token& token, rt::string_view& message) -> bool;
 	fn trivia(var Lexer& this) -> bool;
-	fn number(var Lexer& this, const Token& token) -> bool;
-	fn quoted(var Lexer& this, const Token& token, char quote) -> bool;
+	fn number(var Lexer& this, Token& token) -> bool;
+	fn quoted(var Lexer& this, Token& token, char quote) -> bool;
 	fn symbol(var Lexer& this, var Token& token) -> bool;
-	fn identifier_kind(const rt::string_view& spelling) -> token_kind;
+	fn identifier_kind(rt::string_view& spelling) -> token_kind;
 	fn identifier_start(char value) -> bool;
 	fn digit(char value) -> bool;
 
-	fn peek(const Lexer& this, usize distance) -> char;
-	fn location(const Lexer& this) -> Token;
+	fn peek(Lexer& this, usize distance) -> char;
+	fn location(Lexer& this) -> Token;
 };
 
 fn Lexer::Lexer(var Lexer& this, var SourceFile& source) {
@@ -34,7 +34,7 @@ fn Lexer::Lexer(var Lexer& this, var SourceFile& source) {
 	@this.column = 1;
 };
 
-fn Lexer::peek(const Lexer& this, usize distance) -> char {
+fn Lexer::peek(Lexer& this, usize distance) -> char {
 	var text = this.source->text();
 
 	if (this.offset >= text.size() || distance >= text.size() - this.offset) {
@@ -64,7 +64,7 @@ fn Lexer::advance(var Lexer& this) -> char {
 	return value;
 };
 
-fn Lexer::location(const Lexer& this) -> Token {
+fn Lexer::location(Lexer& this) -> Token {
 	Token token;
 	@token.source = this.source;
 	@token.begin = this.offset;
@@ -74,7 +74,7 @@ fn Lexer::location(const Lexer& this) -> Token {
 	return $token;
 };
 
-fn Lexer::fail(var Lexer& this, const Token& token, const rt::string_view& message) -> bool {
+fn Lexer::fail(var Lexer& this, Token& token, rt::string_view& message) -> bool {
 	@this.failure = rt::string_view(message);
 	@this.failure_token = Token(token);
 	usize size = this.source->text().size();
@@ -100,11 +100,11 @@ fn Lexer::fail(var Lexer& this, const Token& token, const rt::string_view& messa
 	return false;
 };
 
-fn Lexer::error(const Lexer& this) -> rt::string_view {
+fn Lexer::error(Lexer& this) -> rt::string_view {
 	return rt::string_view(this.failure);
 };
 
-fn Lexer::error_token(const Lexer& this) -> Token {
+fn Lexer::error_token(Lexer& this) -> Token {
 	return Token(this.failure_token);
 };
 
@@ -116,124 +116,124 @@ fn Lexer::digit(char value) -> bool {
 	return value >= '0' && value <= '9';
 };
 
-fn Lexer::identifier_kind(const rt::string_view& spelling) -> token_kind {
-	if (spelling == rt::string_view("fn\0")) {
+fn Lexer::identifier_kind(rt::string_view& spelling) -> token_kind {
+	if (spelling == rt::string_view("fn", 2)) {
 		return token_kind::kw_fn;
 	};
 
-	if (spelling == rt::string_view("using\0")) {
+	if (spelling == rt::string_view("using", 5)) {
 		return token_kind::kw_using;
 	};
 
-	if (spelling == rt::string_view("const\0")) {
+	if (spelling == rt::string_view("const", 5)) {
 		return token_kind::kw_const;
 	};
 
-	if (spelling == rt::string_view("discard\0")) {
+	if (spelling == rt::string_view("discard", 7)) {
 		return token_kind::kw_discard;
 	};
 
-	if (spelling == rt::string_view("delete\0")) {
+	if (spelling == rt::string_view("delete", 6)) {
 		return token_kind::kw_delete;
 	};
 
-	if (spelling == rt::string_view("new\0")) {
+	if (spelling == rt::string_view("new", 3)) {
 		return token_kind::kw_new;
 	};
 
-	if (spelling == rt::string_view("implicit\0")) {
+	if (spelling == rt::string_view("implicit", 8)) {
 		return token_kind::kw_implicit;
 	};
 
-	if (spelling == rt::string_view("nullptr\0")) {
+	if (spelling == rt::string_view("nullptr", 7)) {
 		return token_kind::kw_nullptr;
 	};
 
-	if (spelling == rt::string_view("template\0")) {
+	if (spelling == rt::string_view("template", 8)) {
 		return token_kind::kw_template;
 	};
 
-	if (spelling == rt::string_view("typename\0")) {
+	if (spelling == rt::string_view("typename", 8)) {
 		return token_kind::kw_typename;
 	};
 
-	if (spelling == rt::string_view("class\0")) {
+	if (spelling == rt::string_view("class", 5)) {
 		return token_kind::kw_class;
 	};
 
-	if (spelling == rt::string_view("var\0")) {
+	if (spelling == rt::string_view("var", 3)) {
 		return token_kind::kw_var;
 	};
 
-	if (spelling == rt::string_view("struct\0")) {
+	if (spelling == rt::string_view("struct", 6)) {
 		return token_kind::kw_struct;
 	};
 
-	if (spelling == rt::string_view("union\0")) {
+	if (spelling == rt::string_view("union", 5)) {
 		return token_kind::kw_union;
 	};
 
-	if (spelling == rt::string_view("enum\0")) {
+	if (spelling == rt::string_view("enum", 4)) {
 		return token_kind::kw_enum;
 	};
 
-	if (spelling == rt::string_view("namespace\0")) {
+	if (spelling == rt::string_view("namespace", 9)) {
 		return token_kind::kw_namespace;
 	};
 
-	if (spelling == rt::string_view("virtual\0")) {
+	if (spelling == rt::string_view("virtual", 7)) {
 		return token_kind::kw_virtual;
 	};
 
-	if (spelling == rt::string_view("override\0")) {
+	if (spelling == rt::string_view("override", 8)) {
 		return token_kind::kw_override;
 	};
 
-	if (spelling == rt::string_view("final\0")) {
+	if (spelling == rt::string_view("final", 5)) {
 		return token_kind::kw_final;
 	};
 
-	if (spelling == rt::string_view("return\0")) {
+	if (spelling == rt::string_view("return", 6)) {
 		return token_kind::kw_return;
 	};
 
-	if (spelling == rt::string_view("if\0")) {
+	if (spelling == rt::string_view("if", 2)) {
 		return token_kind::kw_if;
 	};
 
-	if (spelling == rt::string_view("else\0")) {
+	if (spelling == rt::string_view("else", 4)) {
 		return token_kind::kw_else;
 	};
 
-	if (spelling == rt::string_view("while\0")) {
+	if (spelling == rt::string_view("while", 5)) {
 		return token_kind::kw_while;
 	};
 
-	if (spelling == rt::string_view("for\0")) {
+	if (spelling == rt::string_view("for", 3)) {
 		return token_kind::kw_for;
 	};
 
-	if (spelling == rt::string_view("switch\0")) {
+	if (spelling == rt::string_view("switch", 6)) {
 		return token_kind::kw_switch;
 	};
 
-	if (spelling == rt::string_view("case\0")) {
+	if (spelling == rt::string_view("case", 4)) {
 		return token_kind::kw_case;
 	};
 
-	if (spelling == rt::string_view("default\0")) {
+	if (spelling == rt::string_view("default", 7)) {
 		return token_kind::kw_default;
 	};
 
-	if (spelling == rt::string_view("break\0")) {
+	if (spelling == rt::string_view("break", 5)) {
 		return token_kind::kw_break;
 	};
 
-	if (spelling == rt::string_view("continue\0")) {
+	if (spelling == rt::string_view("continue", 8)) {
 		return token_kind::kw_continue;
 	};
 
-	if (spelling == rt::string_view("sizeof\0")) {
+	if (spelling == rt::string_view("sizeof", 6)) {
 		return token_kind::kw_sizeof;
 	};
 
@@ -271,7 +271,7 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 
 		while (true) {
 			if (!this.peek(0)) {
-				return @this.fail(start, rt::string_view("unterminated comment\0"));
+				return @this.fail(start, rt::string_view("unterminated comment", 20));
 			};
 
 			if (this.peek(0) == '*' && this.peek(1) == '/') {
@@ -287,7 +287,7 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 	return true;
 };
 
-fn Lexer::number(var Lexer& this, const Token& token) -> bool {
+fn Lexer::number(var Lexer& this, Token& token) -> bool {
 	while (Lexer::digit(this.peek(0))) {
 		@this.advance();
 	};
@@ -311,7 +311,7 @@ fn Lexer::number(var Lexer& this, const Token& token) -> bool {
 	};
 
 	if (!Lexer::digit(this.peek(0))) {
-		return @this.fail(token, rt::string_view("expected exponent digits\0"));
+		return @this.fail(token, rt::string_view("expected exponent digits", 24));
 	};
 
 	while (Lexer::digit(this.peek(0))) {
@@ -321,26 +321,26 @@ fn Lexer::number(var Lexer& this, const Token& token) -> bool {
 	return true;
 };
 
-fn Lexer::quoted(var Lexer& this, const Token& token, char quote) -> bool {
+fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> bool {
 	@this.advance();
 
 	if (quote == '\'') {
 		char value = @this.advance();
 
 		if (!value || value == '\'' || value == '\n' || value == '\r') {
-			return @this.fail(token, rt::string_view("expected one character in literal\0"));
+			return @this.fail(token, rt::string_view("expected one character in literal", 33));
 		};
 
 		if (value == '\\') {
 			char escaped = @this.advance();
 
 			if (!escaped || escaped == '\n' || escaped == '\r') {
-				return @this.fail(token, rt::string_view("unterminated character escape\0"));
+				return @this.fail(token, rt::string_view("unterminated character escape", 29));
 			};
 		};
 
 		if (@this.advance() != '\'') {
-			return @this.fail(token, rt::string_view("expected closing quote after character\0"));
+			return @this.fail(token, rt::string_view("expected closing quote after character", 38));
 		};
 
 		return true;
@@ -348,11 +348,11 @@ fn Lexer::quoted(var Lexer& this, const Token& token, char quote) -> bool {
 
 	while (this.peek(0) != '"') {
 		if (!this.peek(0)) {
-			return @this.fail(token, rt::string_view("unterminated string literal\0"));
+			return @this.fail(token, rt::string_view("unterminated string literal", 27));
 		};
 
 		if (this.peek(0) == '\n') {
-			return @this.fail(token, rt::string_view("newline in string literal\0"));
+			return @this.fail(token, rt::string_view("newline in string literal", 25));
 		};
 
 		if (@this.advance() == '\\' && this.peek(0)) {
@@ -515,7 +515,7 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> bool {
 
 			break;
 		default:
-			return @this.fail(token, rt::string_view("unknown source character\0"));
+			return @this.fail(token, rt::string_view("unknown source character", 24));
 	};
 
 	usize consumed = 0;
@@ -546,7 +546,7 @@ fn Lexer::scan(var Lexer& this) -> bool {
 
 		if (!value) {
 			if (this.offset < this.source->text().size()) {
-				return @this.fail(token, rt::string_view("NUL byte in source\0"));
+				return @this.fail(token, rt::string_view("NUL byte in source", 18));
 			};
 
 			@token.kind = token_kind::eof;
@@ -586,7 +586,7 @@ fn Lexer::scan(var Lexer& this) -> bool {
 		@token.length = this.offset - token.begin;
 
 		if (!@this.source->append_token(Token(token))) {
-			return @this.fail(token, rt::string_view("token storage allocation failed\0"));
+			return @this.fail(token, rt::string_view("token storage allocation failed", 31));
 		};
 
 		if (token.kind == token_kind::eof) {

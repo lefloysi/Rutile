@@ -1,13 +1,13 @@
 fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
-	const FunctionSignature& signature = entity->type()->signature();
+	FunctionSignature& signature = entity->type()->signature();
 
 	if (signature.parameters().size() || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
 		var message = DiagnosticMessage();
-		@message.text("executable entry '\0");
+		@message.text(rt::string_view("executable entry '", 18));
 		diagnostic_entity(@message, *entity);
-		@message.text("' requires no parameters and an integer or void result; declared signature is '\0");
+		@message.text(rt::string_view("' requires no parameters and an integer or void result; declared signature is '", 79));
 		diagnostic_type(@message, *entity->type());
-		@message.text("'\0");
+		@message.text(rt::string_view("'", 1));
 		return @this.error(entity->token(), message.view());
 	};
 
@@ -47,30 +47,30 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 	return true;
 };
 
-fn Backend::emit(var Backend& this, const SemanticUnit& unit, const rt::string_view& entry, output_kind output) -> bool {
+fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view& entry, output_kind output) -> bool {
 	if (output == output_kind::executable) {
 		var Entity* selected = unit.root_scope()->lookup(entry);
 
 		if (!selected || selected->kind() != entity_kind::function || !selected->body() || selected->body()->kind() == semantic_kind::noop) {
 			Token location;
 			var message = DiagnosticMessage();
-			@message.text("executable entry \0");
+			@message.text(rt::string_view("executable entry ", 17));
 			@message.quoted(entry);
-			@message.text(" requires a defined function; \0");
+			@message.text(rt::string_view(" requires a defined function; ", 30));
 			if (!selected) {
-				@message.text("the requested name is not declared\0");
+				@message.text(rt::string_view("the requested name is not declared", 34));
 			}
 			else {
 				@location = selected->token();
-				@message.text("selected declaration is \0");
+				@message.text(rt::string_view("selected declaration is ", 24));
 				diagnostic_entity_kind(@message, selected->kind());
-				@message.text(" '\0");
+				@message.text(rt::string_view(" '", 2));
 				diagnostic_entity(@message, *selected);
-				@message.text("'\0");
+				@message.text(rt::string_view("'", 1));
 				if (selected->kind() == entity_kind::function) {
-					@message.text(" of type '\0");
+					@message.text(rt::string_view(" of type '", 10));
 					diagnostic_type(@message, *selected->type());
-					@message.text("' without a definition\0");
+					@message.text(rt::string_view("' without a definition", 22));
 				};
 			};
 			return @this.error(location, message.view());
@@ -142,7 +142,7 @@ fn Backend::emit(var Backend& this, const SemanticUnit& unit, const rt::string_v
 
 	if (initialize) {
 		LLVMBuildRetVoid(this.builder());
-		@this.register_lifecycle(initialize, "llvm.global_ctors\0");
+		@this.register_lifecycle(initialize, rt::string_view("llvm.global_ctors", 17));
 	};
 
 	var LLVMOpaqueValue* finalize;
@@ -169,7 +169,7 @@ fn Backend::emit(var Backend& this, const SemanticUnit& unit, const rt::string_v
 
 	if (finalize) {
 		LLVMBuildRetVoid(this.builder());
-		@this.register_lifecycle(finalize, "llvm.global_dtors\0");
+		@this.register_lifecycle(finalize, rt::string_view("llvm.global_dtors", 17));
 	};
 
 	if (output == output_kind::executable) {
@@ -181,7 +181,7 @@ fn Backend::emit(var Backend& this, const SemanticUnit& unit, const rt::string_v
 	return @this.verify();
 };
 
-fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, const char* name) {
+fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, rt::string_view& name) {
 	var LLVMOpaqueType*[3] fields {};
 	@fields[0] = LLVMIntTypeInContext(this.context(), 32);
 	@fields[1] = LLVMPointerTypeInContext(this.context(), 0);
@@ -193,7 +193,8 @@ fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function,
 	@values[2] = LLVMConstNull((var LLVMOpaqueType*(fields[2])));
 	var LLVMOpaqueValue*[1] records {};
 	@records[0] = LLVMConstNamedStruct((var LLVMOpaqueType*(record)), &@values[0], 3);
-	var LLVMOpaqueValue* global = LLVMAddGlobal(this.module(), LLVMArrayType2((var LLVMOpaqueType*(record)), 1), name);
+	var native_name = rt::string(name);
+	var LLVMOpaqueValue* global = LLVMAddGlobal(this.module(), LLVMArrayType2((var LLVMOpaqueType*(record)), 1), native_name.c_str());
 	LLVMSetInitializer(global, LLVMConstArray2(record, &@records[0], 1));
 	LLVMSetLinkage(global, 7);
 };

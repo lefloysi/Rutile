@@ -60,13 +60,21 @@ def main(server):
 
 			# A symbol defined at its declaration must still give a useful target.
 			field = client.request('textDocument/definition', at(third, uses, 'value=42'))
-			matches(field, second, definitions, 'value;')
-			matches(follow(client, field[0]), second, definitions, 'value;')
-			matches(follow(client, field[0], endpoint='end'), second, definitions, 'value;')
+			matches(field, third, uses, 'object;')
+			matches(follow(client, field[0]), first, declarations, 'Item;')
+			matches(follow(client, field[0], endpoint='end'), first, declarations, 'Item;')
+			pointer_member = client.request('textDocument/definition', at(third, uses, 'value);'))
+			matches(pointer_member, third, uses, 'pointer=&')
+			matches(follow(client, pointer_member[0]), first, declarations, 'Item;')
+			selected = at(third, uses, 'value=42')
+			selected['position']['character'] += len('value')
+			matches(client.request('textDocument/definition', selected), third, uses, 'object;')
+			member_declaration = client.request('textDocument/declaration', at(third, uses, 'value=42'))
+			matches(member_declaration, second, definitions, 'value;')
 			alias = client.request('textDocument/definition', at(third, uses, 'Alias='))
 			matches(alias, third, uses, 'Alias=')
 			matches(follow(client, alias[0], endpoint='end'), third, uses, 'Alias=')
-			print('single-location fields and aliases retain their declaration: PASS', flush=True)
+			print('member access -> receiver declaration -> type; aliases retain their declaration: PASS', flush=True)
 
 			# Moving a declaration must preserve toggling in the new snapshot.
 			declarations = '\n' + declarations

@@ -17,6 +17,9 @@ $executable = Join-Path $output 'HighlightingTests.exe'
 & $compiler /nologo /langversion:latest /nullable:enable /target:exe "/out:$executable" "/reference:$client" "/reference:$json" `
     (Join-Path $PSScriptRoot '../RutileLexicalScanner.cs') `
     (Join-Path $PSScriptRoot '../RutileSemanticColors.cs') `
+    (Join-Path $PSScriptRoot '../RutileColorNames.cs') `
+    (Join-Path $PSScriptRoot '../RutileSemanticDecoder.cs') `
+    (Join-Path $PSScriptRoot '../RutileDocumentText.cs') `
     (Join-Path $PSScriptRoot 'HighlightingTests.cs')
 if ($LASTEXITCODE) {
     throw 'Highlighting test compilation failed.'

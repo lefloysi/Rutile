@@ -145,8 +145,8 @@ fn main()->i32 {
 	assert method_signature["signatures"][0]["parameters"] == [], method_signature
 
 
-	assert_definition(client, second, source, "get()+", first, extended, "get(const")
-	assert_definition(client, second, source, "value=40", first, extended, "value;\n\tfn get")
+	assert_definition(client, second, source, "get()+", second, source, "moved=echo")
+	assert_definition(client, second, source, "value=40", second, source, "box;")
 	assert_definition(client, second, source, "echo<Box", first, extended, "echo(T")
 	assert_definition(client, second, source, "Box<i32>>", first, extended, "Box {")
 	assert_definition(client, second, source, "IntBox box", second, source, "IntBox =")

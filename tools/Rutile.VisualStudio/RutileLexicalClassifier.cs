@@ -11,9 +11,17 @@ namespace Rutile.VisualStudio {
 	internal sealed class RutileLexicalClassifierProvider : IClassifierProvider {
 		[Import]
 		internal IClassificationTypeRegistryService Types = null!;
+		[Import]
+		internal ITextDocumentFactoryService Documents = null!;
 
 		public IClassifier GetClassifier(ITextBuffer buffer) {
-			return buffer.Properties.GetOrCreateSingletonProperty(() => new RutileLexicalClassifier(buffer, Types));
+			return buffer.Properties.GetOrCreateSingletonProperty(() => {
+				SemanticBufferColors? semantic = null;
+				if (Documents.TryGetTextDocument(buffer, out var document)) {
+					semantic = RutileSemanticStore.Instance.Register(buffer, document.FilePath);
+				}
+				return new RutileLexicalClassifier(buffer, Types, semantic);
+			});
 		}
 	}
 
@@ -30,16 +38,29 @@ namespace Rutile.VisualStudio {
 		}
 
 		private CachedSpans? cache;
+		private readonly SemanticBufferColors? semantic;
+		private readonly ITextBuffer buffer;
 
 		public event EventHandler<ClassificationChangedEventArgs>? ClassificationChanged;
 
-		internal RutileLexicalClassifier(ITextBuffer buffer, IClassificationTypeRegistryService types) {
+		internal RutileLexicalClassifier(ITextBuffer buffer, IClassificationTypeRegistryService types, SemanticBufferColors? semantic) {
 			this.types = types;
+			this.buffer = buffer;
+			this.semantic = semantic;
+			if (semantic != null) {
+				semantic.Changed += OnSemanticChanged;
+			}
 			buffer.Changed += OnChanged;
+		}
+
+		private void OnSemanticChanged(object sender, EventArgs args) {
+			var current = buffer.CurrentSnapshot;
+			ClassificationChanged?.Invoke(this, new ClassificationChangedEventArgs(new SnapshotSpan(current, 0, current.Length)));
 		}
 
 		private void OnChanged(object sender, TextContentChangedEventArgs args) {
 			Interlocked.Exchange(ref cache, null);
+			semantic?.Translate(args);
 			ClassificationChanged?.Invoke(this, new ClassificationChangedEventArgs(new SnapshotSpan(args.After, 0, args.After.Length)));
 		}
 
@@ -60,15 +81,25 @@ namespace Rutile.VisualStudio {
 					result.Add(new ClassificationSpan(span, type));
 				}
 			}
+			if (semantic != null) {
+				foreach (var item in semantic.Current(requested.Snapshot)) {
+					if (item.Span.IntersectsWith(requested) && !RutileLexicalScanner.MasksSemantic(current.Spans, item.Span.Start.Position, item.Span.Length)) {
+						var type = types.GetClassificationType(item.Classification);
+						if (type != null) {
+							result.Add(new ClassificationSpan(item.Span, type));
+						}
+					}
+				}
+			}
 			return result;
 		}
 
 		private IClassificationType? Classification(LexicalKind kind) {
 			switch (kind) {
 				case LexicalKind.Keyword:
-					return types.GetClassificationType("keyword");
+					return types.GetClassificationType(RutileClassification.Keyword);
 				case LexicalKind.ControlKeyword:
-					return types.GetClassificationType("cppControlKeyword") ?? types.GetClassificationType("keyword - control") ?? types.GetClassificationType("keyword");
+					return types.GetClassificationType(RutileClassification.Control);
 				case LexicalKind.Comment:
 					return types.GetClassificationType("comment");
 				case LexicalKind.String:

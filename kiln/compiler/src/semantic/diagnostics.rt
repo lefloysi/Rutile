@@ -1,86 +1,86 @@
 fn diagnostic_entity_kind(var DiagnosticMessage& message, entity_kind kind) {
 	switch (kind) {
 		case entity_kind::function: {
-			@message.text("function\0");
+			@message.text(rt::string_view("function", 8));
 			break;
 		};
 		case entity_kind::global: {
-			@message.text("global variable\0");
+			@message.text(rt::string_view("global variable", 15));
 			break;
 		};
 		case entity_kind::local: {
-			@message.text("local variable\0");
+			@message.text(rt::string_view("local variable", 14));
 			break;
 		};
 		case entity_kind::parameter: {
-			@message.text("parameter\0");
+			@message.text(rt::string_view("parameter", 9));
 			break;
 		};
 		case entity_kind::record: {
-			@message.text("record\0");
+			@message.text(rt::string_view("record", 6));
 			break;
 		};
 		case entity_kind::field: {
-			@message.text("field\0");
+			@message.text(rt::string_view("field", 5));
 			break;
 		};
 		case entity_kind::enumeration: {
-			@message.text("enumeration\0");
+			@message.text(rt::string_view("enumeration", 11));
 			break;
 		};
 		case entity_kind::enumerator: {
-			@message.text("enumerator\0");
+			@message.text(rt::string_view("enumerator", 10));
 			break;
 		};
 		case entity_kind::namespace_body: {
-			@message.text("namespace\0");
+			@message.text(rt::string_view("namespace", 9));
 			break;
 		};
 		case entity_kind::alias: {
-			@message.text("type alias\0");
+			@message.text(rt::string_view("type alias", 10));
 			break;
 		};
 		case entity_kind::type_parameter: {
-			@message.text("type parameter\0");
+			@message.text(rt::string_view("type parameter", 14));
 			break;
 		};
 		case entity_kind::template_pattern: {
-			@message.text("template\0");
+			@message.text(rt::string_view("template", 8));
 			break;
 		};
 		case entity_kind::primitive_type: {
-			@message.text("primitive type\0");
+			@message.text(rt::string_view("primitive type", 14));
 			break;
 		};
 		case entity_kind::constant: {
-			@message.text("constant\0");
+			@message.text(rt::string_view("constant", 8));
 			break;
 		};
 	};
 };
 
-fn diagnostic_entity(var DiagnosticMessage& message, const Entity& entity) {
+fn diagnostic_entity(var DiagnosticMessage& message, Entity& entity) {
 	var Scope* scope = entity.scope();
 	if (scope && scope->owner() && scope->owner() != &@entity) {
 		diagnostic_entity(@message, *scope->owner());
-		@message.text("::\0");
+		@message.text(rt::string_view("::", 2));
 	};
 	@message.text(entity.name());
-	const TemplateInstantiation* instance = entity.template_arguments();
+	TemplateInstantiation* instance = entity.template_arguments();
 	if (instance && instance->source_argument_count) {
-		@message.text("<\0");
+		@message.text(rt::string_view("<", 1));
 		usize index = 0;
 		while (index < instance->source_argument_count) {
 			if (index) {
-				@message.text(", \0");
+				@message.text(rt::string_view(", ", 2));
 			};
-			const TemplateArgument& argument = instance->arguments.data()[index];
+			TemplateArgument& argument = instance->arguments.data()[index];
 			if (argument.kind == template_argument_kind::type) {
 				diagnostic_type(@message, *argument.type);
 			}
 			else {
 				if (argument.type && argument.type->kind() == type_kind::signed_integer && argument.type->signed_value(argument.value) < 0) {
-					@message.text("-\0");
+					@message.text(rt::string_view("-", 1));
 					@message.number(u64(0) - u64(argument.type->signed_value(argument.value)));
 				}
 				else {
@@ -89,14 +89,14 @@ fn diagnostic_entity(var DiagnosticMessage& message, const Entity& entity) {
 			};
 			@index = index + 1;
 		};
-		@message.text(">\0");
+		@message.text(rt::string_view(">", 1));
 	};
 };
 
-fn diagnostic_name(var DiagnosticMessage& message, const Syntax& syntax) {
+fn diagnostic_name(var DiagnosticMessage& message, Syntax& syntax) {
 	if (syntax.kind() == syntax_kind::qualified_name) {
 		diagnostic_name(@message, *syntax.left());
-		@message.text("::\0");
+		@message.text(rt::string_view("::", 2));
 		diagnostic_name(@message, *syntax.right());
 		return;
 	};
@@ -106,56 +106,56 @@ fn diagnostic_name(var DiagnosticMessage& message, const Syntax& syntax) {
 	};
 	if (syntax.kind() == syntax_kind::template_apply) {
 		diagnostic_name(@message, *syntax.callable());
-		@message.text("<\0");
+		@message.text(rt::string_view("<", 1));
 		usize index = 0;
 		while (index < syntax.arguments()->size()) {
 			if (index) {
-				@message.text(", \0");
+				@message.text(rt::string_view(", ", 2));
 			};
 			diagnostic_name(@message, *syntax.arguments()->item(index));
 			@index = index + 1;
 		};
-		@message.text(">\0");
+		@message.text(rt::string_view(">", 1));
 		return;
 	};
 	@message.text(syntax.token().text());
 };
 
-fn diagnostic_indirection_target(var DiagnosticMessage& message, const Type& type) {
+fn diagnostic_indirection_target(var DiagnosticMessage& message, Type& type) {
 	bool grouped = type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array || type.kind() == type_kind::function;
 	if (type.qualifier() == type_qualifier::mutable) {
-		@message.text("var \0");
+		@message.text(rt::string_view("var ", 4));
 	};
 	if (grouped) {
-		@message.text("(\0");
+		@message.text(rt::string_view("(", 1));
 	};
 	Type view = type.qualified(type_qualifier::mutable);
 	diagnostic_type(@message, view);
 	if (grouped) {
-		@message.text(")\0");
+		@message.text(rt::string_view(")", 1));
 	};
 };
 
-fn diagnostic_type(var DiagnosticMessage& message, const Type& type) {
+fn diagnostic_type(var DiagnosticMessage& message, Type& type) {
 	if (type.qualifier() == type_qualifier::immutable && type.kind() != type_kind::pointer && type.kind() != type_kind::reference && type.kind() != type_kind::array && type.kind() != type_kind::function) {
-		@message.text("const \0");
+		@message.text(rt::string_view("const ", 6));
 	};
 
 	switch (type.kind()) {
-		case type_kind::void_type: @message.text("void\0"); break;
-		case type_kind::null_type: @message.text("null\0"); break;
-		case type_kind::boolean: @message.text("bool\0"); break;
-		case type_kind::character: @message.text("char\0"); break;
+		case type_kind::void_type: @message.text(rt::string_view("void", 4)); break;
+		case type_kind::null_type: @message.text(rt::string_view("null", 4)); break;
+		case type_kind::boolean: @message.text(rt::string_view("bool", 4)); break;
+		case type_kind::character: @message.text(rt::string_view("char", 4)); break;
 		case type_kind::signed_integer:
-			@message.text("i\0");
+			@message.text(rt::string_view("i", 1));
 			@message.number(u64(type.bits()));
 			break;
 		case type_kind::unsigned_integer:
-			@message.text("u\0");
+			@message.text(rt::string_view("u", 1));
 			@message.number(u64(type.bits()));
 			break;
 		case type_kind::floating_point:
-			@message.text("f\0");
+			@message.text(rt::string_view("f", 1));
 			@message.number(u64(type.bits()));
 			break;
 		case type_kind::named:
@@ -165,128 +165,128 @@ fn diagnostic_type(var DiagnosticMessage& message, const Type& type) {
 		case type_kind::pointer:
 		case type_kind::reference:
 			if (type.kind() == type_kind::pointer && type.qualifier() == type_qualifier::immutable) {
-				@message.text("const (\0");
+				@message.text(rt::string_view("const (", 7));
 			};
 			diagnostic_indirection_target(@message, *type.element());
 			if (type.kind() == type_kind::pointer) {
-				@message.text("*\0");
+				@message.text(rt::string_view("*", 1));
 				if (type.qualifier() == type_qualifier::immutable) {
-					@message.text(")\0");
+					@message.text(rt::string_view(")", 1));
 				};
 			}
 			else {
-				@message.text("&\0");
+				@message.text(rt::string_view("&", 1));
 			};
 			break;
 		case type_kind::array:
 			if (type.qualifier() == type_qualifier::immutable) {
-				@message.text("const (\0");
+				@message.text(rt::string_view("const (", 7));
 			};
 			diagnostic_type(@message, *type.element());
-			@message.text("[\0");
+			@message.text(rt::string_view("[", 1));
 			@message.number(type.count());
-			@message.text("]\0");
+			@message.text(rt::string_view("]", 1));
 			if (type.qualifier() == type_qualifier::immutable) {
-				@message.text(")\0");
+				@message.text(rt::string_view(")", 1));
 			};
 			break;
 		case type_kind::function: {
-			@message.text("(\0");
-			const FunctionSignature& signature = type.signature();
+			@message.text(rt::string_view("(", 1));
+			FunctionSignature& signature = type.signature();
 			usize index = 0;
 			while (index < signature.parameters().size()) {
 				if (index) {
-					@message.text(", \0");
+					@message.text(rt::string_view(", ", 2));
 				};
 				diagnostic_type(@message, *signature.parameters().data()[index]);
 				@index = index + 1;
 			};
 			if (signature.arity() == parameter_arity::variadic) {
 				if (index) {
-					@message.text(", \0");
+					@message.text(rt::string_view(", ", 2));
 				};
-				@message.text("...\0");
+				@message.text(rt::string_view("...", 3));
 			};
-			@message.text(") -> \0");
+			@message.text(rt::string_view(") -> ", 5));
 			diagnostic_type(@message, *signature.result());
 			break;
 		};
 	};
 };
 
-fn Analyzer::cancelled(const Analyzer& this) -> bool {
+fn Analyzer::cancelled(Analyzer& this) -> bool {
 	return this.diagnostics->cancelled();
 };
 
-fn Analyzer::failed(const Analyzer& this) -> bool {
+fn Analyzer::failed(Analyzer& this) -> bool {
 	return this.diagnostics->failed();
 };
 
-fn Analyzer::report(var Analyzer& this, const Token& token, const rt::string_view& message) {
+fn Analyzer::report(var Analyzer& this, Token& token, rt::string_view& message) {
 	@this.diagnostics->error(token, message);
 };
 
-fn Analyzer::note(var Analyzer& this, const Token& token, const rt::string_view& message) {
+fn Analyzer::note(var Analyzer& this, Token& token, rt::string_view& message) {
 	@this.diagnostics->note(token, message);
 };
 
-fn Analyzer::deleted_function(var Analyzer& this, const Token& token, const Entity& function) {
+fn Analyzer::deleted_function(var Analyzer& this, Token& token, Entity& function) {
 	var message = DiagnosticMessage();
-	@message.text("selected function '\0");
+	@message.text(rt::string_view("selected function '", 19));
 	diagnostic_entity(@message, function);
-	@message.text("' of type '\0");
+	@message.text(rt::string_view("' of type '", 11));
 	diagnostic_type(@message, *function.type());
-	@message.text("' is deleted\0");
+	@message.text(rt::string_view("' is deleted", 12));
 	@this.report(token, message.view());
-	@this.note(function.token(), "function is declared deleted here\0");
+	@this.note(function.token(), rt::string_view("function is declared deleted here", 33));
 };
 
-fn diagnostic_arguments(var DiagnosticMessage& message, const rt::buffer<rt::unique<SemanticExpression>>& arguments) {
-	@message.text("(\0");
+fn diagnostic_arguments(var DiagnosticMessage& message, rt::buffer<rt::unique<SemanticExpression>>& arguments) {
+	@message.text(rt::string_view("(", 1));
 	usize index = 0;
 	while (index < arguments.size()) {
 		if (index) {
-			@message.text(", \0");
+			@message.text(rt::string_view(", ", 2));
 		};
-		const SemanticExpression& argument = *arguments.data()[index].get();
+		SemanticExpression& argument = *arguments.data()[index].get();
 		if (argument.kind() == semantic_kind::deferred_argument) {
-			@message.text("brace expression\0");
+			@message.text(rt::string_view("brace expression", 16));
 		}
 		else {
 			diagnostic_type(@message, *argument.type());
 		};
 		@index = index + 1;
 	};
-	@message.text(")\0");
+	@message.text(rt::string_view(")", 1));
 };
 
-fn diagnostic_candidate(var Diagnostics& diagnostics, const Entity& candidate) {
+fn diagnostic_candidate(var Diagnostics& diagnostics, Entity& candidate) {
 	var detail = DiagnosticMessage();
-	@detail.text("candidate '\0");
+	@detail.text(rt::string_view("candidate '", 11));
 	diagnostic_entity(@detail, candidate);
-	@detail.text("' has type '\0");
+	@detail.text(rt::string_view("' has type '", 12));
 	diagnostic_type(@detail, *candidate.type());
-	@detail.text("'\0");
+	@detail.text(rt::string_view("'", 1));
 	@diagnostics.note(candidate.token(), detail.view());
 };
 
-fn diagnostic_conversion_ambiguity(var Diagnostics& diagnostics, const Token& token, const Type& source, const Type& target, const ConversionSelection& selection) {
+fn diagnostic_conversion_ambiguity(var Diagnostics& diagnostics, Token& token, Type& source, Type& target, ConversionSelection& selection) {
 	var message = DiagnosticMessage();
-	@message.text("ambiguous implicit conversion from '\0");
+	@message.text(rt::string_view("ambiguous implicit conversion from '", 36));
 	diagnostic_type(@message, source);
-	@message.text("' to '\0");
+	@message.text(rt::string_view("' to '", 6));
 	diagnostic_type(@message, target);
-	@message.text("'; multiple conversion functions are applicable\0");
+	@message.text(rt::string_view("'; multiple conversion functions are applicable", 47));
 	@diagnostics.error(token, message.view());
 	diagnostic_candidate(@diagnostics, *selection.selected);
 	diagnostic_candidate(@diagnostics, *selection.conflict);
 };
 
-fn diagnostic_candidates(var Diagnostics& diagnostics, const Entity& group) {
-	const rt::buffer<var Entity*>& candidates = group.scope()->bindings();
+fn diagnostic_candidates(var Diagnostics& diagnostics, Entity& group) {
+	rt::buffer<var Entity*>& candidates = group.scope()->bindings();
 	usize index = 0;
 	while (index < candidates.size()) {
-		const Entity& candidate = *candidates.data()[index];
+		Entity& candidate = *candidates.data()[index];
 		@index = index + 1;
 		if (candidate.kind() != entity_kind::function || candidate.name() != group.name() || !candidate.type()) {
 			continue;
@@ -296,8 +296,8 @@ fn diagnostic_candidates(var Diagnostics& diagnostics, const Entity& group) {
 	};
 };
 
-fn Analyzer::infer_variable(var Analyzer& this, var Syntax& declaration, const SemanticExpression& initializer) -> const Type* {
-	const Type* type = initializer.type();
+fn Analyzer::infer_variable(var Analyzer& this, var Syntax& declaration, SemanticExpression& initializer) -> Type* {
+	Type* type = initializer.type();
 	if (
 		type
 		&& type->kind().is_numeric()
@@ -306,9 +306,9 @@ fn Analyzer::infer_variable(var Analyzer& this, var Syntax& declaration, const S
 		&& numeric_literal_expression(initializer)
 	) {
 		var message = DiagnosticMessage();
-		@message.text("cannot infer the type of variable \0");
+		@message.text(rt::string_view("cannot infer the type of variable ", 34));
 		@message.quoted(declaration.variable_name()->token().text());
-		@message.text(" from an untyped numeric literal; specify a variable type or construct a typed value\0");
+		@message.text(rt::string_view(" from an untyped numeric literal; specify a variable type or construct a typed value", 84));
 		@this.diagnostics->error(declaration.variable_name()->token(), message.view());
 		return nullptr;
 	};

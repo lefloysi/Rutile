@@ -4,7 +4,7 @@ enum component_transfer : [u08] {
 	copy_assign;
 };
 
-fn FunctionEmitter::initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
@@ -27,15 +27,15 @@ fn FunctionEmitter::initialize(var FunctionEmitter& this, const Type* type, var 
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
-			@message.text("default construction of '\0");
+			@message.text(rt::string_view("default construction of '", 25));
 			diagnostic_type(@message, *type);
-			@message.text("' selects deleted function '\0");
+			@message.text(rt::string_view("' selects deleted function '", 28));
 			diagnostic_entity(@message, *constructor);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *constructor->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.backend->error(constructor->token(), message.view());
-			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			@this.backend->note(constructor->token(), rt::string_view("function is declared deleted here", 33));
 			return false;
 		};
 
@@ -49,7 +49,7 @@ fn FunctionEmitter::initialize(var FunctionEmitter& this, const Type* type, var 
 	return @this.initialize_members(type, address);
 };
 
-fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
@@ -72,15 +72,15 @@ fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, const Type* type,
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
-			@message.text("member copy of '\0");
+			@message.text(rt::string_view("member copy of '", 16));
 			diagnostic_type(@message, *type);
-			@message.text("' selects deleted function '\0");
+			@message.text(rt::string_view("' selects deleted function '", 28));
 			diagnostic_entity(@message, *constructor);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *constructor->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.backend->error(constructor->token(), message.view());
-			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			@this.backend->note(constructor->token(), rt::string_view("function is declared deleted here", 33));
 			return false;
 		};
 
@@ -95,7 +95,7 @@ fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, const Type* type,
 	return @this.copy_members(type, destination, source);
 };
 
-fn FunctionEmitter::move_initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::move_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
@@ -109,15 +109,15 @@ fn FunctionEmitter::move_initialize(var FunctionEmitter& this, const Type* type,
 
 		if (constructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
-			@message.text("move construction of '\0");
+			@message.text(rt::string_view("move construction of '", 22));
 			diagnostic_type(@message, *type);
-			@message.text("' selects deleted function '\0");
+			@message.text(rt::string_view("' selects deleted function '", 28));
 			diagnostic_entity(@message, *constructor);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *constructor->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.backend->error(constructor->token(), message.view());
-			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			@this.backend->note(constructor->token(), rt::string_view("function is declared deleted here", 33));
 			return false;
 		};
 
@@ -134,10 +134,10 @@ fn FunctionEmitter::move_initialize(var FunctionEmitter& this, const Type* type,
 
 fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -> bool {
 	if (!function->parameters().size() || function->parameters().data()[0]->type()->kind() != type_kind::reference) {
-		return @this.backend->error(function->token(), rt::string_view("defaulted function requires an object receiver\0"));
+		return @this.backend->error(function->token(), rt::string_view("defaulted function requires an object receiver", 46));
 	};
 
-	const Type* type = function->parameters().data()[0]->type()->element();
+	Type* type = function->parameters().data()[0]->type()->element();
 	var LLVMOpaqueValue* destination = LLVMGetParam(this.function, 0);
 
 	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
@@ -186,7 +186,7 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 		};
 	}
 	else if (function->role() != function_role::destructor) {
-		return @this.backend->error(function->token(), rt::string_view("defaulted function role has no native implementation\0"));
+		return @this.backend->error(function->token(), rt::string_view("defaulted function role has no native implementation", 52));
 	};
 
 	if (!@this.cleanup_bindings(0)) {
@@ -206,12 +206,12 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 	return true;
 };
 
-fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> bool {
+fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> bool {
 	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
 	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	var LLVMOpaqueBasicBlock* test = @this.block("array.initialize.test\0");
-	var LLVMOpaqueBasicBlock* body = @this.block("array.initialize.element\0");
-	var LLVMOpaqueBasicBlock* after = @this.block("array.initialize.after\0");
+	var LLVMOpaqueBasicBlock* test = @this.block(rt::string_view("array.initialize.test", 21));
+	var LLVMOpaqueBasicBlock* body = @this.block(rt::string_view("array.initialize.element", 24));
+	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("array.initialize.after", 22));
 	LLVMBuildBr(this.backend->builder(), test);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), test);
 	var LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "index\0");
@@ -257,7 +257,7 @@ fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, const Type* typ
 	return true;
 };
 
-fn FunctionEmitter::initialize_value(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::initialize_value(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* expression) -> bool {
 	if (!expression || expression->kind() == semantic_kind::noop) {
 		return @this.initialize(type, address);
 	};
@@ -311,7 +311,7 @@ fn FunctionEmitter::finish_expression(var FunctionEmitter& this) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::copy_representation(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_representation(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
@@ -332,7 +332,7 @@ fn FunctionEmitter::copy_representation(var FunctionEmitter& this, const Type* t
 	return true;
 };
 
-fn FunctionEmitter::initialize_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::initialize_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
 	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
@@ -368,11 +368,11 @@ fn FunctionEmitter::initialize_members(var FunctionEmitter& this, const Type* ty
 
 		if (field->type()->kind() == type_kind::reference && !field->body()) {
 			var message = DiagnosticMessage();
-			@message.text("reference member '\0");
+			@message.text(rt::string_view("reference member '", 18));
 			diagnostic_entity(@message, *field);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *field->type());
-			@message.text("' requires an explicit initializer\0");
+			@message.text(rt::string_view("' requires an explicit initializer", 34));
 			return @this.backend->error(field->token(), message.view());
 		};
 
@@ -390,7 +390,7 @@ fn FunctionEmitter::initialize_members(var FunctionEmitter& this, const Type* ty
 	return true;
 };
 
-fn FunctionEmitter::copy_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
@@ -433,11 +433,11 @@ fn FunctionEmitter::copy_members(var FunctionEmitter& this, const Type* type, va
 	return true;
 };
 
-fn FunctionEmitter::copy_assign(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_assign(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	if (type->qualifier() == type_qualifier::immutable || type->kind() == type_kind::reference) {
 		Token token;
 
-		return @this.backend->error(token, rt::string_view("generated assignment cannot replace a const or reference component\0"));
+		return @this.backend->error(token, rt::string_view("generated assignment cannot replace a const or reference component", 66));
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -451,7 +451,7 @@ fn FunctionEmitter::copy_assign(var FunctionEmitter& this, const Type* type, var
 	var CopyAssignmentPlan* assignment = type->entity()->copy_assignment();
 
 	if (!assignment) {
-		return @this.backend->error(type->entity()->token(), rt::string_view("member copy assignment has no prepared function\0"));
+		return @this.backend->error(type->entity()->token(), rt::string_view("member copy assignment has no prepared function", 47));
 	};
 
 	usize binding_boundary = this.bindings.size();
@@ -479,7 +479,7 @@ fn FunctionEmitter::copy_assign(var FunctionEmitter& this, const Type* type, var
 	return @this.leave_scope(binding_boundary);
 };
 
-fn FunctionEmitter::copy_assign_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_assign_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {

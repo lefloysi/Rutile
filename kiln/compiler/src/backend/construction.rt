@@ -19,7 +19,7 @@ fn FunctionEmitter::construct(var FunctionEmitter& this, var SemanticExpression*
 };
 
 fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
-	const Type* type = expression->type();
+	Type* type = expression->type();
 	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 
 	if (!native) {
@@ -35,7 +35,7 @@ fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpres
 		rt::buffer<var LLVMOpaqueValue*> inputs;
 
 		if (!@inputs.push_back(storage)) {
-			return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments\0"));
+			return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments", 37));
 		};
 
 		usize index = 0;
@@ -55,7 +55,7 @@ fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpres
 			};
 
 			if (!@inputs.push_back(argument)) {
-				return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments\0"));
+				return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments", 37));
 			};
 
 			@index = index + 1;
@@ -97,35 +97,35 @@ fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpres
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		if (type->entity()->bases().size()) {
 			var message = DiagnosticMessage();
-			@message.text("base aggregate argument initialization is not implemented for type '\0");
+			@message.text(rt::string_view("base aggregate argument initialization is not implemented for type '", 68));
 			diagnostic_type(@message, *type);
-			@message.text("' with argument types (\0");
+			@message.text(rt::string_view("' with argument types (", 23));
 			usize argument = 0;
 			while (argument < arguments->size()) {
 				if (argument) {
-					@message.text(", \0");
+					@message.text(rt::string_view(", ", 2));
 				};
 				diagnostic_type(@message, *arguments->item(argument)->type());
 				@argument = argument + 1;
 			};
-			@message.text(")\0");
+			@message.text(rt::string_view(")", 1));
 			return @this.backend->error(expression->token(), message.view());
 		};
 
 		if (type->entity()->layout() == record_layout::overlapping) {
 			var message = DiagnosticMessage();
-			@message.text("union aggregate argument selection is not implemented for type '\0");
+			@message.text(rt::string_view("union aggregate argument selection is not implemented for type '", 64));
 			diagnostic_type(@message, *type);
-			@message.text("' with argument types (\0");
+			@message.text(rt::string_view("' with argument types (", 23));
 			usize argument = 0;
 			while (argument < arguments->size()) {
 				if (argument) {
-					@message.text(", \0");
+					@message.text(rt::string_view(", ", 2));
 				};
 				diagnostic_type(@message, *arguments->item(argument)->type());
 				@argument = argument + 1;
 			};
-			@message.text(")\0");
+			@message.text(rt::string_view(")", 1));
 			return @this.backend->error(expression->token(), message.view());
 		};
 
@@ -168,7 +168,7 @@ fn FunctionEmitter::allocate(var FunctionEmitter& this, var SemanticExpression* 
 		return @this.allocate_array(expression);
 	};
 
-	const Type* element = expression->type()->element();
+	Type* element = expression->type()->element();
 	var LLVMOpaqueType* type = @this.backend->type(element, expression->token());
 
 	if (!type) {
@@ -177,8 +177,8 @@ fn FunctionEmitter::allocate(var FunctionEmitter& this, var SemanticExpression* 
 
 	var LLVMOpaqueValue* pointer = LLVMBuildMalloc(this.backend->builder(), type, "allocation\0");
 	var LLVMOpaqueValue* exists = @this.truth((var LLVMOpaqueValue*(pointer)), expression->type());
-	var LLVMOpaqueBasicBlock* initialize = @this.block("new.initialize\0");
-	var LLVMOpaqueBasicBlock* after = @this.block("new.after\0");
+	var LLVMOpaqueBasicBlock* initialize = @this.block(rt::string_view("new.initialize", 14));
+	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("new.after", 9));
 	LLVMBuildCondBr(this.backend->builder(), exists, (var LLVMOpaqueBasicBlock*(initialize)), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
 

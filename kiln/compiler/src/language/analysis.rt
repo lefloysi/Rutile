@@ -32,7 +32,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	};
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
-		@this.messages.error(location, "language analysis requires a 32-bit or 64-bit target\0");
+		@this.messages.error(location, rt::string_view("language analysis requires a 32-bit or 64-bit target", 52));
 		return true;
 	};
 	Diagnostics parse_errors;
@@ -77,21 +77,21 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	@analyzer.set_editor($editor);
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
-		@this.messages.error(location, "internal compiler error: semantic analysis failed without a diagnostic\0");
+		@this.messages.error(location, rt::string_view("internal compiler error: semantic analysis failed without a diagnostic", 70));
 	};
 	if (analyzed) {
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
-			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic\0");
+			@this.messages.error(location, rt::string_view("internal compiler error: lifetime analysis failed without a diagnostic", 70));
 		};
 	};
 	if (this.messages.cancelled()) {
 		return false;
 	};
-	const rt::buffer<DiagnosticRecord>& records = parse_errors.records();
+	rt::buffer<DiagnosticRecord>& records = parse_errors.records();
 	@index = 0;
 	while (index < records.size()) {
-		const DiagnosticRecord& record = records.data()[index];
+		DiagnosticRecord& record = records.data()[index];
 		@this.messages.error(record.location, record.message.view());
 		usize note = 0;
 		while (note < record.notes.size()) {

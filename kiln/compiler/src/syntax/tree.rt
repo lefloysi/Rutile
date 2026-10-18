@@ -73,21 +73,21 @@ enum syntax_kind : [i32] {
 // Ambiguity owns complete source interpretations, never borrowed alternatives.
 
 struct Syntax {
-	fn Syntax(var Syntax& this, syntax_kind kind, const Token& token);
-	fn Syntax(var Syntax& this, const Syntax& other) : [delete];
+	fn Syntax(var Syntax& this, syntax_kind kind, Token& token);
+	fn Syntax(var Syntax& this, Syntax& other) : [delete];
 	fn Syntax(var Syntax& this, Syntax other) : [default];
 
-	fn operator=(var Syntax& this, const Syntax& other) -> var Syntax& : [delete];
+	fn operator=(var Syntax& this, Syntax& other) -> var Syntax& : [delete];
 	fn operator=(var Syntax& this, Syntax other) -> var Syntax& : [default];
 	fn append(var Syntax& this, rt::unique<Syntax> child) -> bool;
 
-	fn kind(const Syntax& this) -> syntax_kind;
-	fn explicitly_qualified(const Syntax& this) -> bool;
-	fn token(const Syntax& this) -> Token;
-	fn size(const Syntax& this) -> usize;
-	fn item(const Syntax& this, usize index) -> var Syntax*;
-	fn complete(const Syntax& this) -> bool;
-	fn fixed_arity(const Syntax& this) -> usize;
+	fn kind(Syntax& this) -> syntax_kind;
+	fn explicitly_qualified(Syntax& this) -> bool;
+	fn token(Syntax& this) -> Token;
+	fn size(Syntax& this) -> usize;
+	fn item(Syntax& this, usize index) -> var Syntax*;
+	fn complete(Syntax& this) -> bool;
+	fn fixed_arity(Syntax& this) -> usize;
 
 private:
 	syntax_kind category;
@@ -95,28 +95,28 @@ private:
 	rt::buffer<rt::unique<Syntax>> children;
 };
 
-fn Syntax::Syntax(var Syntax& this, syntax_kind kind, const Token& token) {
+fn Syntax::Syntax(var Syntax& this, syntax_kind kind, Token& token) {
 	@this.category = $kind;
 	@this.location := token;
 };
 
-fn Syntax::kind(const Syntax& this) -> syntax_kind {
+fn Syntax::kind(Syntax& this) -> syntax_kind {
 	return syntax_kind(this.category);
 };
 
-fn Syntax::explicitly_qualified(const Syntax& this) -> bool {
+fn Syntax::explicitly_qualified(Syntax& this) -> bool {
 	return this.category == syntax_kind::type_const || this.category == syntax_kind::type_mutable || this.category == syntax_kind::type_auto;
 };
 
-fn Syntax::token(const Syntax& this) -> Token {
+fn Syntax::token(Syntax& this) -> Token {
 	return Token(this.location);
 };
 
-fn Syntax::size(const Syntax& this) -> usize {
+fn Syntax::size(Syntax& this) -> usize {
 	return this.children.size();
 };
 
-fn Syntax::item(const Syntax& this, usize index) -> var Syntax* {
+fn Syntax::item(Syntax& this, usize index) -> var Syntax* {
 	if (index >= this.children.size()) {
 		return nullptr;
 	};
@@ -132,191 +132,191 @@ fn Syntax::append(var Syntax& this, rt::unique<Syntax> child) -> bool {
 	return @this.children.push_back($child);
 };
 
-fn Syntax::operand(const Syntax& this) -> var Syntax* {
+fn Syntax::operand(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::left(const Syntax& this) -> var Syntax* {
+fn Syntax::left(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::right(const Syntax& this) -> var Syntax* {
+fn Syntax::right(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::callable(const Syntax& this) -> var Syntax* {
+fn Syntax::callable(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::arguments(const Syntax& this) -> var Syntax* {
+fn Syntax::arguments(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::member_object(const Syntax& this) -> var Syntax* {
+fn Syntax::member_object(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::member_name(const Syntax& this) -> var Syntax* {
+fn Syntax::member_name(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::index_object(const Syntax& this) -> var Syntax* {
+fn Syntax::index_object(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::index_value(const Syntax& this) -> var Syntax* {
+fn Syntax::index_value(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::condition(const Syntax& this) -> var Syntax* {
+fn Syntax::condition(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::body(const Syntax& this) -> var Syntax* {
+fn Syntax::body(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::alternative(const Syntax& this) -> var Syntax* {
+fn Syntax::alternative(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::for_initializer(const Syntax& this) -> var Syntax* {
+fn Syntax::for_initializer(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::for_condition(const Syntax& this) -> var Syntax* {
+fn Syntax::for_condition(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::for_step(const Syntax& this) -> var Syntax* {
+fn Syntax::for_step(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::for_body(const Syntax& this) -> var Syntax* {
+fn Syntax::for_body(Syntax& this) -> var Syntax* {
 	return this.item(3);
 };
 
-fn Syntax::variable_name(const Syntax& this) -> var Syntax* {
+fn Syntax::variable_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::variable_type(const Syntax& this) -> var Syntax* {
+fn Syntax::variable_type(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::variable_initializer(const Syntax& this) -> var Syntax* {
+fn Syntax::variable_initializer(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::parameter_name(const Syntax& this) -> var Syntax* {
+fn Syntax::parameter_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::parameter_type(const Syntax& this) -> var Syntax* {
+fn Syntax::parameter_type(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::parameter_default(const Syntax& this) -> var Syntax* {
+fn Syntax::parameter_default(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::function_name(const Syntax& this) -> var Syntax* {
+fn Syntax::function_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::function_parameters(const Syntax& this) -> var Syntax* {
+fn Syntax::function_parameters(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::function_result(const Syntax& this) -> var Syntax* {
+fn Syntax::function_result(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::function_attributes(const Syntax& this) -> var Syntax* {
+fn Syntax::function_attributes(Syntax& this) -> var Syntax* {
 	return this.item(3);
 };
 
-fn Syntax::function_body(const Syntax& this) -> var Syntax* {
+fn Syntax::function_body(Syntax& this) -> var Syntax* {
 	return this.item(4);
 };
 
-fn Syntax::record_name(const Syntax& this) -> var Syntax* {
+fn Syntax::record_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::record_bases(const Syntax& this) -> var Syntax* {
+fn Syntax::record_bases(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::record_members(const Syntax& this) -> var Syntax* {
+fn Syntax::record_members(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::enum_name(const Syntax& this) -> var Syntax* {
+fn Syntax::enum_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::enum_underlying(const Syntax& this) -> var Syntax* {
+fn Syntax::enum_underlying(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::enum_members(const Syntax& this) -> var Syntax* {
+fn Syntax::enum_members(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::namespace_name(const Syntax& this) -> var Syntax* {
+fn Syntax::namespace_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::namespace_members(const Syntax& this) -> var Syntax* {
+fn Syntax::namespace_members(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::template_parameters(const Syntax& this) -> var Syntax* {
+fn Syntax::template_parameters(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::template_declaration(const Syntax& this) -> var Syntax* {
+fn Syntax::template_declaration(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::alias_name(const Syntax& this) -> var Syntax* {
+fn Syntax::alias_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::alias_type(const Syntax& this) -> var Syntax* {
+fn Syntax::alias_type(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::cast_type(const Syntax& this) -> var Syntax* {
+fn Syntax::cast_type(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::cast_operand(const Syntax& this) -> var Syntax* {
+fn Syntax::cast_operand(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::allocation_type(const Syntax& this) -> var Syntax* {
+fn Syntax::allocation_type(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::allocation_arguments(const Syntax& this) -> var Syntax* {
+fn Syntax::allocation_arguments(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::designated_type(const Syntax& this) -> var Syntax* {
+fn Syntax::designated_type(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::array_extent(const Syntax& this) -> var Syntax* {
+fn Syntax::array_extent(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::function_type_parameters(const Syntax& this) -> var Syntax* {
+fn Syntax::function_type_parameters(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::function_type_result(const Syntax& this) -> var Syntax* {
+fn Syntax::function_type_result(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
@@ -325,11 +325,11 @@ fn Syntax::function_type_result(const Syntax& this) -> var Syntax* {
 struct TypeSyntax {
 	fn TypeSyntax(var TypeSyntax& this, var Syntax* syntax);
 
-	fn kind(const TypeSyntax& this) -> syntax_kind;
-	fn element(const TypeSyntax& this) -> var Syntax*;
-	fn extent(const TypeSyntax& this) -> var Syntax*;
-	fn parameters(const TypeSyntax& this) -> var Syntax*;
-	fn result(const TypeSyntax& this) -> var Syntax*;
+	fn kind(TypeSyntax& this) -> syntax_kind;
+	fn element(TypeSyntax& this) -> var Syntax*;
+	fn extent(TypeSyntax& this) -> var Syntax*;
+	fn parameters(TypeSyntax& this) -> var Syntax*;
+	fn result(TypeSyntax& this) -> var Syntax*;
 
 private:
 	var Syntax* syntax;
@@ -339,31 +339,31 @@ fn TypeSyntax::TypeSyntax(var TypeSyntax& this, var Syntax* syntax) {
 	@this.syntax = $syntax;
 };
 
-fn TypeSyntax::kind(const TypeSyntax& this) -> syntax_kind {
+fn TypeSyntax::kind(TypeSyntax& this) -> syntax_kind {
 	return this.syntax->kind();
 };
 
-fn TypeSyntax::element(const TypeSyntax& this) -> var Syntax* {
+fn TypeSyntax::element(TypeSyntax& this) -> var Syntax* {
 	return this.syntax->designated_type();
 };
 
-fn TypeSyntax::extent(const TypeSyntax& this) -> var Syntax* {
+fn TypeSyntax::extent(TypeSyntax& this) -> var Syntax* {
 	return this.syntax->array_extent();
 };
 
-fn TypeSyntax::parameters(const TypeSyntax& this) -> var Syntax* {
+fn TypeSyntax::parameters(TypeSyntax& this) -> var Syntax* {
 	return this.syntax->function_type_parameters();
 };
 
-fn TypeSyntax::result(const TypeSyntax& this) -> var Syntax* {
+fn TypeSyntax::result(TypeSyntax& this) -> var Syntax* {
 	return this.syntax->function_type_result();
 };
 
-fn Syntax::qualifier_condition(const Syntax& this) -> var Syntax* {
+fn Syntax::qualifier_condition(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::same_tree(const Syntax& this, const Syntax& other) -> bool {
+fn Syntax::same_tree(Syntax& this, Syntax& other) -> bool {
 	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size()) {
 		return false;
 	};
@@ -389,7 +389,7 @@ fn Syntax::take_item(var Syntax& this, usize index) -> rt::unique<Syntax> {
 	return rt::unique<Syntax>(@((@this.children).data()[index]).release());
 };
 
-fn Syntax::fixed_arity(const Syntax& this) -> usize {
+fn Syntax::fixed_arity(Syntax& this) -> usize {
 	switch (this.category) {
 		case syntax_kind::error_expression:
 		case syntax_kind::absent:
@@ -455,7 +455,7 @@ fn Syntax::fixed_arity(const Syntax& this) -> usize {
 	};
 };
 
-fn Syntax::complete(const Syntax& this) -> bool {
+fn Syntax::complete(Syntax& this) -> bool {
 	usize arity = this.fixed_arity();
 
 	if (arity != usize::max && this.children.size() != arity) {
@@ -479,38 +479,38 @@ fn Syntax::complete(const Syntax& this) -> bool {
 	return true;
 };
 
-fn Syntax::case_value(const Syntax& this) -> var Syntax* {
+fn Syntax::case_value(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::enumerator_name(const Syntax& this) -> var Syntax* {
+fn Syntax::enumerator_name(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::enumerator_value(const Syntax& this) -> var Syntax* {
+fn Syntax::enumerator_value(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::template_parameter_name(const Syntax& this) -> var Syntax* {
+fn Syntax::template_parameter_name(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };
 
-fn Syntax::template_parameter_type(const Syntax& this) -> var Syntax* {
+fn Syntax::template_parameter_type(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::template_parameter_default(const Syntax& this) -> var Syntax* {
+fn Syntax::template_parameter_default(Syntax& this) -> var Syntax* {
 	return this.item(2);
 };
 
-fn Syntax::operator_target(const Syntax& this) -> var Syntax* {
+fn Syntax::operator_target(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
 
-fn Syntax::operator_token(const Syntax& this) -> Token {
+fn Syntax::operator_token(Syntax& this) -> Token {
 	return this.item(0)->token();
 };
 
-fn Syntax::operator_suffix(const Syntax& this) -> var Syntax* {
+fn Syntax::operator_suffix(Syntax& this) -> var Syntax* {
 	return this.item(1);
 };

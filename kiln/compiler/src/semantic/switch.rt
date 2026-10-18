@@ -4,18 +4,18 @@ struct SwitchCase {
 };
 
 struct SwitchAnalysis {
-	const Type* condition_type;
-	const Type* source_type;
+	Type* condition_type;
+	Type* source_type;
 	rt::buffer<SwitchCase> cases;
 	var Syntax* default_label;
 };
 
 struct SwitchAnalysisScope {
-	fn SwitchAnalysisScope(var SwitchAnalysisScope& this, var (var SwitchAnalysis*)& slot, var SwitchAnalysis& current);
+	fn SwitchAnalysisScope(var SwitchAnalysisScope& this, var SwitchAnalysis var*& slot, var SwitchAnalysis& current);
 	fn ~SwitchAnalysisScope(var SwitchAnalysisScope& this);
 
 private:
-	var (var SwitchAnalysis*)* slot;
+	var SwitchAnalysis var** slot;
 	var SwitchAnalysis* previous;
 };
 
@@ -26,13 +26,13 @@ fn Analyzer::selection(var Analyzer& this, var Scope& scope, var Syntax& syntax)
 		return rt::unique<SemanticExpression>();
 	};
 
-	const Type* representation = condition.get()->type()->representation();
+	Type* representation = condition.get()->type()->representation();
 
 	if (!representation->kind().is_integer()) {
 		var message = DiagnosticMessage();
-		@message.text("switch condition requires an integer or enumeration value; received '\0");
+		@message.text(rt::string_view("switch condition requires an integer or enumeration value; received '", 69));
 		diagnostic_type(@message, *condition.get()->type());
-		@message.text("'\0");
+		@message.text(rt::string_view("'", 1));
 		@this.report(syntax.item(0)->token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -48,7 +48,7 @@ fn Analyzer::selection(var Analyzer& this, var Scope& scope, var Syntax& syntax)
 		return rt::unique<SemanticExpression>();
 	};
 
-	var result = @this.node(semantic_kind::switch_expression, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	var result = @this.node(semantic_kind::switch_expression, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -69,13 +69,13 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 	if (!this.active_switch) {
 		var message = DiagnosticMessage();
 		@message.quoted(syntax.token().text());
-		@message.text(" label requires an enclosing switch\0");
+		@message.text(rt::string_view(" label requires an enclosing switch", 35));
 		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
 
-	var result = @this.node(semantic_kind::case_label, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	var result = @this.node(semantic_kind::case_label, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -83,8 +83,8 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 
 	if (syntax.token().kind == token_kind::kw_default) {
 		if (this.active_switch->default_label) {
-			@this.error(&@syntax, "switch contains more than one default label\0");
-			@this.note(this.active_switch->default_label->token(), "previous default label is here\0");
+			@this.error(&@syntax, rt::string_view("switch contains more than one default label", 43));
+			@this.note(this.active_switch->default_label->token(), rt::string_view("previous default label is here", 30));
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -106,13 +106,13 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 			return rt::unique<SemanticExpression>();
 		};
 		var message = DiagnosticMessage();
-		@message.text("case label requires an integer constant expression for switch type '\0");
+		@message.text(rt::string_view("case label requires an integer constant expression for switch type '", 68));
 		diagnostic_type(@message, *this.active_switch->source_type);
-		@message.text("'; expression beginning with \0");
+		@message.text(rt::string_view("'; expression beginning with ", 29));
 		@message.quoted(syntax.item(0)->token().text());
-		@message.text(" of type '\0");
+		@message.text(rt::string_view(" of type '", 10));
 		diagnostic_type(@message, *expression.get()->type());
-		@message.text("' is not constant\0");
+		@message.text(rt::string_view("' is not constant", 17));
 		@this.report(syntax.item(0)->token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -121,22 +121,22 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 	@value = this.active_switch->condition_type->normalize_integer(value);
 	usize index = 0;
 	while (index < this.active_switch->cases.size()) {
-		const SwitchCase& previous = this.active_switch->cases.data()[index];
+		SwitchCase& previous = this.active_switch->cases.data()[index];
 		if (previous.value == value) {
 			var message = DiagnosticMessage();
-			@message.text("duplicate switch case value \0");
+			@message.text(rt::string_view("duplicate switch case value ", 28));
 			if (this.active_switch->condition_type->kind() == type_kind::signed_integer && this.active_switch->condition_type->signed_value(value) < 0) {
-				@message.text("-\0");
+				@message.text(rt::string_view("-", 1));
 				@message.number(u64(0) - u64(this.active_switch->condition_type->signed_value(value)));
 			}
 			else {
 				@message.number(value);
 			};
-			@message.text(" for switch type '\0");
+			@message.text(rt::string_view(" for switch type '", 18));
 			diagnostic_type(@message, *this.active_switch->source_type);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(syntax.token(), message.view());
-			@this.note(previous.declaration->token(), "previous case label is here\0");
+			@this.note(previous.declaration->token(), rt::string_view("previous case label is here", 27));
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -148,7 +148,7 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 	@current.value = value;
 	@current.declaration = &@syntax;
 	if (!@this.active_switch->cases.push_back($current)) {
-		@this.error(&@syntax, "switch label storage is unavailable\0");
+		@this.error(&@syntax, rt::string_view("switch label storage is unavailable", 35));
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -158,7 +158,7 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 	return $result;
 };
 
-fn SwitchAnalysisScope::SwitchAnalysisScope(var SwitchAnalysisScope& this, var (var SwitchAnalysis*)& slot, var SwitchAnalysis& current) {
+fn SwitchAnalysisScope::SwitchAnalysisScope(var SwitchAnalysisScope& this, var SwitchAnalysis var*& slot, var SwitchAnalysis& current) {
 	@this.slot = &@slot;
 	@this.previous := slot;
 	@slot = &@current;

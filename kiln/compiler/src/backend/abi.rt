@@ -1,35 +1,35 @@
 fn Backend::external_signature(var Backend& this, var Entity* entity) -> bool {
-	const FunctionSignature& signature = entity->type()->signature();
-	const Type* result = signature.result()->representation();
+	FunctionSignature& signature = entity->type()->signature();
+	Type* result = signature.result()->representation();
 
 	if (result->kind() == type_kind::array || result->kind() == type_kind::named) {
 		var message = DiagnosticMessage();
-		@message.text("external aggregate return requires unsupported C ABI lowering for function '\0");
+		@message.text(rt::string_view("external aggregate return requires unsupported C ABI lowering for function '", 76));
 		diagnostic_entity(@message, *entity);
-		@message.text("' of type '\0");
+		@message.text(rt::string_view("' of type '", 11));
 		diagnostic_type(@message, *entity->type());
-		@message.text("'; result type is '\0");
+		@message.text(rt::string_view("'; result type is '", 19));
 		diagnostic_type(@message, *signature.result());
-		@message.text("'\0");
+		@message.text(rt::string_view("'", 1));
 		return @this.error(entity->token(), message.view());
 	};
 
 	usize index = 0;
 
 	while (index < signature.parameters().size()) {
-		const Type* parameter = signature.parameters().data()[index]->representation();
+		Type* parameter = signature.parameters().data()[index]->representation();
 
 		if (parameter->kind() == type_kind::array || parameter->kind() == type_kind::named) {
 			var message = DiagnosticMessage();
-			@message.text("external aggregate parameter requires unsupported C ABI lowering for parameter \0");
+			@message.text(rt::string_view("external aggregate parameter requires unsupported C ABI lowering for parameter ", 79));
 			@message.number(index + 1);
-			@message.text(" of function '\0");
+			@message.text(rt::string_view(" of function '", 14));
 			diagnostic_entity(@message, *entity);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *entity->type());
-			@message.text("'; parameter type is '\0");
+			@message.text(rt::string_view("'; parameter type is '", 22));
 			diagnostic_type(@message, *signature.parameters().data()[index]);
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			return @this.error(entity->parameters().data()[index]->token(), message.view());
 		};
 

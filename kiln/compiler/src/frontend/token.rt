@@ -73,9 +73,9 @@ enum token_kind : [i32] {
 };
 
 struct Token {
-	fn text(const Token& this) -> rt::string_view;
-	fn is(const Token& this, const rt::string_view& spelling) -> bool;
-	fn same(const Token& this, const Token& other) -> bool;
+	fn text(Token& this) -> rt::string_view;
+	fn is(Token& this, rt::string_view& spelling) -> bool;
+	fn same(Token& this, Token& other) -> bool;
 
 	var SourceFile* source;
 	usize begin;
@@ -85,7 +85,7 @@ struct Token {
 	token_kind kind;
 };
 
-fn Token::text(const Token& this) -> rt::string_view {
+fn Token::text(Token& this) -> rt::string_view {
 	if (!this.source) {
 		return rt::string_view();
 	};
@@ -99,10 +99,10 @@ fn Token::text(const Token& this) -> rt::string_view {
 	return rt::string_view(source.data() + this.begin, this.length);
 };
 
-fn Token::is(const Token& this, const rt::string_view& spelling) -> bool {
+fn Token::is(Token& this, rt::string_view& spelling) -> bool {
 	return this.source && this.text() == spelling;
 };
 
-fn Token::same(const Token& this, const Token& other) -> bool {
+fn Token::same(Token& this, Token& other) -> bool {
 	return this.source && other.source && this.text() == other.text();
 };

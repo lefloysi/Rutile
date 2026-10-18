@@ -1,7 +1,7 @@
-fn SemanticUnit::associated_owner(const SemanticUnit& this, const Type& type) -> var Entity* {
+fn SemanticUnit::associated_owner(SemanticUnit& this, Type& type) -> var Entity* {
 	usize index = 0;
 	while (index < this.associated_scopes.size()) {
-		const AssociatedScope& association = this.associated_scopes.data()[index];
+		AssociatedScope& association = this.associated_scopes.data()[index];
 
 		if (association.type == &@type) {
 			return association.owner;
@@ -13,7 +13,7 @@ fn SemanticUnit::associated_owner(const SemanticUnit& this, const Type& type) ->
 	return nullptr;
 };
 
-fn SemanticUnit::associate(var SemanticUnit& this, const Type& type, var Entity& owner) -> bool {
+fn SemanticUnit::associate(var SemanticUnit& this, Type& type, var Entity& owner) -> bool {
 	AssociatedScope association;
 	@association.type = &@type;
 	@association.owner = &@owner;
@@ -21,12 +21,12 @@ fn SemanticUnit::associate(var SemanticUnit& this, const Type& type, var Entity&
 	return @this.associated_scopes.push_back($association);
 };
 
-fn Analyzer::primitive_scope(var Analyzer& this, const Type& type, const Token& location) -> var Entity* {
+fn Analyzer::primitive_scope(var Analyzer& this, Type& type, Token& location) -> var Entity* {
 	if (!type.kind().is_numeric() && type.kind() != type_kind::void_type && type.kind() != type_kind::null_type) {
 		return nullptr;
 	};
 
-	const Type* canonical = @this.types->primitive(type_kind(type.kind()), type.bits());
+	Type* canonical = @this.types->primitive(type_kind(type.kind()), type.bits());
 	if (!canonical) {
 		return nullptr;
 	};
@@ -68,13 +68,13 @@ fn Analyzer::primitive_scope(var Analyzer& this, const Type& type, const Token& 
 };
 
 fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool {
-	const Type* type = owner.type();
+	Type* type = owner.type();
 
 	if (!type->kind().is_numeric()) {
 		return true;
 	};
 
-	const Type* value_type = @this.types->qualified(*type, type_qualifier::immutable);
+	Type* value_type = @this.types->qualified(*type, type_qualifier::immutable);
 	if (!value_type) {
 		return false;
 	};
@@ -96,12 +96,12 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool 
 
 		if (type->bits() == 32) {
 			u32 representation = 2139095039;
-			f32 decoded := *reinterpret_cast<const f32*>(&@representation);
+			f32 decoded := *reinterpret_cast<f32*>(&@representation);
 		@maximum = static_cast<f64>($decoded);
 		}
 		else {
 			u64 representation = 9218868437227405311;
-			@maximum := *reinterpret_cast<const f64*>(&@representation);
+			@maximum := *reinterpret_cast<f64*>(&@representation);
 		};
 
 		@value.get()->set_real($maximum);
@@ -118,7 +118,7 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool 
 
 	var Entity* constant = @this.unit->create_entity(entity_kind::constant, owner.token(), nullptr, owner.members());
 
-	if (!constant || !@constant->set_name(rt::string_view("max\0"))) {
+	if (!constant || !@constant->set_name(rt::string_view("max", 3))) {
 		return false;
 	};
 

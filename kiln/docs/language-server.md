@@ -44,6 +44,8 @@ Run the following against a built Kiln; use the corresponding configuration for 
 python tests/language-server/protocol.py --server build/release/bin/kiln.exe
 python tests/language-server/declarations.py --server build/release/bin/kiln.exe
 python tests/language-server/semantic_tokens.py --server build/release/bin/kiln.exe
+python tests/language-server/template_context.py --server build/release/bin/kiln.exe
+python tests/language-server/responsiveness.py --server build/release/bin/kiln.exe
 python tests/language-server/project_sources.py --server build/release/bin/kiln.exe
 python tests/language-server/editor.py --server build/release/bin/kiln.exe `
     --compiler build/release/bin/rutile-selfhost.exe
@@ -65,14 +67,25 @@ F12 on a use navigates to its declaration. F12 on that declaration navigates to 
 F12 on the definition returns to the declaration. A type name follows the same rule. Type
 navigation on an object follows its compiler-resolved type, including pointer and reference
 targets. Repeated F12 also works when the editor leaves the target name selected, with the caret
-at either end. Symbols with only one source location retain that location.
+at either end. On a named receiver's member access, F12 follows the receiver variable; F12 on
+that variable's declaration follows its type. The explicit declaration request still resolves
+the member itself. Symbols with only one source location retain that location.
 
 Semantic colors come from compiler bindings, including template parameters validated before
-instantiation. Visual Studio uses its existing C++ classifications: ordinary keywords, control
-keywords, types, members, and functions retain their theme-specific C++ colors. Built-in type
-names use the keyword classification; user-defined types retain the type classification. Comments,
+instantiation. Visual Studio uses Rutile classifications with explicit readable color defaults.
+Built-in type names and boolean literals use the keyword classification; user-defined types
+retain the type classification. Comments,
 strings, numbers, and reserved keywords are highlighted immediately by the editor. Contextual
 keywords are classified by the compiler syntax tree.
+
+Edits immediately translate cached colors for unaffected spans. Pending analysis and a temporary
+semantic error do not clear the file's remaining colors. Background compiler analysis still
+processes the source group; it is not an incremental semantic compiler. Navigation is withheld
+when an edit could have changed a binding rather than guessing a stale target.
+
+Inside an instantiated template, the editor's template-context selector lists compiler-known
+instantiations. The generic view shows the source declaration instead of listing every instance.
+A selected context filters hover, completion, signature help, and navigation at that location.
 
 Projects built by another build system can define
 [editor source groups](../compiler/docs/editor-project.md).

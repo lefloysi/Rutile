@@ -1,4 +1,4 @@
-fn fopen(const char* path, const char* mode) -> var NativeFile*;
+fn fopen(char* path, char* mode) -> var NativeFile*;
 
 fn platform_standard_error() -> var NativeFile*;
 
@@ -12,7 +12,7 @@ fn rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var vo
 	return callback(compiler.get(), $data);
 };
 
-fn rutile_compile(var Compiler* compiler, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
+fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	if (!compiler) {
 		return 1;
 	};
@@ -25,10 +25,26 @@ fn rutile_compile(var Compiler* compiler, var (var char*)* paths, usize count, v
 		@diagnostics = platform_standard_error();
 	};
 
-	return @compiler->compile($paths, $count, $output_path, $opener, $entry, $optimization, $diagnostics, output_kind::executable);
+	rt::buffer<rt::string_view> source_paths;
+	usize index = 0;
+
+	while (paths && index < count) {
+		if (!@source_paths.push_back(rt::string_view(paths[index]))) {
+			return 1;
+		};
+		@index = index + 1;
+	};
+
+	rt::string_view entry_name = rt::string_view("main", 4);
+
+	if (entry) {
+		@entry_name = rt::string_view(entry);
+	};
+
+	return @compiler->compile(source_paths, rt::string_view(output_path), $opener, entry_name, $optimization, $diagnostics, output_kind::executable);
 };
 
-fn rutile_compile_library(var (var char*)* paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
+fn rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	Compiler compiler;
 
 	if (!opener) {
@@ -39,5 +55,15 @@ fn rutile_compile_library(var (var char*)* paths, usize count, var char* output_
 		@diagnostics = platform_standard_error();
 	};
 
-	return @compiler.compile($paths, $count, $output_path, $opener, nullptr, $optimization, $diagnostics, output_kind::library);
+	rt::buffer<rt::string_view> source_paths;
+	usize index = 0;
+
+	while (paths && index < count) {
+		if (!@source_paths.push_back(rt::string_view(paths[index]))) {
+			return 1;
+		};
+		@index = index + 1;
+	};
+
+	return @compiler.compile(source_paths, rt::string_view(output_path), $opener, rt::string_view("main", 4), $optimization, $diagnostics, output_kind::library);
 };

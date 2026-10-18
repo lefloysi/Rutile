@@ -4,12 +4,12 @@ struct Scope {
 	fn set_access(var Scope& this, access_kind access);
 	fn define(var Scope& this, var Entity* entity) -> bool;
 
-	fn parent(const Scope& this) -> var Scope*;
-	fn owner(const Scope& this) -> var Entity*;
-	fn bindings(const Scope& this) -> const rt::buffer<var Entity*>&;
-	fn access(const Scope& this) -> access_kind;
-	fn local(const Scope& this, const rt::string_view& name) -> var Entity*;
-	fn lookup(const Scope& this, const rt::string_view& name) -> var Entity*;
+	fn parent(Scope& this) -> var Scope*;
+	fn owner(Scope& this) -> var Entity*;
+	fn bindings(Scope& this) -> rt::buffer<var Entity*>&;
+	fn access(Scope& this) -> access_kind;
+	fn local(Scope& this, rt::string_view& name) -> var Entity*;
+	fn lookup(Scope& this, rt::string_view& name) -> var Entity*;
 
 private:
 	var Scope* enclosing;
@@ -23,19 +23,19 @@ fn Scope::Scope(var Scope& this, var Scope* parent, var Entity* owner) {
 	@this.declaration_owner = $owner;
 };
 
-fn Scope::parent(const Scope& this) -> var Scope* {
+fn Scope::parent(Scope& this) -> var Scope* {
 	return this.enclosing;
 };
 
-fn Scope::owner(const Scope& this) -> var Entity* {
+fn Scope::owner(Scope& this) -> var Entity* {
 	return this.declaration_owner;
 };
 
-fn Scope::bindings(const Scope& this) -> const rt::buffer<var Entity*>& {
+fn Scope::bindings(Scope& this) -> rt::buffer<var Entity*>& {
 	return this.names;
 };
 
-fn Scope::access(const Scope& this) -> access_kind {
+fn Scope::access(Scope& this) -> access_kind {
 	return access_kind(this.visibility);
 };
 
@@ -43,7 +43,7 @@ fn Scope::set_access(var Scope& this, access_kind access) {
 	@this.visibility = $access;
 };
 
-fn Scope::local(const Scope& this, const rt::string_view& name) -> var Entity* {
+fn Scope::local(Scope& this, rt::string_view& name) -> var Entity* {
 	usize index = this.names.size();
 	while (index) {
 		@index = index - 1;
@@ -57,7 +57,7 @@ fn Scope::local(const Scope& this, const rt::string_view& name) -> var Entity* {
 	return nullptr;
 };
 
-fn Scope::lookup(const Scope& this, const rt::string_view& name) -> var Entity* {
+fn Scope::lookup(Scope& this, rt::string_view& name) -> var Entity* {
 	if (this.declaration_owner && this.declaration_owner->kind() == entity_kind::record && this.declaration_owner->name() == name) {
 		return this.declaration_owner;
 	};

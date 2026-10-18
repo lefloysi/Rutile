@@ -50,7 +50,8 @@ fn read(Foo& input)->i32 { return input.field; };
 fn automatic(auto Foo& input)->i32 { return input.field; };
 fn casted()->i32 { return static_cast<i32>(42); };
 fn names()->i32 { i32 auto = 1; i32 public = 2; return public; };
-fn main()->i32 { Foo value; "emoji 😀"; return read(value); };
+fn literals()->bool { bool yes = true; bool no = false; null* pointer = nullptr; return yes; };
+fn main()->i32 { Foo value; "emoji \U0001f600"; return read(value); };
 """
 		client = Client(server, root)
 		try:
@@ -63,7 +64,7 @@ fn main()->i32 { Foo value; "emoji 😀"; return read(value); };
 			assert latest_diagnostics(client, uri, 1) == []
 			full = client.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
 			tokens = decode(full, legend)
-			for needle, expected in [("Foo {", "struct"), ("Foo;", "struct"), ("Alias =", "type"), ("T> struct", "typeParameter"), ("T item", "typeParameter"), ("input)->", "parameter"), ("field;", "property"), ("read(Foo", "function"), ("i32 field", "keyword"), ("u08;", "keyword"), ("Byte =", "type"), ("u08 small", "keyword"), ("usize count", "keyword"), ("bool flag", "keyword"), ("char letter", "keyword"), ("ptrdiff difference", "keyword"), ("u08)->i32", "parameter"), ("u08; };", "parameter"), ("public:", "keyword"), ("private:", "keyword"), ("operator+", "keyword"), ("auto Foo", "keyword"), ("static_cast<i32>", "keyword"), ("auto =", "variable"), ("public =", "variable")]:
+			for needle, expected in [("Foo {", "struct"), ("Foo;", "struct"), ("Alias =", "type"), ("T> struct", "typeParameter"), ("T item", "typeParameter"), ("input)->", "parameter"), ("field;", "property"), ("read(Foo", "function"), ("i32 field", "keyword"), ("u08;", "keyword"), ("Byte =", "type"), ("u08 small", "keyword"), ("usize count", "keyword"), ("bool flag", "keyword"), ("char letter", "keyword"), ("ptrdiff difference", "keyword"), ("u08)->i32", "parameter"), ("u08; };", "parameter"), ("public:", "keyword"), ("private:", "keyword"), ("operator+", "keyword"), ("auto Foo", "keyword"), ("static_cast<i32>", "keyword"), ("auto =", "variable"), ("public =", "variable"), ("true;", "keyword"), ("false;", "keyword"), ("nullptr;", "keyword")]:
 				token_at(tokens, source, needle, expected)
 			token_at(tokens, source, "T)->i32", "parameter")
 			token_at(tokens, source, "U> struct", "typeParameter")

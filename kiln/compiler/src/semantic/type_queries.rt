@@ -1,5 +1,5 @@
-fn Type::representation(const Type& this) -> const Type* {
-	const Type* type = &@this;
+fn Type::representation(Type& this) -> Type* {
+	Type* type = &@this;
 
 	while (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::enumeration && type->entity()->underlying()) {
 		@type = type->entity()->underlying();
@@ -8,7 +8,7 @@ fn Type::representation(const Type& this) -> const Type* {
 	return $type;
 };
 
-fn Type::has_layout(const Type& this) -> bool {
+fn Type::has_layout(Type& this) -> bool {
 	switch (this.kind()) {
 		case type_kind::void_type:
 		case type_kind::null_type:
@@ -30,8 +30,8 @@ fn Type::has_layout(const Type& this) -> bool {
 	return true;
 };
 
-fn Type::normalize_integer(const Type& this, u64 value) -> u64 {
-	const Type* type = this.representation();
+fn Type::normalize_integer(Type& this, u64 value) -> u64 {
+	Type* type = this.representation();
 
 	if (!type->kind().is_integer()) {
 		return $value;
@@ -46,8 +46,8 @@ fn Type::normalize_integer(const Type& this, u64 value) -> u64 {
 	return $value;
 };
 
-fn Type::signed_value(const Type& this, u64 value) -> i64 {
-	const Type* type = this.representation();
+fn Type::signed_value(Type& this, u64 value) -> i64 {
+	Type* type = this.representation();
 	u32 bits = type->bits();
 	@value = type->normalize_integer(value);
 
@@ -58,7 +58,7 @@ fn Type::signed_value(const Type& this, u64 value) -> i64 {
 	return static_cast<i64>($value);
 };
 
-fn Type::derived_from(const Type& this, const Type& base) -> bool {
+fn Type::derived_from(Type& this, Type& base) -> bool {
 	if (this.kind() != type_kind::named || base.kind() != type_kind::named || this.entity()->kind() != entity_kind::record || base.entity()->kind() != entity_kind::record) {
 		return false;
 	};

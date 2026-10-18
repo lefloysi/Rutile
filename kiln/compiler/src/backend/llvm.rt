@@ -18,7 +18,7 @@ fn LLVMGetVersion(var u32* major, var u32* minor, var u32* patch);
 fn LLVMContextCreate() -> var LLVMOpaqueContext*;
 fn LLVMContextDispose(var LLVMOpaqueContext* context);
 
-fn LLVMModuleCreateWithNameInContext(const char* name, var LLVMOpaqueContext* context) -> var LLVMOpaqueModule*;
+fn LLVMModuleCreateWithNameInContext(char* name, var LLVMOpaqueContext* context) -> var LLVMOpaqueModule*;
 
 fn LLVMDisposeModule(var LLVMOpaqueModule* module);
 
@@ -35,9 +35,9 @@ fn LLVMGetDefaultTargetTriple() -> var char*;
 
 fn LLVMDisposeMessage(var char* message);
 
-fn LLVMGetTargetFromTriple(const char* triple, var (var LLVMTarget*)* target, var (var char*)* message) -> i32;
+fn LLVMGetTargetFromTriple(char* triple, var LLVMTarget var** target, var char var** message) -> i32;
 
-fn LLVMCreateTargetMachine(var LLVMTarget* target, const char* triple, const char* cpu, const char* features, i32 level, i32 relocation, i32 model) -> var LLVMOpaqueTargetMachine*;
+fn LLVMCreateTargetMachine(var LLVMTarget* target, char* triple, char* cpu, char* features, i32 level, i32 relocation, i32 model) -> var LLVMOpaqueTargetMachine*;
 
 fn LLVMDisposeTargetMachine(var LLVMOpaqueTargetMachine* machine);
 
@@ -51,8 +51,8 @@ fn LLVMPointerSize(var LLVMOpaqueTargetData* layout) -> u32;
 
 fn LLVMABISizeOfType(var LLVMOpaqueTargetData* layout, var LLVMOpaqueType* type) -> u64;
 
-fn LLVMSetTarget(var LLVMOpaqueModule* module, const char* triple);
-fn LLVMSetDataLayout(var LLVMOpaqueModule* module, const char* layout);
+fn LLVMSetTarget(var LLVMOpaqueModule* module, char* triple);
+fn LLVMSetDataLayout(var LLVMOpaqueModule* module, char* layout);
 
 fn LLVMVoidTypeInContext(var LLVMOpaqueContext* context) -> var LLVMOpaqueType*;
 
@@ -66,56 +66,56 @@ fn LLVMPointerTypeInContext(var LLVMOpaqueContext* context, u32 address_space) -
 
 fn LLVMArrayType2(var LLVMOpaqueType* element, u64 count) -> var LLVMOpaqueType*;
 
-fn LLVMFunctionType(var LLVMOpaqueType* result, var (var LLVMOpaqueType*)* parameters, u32 count, i32 variadic) -> var LLVMOpaqueType*;
+fn LLVMFunctionType(var LLVMOpaqueType* result, var LLVMOpaqueType var** parameters, u32 count, i32 variadic) -> var LLVMOpaqueType*;
 
-fn LLVMStructCreateNamed(var LLVMOpaqueContext* context, const char* name) -> var LLVMOpaqueType*;
-fn LLVMStructSetBody(var LLVMOpaqueType* type, var (var LLVMOpaqueType*)* fields, u32 count, i32 packed);
+fn LLVMStructCreateNamed(var LLVMOpaqueContext* context, char* name) -> var LLVMOpaqueType*;
+fn LLVMStructSetBody(var LLVMOpaqueType* type, var LLVMOpaqueType var** fields, u32 count, i32 packed);
 
 fn LLVMConstInt(var LLVMOpaqueType* type, u64 value, i32 sign_extend) -> var LLVMOpaqueValue*;
 fn LLVMConstReal(var LLVMOpaqueType* type, f64 value) -> var LLVMOpaqueValue*;
 fn LLVMConstNull(var LLVMOpaqueType* type) -> var LLVMOpaqueValue*;
-fn LLVMConstStringInContext2(var LLVMOpaqueContext* context, const char* text, usize length, i32 no_terminator) -> var LLVMOpaqueValue*;
+fn LLVMConstStringInContext2(var LLVMOpaqueContext* context, char* text, usize length, i32 no_terminator) -> var LLVMOpaqueValue*;
 
 fn LLVMTypeOf(var LLVMOpaqueValue* value) -> var LLVMOpaqueType*;
 
-fn LLVMAddGlobal(var LLVMOpaqueModule* module, var LLVMOpaqueType* type, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMAddGlobal(var LLVMOpaqueModule* module, var LLVMOpaqueType* type, char* name) -> var LLVMOpaqueValue*;
 
 fn LLVMSetInitializer(var LLVMOpaqueValue* global, var LLVMOpaqueValue* initializer);
 fn LLVMSetGlobalConstant(var LLVMOpaqueValue* global, i32 immutable);
 fn LLVMSetLinkage(var LLVMOpaqueValue* global, i32 linkage);
 
-fn LLVMAddFunction(var LLVMOpaqueModule* module, const char* name, var LLVMOpaqueType* type) -> var LLVMOpaqueValue*;
+fn LLVMAddFunction(var LLVMOpaqueModule* module, char* name, var LLVMOpaqueType* type) -> var LLVMOpaqueValue*;
 
-fn LLVMGetNamedFunction(var LLVMOpaqueModule* module, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMGetNamedFunction(var LLVMOpaqueModule* module, char* name) -> var LLVMOpaqueValue*;
 fn LLVMGetParam(var LLVMOpaqueValue* function, u32 index) -> var LLVMOpaqueValue*;
 
 fn LLVMGlobalGetValueType(var LLVMOpaqueValue* global) -> var LLVMOpaqueType*;
 
-fn LLVMAppendBasicBlockInContext(var LLVMOpaqueContext* context, var LLVMOpaqueValue* function, const char* name) -> var LLVMOpaqueBasicBlock*;
+fn LLVMAppendBasicBlockInContext(var LLVMOpaqueContext* context, var LLVMOpaqueValue* function, char* name) -> var LLVMOpaqueBasicBlock*;
 
 fn LLVMPositionBuilderAtEnd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueBasicBlock* block);
 
 fn LLVMGetInsertBlock(var LLVMOpaqueBuilder* builder) -> var LLVMOpaqueBasicBlock*;
 fn LLVMGetBasicBlockTerminator(var LLVMOpaqueBasicBlock* block) -> var LLVMOpaqueValue*;
 
-fn LLVMBuildAlloca(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildLoad2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildAlloca(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildLoad2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, char* name) -> var LLVMOpaqueValue*;
 fn LLVMBuildStore(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueValue* pointer) -> var LLVMOpaqueValue*;
 fn LLVMBuildRet(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value) -> var LLVMOpaqueValue*;
 fn LLVMBuildRetVoid(var LLVMOpaqueBuilder* builder) -> var LLVMOpaqueValue*;
 fn LLVMBuildBr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueBasicBlock* destination) -> var LLVMOpaqueValue*;
 fn LLVMBuildCondBr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* condition, var LLVMOpaqueBasicBlock* yes, var LLVMOpaqueBasicBlock* no) -> var LLVMOpaqueValue*;
 fn LLVMBuildUnreachable(var LLVMOpaqueBuilder* builder) -> var LLVMOpaqueValue*;
-fn LLVMBuildCall2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var (var LLVMOpaqueValue*)* arguments, u32 count, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildGEP2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, var (var LLVMOpaqueValue*)* indices, u32 count, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildStructGEP2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, u32 index, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildICmp(var LLVMOpaqueBuilder* builder, i32 predicate, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFCmp(var LLVMOpaqueBuilder* builder, i32 predicate, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildPhi(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildCall2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var LLVMOpaqueValue var** arguments, u32 count, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildGEP2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, var LLVMOpaqueValue var** indices, u32 count, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildStructGEP2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* pointer, u32 index, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildICmp(var LLVMOpaqueBuilder* builder, i32 predicate, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFCmp(var LLVMOpaqueBuilder* builder, i32 predicate, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildPhi(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, char* name) -> var LLVMOpaqueValue*;
 
-fn LLVMAddIncoming(var LLVMOpaqueValue* phi, var (var LLVMOpaqueValue*)* values, var (var LLVMOpaqueBasicBlock*)* blocks, u32 count);
+fn LLVMAddIncoming(var LLVMOpaqueValue* phi, var LLVMOpaqueValue var** values, var LLVMOpaqueBasicBlock var** blocks, u32 count);
 
-fn LLVMVerifyModule(var LLVMOpaqueModule* module, i32 action, var (var char*)* message) -> i32;
+fn LLVMVerifyModule(var LLVMOpaqueModule* module, i32 action, var char var** message) -> i32;
 
 fn LLVMCreatePassBuilderOptions() -> var LLVMOpaquePassBuilderOptions*;
 
@@ -123,69 +123,69 @@ fn LLVMDisposePassBuilderOptions(var LLVMOpaquePassBuilderOptions* options);
 
 fn LLVMPassBuilderOptionsSetVerifyEach(var LLVMOpaquePassBuilderOptions* options, i32 verify);
 
-fn LLVMRunPasses(var LLVMOpaqueModule* module, const char* passes, var LLVMOpaqueTargetMachine* machine, var LLVMOpaquePassBuilderOptions* options) -> var LLVMOpaqueError*;
+fn LLVMRunPasses(var LLVMOpaqueModule* module, char* passes, var LLVMOpaqueTargetMachine* machine, var LLVMOpaquePassBuilderOptions* options) -> var LLVMOpaqueError*;
 
 fn LLVMGetErrorMessage(var LLVMOpaqueError* error) -> var char*;
 
 fn LLVMDisposeErrorMessage(var char* message);
 
-fn LLVMTargetMachineEmitToMemoryBuffer(var LLVMOpaqueTargetMachine* machine, var LLVMOpaqueModule* module, i32 file_type, var (var char*)* message, var (var LLVMOpaqueMemoryBuffer*)* buffer) -> i32;
+fn LLVMTargetMachineEmitToMemoryBuffer(var LLVMOpaqueTargetMachine* machine, var LLVMOpaqueModule* module, i32 file_type, var char var** message, var LLVMOpaqueMemoryBuffer var** buffer) -> i32;
 
 fn LLVMDisposeMemoryBuffer(var LLVMOpaqueMemoryBuffer* buffer);
 
-fn LLVMGetBufferStart(var LLVMOpaqueMemoryBuffer* buffer) -> const char*;
+fn LLVMGetBufferStart(var LLVMOpaqueMemoryBuffer* buffer) -> char*;
 fn LLVMGetBufferSize(var LLVMOpaqueMemoryBuffer* buffer) -> usize;
 
-fn LLVMBuildAdd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildSub(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildMul(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildUDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildSDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildURem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildSRem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildShl(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildLShr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildAShr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildAnd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildOr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildXor(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFAdd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFSub(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFMul(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFRem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildNeg(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildNot(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFNeg(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildTrunc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildZExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildSExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFPToUI(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFPToSI(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildUIToFP(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildSIToFP(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFPTrunc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildFPExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildPtrToInt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildIntToPtr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildBitCast(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildAdd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildSub(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildMul(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildUDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildSDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildURem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildSRem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildShl(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildLShr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildAShr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildAnd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildOr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildXor(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFAdd(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFSub(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFMul(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFDiv(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFRem(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildNeg(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildNot(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFNeg(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildTrunc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildZExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildSExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFPToUI(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFPToSI(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildUIToFP(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildSIToFP(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFPTrunc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildFPExt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildPtrToInt(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildIntToPtr(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildBitCast(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, char* name) -> var LLVMOpaqueValue*;
 
-fn LLVMStructTypeInContext(var LLVMOpaqueContext* context, var (var LLVMOpaqueType*)* fields, u32 count, i32 packed) -> var LLVMOpaqueType*;
+fn LLVMStructTypeInContext(var LLVMOpaqueContext* context, var LLVMOpaqueType var** fields, u32 count, i32 packed) -> var LLVMOpaqueType*;
 
-fn LLVMConstNamedStruct(var LLVMOpaqueType* type, var (var LLVMOpaqueValue*)* values, u32 count) -> var LLVMOpaqueValue*;
-fn LLVMConstArray2(var LLVMOpaqueType* type, var (var LLVMOpaqueValue*)* values, u64 count) -> var LLVMOpaqueValue*;
+fn LLVMConstNamedStruct(var LLVMOpaqueType* type, var LLVMOpaqueValue var** values, u32 count) -> var LLVMOpaqueValue*;
+fn LLVMConstArray2(var LLVMOpaqueType* type, var LLVMOpaqueValue var** values, u64 count) -> var LLVMOpaqueValue*;
 
-fn LLVMBuildMalloc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildMalloc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, char* name) -> var LLVMOpaqueValue*;
 fn LLVMBuildFree(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* pointer) -> var LLVMOpaqueValue*;
-fn LLVMBuildInsertValue(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* aggregate, var LLVMOpaqueValue* element, u32 index, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildInsertValue(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* aggregate, var LLVMOpaqueValue* element, u32 index, char* name) -> var LLVMOpaqueValue*;
 
 fn LLVMGetEntryBasicBlock(var LLVMOpaqueValue* function) -> var LLVMOpaqueBasicBlock*;
 fn LLVMGetFirstInstruction(var LLVMOpaqueBasicBlock* block) -> var LLVMOpaqueValue*;
 
 fn LLVMPositionBuilderBefore(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* instruction);
 
-fn LLVMBuildPtrDiff2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* element, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, const char* name) -> var LLVMOpaqueValue*;
-fn LLVMBuildIntCast2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, i32 signed_value, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildPtrDiff2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* element, var LLVMOpaqueValue* first, var LLVMOpaqueValue* second, char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildIntCast2(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, var LLVMOpaqueType* target, i32 signed_value, char* name) -> var LLVMOpaqueValue*;
 
 fn LLVMGetNextInstruction(var LLVMOpaqueValue* instruction) -> var LLVMOpaqueValue*;
 
@@ -194,6 +194,6 @@ fn LLVMBuildSwitch(var LLVMOpaqueBuilder* builder, var LLVMOpaqueValue* value, v
 
 fn LLVMAddCase(var LLVMOpaqueValue* instruction, var LLVMOpaqueValue* value, var LLVMOpaqueBasicBlock* destination);
 
-fn LLVMBuildArrayMalloc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* count, const char* name) -> var LLVMOpaqueValue*;
+fn LLVMBuildArrayMalloc(var LLVMOpaqueBuilder* builder, var LLVMOpaqueType* type, var LLVMOpaqueValue* count, char* name) -> var LLVMOpaqueValue*;
 
 fn LLVMABIAlignmentOfType(var LLVMOpaqueTargetData* layout, var LLVMOpaqueType* type) -> u32;

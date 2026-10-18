@@ -1,0 +1,142 @@
+fn LanguageIndex::template_owner(LanguageIndex& this, u64 context) -> u64 {
+	usize remaining = this.symbols.size();
+	while (context && remaining) {
+		var found = this.symbol_ids.find(context);
+		if (!found) {
+			return 0;
+		};
+		NavigationSymbol& symbol = this.symbols.data()[*found].value;
+		if (symbol.origin) {
+			return context;
+		};
+		@context = symbol.container;
+		@remaining = remaining - 1;
+	};
+	return 0;
+};
+
+fn LanguageWorkspace::template_context(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> u64 {
+	usize source = 0;
+	usize offset = 0;
+	if (!@this.cursor(index, parameters, @source, @offset)) {
+		return 0;
+	};
+	var LanguageDocument* document = @this.document_key(index.sources.data()[source].key.view());
+	if (!document || document->template_context.empty()) {
+		return 0;
+	};
+
+	usize region = 0;
+	while (region < index.scopes.size()) {
+		NavigationScope& scope = index.scopes.data()[region];
+		@region = region + 1;
+		if (scope.range.source != source || offset < scope.range.begin || offset > scope.range.end || !scope.context) {
+			continue;
+		};
+		u64 context = index.template_owner(u64(scope.context));
+		var symbol = index.symbol_ids.find(context);
+		if (symbol && index.symbols.data()[*symbol].detail.view() == document->template_context.view()) {
+			return context;
+		};
+	};
+	return 0;
+};
+
+fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool select) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	var items = rt::json_value::make_array();
+	usize source = 0;
+	usize offset = 0;
+	if (!result.get() || !items.get() || !@this.cursor(index, parameters, @source, @offset)) {
+		return rt::json_value::make_null();
+	};
+	var LanguageDocument* document = @this.document_key(index.sources.data()[source].key.view());
+	if (!document) {
+		return rt::json_value::make_null();
+	};
+
+	usize width = usize::max;
+	usize region = 0;
+	while (region < index.scopes.size()) {
+		NavigationScope& scope = index.scopes.data()[region];
+		@region = region + 1;
+		if (scope.range.source == source && scope.range.begin <= offset && offset <= scope.range.end && index.template_owner(u64(scope.context)) && scope.range.end - scope.range.begin < width) {
+			@width = scope.range.end - scope.range.begin;
+		};
+	};
+	rt::unordered_map<u64, bool> seen;
+	var requested = LanguageJson::text(parameters, rt::string_view("context", 7));
+	bool accepted = requested.empty();
+	@region = 0;
+	while (region < index.scopes.size()) {
+		NavigationScope& scope = index.scopes.data()[region];
+		@region = region + 1;
+		u64 context = index.template_owner(u64(scope.context));
+		if (scope.range.source != source || offset < scope.range.begin || offset > scope.range.end || scope.range.end - scope.range.begin != width || !context || seen.find(context)) {
+			continue;
+		};
+		var found = index.symbol_ids.find(context);
+		if (!found || !index.symbols.data()[*found].value.origin) {
+			continue;
+		};
+		LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
+		var item = rt::json_value::make_object();
+		if (!@seen.insert(u64(context), true) || !item.get() || !@item.get()->set(rt::string_view("key", 3), rt::json_value::make_string(symbol.detail.view())) || !@item.get()->set(rt::string_view("label", 5), rt::json_value::make_string(symbol.detail.view())) || !@items.get()->append($item)) {
+			return rt::unique<rt::json_value>();
+		};
+		if (symbol.detail.view() == requested) {
+			@accepted = true;
+		};
+	};
+	if (select && accepted) {
+		@document->template_context = rt::string(requested);
+	};
+	if (!@result.get()->set(rt::string_view("items", 5), $items) || !@result.get()->set(rt::string_view("selected", 8), rt::json_value::make_string(document->template_context.view()))) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};
+
+fn LanguageWorkspace::hover(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, rt::buffer<u64>& bindings) -> rt::unique<rt::json_value> {
+	if (!bindings.size()) {
+		return rt::json_value::make_null();
+	};
+	var found = index.symbol_ids.find(bindings.data()[0]);
+	if (!found) {
+		return rt::json_value::make_null();
+	};
+	LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
+	rt::string text;
+	if (bindings.size() > 1 && !@this.template_context(index, parameters) && symbol.value.declaration.source < index.sources.size()) {
+		var source = index.sources.data()[symbol.value.declaration.source].text.view();
+		usize begin = symbol.value.declaration.begin;
+		usize end = symbol.value.declaration.end;
+		while (begin && source.data()[begin - 1] != '\n' && source.data()[begin - 1] != '\r') {
+			@begin = begin - 1;
+		};
+		while (begin < end && (source.data()[begin] == '\t' || source.data()[begin] == ' ')) {
+			@begin = begin + 1;
+		};
+		while (end < source.size() && source.data()[end] != '\n' && source.data()[end] != '\r' && end - begin < 240) {
+			@end = end + 1;
+		};
+		@text.append(rt::string_view(source.data() + begin, end - begin));
+		var contexts = @this.template_contexts(index, parameters, false);
+		if (contexts.get() && contexts.get()->member("items\0") && contexts.get()->member("items\0")->size()) {
+			@text.append(rt::string_view("\nSelect a template context above the editor.", 44));
+		};
+	}
+	else if (!symbol.detail.empty()) {
+		@text.append(symbol.detail.view());
+	}
+	else {
+		@text.append(symbol.name.view());
+	};
+
+	var content = rt::json_value::make_object();
+	var result = rt::json_value::make_object();
+	if (!content.get() || !result.get() || !@content.get()->set(rt::string_view("kind", 4), rt::json_value::make_string(rt::string_view("plaintext", 9))) || !@content.get()->set(rt::string_view("value", 5), rt::json_value::make_string(text.view())) || !@result.get()->set(rt::string_view("contents", 8), $content)) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};

@@ -12,7 +12,7 @@ fn shared_analysis_tests() -> i32 {
 	if (!lease.get() || lease.value().semantics() != unit || !lease.value().navigation().symbol_count()) {
 		return 3;
 	};
-	if (@compiler.emit_current(const_cast<var char*>("shared-analysis.obj\0"), nullptr, 0, nullptr, output_kind::library)) {
+	if (@compiler.emit_current(rt::string_view("shared-analysis.obj", 19), rt::string_view(), 0, nullptr, output_kind::library)) {
 		return 4;
 	};
 	if (lease.value().semantics() != unit) {
@@ -31,9 +31,9 @@ fn shared_analysis_tests() -> i32 {
 	if (!file.is_open() || !@file.write(source) || !@file.close()) {
 		return 8;
 	};
-	var char*[1] paths;
-	@paths[0] = const_cast<var char*>("shared-diagnostic.rt\0");
-	if (@compiler.compile(&@paths[0], 1, const_cast<var char*>("shared-diagnostic.obj\0"), &fopen, nullptr, 0, nullptr, output_kind::library) != 1) {
+	rt::buffer<rt::string_view> paths;
+	@paths.push_back(rt::string_view("shared-diagnostic.rt", 20));
+	if (@compiler.compile(paths, rt::string_view("shared-diagnostic.obj", 21), &fopen, rt::string_view(), 0, nullptr, output_kind::library) != 1) {
 		return 9;
 	};
 	var failed = @compiler.acquire_analysis();
@@ -97,14 +97,14 @@ fn target_analysis_tests() -> i32 {
 	if (!first_lease.get() || !second_lease.get() || first_lease.revision() != 5 || second_lease.revision() != 2 || first_lease.value().semantics() != first_unit || second_lease.value().semantics() != second_unit || first_unit == second_unit) {
 		return 25;
 	};
-	if (@compiler.emit_target(first_key, const_cast<var char*>("shared-target-first.obj\0"), nullptr, 0, nullptr, output_kind::library)) {
+	if (@compiler.emit_target(first_key, rt::string_view("shared-target-first.obj", 23), rt::string_view(), 0, nullptr, output_kind::library)) {
 		return 26;
 	};
 	if (!@compiler.expect_target(first_key, 6)) {
 		return 27;
 	};
 	var pending = @compiler.acquire_current_target(first_key);
-	if (pending.get() || @compiler.emit_target(first_key, const_cast<var char*>("shared-pending.obj\0"), nullptr, 0, nullptr, output_kind::library) != 1) {
+	if (pending.get() || @compiler.emit_target(first_key, rt::string_view("shared-pending.obj", 18), rt::string_view(), 0, nullptr, output_kind::library) != 1) {
 		return 32;
 	};
 	var obsolete = rt::unique<Analysis>::make();
@@ -189,7 +189,7 @@ fn target_diagnostic_tests() -> i32 {
 	if (!output) {
 		return 53;
 	};
-	i32 result = @compiler.emit_target(key, const_cast<var char*>("shared-invalid.obj\0"), nullptr, 0, output, output_kind::library);
+	i32 result = @compiler.emit_target(key, rt::string_view("shared-invalid.obj", 18), rt::string_view(), 0, output, output_kind::library);
 	fclose(output);
 	if (result != 1) {
 		return 54;

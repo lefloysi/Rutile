@@ -1,13 +1,13 @@
-fn Analyzer::select(var Analyzer& this, var Entity* group, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
+fn Analyzer::select(var Analyzer& this, var Entity* group, rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
 	rt::buffer<var Entity*> candidates;
-	const rt::buffer<var Entity*>& bindings = group->scope()->bindings();
+	rt::buffer<var Entity*>& bindings = group->scope()->bindings();
 	usize index = 0;
 	while (index < bindings.size()) {
 		var Entity* candidate = bindings.data()[index];
 
 		if (candidate->kind() == entity_kind::function && candidate->name() == group->name()) {
 			if (!@candidates.push_back((var Entity*(candidate)))) {
-				@this.error(&@syntax, "out of memory collecting function candidates\0");
+				@this.error(&@syntax, rt::string_view("out of memory collecting function candidates", 44));
 
 				return nullptr;
 			};
@@ -19,7 +19,7 @@ fn Analyzer::select(var Analyzer& this, var Entity* group, const rt::buffer<rt::
 	return @this.select_candidates(candidates, arguments, $skipped, $mode, @syntax);
 };
 
-fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>& bindings, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
+fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bindings, rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
 	var Entity* selected = nullptr;
 	i32 best = i32::max;
 	i32 best_origin = 2;
@@ -50,7 +50,7 @@ fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>
 		};
 
 		if (!@seen.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory ranking overload candidates\0");
+			@this.error(&@syntax, rt::string_view("out of memory ranking overload candidates", 41));
 
 			return nullptr;
 		};
@@ -104,7 +104,7 @@ fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>
 			@best_matches.clear();
 		};
 		if (!@best_matches.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory retaining equally ranked overload candidates\0");
+			@this.error(&@syntax, rt::string_view("out of memory retaining equally ranked overload candidates", 58));
 			return nullptr;
 		};
 		if (rank == best && origin == best_origin) {
@@ -118,9 +118,9 @@ fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>
 
 	if (best_matches.size() > 1) {
 		var message = DiagnosticMessage();
-		@message.text("ambiguous call to '\0");
+		@message.text(rt::string_view("ambiguous call to '", 19));
 		diagnostic_entity(@message, *selected);
-		@message.text("' with arguments \0");
+		@message.text(rt::string_view("' with arguments ", 17));
 		diagnostic_arguments(@message, arguments);
 		@this.diagnostics->error(syntax.token(), message.view());
 		usize candidate_index = 0;
@@ -128,11 +128,11 @@ fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>
 			var Entity* candidate = best_matches.data()[candidate_index];
 			@candidate_index = candidate_index + 1;
 			var detail = DiagnosticMessage();
-			@detail.text("equally ranked candidate '\0");
+			@detail.text(rt::string_view("equally ranked candidate '", 26));
 			diagnostic_entity(@detail, *candidate);
-			@detail.text("' has type '\0");
+			@detail.text(rt::string_view("' has type '", 12));
 			diagnostic_type(@detail, *candidate->type());
-			@detail.text("'\0");
+			@detail.text(rt::string_view("'", 1));
 			@this.diagnostics->note(candidate->token(), detail.view());
 		};
 
@@ -142,7 +142,7 @@ fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>
 	return $selected;
 };
 
-fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	rt::buffer<var Entity*> candidates;
 	usize index = 0;
 	while (index < this.unit->entities().size()) {
@@ -198,7 +198,7 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 		usize argument = 0;
 
 		while (argument < arguments.size()) {
-			const Type* type = arguments.data()[argument].get()->type();
+			Type* type = arguments.data()[argument].get()->type();
 
 			if (type->kind() == type_kind::named) {
 				var Entity* owner = type->entity();
@@ -224,7 +224,7 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 		};
 
 		if (!@candidates.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory collecting operator candidates\0");
+			@this.error(&@syntax, rt::string_view("out of memory collecting operator candidates", 44));
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -235,9 +235,9 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 	if (!selected) {
 		if (!this.diagnostics->failed()) {
 			var message = DiagnosticMessage();
-			@message.text("no applicable operator \0");
+			@message.text(rt::string_view("no applicable operator ", 23));
 			@message.quoted(syntax.token().text());
-			@message.text(" for operands \0");
+			@message.text(rt::string_view(" for operands ", 14));
 			diagnostic_arguments(@message, arguments);
 			@this.diagnostics->error(syntax.token(), message.view());
 			usize candidate_index = 0;
@@ -248,11 +248,11 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 					continue;
 				};
 				var detail = DiagnosticMessage();
-				@detail.text("candidate '\0");
+				@detail.text(rt::string_view("candidate '", 11));
 				diagnostic_entity(@detail, *candidate);
-				@detail.text("' has type '\0");
+				@detail.text(rt::string_view("' has type '", 12));
 				diagnostic_type(@detail, *candidate->type());
-				@detail.text("'\0");
+				@detail.text(rt::string_view("'", 1));
 				@this.diagnostics->note(candidate->token(), detail.view());
 			};
 		};
@@ -265,13 +265,13 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 	};
 	if (!this.accessible(*selected, @scope)) {
 		var message = DiagnosticMessage();
-		@message.text("selected operator '\0");
+		@message.text(rt::string_view("selected operator '", 19));
 		diagnostic_entity(@message, *selected);
-		@message.text("' of type '\0");
+		@message.text(rt::string_view("' of type '", 11));
 		diagnostic_type(@message, *selected->type());
-		@message.text("' is not accessible from this scope\0");
+		@message.text(rt::string_view("' is not accessible from this scope", 35));
 		@this.diagnostics->error(syntax.token(), message.view());
-		@this.diagnostics->note(selected->token(), "operator is declared here\0");
+		@this.diagnostics->note(selected->token(), rt::string_view("operator is declared here", 25));
 		return rt::unique<SemanticExpression>();
 	};
 

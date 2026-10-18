@@ -16,53 +16,53 @@ namespace rt {
 
 	template<typename K>
 	struct integer_hash {
-		fn hash(const integer_hash& this, const K& value) -> usize;
+		fn hash(integer_hash& this, K& value) -> usize;
 	};
 
 	template<typename T>
 	struct pointer_hash {
-		fn hash(const pointer_hash& this, const T* value) -> usize;
+		fn hash(pointer_hash& this, T* value) -> usize;
 	};
 
 	struct f32_hash {
-		fn hash(const f32_hash& this, const f32& value) -> usize;
+		fn hash(f32_hash& this, f32& value) -> usize;
 	};
 
 	struct f64_hash {
-		fn hash(const f64_hash& this, const f64& value) -> usize;
+		fn hash(f64_hash& this, f64& value) -> usize;
 	};
 
 	struct string_view_hash {
-		fn hash(const string_view_hash& this, const string_view& value) -> usize;
+		fn hash(string_view_hash& this, string_view& value) -> usize;
 	};
 
 	template<typename K>
-	fn integer_hash<K>::hash(const integer_hash& this, const K& value) -> usize {
+	fn integer_hash<K>::hash(integer_hash& this, K& value) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
 	template<typename T>
-	fn pointer_hash<T>::hash(const pointer_hash& this, const T* value) -> usize {
+	fn pointer_hash<T>::hash(pointer_hash& this, T* value) -> usize {
 		return mix_hash(static_cast<u64>(reinterpret_cast<usize>(value)));
 	};
 
-	fn f32_hash::hash(const f32_hash& this, const f32& value) -> usize {
+	fn f32_hash::hash(f32_hash& this, f32& value) -> usize {
 		if (value == 0.0) {
 			return 0;
 		};
 
-		return mix_hash(static_cast<u64>(*reinterpret_cast<const u32*>(&@value)));
+		return mix_hash(static_cast<u64>(*reinterpret_cast<u32*>(&@value)));
 	};
 
-	fn f64_hash::hash(const f64_hash& this, const f64& value) -> usize {
+	fn f64_hash::hash(f64_hash& this, f64& value) -> usize {
 		if (value == 0.0) {
 			return 0;
 		};
 
-		return mix_hash(*reinterpret_cast<const u64*>(&@value));
+		return mix_hash(*reinterpret_cast<u64*>(&@value));
 	};
 
-	fn string_view_hash::hash(const string_view_hash& this, const string_view& value) -> usize {
+	fn string_view_hash::hash(string_view_hash& this, string_view& value) -> usize {
 		u64 result := fnv1a64_offset_basis;
 		usize index = 0;
 		while (index < value.size()) {
@@ -79,93 +79,93 @@ namespace rt {
 	// Function pointers require an explicit compatible hash policy.
 	template<typename K>
 	struct default_hash {
-		fn hash(const default_hash& this, const K& value) -> usize;
+		fn hash(default_hash& this, K& value) -> usize;
 	};
 
-	fn hash_value(const bool& value) -> usize {
+	fn hash_value(bool& value) -> usize {
 		integer_hash<bool> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const char& value) -> usize {
+	fn hash_value(char& value) -> usize {
 		integer_hash<char> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const i08& value) -> usize {
+	fn hash_value(i08& value) -> usize {
 		integer_hash<i08> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const i16& value) -> usize {
+	fn hash_value(i16& value) -> usize {
 		integer_hash<i16> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const i32& value) -> usize {
+	fn hash_value(i32& value) -> usize {
 		integer_hash<i32> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const i64& value) -> usize {
+	fn hash_value(i64& value) -> usize {
 		integer_hash<i64> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const u08& value) -> usize {
+	fn hash_value(u08& value) -> usize {
 		integer_hash<u08> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const u16& value) -> usize {
+	fn hash_value(u16& value) -> usize {
 		integer_hash<u16> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const u32& value) -> usize {
+	fn hash_value(u32& value) -> usize {
 		integer_hash<u32> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const u64& value) -> usize {
+	fn hash_value(u64& value) -> usize {
 		integer_hash<u64> policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const f32& value) -> usize {
+	fn hash_value(f32& value) -> usize {
 		f32_hash policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const f64& value) -> usize {
+	fn hash_value(f64& value) -> usize {
 		f64_hash policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const string_view& value) -> usize {
+	fn hash_value(string_view& value) -> usize {
 		string_view_hash policy;
 
 		return policy.hash(value);
 	};
 
-	fn hash_value(const void* value) -> usize {
+	fn hash_value(void* value) -> usize {
 		return mix_hash(static_cast<u64>(reinterpret_cast<usize>(value)));
 	};
 
 	template<typename K>
-	fn default_hash<K>::hash(const default_hash& this, const K& value) -> usize {
+	fn default_hash<K>::hash(default_hash& this, K& value) -> usize {
 		return hash_value(value);
 	};
 };

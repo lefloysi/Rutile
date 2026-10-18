@@ -18,7 +18,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 		return @this.validate_switch_item(body);
 	};
 
-	var LLVMOpaqueBasicBlock* after = @this.block("switch.after\0");
+	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("switch.after", 12));
 	var LLVMOpaqueBasicBlock* otherwise = after;
 	rt::buffer<var LLVMOpaqueBasicBlock*> labels;
 	usize index = 0;
@@ -29,7 +29,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 		var LLVMOpaqueBasicBlock* destination;
 
 		if (item->kind() == semantic_kind::case_label) {
-			@destination = @this.block("switch.case\0");
+			@destination = @this.block(rt::string_view("switch.case", 11));
 
 			if (item->token().kind == token_kind::kw_default) {
 				@otherwise = destination;
@@ -43,7 +43,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 		};
 
 		if (!@labels.push_back(destination)) {
-			return @this.backend->error(item->token(), rt::string_view("cannot retain native switch labels\0"));
+			return @this.backend->error(item->token(), rt::string_view("cannot retain native switch labels", 34));
 		};
 
 		@index = index + 1;
@@ -74,7 +74,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 	};
 
 	@this.active_control = &@control;
-	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("switch.unreachable\0"));
+	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block(rt::string_view("switch.unreachable", 18)));
 	@index = 0;
 
 	while (index < body->size()) {
@@ -118,7 +118,7 @@ fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var Semantic
 	};
 
 	if (expression->kind() == semantic_kind::case_label) {
-		return @this.backend->error(expression->token(), rt::string_view("nested case label lowering is not implemented\0"));
+		return @this.backend->error(expression->token(), rt::string_view("nested case label lowering is not implemented", 45));
 	};
 
 	usize index = 0;

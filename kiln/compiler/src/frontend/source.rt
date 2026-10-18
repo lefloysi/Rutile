@@ -1,15 +1,15 @@
 struct SourceFile {
 	fn SourceFile(var SourceFile& this) : [default];
 
-	fn assign(var SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool;
+	fn assign(var SourceFile& this, rt::string_view& path, rt::string_view& text) -> bool;
 	fn append_token(var SourceFile& this, Token token) -> bool;
 	fn clear_tokens(var SourceFile& this);
 
-	fn path(const SourceFile& this) -> rt::string_view;
-	fn text(const SourceFile& this) -> rt::string_view;
-	fn line(const SourceFile& this, usize number) -> rt::string_view;
-	fn tokens(const SourceFile& this) -> const rt::buffer<Token>&;
-	fn token_count(const SourceFile& this) -> usize;
+	fn path(SourceFile& this) -> rt::string_view;
+	fn text(SourceFile& this) -> rt::string_view;
+	fn line(SourceFile& this, usize number) -> rt::string_view;
+	fn tokens(SourceFile& this) -> rt::buffer<Token>&;
+	fn token_count(SourceFile& this) -> usize;
 
 private:
 	rt::string file_path;
@@ -19,17 +19,17 @@ private:
 };
 
 struct SourceManager {
-	fn add(var SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> var SourceFile*;
+	fn add(var SourceManager& this, rt::string_view& path, rt::string_view& text) -> var SourceFile*;
 	fn at(auto SourceManager& this, usize index) -> const[this] SourceFile*;
 	fn clear(var SourceManager& this);
 
-	fn count(const SourceManager& this) -> usize;
+	fn count(SourceManager& this) -> usize;
 
 private:
 	rt::buffer<rt::unique<SourceFile>> files;
 };
 
-fn SourceFile::assign(var SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool {
+fn SourceFile::assign(var SourceFile& this, rt::string_view& path, rt::string_view& text) -> bool {
 	rt::string next_path;
 	rt::string next_text;
 	rt::buffer<usize> next_lines;
@@ -56,15 +56,15 @@ fn SourceFile::assign(var SourceFile& this, const rt::string_view& path, const r
 	return true;
 };
 
-fn SourceFile::path(const SourceFile& this) -> rt::string_view {
+fn SourceFile::path(SourceFile& this) -> rt::string_view {
 	return this.file_path.view();
 };
 
-fn SourceFile::text(const SourceFile& this) -> rt::string_view {
+fn SourceFile::text(SourceFile& this) -> rt::string_view {
 	return this.contents.view();
 };
 
-fn SourceFile::line(const SourceFile& this, usize number) -> rt::string_view {
+fn SourceFile::line(SourceFile& this, usize number) -> rt::string_view {
 	if (!number || number > this.line_offsets.size()) {
 		return rt::string_view();
 	};
@@ -83,11 +83,11 @@ fn SourceFile::line(const SourceFile& this, usize number) -> rt::string_view {
 	return rt::string_view(this.contents.data() + begin, end - begin);
 };
 
-fn SourceFile::tokens(const SourceFile& this) -> const rt::buffer<Token>& {
+fn SourceFile::tokens(SourceFile& this) -> rt::buffer<Token>& {
 	return this.token_buffer;
 };
 
-fn SourceFile::token_count(const SourceFile& this) -> usize {
+fn SourceFile::token_count(SourceFile& this) -> usize {
 	return this.token_buffer.size();
 };
 
@@ -99,7 +99,7 @@ fn SourceFile::clear_tokens(var SourceFile& this) {
 	@this.token_buffer.clear();
 };
 
-fn SourceManager::add(var SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> var SourceFile* {
+fn SourceManager::add(var SourceManager& this, rt::string_view& path, rt::string_view& text) -> var SourceFile* {
 	var file = rt::unique<SourceFile>::make();
 
 	if (!file.get() || !@file.get()->assign(path, text)) {
@@ -115,7 +115,7 @@ fn SourceManager::add(var SourceManager& this, const rt::string_view& path, cons
 	return result;
 };
 
-fn SourceManager::count(const SourceManager& this) -> usize {
+fn SourceManager::count(SourceManager& this) -> usize {
 	return this.files.size();
 };
 

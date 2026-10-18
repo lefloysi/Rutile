@@ -32,17 +32,17 @@ enum constant_reference_kind : [u08] {
 };
 
 struct ConstantFrame {
-	fn set_result_type(var ConstantFrame& this, const Type& type);
-	fn leave(var ConstantFrame& this, const ConstantCheckpoint& checkpoint);
+	fn set_result_type(var ConstantFrame& this, Type& type);
+	fn leave(var ConstantFrame& this, ConstantCheckpoint& checkpoint);
 	fn return_reference(var ConstantFrame& this, var ConstantCell* cell);
 	fn bind(var ConstantFrame& this, var Entity* entity, var ConstantCell* cell) -> bool;
 	fn store(var ConstantFrame& this, var Entity* entity, rt::unique<SemanticExpression> value) -> bool;
 
-	fn returns_reference(const ConstantFrame& this) -> bool;
-	fn checkpoint(const ConstantFrame& this) -> ConstantCheckpoint;
-	fn returned_reference(const ConstantFrame& this) -> var ConstantCell*;
-	fn find(const ConstantFrame& this, var Entity* entity) -> var ConstantCell*;
-	fn owns(const ConstantFrame& this, const ConstantCell& cell) -> bool;
+	fn returns_reference(ConstantFrame& this) -> bool;
+	fn checkpoint(ConstantFrame& this) -> ConstantCheckpoint;
+	fn returned_reference(ConstantFrame& this) -> var ConstantCell*;
+	fn find(ConstantFrame& this, var Entity* entity) -> var ConstantCell*;
+	fn owns(ConstantFrame& this, ConstantCell& cell) -> bool;
 
 private:
 	rt::buffer<rt::unique<ConstantCell>> cells;
@@ -63,25 +63,25 @@ private:
 // Each invocation owns its cells. Reference parameters borrow caller cells; unrelated
 // mutable global storage is never admitted into an evaluation frame.
 struct ConstantEvaluator {
-	fn integer(var ConstantEvaluator& this, var Analyzer& analyzer, const SemanticExpression& expression, var u64& result) -> bool;
+	fn integer(var ConstantEvaluator& this, var Analyzer& analyzer, SemanticExpression& expression, var u64& result) -> bool;
 
 private:
 	fn tick(var ConstantEvaluator& this) -> bool;
-	fn bind_reference(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& target, var ConstantFrame& origin, var Entity& binding, const SemanticExpression& source) -> bool;
-	fn place(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> var ConstantCell*;
+	fn bind_reference(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& target, var ConstantFrame& origin, var Entity& binding, SemanticExpression& source) -> bool;
+	fn place(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> var ConstantCell*;
 	fn global_cell(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, var Entity& entity) -> var ConstantCell*;
-	fn value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
-	fn call(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var (var ConstantCell*)& reference) -> rt::unique<SemanticExpression>;
-	fn execute(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
-	fn loop(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
-	fn selection(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
-	fn execute_children(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
-	fn initialize_sequence(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> bool;
+	fn value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> rt::unique<SemanticExpression>;
+	fn call(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var ConstantCell var*& reference) -> rt::unique<SemanticExpression>;
+	fn execute(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn loop(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn selection(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn execute_children(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn initialize_sequence(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> bool;
 
-	fn reference_kind(const ConstantEvaluator& this, const SemanticExpression& source) -> constant_reference_kind;
-	fn literal(const ConstantEvaluator& this, const SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression>;
-	fn copy(const ConstantEvaluator& this, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
-	fn contains_label(const ConstantEvaluator& this, const SemanticExpression& source) -> bool;
+	fn reference_kind(ConstantEvaluator& this, SemanticExpression& source) -> constant_reference_kind;
+	fn literal(ConstantEvaluator& this, SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression>;
+	fn copy(ConstantEvaluator& this, SemanticExpression& source) -> rt::unique<SemanticExpression>;
+	fn contains_label(ConstantEvaluator& this, SemanticExpression& source) -> bool;
 
 	usize steps;
 	usize depth;
@@ -94,7 +94,7 @@ fn ConstantEvaluator::tick(var ConstantEvaluator& this) -> bool {
 	return this.steps <= 100000;
 };
 
-fn ConstantEvaluator::reference_kind(const ConstantEvaluator& this, const SemanticExpression& source) -> constant_reference_kind {
+fn ConstantEvaluator::reference_kind(ConstantEvaluator& this, SemanticExpression& source) -> constant_reference_kind {
 	if (source.category() == value_category::consumable) {
 		return constant_reference_kind::temporary;
 	};
@@ -113,7 +113,7 @@ fn ConstantEvaluator::reference_kind(const ConstantEvaluator& this, const Semant
 	};
 };
 
-fn ConstantEvaluator::bind_reference(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& target, var ConstantFrame& origin, var Entity& binding, const SemanticExpression& source) -> bool {
+fn ConstantEvaluator::bind_reference(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& target, var ConstantFrame& origin, var Entity& binding, SemanticExpression& source) -> bool {
 	constant_reference_kind kind = this.reference_kind(source);
 
 	if (kind == constant_reference_kind::stored) {
@@ -139,7 +139,7 @@ fn ConstantEvaluator::bind_reference(var ConstantEvaluator& this, var Analyzer& 
 	return @target.store(&@binding, $temporary);
 };
 
-fn ConstantEvaluator::execute_children(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
+fn ConstantEvaluator::execute_children(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
 	usize index = 0;
 	while (index < source.size()) {
 		constant_flow flow = @this.execute(@analyzer, @frame, *source.item(index), @returned);
@@ -154,7 +154,7 @@ fn ConstantEvaluator::execute_children(var ConstantEvaluator& this, var Analyzer
 	return constant_flow::next;
 };
 
-fn ConstantEvaluator::initialize_sequence(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> bool {
+fn ConstantEvaluator::initialize_sequence(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> bool {
 	rt::unique<SemanticExpression> returned;
 
 	if (@this.execute(@analyzer, @frame, *source.item(0), @returned) != constant_flow::next) {
@@ -164,7 +164,7 @@ fn ConstantEvaluator::initialize_sequence(var ConstantEvaluator& this, var Analy
 	return @this.execute(@analyzer, @frame, *source.item(1), @returned) == constant_flow::next;
 };
 
-fn ConstantEvaluator::literal(const ConstantEvaluator& this, const SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression> {
+fn ConstantEvaluator::literal(ConstantEvaluator& this, SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression> {
 	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, source.type(), source.token()));
 
 	if (result.get()) {
@@ -174,11 +174,11 @@ fn ConstantEvaluator::literal(const ConstantEvaluator& this, const SemanticExpre
 	return $result;
 };
 
-fn ConstantEvaluator::copy(const ConstantEvaluator& this, const SemanticExpression& source) -> rt::unique<SemanticExpression> {
+fn ConstantEvaluator::copy(ConstantEvaluator& this, SemanticExpression& source) -> rt::unique<SemanticExpression> {
 	return source.copy_constant();
 };
 
-fn ConstantEvaluator::integer(var ConstantEvaluator& this, var Analyzer& analyzer, const SemanticExpression& expression, var u64& result) -> bool {
+fn ConstantEvaluator::integer(var ConstantEvaluator& this, var Analyzer& analyzer, SemanticExpression& expression, var u64& result) -> bool {
 	@this.steps = 0;
 	@this.depth = 0;
 	@this.constants = ConstantFrame();
@@ -218,7 +218,7 @@ fn ConstantEvaluator::global_cell(var ConstantEvaluator& this, var Analyzer& ana
 	return this.constants.find(&@entity);
 };
 
-fn ConstantEvaluator::place(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> var ConstantCell* {
+fn ConstantEvaluator::place(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> var ConstantCell* {
 	if (!@this.tick()) {
 		return nullptr;
 	};
@@ -266,7 +266,7 @@ fn ConstantEvaluator::place(var ConstantEvaluator& this, var Analyzer& analyzer,
 	return nullptr;
 };
 
-fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source) -> rt::unique<SemanticExpression> {
+fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> rt::unique<SemanticExpression> {
 	if (!@this.tick()) {
 		return rt::unique<SemanticExpression>();
 	};
@@ -407,7 +407,7 @@ fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer,
 	return this.copy(source);
 };
 
-fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var (var ConstantCell*)& reference) -> rt::unique<SemanticExpression> {
+fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var ConstantCell var*& reference) -> rt::unique<SemanticExpression> {
 	@reference = nullptr;
 	var Entity* function = source.entity();
 
@@ -478,7 +478,7 @@ fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, 
 	return $returned;
 };
 
-fn ConstantEvaluator::execute(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
+fn ConstantEvaluator::execute(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
 	if (!@this.tick()) {
 		return constant_flow::failed;
 	};
@@ -582,7 +582,7 @@ fn ConstantEvaluator::execute(var ConstantEvaluator& this, var Analyzer& analyze
 	};
 };
 
-fn ConstantEvaluator::loop(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
+fn ConstantEvaluator::loop(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
 	var region = ConstantRegion(@frame);
 	usize condition_index = 0;
 	usize body_index = 1;
@@ -642,7 +642,7 @@ fn ConstantEvaluator::loop(var ConstantEvaluator& this, var Analyzer& analyzer, 
 	};
 };
 
-fn ConstantEvaluator::contains_label(const ConstantEvaluator& this, const SemanticExpression& source) -> bool {
+fn ConstantEvaluator::contains_label(ConstantEvaluator& this, SemanticExpression& source) -> bool {
 	if (source.kind() == semantic_kind::case_label) {
 		return true;
 	};
@@ -663,7 +663,7 @@ fn ConstantEvaluator::contains_label(const ConstantEvaluator& this, const Semant
 	return false;
 };
 
-fn ConstantEvaluator::selection(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, const SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
+fn ConstantEvaluator::selection(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
 	var region = ConstantRegion(@frame);
 	var condition = @this.value(@analyzer, @frame, *source.item(0));
 	u64 key = 0;
@@ -719,7 +719,7 @@ fn ConstantEvaluator::selection(var ConstantEvaluator& this, var Analyzer& analy
 	return constant_flow::next;
 };
 
-fn ConstantFrame::set_result_type(var ConstantFrame& this, const Type& type) {
+fn ConstantFrame::set_result_type(var ConstantFrame& this, Type& type) {
 	@this.result_kind = constant_result_kind::value;
 
 	if (type.kind() == type_kind::reference) {
@@ -727,11 +727,11 @@ fn ConstantFrame::set_result_type(var ConstantFrame& this, const Type& type) {
 	};
 };
 
-fn ConstantFrame::returns_reference(const ConstantFrame& this) -> bool {
+fn ConstantFrame::returns_reference(ConstantFrame& this) -> bool {
 	return this.result_kind == constant_result_kind::reference;
 };
 
-fn ConstantFrame::checkpoint(const ConstantFrame& this) -> ConstantCheckpoint {
+fn ConstantFrame::checkpoint(ConstantFrame& this) -> ConstantCheckpoint {
 	ConstantCheckpoint checkpoint;
 	@checkpoint.bindings = this.bindings.size();
 	@checkpoint.cells = this.cells.size();
@@ -739,7 +739,7 @@ fn ConstantFrame::checkpoint(const ConstantFrame& this) -> ConstantCheckpoint {
 	return $checkpoint;
 };
 
-fn ConstantFrame::leave(var ConstantFrame& this, const ConstantCheckpoint& checkpoint) {
+fn ConstantFrame::leave(var ConstantFrame& this, ConstantCheckpoint& checkpoint) {
 	while (this.bindings.size() > checkpoint.bindings) {
 		@this.bindings.pop_back();
 	};
@@ -760,11 +760,11 @@ fn ConstantFrame::return_reference(var ConstantFrame& this, var ConstantCell* ce
 	};
 };
 
-fn ConstantFrame::returned_reference(const ConstantFrame& this) -> var ConstantCell* {
+fn ConstantFrame::returned_reference(ConstantFrame& this) -> var ConstantCell* {
 	return this.reference_result.get();
 };
 
-fn ConstantFrame::find(const ConstantFrame& this, var Entity* entity) -> var ConstantCell* {
+fn ConstantFrame::find(ConstantFrame& this, var Entity* entity) -> var ConstantCell* {
 	usize index = this.bindings.size();
 	while (index) {
 		@index = index - 1;
@@ -777,7 +777,7 @@ fn ConstantFrame::find(const ConstantFrame& this, var Entity* entity) -> var Con
 	return nullptr;
 };
 
-fn ConstantFrame::owns(const ConstantFrame& this, const ConstantCell& cell) -> bool {
+fn ConstantFrame::owns(ConstantFrame& this, ConstantCell& cell) -> bool {
 	usize index = 0;
 	while (index < this.cells.size()) {
 		if (this.cells.data()[index].get() == &@cell) {

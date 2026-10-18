@@ -17,14 +17,14 @@ namespace rt {
 	struct optional {
 		fn optional(var optional& this);
 		fn optional(var optional& this, T value);
-		fn optional(var optional& this, const optional& other);
+		fn optional(var optional& this, optional& other);
 		fn optional(var optional& this, optional other);
 		fn ~optional(var optional& this);
 
 		fn reset(var optional& this);
 		fn emplace(var optional& this, T value) -> var T&;
 
-		fn has_value(const optional& this) -> bool;
+		fn has_value(optional& this) -> bool;
 		fn get(auto optional& this) -> const[this] T*;
 		// Requires has_value(). The reference borrows the contained object's lifetime.
 		fn value(auto optional& this) -> const[this] T&;
@@ -38,15 +38,15 @@ namespace rt {
 	struct optional_ref {
 		fn optional_ref(var optional_ref& this) : [default];
 		fn optional_ref(var optional_ref& this, var T& value);
-		fn optional_ref(var optional_ref& this, const optional_ref& other) : [implicit];
+		fn optional_ref(var optional_ref& this, optional_ref& other) : [implicit];
 
 		fn reset(var optional_ref& this);
 		fn bind(var optional_ref& this, var T& value);
 
-		fn has_value(const optional_ref& this) -> bool;
-		fn get(const optional_ref& this) -> var T*;
+		fn has_value(optional_ref& this) -> bool;
+		fn get(optional_ref& this) -> var T*;
 		// Requires has_value(). Resetting the optional never destroys its referent.
-		fn value(const optional_ref& this) -> var T&;
+		fn value(optional_ref& this) -> var T&;
 
 	private:
 		var T* pointer;
@@ -72,7 +72,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::optional(var optional& this, const optional& other) {
+	fn optional<T>::optional(var optional& this, optional& other) {
 		if (other.has_value()) {
 			@this.storage.value.T(other.storage.value);
 			@this.state = optional_state::engaged;
@@ -96,7 +96,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::has_value(const optional& this) -> bool {
+	fn optional<T>::has_value(optional& this) -> bool {
 		return this.state == optional_state::engaged;
 	};
 
@@ -139,22 +139,22 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional_ref<T>::optional_ref(var optional_ref& this, const optional_ref& other) : [implicit] {
+	fn optional_ref<T>::optional_ref(var optional_ref& this, optional_ref& other) : [implicit] {
 		@this.pointer := other.pointer;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::has_value(const optional_ref& this) -> bool {
+	fn optional_ref<T>::has_value(optional_ref& this) -> bool {
 		return this.pointer != nullptr;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::get(const optional_ref& this) -> var T* {
+	fn optional_ref<T>::get(optional_ref& this) -> var T* {
 		return this.pointer;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::value(const optional_ref& this) -> var T& {
+	fn optional_ref<T>::value(optional_ref& this) -> var T& {
 		return static_cast<var T&>(*this.pointer);
 	};
 

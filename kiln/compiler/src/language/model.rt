@@ -5,7 +5,7 @@ struct AnalysisSource {
 
 struct SourceRange {
 	fn SourceRange(var SourceRange& this) : [default];
-	fn SourceRange(var SourceRange& this, const SourceRange& other) : [implicit, default];
+	fn SourceRange(var SourceRange& this, SourceRange& other) : [implicit, default];
 
 	usize source;
 	usize begin;
@@ -14,7 +14,7 @@ struct SourceRange {
 
 struct NavigationSymbol {
 	fn NavigationSymbol(var NavigationSymbol& this) : [default];
-	fn NavigationSymbol(var NavigationSymbol& this, const NavigationSymbol& other) : [implicit, default];
+	fn NavigationSymbol(var NavigationSymbol& this, NavigationSymbol& other) : [implicit, default];
 
 	u64 id;
 	u64 container;
@@ -29,7 +29,7 @@ struct NavigationSymbol {
 
 struct NavigationOccurrence {
 	fn NavigationOccurrence(var NavigationOccurrence& this) : [default];
-	fn NavigationOccurrence(var NavigationOccurrence& this, const NavigationOccurrence& other) : [implicit, default];
+	fn NavigationOccurrence(var NavigationOccurrence& this, NavigationOccurrence& other) : [implicit, default];
 
 	SourceRange range;
 	u64 symbol;
@@ -39,7 +39,7 @@ struct NavigationOccurrence {
 
 struct LanguageDiagnostic {
 	fn LanguageDiagnostic(var LanguageDiagnostic& this) : [default];
-	fn LanguageDiagnostic(var LanguageDiagnostic& this, const LanguageDiagnostic& other) : [implicit, default];
+	fn LanguageDiagnostic(var LanguageDiagnostic& this, LanguageDiagnostic& other) : [implicit, default];
 
 	SourceRange range;
 	u32 severity;
@@ -48,7 +48,7 @@ struct LanguageDiagnostic {
 
 struct NavigationScope {
 	fn NavigationScope(var NavigationScope& this) : [default];
-	fn NavigationScope(var NavigationScope& this, const NavigationScope& other) : [implicit, default];
+	fn NavigationScope(var NavigationScope& this, NavigationScope& other) : [implicit, default];
 	u64 id;
 	u64 parent;
 	u64 context;
@@ -75,6 +75,7 @@ struct NavigationReceiver {
 	u64 scope;
 	u64 context;
 	SourceRange range;
+	SourceRange root;
 	SourceRange selector;
 	rt::buffer<u64> candidates;
 };
@@ -106,39 +107,39 @@ struct NavigationClassification {
 
 struct NavigationIndex {
 	fn register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool;
-	fn build(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
-	fn symbol_count(const NavigationIndex& this) -> usize;
-	fn symbol_at(const NavigationIndex& this, usize index) -> const NavigationSymbol*;
-	fn occurrence_count(const NavigationIndex& this) -> usize;
-	fn occurrence_at(const NavigationIndex& this, usize index) -> const NavigationOccurrence*;
-	fn range(const NavigationIndex& this, const Token& token) -> SourceRange;
-	fn syntax_range(const NavigationIndex& this, const Syntax& syntax) -> SourceRange;
-	fn scope_count(const NavigationIndex& this) -> usize;
-	fn scope_at(const NavigationIndex& this, usize index) -> const NavigationScope*;
-	fn classification_count(const NavigationIndex& this) -> usize;
-	fn classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification*;
-	fn type_symbol(const NavigationIndex& this, u64 symbol) -> u64;
-	fn semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32;
-	fn symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool;
-	fn member_scope(const NavigationIndex& this, u64 symbol) -> u64;
-	fn accessible(const NavigationIndex& this, u64 symbol, u64 scope) -> bool;
-	fn binding_count(const NavigationIndex& this) -> usize;
-	fn binding_at(const NavigationIndex& this, usize index) -> const NavigationBinding*;
-	fn parameter_count(const NavigationIndex& this, u64 symbol) -> usize;
-	fn parameter_at(const NavigationIndex& this, u64 symbol, usize index) -> const NavigationParameter*;
-	fn receiver_count(const NavigationIndex& this) -> usize;
-	fn receiver_at(const NavigationIndex& this, usize index) -> const NavigationReceiver*;
-	fn call_count(const NavigationIndex& this) -> usize;
-	fn call_at(const NavigationIndex& this, usize index) -> const NavigationCall*;
+	fn build(var NavigationIndex& this, SemanticUnit& semantics) -> bool;
+	fn symbol_count(NavigationIndex& this) -> usize;
+	fn symbol_at(NavigationIndex& this, usize index) -> NavigationSymbol*;
+	fn occurrence_count(NavigationIndex& this) -> usize;
+	fn occurrence_at(NavigationIndex& this, usize index) -> NavigationOccurrence*;
+	fn range(NavigationIndex& this, Token& token) -> SourceRange;
+	fn syntax_range(NavigationIndex& this, Syntax& syntax) -> SourceRange;
+	fn scope_count(NavigationIndex& this) -> usize;
+	fn scope_at(NavigationIndex& this, usize index) -> NavigationScope*;
+	fn classification_count(NavigationIndex& this) -> usize;
+	fn classification_at(NavigationIndex& this, usize index) -> NavigationClassification*;
+	fn type_symbol(NavigationIndex& this, u64 symbol) -> u64;
+	fn semantic_token_type(NavigationIndex& this, u64 symbol) -> u32;
+	fn symbol_readonly(NavigationIndex& this, u64 symbol) -> bool;
+	fn member_scope(NavigationIndex& this, u64 symbol) -> u64;
+	fn accessible(NavigationIndex& this, u64 symbol, u64 scope) -> bool;
+	fn binding_count(NavigationIndex& this) -> usize;
+	fn binding_at(NavigationIndex& this, usize index) -> NavigationBinding*;
+	fn parameter_count(NavigationIndex& this, u64 symbol) -> usize;
+	fn parameter_at(NavigationIndex& this, u64 symbol, usize index) -> NavigationParameter*;
+	fn receiver_count(NavigationIndex& this) -> usize;
+	fn receiver_at(NavigationIndex& this, usize index) -> NavigationReceiver*;
+	fn call_count(NavigationIndex& this) -> usize;
+	fn call_at(NavigationIndex& this, usize index) -> NavigationCall*;
 
 private:
-	fn scope_id(var NavigationIndex& this, const Scope& scope) -> u64;
-	fn receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, const Entity& owner, const Entity& visible_owner, const Scope& scope) -> bool;
-	fn build_receivers(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
-	fn build_contexts(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
-	fn symbol_id(const NavigationIndex& this, const Entity* entity) -> u64;
-	fn declaration_name(const NavigationIndex& this, var Syntax& declaration) -> Token;
-	fn symbol_kind(const NavigationIndex& this, const Entity& entity) -> u32;
+	fn scope_id(var NavigationIndex& this, Scope& scope) -> u64;
+	fn receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, Entity& owner, Entity& visible_owner, Scope& scope) -> bool;
+	fn build_receivers(var NavigationIndex& this, SemanticUnit& semantics) -> bool;
+	fn build_contexts(var NavigationIndex& this, SemanticUnit& semantics) -> bool;
+	fn symbol_id(NavigationIndex& this, Entity* entity) -> u64;
+	fn declaration_name(NavigationIndex& this, var Syntax& declaration) -> Token;
+	fn symbol_kind(NavigationIndex& this, Entity& entity) -> u32;
 
 	rt::buffer<rt::unique<NavigationEntry>> symbols;
 	rt::buffer<NavigationOccurrence> occurrences;
@@ -147,8 +148,8 @@ private:
 	rt::buffer<NavigationBinding> bindings;
 	rt::buffer<rt::unique<NavigationCall>> calls;
 	rt::buffer<rt::unique<NavigationReceiver>> receivers;
-	rt::unordered_map<const Scope*, u64> scope_ids;
-	rt::buffer<const Scope*> scope_records;
-	rt::unordered_map<const Entity*, u64> ids;
-	rt::unordered_map<const SourceFile*, usize> source_ids;
+	rt::unordered_map<Scope*, u64> scope_ids;
+	rt::buffer<Scope*> scope_records;
+	rt::unordered_map<Entity*, u64> ids;
+	rt::unordered_map<SourceFile*, usize> source_ids;
 };

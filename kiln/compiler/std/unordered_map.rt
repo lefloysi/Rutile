@@ -29,19 +29,19 @@ namespace rt {
 	struct unordered_map {
 		fn unordered_map(var unordered_map& this);
 		fn unordered_map(var unordered_map& this, Hash hash, Equal equal);
-		fn unordered_map(var unordered_map& this, const unordered_map& other) : [delete];
-		fn operator=(var unordered_map& this, const unordered_map& other) -> var unordered_map& : [delete];
-		fn operator:=(var unordered_map& this, const unordered_map& other) -> var unordered_map& : [delete];
+		fn unordered_map(var unordered_map& this, unordered_map& other) : [delete];
+		fn operator=(var unordered_map& this, unordered_map& other) -> var unordered_map& : [delete];
+		fn operator:=(var unordered_map& this, unordered_map& other) -> var unordered_map& : [delete];
 		fn ~unordered_map(var unordered_map& this);
 
 		fn insert(var unordered_map& this, K key, V value) -> bool;
-		fn erase(var unordered_map& this, const K& key) -> bool;
+		fn erase(var unordered_map& this, K& key) -> bool;
 		fn clear(var unordered_map& this);
 		fn reserve(var unordered_map& this, usize required) -> bool;
 
-		fn size(const unordered_map& this) -> usize;
-		fn empty(const unordered_map& this) -> bool;
-		fn find(auto unordered_map& this, const K& key) -> const[this] V*;
+		fn size(unordered_map& this) -> usize;
+		fn empty(unordered_map& this) -> bool;
+		fn find(auto unordered_map& this, K& key) -> const[this] V*;
 
 	private:
 		buffer<var unordered_node<K, V>*> buckets;
@@ -87,17 +87,17 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::size(const unordered_map& this) -> usize {
+	fn unordered_map<K, V, Hash, Equal>::size(unordered_map& this) -> usize {
 		return this.length;
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::empty(const unordered_map& this) -> bool {
+	fn unordered_map<K, V, Hash, Equal>::empty(unordered_map& this) -> bool {
 		return !this.length;
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::find(auto unordered_map& this, const K& key) -> const[this] V* {
+	fn unordered_map<K, V, Hash, Equal>::find(auto unordered_map& this, K& key) -> const[this] V* {
 		if (!this.buckets.size()) {
 			return nullptr;
 		};
@@ -145,7 +145,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::erase(var unordered_map& this, const K& key) -> bool {
+	fn unordered_map<K, V, Hash, Equal>::erase(var unordered_map& this, K& key) -> bool {
 		if (!this.buckets.size()) {
 			return false;
 		};

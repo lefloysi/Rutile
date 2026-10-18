@@ -26,66 +26,66 @@ enum parameter_arity : [u08] {
 	variadic;
 };
 
-fn type_kind::is_integer(const type_kind& this) -> bool {
+fn type_kind::is_integer(type_kind& this) -> bool {
 	return this == type_kind::boolean || this == type_kind::character || this == type_kind::signed_integer || this == type_kind::unsigned_integer;
 };
 
-fn type_kind::is_numeric(const type_kind& this) -> bool {
+fn type_kind::is_numeric(type_kind& this) -> bool {
 	return this.is_integer() || this == type_kind::floating_point;
 };
 
-fn type_kind::is_scalar(const type_kind& this) -> bool {
+fn type_kind::is_scalar(type_kind& this) -> bool {
 	return this.is_numeric() || this == type_kind::pointer || this == type_kind::reference;
 };
 
 struct FunctionSignature {
-	fn FunctionSignature(var FunctionSignature& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity);
+	fn FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity);
 
-	fn result(const FunctionSignature& this) -> const Type*;
-	fn parameters(const FunctionSignature& this) -> const rt::buffer<const Type*>&;
-	fn arity(const FunctionSignature& this) -> parameter_arity;
-	fn equals(const FunctionSignature& this, const FunctionSignature& other) -> bool;
+	fn result(FunctionSignature& this) -> Type*;
+	fn parameters(FunctionSignature& this) -> rt::buffer<Type*>&;
+	fn arity(FunctionSignature& this) -> parameter_arity;
+	fn equals(FunctionSignature& this, FunctionSignature& other) -> bool;
 
 private:
-	const Type* return_type;
-	rt::buffer<const Type*> parameter_types;
+	Type* return_type;
+	rt::buffer<Type*> parameter_types;
 	parameter_arity argument_arity;
 };
 
 struct ArrayShape {
-	const Type* element;
+	Type* element;
 	u64 count;
 };
 
 union TypeShape {
 	u32 bits;
 	var Entity* entity;
-	const Type* element;
+	Type* element;
 	ArrayShape array;
-	const FunctionSignature* signature;
+	FunctionSignature* signature;
 };
 
 struct Type {
 	fn Type(var Type& this) : [default];
 	fn Type(var Type& this, type_kind kind, TypeShape shape);
 
-	fn kind(const Type& this) -> type_kind;
-	fn qualifier(const Type& this) -> type_qualifier;
-	fn bits(const Type& this) -> u32;
-	fn entity(const Type& this) -> var Entity*;
-	fn element(const Type& this) -> const Type*;
-	fn count(const Type& this) -> u64;
-	fn signature(const Type& this) -> const FunctionSignature&;
-	fn qualified(const Type& this, type_qualifier qualifier) -> Type;
-	fn equals(const Type& this, const Type& other) -> bool;
-	fn same_shape(const Type& this, const Type& other) -> bool;
-	fn representation(const Type& this) -> const Type*;
-	fn has_layout(const Type& this) -> bool;
-	fn normalize_integer(const Type& this, u64 value) -> u64;
-	fn signed_value(const Type& this, u64 value) -> i64;
-	fn integer_from_real(const Type& this, f64 value, var u64& result) -> bool;
-	fn derived_from(const Type& this, const Type& base) -> bool;
-	fn hash(const Type& this) -> usize;
+	fn kind(Type& this) -> type_kind;
+	fn qualifier(Type& this) -> type_qualifier;
+	fn bits(Type& this) -> u32;
+	fn entity(Type& this) -> var Entity*;
+	fn element(Type& this) -> Type*;
+	fn count(Type& this) -> u64;
+	fn signature(Type& this) -> FunctionSignature&;
+	fn qualified(Type& this, type_qualifier qualifier) -> Type;
+	fn equals(Type& this, Type& other) -> bool;
+	fn same_shape(Type& this, Type& other) -> bool;
+	fn representation(Type& this) -> Type*;
+	fn has_layout(Type& this) -> bool;
+	fn normalize_integer(Type& this, u64 value) -> u64;
+	fn signed_value(Type& this, u64 value) -> i64;
+	fn integer_from_real(Type& this, f64 value, var u64& result) -> bool;
+	fn derived_from(Type& this, Type& base) -> bool;
+	fn hash(Type& this) -> usize;
 
 private:
 	TypeShape shape;
@@ -93,7 +93,7 @@ private:
 	type_qualifier qualification;
 };
 
-fn Type::equals(const Type& this, const Type& other) -> bool {
+fn Type::equals(Type& this, Type& other) -> bool {
 	if (this.category != other.category || this.qualification != other.qualification) {
 		return false;
 	};
@@ -118,7 +118,7 @@ fn Type::equals(const Type& this, const Type& other) -> bool {
 	};
 };
 
-fn Type::hash(const Type& this) -> usize {
+fn Type::hash(Type& this) -> usize {
 	usize hash = static_cast<usize>(this.category) * 37 + static_cast<usize>(this.qualification);
 
 	switch (this.category) {
@@ -131,7 +131,7 @@ fn Type::hash(const Type& this) -> usize {
 		case type_kind::array:
 			return (hash * 37 + (reinterpret_cast<usize>(this.shape.array.element) >> 3)) * 37 + static_cast<usize>(this.shape.array.count);
 		case type_kind::function: {
-			const FunctionSignature& signature = *this.shape.signature;
+			FunctionSignature& signature = *this.shape.signature;
 			@hash = (hash * 37 + (reinterpret_cast<usize>(signature.result()) >> 3)) * 37 + static_cast<usize>(signature.arity());
 			usize index = 0;
 			while (index < signature.parameters().size()) {
@@ -150,25 +150,25 @@ fn Type::hash(const Type& this) -> usize {
 	};
 };
 
-fn FunctionSignature::FunctionSignature(var FunctionSignature& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) {
+fn FunctionSignature::FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity) {
 	@this.return_type = $result;
 	@this.parameter_types = $parameters;
 	@this.argument_arity = $arity;
 };
 
-fn FunctionSignature::result(const FunctionSignature& this) -> const Type* {
+fn FunctionSignature::result(FunctionSignature& this) -> Type* {
 	return this.return_type;
 };
 
-fn FunctionSignature::parameters(const FunctionSignature& this) -> const rt::buffer<const Type*>& {
+fn FunctionSignature::parameters(FunctionSignature& this) -> rt::buffer<Type*>& {
 	return this.parameter_types;
 };
 
-fn FunctionSignature::arity(const FunctionSignature& this) -> parameter_arity {
+fn FunctionSignature::arity(FunctionSignature& this) -> parameter_arity {
 	return parameter_arity(this.argument_arity);
 };
 
-fn FunctionSignature::equals(const FunctionSignature& this, const FunctionSignature& other) -> bool {
+fn FunctionSignature::equals(FunctionSignature& this, FunctionSignature& other) -> bool {
 	if (this.return_type != other.return_type || this.argument_arity != other.argument_arity || this.parameter_types.size() != other.parameter_types.size()) {
 		return false;
 	};
@@ -190,23 +190,23 @@ fn Type::Type(var Type& this, type_kind kind, TypeShape shape) {
 	@this.shape = $shape;
 };
 
-fn Type::kind(const Type& this) -> type_kind {
+fn Type::kind(Type& this) -> type_kind {
 	return type_kind(this.category);
 };
 
-fn Type::qualifier(const Type& this) -> type_qualifier {
+fn Type::qualifier(Type& this) -> type_qualifier {
 	return type_qualifier(this.qualification);
 };
 
-fn Type::bits(const Type& this) -> u32 {
+fn Type::bits(Type& this) -> u32 {
 	return this.shape.bits;
 };
 
-fn Type::entity(const Type& this) -> var Entity* {
+fn Type::entity(Type& this) -> var Entity* {
 	return this.shape.entity;
 };
 
-fn Type::element(const Type& this) -> const Type* {
+fn Type::element(Type& this) -> Type* {
 	if (this.category == type_kind::array) {
 		return this.shape.array.element;
 	};
@@ -214,22 +214,22 @@ fn Type::element(const Type& this) -> const Type* {
 	return this.shape.element;
 };
 
-fn Type::count(const Type& this) -> u64 {
+fn Type::count(Type& this) -> u64 {
 	return this.shape.array.count;
 };
 
-fn Type::signature(const Type& this) -> const FunctionSignature& {
+fn Type::signature(Type& this) -> FunctionSignature& {
 	return *this.shape.signature;
 };
 
-fn Type::qualified(const Type& this, type_qualifier qualifier) -> Type {
+fn Type::qualified(Type& this, type_qualifier qualifier) -> Type {
 	Type result := this;
 	@result.qualification = $qualifier;
 
 	return $result;
 };
 
-fn Type::same_shape(const Type& this, const Type& other) -> bool {
+fn Type::same_shape(Type& this, Type& other) -> bool {
 	Type first = this.qualified(type_qualifier::mutable);
 	Type second = other.qualified(type_qualifier::mutable);
 

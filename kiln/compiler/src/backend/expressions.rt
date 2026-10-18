@@ -21,10 +21,10 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		};
 
 		case semantic_kind::sizeof_type: {
-			const Type* queried = expression->item(0)->type();
+			Type* queried = expression->item(0)->type();
 
 			if (queried->kind() == type_kind::void_type || queried->kind() == type_kind::null_type || queried->kind() == type_kind::function) {
-				@this.backend->error(expression->token(), rt::string_view("size query requires an object type\0"));
+				@this.backend->error(expression->token(), rt::string_view("size query requires an object type", 34));
 				return nullptr;
 			};
 
@@ -107,7 +107,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
-			const Type* signature = expression->item(0)->type();
+			Type* signature = expression->item(0)->type();
 
 			if (signature->kind() == type_kind::pointer) {
 				@signature = signature->element();
@@ -171,11 +171,11 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
-			const Type* element = expression->item(0)->type()->element();
+			Type* element = expression->item(0)->type()->element();
 
 			if (FunctionEmitter::needs_destruction(element)) {
-				var LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy\0");
-				var LLVMOpaqueBasicBlock* after = @this.block("delete.after\0");
+				var LLVMOpaqueBasicBlock* destroy = @this.block(rt::string_view("delete.destroy", 14));
+				var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("delete.after", 12));
 				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 
@@ -201,6 +201,6 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			return LLVMConstNull(type);
 	};
 
-	@this.backend->error(expression->token(), rt::string_view("expression has no implemented native lowering\0"));
+	@this.backend->error(expression->token(), rt::string_view("expression has no implemented native lowering", 45));
 	return nullptr;
 };

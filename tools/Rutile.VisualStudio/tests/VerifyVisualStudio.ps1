@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)] [string]$Vsix,
     [switch]$Install,
+    [switch]$Palette,
+    [switch]$FullShell,
     [string]$RootSuffix,
     [string]$Kiln
 )
@@ -55,17 +57,24 @@ if (!$installation) {
 }
 $output = Join-Path $root ('build/vsix-tests/' + $RootSuffix)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
+$packages = @($Vsix)
+if ($Palette) {
+    $probe = & (Join-Path $PSScriptRoot 'BuildPaletteProbe.ps1') -OutputDirectory (Join-Path $output 'probe')
+    $packages += $probe
+}
 if ($Install) {
-    $installer = [Diagnostics.ProcessStartInfo]::new((Join-Path $installation.installationPath 'Common7/IDE/VSIXInstaller.exe'))
-    $installer.UseShellExecute = $false
-    $installer.CreateNoWindow = $true
-    $installer.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
-    $installer.Arguments = '/quiet /rootSuffix:' + $RootSuffix + ' /instanceids:' + $installation.instanceId + ' "' + $Vsix + '"'
-    $deployment = [Diagnostics.Process]::Start($installer)
-    if (!$deployment.WaitForExit(120000) -or $deployment.ExitCode) {
-        throw 'Installing the VSIX into the dedicated profile failed.'
+    foreach ($package in $packages) {
+        $installer = [Diagnostics.ProcessStartInfo]::new((Join-Path $installation.installationPath 'Common7/IDE/VSIXInstaller.exe'))
+        $installer.UseShellExecute = $false
+        $installer.CreateNoWindow = $true
+        $installer.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+        $installer.Arguments = '/quiet /rootSuffix:' + $RootSuffix + ' /instanceids:' + $installation.instanceId + ' "' + $package + '"'
+        $deployment = [Diagnostics.Process]::Start($installer)
+        if (!$deployment.WaitForExit(120000) -or $deployment.ExitCode) {
+            throw 'Installing the VSIX into the dedicated profile failed.'
+        }
+        $deployment.Dispose()
     }
-    $deployment.Dispose()
 }
 
 function Wait-For([scriptblock]$Predicate, [string]$Description) {
@@ -86,6 +95,19 @@ function New-Project([string]$Name) {
     New-Item -ItemType Directory -Force -Path (Join-Path $directory 'app') | Out-Null
     [IO.File]::WriteAllText((Join-Path $directory 'app/main.rt'), 'fn main()->i32 {return answer(42);};')
     [IO.File]::WriteAllText((Join-Path $directory 'app/library.rt'), 'fn answer(i32 value)->i32 {return value;};')
+    if ($Palette) {
+        [IO.File]::WriteAllText((Join-Path $directory 'app/main.rt'), @"
+namespace sample {
+struct Item {
+    i32 field;
+    fn read(Item& this)->i32 { return this.field; };
+};
+enum mode { executable; library; };
+fn value()->i32 { Item thing; mode chosen=mode::executable; return thing.read(); };
+}
+fn main()->i32 { return sample::value(); };
+"@)
+    }
     [IO.File]::WriteAllText((Join-Path $directory 'rutile.yaml'), "targets:`n  app:`n    source: app`n    entry: main`n")
     [IO.File]::WriteAllText((Join-Path $directory 'Rutile.sln'), @'
 Microsoft Visual Studio Solution File, Format Version 12.00
@@ -114,7 +136,9 @@ function Managed([string]$Directory) {
     }
 }
 
-Add-Type -Path (Join-Path $PSScriptRoot 'VisualStudioAutomation.cs')
+$interop = Join-Path $installation.installationPath 'Common7/IDE/PublicAssemblies/Microsoft.VisualStudio.Interop.dll'
+[Reflection.Assembly]::LoadFrom($interop) | Out-Null
+Add-Type -Path (Join-Path $PSScriptRoot 'VisualStudioAutomation.cs') -ReferencedAssemblies $interop
 $filter = [VisualStudioMessageFilter]::new()
 $first = New-Project 'first'
 $second = New-Project 'second'
@@ -127,7 +151,20 @@ try {
     $launch.CreateNoWindow = $true
     $launch.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $launch.WorkingDirectory = $output
-    $launch.Arguments = '/RootSuffix ' + $RootSuffix + ' /Embedding /Log "' + (Join-Path $output 'ActivityLog.xml') + '"'
+    $launch.Arguments = '/RootSuffix ' + $RootSuffix + ' /Log "' + (Join-Path $output 'ActivityLog.xml') + '"'
+    if (!$FullShell) {
+        $launch.Arguments += ' /Embedding'
+    }
+    if ($Palette) {
+        $paletteResult = Join-Path $output 'palette.txt'
+        foreach ($resultFile in @($paletteResult,($paletteResult + '.ready'),($paletteResult + '.brushes'))) {
+            if (Test-Path -LiteralPath $resultFile) {
+                Remove-Item -LiteralPath $resultFile
+            }
+        }
+        $launch.EnvironmentVariables['RUTILE_PALETTE_RESULT'] = $paletteResult
+        $launch.EnvironmentVariables['RUTILE_PALETTE_SOURCE'] = Join-Path $first 'app/main.rt'
+    }
     $process = [Diagnostics.Process]::Start($launch)
     $watchdog = [OwnedProcessTimeout]::new($process, 180000)
     Wait-For { $script:dte = [VisualStudioAutomation]::Find($process.Id); $script:dte -ne $null } 'dedicated Visual Studio automation'
@@ -141,6 +178,27 @@ try {
     Wait-For { Managed $first } 'IDE-owned Kiln startup'
     $results.Add('IDE-owned project process')
     Write-Output 'IDE-owned project process: PASS'
+    if ($Palette) {
+        $probeDocument = Join-Path $first 'palette.rprobe'
+        [IO.File]::WriteAllText($probeDocument, 'palette')
+        $script:dte.ItemOperations.OpenFile($probeDocument) | Out-Null
+        Wait-For { Test-Path -LiteralPath ($paletteResult + '.ready') } 'palette package initialization'
+    }
+    if ($Palette) {
+        $script:dte.Documents.Item($main).Close(2)
+        $script:dte.ItemOperations.OpenFile($main) | Out-Null
+        Wait-For { Test-Path -LiteralPath $paletteResult } 'effective editor palette'
+        $observed = [IO.File]::ReadAllText($paletteResult)
+        $required = @('sample {=rutile.namespace:#FFD4D4D4','Item {=rutile.type:#FF4EC9B0','value()=rutile.function:#FFDCDCAA','read(Item=rutile.function:#FFDCDCAA','executable;=rutile.function:#FFDCDCAA','i32 field=rutile.keyword:#FF569CD6','return this=rutile.control:#FFC586C0','cached-span-translation=True')
+        foreach ($expected in $required) {
+            if (!$observed.Contains($expected)) {
+                throw ('Effective editor palette mismatch: ' + $observed)
+            }
+        }
+        $results.Add('effective editor palette and cached span translation')
+        Write-Output 'effective editor palette and cached span translation: PASS'
+    }
+
 
     $script:dte.Solution.Close($false)
     Wait-For { !(Managed $first) } 'old project owner shutdown'
@@ -156,7 +214,12 @@ try {
 finally {
     try {
         if ($script:dte) {
-            $script:dte.Quit()
+            try {
+                $script:dte.Quit()
+            }
+            catch [Runtime.InteropServices.COMException] {
+                Write-Warning ('Dedicated VS shutdown automation: ' + $_.Exception.Message)
+            }
         }
     }
     finally {

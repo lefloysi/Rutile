@@ -1,4 +1,4 @@
-fn FunctionEmitter::needs_destruction(const Type* type) -> bool {
+fn FunctionEmitter::needs_destruction(Type* type) -> bool {
 	if (type->kind() == type_kind::array) {
 		return FunctionEmitter::needs_destruction(type->element());
 	};
@@ -36,7 +36,7 @@ fn FunctionEmitter::needs_destruction(const Type* type) -> bool {
 	return false;
 };
 
-fn FunctionEmitter::destroy(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
 	if (!FunctionEmitter::needs_destruction(type)) {
 		return true;
 	};
@@ -62,15 +62,15 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, const Type* type, var LLV
 			if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
 				var Entity* member = record->fields().data()[index];
 				var message = DiagnosticMessage();
-				@message.text("union '\0");
+				@message.text(rt::string_view("union '", 7));
 				diagnostic_entity(@message, *record);
-				@message.text("' requires an explicit destructor because member '\0");
+				@message.text(rt::string_view("' requires an explicit destructor because member '", 50));
 				diagnostic_entity(@message, *member);
-				@message.text("' of type '\0");
+				@message.text(rt::string_view("' of type '", 11));
 				diagnostic_type(@message, *member->type());
-				@message.text("' requires destruction\0");
+				@message.text(rt::string_view("' requires destruction", 22));
 				@this.backend->error(record->token(), message.view());
-				@this.backend->note(member->token(), "member requiring destruction is declared here\0");
+				@this.backend->note(member->token(), rt::string_view("member requiring destruction is declared here", 45));
 				return false;
 			};
 
@@ -81,15 +81,15 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, const Type* type, var LLV
 	if (destructor) {
 		if (destructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
-			@message.text("destruction of '\0");
+			@message.text(rt::string_view("destruction of '", 16));
 			diagnostic_type(@message, *type);
-			@message.text("' selects deleted destructor '\0");
+			@message.text(rt::string_view("' selects deleted destructor '", 30));
 			diagnostic_entity(@message, *destructor);
-			@message.text("' of type '\0");
+			@message.text(rt::string_view("' of type '", 11));
 			diagnostic_type(@message, *destructor->type());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.backend->error(destructor->token(), message.view());
-			@this.backend->note(destructor->token(), "destructor is declared deleted here\0");
+			@this.backend->note(destructor->token(), rt::string_view("destructor is declared deleted here", 35));
 			return false;
 		};
 
@@ -131,7 +131,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, const Type* type, var LLV
 	return true;
 };
 
-fn FunctionEmitter::slot(var FunctionEmitter& this, const Type* type) -> var LLVMOpaqueValue* {
+fn FunctionEmitter::slot(var FunctionEmitter& this, Type* type) -> var LLVMOpaqueValue* {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
@@ -153,7 +153,7 @@ fn FunctionEmitter::live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue*
 
 	if (!builder.get()) {
 		Token location;
-		@this.backend->error(location, rt::string_view("cannot create lifetime builder\0"));
+		@this.backend->error(location, rt::string_view("cannot create lifetime builder", 30));
 		return nullptr;
 	};
 
@@ -171,7 +171,7 @@ fn FunctionEmitter::live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue*
 	return flag;
 };
 
-fn FunctionEmitter::temporary(const FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
+fn FunctionEmitter::temporary(FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	usize index = this.temporaries.size();
 
 	while (index) {
@@ -201,7 +201,7 @@ fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* 
 	};
 
 	if (!@this.temporaries.push_back($temporary)) {
-		return @this.backend->error(expression->token(), rt::string_view("cannot retain a consumable lifetime\0"));
+		return @this.backend->error(expression->token(), rt::string_view("cannot retain a consumable lifetime", 35));
 	};
 
 	return true;
@@ -237,7 +237,7 @@ fn FunctionEmitter::take(var FunctionEmitter& this, var SemanticExpression* expr
 
 	while (index) {
 		@index = index - 1;
-		const NativeTemporary& temporary = this.temporaries.data()[index];
+		NativeTemporary& temporary = this.temporaries.data()[index];
 
 		if (temporary.expression == expression && temporary.live) {
 			LLVMBuildStore(this.backend->builder(), LLVMConstNull(LLVMIntTypeInContext(this.backend->context(), 1)), temporary.live);
@@ -261,7 +261,7 @@ fn FunctionEmitter::binding_live(var FunctionEmitter& this, var Entity* entity, 
 
 	while (index) {
 		@index = index - 1;
-		const NativeBinding& binding = this.bindings.data()[index];
+		NativeBinding& binding = this.bindings.data()[index];
 
 		if (binding.entity == entity && binding.live) {
 			LLVMBuildStore(this.backend->builder(), LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), static_cast<u64>(live), 0), binding.live);
@@ -270,13 +270,13 @@ fn FunctionEmitter::binding_live(var FunctionEmitter& this, var Entity* entity, 
 	};
 };
 
-fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> bool {
+fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> bool {
 	if (!live) {
 		return true;
 	};
 
-	var LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy\0");
-	var LLVMOpaqueBasicBlock* after = @this.block("cleanup.after\0");
+	var LLVMOpaqueBasicBlock* destroy = @this.block(rt::string_view("cleanup.destroy", 15));
+	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("cleanup.after", 13));
 	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
 	LLVMBuildCondBr(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), boolean, live, "live\0"), destroy, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
@@ -297,7 +297,7 @@ fn FunctionEmitter::cleanup_temporaries(var FunctionEmitter& this, usize begin) 
 
 	while (index > begin) {
 		@index = index - 1;
-		const NativeTemporary& temporary = this.temporaries.data()[index];
+		NativeTemporary& temporary = this.temporaries.data()[index];
 
 		if (!@this.guarded_destroy(temporary.expression->type(), temporary.address, temporary.live)) {
 			return false;
@@ -312,7 +312,7 @@ fn FunctionEmitter::cleanup_bindings(var FunctionEmitter& this, usize begin) -> 
 
 	while (index > begin) {
 		@index = index - 1;
-		const NativeBinding& binding = this.bindings.data()[index];
+		NativeBinding& binding = this.bindings.data()[index];
 
 		if (!@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)) {
 			return false;

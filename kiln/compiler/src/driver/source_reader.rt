@@ -1,20 +1,20 @@
 struct SourceReader {
 	fn SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics);
 
-	fn load(var SourceReader& this, const char* path) -> var SourceFile*;
+	fn load(var SourceReader& this, rt::string_view& path) -> var SourceFile*;
 
 private:
-	fn error(var SourceReader& this, const char* path, const rt::string_view& operation);
+	fn error(var SourceReader& this, rt::string_view& path, rt::string_view& operation);
 	FileOpener opener;
 	var SourceManager* sources;
 	var Diagnostics* diagnostics;
 };
 
-fn SourceReader::error(var SourceReader& this, const char* path, const rt::string_view& operation) {
+fn SourceReader::error(var SourceReader& this, rt::string_view& path, rt::string_view& operation) {
 	var message = DiagnosticMessage();
 	@message.text(operation);
-	@message.text(" source file \0");
-	@message.quoted(rt::string_view(path));
+	@message.text(rt::string_view(" source file ", 13));
+	@message.quoted(path);
 	Token location;
 	@this.diagnostics->error(location, message.view());
 };
@@ -25,11 +25,12 @@ fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var Sou
 	@this.diagnostics = &@diagnostics;
 };
 
-fn SourceReader::load(var SourceReader& this, const char* path) -> var SourceFile* {
-	var file = File(this.opener(path, "rb\0"));
+fn SourceReader::load(var SourceReader& this, rt::string_view& path) -> var SourceFile* {
+	var native_path = rt::string(path);
+	var file = File(this.opener(native_path.c_str(), "rb\0"));
 
 	if (!file.is_open()) {
-		@this.error(path, "cannot open\0");
+		@this.error(path, rt::string_view("cannot open", 11));
 		return nullptr;
 	};
 
@@ -44,25 +45,25 @@ fn SourceReader::load(var SourceReader& this, const char* path) -> var SourceFil
 		};
 
 		if (!@contents.append(rt::string_view(&@chunk[0], $count))) {
-			@this.error(path, "cannot buffer\0");
+			@this.error(path, rt::string_view("cannot buffer", 13));
 			return nullptr;
 		};
 	};
 
 	if (file.failed()) {
-		@this.error(path, "cannot read\0");
+		@this.error(path, rt::string_view("cannot read", 11));
 		return nullptr;
 	};
 
 	if (!@file.close()) {
-		@this.error(path, "cannot close\0");
+		@this.error(path, rt::string_view("cannot close", 12));
 		return nullptr;
 	};
 
-	var SourceFile* source = @this.sources->add(rt::string_view(path), contents.view());
+	var SourceFile* source = @this.sources->add(path, contents.view());
 
 	if (!source) {
-		@this.error(path, "cannot retain\0");
+		@this.error(path, rt::string_view("cannot retain", 13));
 	};
 
 	return $source;

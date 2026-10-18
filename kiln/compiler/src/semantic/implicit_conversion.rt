@@ -1,21 +1,21 @@
-fn ConversionSelection::unique(const ConversionSelection& this) -> var Entity* {
+fn ConversionSelection::unique(ConversionSelection& this) -> var Entity* {
 	if (this.conflict) {
 		return nullptr;
 	};
 	return this.selected;
 };
 
-fn Analyzer::implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> var Entity* {
+fn Analyzer::implicit_constructor(var Analyzer& this, SemanticExpression& value, Type& expected) -> var Entity* {
 	var result = @this.select_implicit_constructor(value, expected);
 	return result.unique();
 };
 
-fn Analyzer::conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> var Entity* {
+fn Analyzer::conversion_function(var Analyzer& this, SemanticExpression& value, Type& expected, conversion_mode mode) -> var Entity* {
 	var result = @this.select_conversion_function(value, expected, $mode);
 	return result.unique();
 };
 
-fn Analyzer::select_implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> ConversionSelection {
+fn Analyzer::select_implicit_constructor(var Analyzer& this, SemanticExpression& value, Type& expected) -> ConversionSelection {
 	if (expected.kind() != type_kind::named || expected.entity()->kind() != entity_kind::record) {
 		return ConversionSelection();
 	};
@@ -63,8 +63,8 @@ fn Analyzer::select_implicit_constructor(var Analyzer& this, const SemanticExpre
 	return $result;
 };
 
-fn Analyzer::select_conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> ConversionSelection {
-	const Type* source = value.type();
+fn Analyzer::select_conversion_function(var Analyzer& this, SemanticExpression& value, Type& expected, conversion_mode mode) -> ConversionSelection {
+	Type* source = value.type();
 
 	ConversionSelection result;
 	usize index = 0;
@@ -117,7 +117,7 @@ fn Analyzer::select_conversion_function(var Analyzer& this, const SemanticExpres
 	return $result;
 };
 
-fn Analyzer::argument_rank(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
+fn Analyzer::argument_rank(var Analyzer& this, SemanticExpression& value, Type& expected) -> i32 {
 	if (value.kind() == semantic_kind::deferred_argument) {
 		return 0;
 	};
@@ -142,7 +142,7 @@ fn Analyzer::argument_rank(var Analyzer& this, const SemanticExpression& value, 
 		return -1;
 	};
 
-	const Type* target = &@expected;
+	Type* target = &@expected;
 
 	if (target->kind() == type_kind::reference) {
 		@target = target->element();

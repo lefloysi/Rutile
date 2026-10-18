@@ -1,30 +1,30 @@
 namespace rt {
 	struct string {
 		fn string(var string& this) : [default];
-		fn string(var string& this, const string& other);
-		fn string(var string& this, const string_view& text);
-		fn string(var string& this, const char* text);
+		fn string(var string& this, string& other);
+		fn string(var string& this, string_view& text);
+		fn string(var string& this, char* text);
 
-		fn operator=(var string& this, const string& other) -> var string&;
+		fn operator=(var string& this, string& other) -> var string&;
 		fn clear(var string& this);
-		fn append(var string& this, const string_view& text) -> bool;
+		fn append(var string& this, string_view& text) -> bool;
 
-		fn size(const string& this) -> usize;
-		fn empty(const string& this) -> bool;
+		fn size(string& this) -> usize;
+		fn empty(string& this) -> bool;
 		fn data(auto string& this) -> const[this] char*;
-		fn c_str(const string& this) -> const char*;
-		fn view(const string& this) -> string_view;
+		fn c_str(string& this) -> char*;
+		fn view(string& this) -> string_view;
 
 	private:
 		buffer<char> bytes;
 	};
 
-	fn string_view::string_view(var string_view& this, const string& text) {
+	fn string_view::string_view(var string_view& this, string& text) {
 		@this.bytes = text.data();
 		@this.length = text.size();
 	};
 
-	fn string::append(var string& this, const string_view& text) -> bool {
+	fn string::append(var string& this, string_view& text) -> bool {
 		if (text.empty()) {
 			return true;
 		};
@@ -34,7 +34,7 @@ namespace rt {
 			return false;
 		};
 
-		const char* source = text.data();
+		char* source = text.data();
 		usize offset = 0;
 		usize address = reinterpret_cast<usize>(source);
 		usize begin = reinterpret_cast<usize>(this.bytes.data());
@@ -64,19 +64,19 @@ namespace rt {
 		return true;
 	};
 
-	fn string::string(var string& this, const string& other) {
+	fn string::string(var string& this, string& other) {
 		@this.append(other.view());
 	};
 
-	fn string::string(var string& this, const string_view& text) {
+	fn string::string(var string& this, string_view& text) {
 		@this.append(text);
 	};
 
-	fn string::string(var string& this, const char* text) {
+	fn string::string(var string& this, char* text) {
 		@this.append(string_view($text));
 	};
 
-	fn string::operator=(var string& this, const string& other) -> var string& {
+	fn string::operator=(var string& this, string& other) -> var string& {
 		string replacement;
 		if (!@replacement.append(other.view())) {
 			return @this;
@@ -87,7 +87,7 @@ namespace rt {
 		return @this;
 	};
 
-	fn string::size(const string& this) -> usize {
+	fn string::size(string& this) -> usize {
 		if (!this.bytes.size()) {
 			return 0;
 		};
@@ -95,7 +95,7 @@ namespace rt {
 		return this.bytes.size() - 1;
 	};
 
-	fn string::empty(const string& this) -> bool {
+	fn string::empty(string& this) -> bool {
 		return !this.size();
 	};
 
@@ -103,7 +103,7 @@ namespace rt {
 		return const_cast<const[this] char*>(this.bytes.data());
 	};
 
-	fn string::c_str(const string& this) -> const char* {
+	fn string::c_str(string& this) -> char* {
 		if (!this.bytes.size()) {
 			return "\0";
 		};
@@ -111,7 +111,7 @@ namespace rt {
 		return this.bytes.data();
 	};
 
-	fn string::view(const string& this) -> string_view {
+	fn string::view(string& this) -> string_view {
 		return string_view(this.bytes.data(), this.size());
 	};
 

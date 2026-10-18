@@ -1,4 +1,4 @@
-fn numeric_literal_expression(const SemanticExpression& expression) -> bool {
+fn numeric_literal_expression(SemanticExpression& expression) -> bool {
 	if (expression.kind() == semantic_kind::literal_integer || expression.kind() == semantic_kind::literal_real) {
 		return expression.token().kind == token_kind::literal_number;
 	};
@@ -18,7 +18,7 @@ fn numeric_literal_expression(const SemanticExpression& expression) -> bool {
 	return false;
 };
 
-fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* target) -> bool {
+fn Analyzer::compatible(Analyzer& this, Type* source, Type* target) -> bool {
 	if (source == target) {
 		return true;
 	};
@@ -39,8 +39,8 @@ fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* ta
 		return false;
 	};
 
-	const Type* from = source->element();
-	const Type* to = target->element();
+	Type* from = source->element();
+	Type* to = target->element();
 
 	if (from->kind() == type_kind::null_type) {
 		return true;
@@ -57,13 +57,13 @@ fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* ta
 	return from->same_shape(*to) || from->derived_from(*to);
 };
 
-fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
+fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expected) -> i32 {
 	if (expected.kind() == type_kind::reference) {
 		if (value.category() != value_category::place && expected.element()->qualifier() == type_qualifier::mutable) {
 			return -1;
 		};
 
-		const Type* target = expected.element();
+		Type* target = expected.element();
 
 		if (target->qualifier() == type_qualifier::mutable && !value.mutable_access()) {
 			return -1;
@@ -117,7 +117,7 @@ fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value,
 	return -1;
 };
 
-fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, const rt::optional_ref<const Type>& expected, var Syntax& syntax) -> rt::unique<SemanticExpression> {
+fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, rt::optional_ref<const Type>& expected, var Syntax& syntax) -> rt::unique<SemanticExpression> {
 	if (!value.get() || !expected.has_value()) {
 		return $value;
 	};
@@ -127,7 +127,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, c
 			return rt::unique<SemanticExpression>();
 		};
 
-		const Type* target = expected.get();
+		Type* target = expected.get();
 		if (target->kind() == type_kind::reference) {
 			@target = target->element();
 		};
@@ -148,17 +148,17 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, c
 		};
 
 		var message = DiagnosticMessage();
-		@message.text("cannot initialize '\0");
+		@message.text(rt::string_view("cannot initialize '", 19));
 		diagnostic_type(@message, expected.value());
-		@message.text("' from \0");
+		@message.text(rt::string_view("' from ", 7));
 		if (value.get()->category() == value_category::place) {
-			@message.text("a place of type '\0");
+			@message.text(rt::string_view("a place of type '", 17));
 		}
 		else {
-			@message.text("a consumable of type '\0");
+			@message.text(rt::string_view("a consumable of type '", 22));
 		};
 		diagnostic_type(@message, *value.get()->type());
-		@message.text("'\0");
+		@message.text(rt::string_view("'", 1));
 		@this.diagnostics->error(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -175,7 +175,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, c
 	};
 
 	i32 builtin = this.builtin_rank(*value.get(), expected.value());
-	const Type* target = expected.get();
+	Type* target = expected.get();
 	if (target->kind() == type_kind::reference) {
 		@target = target->element();
 	};
@@ -201,11 +201,11 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, c
 
 		if (!selected) {
 			var message = DiagnosticMessage();
-			@message.text("no applicable implicit conversion from '\0");
+			@message.text(rt::string_view("no applicable implicit conversion from '", 40));
 			diagnostic_type(@message, *value.get()->type());
-			@message.text("' to '\0");
+			@message.text(rt::string_view("' to '", 6));
 			diagnostic_type(@message, expected.value());
-			@message.text("'\0");
+			@message.text(rt::string_view("'", 1));
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -223,7 +223,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, c
 			return rt::unique<SemanticExpression>();
 		};
 
-		var arguments = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+		var arguments = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
 
 		if (!arguments.get()) {
 			return rt::unique<SemanticExpression>();

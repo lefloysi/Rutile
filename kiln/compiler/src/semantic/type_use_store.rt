@@ -1,5 +1,5 @@
-fn SemanticUnit::retain_use(var SemanticUnit& this, rt::unique<TypeUse> use) -> const TypeUse* {
-	const TypeUse* borrowed = use.get();
+fn SemanticUnit::retain_use(var SemanticUnit& this, rt::unique<TypeUse> use) -> TypeUse* {
+	TypeUse* borrowed = use.get();
 
 	if (!borrowed || !@this.type_uses.push_back(rt::unique<TypeUse>(@use.release()))) {
 		return nullptr;
@@ -8,7 +8,7 @@ fn SemanticUnit::retain_use(var SemanticUnit& this, rt::unique<TypeUse> use) -> 
 	return $borrowed;
 };
 
-fn SemanticUnit::leaf_use(var SemanticUnit& this, const Type& type) -> const TypeUse* {
+fn SemanticUnit::leaf_use(var SemanticUnit& this, Type& type) -> TypeUse* {
 	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array || type.kind() == type_kind::function) {
 		return nullptr;
 	};
@@ -16,7 +16,7 @@ fn SemanticUnit::leaf_use(var SemanticUnit& this, const Type& type) -> const Typ
 	return @this.retain_use(rt::unique<TypeUse>(new var TypeUse(type)));
 };
 
-fn SemanticUnit::indirect_use(var SemanticUnit& this, const Type& type, const TypeUse& element) -> const TypeUse* {
+fn SemanticUnit::indirect_use(var SemanticUnit& this, Type& type, TypeUse& element) -> TypeUse* {
 	if (type.kind() != type_kind::pointer && type.kind() != type_kind::reference && type.kind() != type_kind::array) {
 		return nullptr;
 	};
@@ -28,7 +28,7 @@ fn SemanticUnit::indirect_use(var SemanticUnit& this, const Type& type, const Ty
 	return @this.retain_use(rt::unique<TypeUse>(new var TypeUse(type, element)));
 };
 
-fn SemanticUnit::function_use(var SemanticUnit& this, const Type& type, rt::buffer<ParameterUse> parameters, const TypeUse& result) -> const TypeUse* {
+fn SemanticUnit::function_use(var SemanticUnit& this, Type& type, rt::buffer<ParameterUse> parameters, TypeUse& result) -> TypeUse* {
 	if (type.kind() != type_kind::function || type.signature().parameters().size() != parameters.size()) {
 		return nullptr;
 	};

@@ -1,4 +1,4 @@
-fn Backend::implementation(const Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
+fn Backend::implementation(Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
 	@entity = entity->canonical();
 	usize index = 0;
 
@@ -13,7 +13,7 @@ fn Backend::implementation(const Backend& this, var Entity* entity) -> var LLVMO
 	return nullptr;
 };
 
-fn Backend::field_index(const Backend& this, var Entity* entity, usize index) -> u32 {
+fn Backend::field_index(Backend& this, var Entity* entity, usize index) -> u32 {
 	return static_cast<u32>(entity->bases().size() + static_cast<usize>(entity->owns_dispatch()) + index);
 };
 
@@ -36,12 +36,12 @@ fn Backend::table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*
 		var LLVMOpaqueValue* implementation = this.implementation(function);
 
 		if (!implementation) {
-			@this.error(function->token(), rt::string_view("virtual implementation has no prepared native declaration\0"));
+			@this.error(function->token(), rt::string_view("virtual implementation has no prepared native declaration", 57));
 			return nullptr;
 		};
 
 		if (!@functions.push_back(implementation)) {
-			@this.error(function->token(), rt::string_view("cannot retain native virtual implementations\0"));
+			@this.error(function->token(), rt::string_view("cannot retain native virtual implementations", 44));
 			return nullptr;
 		};
 
@@ -59,7 +59,7 @@ fn Backend::table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*
 	@table.value = value;
 
 	if (!@this.tables.push_back($table)) {
-		@this.error(entity->token(), rt::string_view("cannot retain native virtual table\0"));
+		@this.error(entity->token(), rt::string_view("cannot retain native virtual table", 34));
 		return nullptr;
 	};
 
@@ -70,7 +70,7 @@ fn Backend::dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqu
 	var Entity* owner = entity->scope()->owner()->virtual_owner();
 
 	if (!owner || !receiver) {
-		@this.error(entity->token(), rt::string_view("virtual dispatch has no owning receiver layout\0"));
+		@this.error(entity->token(), rt::string_view("virtual dispatch has no owning receiver layout", 46));
 		return nullptr;
 	};
 
@@ -84,10 +84,10 @@ fn Backend::dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqu
 };
 
 fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
-	const FunctionSignature& signature = entity->type()->signature();
+	FunctionSignature& signature = entity->type()->signature();
 
 	if (!signature.parameters().size() || signature.parameters().data()[0]->kind() != type_kind::reference || signature.arity() == parameter_arity::variadic) {
-		return @this.error(entity->token(), rt::string_view("virtual dispatch requires a fixed signature with an object receiver\0"));
+		return @this.error(entity->token(), rt::string_view("virtual dispatch requires a fixed signature with an object receiver", 67));
 	};
 
 	var LLVMOpaqueValue* function = this.symbol(entity);
@@ -97,7 +97,7 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
 
 	while (index < signature.parameters().size()) {
 		if (!@arguments.push_back(LLVMGetParam(function, static_cast<u32>(index)))) {
-			return @this.error(entity->token(), rt::string_view("cannot retain virtual call arguments\0"));
+			return @this.error(entity->token(), rt::string_view("cannot retain virtual call arguments", 36));
 		};
 
 		@index = index + 1;
@@ -121,7 +121,7 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
 	var Entity* record = type->entity();
 	var Entity* owner = record->virtual_owner();
 

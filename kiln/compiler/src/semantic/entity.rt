@@ -81,101 +81,101 @@ struct Scope;
 struct CopyAssignmentPlan;
 
 struct Entity {
-	fn Entity(var Entity& this, entity_kind kind, const Token& token, var Syntax* source, var Scope* scope);
+	fn Entity(var Entity& this, entity_kind kind, Token& token, var Syntax* source, var Scope* scope);
 
-	fn kind(const Entity& this) -> entity_kind;
-	fn canonical(const Entity& this) -> var Entity*;
-	fn token(const Entity& this) -> Token;
-	fn name(const Entity& this) -> rt::string_view;
-	fn set_name(var Entity& this, const rt::string_view& name) -> bool;
-	fn origin(const Entity& this) -> declaration_origin;
+	fn kind(Entity& this) -> entity_kind;
+	fn canonical(Entity& this) -> var Entity*;
+	fn token(Entity& this) -> Token;
+	fn name(Entity& this) -> rt::string_view;
+	fn set_name(var Entity& this, rt::string_view& name) -> bool;
+	fn origin(Entity& this) -> declaration_origin;
 	fn set_origin(var Entity& this, declaration_origin origin);
 	fn merge_into(var Entity& this, var Entity* canonical);
-	fn adopt_definition(var Entity& this, const Entity& source) -> bool;
+	fn adopt_definition(var Entity& this, Entity& source) -> bool;
 
-	fn type(const Entity& this) -> const Type*;
-	fn set_type(var Entity& this, const Type* type);
-	fn type_use(const Entity& this) -> const rt::optional_ref<const TypeUse>&;
-	fn set_type_use(var Entity& this, const TypeUse& use);
-	fn underlying(const Entity& this) -> const Type*;
-	fn set_underlying(var Entity& this, const Type* type);
-	fn denotes_type(const Entity& this) -> bool;
-	fn layout(const Entity& this) -> record_layout;
-	fn member_owner(const Entity& this) -> var Entity*;
-	fn accessible_from(const Entity& this, const Scope& scope) -> bool;
-	fn bases(const Entity& this) -> const rt::buffer<const Type*>&;
-	fn add_base(var Entity& this, const Type* type) -> bool;
+	fn type(Entity& this) -> Type*;
+	fn set_type(var Entity& this, Type* type);
+	fn type_use(Entity& this) -> rt::optional_ref<const TypeUse>&;
+	fn set_type_use(var Entity& this, TypeUse& use);
+	fn underlying(Entity& this) -> Type*;
+	fn set_underlying(var Entity& this, Type* type);
+	fn denotes_type(Entity& this) -> bool;
+	fn layout(Entity& this) -> record_layout;
+	fn member_owner(Entity& this) -> var Entity*;
+	fn accessible_from(Entity& this, Scope& scope) -> bool;
+	fn bases(Entity& this) -> rt::buffer<Type*>&;
+	fn add_base(var Entity& this, Type* type) -> bool;
 
-	fn declaration(const Entity& this) -> var Syntax*;
+	fn declaration(Entity& this) -> var Syntax*;
 	fn replace_declaration(var Entity& this, var Syntax* syntax);
-	fn scope(const Entity& this) -> var Scope*;
-	fn resolution_scope(const Entity& this) -> var Scope*;
+	fn scope(Entity& this) -> var Scope*;
+	fn resolution_scope(Entity& this) -> var Scope*;
 	fn set_resolution_scope(var Entity& this, var Scope* scope);
-	fn members(const Entity& this) -> var Scope*;
+	fn members(Entity& this) -> var Scope*;
 	fn set_members(var Entity& this, var Scope* scope);
-	fn find_member(const Entity& this, const rt::string_view& name) -> var Entity*;
+	fn find_member(Entity& this, rt::string_view& name) -> var Entity*;
 
-	fn parameters(const Entity& this) -> const rt::buffer<var Entity*>&;
+	fn parameters(Entity& this) -> rt::buffer<var Entity*>&;
 	fn add_parameter(var Entity& this, var Entity* parameter) -> bool;
-	fn fields(const Entity& this) -> const rt::buffer<var Entity*>&;
+	fn fields(Entity& this) -> rt::buffer<var Entity*>&;
 	fn add_field(var Entity& this, var Entity* field) -> bool;
-	fn index(const Entity& this) -> usize;
+	fn index(Entity& this) -> usize;
 	fn set_index(var Entity& this, usize index);
-	fn body(const Entity& this) -> var SemanticExpression*;
+	fn body(Entity& this) -> var SemanticExpression*;
 	fn set_body(var Entity& this, rt::unique<SemanticExpression> body);
-	fn body_state(const Entity& this) -> entity_state;
+	fn body_state(Entity& this) -> entity_state;
 	fn set_body_state(var Entity& this, entity_state state);
-	fn completion(const Entity& this) -> function_completion;
+	fn completion(Entity& this) -> function_completion;
 	fn set_completion(var Entity& this, function_completion completion);
 
-	fn destructor(const Entity& this) -> var Entity*;
+	fn destructor(Entity& this) -> var Entity*;
 	fn set_destructor(var Entity& this, var Entity* function);
-	fn default_constructor(const Entity& this) -> var Entity*;
+	fn default_constructor(Entity& this) -> var Entity*;
 	fn set_default_constructor(var Entity& this, var Entity* function);
-	fn copy_constructor(const Entity& this) -> var Entity*;
+	fn copy_constructor(Entity& this) -> var Entity*;
 	fn set_copy_constructor(var Entity& this, var Entity* function);
-	fn move_constructor(const Entity& this) -> var Entity*;
+	fn move_constructor(Entity& this) -> var Entity*;
 	fn set_move_constructor(var Entity& this, var Entity* function);
-	fn copy_assignment(const Entity& this) -> var CopyAssignmentPlan*;
+	fn copy_assignment(Entity& this) -> var CopyAssignmentPlan*;
 	fn set_copy_assignment(var Entity& this, rt::unique<CopyAssignmentPlan> plan);
 
-	fn virtual_owner(const Entity& this) -> var Entity*;
-	fn owns_dispatch(const Entity& this) -> bool;
-	fn virtual_functions(const Entity& this) -> const rt::buffer<var Entity*>&;
+	fn virtual_owner(Entity& this) -> var Entity*;
+	fn owns_dispatch(Entity& this) -> bool;
+	fn virtual_functions(Entity& this) -> rt::buffer<var Entity*>&;
 	fn add_virtual(var Entity& this, var Entity* function) -> bool;
 	fn replace_virtual(var Entity& this, usize index, var Entity& function);
-	fn dispatch(const Entity& this) -> function_dispatch;
+	fn dispatch(Entity& this) -> function_dispatch;
 	fn set_dispatch(var Entity& this, function_dispatch dispatch);
-	fn declares_virtual(const Entity& this) -> bool;
-	fn requires_override(const Entity& this) -> bool;
-	fn is_final(const Entity& this) -> bool;
-	fn merge_dispatch(var Entity& this, const Entity& source);
-	fn virtual_slot(const Entity& this) -> usize;
+	fn declares_virtual(Entity& this) -> bool;
+	fn requires_override(Entity& this) -> bool;
+	fn is_final(Entity& this) -> bool;
+	fn merge_dispatch(var Entity& this, Entity& source);
+	fn virtual_slot(Entity& this) -> usize;
 	fn set_virtual_slot(var Entity& this, usize slot);
-	fn dispatch_required(const Entity& this) -> bool;
+	fn dispatch_required(Entity& this) -> bool;
 	fn require_dispatch(var Entity& this);
 
-	fn definition(const Entity& this) -> function_definition;
+	fn definition(Entity& this) -> function_definition;
 	fn set_definition(var Entity& this, function_definition definition);
-	fn role(const Entity& this) -> function_role;
+	fn role(Entity& this) -> function_role;
 	fn set_role(var Entity& this, function_role role);
-	fn conversion(const Entity& this) -> conversion_mode;
+	fn conversion(Entity& this) -> conversion_mode;
 	fn set_conversion(var Entity& this, conversion_mode mode);
-	fn access(const Entity& this) -> access_kind;
+	fn access(Entity& this) -> access_kind;
 	fn set_access(var Entity& this, access_kind access);
-	fn operator_kind(const Entity& this) -> token_kind;
+	fn operator_kind(Entity& this) -> token_kind;
 	fn set_operator_kind(var Entity& this, token_kind operation);
 
-	fn state(const Entity& this) -> entity_state;
+	fn state(Entity& this) -> entity_state;
 	fn set_state(var Entity& this, entity_state state);
-	fn lifetime(const Entity& this) -> binding_lifetime;
+	fn lifetime(Entity& this) -> binding_lifetime;
 	fn set_lifetime(var Entity& this, binding_lifetime lifetime);
-	fn integer(const Entity& this) -> u64;
+	fn integer(Entity& this) -> u64;
 	fn set_integer(var Entity& this, u64 value);
-	fn instantiated(const Entity& this) -> bool;
+	fn instantiated(Entity& this) -> bool;
 	fn set_instantiated(var Entity& this);
-	fn template_arguments(const Entity& this) -> const TemplateInstantiation*;
-	fn set_template_arguments(var Entity& this, const TemplateInstantiation* arguments);
+	fn template_arguments(Entity& this) -> TemplateInstantiation*;
+	fn set_template_arguments(var Entity& this, TemplateInstantiation* arguments);
 
 private:
 	entity_kind category;
@@ -185,7 +185,7 @@ private:
 	entity_state body_resolution;
 	function_completion body_completion;
 	bool template_instance;
-	const TemplateInstantiation* retained_arguments;
+	TemplateInstantiation* retained_arguments;
 	bool virtual_specified;
 	bool override_specified;
 	bool final_specified;
@@ -208,19 +208,19 @@ private:
 	var Entity* copy_initializer;
 	rt::unique<CopyAssignmentPlan> copy_assigner;
 	var Entity* move_initializer;
-	const Type* value_type;
+	Type* value_type;
 	rt::optional_ref<const TypeUse> use;
-	const Type* underlying_type;
+	Type* underlying_type;
 	usize position;
 	u64 constant_value;
 	rt::buffer<var Entity*> arguments;
 	rt::buffer<var Entity*> member_fields;
-	rt::buffer<const Type*> base_types;
+	rt::buffer<Type*> base_types;
 	rt::buffer<var Entity*> dispatch_table;
 	rt::unique<SemanticExpression> implementation;
 };
 
-fn Entity::find_member(const Entity& this, const rt::string_view& name) -> var Entity* {
+fn Entity::find_member(Entity& this, rt::string_view& name) -> var Entity* {
 	if (!this.members()) {
 		return nullptr;
 	};
@@ -240,7 +240,7 @@ fn Entity::find_member(const Entity& this, const rt::string_view& name) -> var E
 	return base->find_member(name);
 };
 
-fn Entity::virtual_owner(const Entity& this) -> var Entity* {
+fn Entity::virtual_owner(Entity& this) -> var Entity* {
 	if (!this.virtual_functions().size()) {
 		return nullptr;
 	};
@@ -252,11 +252,11 @@ fn Entity::virtual_owner(const Entity& this) -> var Entity* {
 	return const_cast<var Entity*>(&@this);
 };
 
-fn Entity::owns_dispatch(const Entity& this) -> bool {
+fn Entity::owns_dispatch(Entity& this) -> bool {
 	return this.virtual_functions().size() && (!this.bases().size() || !this.bases().data()[0]->entity()->virtual_functions().size());
 };
 
-fn Entity::virtual_functions(const Entity& this) -> const rt::buffer<var Entity*>& {
+fn Entity::virtual_functions(Entity& this) -> rt::buffer<var Entity*>& {
 	return this.dispatch_table;
 };
 
@@ -269,7 +269,7 @@ fn Entity::replace_virtual(var Entity& this, usize index, var Entity& function) 
 	@entries[index] = &@function;
 };
 
-fn Entity::dispatch(const Entity& this) -> function_dispatch {
+fn Entity::dispatch(Entity& this) -> function_dispatch {
 	if (this.final_specified) {
 		return function_dispatch::final_function;
 	};
@@ -285,15 +285,15 @@ fn Entity::dispatch(const Entity& this) -> function_dispatch {
 	return function_dispatch::ordinary;
 };
 
-fn Entity::declares_virtual(const Entity& this) -> bool {
+fn Entity::declares_virtual(Entity& this) -> bool {
 	return this.virtual_specified;
 };
 
-fn Entity::requires_override(const Entity& this) -> bool {
+fn Entity::requires_override(Entity& this) -> bool {
 	return this.override_specified;
 };
 
-fn Entity::is_final(const Entity& this) -> bool {
+fn Entity::is_final(Entity& this) -> bool {
 	return this.final_specified;
 };
 
@@ -311,13 +311,13 @@ fn Entity::set_dispatch(var Entity& this, function_dispatch dispatch) {
 	};
 };
 
-fn Entity::merge_dispatch(var Entity& this, const Entity& source) {
+fn Entity::merge_dispatch(var Entity& this, Entity& source) {
 	@this.virtual_specified = this.virtual_specified || source.virtual_specified;
 	@this.override_specified = this.override_specified || source.override_specified;
 	@this.final_specified = this.final_specified || source.final_specified;
 };
 
-fn Entity::virtual_slot(const Entity& this) -> usize {
+fn Entity::virtual_slot(Entity& this) -> usize {
 	return this.dispatch_slot;
 };
 
@@ -325,7 +325,7 @@ fn Entity::set_virtual_slot(var Entity& this, usize slot) {
 	@this.dispatch_slot = $slot;
 };
 
-fn Entity::dispatch_required(const Entity& this) -> bool {
+fn Entity::dispatch_required(Entity& this) -> bool {
 	return this.dispatch_live;
 };
 
@@ -333,26 +333,26 @@ fn Entity::require_dispatch(var Entity& this) {
 	@this.dispatch_live = true;
 };
 
-fn Entity::bases(const Entity& this) -> const rt::buffer<const Type*>& {
+fn Entity::bases(Entity& this) -> rt::buffer<Type*>& {
 	return this.base_types;
 };
 
-fn Entity::add_base(var Entity& this, const Type* type) -> bool {
+fn Entity::add_base(var Entity& this, Type* type) -> bool {
 	return @this.base_types.push_back($type);
 };
 
-fn Entity::Entity(var Entity& this, entity_kind kind, const Token& token, var Syntax* source, var Scope* scope) {
+fn Entity::Entity(var Entity& this, entity_kind kind, Token& token, var Syntax* source, var Scope* scope) {
 	@this.category = $kind;
 	@this.location := token;
 	@this.source = $source;
 	@this.declaration_scope = $scope;
 };
 
-fn Entity::kind(const Entity& this) -> entity_kind {
+fn Entity::kind(Entity& this) -> entity_kind {
 	return entity_kind(this.category);
 };
 
-fn Entity::layout(const Entity& this) -> record_layout {
+fn Entity::layout(Entity& this) -> record_layout {
 	if (this.declaration() && this.declaration()->token().kind == token_kind::kw_union) {
 		return record_layout::overlapping;
 	};
@@ -360,7 +360,7 @@ fn Entity::layout(const Entity& this) -> record_layout {
 	return record_layout::sequential;
 };
 
-fn Entity::denotes_type(const Entity& this) -> bool {
+fn Entity::denotes_type(Entity& this) -> bool {
 	switch (this.kind()) {
 		case entity_kind::primitive_type:
 		case entity_kind::record:
@@ -375,7 +375,7 @@ fn Entity::denotes_type(const Entity& this) -> bool {
 	};
 };
 
-fn Entity::member_owner(const Entity& this) -> var Entity* {
+fn Entity::member_owner(Entity& this) -> var Entity* {
 	if (this.kind() == entity_kind::alias || this.kind() == entity_kind::type_parameter) {
 		if (!this.type() || this.type()->kind() != type_kind::named) {
 			return nullptr;
@@ -391,7 +391,7 @@ fn Entity::member_owner(const Entity& this) -> var Entity* {
 	return nullptr;
 };
 
-fn Entity::instantiated(const Entity& this) -> bool {
+fn Entity::instantiated(Entity& this) -> bool {
 	return this.template_instance;
 };
 
@@ -399,7 +399,7 @@ fn Entity::set_instantiated(var Entity& this) {
 	@this.template_instance = true;
 };
 
-fn Entity::body_state(const Entity& this) -> entity_state {
+fn Entity::body_state(Entity& this) -> entity_state {
 	return entity_state(this.body_resolution);
 };
 
@@ -407,7 +407,7 @@ fn Entity::set_body_state(var Entity& this, entity_state state) {
 	@this.body_resolution = $state;
 };
 
-fn Entity::completion(const Entity& this) -> function_completion {
+fn Entity::completion(Entity& this) -> function_completion {
 	return function_completion(this.body_completion);
 };
 
@@ -415,7 +415,7 @@ fn Entity::set_completion(var Entity& this, function_completion completion) {
 	@this.body_completion = $completion;
 };
 
-fn Entity::canonical(const Entity& this) -> var Entity* {
+fn Entity::canonical(Entity& this) -> var Entity* {
 	if (this.previous_declaration) {
 		return this.previous_declaration->canonical();
 	};
@@ -423,11 +423,11 @@ fn Entity::canonical(const Entity& this) -> var Entity* {
 	return const_cast<var Entity*>(&@this);
 };
 
-fn Entity::token(const Entity& this) -> Token {
+fn Entity::token(Entity& this) -> Token {
 	return Token(this.location);
 };
 
-fn Entity::name(const Entity& this) -> rt::string_view {
+fn Entity::name(Entity& this) -> rt::string_view {
 	if (!this.generated_name.empty()) {
 		return this.generated_name.view();
 	};
@@ -435,11 +435,11 @@ fn Entity::name(const Entity& this) -> rt::string_view {
 	return this.location.text();
 };
 
-fn Entity::set_name(var Entity& this, const rt::string_view& name) -> bool {
+fn Entity::set_name(var Entity& this, rt::string_view& name) -> bool {
 	return @this.generated_name.append(name);
 };
 
-fn Entity::origin(const Entity& this) -> declaration_origin {
+fn Entity::origin(Entity& this) -> declaration_origin {
 	return declaration_origin(this.declaration_origin_kind);
 };
 
@@ -447,27 +447,27 @@ fn Entity::set_origin(var Entity& this, declaration_origin origin) {
 	@this.declaration_origin_kind = $origin;
 };
 
-fn Entity::type_use(const Entity& this) -> const rt::optional_ref<const TypeUse>& {
+fn Entity::type_use(Entity& this) -> rt::optional_ref<const TypeUse>& {
 	return this.use;
 };
 
-fn Entity::set_type_use(var Entity& this, const TypeUse& use) {
+fn Entity::set_type_use(var Entity& this, TypeUse& use) {
 	@this.use.bind(use);
 };
 
-fn Entity::type(const Entity& this) -> const Type* {
+fn Entity::type(Entity& this) -> Type* {
 	return this.value_type;
 };
 
-fn Entity::declaration(const Entity& this) -> var Syntax* {
+fn Entity::declaration(Entity& this) -> var Syntax* {
 	return this.source;
 };
 
-fn Entity::scope(const Entity& this) -> var Scope* {
+fn Entity::scope(Entity& this) -> var Scope* {
 	return this.declaration_scope;
 };
 
-fn Entity::resolution_scope(const Entity& this) -> var Scope* {
+fn Entity::resolution_scope(Entity& this) -> var Scope* {
 	if (this.definition_scope) {
 		return this.definition_scope;
 	};
@@ -479,43 +479,43 @@ fn Entity::set_resolution_scope(var Entity& this, var Scope* scope) {
 	@this.definition_scope = $scope;
 };
 
-fn Entity::members(const Entity& this) -> var Scope* {
+fn Entity::members(Entity& this) -> var Scope* {
 	return this.member_scope;
 };
 
-fn Entity::body(const Entity& this) -> var SemanticExpression* {
+fn Entity::body(Entity& this) -> var SemanticExpression* {
 	return this.implementation.get();
 };
 
-fn Entity::parameters(const Entity& this) -> const rt::buffer<var Entity*>& {
+fn Entity::parameters(Entity& this) -> rt::buffer<var Entity*>& {
 	return this.arguments;
 };
 
-fn Entity::fields(const Entity& this) -> const rt::buffer<var Entity*>& {
+fn Entity::fields(Entity& this) -> rt::buffer<var Entity*>& {
 	return this.member_fields;
 };
 
-fn Entity::index(const Entity& this) -> usize {
+fn Entity::index(Entity& this) -> usize {
 	return this.position;
 };
 
-fn Entity::state(const Entity& this) -> entity_state {
+fn Entity::state(Entity& this) -> entity_state {
 	return entity_state(this.resolution);
 };
 
-fn Entity::lifetime(const Entity& this) -> binding_lifetime {
+fn Entity::lifetime(Entity& this) -> binding_lifetime {
 	return binding_lifetime(this.validity);
 };
 
-fn Entity::integer(const Entity& this) -> u64 {
+fn Entity::integer(Entity& this) -> u64 {
 	return this.constant_value;
 };
 
-fn Entity::underlying(const Entity& this) -> const Type* {
+fn Entity::underlying(Entity& this) -> Type* {
 	return this.underlying_type;
 };
 
-fn Entity::destructor(const Entity& this) -> var Entity* {
+fn Entity::destructor(Entity& this) -> var Entity* {
 	if (!this.finalizer) {
 		return nullptr;
 	};
@@ -523,15 +523,15 @@ fn Entity::destructor(const Entity& this) -> var Entity* {
 	return this.finalizer->canonical();
 };
 
-fn Entity::default_constructor(const Entity& this) -> var Entity* {
+fn Entity::default_constructor(Entity& this) -> var Entity* {
 	return this.default_initializer;
 };
 
-fn Entity::copy_constructor(const Entity& this) -> var Entity* {
+fn Entity::copy_constructor(Entity& this) -> var Entity* {
 	return this.copy_initializer;
 };
 
-fn Entity::move_constructor(const Entity& this) -> var Entity* {
+fn Entity::move_constructor(Entity& this) -> var Entity* {
 	return this.move_initializer;
 };
 
@@ -547,19 +547,19 @@ fn Entity::set_move_constructor(var Entity& this, var Entity* function) {
 	@this.move_initializer = $function;
 };
 
-fn Entity::definition(const Entity& this) -> function_definition {
+fn Entity::definition(Entity& this) -> function_definition {
 	return function_definition(this.body_kind);
 };
 
-fn Entity::role(const Entity& this) -> function_role {
+fn Entity::role(Entity& this) -> function_role {
 	return function_role(this.function_kind);
 };
 
-fn Entity::conversion(const Entity& this) -> conversion_mode {
+fn Entity::conversion(Entity& this) -> conversion_mode {
 	return conversion_mode(this.conversion_kind);
 };
 
-fn Entity::access(const Entity& this) -> access_kind {
+fn Entity::access(Entity& this) -> access_kind {
 	return access_kind(this.visibility);
 };
 
@@ -567,7 +567,7 @@ fn Entity::set_access(var Entity& this, access_kind access) {
 	@this.visibility = $access;
 };
 
-fn Entity::operator_kind(const Entity& this) -> token_kind {
+fn Entity::operator_kind(Entity& this) -> token_kind {
 	return token_kind(this.operator_symbol);
 };
 
@@ -591,7 +591,7 @@ fn Entity::set_destructor(var Entity& this, var Entity* function) {
 	@this.finalizer = $function;
 };
 
-fn Entity::set_type(var Entity& this, const Type* type) {
+fn Entity::set_type(var Entity& this, Type* type) {
 	@this.value_type = $type;
 };
 
@@ -603,7 +603,7 @@ fn Entity::replace_declaration(var Entity& this, var Syntax* syntax) {
 	@this.source = $syntax;
 };
 
-fn Entity::adopt_definition(var Entity& this, const Entity& source) -> bool {
+fn Entity::adopt_definition(var Entity& this, Entity& source) -> bool {
 	@this.source = source.declaration();
 	@this.member_scope = source.members();
 	@this.body_kind = source.definition();
@@ -647,7 +647,7 @@ fn Entity::set_integer(var Entity& this, u64 value) {
 	@this.constant_value = $value;
 };
 
-fn Entity::set_underlying(var Entity& this, const Type* type) {
+fn Entity::set_underlying(var Entity& this, Type* type) {
 	@this.underlying_type = $type;
 };
 
@@ -663,16 +663,16 @@ fn Entity::add_field(var Entity& this, var Entity* field) -> bool {
 	return @this.member_fields.push_back($field);
 };
 
-fn Entity::template_arguments(const Entity& this) -> const TemplateInstantiation* {
+fn Entity::template_arguments(Entity& this) -> TemplateInstantiation* {
 	return this.retained_arguments;
 };
 
-fn Entity::set_template_arguments(var Entity& this, const TemplateInstantiation* arguments) {
+fn Entity::set_template_arguments(var Entity& this, TemplateInstantiation* arguments) {
 	@this.retained_arguments = $arguments;
 };
 
-fn Entity::accessible_from(const Entity& this, const Scope& scope) -> bool {
-	const Scope* scope_cursor = &@scope;
+fn Entity::accessible_from(Entity& this, Scope& scope) -> bool {
+	Scope* scope_cursor = &@scope;
 
 	if (this.access() == access_kind::public_access) {
 		return true;
