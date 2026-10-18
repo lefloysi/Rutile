@@ -7,33 +7,48 @@ enum diagnostic_state : [u08] {
 
 struct Diagnostics {
 	fn Diagnostics(Diagnostics& this) : [default];
-	fn Diagnostics(Diagnostics& this, NativeFile* output) {
-		@this.output = $output;
-	};
-	fn failed(const Diagnostics& this) -> bool {
-		return this.state == diagnostic_state::failed;
-	};
-	fn error(Diagnostics& this, const Token& location, const rt::string_view& message) {
-		@this.state = diagnostic_state::failed;
-		if (!this.output) {
-			return;
-		};
-		var path = rt::string_view("<compiler>\0");
-		if (location.source) {
-			@path = location.source->path();
-		};
-		usize path_size = path.size();
-		usize message_size = message.size();
-		if (path_size > 2147483647) {
-			@path_size = 2147483647;
-		};
-		if (message_size > 2147483647) {
-			@message_size = 2147483647;
-		};
-		fprintf(this.output, "%.*s:%llu:%llu: %.*s\n\0", static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>($message_size), message.data());
-	};
+	fn Diagnostics(Diagnostics& this, NativeFile* output);
+
+	fn error(Diagnostics& this, const Token& location, const rt::string_view& message);
+
+	fn failed(const Diagnostics& this) -> bool;
 
 private:
 	NativeFile* output;
 	diagnostic_state state;
+};
+
+fn Diagnostics::Diagnostics(Diagnostics& this, NativeFile* output) {
+	@this.output = $output;
+};
+
+fn Diagnostics::failed(const Diagnostics& this) -> bool {
+	return this.state == diagnostic_state::failed;
+};
+
+fn Diagnostics::error(Diagnostics& this, const Token& location, const rt::string_view& message) {
+	@this.state = diagnostic_state::failed;
+
+	if (!this.output) {
+		return;
+	};
+
+	var path = rt::string_view("<compiler>\0");
+
+	if (location.source) {
+		@path = location.source->path();
+	};
+
+	usize path_size = path.size();
+	usize message_size = message.size();
+
+	if (path_size > 2147483647) {
+		@path_size = 2147483647;
+	};
+
+	if (message_size > 2147483647) {
+		@message_size = 2147483647;
+	};
+
+	fprintf(this.output, "%.*s:%llu:%llu: %.*s\n\0", static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>($message_size), message.data());
 };

@@ -1,37 +1,57 @@
-fn Analyzer::unary(Analyzer& this, Scope* scope, Syntax* syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	Token operation = syntax->token();
-	if (operation.kind == token_kind::op_access && syntax->operand()->kind() == syntax_kind::call) {
-		return @this.call(scope, syntax->operand(), expected, true);
+fn numeric_literal_expression(const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::number) {
+		return true;
 	};
+
+	if (syntax.kind() == syntax_kind::grouping) {
+		return numeric_literal_expression(*syntax.operand());
+	};
+
+	if (syntax.kind() == syntax_kind::unary && (syntax.token().kind == token_kind::op_plus || syntax.token().kind == token_kind::op_minus)) {
+		return numeric_literal_expression(*syntax.operand());
+	};
+
+	if (syntax.kind() == syntax_kind::binary && syntax.token().kind != token_kind::op_assign && syntax.token().kind != token_kind::op_copy) {
+		return numeric_literal_expression(*syntax.left()) && numeric_literal_expression(*syntax.right());
+	};
+
+	return false;
+};
+
+fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	Token operation = syntax.token();
+
+	if (operation.kind == token_kind::op_access && syntax.operand()->kind() == syntax_kind::call) {
+		return @this.call(@scope, @*syntax.operand(), expected, true);
+	};
+
 	rt::optional_ref<const Type> operand_type;
+
 	if ((operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus || operation.kind == token_kind::op_tilde) && expected.has_value() && expected.value().kind().is_numeric()) {
 		@operand_type.bind(expected.value());
 	};
-	var operand = @this.expression(scope, syntax->operand(), operand_type);
+
+	var operand = @this.expression(@scope, @*syntax.operand(), operand_type);
+
 	if (!operand.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* type = operand.get()->type();
+
 	if (operation.kind == token_kind::kw_sizeof) {
-		if (type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function) {
-			@this.error(syntax, "sizeof requires object storage\0");
-			return rt::unique<SemanticExpression>();
-		};
-		var result = @this.node(semantic_kind::sizeof_type, @this.primitive(rt::string_view("usize\0")), syntax);
-		if (!result.get()) {
-			return rt::unique<SemanticExpression>();
-		};
-		if (!@result.get()->append($operand)) {
-			return rt::unique<SemanticExpression>();
-		};
-		return @this.convert($result, expected, syntax);
+		return @this.convert(@this.size_query(@syntax, *type), expected, @syntax);
 	};
+
 	semantic_kind category = semantic_kind::unary;
+
 	if (operation.kind == token_kind::op_access || operation.kind == token_kind::op_relocate || operation.kind == token_kind::op_ampersand) {
 		if (operand.get()->category() != value_category::place) {
-			@this.error(syntax, "operator requires a place\0");
+			@this.error(&syntax, "operator requires a place\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (operation.kind == token_kind::op_access) {
 			@category = semantic_kind::access;
 		}
@@ -41,193 +61,278 @@ fn Analyzer::unary(Analyzer& this, Scope* scope, Syntax* syntax, const rt::optio
 		}
 		else {
 			if (type->qualifier() == type_qualifier::immutable || !operand.get()->owned_binding() && !operand.get()->indirect_storage()) {
-				@this.error(syntax, "cannot relocate a const object or a borrowed reference\0");
+				@this.error(&syntax, "cannot relocate a const object or a borrowed reference\0");
+
 				return rt::unique<SemanticExpression>();
 			};
+
 			@category = semantic_kind::relocation;
 		};
 	}
 	else if (operation.kind == token_kind::op_star) {
 		if (type->kind() != type_kind::pointer || type->element()->kind() == type_kind::void_type || type->element()->kind() == type_kind::null_type) {
-			@this.error(syntax, "dereference requires a pointer to an object\0");
+			@this.error(&syntax, "dereference requires a pointer to an object\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		@type = type->element();
 		@category = semantic_kind::dereference;
 	}
 	else if (operation.kind == token_kind::op_bang) {
 		if (!type->kind().is_scalar()) {
-			@this.error(syntax, "logical negation requires a scalar\0");
+			@this.error(&syntax, "logical negation requires a scalar\0");
+
 			return rt::unique<SemanticExpression>();
 		};
-		@type = @this.primitive(rt::string_view("bool\0"));
+
+		@type = this.types->find_primitive(rt::string_view("bool\0"));
 	}
 	else if (operation.kind == token_kind::op_tilde) {
 		if (!type->kind().is_integer()) {
-			@this.error(syntax, "bitwise complement requires an integer\0");
+			@this.error(&syntax, "bitwise complement requires an integer\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else if (operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus) {
 		if (!type->kind().is_numeric()) {
-			@this.error(syntax, "unary arithmetic requires a numeric value\0");
+			@this.error(&syntax, "unary arithmetic requires a numeric value\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else {
-		@this.error(syntax, "unary operator is not implemented\0");
+		@this.error(&syntax, "unary operator is not implemented\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	var result = @this.node(semantic_kind(category), type, syntax);
+
+	var result = @this.node(semantic_kind(category), type, &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	Entity* binding = operand.get()->entity();
+
 	if (category == semantic_kind::access || category == semantic_kind::dereference) {
 		@result.get()->bind(binding, value_category::place);
 	}
 	else if (category == semantic_kind::relocation) {
 		@result.get()->bind(binding, value_category::consumable);
 	};
+
 	if (!@result.get()->append($operand)) {
 		return rt::unique<SemanticExpression>();
 	};
-	return @this.convert($result, expected, syntax);
+
+	return @this.convert($result, expected, @syntax);
 };
 
-fn Analyzer::binary(Analyzer& this, Scope* scope, Syntax* syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	Token operation = syntax->token();
-	var left = @this.expression(scope, syntax->left(), rt::optional_ref<const Type>());
-	if (!left.get()) {
-		return rt::unique<SemanticExpression>();
-	};
-	const Type* type = left.get()->type();
-	var right_context = rt::optional_ref<const Type>(*type);
+fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	Token operation = syntax.token();
 	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
 	bool logical = operation.kind == token_kind::op_and || operation.kind == token_kind::op_or;
 	bool comparison = operation.kind == token_kind::op_equal || operation.kind == token_kind::op_not_equal || operation.kind == token_kind::op_less || operation.kind == token_kind::op_greater || operation.kind == token_kind::op_less_equal || operation.kind == token_kind::op_greater_equal;
+	rt::optional_ref<const Type> left_context;
+	rt::unique<SemanticExpression> right;
+
+	if (!assignment && !logical && numeric_literal_expression(*syntax.left())) {
+		if (!numeric_literal_expression(*syntax.right())) {
+			@right = @this.expression(@scope, @*syntax.right(), rt::optional_ref<const Type>());
+
+			if (!right.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@left_context.bind(*right.get()->type());
+		}
+		else if (expected.has_value() && expected.value().kind().is_numeric()) {
+			@left_context.bind(expected.value());
+
+			if (expected.value().kind() == type_kind::boolean) {
+				@left_context.bind(*this.types->find_primitive(rt::string_view("f64\0")));
+			};
+		};
+	};
+
+	var left = @this.expression(@scope, @*syntax.left(), left_context);
+
+	if (!left.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	const Type* type = left.get()->type();
+	var right_context = rt::optional_ref<const Type>(*type);
+
 	if (type->kind() == type_kind::named) {
 		@right_context.reset();
 	};
+
 	if (type->kind() == type_kind::pointer && (operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus)) {
 		@right_context.reset();
 	};
+
 	if (comparison && type->kind() == type_kind::pointer) {
 		@right_context.reset();
 	};
+
 	if (logical && type->representation()->kind().is_scalar()) {
-		@right_context.bind(*@this.primitive(rt::string_view("bool\0")));
-		@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), right_context, syntax->left());
+		@right_context.bind(*this.types->find_primitive(rt::string_view("bool\0")));
+		@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), right_context, @*syntax.left());
+
 		if (!left.get()) {
 			return rt::unique<SemanticExpression>();
 		};
 	};
+
 	if (assignment && (left.get()->category() != value_category::place || !left.get()->mutable_access())) {
-		@this.error(syntax, "assignment requires explicit mutable access to a place\0");
+		@this.error(&syntax, "assignment requires explicit mutable access to a place\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	var right = @this.expression(scope, syntax->right(), right_context);
+
+	if (!right.get()) {
+		@right = @this.expression(@scope, @*syntax.right(), right_context);
+	};
+
 	if (!right.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* other = right.get()->type();
+
 	if (comparison && (type->kind() == type_kind::pointer || other->kind() == type_kind::pointer)) {
 		if (type->kind() != type_kind::pointer || other->kind() != type_kind::pointer) {
-			@this.error(syntax, "pointer comparison requires compatible pointer types\0");
+			@this.error(&syntax, "pointer comparison requires compatible pointer types\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (this.compatible(other, type)) {
-			@right = @this.convert(rt::unique<SemanticExpression>(@right.release()), rt::optional_ref<const Type>(*type), syntax);
+			@right = @this.convert(rt::unique<SemanticExpression>(@right.release()), rt::optional_ref<const Type>(*type), @syntax);
 		}
 		else if (this.compatible(type, other)) {
-			@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), rt::optional_ref<const Type>(*other), syntax);
+			@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), rt::optional_ref<const Type>(*other), @syntax);
 			@type = other;
 		}
 		else {
-			@this.error(syntax, "pointer comparison requires compatible pointer types\0");
+			@this.error(&syntax, "pointer comparison requires compatible pointer types\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	};
+
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record || other->kind() == type_kind::named && other->entity()->kind() == entity_kind::record) {
 		rt::buffer<rt::unique<SemanticExpression>> arguments;
+
 		if (!@arguments.push_back($left)) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (!@arguments.push_back($right)) {
 			return rt::unique<SemanticExpression>();
 		};
-		return @this.overloaded(scope, syntax, $arguments, expected);
+
+		return @this.overloaded(@scope, @syntax, $arguments, expected);
 	};
+
 	if (assignment) {
 		if (type->kind() == type_kind::array) {
-			@this.error(syntax, "aggregate assignment function selection is not implemented\0");
+			@this.error(&syntax, "aggregate assignment function selection is not implemented\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (type->kind() == type_kind::named && !type->same_shape(*other)) {
-			@this.error(syntax, "enumeration assignment requires the same enumeration type\0");
+			@this.error(&syntax, "enumeration assignment requires the same enumeration type\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else if (logical || comparison) {
 		if (!type->representation()->kind().is_scalar() || !other->representation()->kind().is_scalar()) {
-			@this.error(syntax, "built-in comparison requires scalar operands\0");
+			@this.error(&syntax, "built-in comparison requires scalar operands\0");
+
 			return rt::unique<SemanticExpression>();
 		};
-		@type = @this.primitive(rt::string_view("bool\0"));
+
+		@type = this.types->find_primitive(rt::string_view("bool\0"));
 	}
 	else if (type->kind() == type_kind::pointer && (operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus)) {
 		if (!other->kind().is_integer() || type->element()->kind() == type_kind::void_type || type->element()->kind() == type_kind::null_type) {
-			@this.error(syntax, "pointer offset requires an integer and object element type\0");
+			@this.error(&syntax, "pointer offset requires an integer and object element type\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else {
 		if (!type->kind().is_numeric() || !other->kind().is_numeric() || type->kind() != other->kind() || type->bits() != other->bits()) {
-			@this.error(syntax, "arithmetic requires matching numeric types\0");
+			@this.error(&syntax, "arithmetic requires matching numeric types\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		if ((operation.kind == token_kind::op_remainder || operation.kind == token_kind::op_ampersand || operation.kind == token_kind::op_pipe || operation.kind == token_kind::op_caret || operation.kind == token_kind::op_shift_left || operation.kind == token_kind::op_shift_right) && !type->kind().is_integer()) {
-			@this.error(syntax, "bitwise arithmetic requires integers\0");
+			@this.error(&syntax, "bitwise arithmetic requires integers\0");
+
 			return rt::unique<SemanticExpression>();
 		};
 	};
-	var result = @this.node(semantic_kind::binary, type, syntax);
+
+	var result = @this.node(semantic_kind::binary, type, &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($left)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($right)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (assignment) {
 		@result.get()->set_category(value_category::place);
 	};
-	return @this.convert($result, expected, syntax);
+
+	return @this.convert($result, expected, @syntax);
 };
 
-fn Analyzer::cast(Analyzer& this, Scope* scope, Syntax* syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	Token operation = syntax->token();
+fn Analyzer::cast(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	Token operation = syntax.token();
+
 	if (operation.is(rt::string_view("dynamic_cast\0"))) {
-		@this.error(syntax, "dynamic_cast is not implemented\0");
+		@this.error(&syntax, "dynamic_cast is not implemented\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	const Type* target = @this.type(scope, syntax->cast_type());
-	var value = @this.expression(scope, syntax->cast_operand(), rt::optional_ref<const Type>());
+
+	const Type* target = @this.type(@scope, @*syntax.cast_type());
+	var value = @this.expression(@scope, @*syntax.cast_operand(), rt::optional_ref<const Type>());
+
 	if (!target || !value.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* source = value.get()->type();
 	const Type* destination = target;
+
 	if (destination->kind() == type_kind::reference) {
 		if (value.get()->category() != value_category::place) {
-			@this.error(syntax, "reference cast requires a place\0");
+			@this.error(&syntax, "reference cast requires a place\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		@destination = destination->element();
 	};
+
 	bool allowed = false;
+
 	if (operation.is(rt::string_view("const_cast\0"))) {
 		if (target->kind() == type_kind::pointer && source->kind() == type_kind::pointer) {
 			const Type* a = target->element();
@@ -243,134 +348,188 @@ fn Analyzer::cast(Analyzer& this, Scope* scope, Syntax* syntax, const rt::option
 	}
 	else {
 		Entity* conversion = @this.conversion_function(*value.get(), *destination, conversion_mode::explicit_only);
+
 		if (conversion) {
-			if (conversion->definition() == function_definition::deleted || !this.accessible(*conversion, scope)) {
-				@this.error(syntax, "selected conversion is deleted or inaccessible\0");
+			if (conversion->definition() == function_definition::deleted || !this.accessible(*conversion, @scope)) {
+				@this.error(&syntax, "selected conversion is deleted or inaccessible\0");
+
 				return rt::unique<SemanticExpression>();
 			};
+
 			rt::buffer<rt::unique<SemanticExpression>> arguments;
+
 			if (!@arguments.push_back(rt::unique<SemanticExpression>(@value.release()))) {
 				return rt::unique<SemanticExpression>();
 			};
-			var callable = @this.node(semantic_kind::name, conversion->type(), syntax);
+
+			var callable = @this.node(semantic_kind::name, conversion->type(), &syntax);
+
 			if (!callable.get()) {
 				return rt::unique<SemanticExpression>();
 			};
+
 			@callable.get()->bind(Entity*(conversion), value_category::place);
-			return @this.invoke(syntax, conversion, $callable, $arguments, expected);
+
+			return @this.invoke(@syntax, conversion, $callable, $arguments, expected);
 		};
+
 		const Type* from = source->representation();
 		const Type* to = destination->representation();
 		@allowed = from->kind().is_numeric() && to->kind().is_numeric() || source->kind() != type_kind::named && this.compatible(source, destination);
+
 		if (target->kind() == type_kind::reference && (source->same_shape(*destination) || source->derived_from(*destination) || destination->derived_from(*source))) {
 			@allowed = source->qualifier() != type_qualifier::immutable || destination->qualifier() == type_qualifier::immutable;
 		};
+
 		if (source->kind() == type_kind::pointer && destination->kind() == type_kind::pointer && destination->element()->derived_from(*source->element())) {
 			@allowed = true;
 		};
+
 		if (source->kind() == type_kind::pointer && destination->kind() == type_kind::pointer && (source->element()->kind() == type_kind::void_type || destination->element()->kind() == type_kind::void_type)) {
 			@allowed = source->element()->kind() != type_kind::function && destination->element()->kind() != type_kind::function;
 		};
 	};
+
 	if (!operation.is(rt::string_view("const_cast\0")) && source->kind() == type_kind::pointer && destination->kind() == type_kind::pointer && source->element()->qualifier() == type_qualifier::immutable && destination->element()->qualifier() == type_qualifier::mutable) {
 		@allowed = false;
 	};
+
 	if (!allowed) {
-		@this.error(syntax, "cast does not permit this conversion\0");
+		@this.error(&syntax, "cast does not permit this conversion\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	var result = @this.node(semantic_kind::cast, destination, syntax);
+
+	var result = @this.node(semantic_kind::cast, destination, &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($value)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (target->kind() == type_kind::reference) {
 		@result.get()->set_category(value_category::place);
 		@result.get()->set_mutable_access(destination->qualifier() == type_qualifier::mutable);
 	};
-	return @this.convert($result, expected, syntax);
+
+	return @this.convert($result, expected, @syntax);
 };
 
-fn Analyzer::component(Analyzer& this, Scope* scope, Syntax* syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	var object = @this.expression(scope, syntax->item(0), rt::optional_ref<const Type>());
+fn Analyzer::component(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	var object = @this.expression(@scope, @*syntax.item(0), rt::optional_ref<const Type>());
+
 	if (!object.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* type = object.get()->type();
-	if (syntax->kind() == syntax_kind::index) {
+
+	if (syntax.kind() == syntax_kind::index) {
 		if (type->kind() != type_kind::pointer && type->kind() != type_kind::array) {
-			@this.error(syntax, "indexing requires an array or pointer\0");
+			@this.error(&syntax, "indexing requires an array or pointer\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		const Type* element = type->element();
-		var index = @this.expression(scope, syntax->item(1), rt::optional_ref<const Type>());
+		var index = @this.expression(@scope, @*syntax.item(1), rt::optional_ref<const Type>());
+
 		if (!index.get() || !index.get()->type()->kind().is_integer()) {
-			@this.error(syntax, "index requires an integer\0");
+			@this.error(&syntax, "index requires an integer\0");
+
 			return rt::unique<SemanticExpression>();
 		};
-		var result = @this.node(semantic_kind::index, element, syntax);
+
+		var result = @this.node(semantic_kind::index, element, &syntax);
+
 		if (!result.get()) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (!@result.get()->append($object)) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (!@result.get()->append($index)) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		@result.get()->set_category(value_category::place);
-		return @this.convert($result, expected, syntax);
+
+		return @this.convert($result, expected, @syntax);
 	};
-	if (syntax->token().kind == token_kind::op_arrow) {
+
+	if (syntax.token().kind == token_kind::op_arrow) {
 		if (type->kind() != type_kind::pointer) {
-			@this.error(syntax, "arrow member access requires a pointer\0");
+			@this.error(&syntax, "arrow member access requires a pointer\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		@type = type->element();
-		var dereference = @this.node(semantic_kind::dereference, type, syntax);
+		var dereference = @this.node(semantic_kind::dereference, type, &syntax);
+
 		if (!dereference.get()) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (!@dereference.get()->append(rt::unique<SemanticExpression>(@object.release()))) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		@dereference.get()->set_category(value_category::place);
 		@object = $dereference;
 	};
-	return @this.member_value(scope, syntax, $object, expected);
+
+	return @this.member_value(@scope, @syntax, $object, expected);
 };
 
-fn Analyzer::member_value(Analyzer& this, Scope* scope, Syntax* syntax, rt::unique<SemanticExpression> object, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::member_value(Analyzer& this, Scope& scope, Syntax& syntax, rt::unique<SemanticExpression> object, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	const Type* type = object.get()->type();
+
 	if (type->kind() != type_kind::named || !type->entity()->members()) {
-		@this.error(syntax, "member access requires a class or enum object\0");
+		@this.error(&syntax, "member access requires a class or enum object\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	Entity* field = type->entity()->find_member(syntax->member_name()->token().text());
+
+	Entity* field = type->entity()->find_member(syntax.member_name()->token().text());
+
 	if (!field || field->kind() != entity_kind::field || !@this.resolve(Entity*(field))) {
-		@this.error(syntax, "unknown data member\0");
+		@this.error(&syntax, "unknown data member\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	if (!this.accessible(*field, scope)) {
-		@this.error(syntax, "private or protected member is not accessible\0");
+
+	if (!this.accessible(*field, @scope)) {
+		@this.error(&syntax, "private or protected member is not accessible\0");
+
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* field_type = field->type();
+
 	if (field_type->kind() == type_kind::reference) {
 		@field_type = field_type->element();
 	}
 	else if (type->qualifier() == type_qualifier::immutable) {
 		@field_type = @this.types->qualified(*field_type, type_qualifier::immutable);
 	};
-	var result = @this.node(semantic_kind::member, field_type, syntax);
+
+	var result = @this.node(semantic_kind::member, field_type, &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($object)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	@result.get()->bind(field, value_category::place);
-	return @this.convert($result, expected, syntax);
+
+	return @this.convert($result, expected, @syntax);
 };

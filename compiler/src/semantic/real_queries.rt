@@ -1,62 +1,86 @@
 fn Type::integer_from_real(const Type& this, f64 value, u64& result) -> bool {
 	const Type* type = this.representation();
+
 	if (type->kind() != type_kind::signed_integer && type->kind() != type_kind::unsigned_integer) {
 		return false;
 	};
+
 	u32 bits = type->bits();
+
 	if (!bits || bits > 64) {
 		return false;
 	};
+
 	f64 limit = 1.0;
 	u32 index = 0;
 	u32 exponent = bits;
+
 	if (type->kind() == type_kind::signed_integer) {
 		@exponent = exponent - 1;
 	};
+
 	while (index < exponent) {
 		@limit = limit * 2.0;
 		@index = index + 1;
 	};
+
 	if (type->kind() == type_kind::signed_integer) {
 		bool valid = value > -limit - 1.0 && value < limit;
+
 		if (bits == 64) {
 			@valid = value >= -limit && value < limit;
 		};
+
 		if (!valid) {
 			return false;
 		};
+
 		i64 integer = static_cast<i64>(value);
 		@result = type->normalize_integer(static_cast<u64>($integer));
+
 		return true;
 	};
+
 	if (!(value > -1.0 && value < limit)) {
 		return false;
 	};
+
 	if (value < 0.0) {
 		@result = 0;
+
 		return true;
 	};
+
 	@result = type->normalize_integer(static_cast<u64>(value));
+
 	return true;
 };
 
 fn SemanticExpression::constant_real(const SemanticExpression& this, f64& result) -> bool {
 	const Type* type = this.type()->representation();
+
 	if (type->kind().is_integer()) {
 		u64 integer = 0;
+
 		if (!this.constant_integer(@integer)) {
 			return false;
 		};
+
 		if (type->kind() == type_kind::signed_integer) {
 			@result = static_cast<f64>(type->signed_value(integer));
+
 			return true;
 		};
+
 		@result = static_cast<f64>(integer);
+
 		return true;
 	};
+
 	if (type->kind() != type_kind::floating_point) {
 		return false;
 	};
+
 	if (this.kind() == semantic_kind::literal_real) {
 		@result = this.real();
 	}
@@ -69,6 +93,7 @@ fn SemanticExpression::constant_real(const SemanticExpression& this, f64& result
 		if (!this.item(0)->constant_real(@result)) {
 			return false;
 		};
+
 		if (this.operation() == token_kind::op_minus) {
 			@result = -result;
 		}
@@ -79,9 +104,11 @@ fn SemanticExpression::constant_real(const SemanticExpression& this, f64& result
 	else if (this.kind() == semantic_kind::binary) {
 		f64 first = 0.0;
 		f64 second = 0.0;
+
 		if (!this.item(0)->constant_real(@first) || !this.item(1)->constant_real(@second)) {
 			return false;
 		};
+
 		switch (this.operation()) {
 		case token_kind::op_plus:
 			@result = first + second;
@@ -96,6 +123,7 @@ fn SemanticExpression::constant_real(const SemanticExpression& this, f64& result
 			if (!second) {
 				return false;
 			};
+
 			@result = first / second;
 			break;
 		default:
@@ -105,21 +133,26 @@ fn SemanticExpression::constant_real(const SemanticExpression& this, f64& result
 	else {
 		return false;
 	};
+
 	if (type->bits() == 32) {
 		f64 unrounded := result;
 		f32 rounded = static_cast<f32>($unrounded);
 		@result = static_cast<f64>($rounded);
 	};
+
 	return true;
 };
 
 fn SemanticExpression::real_comparison(const SemanticExpression& this, u64& result) -> bool {
 	f64 first = 0.0;
 	f64 second = 0.0;
+
 	if (!this.item(0)->constant_real(@first) || !this.item(1)->constant_real(@second)) {
 		return false;
 	};
+
 	bool comparison = false;
+
 	switch (this.operation()) {
 	case token_kind::op_equal:
 		@comparison = first == second;
@@ -142,6 +175,8 @@ fn SemanticExpression::real_comparison(const SemanticExpression& this, u64& resu
 	default:
 		return false;
 	};
+
 	@result = static_cast<u64>($comparison);
+
 	return true;
 };

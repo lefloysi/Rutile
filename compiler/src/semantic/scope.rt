@@ -1,54 +1,80 @@
 struct Scope {
-	fn Scope(Scope& this, Scope* parent, Entity* owner) {
-		@this.enclosing = $parent;
-		@this.declaration_owner = $owner;
-	};
-	fn parent(const Scope& this) -> Scope* {
-		return this.enclosing;
-	};
-	fn owner(const Scope& this) -> Entity* {
-		return this.declaration_owner;
-	};
-	fn bindings(const Scope& this) -> const rt::buffer<Entity*>& {
-		return this.names;
-	};
-	fn access(const Scope& this) -> access_kind {
-		return access_kind(this.visibility);
-	};
-	fn set_access(Scope& this, access_kind access) {
-		@this.visibility = $access;
-	};
-	fn local(const Scope& this, const rt::string_view& name) -> Entity* {
-		usize index = this.names.size();
-		while (index) {
-			@index = index - 1;
-			Entity* entity := this.names.data()[index];
-			if (entity->name() == name) {
-				return $entity;
-			};
-		};
-		return nullptr;
-	};
-	fn lookup(const Scope& this, const rt::string_view& name) -> Entity* {
-		if (this.declaration_owner && this.declaration_owner->kind() == entity_kind::record && this.declaration_owner->name() == name) {
-			return this.declaration_owner;
-		};
-		Entity* result = this.local(name);
-		if (!result && this.declaration_owner && this.declaration_owner->kind() == entity_kind::record) {
-			@result = this.declaration_owner->find_member(name);
-		};
-		if (result || !this.enclosing) {
-			return $result;
-		};
-		return this.enclosing->lookup(name);
-	};
-	fn define(Scope& this, Entity* entity) -> bool {
-		return @this.names.push_back($entity);
-	};
+	fn Scope(Scope& this, Scope* parent, Entity* owner);
+
+	fn set_access(Scope& this, access_kind access);
+	fn define(Scope& this, Entity* entity) -> bool;
+
+	fn parent(const Scope& this) -> Scope*;
+	fn owner(const Scope& this) -> Entity*;
+	fn bindings(const Scope& this) -> const rt::buffer<Entity*>&;
+	fn access(const Scope& this) -> access_kind;
+	fn local(const Scope& this, const rt::string_view& name) -> Entity*;
+	fn lookup(const Scope& this, const rt::string_view& name) -> Entity*;
 
 private:
 	Scope* enclosing;
 	Entity* declaration_owner;
 	access_kind visibility;
 	rt::buffer<Entity*> names;
+};
+
+fn Scope::Scope(Scope& this, Scope* parent, Entity* owner) {
+	@this.enclosing = $parent;
+	@this.declaration_owner = $owner;
+};
+
+fn Scope::parent(const Scope& this) -> Scope* {
+	return this.enclosing;
+};
+
+fn Scope::owner(const Scope& this) -> Entity* {
+	return this.declaration_owner;
+};
+
+fn Scope::bindings(const Scope& this) -> const rt::buffer<Entity*>& {
+	return this.names;
+};
+
+fn Scope::access(const Scope& this) -> access_kind {
+	return access_kind(this.visibility);
+};
+
+fn Scope::set_access(Scope& this, access_kind access) {
+	@this.visibility = $access;
+};
+
+fn Scope::local(const Scope& this, const rt::string_view& name) -> Entity* {
+	usize index = this.names.size();
+	while (index) {
+		@index = index - 1;
+		Entity* entity := this.names.data()[index];
+
+		if (entity->name() == name) {
+			return $entity;
+		};
+	};
+
+	return nullptr;
+};
+
+fn Scope::lookup(const Scope& this, const rt::string_view& name) -> Entity* {
+	if (this.declaration_owner && this.declaration_owner->kind() == entity_kind::record && this.declaration_owner->name() == name) {
+		return this.declaration_owner;
+	};
+
+	Entity* result = this.local(name);
+
+	if (!result && this.declaration_owner && this.declaration_owner->kind() == entity_kind::record) {
+		@result = this.declaration_owner->find_member(name);
+	};
+
+	if (result || !this.enclosing) {
+		return $result;
+	};
+
+	return this.enclosing->lookup(name);
+};
+
+fn Scope::define(Scope& this, Entity* entity) -> bool {
+	return @this.names.push_back($entity);
 };

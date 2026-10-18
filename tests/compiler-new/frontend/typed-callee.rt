@@ -1,0 +1,55 @@
+fn typed_call_present(const Syntax& syntax, syntax_kind type_kind) -> bool {
+	if (syntax.kind() == syntax_kind::call && syntax.callable()->kind() == type_kind) {
+		return true;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (typed_call_present(*syntax.item(index), syntax_kind(type_kind))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn multiplication_present(const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_star) {
+		return true;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (multiplication_present(*syntax.item(index))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn typed_callee_tests() -> i32 {
+	var fixture = ParseFixture();
+	if (!@fixture.build("Entity*(owner); value*(other); T*($input); T&(@input); T[4](input); (i32)(42); bind(Entity*(owner), Other*(slot));\0")) {
+		return 1;
+	};
+	if (fixture.tree.get()->size() != 7) {
+		return 2;
+	};
+	usize index = 0;
+	while (index < 3) {
+		Syntax* expression = fixture.tree.get()->item(index);
+		if (!typed_call_present(*expression, syntax_kind::type_pointer) || !multiplication_present(*expression)) {
+			return 3;
+		};
+		@index = index + 1;
+	};
+	if (!typed_call_present(*fixture.tree.get()->item(3), syntax_kind::type_reference)) {
+		return 4;
+	};
+	if (!typed_call_present(*fixture.tree.get()->item(4), syntax_kind::type_array)) {
+		return 6;
+	};
+	if (fixture.tree.get()->item(5)->kind() != syntax_kind::call || fixture.tree.get()->item(5)->callable()->kind() != syntax_kind::grouping) {
+		return 5;
+	};
+	return 42;
+};

@@ -1,7 +1,9 @@
 # Bootstrap compiler
 
 The Windows x64 compiler in `windows-x64/compiler.exe` is built from the included
-`compiler.rt` snapshot of `compiler/src/old.rt`. Its runtime DLLs are included beside it.
+`compiler.rt` snapshot of the compiler source inputs. `CMakeLists.txt` lists the standard
+library inputs; `compiler/sources.list` orders the implementation files by subsystem.
+Its runtime DLLs are included beside it.
 `version.txt` identifies the release; `source.sha256` identifies the included source.
 
 CMake uses this compiler by default. The compiler implementation is written entirely in Rutile.

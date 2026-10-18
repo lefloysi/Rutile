@@ -27,13 +27,23 @@ for name in ["lifetime-constant-path", "lifetime-pointer-relocation", "lifetime-
 	"variadic-call", "literal-conversions", "constant-calls", "constant-template-call",
 	"inferred-assignment", "unused-inferred-assignment", "pointer-void", "template-function-address",
 	"template-policy", "explicit-copy", "out-of-line-assignment", "inferred-copy-assignment",
-	"enum-value-copy", "out-of-line-access", "template-extension", "function-pointer-callees"]:
+	"enum-value-copy", "out-of-line-access", "template-extension", "function-pointer-callees",
+	"array-empty-scalars", "sizeof-operands", "typed-pointer-construction", "numeric-context-values",
+	"loop-result-reachability", "contextual-reference", "constant-contextual",
+	"generated-copy-assignment", "generated-copy-assignment-conversions"]:
 	check(name, sources + name + ".rt")
 
 check("lifetime-access-relocation", sources + "lifetime-access-relocation.rt",
 	reject="relocated or discarded")
 check("lifetime-destroyed-use", sources + "lifetime-destroyed-use.rt",
 	reject="object has been destroyed")
+check("lifetime-reference-relocation", sources + "lifetime-reference-relocation.rt",
+	reject="relocated or discarded")
+check("contextual-reference-escape", sources + "contextual-reference-escape.rt",
+	reject="sequence result refers to local storage")
+check("contextual-ambiguous", sources + "contextual-ambiguous.rt", reject="function selection is ambiguous")
+for name in ["loop-result-break", "loop-result-false"]:
+	check(name, sources + name + ".rt", reject="non-void function reaches the end without a result")
 check("switch-duplicate", sources + "switch-duplicate.rt", reject="duplicate switch case value")
 check("constant-limit", sources + "constant-limit.rt", reject="integer constant")
 check("constant-mutable-global", sources + "constant-mutable-global.rt", reject="integer constant")
@@ -53,13 +63,32 @@ check("template-extension-private", sources + "template-extension-private.rt",
 	reject="private or protected function")
 check("template-private-function", sources + "template-private-function.rt",
 	reject="private or protected function")
+for name in ["sizeof-incomplete", "sizeof-void"]:
+	check(name, sources + name + ".rt", reject="sizeof requires a complete object storage type")
 
 for name in ["owned-lifetimes", "scope-exits", "allocation-lifetimes", "return-lifetimes",
 	"generated-move", "reconstruction", "switch", "array-lifetimes", "array-invalid-size",
 	"union-layout", "union-lifetimes", "member-initialization", "inheritance-casts",
 	"inheritance-lifetimes", "virtual-dispatch", "virtual-layout", "external-enum", "aggregate-copy",
-	"inactive-array-storage"]:
+	"inactive-array-storage", "lifetime-conditional-unused", "reference-call-temporary",
+	"contextual-argument-lifetimes"]:
 	check(name, "tests/compiler-new/backend/cases/" + name + ".rt")
+check("lifetime-conditional-use", "tests/compiler-new/backend/cases/lifetime-conditional-use.rt",
+	reject="relocated or discarded")
+
+for name in ["automatic-move", "generated-copy-members", "generated-copy-assignment",
+	"explicit-copy-preserved", "user-move-preserved", "primitive-constants", "index-extension"]:
+	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt")
+for name in ["deleted-copy-preserved", "deleted-move-preserved"]:
+	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt", reject="deleted")
+for name in ["static-array-overflow", "nested-array-overflow"]:
+	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt",
+		reject="array storage size exceeds target address space")
+check("generated-copy-assignment-deleted", sources + "generated-copy-assignment-deleted.rt",
+	reject="deleted")
+for name in ["null-constant-missing", "void-constant-missing"]:
+	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt",
+		reject="unknown identifier")
 
 for name in ["external-array-return", "external-record-parameter"]:
 	check(name, "tests/compiler-new/backend/cases/" + name + ".rt", reject="unsupported C ABI")
@@ -73,6 +102,15 @@ check("native-optional-copy", "tests/compiler-new/std/optional-copy.rt", reject=
 	dependencies=["std/optional.rt"])
 check("native-unique-policy", "tests/compiler-new/std/unique-policy.rt",
 	dependencies=["std/unique.rt"])
+standard = ["std/unique.rt", "std/optional.rt", "std/buffer.rt", "std/string_view.rt",
+	"std/string.rt", "std/hash.rt", "std/equal.rt", "std/unordered_map.rt"]
+for name in ["buffer", "buffer-copy", "buffer-lifetime", "buffer-alias", "buffer-owners", "unique", "text",
+	"hash", "unordered-map", "unordered-map-collisions"]:
+	check("native-" + name, "tests/compiler-new/std/" + name + ".rt", dependencies=standard)
+check("native-primitive-registry", sources + "primitive-registry.rt",
+	dependencies=[*standard, "compiler/src/semantic/type.rt", "compiler/src/semantic/type_store.rt",
+		"compiler/src/semantic/primitives.rt"])
+check("function-parameter-labels", "tests/compiler/cases/type-equivalence-function-names/main.rt")
 
 if failures:
 	sys.exit(1)

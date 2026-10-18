@@ -1,0 +1,57 @@
+fn primitive_matches(const TypeStore& types, rt::string_view name, type_kind kind, u32 bits) -> bool {
+	const Type* value = types.find_primitive(name);
+	return value && value->kind() == kind && value->bits() == bits;
+};
+
+fn main() -> i32 {
+	TypeStore types;
+	if (types.find_primitive("i32\0")) {
+		return 1;
+	};
+	if (!@types.initialize_primitives(32)) {
+		return 2;
+	};
+	if (!primitive_matches(types, "void\0", type_kind::void_type, 0) || !primitive_matches(types, "null\0", type_kind::null_type, 0) || !primitive_matches(types, "bool\0", type_kind::boolean, 1) || !primitive_matches(types, "char\0", type_kind::character, 8)) {
+		return 3;
+	};
+	if (!primitive_matches(types, "i8\0", type_kind::signed_integer, 8) || !primitive_matches(types, "i08\0", type_kind::signed_integer, 8) || !primitive_matches(types, "i16\0", type_kind::signed_integer, 16) || !primitive_matches(types, "i32\0", type_kind::signed_integer, 32) || !primitive_matches(types, "i64\0", type_kind::signed_integer, 64)) {
+		return 4;
+	};
+	if (!primitive_matches(types, "u8\0", type_kind::unsigned_integer, 8) || !primitive_matches(types, "u08\0", type_kind::unsigned_integer, 8) || !primitive_matches(types, "u16\0", type_kind::unsigned_integer, 16) || !primitive_matches(types, "u32\0", type_kind::unsigned_integer, 32) || !primitive_matches(types, "u64\0", type_kind::unsigned_integer, 64)) {
+		return 5;
+	};
+	if (!primitive_matches(types, "f32\0", type_kind::floating_point, 32) || !primitive_matches(types, "f64\0", type_kind::floating_point, 64)) {
+		return 6;
+	};
+	if (types.find_primitive("i8\0") != types.find_primitive("i08\0") || types.find_primitive("u8\0") != types.find_primitive("u08\0") || types.find_primitive("i8\0") == types.find_primitive("u8\0")) {
+		return 7;
+	};
+	if (types.find_primitive("usize\0") != types.find_primitive("u32\0") || types.find_primitive("isize\0") != types.find_primitive("i32\0")) {
+		return 8;
+	};
+	if (types.find_primitive("\0") || types.find_primitive("i032\0") || types.find_primitive("i128\0") || types.find_primitive("unknown\0") || types.find_primitive("I32\0") || types.find_primitive("Bool\0") || types.find_primitive("USIZE\0") || types.find_primitive("u032\0") || types.find_primitive("f16\0") || types.find_primitive("int\0") || types.find_primitive("i32 \0") || types.find_primitive(" i32\0")) {
+		return 9;
+	};
+	const Type* integer = types.find_primitive("i32\0");
+	if (integer != @types.primitive(type_kind::signed_integer, 32)) {
+		return 10;
+	};
+	if (!@types.initialize_primitives(64)) {
+		return 11;
+	};
+	if (types.find_primitive("usize\0") != types.find_primitive("u64\0") || types.find_primitive("isize\0") != types.find_primitive("i64\0") || types.find_primitive("i32\0") != integer) {
+		return 12;
+	};
+	@types.clear();
+	if (types.find_primitive("void\0") || types.find_primitive("i32\0") || types.find_primitive("usize\0") || types.find_primitive("i08\0")) {
+		return 13;
+	};
+	if (!@types.initialize_primitives(64) || !primitive_matches(types, "usize\0", type_kind::unsigned_integer, 64) || !primitive_matches(types, "isize\0", type_kind::signed_integer, 64) || types.find_primitive("i8\0") != types.find_primitive("i08\0")) {
+		return 14;
+	};
+	@types.clear();
+	if (!@types.initialize_primitives(32) || types.find_primitive("usize\0") != types.find_primitive("u32\0") || types.find_primitive("isize\0") != types.find_primitive("i32\0")) {
+		return 15;
+	};
+	return 42;
+};

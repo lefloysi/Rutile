@@ -69,17 +69,20 @@ enum syntax_kind : [i32] {
 // function type = [parameters, result], const type = [element, condition]
 // Lists, brace expressions, units, and attributes own a sequence of children.
 // Ambiguity owns complete source interpretations, never borrowed alternatives.
+
 struct Syntax {
 	fn Syntax(Syntax& this, syntax_kind kind, const Token& token);
 	fn Syntax(Syntax& this, const Syntax& other) : [delete];
-	fn operator=(Syntax& this, const Syntax& other) -> Syntax& : [delete];
 	fn Syntax(Syntax& this, Syntax other) : [default];
+
+	fn operator=(Syntax& this, const Syntax& other) -> Syntax& : [delete];
 	fn operator=(Syntax& this, Syntax other) -> Syntax& : [default];
+	fn append(Syntax& this, rt::unique<Syntax> child) -> bool;
+
 	fn kind(const Syntax& this) -> syntax_kind;
 	fn token(const Syntax& this) -> Token;
 	fn size(const Syntax& this) -> usize;
 	fn item(const Syntax& this, usize index) -> Syntax*;
-	fn append(Syntax& this, rt::unique<Syntax> child) -> bool;
 	fn complete(const Syntax& this) -> bool;
 	fn fixed_arity(const Syntax& this) -> usize;
 
@@ -110,6 +113,7 @@ fn Syntax::item(const Syntax& this, usize index) -> Syntax* {
 	if (index >= this.children.size()) {
 		return nullptr;
 	};
+
 	return this.children.data()[index].get();
 };
 
@@ -117,6 +121,7 @@ fn Syntax::append(Syntax& this, rt::unique<Syntax> child) -> bool {
 	if (!child.get() || this.children.size() >= this.fixed_arity()) {
 		return false;
 	};
+
 	return @this.children.push_back($child);
 };
 
@@ -309,8 +314,10 @@ fn Syntax::function_type_result(const Syntax& this) -> Syntax* {
 };
 
 // TypeSyntax is a borrowed view of the owned syntax subtree for a type-id.
+
 struct TypeSyntax {
 	fn TypeSyntax(TypeSyntax& this, Syntax* syntax);
+
 	fn kind(const TypeSyntax& this) -> syntax_kind;
 	fn element(const TypeSyntax& this) -> Syntax*;
 	fn extent(const TypeSyntax& this) -> Syntax*;
@@ -353,13 +360,17 @@ fn Syntax::same_tree(const Syntax& this, const Syntax& other) -> bool {
 	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size()) {
 		return false;
 	};
+
 	usize index = 0;
+
 	while (index < this.size()) {
 		if (!this.item(index)->same_tree(*other.item(index))) {
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	return true;
 };
 
@@ -367,6 +378,7 @@ fn Syntax::take_item(Syntax& this, usize index) -> rt::unique<Syntax> {
 	if (index >= this.children.size()) {
 		return rt::unique<Syntax>();
 	};
+
 	return rt::unique<Syntax>(@((@this.children).data()[index]).release());
 };
 
@@ -430,25 +442,31 @@ fn Syntax::fixed_arity(const Syntax& this) -> usize {
 		case syntax_kind::case_label:
 			return 1;
 		default:
-			return ~usize(0);
+			return usize::max;
 	};
 };
 
 fn Syntax::complete(const Syntax& this) -> bool {
 	usize arity = this.fixed_arity();
-	if (arity != ~usize(0) && this.children.size() != arity) {
+
+	if (arity != usize::max && this.children.size() != arity) {
 		return false;
 	};
+
 	if (this.category == syntax_kind::ambiguity && this.children.size() < 2) {
 		return false;
 	};
+
 	usize index = 0;
+
 	while (index < this.children.size()) {
 		if (!this.item(index) || !this.item(index)->complete()) {
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	return true;
 };
 

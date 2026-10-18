@@ -3,26 +3,34 @@ fn FunctionEmitter::selection(FunctionEmitter& this, SemanticExpression* express
 	SemanticExpression* body = expression->item(1);
 	usize temporary_boundary = this.temporaries.size();
 	LLVMOpaqueValue* value = @this.value(condition);
+
 	if (!value || !@this.cleanup_temporaries(temporary_boundary)) {
 		return false;
 	};
+
 	@this.forget_temporaries(temporary_boundary);
+
 	if (!body) {
 		return true;
 	};
+
 	if (body->kind() != semantic_kind::brace) {
 		return @this.validate_switch_item(body);
 	};
+
 	LLVMOpaqueBasicBlock* after = @this.block("switch.after\0");
 	LLVMOpaqueBasicBlock* otherwise = after;
 	rt::buffer<LLVMOpaqueBasicBlock*> labels;
 	usize index = 0;
 	u32 count = 0;
+
 	while (index < body->size()) {
 		SemanticExpression* item = body->item(index);
 		LLVMOpaqueBasicBlock* destination;
+
 		if (item->kind() == semantic_kind::case_label) {
 			@destination = @this.block("switch.case\0");
+
 			if (item->token().kind == token_kind::kw_default) {
 				@otherwise = destination;
 			}
@@ -33,55 +41,74 @@ fn FunctionEmitter::selection(FunctionEmitter& this, SemanticExpression* express
 		else if (!@this.validate_switch_item(item)) {
 			return false;
 		};
+
 		if (!@labels.push_back(destination)) {
 			return @this.backend->error(item->token(), rt::string_view("cannot retain native switch labels\0"));
 		};
+
 		@index = index + 1;
 	};
+
 	LLVMOpaqueValue* instruction = LLVMBuildSwitch(this.backend->builder(), value, otherwise, count);
 	@index = 0;
+
 	while (index < body->size()) {
 		SemanticExpression* item = body->item(index);
+
 		if (item->kind() == semantic_kind::case_label && item->token().kind != token_kind::kw_default) {
 			LLVMOpaqueValue* constant = LLVMConstInt(@this.backend->type(condition->type()), item->integer(), 0);
 			LLVMAddCase(instruction, constant, labels.data()[index]);
 		};
+
 		@index = index + 1;
 	};
+
 	usize scope_boundary = this.bindings.size();
 	NativeControl control;
 	@control.leave = after;
 	@control.parent = this.active_control;
 	@control.binding_boundary = scope_boundary;
+
 	if (otherwise == after) {
 		@control.leave_edges = 1;
 	};
+
 	@this.active_control = &control;
 	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("switch.unreachable\0"));
 	@index = 0;
+
 	while (index < body->size()) {
 		SemanticExpression* item = body->item(index);
+
 		if (item->kind() == semantic_kind::case_label) {
 			if (!this.terminated()) {
 				LLVMBuildBr(this.backend->builder(), labels.data()[index]);
 			};
+
 			LLVMPositionBuilderAtEnd(this.backend->builder(), labels.data()[index]);
 		}
 		else if (!@this.statement(item)) {
 			@this.active_control = control.parent;
+
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	@this.active_control = control.parent;
+
 	if (!this.terminated()) {
 		@control.leave_edges = control.leave_edges + 1;
 		LLVMBuildBr(this.backend->builder(), after);
 	};
+
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+
 	if (!control.leave_edges) {
 		LLVMBuildUnreachable(this.backend->builder());
 	};
+
 	return @this.leave_scope(scope_boundary);
 };
 
@@ -89,15 +116,20 @@ fn FunctionEmitter::validate_switch_item(FunctionEmitter& this, SemanticExpressi
 	if (expression->kind() == semantic_kind::switch_expression) {
 		return true;
 	};
+
 	if (expression->kind() == semantic_kind::case_label) {
 		return @this.backend->error(expression->token(), rt::string_view("nested case label lowering is not implemented\0"));
 	};
+
 	usize index = 0;
+
 	while (index < expression->size()) {
 		if (!@this.validate_switch_item(expression->item(index))) {
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	return true;
 };

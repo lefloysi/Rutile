@@ -1,101 +1,139 @@
 fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
 	if (expression->size() > 1) {
 		LLVMOpaqueValue* storage = @this.address(expression);
+
 		if (!storage) {
 			return nullptr;
 		};
+
 		return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type()), storage, "reconstructed\0");
 	};
+
 	LLVMOpaqueValue* storage = @this.slot(expression->type());
+
 	if (!storage || !@this.construct_into(expression, storage) || !@this.remember(expression, storage)) {
 		return nullptr;
 	};
+
 	return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type()), storage, "constructed\0");
 };
 
 fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* expression, LLVMOpaqueValue* storage) -> bool {
 	const Type* type = expression->type();
 	LLVMOpaqueType* native = @this.backend->type(type);
+
 	if (!native) {
 		return false;
 	};
+
 	SemanticExpression* arguments = expression->item(0);
 	LLVMOpaqueValue* value = LLVMConstNull(native);
 	LLVMBuildStore(this.backend->builder(), value, storage);
 	Entity* constructor = expression->entity();
+
 	if (constructor) {
 		rt::buffer<LLVMOpaqueValue*> inputs;
+
 		if (!@inputs.push_back(storage)) {
 			return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments\0"));
 		};
+
 		usize index = 0;
+
 		while (index < arguments->size()) {
 			LLVMOpaqueValue* argument;
+
 			if (constructor->parameters().data()[index + 1]->type()->kind() == type_kind::reference) {
 				@argument = @this.address(arguments->item(index));
 			}
 			else {
 				@argument = @this.take(arguments->item(index));
 			};
+
 			if (!argument) {
 				return false;
 			};
+
 			if (!@inputs.push_back(argument)) {
 				return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments\0"));
 			};
+
 			@index = index + 1;
 		};
+
 		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type()), this.backend->symbol(constructor), (@inputs).data(), static_cast<u32>(inputs.size()), "\0");
+
 		return true;
 	};
+
 	if (!arguments || !arguments->size()) {
 		return @this.initialize(type, storage);
 	};
+
 	if (type->kind().is_scalar() || (arguments->size() == 1 && arguments->item(0)->type()->same_shape(*type))) {
 		if (!type->kind().is_scalar() && arguments->item(0)->category() == value_category::place) {
 			LLVMOpaqueValue* source = @this.address(arguments->item(0));
+
 			if (!source) {
 				return false;
 			};
+
 			return @this.copy_initialize(type, storage, source);
 		};
+
 		@value = @this.take(arguments->item(0));
+
 		if (!value) {
 			return false;
 		};
+
 		LLVMBuildStore(this.backend->builder(), value, storage);
+
 		return true;
 	};
+
 	usize index = 0;
+
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		if (type->entity()->bases().size()) {
 			return @this.backend->error(expression->token(), rt::string_view("base aggregate argument initialization is not implemented\0"));
 		};
+
 		if (type->entity()->layout() == record_layout::overlapping) {
 			return @this.backend->error(expression->token(), rt::string_view("union aggregate argument selection is not implemented\0"));
 		};
+
 		if (!@this.initialize_dispatch(type, storage)) {
 			return false;
 		};
+
 		while (index < type->entity()->fields().size()) {
 			Entity* field = type->entity()->fields().data()[index];
 			LLVMOpaqueValue* destination = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(type->entity(), index), "aggregate.field\0");
+
 			if (!@this.initialize_value(field->type(), destination, arguments->item(index))) {
 				return false;
 			};
+
 			@index = index + 1;
 		};
+
 		return true;
 	};
+
 	while (index < arguments->size()) {
 		LLVMOpaqueValue* element = @this.take(arguments->item(index));
+
 		if (!element) {
 			return false;
 		};
+
 		@value = LLVMBuildInsertValue(this.backend->builder(), value, element, static_cast<u32>(index), "aggregate\0");
 		@index = index + 1;
 	};
+
 	LLVMBuildStore(this.backend->builder(), value, storage);
+
 	return true;
 };
 
@@ -103,21 +141,27 @@ fn FunctionEmitter::allocate(FunctionEmitter& this, SemanticExpression* expressi
 	if (expression->size() != 1) {
 		return @this.allocate_array(expression);
 	};
+
 	const Type* element = expression->type()->element();
 	LLVMOpaqueType* type = @this.backend->type(element);
+
 	if (!type) {
 		return nullptr;
 	};
+
 	LLVMOpaqueValue* pointer = LLVMBuildMalloc(this.backend->builder(), type, "allocation\0");
 	LLVMOpaqueValue* exists = @this.truth(LLVMOpaqueValue*(pointer), expression->type());
 	LLVMOpaqueBasicBlock* initialize = @this.block("new.initialize\0");
 	LLVMOpaqueBasicBlock* after = @this.block("new.after\0");
 	LLVMBuildCondBr(this.backend->builder(), exists, LLVMOpaqueBasicBlock*(initialize), LLVMOpaqueBasicBlock*(after));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
+
 	if (!@this.construct_into(expression->item(0), pointer)) {
 		return nullptr;
 	};
+
 	LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(after));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+
 	return pointer;
 };

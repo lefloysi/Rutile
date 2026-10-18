@@ -1,0 +1,25 @@
+i32 evaluated;
+i32 destroyed;
+struct Value {
+	fn Value(Value& this, i32 number) {
+		@this.number = $number;
+	};
+	fn ~Value(Value& this) {
+		@destroyed = destroyed + 1;
+	};
+	i32 number;
+};
+fn produce() -> Value {
+	@evaluated = evaluated + 1;
+	return Value(42);
+};
+fn inspect(const Value& value) -> i32 {
+	return value.number;
+};
+fn main() -> i32 {
+	i32 result = inspect(produce());
+	if (evaluated != 1 || destroyed != 1) {
+		return 1;
+	};
+	return result;
+};

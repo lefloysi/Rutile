@@ -2,10 +2,13 @@ fn LifetimeAnalyzer::selection(LifetimeAnalyzer& this, SemanticExpression* expre
 	if (!@this.walk(expression->item(0), @state)) {
 		return false;
 	};
+
 	SemanticExpression* body = expression->item(1);
+
 	if (body->kind() != semantic_kind::brace) {
 		return true;
 	};
+
 	usize boundary = state.size();
 	u64 condition = 0;
 	bool known = expression->item(0)->constant_integer(@condition);
@@ -14,6 +17,7 @@ fn LifetimeAnalyzer::selection(LifetimeAnalyzer& this, SemanticExpression* expre
 	usize index = 0;
 	while (index < body->size()) {
 		SemanticExpression* label = body->item(index);
+
 		if (label->kind() == semantic_kind::case_label) {
 			if (label->token().kind == token_kind::kw_default) {
 				@fallback := index;
@@ -22,52 +26,71 @@ fn LifetimeAnalyzer::selection(LifetimeAnalyzer& this, SemanticExpression* expre
 				@selected := index;
 			};
 		};
+
 		@index = index + 1;
 	};
+
 	if (selected == body->size()) {
 		@selected := fallback;
 	};
+
 	FlowState combined;
+
 	if (!@combined.copy_from(state)) {
 		return @this.error(expression, "lifetime state storage is unavailable\0");
 	};
+
 	if (fallback < body->size() || known && selected < body->size()) {
 		@combined.leave(flow_exit::unreachable);
 	};
+
 	LoopFlow selection;
 	@selection.region = flow_region::selection;
 	@selection.parent := this.active_loop;
 	@selection.break_boundary := boundary;
 	var scope = LoopScope(@this.active_loop, @selection);
 	@index = 0;
+
 	while (index < body->size()) {
 		if (body->item(index)->kind() != semantic_kind::case_label || known && index != selected) {
 			@index = index + 1;
 			continue;
 		};
+
 		FlowState path;
+
 		if (!@path.copy_from(state)) {
 			return @this.error(expression, "lifetime state storage is unavailable\0");
 		};
+
 		usize next = index + 1;
+
 		while (next < body->size() && !path.exited()) {
 			if (body->item(next)->kind() != semantic_kind::case_label && !@this.walk(body->item(next), @path)) {
 				return false;
 			};
+
 			@next = next + 1;
 		};
+
 		if (!path.exited() && !@this.save(@selection.breaks, @path, boundary, expression)) {
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	@index = 0;
+
 	while (index < selection.breaks.size()) {
 		FlowState previous;
+
 		if (!@previous.copy_from(combined) || !@this.merge(@combined, @previous, @*selection.breaks.data()[index].get(), expression)) {
 			return false;
 		};
+
 		@index = index + 1;
 	};
+
 	return @state.copy_from(combined);
 };

@@ -1,0 +1,23 @@
+fn Analyzer::names_type(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
+	switch (syntax.kind()) {
+		case syntax_kind::type_pointer:
+		case syntax_kind::type_reference:
+		case syntax_kind::type_array:
+		case syntax_kind::type_const:
+			return @this.names_type(@scope, @*syntax.designated_type());
+		case syntax_kind::type_function:
+			return true;
+		case syntax_kind::type_name: {
+			Syntax* name = syntax.designated_type();
+			Entity* entity = @this.lookup(@scope, @*name);
+
+			if (entity) {
+				return entity->denotes_type();
+			};
+
+			return this.types->find_primitive(name->token().text()) != nullptr;
+		};
+	};
+
+	return false;
+};

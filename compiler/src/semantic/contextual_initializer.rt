@@ -1,0 +1,217 @@
+fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, SemanticExpression& callable, rt::buffer<rt::unique<SemanticExpression>>& values) -> bool {
+	const TypeUse* use = callable.type_use().get();
+
+	if (!use && callable.entity()) {
+		@use = callable.entity()->type_use().get();
+	};
+
+	if (use && use->type().kind() == type_kind::pointer) {
+		@use = &use->element();
+	};
+
+	usize offset = values.size() - syntax.arguments()->size();
+	usize index = 0;
+	while (index < values.size()) {
+		if (values.data()[index].get()->kind() == semantic_kind::deferred_argument) {
+			if (!use || use->type().kind() != type_kind::function || index >= use->callable().parameters().size()) {
+				@this.error(&syntax, "contextual argument requires a fixed parameter type\0");
+				return false;
+			};
+
+			const ParameterUse& parameter = use->callable().parameters().data()[index];
+			var value = @this.contextual_argument(@scope, @*syntax.arguments()->item(index - offset), parameter.type(), parameter.name());
+
+			if (!value.get()) {
+				return false;
+			};
+
+			@(@values).data()[index] = $value;
+		};
+
+		@index = index + 1;
+	};
+
+	return true;
+};
+
+fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
+	const Type* type = &use.type();
+	const Type* value_type = type;
+	bool reference = type->kind() == type_kind::reference;
+
+	if (reference) {
+		@value_type = type->element();
+	};
+
+	Scope* local = @this.unit->create_scope(&scope, this.function);
+
+	if (!local) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	Token token = syntax.token();
+
+	if (name.has_value()) {
+		@token = name.value().location();
+	};
+
+	var init = @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+	var body = @this.node(semantic_kind::statements, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+	Entity* binding = nullptr;
+
+	if (!reference) {
+		@binding = @this.unit->create_entity(entity_kind::local, token, &syntax, local);
+
+		if (!binding) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (name.has_value() && !@binding->set_name(name.value().text())) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@binding->set_type(type);
+		@binding->set_type_use(use);
+		@binding->set_state(entity_state::ready);
+		rt::buffer<rt::unique<SemanticExpression>> empty;
+		var initial = @this.construct_values(@syntax, type, $empty);
+		@init = @this.node(semantic_kind::variable, type, &syntax);
+
+		if (!initial.get() || !init.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@init.get()->bind(Entity*(binding), value_category::consumable);
+
+		if (!@init.get()->append($initial)) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
+
+	if (!init.get() || !body.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	usize index = 0;
+	while (index < syntax.size()) {
+		Syntax* statement = syntax.item(index);
+		rt::unique<SemanticExpression> child;
+		Syntax* target = nullptr;
+
+		if (reference && !binding && statement->kind() == syntax_kind::binary && (statement->token().kind == token_kind::op_assign || statement->token().kind == token_kind::op_copy)) {
+			@target = statement->left();
+
+			if (target->kind() == syntax_kind::unary && target->token().kind == token_kind::op_access) {
+				@target = target->operand();
+			};
+		};
+
+		if (target && name.has_value() && target->kind() == syntax_kind::name && name.value().is(target->token().text())) {
+			var value = @this.expression(@*local, @*statement->right(), rt::optional_ref<const Type>(*type));
+
+			if (!value.get() || value.get()->category() != value_category::place) {
+				@this.error(statement, "reference contextual argument requires a borrowed initializer\0");
+
+				return rt::unique<SemanticExpression>();
+			};
+
+			@binding = @this.unit->create_entity(entity_kind::local, token, &syntax, local);
+
+			if (!binding) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (!@binding->set_name(name.value().text())) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@binding->set_type(type);
+			@binding->set_type_use(use);
+			@binding->set_state(entity_state::ready);
+			@child = @this.node(semantic_kind::variable, type, statement);
+
+			if (!child.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@child.get()->bind(Entity*(binding), value_category::consumable);
+
+			if (!@child.get()->append($value)) {
+				return rt::unique<SemanticExpression>();
+			};
+		}
+		else {
+			@child = @this.expression(@*local, @*statement, rt::optional_ref<const Type>());
+		};
+
+		if (!child.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@body.get()->append($child)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@index = index + 1;
+	};
+
+	if (!binding) {
+		@this.error(&syntax, "reference requires a bound initializer\0");
+
+		return rt::unique<SemanticExpression>();
+	};
+
+	var yield = @this.node(semantic_kind::name, value_type, &syntax);
+
+	if (!yield.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	@yield.get()->bind(binding, value_category::place);
+
+	if (reference) {
+		@yield.get()->set_mutable_access(value_type->qualifier() == type_qualifier::mutable);
+	};
+
+	if (!reference) {
+		var transfer = @this.node(semantic_kind::relocation, type, &syntax);
+
+		if (!transfer.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@transfer.get()->append(rt::unique<SemanticExpression>(@yield.release()))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@yield = $transfer;
+	};
+
+	var result = @this.node(semantic_kind::sequence, value_type, &syntax);
+
+	if (!result.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	@result.get()->set_category(yield.get()->category());
+
+	if (reference) {
+		@result.get()->set_mutable_access(value_type->qualifier() == type_qualifier::mutable);
+	};
+
+	@result.get()->set_type_use(use.effective());
+
+	if (!@result.get()->append($init)) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (!@result.get()->append($body)) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (!@result.get()->append($yield)) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	return $result;
+};

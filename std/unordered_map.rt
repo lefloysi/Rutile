@@ -1,26 +1,18 @@
 namespace rt {
 	template<typename T>
 	union unordered_slot {
-		fn unordered_slot(unordered_slot& this) {
-			@this.empty = 0;
-		};
-		fn ~unordered_slot(unordered_slot& this) {
-		};
+		fn unordered_slot(unordered_slot& this);
+		fn ~unordered_slot(unordered_slot& this);
+
 		u08 empty;
 		T object;
 	};
 
 	template<typename K, typename V>
 	struct unordered_node {
-		fn unordered_node(unordered_node& this, K key, V value, usize code) {
-			@this.key.object.K($key);
-			@this.value.object.V($value);
-			@this.hash_code = $code;
-		};
-		fn ~unordered_node(unordered_node& this) {
-			@this.value.object.~V();
-			@this.key.object.~K();
-		};
+		fn unordered_node(unordered_node& this, K key, V value, usize code);
+		fn ~unordered_node(unordered_node& this);
+
 		unordered_slot<K> key;
 		unordered_slot<V> value;
 		unordered_node* next;
@@ -35,155 +27,236 @@ namespace rt {
 	// Erase invalidates only the erased value; clear and destruction invalidate all values.
 	template<typename K, typename V, typename Hash, typename Equal = default_equal<K>>
 	struct unordered_map {
-		fn unordered_map(unordered_map& this) {
-			@this.hasher.unordered_slot<Hash>();
-			@this.comparison.unordered_slot<Equal>();
-			@this.hasher.object.Hash();
-			@this.comparison.object.Equal();
-		};
-		fn unordered_map(unordered_map& this, Hash hash, Equal equal) {
-			@this.hasher.unordered_slot<Hash>();
-			@this.comparison.unordered_slot<Equal>();
-			@this.hasher.object.Hash($hash);
-			@this.comparison.object.Equal($equal);
-		};
+		fn unordered_map(unordered_map& this);
+		fn unordered_map(unordered_map& this, Hash hash, Equal equal);
 		fn unordered_map(unordered_map& this, const unordered_map& other) : [delete];
 		fn operator=(unordered_map& this, const unordered_map& other) -> unordered_map& : [delete];
-		fn unordered_map(unordered_map& this, unordered_map other) : [default];
-		fn operator=(unordered_map& this, unordered_map other) -> unordered_map& : [default];
-		fn ~unordered_map(unordered_map& this) {
-			@this.clear();
-			@this.comparison.object.~Equal();
-			@this.hasher.object.~Hash();
-		};
+		fn operator:=(unordered_map& this, const unordered_map& other) -> unordered_map& : [delete];
+		fn ~unordered_map(unordered_map& this);
 
-		fn size(const unordered_map& this) -> usize {
-			return this.length;
-		};
-		fn empty(const unordered_map& this) -> bool {
-			return !this.length;
-		};
-		fn find(auto unordered_map& this, const K& key) -> const[this] V* {
-			if (!this.buckets.size()) {
-				return nullptr;
-			};
-			usize code = this.hasher.object.hash(key);
-			usize index = code % this.buckets.size();
-			unordered_node<K, V>* node = this.buckets.data()[index];
-			while (node) {
-				if (node->hash_code == code && this.comparison.object.equal(node->key.object, key)) {
-					return const_cast<const[this] V*>(&node->value.object);
-				};
-				@node = node->next;
-			};
-			return nullptr;
-		};
-		fn insert(unordered_map& this, K key, V value) -> bool {
-			if (this.find(key) || this.length == ~usize(0)) {
-				return false;
-			};
-			usize code = this.hasher.object.hash(key);
-			if (!@this.reserve(this.length + 1)) {
-				return false;
-			};
-			using Node = unordered_node<K, V>;
-			Node* node = static_cast<Node*>(malloc(sizeof(Node)));
-			if (!node) {
-				return false;
-			};
-			@node->Node($key, $value, $code);
-			usize index = node->hash_code % this.buckets.size();
-			@node->next = this.buckets.data()[index];
-			@(@this.buckets).data()[index] = node;
-			@this.length = this.length + 1;
-			return true;
-		};
-		fn erase(unordered_map& this, const K& key) -> bool {
-			if (!this.buckets.size()) {
-				return false;
-			};
-			usize code = this.hasher.object.hash(key);
-			usize index = code % this.buckets.size();
-			unordered_node<K, V>** link = &@(@this.buckets).data()[index];
-			while (*link) {
-				unordered_node<K, V>* node = *link;
-				if (node->hash_code == code && this.comparison.object.equal(node->key.object, key)) {
-					@*link = node->next;
-					using Node = unordered_node<K, V>;
-					@node->~Node();
-					free(node);
-					@this.length = this.length - 1;
-					return true;
-				};
-				@link = &@node->next;
-			};
-			return false;
-		};
-		fn clear(unordered_map& this) {
-			usize index = 0;
-			while (index < this.buckets.size()) {
-				unordered_node<K, V>* node = this.buckets.data()[index];
-				while (node) {
-					unordered_node<K, V>* next = node->next;
-					using Node = unordered_node<K, V>;
-					@node->~Node();
-					free(node);
-					@node = next;
-				};
-				@(@this.buckets).data()[index] = nullptr;
-				@index = index + 1;
-			};
-			@this.length = 0;
-		};
-		fn reserve(unordered_map& this, usize required) -> bool {
-			if (required <= this.buckets.size()) {
-				return true;
-			};
-			usize maximum = ~usize(0) / sizeof(unordered_node<K, V>*);
-			if (required > maximum) {
-				return false;
-			};
-			usize count = required;
-			if (count < 8) {
-				@count = 8;
-			};
-			if (this.buckets.size() <= (maximum >> 1)) {
-				usize grown = this.buckets.size() << 1;
-				if (grown > count) {
-					@count = grown;
-				};
-			};
-			buffer<unordered_node<K, V>*> replacement;
-			if (!@replacement.reserve(count)) {
-				return false;
-			};
-			usize index = 0;
-			while (index < count) {
-				if (!@replacement.push_back(nullptr)) {
-					return false;
-				};
-				@index = index + 1;
-			};
-			@index = 0;
-			while (index < this.buckets.size()) {
-				unordered_node<K, V>* node = this.buckets.data()[index];
-				while (node) {
-					unordered_node<K, V>* next = node->next;
-					usize bucket = node->hash_code % count;
-					@node->next = replacement.data()[bucket];
-					@(@replacement).data()[bucket] = node;
-					@node = next;
-				};
-				@index = index + 1;
-			};
-			@this.buckets = $replacement;
-			return true;
-		};
+		fn insert(unordered_map& this, K key, V value) -> bool;
+		fn erase(unordered_map& this, const K& key) -> bool;
+		fn clear(unordered_map& this);
+		fn reserve(unordered_map& this, usize required) -> bool;
+
+		fn size(const unordered_map& this) -> usize;
+		fn empty(const unordered_map& this) -> bool;
+		fn find(auto unordered_map& this, const K& key) -> const[this] V*;
 
 	private:
 		buffer<unordered_node<K, V>*> buckets;
 		unordered_slot<Hash> hasher;
 		unordered_slot<Equal> comparison;
 		usize length;
+	};
+
+	template<typename T>
+	fn unordered_slot<T>::unordered_slot(unordered_slot& this) {
+		@this.empty = 0;
+	};
+
+	template<typename T>
+	fn unordered_slot<T>::~unordered_slot(unordered_slot& this) {
+	};
+
+	template<typename K, typename V>
+	fn unordered_node<K, V>::unordered_node(unordered_node& this, K key, V value, usize code) {
+		@this.key.object.K($key);
+		@this.value.object.V($value);
+		@this.hash_code = $code;
+	};
+
+	template<typename K, typename V>
+	fn unordered_node<K, V>::~unordered_node(unordered_node& this) {
+		@this.value.object.~V();
+		@this.key.object.~K();
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::unordered_map(unordered_map& this) {
+		@this.hasher.unordered_slot<Hash>();
+		@this.comparison.unordered_slot<Equal>();
+		@this.hasher.object.Hash();
+		@this.comparison.object.Equal();
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::unordered_map(unordered_map& this, Hash hash, Equal equal) {
+		@this.hasher.unordered_slot<Hash>();
+		@this.comparison.unordered_slot<Equal>();
+		@this.hasher.object.Hash($hash);
+		@this.comparison.object.Equal($equal);
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::~unordered_map(unordered_map& this) {
+		@this.clear();
+		@this.comparison.object.~Equal();
+		@this.hasher.object.~Hash();
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::size(const unordered_map& this) -> usize {
+		return this.length;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::empty(const unordered_map& this) -> bool {
+		return !this.length;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::find(auto unordered_map& this, const K& key) -> const[this] V* {
+		if (!this.buckets.size()) {
+			return nullptr;
+		};
+
+		usize code = this.hasher.object.hash(key);
+		usize index = code % this.buckets.size();
+		unordered_node<K, V>* node = this.buckets.data()[index];
+		while (node) {
+			if (node->hash_code == code && this.comparison.object.equal(node->key.object, key)) {
+				return const_cast<const[this] V*>(&node->value.object);
+			};
+
+			@node = node->next;
+		};
+
+		return nullptr;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::insert(unordered_map& this, K key, V value) -> bool {
+		if (this.find(key) || this.length == usize::max) {
+			return false;
+		};
+
+		usize code = this.hasher.object.hash(key);
+		if (!@this.reserve(this.length + 1)) {
+			return false;
+		};
+
+		using Node = unordered_node<K, V>;
+		Node* node = static_cast<Node*>(malloc(sizeof(Node)));
+		if (!node) {
+			return false;
+		};
+
+		@node->Node($key, $value, $code);
+
+		usize index = node->hash_code % this.buckets.size();
+
+		@node->next = this.buckets.data()[index];
+		@(@this.buckets).data()[index] = node;
+		@this.length = this.length + 1;
+
+		return true;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::erase(unordered_map& this, const K& key) -> bool {
+		if (!this.buckets.size()) {
+			return false;
+		};
+
+		usize code = this.hasher.object.hash(key);
+		usize index = code % this.buckets.size();
+		unordered_node<K, V>** link = &@(@this.buckets).data()[index];
+		while (*link) {
+			unordered_node<K, V>* node = *link;
+			if (node->hash_code == code && this.comparison.object.equal(node->key.object, key)) {
+				@*link = node->next;
+
+				using Node = unordered_node<K, V>;
+
+				@node->~Node();
+				free(node);
+				@this.length = this.length - 1;
+
+				return true;
+			};
+
+			@link = &@node->next;
+		};
+
+		return false;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::clear(unordered_map& this) {
+		usize index = 0;
+		while (index < this.buckets.size()) {
+			unordered_node<K, V>* node = this.buckets.data()[index];
+			while (node) {
+				unordered_node<K, V>* next = node->next;
+				using Node = unordered_node<K, V>;
+
+				@node->~Node();
+				free(node);
+				@node = next;
+			};
+
+			@(@this.buckets).data()[index] = nullptr;
+			@index = index + 1;
+		};
+
+		@this.length = 0;
+	};
+
+	template<typename K, typename V, typename Hash, typename Equal>
+	fn unordered_map<K, V, Hash, Equal>::reserve(unordered_map& this, usize required) -> bool {
+		if (required <= this.buckets.size()) {
+			return true;
+		};
+
+		usize maximum = usize::max / sizeof(unordered_node<K, V>*);
+		if (required > maximum) {
+			return false;
+		};
+
+		usize count = $required;
+		if (count < 8) {
+			@count = 8;
+		};
+
+		if (this.buckets.size() <= (maximum >> 1)) {
+			usize grown = this.buckets.size() << 1;
+			if (grown > count) {
+				@count = grown;
+			};
+		};
+
+		buffer<unordered_node<K, V>*> replacement;
+		if (!@replacement.reserve(count)) {
+			return false;
+		};
+
+		usize index = 0;
+		while (index < count) {
+			if (!@replacement.push_back(nullptr)) {
+				return false;
+			};
+
+			@index = index + 1;
+		};
+
+		@index = 0;
+		while (index < this.buckets.size()) {
+			unordered_node<K, V>* node = this.buckets.data()[index];
+			while (node) {
+				unordered_node<K, V>* next = node->next;
+				usize bucket = node->hash_code % count;
+
+				@node->next = replacement.data()[bucket];
+				@(@replacement).data()[bucket] = node;
+				@node = next;
+			};
+
+			@index = index + 1;
+		};
+
+		@this.buckets = $replacement;
+
+		return true;
 	};
 };

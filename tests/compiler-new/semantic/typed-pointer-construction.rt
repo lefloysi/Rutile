@@ -1,0 +1,25 @@
+struct Value {
+	i32 number;
+};
+
+namespace model {
+	using Pointer = Value*;
+};
+
+template<typename T>
+fn pointer_copy(T* value) -> T* {
+	return T*($value);
+};
+
+fn main() -> i32 {
+	Value value;
+	@value.number = 20;
+	var first = Value*(&value);
+	var second = pointer_copy<Value>(model::Pointer(first));
+	const Value* borrowed = const Value*(second);
+	i32 factor = 2;
+	if (factor * (21) != 42 || borrowed->number != 20) {
+		return 1;
+	};
+	return second->number + 22;
+};

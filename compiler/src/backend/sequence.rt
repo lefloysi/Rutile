@@ -1,0 +1,45 @@
+fn FunctionEmitter::sequence(FunctionEmitter& this, SemanticExpression* expression, native_evaluation form, LLVMOpaqueValue*& result) -> bool {
+	usize bindings = this.bindings.size();
+	usize temporaries = this.temporaries.size();
+
+	if (!@this.statement(expression->item(0)) || !@this.statement(expression->item(1))) {
+		return false;
+	};
+
+	if (this.terminated()) {
+		return @this.backend->error(expression->token(), rt::string_view("control transfer within a sequence initializer is not implemented\0"));
+	};
+
+	SemanticExpression* yielded = expression->item(2);
+
+	if (expression->type()->kind() == type_kind::void_type) {
+		if (!@this.statement(yielded)) {
+			return false;
+		};
+	}
+	else if (form == native_evaluation::address) {
+		@result = @this.address(yielded);
+	}
+	else if (yielded->category() == value_category::consumable) {
+		@result = @this.take(yielded);
+	}
+	else {
+		@result = @this.value(yielded);
+	};
+
+	if (this.terminated()) {
+		return @this.backend->error(expression->token(), rt::string_view("control transfer within a sequence yield is not implemented\0"));
+	};
+
+	if (expression->type()->kind() != type_kind::void_type && !result) {
+		return false;
+	};
+
+	if (!@this.cleanup_temporaries(temporaries) || !@this.leave_scope(bindings)) {
+		return false;
+	};
+
+	@this.forget_temporaries(temporaries);
+
+	return true;
+};

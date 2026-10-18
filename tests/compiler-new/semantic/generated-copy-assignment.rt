@@ -1,0 +1,60 @@
+struct Counts {
+	i32 copies;
+	i32 assigned;
+	i32 results;
+};
+
+struct Result {
+	Counts* counts;
+
+	fn ~Result(Result& this) {
+		@this.counts->results = this.counts->results + 1;
+	};
+};
+
+struct Member {
+	Counts* counts;
+	i32 value;
+
+	fn Member(Member& this) : [default];
+
+	fn Member(Member& this, const Member& other) {
+		@this.counts := other.counts;
+		@this.value := other.value;
+		@this.counts->copies = this.counts->copies + 1;
+	};
+
+	fn operator=(Member& this, const Member& other) -> Result {
+		@this.counts := other.counts;
+		@this.value := other.value;
+		@this.counts->assigned = this.counts->assigned + 1;
+		Result result;
+		@result.counts := this.counts;
+
+		return $result;
+	};
+};
+
+struct Holder {
+	Member[2] members;
+
+	fn operator=(Holder& this, const Holder& other) -> Holder& : [default];
+};
+
+fn main() -> i32 {
+	Counts counts;
+	Holder source;
+	@source.members[0].counts = &counts;
+	@source.members[0].value = 20;
+	@source.members[1].counts = &counts;
+	@source.members[1].value = 22;
+	Holder target;
+
+	@target = source;
+
+	if (counts.copies || counts.assigned != 2 || counts.results != 2) {
+		return 1;
+	};
+
+	return target.members[0].value + target.members[1].value;
+};

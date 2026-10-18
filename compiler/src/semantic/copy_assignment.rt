@@ -1,0 +1,37 @@
+struct CopyAssignmentPlan {
+	fn CopyAssignmentPlan(CopyAssignmentPlan& this, Entity& destination, Entity& source, rt::unique<SemanticExpression> expression);
+	fn destination(const CopyAssignmentPlan& this) -> Entity&;
+	fn source(const CopyAssignmentPlan& this) -> Entity&;
+	fn expression(const CopyAssignmentPlan& this) -> SemanticExpression&;
+
+private:
+	Entity* destination_binding;
+	Entity* source_binding;
+	rt::unique<SemanticExpression> operation;
+};
+
+fn CopyAssignmentPlan::CopyAssignmentPlan(CopyAssignmentPlan& this, Entity& destination, Entity& source, rt::unique<SemanticExpression> expression) {
+	@this.destination_binding = &destination;
+	@this.source_binding = &source;
+	@this.operation = $expression;
+};
+
+fn CopyAssignmentPlan::destination(const CopyAssignmentPlan& this) -> Entity& {
+	return @*this.destination_binding;
+};
+
+fn CopyAssignmentPlan::source(const CopyAssignmentPlan& this) -> Entity& {
+	return @*this.source_binding;
+};
+
+fn CopyAssignmentPlan::expression(const CopyAssignmentPlan& this) -> SemanticExpression& {
+	return @*this.operation.get();
+};
+
+fn Entity::copy_assignment(const Entity& this) -> CopyAssignmentPlan* {
+	return this.copy_assigner.get();
+};
+
+fn Entity::set_copy_assignment(Entity& this, rt::unique<CopyAssignmentPlan> plan) {
+	@this.copy_assigner = $plan;
+};

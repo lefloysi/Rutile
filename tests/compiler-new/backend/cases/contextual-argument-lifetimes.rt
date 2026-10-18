@@ -1,0 +1,23 @@
+i32 destroyed;
+
+struct Payload {
+	i32 value;
+	fn ~Payload(Payload& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn consume(Payload payload) -> i32 {
+	return payload.value;
+};
+
+fn main() -> i32 {
+	i32 answer = consume({
+		Payload scratch;
+		@payload.value = 42;
+	});
+	if (destroyed != 2) {
+		return 1;
+	};
+	return answer;
+};

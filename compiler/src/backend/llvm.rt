@@ -14,54 +14,90 @@ struct LLVMOpaquePassBuilderOptions;
 struct LLVMOpaqueError;
 
 fn LLVMGetVersion(u32* major, u32* minor, u32* patch);
+
 fn LLVMContextCreate() -> LLVMOpaqueContext*;
 fn LLVMContextDispose(LLVMOpaqueContext* context);
+
 fn LLVMModuleCreateWithNameInContext(const char* name, LLVMOpaqueContext* context) -> LLVMOpaqueModule*;
+
 fn LLVMDisposeModule(LLVMOpaqueModule* module);
+
 fn LLVMCreateBuilderInContext(LLVMOpaqueContext* context) -> LLVMOpaqueBuilder*;
+
 fn LLVMDisposeBuilder(LLVMOpaqueBuilder* builder);
+
 fn LLVMInitializeX86TargetInfo();
 fn LLVMInitializeX86Target();
 fn LLVMInitializeX86TargetMC();
 fn LLVMInitializeX86AsmPrinter();
+
 fn LLVMGetDefaultTargetTriple() -> char*;
+
 fn LLVMDisposeMessage(char* message);
+
 fn LLVMGetTargetFromTriple(const char* triple, LLVMTarget** target, char** message) -> i32;
+
 fn LLVMCreateTargetMachine(LLVMTarget* target, const char* triple, const char* cpu, const char* features, i32 level, i32 relocation, i32 model) -> LLVMOpaqueTargetMachine*;
+
 fn LLVMDisposeTargetMachine(LLVMOpaqueTargetMachine* machine);
+
 fn LLVMCreateTargetDataLayout(LLVMOpaqueTargetMachine* machine) -> LLVMOpaqueTargetData*;
+
 fn LLVMDisposeTargetData(LLVMOpaqueTargetData* layout);
+
 fn LLVMCopyStringRepOfTargetData(LLVMOpaqueTargetData* layout) -> char*;
+
 fn LLVMPointerSize(LLVMOpaqueTargetData* layout) -> u32;
+
 fn LLVMABISizeOfType(LLVMOpaqueTargetData* layout, LLVMOpaqueType* type) -> u64;
+
 fn LLVMSetTarget(LLVMOpaqueModule* module, const char* triple);
 fn LLVMSetDataLayout(LLVMOpaqueModule* module, const char* layout);
+
 fn LLVMVoidTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+
 fn LLVMIntTypeInContext(LLVMOpaqueContext* context, u32 bits) -> LLVMOpaqueType*;
+
 fn LLVMFloatTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+
 fn LLVMDoubleTypeInContext(LLVMOpaqueContext* context) -> LLVMOpaqueType*;
+
 fn LLVMPointerTypeInContext(LLVMOpaqueContext* context, u32 address_space) -> LLVMOpaqueType*;
+
 fn LLVMArrayType2(LLVMOpaqueType* element, u64 count) -> LLVMOpaqueType*;
+
 fn LLVMFunctionType(LLVMOpaqueType* result, LLVMOpaqueType** parameters, u32 count, i32 variadic) -> LLVMOpaqueType*;
+
 fn LLVMStructCreateNamed(LLVMOpaqueContext* context, const char* name) -> LLVMOpaqueType*;
 fn LLVMStructSetBody(LLVMOpaqueType* type, LLVMOpaqueType** fields, u32 count, i32 packed);
+
 fn LLVMConstInt(LLVMOpaqueType* type, u64 value, i32 sign_extend) -> LLVMOpaqueValue*;
 fn LLVMConstReal(LLVMOpaqueType* type, f64 value) -> LLVMOpaqueValue*;
 fn LLVMConstNull(LLVMOpaqueType* type) -> LLVMOpaqueValue*;
 fn LLVMConstStringInContext2(LLVMOpaqueContext* context, const char* text, usize length, i32 no_terminator) -> LLVMOpaqueValue*;
+
 fn LLVMTypeOf(LLVMOpaqueValue* value) -> LLVMOpaqueType*;
+
 fn LLVMAddGlobal(LLVMOpaqueModule* module, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMSetInitializer(LLVMOpaqueValue* global, LLVMOpaqueValue* initializer);
 fn LLVMSetGlobalConstant(LLVMOpaqueValue* global, i32 immutable);
 fn LLVMSetLinkage(LLVMOpaqueValue* global, i32 linkage);
+
 fn LLVMAddFunction(LLVMOpaqueModule* module, const char* name, LLVMOpaqueType* type) -> LLVMOpaqueValue*;
+
 fn LLVMGetNamedFunction(LLVMOpaqueModule* module, const char* name) -> LLVMOpaqueValue*;
 fn LLVMGetParam(LLVMOpaqueValue* function, u32 index) -> LLVMOpaqueValue*;
+
 fn LLVMGlobalGetValueType(LLVMOpaqueValue* global) -> LLVMOpaqueType*;
+
 fn LLVMAppendBasicBlockInContext(LLVMOpaqueContext* context, LLVMOpaqueValue* function, const char* name) -> LLVMOpaqueBasicBlock*;
+
 fn LLVMPositionBuilderAtEnd(LLVMOpaqueBuilder* builder, LLVMOpaqueBasicBlock* block);
+
 fn LLVMGetInsertBlock(LLVMOpaqueBuilder* builder) -> LLVMOpaqueBasicBlock*;
 fn LLVMGetBasicBlockTerminator(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+
 fn LLVMBuildAlloca(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildLoad2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* pointer, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildStore(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueValue* pointer) -> LLVMOpaqueValue*;
@@ -76,18 +112,30 @@ fn LLVMBuildStructGEP2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpa
 fn LLVMBuildICmp(LLVMOpaqueBuilder* builder, i32 predicate, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildFCmp(LLVMOpaqueBuilder* builder, i32 predicate, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildPhi(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMAddIncoming(LLVMOpaqueValue* phi, LLVMOpaqueValue** values, LLVMOpaqueBasicBlock** blocks, u32 count);
+
 fn LLVMVerifyModule(LLVMOpaqueModule* module, i32 action, char** message) -> i32;
+
 fn LLVMCreatePassBuilderOptions() -> LLVMOpaquePassBuilderOptions*;
+
 fn LLVMDisposePassBuilderOptions(LLVMOpaquePassBuilderOptions* options);
+
 fn LLVMPassBuilderOptionsSetVerifyEach(LLVMOpaquePassBuilderOptions* options, i32 verify);
+
 fn LLVMRunPasses(LLVMOpaqueModule* module, const char* passes, LLVMOpaqueTargetMachine* machine, LLVMOpaquePassBuilderOptions* options) -> LLVMOpaqueError*;
+
 fn LLVMGetErrorMessage(LLVMOpaqueError* error) -> char*;
+
 fn LLVMDisposeErrorMessage(char* message);
+
 fn LLVMTargetMachineEmitToMemoryBuffer(LLVMOpaqueTargetMachine* machine, LLVMOpaqueModule* module, i32 file_type, char** message, LLVMOpaqueMemoryBuffer** buffer) -> i32;
+
 fn LLVMDisposeMemoryBuffer(LLVMOpaqueMemoryBuffer* buffer);
+
 fn LLVMGetBufferStart(LLVMOpaqueMemoryBuffer* buffer) -> const char*;
 fn LLVMGetBufferSize(LLVMOpaqueMemoryBuffer* buffer) -> usize;
+
 fn LLVMBuildAdd(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildSub(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildMul(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
@@ -121,20 +169,31 @@ fn LLVMBuildFPExt(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaque
 fn LLVMBuildPtrToInt(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* target, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildIntToPtr(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* target, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildBitCast(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* target, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMStructTypeInContext(LLVMOpaqueContext* context, LLVMOpaqueType** fields, u32 count, i32 packed) -> LLVMOpaqueType*;
+
 fn LLVMConstNamedStruct(LLVMOpaqueType* type, LLVMOpaqueValue** values, u32 count) -> LLVMOpaqueValue*;
 fn LLVMConstArray2(LLVMOpaqueType* type, LLVMOpaqueValue** values, u64 count) -> LLVMOpaqueValue*;
+
 fn LLVMBuildMalloc(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildFree(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* pointer) -> LLVMOpaqueValue*;
 fn LLVMBuildInsertValue(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* aggregate, LLVMOpaqueValue* element, u32 index, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMGetEntryBasicBlock(LLVMOpaqueValue* function) -> LLVMOpaqueBasicBlock*;
 fn LLVMGetFirstInstruction(LLVMOpaqueBasicBlock* block) -> LLVMOpaqueValue*;
+
 fn LLVMPositionBuilderBefore(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* instruction);
+
 fn LLVMBuildPtrDiff2(LLVMOpaqueBuilder* builder, LLVMOpaqueType* element, LLVMOpaqueValue* first, LLVMOpaqueValue* second, const char* name) -> LLVMOpaqueValue*;
 fn LLVMBuildIntCast2(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueType* target, i32 signed_value, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMGetNextInstruction(LLVMOpaqueValue* instruction) -> LLVMOpaqueValue*;
+
 fn LLVMBuildMemCpy(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* destination, u32 destination_alignment, LLVMOpaqueValue* source, u32 source_alignment, LLVMOpaqueValue* size) -> LLVMOpaqueValue*;
 fn LLVMBuildSwitch(LLVMOpaqueBuilder* builder, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* otherwise, u32 count) -> LLVMOpaqueValue*;
+
 fn LLVMAddCase(LLVMOpaqueValue* instruction, LLVMOpaqueValue* value, LLVMOpaqueBasicBlock* destination);
+
 fn LLVMBuildArrayMalloc(LLVMOpaqueBuilder* builder, LLVMOpaqueType* type, LLVMOpaqueValue* count, const char* name) -> LLVMOpaqueValue*;
+
 fn LLVMABIAlignmentOfType(LLVMOpaqueTargetData* layout, LLVMOpaqueType* type) -> u32;

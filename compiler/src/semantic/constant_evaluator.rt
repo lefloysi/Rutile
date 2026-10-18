@@ -20,76 +20,40 @@ struct ConstantCheckpoint {
 	usize cells;
 };
 
+enum constant_result_kind : [u08] {
+	value;
+	reference;
+};
+
+enum constant_reference_kind : [u08] {
+	stored;
+	temporary;
+	unsupported;
+};
+
 struct ConstantFrame {
-	fn checkpoint(const ConstantFrame& this) -> ConstantCheckpoint {
-		ConstantCheckpoint checkpoint;
-		@checkpoint.bindings = this.bindings.size();
-		@checkpoint.cells = this.cells.size();
-		return $checkpoint;
-	};
-	fn leave(ConstantFrame& this, const ConstantCheckpoint& checkpoint) {
-		while (this.bindings.size() > checkpoint.bindings) {
-			@this.bindings.pop_back();
-		};
-		usize index = checkpoint.cells;
-		while (index < this.cells.size()) {
-			// Keep stable tombstones for outstanding borrowed cells, but end the value's lifetime.
-			@this.cells.data()[index].get()->value.reset(nullptr);
-			@index = index + 1;
-		};
-	};
-	fn return_reference(ConstantFrame& this, ConstantCell* cell) {
-		@this.reference_result.reset();
-		if (cell) {
-			@this.reference_result.bind(@*cell);
-		};
-	};
-	fn returned_reference(const ConstantFrame& this) -> ConstantCell* {
-		return this.reference_result.get();
-	};
-	fn find(const ConstantFrame& this, Entity* entity) -> ConstantCell* {
-		usize index = this.bindings.size();
-		while (index) {
-			@index = index - 1;
-			if (this.bindings.data()[index].entity == entity) {
-				return this.bindings.data()[index].cell;
-			};
-		};
-		return nullptr;
-	};
-	fn bind(ConstantFrame& this, Entity* entity, ConstantCell* cell) -> bool {
-		ConstantBinding binding;
-		@binding.entity = $entity;
-		@binding.cell = $cell;
-		return @this.bindings.push_back($binding);
-	};
-	fn store(ConstantFrame& this, Entity* entity, rt::unique<SemanticExpression> value) -> bool {
-		var cell = rt::unique<ConstantCell>::make();
-		if (!cell.get()) {
-			return false;
-		};
-		@cell.get()->value = $value;
-		ConstantCell* borrowed = cell.get();
-		if (!@this.cells.push_back($cell)) {
-			return false;
-		};
-		return @this.bind($entity, $borrowed);
-	};
+	fn set_result_type(ConstantFrame& this, const Type& type);
+	fn leave(ConstantFrame& this, const ConstantCheckpoint& checkpoint);
+	fn return_reference(ConstantFrame& this, ConstantCell* cell);
+	fn bind(ConstantFrame& this, Entity* entity, ConstantCell* cell) -> bool;
+	fn store(ConstantFrame& this, Entity* entity, rt::unique<SemanticExpression> value) -> bool;
+
+	fn returns_reference(const ConstantFrame& this) -> bool;
+	fn checkpoint(const ConstantFrame& this) -> ConstantCheckpoint;
+	fn returned_reference(const ConstantFrame& this) -> ConstantCell*;
+	fn find(const ConstantFrame& this, Entity* entity) -> ConstantCell*;
+	fn owns(const ConstantFrame& this, const ConstantCell& cell) -> bool;
 
 private:
 	rt::buffer<rt::unique<ConstantCell>> cells;
 	rt::buffer<ConstantBinding> bindings;
 	rt::optional_ref<ConstantCell> reference_result;
+	constant_result_kind result_kind;
 };
 
 struct ConstantRegion {
-	fn ConstantRegion(ConstantRegion& this, ConstantFrame& frame) {
-		@this.frame = &frame;
-		@this.checkpoint = frame.checkpoint();
-	};
-	fn ~ConstantRegion(ConstantRegion& this) {
-		@this.frame->leave(this.checkpoint);
-	};
+	fn ConstantRegion(ConstantRegion& this, ConstantFrame& frame);
+	fn ~ConstantRegion(ConstantRegion& this);
 
 private:
 	ConstantFrame* frame;
@@ -103,74 +67,202 @@ struct ConstantEvaluator {
 
 private:
 	fn tick(ConstantEvaluator& this) -> bool;
-	fn literal(const ConstantEvaluator& this, const SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression>;
-	fn copy(const ConstantEvaluator& this, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
-	fn place(ConstantEvaluator& this, ConstantFrame& frame, const SemanticExpression& source) -> ConstantCell*;
+	fn bind_reference(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& target, ConstantFrame& origin, Entity& binding, const SemanticExpression& source) -> bool;
+	fn place(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> ConstantCell*;
+	fn global_cell(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, Entity& entity) -> ConstantCell*;
 	fn value(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
-	fn call(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
+	fn call(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, ConstantCell*& reference) -> rt::unique<SemanticExpression>;
 	fn execute(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, rt::unique<SemanticExpression>& returned) -> constant_flow;
 	fn loop(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, rt::unique<SemanticExpression>& returned) -> constant_flow;
 	fn selection(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn execute_children(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, rt::unique<SemanticExpression>& returned) -> constant_flow;
+	fn initialize_sequence(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> bool;
+
+	fn reference_kind(const ConstantEvaluator& this, const SemanticExpression& source) -> constant_reference_kind;
+	fn literal(const ConstantEvaluator& this, const SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression>;
+	fn copy(const ConstantEvaluator& this, const SemanticExpression& source) -> rt::unique<SemanticExpression>;
 	fn contains_label(const ConstantEvaluator& this, const SemanticExpression& source) -> bool;
 
 	usize steps;
 	usize depth;
+	ConstantFrame constants;
 };
 
 fn ConstantEvaluator::tick(ConstantEvaluator& this) -> bool {
 	@this.steps = this.steps + 1;
+
 	return this.steps <= 100000;
+};
+
+fn ConstantEvaluator::reference_kind(const ConstantEvaluator& this, const SemanticExpression& source) -> constant_reference_kind {
+	if (source.category() == value_category::consumable) {
+		return constant_reference_kind::temporary;
+	};
+
+	switch (source.kind()) {
+		case semantic_kind::name:
+		case semantic_kind::call:
+			return constant_reference_kind::stored;
+		case semantic_kind::access:
+		case semantic_kind::cast:
+			return this.reference_kind(*source.item(0));
+		case semantic_kind::sequence:
+			return this.reference_kind(*source.item(2));
+		default:
+			return constant_reference_kind::unsupported;
+	};
+};
+
+fn ConstantEvaluator::bind_reference(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& target, ConstantFrame& origin, Entity& binding, const SemanticExpression& source) -> bool {
+	constant_reference_kind kind = this.reference_kind(source);
+
+	if (kind == constant_reference_kind::stored) {
+		ConstantCell* cell = @this.place(@analyzer, @origin, source);
+
+		if (!cell || !cell->value.get()) {
+			return false;
+		};
+
+		return @target.bind(&binding, cell);
+	};
+
+	if (kind != constant_reference_kind::temporary || binding.type()->element()->qualifier() != type_qualifier::immutable) {
+		return false;
+	};
+
+	var temporary = @this.value(@analyzer, @origin, source);
+
+	if (!temporary.get()) {
+		return false;
+	};
+
+	return @target.store(&binding, $temporary);
+};
+
+fn ConstantEvaluator::execute_children(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, rt::unique<SemanticExpression>& returned) -> constant_flow {
+	usize index = 0;
+	while (index < source.size()) {
+		constant_flow flow = @this.execute(@analyzer, @frame, *source.item(index), @returned);
+
+		if (flow != constant_flow::next) {
+			return $flow;
+		};
+
+		@index = index + 1;
+	};
+
+	return constant_flow::next;
+};
+
+fn ConstantEvaluator::initialize_sequence(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> bool {
+	rt::unique<SemanticExpression> returned;
+
+	if (@this.execute(@analyzer, @frame, *source.item(0), @returned) != constant_flow::next) {
+		return false;
+	};
+
+	return @this.execute(@analyzer, @frame, *source.item(1), @returned) == constant_flow::next;
 };
 
 fn ConstantEvaluator::literal(const ConstantEvaluator& this, const SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression> {
 	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_integer, source.type(), source.token()));
+
 	if (result.get()) {
 		@result.get()->set_integer(source.type()->normalize_integer(value));
 	};
+
 	return $result;
 };
 
 fn ConstantEvaluator::copy(const ConstantEvaluator& this, const SemanticExpression& source) -> rt::unique<SemanticExpression> {
-	if (source.type()->representation()->kind() == type_kind::floating_point) {
-		f64 real = 0.0;
-		if (!source.constant_real(@real)) {
-			return rt::unique<SemanticExpression>();
-		};
-		var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_real, source.type(), source.token()));
-		if (result.get()) {
-			@result.get()->set_real(real);
-		};
-		return $result;
-	};
-	u64 integer = 0;
-	if (!source.constant_integer(@integer)) {
-		return rt::unique<SemanticExpression>();
-	};
-	return this.literal(source, $integer);
+	return source.copy_constant();
 };
 
 fn ConstantEvaluator::integer(ConstantEvaluator& this, Analyzer& analyzer, const SemanticExpression& expression, u64& result) -> bool {
 	@this.steps = 0;
 	@this.depth = 0;
+	@this.constants = ConstantFrame();
 	ConstantFrame frame;
 	var value = @this.value(@analyzer, @frame, expression);
+
 	return value.get() && value.get()->constant_integer(@result);
 };
 
-fn ConstantEvaluator::place(ConstantEvaluator& this, ConstantFrame& frame, const SemanticExpression& source) -> ConstantCell* {
+fn ConstantEvaluator::global_cell(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, Entity& entity) -> ConstantCell* {
+	if (entity.kind() != entity_kind::global || entity.type()->qualifier() != type_qualifier::immutable) {
+		return nullptr;
+	};
+
+	ConstantCell* cell = this.constants.find(&entity);
+
+	if (cell) {
+		return cell;
+	};
+
+	if (this.depth >= 128 || !@analyzer.global_initializer(@entity) || !entity.body()) {
+		return nullptr;
+	};
+
+	@this.depth = this.depth + 1;
+	var value = @this.value(@analyzer, @frame, *entity.body());
+	@this.depth = this.depth - 1;
+
+	if (!value.get()) {
+		return nullptr;
+	};
+
+	if (!@this.constants.store(&entity, $value)) {
+		return nullptr;
+	};
+
+	return this.constants.find(&entity);
+};
+
+fn ConstantEvaluator::place(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> ConstantCell* {
 	if (!@this.tick()) {
 		return nullptr;
 	};
+
+	if (source.kind() == semantic_kind::call && source.category() == value_category::place) {
+		ConstantCell* reference = nullptr;
+		var value = @this.call(@analyzer, @frame, source, @reference);
+
+		if (!value.get()) {
+			return nullptr;
+		};
+
+		return $reference;
+	};
+
 	if (source.kind() == semantic_kind::name) {
 		ConstantCell* cell = frame.find(source.entity());
+		Entity* entity = source.entity();
+
+		if (!cell && entity) {
+			@cell = @this.global_cell(@analyzer, @frame, @*entity);
+		};
+
 		if (!cell || !cell->value.get()) {
 			return nullptr;
 		};
+
 		return $cell;
 	};
-	if (source.kind() == semantic_kind::access || source.kind() == semantic_kind::cast && source.category() == value_category::place) {
-		return @this.place(@frame, *source.item(0));
+
+	if (source.kind() == semantic_kind::sequence && source.category() == value_category::place) {
+		var region = ConstantRegion(@frame);
+
+		if (!@this.initialize_sequence(@analyzer, @frame, source)) {
+			return nullptr;
+		};
+
+		return @this.place(@analyzer, @frame, *source.item(2));
 	};
+
+	if (source.kind() == semantic_kind::access || source.kind() == semantic_kind::cast && source.category() == value_category::place) {
+		return @this.place(@analyzer, @frame, *source.item(0));
+	};
+
 	return nullptr;
 };
 
@@ -178,155 +270,211 @@ fn ConstantEvaluator::value(ConstantEvaluator& this, Analyzer& analyzer, Constan
 	if (!@this.tick()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	semantic_kind kind = source.kind();
+
 	if (kind == semantic_kind::noop) {
 		return rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::noop, source.type(), source.token()));
 	};
+
+	if (kind == semantic_kind::sequence) {
+		var region = ConstantRegion(@frame);
+
+		if (!@this.initialize_sequence(@analyzer, @frame, source)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return @this.value(@analyzer, @frame, *source.item(2));
+	};
+
 	if (kind == semantic_kind::name) {
 		ConstantCell* cell = frame.find(source.entity());
+
 		if (cell && cell->value.get()) {
 			return this.copy(*cell->value.get());
 		};
+
 		Entity* entity = source.entity();
-		if (entity && entity->kind() == entity_kind::global && entity->type()->qualifier() == type_qualifier::immutable && entity->body() && this.depth < 128) {
-			@this.depth = this.depth + 1;
-			var result = @this.value(@analyzer, @frame, *entity->body());
-			@this.depth = this.depth - 1;
-			return $result;
+
+		if (entity && entity->kind() == entity_kind::global && entity->type()->qualifier() == type_qualifier::immutable) {
+			@cell = @this.global_cell(@analyzer, @frame, @*entity);
+
+			if (!cell || !cell->value.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			return this.copy(*cell->value.get());
 		};
+
 		return this.copy(source);
 	};
+
 	if (kind == semantic_kind::access) {
 		return @this.value(@analyzer, @frame, *source.item(0));
 	};
+
 	if (kind == semantic_kind::relocation) {
-		ConstantCell* cell = @this.place(@frame, *source.item(0));
+		ConstantCell* cell = @this.place(@analyzer, @frame, *source.item(0));
+
 		if (!cell) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		var value = this.copy(*cell->value.get());
 		@cell->value.reset(nullptr);
+
 		return $value;
 	};
+
 	if (kind == semantic_kind::call) {
-		return @this.call(@analyzer, @frame, source);
+		ConstantCell* reference = nullptr;
+
+		return @this.call(@analyzer, @frame, source, @reference);
 	};
+
 	if (kind == semantic_kind::construction && source.type()->representation()->kind().is_numeric() && !source.entity()) {
 		SemanticExpression* arguments = source.item(0);
+
 		if (!arguments->size()) {
 			if (source.type()->representation()->kind() == type_kind::floating_point) {
 				return rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_real, source.type(), source.token()));
 			};
+
 			return this.literal(source, 0);
 		};
+
 		if (arguments->size() == 1) {
 			return @this.value(@analyzer, @frame, *arguments->item(0));
 		};
+
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (kind == semantic_kind::binary && (source.operation() == token_kind::op_assign || source.operation() == token_kind::op_copy)) {
 		// Runtime assignment evaluates its source before designating destination storage.
 		var assigned = @this.value(@analyzer, @frame, *source.item(1));
-		ConstantCell* cell = @this.place(@frame, *source.item(0));
-		if (!assigned.get() || !cell) {
+		ConstantCell* cell = @this.place(@analyzer, @frame, *source.item(0));
+
+		if (!assigned.get() || !cell || this.constants.owns(*cell)) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		@cell->value = this.copy(*assigned.get());
+
 		if (!cell->value.get()) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		return $assigned;
 	};
+
 	if (kind == semantic_kind::binary || kind == semantic_kind::unary || kind == semantic_kind::cast) {
 		var first = @this.value(@analyzer, @frame, *source.item(0));
+
 		if (!first.get()) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (kind == semantic_kind::binary && (source.operation() == token_kind::op_and || source.operation() == token_kind::op_or)) {
 			bool truth = false;
+
 			if (!first.get()->constant_truth(@truth)) {
 				return rt::unique<SemanticExpression>();
 			};
+
 			if (source.operation() == token_kind::op_and && !truth || source.operation() == token_kind::op_or && truth) {
 				return this.literal(source, static_cast<u64>($truth));
 			};
 		};
+
 		var operation = rt::unique<SemanticExpression>(new SemanticExpression($kind, source.type(), source.token()));
+
 		if (!operation.get() || !@operation.get()->append(rt::unique<SemanticExpression>(@first.release()))) {
 			return rt::unique<SemanticExpression>();
 		};
+
 		if (source.size() == 2) {
 			var second = @this.value(@analyzer, @frame, *source.item(1));
+
 			if (!second.get() || !@operation.get()->append(rt::unique<SemanticExpression>(@second.release()))) {
 				return rt::unique<SemanticExpression>();
 			};
 		};
+
 		return this.copy(*operation.get());
 	};
+
 	return this.copy(source);
 };
 
-fn ConstantEvaluator::call(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source) -> rt::unique<SemanticExpression> {
+fn ConstantEvaluator::call(ConstantEvaluator& this, Analyzer& analyzer, ConstantFrame& frame, const SemanticExpression& source, ConstantCell*& reference) -> rt::unique<SemanticExpression> {
+	@reference = nullptr;
 	Entity* function = source.entity();
+
 	if (!function || function->kind() != entity_kind::function || this.depth >= 128) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	@function = function->canonical();
+
 	if (!@analyzer.function_body(function)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!function->body() || function->definition() != function_definition::user_defined || function->role() != function_role::ordinary || source.item(1)->size() != function->parameters().size()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	ConstantFrame invocation;
+	@invocation.set_result_type(*function->type()->signature().result());
 	usize index = 0;
 	while (index < function->parameters().size()) {
 		Entity* parameter = function->parameters().data()[index];
 		SemanticExpression* argument = source.item(1)->item(index);
+
 		if (parameter->type()->kind() == type_kind::reference) {
-			ConstantCell* cell = @this.place(@frame, *argument);
-			if (cell) {
-				if (!@invocation.bind(parameter, cell)) {
-					return rt::unique<SemanticExpression>();
-				};
-			}
-			else {
-				if (parameter->type()->element()->qualifier() != type_qualifier::immutable) {
-					return rt::unique<SemanticExpression>();
-				};
-				var temporary = @this.value(@analyzer, @frame, *argument);
-				if (!temporary.get() || !@invocation.store(parameter, rt::unique<SemanticExpression>(@temporary.release()))) {
-					return rt::unique<SemanticExpression>();
-				};
+			if (!@this.bind_reference(@analyzer, @invocation, @frame, @*parameter, *argument)) {
+				return rt::unique<SemanticExpression>();
 			};
 		}
 		else {
 			var value = @this.value(@analyzer, @frame, *argument);
+
 			if (!value.get() || !@invocation.store(parameter, rt::unique<SemanticExpression>(@value.release()))) {
 				return rt::unique<SemanticExpression>();
 			};
 		};
+
 		@index = index + 1;
 	};
+
 	@this.depth = this.depth + 1;
 	rt::unique<SemanticExpression> returned;
 	constant_flow flow = @this.execute(@analyzer, @invocation, *function->body(), @returned);
 	@this.depth = this.depth - 1;
+
 	if (flow == constant_flow::next && source.type()->kind() == type_kind::void_type) {
 		return rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::noop, source.type(), source.token()));
 	};
+
 	if (flow != constant_flow::returned) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (function->type()->signature().result()->kind() == type_kind::reference) {
 		ConstantCell* cell = invocation.returned_reference();
 		ConstantCheckpoint boundary;
 		@invocation.leave(boundary);
+
 		if (!cell || !cell->value.get()) {
 			return rt::unique<SemanticExpression>();
 		};
+
+		@reference = cell;
+
 		return this.copy(*cell->value.get());
 	};
+
 	return $returned;
 };
 
@@ -334,65 +482,68 @@ fn ConstantEvaluator::execute(ConstantEvaluator& this, Analyzer& analyzer, Const
 	if (!@this.tick()) {
 		return constant_flow::failed;
 	};
+
 	switch (source.kind()) {
 		case semantic_kind::noop:
 		case semantic_kind::case_label:
 			return constant_flow::next;
 		case semantic_kind::brace: {
 			var region = ConstantRegion(@frame);
-			usize index = 0;
-			while (index < source.size()) {
-				constant_flow flow = @this.execute(@analyzer, @frame, *source.item(index), @returned);
-				if (flow != constant_flow::next) {
-					return $flow;
-				};
-				@index = index + 1;
-			};
-			return constant_flow::next;
+
+			return @this.execute_children(@analyzer, @frame, source, @returned);
 		};
+		case semantic_kind::statements:
+			return @this.execute_children(@analyzer, @frame, source, @returned);
 		case semantic_kind::variable: {
 			Entity* entity = source.entity();
+
 			if (entity->type()->kind() == type_kind::reference) {
-				ConstantCell* cell = @this.place(@frame, *source.item(0));
-				if (cell) {
-					if (!@frame.bind(entity, cell)) {
-						return constant_flow::failed;
-					};
-				}
-				else {
-					if (entity->type()->element()->qualifier() != type_qualifier::immutable) {
-						return constant_flow::failed;
-					};
-					var temporary = @this.value(@analyzer, @frame, *source.item(0));
-					if (!temporary.get() || !@frame.store(entity, rt::unique<SemanticExpression>(@temporary.release()))) {
-						return constant_flow::failed;
-					};
+				if (!@this.bind_reference(@analyzer, @frame, @frame, @*entity, *source.item(0))) {
+					return constant_flow::failed;
 				};
 			}
 			else {
 				rt::unique<SemanticExpression> value;
+
 				if (source.item(0)->kind() == semantic_kind::noop && entity->type()->representation()->kind().is_numeric()) {
 					semantic_kind kind = semantic_kind::literal_integer;
+
 					if (entity->type()->representation()->kind() == type_kind::floating_point) {
 						@kind = semantic_kind::literal_real;
 					};
+
 					@value = rt::unique<SemanticExpression>(new SemanticExpression($kind, entity->type(), source.token()));
 				}
 				else {
 					@value = @this.value(@analyzer, @frame, *source.item(0));
 				};
+
 				if (!value.get() || !@frame.store(entity, rt::unique<SemanticExpression>(@value.release()))) {
 					return constant_flow::failed;
 				};
 			};
+
 			return constant_flow::next;
 		};
 		case semantic_kind::return_value:
-			@frame.return_reference(@this.place(@frame, *source.item(0)));
-			@returned = @this.value(@analyzer, @frame, *source.item(0));
+			if (frame.returns_reference()) {
+				ConstantCell* cell = @this.place(@analyzer, @frame, *source.item(0));
+
+				if (!cell) {
+					return constant_flow::failed;
+				};
+
+				@frame.return_reference(cell);
+				@returned = this.copy(*cell->value.get());
+			}
+			else {
+				@returned = @this.value(@analyzer, @frame, *source.item(0));
+			};
+
 			if (!returned.get()) {
 				return constant_flow::failed;
 			};
+
 			return constant_flow::returned;
 		case semantic_kind::break_loop:
 			return constant_flow::break_loop;
@@ -401,13 +552,17 @@ fn ConstantEvaluator::execute(ConstantEvaluator& this, Analyzer& analyzer, Const
 		case semantic_kind::conditional: {
 			var condition = @this.value(@analyzer, @frame, *source.item(0));
 			bool truth = false;
+
 			if (!condition.get() || !condition.get()->constant_truth(@truth)) {
 				return constant_flow::failed;
 			};
+
 			usize selected = 2;
+
 			if (truth) {
 				@selected = 1;
 			};
+
 			return @this.execute(@analyzer, @frame, *source.item(selected), @returned);
 		};
 		case semantic_kind::while_loop:
@@ -417,9 +572,11 @@ fn ConstantEvaluator::execute(ConstantEvaluator& this, Analyzer& analyzer, Const
 			return @this.selection(@analyzer, @frame, source, @returned);
 		default: {
 			var value = @this.value(@analyzer, @frame, source);
+
 			if (!value.get()) {
 				return constant_flow::failed;
 			};
+
 			return constant_flow::next;
 		};
 	};
@@ -429,42 +586,56 @@ fn ConstantEvaluator::loop(ConstantEvaluator& this, Analyzer& analyzer, Constant
 	var region = ConstantRegion(@frame);
 	usize condition_index = 0;
 	usize body_index = 1;
+
 	if (source.kind() == semantic_kind::for_loop) {
 		constant_flow initialization = @this.execute(@analyzer, @frame, *source.item(0), @returned);
+
 		if (initialization != constant_flow::next) {
 			return $initialization;
 		};
+
 		@condition_index = 1;
 		@body_index = 3;
 	};
+
 	while (true) {
 		if (!@this.tick()) {
 			return constant_flow::failed;
 		};
+
 		SemanticExpression* expression = source.item(condition_index);
+
 		if (expression->kind() != semantic_kind::noop) {
 			var condition = @this.value(@analyzer, @frame, *expression);
 			bool truth = false;
+
 			if (!condition.get() || !condition.get()->constant_truth(@truth)) {
 				return constant_flow::failed;
 			};
+
 			if (!truth) {
 				return constant_flow::next;
 			};
 		};
+
 		constant_flow flow = @this.execute(@analyzer, @frame, *source.item(body_index), @returned);
+
 		if (flow == constant_flow::break_loop) {
 			return constant_flow::next;
 		};
+
 		if (flow == constant_flow::returned || flow == constant_flow::failed) {
 			return $flow;
 		};
+
 		if (source.kind() == semantic_kind::for_loop) {
 			constant_flow step = @this.execute(@analyzer, @frame, *source.item(2), @returned);
+
 			if (step != constant_flow::next && step != constant_flow::continue_loop) {
 				if (step == constant_flow::break_loop) {
 					return constant_flow::next;
 				};
+
 				return $step;
 			};
 		};
@@ -475,16 +646,20 @@ fn ConstantEvaluator::contains_label(const ConstantEvaluator& this, const Semant
 	if (source.kind() == semantic_kind::case_label) {
 		return true;
 	};
+
 	if (source.kind() == semantic_kind::switch_expression) {
 		return false;
 	};
+
 	usize index = 0;
 	while (index < source.size()) {
 		if (this.contains_label(*source.item(index))) {
 			return true;
 		};
+
 		@index = index + 1;
 	};
+
 	return false;
 };
 
@@ -492,19 +667,23 @@ fn ConstantEvaluator::selection(ConstantEvaluator& this, Analyzer& analyzer, Con
 	var region = ConstantRegion(@frame);
 	var condition = @this.value(@analyzer, @frame, *source.item(0));
 	u64 key = 0;
+
 	if (!condition.get() || !condition.get()->constant_integer(@key) || source.item(1)->kind() != semantic_kind::brace) {
 		return constant_flow::failed;
 	};
+
 	SemanticExpression* body = source.item(1);
 	usize selected = body->size();
 	usize fallback = body->size();
 	usize index = 0;
 	while (index < body->size()) {
 		SemanticExpression* item = body->item(index);
+
 		if (item->kind() != semantic_kind::case_label && this.contains_label(*item)) {
 			// Nested labels require a resumable statement path, not linear fallthrough.
 			return constant_flow::failed;
 		};
+
 		if (item->kind() == semantic_kind::case_label) {
 			if (item->token().kind == token_kind::kw_default) {
 				@fallback := index;
@@ -513,21 +692,134 @@ fn ConstantEvaluator::selection(ConstantEvaluator& this, Analyzer& analyzer, Con
 				@selected := index;
 			};
 		};
+
 		@index = index + 1;
 	};
+
 	if (selected == body->size()) {
 		@selected := fallback;
 	};
+
 	@index := selected;
+
 	while (index < body->size()) {
 		constant_flow flow = @this.execute(@analyzer, @frame, *body->item(index), @returned);
+
 		if (flow == constant_flow::break_loop) {
 			return constant_flow::next;
 		};
+
 		if (flow != constant_flow::next) {
 			return $flow;
 		};
+
 		@index = index + 1;
 	};
+
 	return constant_flow::next;
+};
+
+fn ConstantFrame::set_result_type(ConstantFrame& this, const Type& type) {
+	@this.result_kind = constant_result_kind::value;
+
+	if (type.kind() == type_kind::reference) {
+		@this.result_kind = constant_result_kind::reference;
+	};
+};
+
+fn ConstantFrame::returns_reference(const ConstantFrame& this) -> bool {
+	return this.result_kind == constant_result_kind::reference;
+};
+
+fn ConstantFrame::checkpoint(const ConstantFrame& this) -> ConstantCheckpoint {
+	ConstantCheckpoint checkpoint;
+	@checkpoint.bindings = this.bindings.size();
+	@checkpoint.cells = this.cells.size();
+
+	return $checkpoint;
+};
+
+fn ConstantFrame::leave(ConstantFrame& this, const ConstantCheckpoint& checkpoint) {
+	while (this.bindings.size() > checkpoint.bindings) {
+		@this.bindings.pop_back();
+	};
+
+	usize index = checkpoint.cells;
+	while (index < this.cells.size()) {
+		// Keep stable tombstones for outstanding borrowed cells, but end the value's lifetime.
+		@this.cells.data()[index].get()->value.reset(nullptr);
+		@index = index + 1;
+	};
+};
+
+fn ConstantFrame::return_reference(ConstantFrame& this, ConstantCell* cell) {
+	@this.reference_result.reset();
+
+	if (cell) {
+		@this.reference_result.bind(@*cell);
+	};
+};
+
+fn ConstantFrame::returned_reference(const ConstantFrame& this) -> ConstantCell* {
+	return this.reference_result.get();
+};
+
+fn ConstantFrame::find(const ConstantFrame& this, Entity* entity) -> ConstantCell* {
+	usize index = this.bindings.size();
+	while (index) {
+		@index = index - 1;
+
+		if (this.bindings.data()[index].entity == entity) {
+			return this.bindings.data()[index].cell;
+		};
+	};
+
+	return nullptr;
+};
+
+fn ConstantFrame::owns(const ConstantFrame& this, const ConstantCell& cell) -> bool {
+	usize index = 0;
+	while (index < this.cells.size()) {
+		if (this.cells.data()[index].get() == &cell) {
+			return true;
+		};
+
+		@index = index + 1;
+	};
+
+	return false;
+};
+
+fn ConstantFrame::bind(ConstantFrame& this, Entity* entity, ConstantCell* cell) -> bool {
+	ConstantBinding binding;
+	@binding.entity = $entity;
+	@binding.cell = $cell;
+
+	return @this.bindings.push_back($binding);
+};
+
+fn ConstantFrame::store(ConstantFrame& this, Entity* entity, rt::unique<SemanticExpression> value) -> bool {
+	var cell = rt::unique<ConstantCell>::make();
+
+	if (!cell.get()) {
+		return false;
+	};
+
+	@cell.get()->value = $value;
+	ConstantCell* borrowed = cell.get();
+
+	if (!@this.cells.push_back($cell)) {
+		return false;
+	};
+
+	return @this.bind($entity, $borrowed);
+};
+
+fn ConstantRegion::ConstantRegion(ConstantRegion& this, ConstantFrame& frame) {
+	@this.frame = &frame;
+	@this.checkpoint = frame.checkpoint();
+};
+
+fn ConstantRegion::~ConstantRegion(ConstantRegion& this) {
+	@this.frame->leave(this.checkpoint);
 };

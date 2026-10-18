@@ -1,0 +1,23 @@
+fn local_alias_tests() -> i32 {
+	var aliases = TemplateFixture();
+	if (!@aliases.build("template<typename T> struct Box { T value; }; template<typename T> fn local(T value)->T { using Node=T; var result:Node=value; return result; }; fn result()->i32 { using Node=Box<i32>; using Alias=Node; var value:Alias; @value.value=42; { using Alias=i64; var other:Alias=1; }; return local<i32>(value.value); };\0")) {
+		return 1;
+	};
+	var scoped = TemplateFixture();
+	if (@scoped.build("fn result()->i32 { { using Local=i32; }; var value:Local=42; return value; };\0")) {
+		return 2;
+	};
+	var duplicate = TemplateFixture();
+	if (@duplicate.build("fn result()->i32 { using Local=i32; using Local=i64; return 42; };\0")) {
+		return 3;
+	};
+	var cycle = TemplateFixture();
+	if (@cycle.build("fn result()->i32 { using Local=Local; return 42; };\0")) {
+		return 4;
+	};
+	var unknown = TemplateFixture();
+	if (@unknown.build("fn result()->i32 { using Local=Missing; return 42; };\0")) {
+		return 5;
+	};
+	return 42;
+};

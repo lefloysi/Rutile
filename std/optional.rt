@@ -6,11 +6,8 @@ namespace rt {
 
 	template<typename T>
 	union optional_storage {
-		fn optional_storage(optional_storage& this) {
-			@this.empty = 0;
-		};
-		fn ~optional_storage(optional_storage& this) {
-		};
+		fn optional_storage(optional_storage& this);
+		fn ~optional_storage(optional_storage& this);
 
 		u08 empty;
 		T value;
@@ -18,57 +15,19 @@ namespace rt {
 
 	template<typename T>
 	struct optional {
-		fn optional(optional& this) {
-		};
-		fn optional(optional& this, T value) {
-			@this.storage.value.T($value);
-			@this.state = optional_state::engaged;
-		};
-		fn optional(optional& this, const optional& other) {
-			if (other.has_value()) {
-				@this.storage.value.T(other.storage.value);
-				@this.state = optional_state::engaged;
-			};
-		};
-		fn optional(optional& this, optional other) {
-			if (other.has_value()) {
-				T* source = &other.storage.value;
-				@this.storage.value.T($(*source));
-				@this.state = optional_state::engaged;
-				@other.state = optional_state::empty;
-			};
-		};
-		fn operator=(optional& this, optional other) -> optional& : [default];
-		fn ~optional(optional& this) {
-			@this.reset();
-		};
+		fn optional(optional& this);
+		fn optional(optional& this, T value);
+		fn optional(optional& this, const optional& other);
+		fn optional(optional& this, optional other);
+		fn ~optional(optional& this);
 
-		fn has_value(const optional& this) -> bool {
-			return this.state == optional_state::engaged;
-		};
-		fn get(auto optional& this) -> const[this] T* {
-			if (!this.has_value()) {
-				return nullptr;
-			};
-			return &this.storage.value;
-		};
+		fn reset(optional& this);
+		fn emplace(optional& this, T value) -> T&;
+
+		fn has_value(const optional& this) -> bool;
+		fn get(auto optional& this) -> const[this] T*;
 		// Requires has_value(). The reference borrows the contained object's lifetime.
-		fn value(auto optional& this) -> const[this] T& {
-			return const_cast<const[this] T&>(@const_cast<T&>(this.storage.value));
-		};
-		fn reset(optional& this) {
-			if (!this.has_value()) {
-				return;
-			};
-			@this.storage.value.~T();
-			@this.state = optional_state::empty;
-		};
-		fn emplace(optional& this, T value) -> T& {
-			@this.reset();
-			@this.storage.value.T($value);
-			@this.state = optional_state::engaged;
-			return @this.storage.value;
-		};
+		fn value(auto optional& this) -> const[this] T&;
 
 	private:
 		optional_storage<T> storage;
@@ -78,40 +37,134 @@ namespace rt {
 	template<typename T>
 	struct optional_ref {
 		fn optional_ref(optional_ref& this) : [default];
-		fn optional_ref(optional_ref& this, T& value) {
-			@this.pointer = &value;
-		};
-		fn optional_ref(optional_ref& this, const optional_ref& other) : [implicit] {
-			@this.pointer := other.pointer;
-		};
-		fn optional_ref(optional_ref& this, optional_ref other) : [default];
-		fn operator=(optional_ref& this, optional_ref other) -> optional_ref& : [default];
+		fn optional_ref(optional_ref& this, T& value);
+		fn optional_ref(optional_ref& this, const optional_ref& other) : [implicit];
 
-		fn has_value(const optional_ref& this) -> bool {
-			return this.pointer != nullptr;
-		};
-		fn get(const optional_ref& this) -> T* {
-			return this.pointer;
-		};
+		fn reset(optional_ref& this);
+		fn bind(optional_ref& this, T& value);
+
+		fn has_value(const optional_ref& this) -> bool;
+		fn get(const optional_ref& this) -> T*;
 		// Requires has_value(). Resetting the optional never destroys its referent.
-		fn value(const optional_ref& this) -> T& {
-			return static_cast<T&>(*this.pointer);
-		};
-		fn reset(optional_ref& this) {
-			@this.pointer = nullptr;
-		};
-		fn bind(optional_ref& this, T& value) {
-			@this.pointer = &value;
-		};
+		fn value(const optional_ref& this) -> T&;
 
 	private:
 		T* pointer;
 	};
+
+	template<typename T>
+	fn optional_storage<T>::optional_storage(optional_storage& this) {
+		@this.empty = 0;
+	};
+
+	template<typename T>
+	fn optional_storage<T>::~optional_storage(optional_storage& this) {
+	};
+
+	template<typename T>
+	fn optional<T>::optional(optional& this) {
+	};
+
+	template<typename T>
+	fn optional<T>::optional(optional& this, T value) {
+		@this.storage.value.T($value);
+		@this.state = optional_state::engaged;
+	};
+
+	template<typename T>
+	fn optional<T>::optional(optional& this, const optional& other) {
+		if (other.has_value()) {
+			@this.storage.value.T(other.storage.value);
+			@this.state = optional_state::engaged;
+		};
+	};
+
+	template<typename T>
+	fn optional<T>::optional(optional& this, optional other) {
+		if (other.has_value()) {
+			T* source = &other.storage.value;
+
+			@this.storage.value.T($(*source));
+			@this.state = optional_state::engaged;
+			@other.state = optional_state::empty;
+		};
+	};
+
+	template<typename T>
+	fn optional<T>::~optional(optional& this) {
+		@this.reset();
+	};
+
+	template<typename T>
+	fn optional<T>::has_value(const optional& this) -> bool {
+		return this.state == optional_state::engaged;
+	};
+
+	template<typename T>
+	fn optional<T>::get(auto optional& this) -> const[this] T* {
+		if (!this.has_value()) {
+			return nullptr;
+		};
+
+		return &this.storage.value;
+	};
+
+	template<typename T>
+	fn optional<T>::value(auto optional& this) -> const[this] T& {
+		return const_cast<const[this] T&>(@const_cast<T&>(this.storage.value));
+	};
+
+	template<typename T>
+	fn optional<T>::reset(optional& this) {
+		if (!this.has_value()) {
+			return;
+		};
+
+		@this.storage.value.~T();
+		@this.state = optional_state::empty;
+	};
+
+	template<typename T>
+	fn optional<T>::emplace(optional& this, T value) -> T& {
+		@this.reset();
+		@this.storage.value.T($value);
+		@this.state = optional_state::engaged;
+
+		return @this.storage.value;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::optional_ref(optional_ref& this, T& value) {
+		@this.pointer = &value;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::optional_ref(optional_ref& this, const optional_ref& other) : [implicit] {
+		@this.pointer := other.pointer;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::has_value(const optional_ref& this) -> bool {
+		return this.pointer != nullptr;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::get(const optional_ref& this) -> T* {
+		return this.pointer;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::value(const optional_ref& this) -> T& {
+		return static_cast<T&>(*this.pointer);
+	};
+
+	template<typename T>
+	fn optional_ref<T>::reset(optional_ref& this) {
+		@this.pointer = nullptr;
+	};
+
+	template<typename T>
+	fn optional_ref<T>::bind(optional_ref& this, T& value) {
+		@this.pointer = &value;
+	};
 };
-
-
-
-
-
-
-

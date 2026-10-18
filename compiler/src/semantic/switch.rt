@@ -5,86 +5,118 @@ struct SwitchAnalysis {
 };
 
 struct SwitchAnalysisScope {
-	fn SwitchAnalysisScope(SwitchAnalysisScope& this, SwitchAnalysis*& slot, SwitchAnalysis& current) {
-		@this.slot = &slot;
-		@this.previous := slot;
-		@slot = &current;
-	};
-	fn ~SwitchAnalysisScope(SwitchAnalysisScope& this) {
-		@*this.slot := this.previous;
-	};
+	fn SwitchAnalysisScope(SwitchAnalysisScope& this, SwitchAnalysis*& slot, SwitchAnalysis& current);
+	fn ~SwitchAnalysisScope(SwitchAnalysisScope& this);
 
 private:
 	SwitchAnalysis** slot;
 	SwitchAnalysis* previous;
 };
 
-fn Analyzer::selection(Analyzer& this, Scope* scope, Syntax* syntax) -> rt::unique<SemanticExpression> {
-	var condition = @this.expression(scope, syntax->item(0), rt::optional_ref<const Type>());
+fn Analyzer::selection(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression> {
+	var condition = @this.expression(@scope, @*syntax.item(0), rt::optional_ref<const Type>());
+
 	if (!condition.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	const Type* representation = condition.get()->type()->representation();
+
 	if (!representation->kind().is_integer()) {
-		@this.error(syntax, "switch condition requires an integer or enumeration value\0");
+		@this.error(&syntax, "switch condition requires an integer or enumeration value\0");
+
 		return rt::unique<SemanticExpression>();
 	};
+
 	SwitchAnalysis analysis;
 	@analysis.condition_type = representation;
 	var context = SwitchAnalysisScope(@this.active_switch, @analysis);
-	var body = @this.expression(scope, syntax->item(1), rt::optional_ref<const Type>());
+	var body = @this.expression(@scope, @*syntax.item(1), rt::optional_ref<const Type>());
+
 	if (!body.get()) {
 		return rt::unique<SemanticExpression>();
 	};
-	var result = @this.node(semantic_kind::switch_expression, @this.primitive(rt::string_view("void\0")), syntax);
+
+	var result = @this.node(semantic_kind::switch_expression, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($condition)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	if (!@result.get()->append($body)) {
 		return rt::unique<SemanticExpression>();
 	};
+
 	return $result;
 };
 
-fn Analyzer::label(Analyzer& this, Scope* scope, Syntax* syntax) -> rt::unique<SemanticExpression> {
+fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression> {
 	if (!this.active_switch) {
-		@this.error(syntax, "case or default label requires an enclosing switch\0");
+		@this.error(&syntax, "case or default label requires an enclosing switch\0");
+
 		return rt::unique<SemanticExpression>();
 	};
-	var result = @this.node(semantic_kind::case_label, @this.primitive(rt::string_view("void\0")), syntax);
+
+	var result = @this.node(semantic_kind::case_label, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
 	};
-	if (syntax->token().kind == token_kind::kw_default) {
+
+	if (syntax.token().kind == token_kind::kw_default) {
 		if (this.active_switch->default_label) {
-			@this.error(syntax, "switch contains more than one default label\0");
+			@this.error(&syntax, "switch contains more than one default label\0");
+
 			return rt::unique<SemanticExpression>();
 		};
-		@this.active_switch->default_label = syntax;
+
+		@this.active_switch->default_label = &syntax;
+
 		return $result;
 	};
-	var expression = @this.expression(scope, syntax->item(0), rt::optional_ref<const Type>(*this.active_switch->condition_type));
+
+	var expression = @this.expression(@scope, @*syntax.item(0), rt::optional_ref<const Type>(*this.active_switch->condition_type));
 	u64 value = 0;
+
 	if (!expression.get() || !@this.constant_integer(*expression.get(), @value)) {
-		@this.error(syntax, "case label requires an integer constant expression\0");
+		@this.error(&syntax, "case label requires an integer constant expression\0");
+
 		return rt::unique<SemanticExpression>();
 	};
+
 	@value = this.active_switch->condition_type->normalize_integer(value);
 	usize index = 0;
 	while (index < this.active_switch->values.size()) {
 		if (this.active_switch->values.data()[index] == value) {
-			@this.error(syntax, "duplicate switch case value\0");
+			@this.error(&syntax, "duplicate switch case value\0");
+
 			return rt::unique<SemanticExpression>();
 		};
+
 		@index = index + 1;
 	};
+
 	if (!@this.active_switch->values.push_back(value)) {
-		@this.error(syntax, "switch label storage is unavailable\0");
+		@this.error(&syntax, "switch label storage is unavailable\0");
+
 		return rt::unique<SemanticExpression>();
 	};
+
 	@result.get()->set_integer(value);
+
 	return $result;
+};
+
+fn SwitchAnalysisScope::SwitchAnalysisScope(SwitchAnalysisScope& this, SwitchAnalysis*& slot, SwitchAnalysis& current) {
+	@this.slot = &slot;
+	@this.previous := slot;
+	@slot = &current;
+};
+
+fn SwitchAnalysisScope::~SwitchAnalysisScope(SwitchAnalysisScope& this) {
+	@*this.slot := this.previous;
 };

@@ -1,37 +1,48 @@
 fn Analyzer::resolve_bases(Analyzer& this, Entity* entity) -> bool {
 	Syntax* declaration = entity->declaration();
 	Syntax* bases = declaration->record_bases();
+
 	if (!bases->size()) {
 		return true;
 	};
+
 	if (entity->layout() == record_layout::overlapping) {
 		@this.error(declaration, "union cannot contain a base subobject\0");
 		return false;
 	};
+
 	if (bases->size() != 1) {
 		@this.error(declaration, "multiple base analysis is not implemented\0");
 		return false;
 	};
-	const Type* base = @this.type(entity->resolution_scope(), bases->item(0));
+
+	const Type* base = @this.type(@*entity->resolution_scope(), @*bases->item(0));
+
 	if (!base || base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record || base->qualifier() != type_qualifier::mutable || base->entity()->layout() != record_layout::sequential) {
 		@this.error(bases->item(0), "base requires an unqualified nonunion record type\0");
 		return false;
 	};
+
 	Entity* owner = base->entity();
+
 	if (owner->state() == entity_state::resolving) {
 		@this.error(bases->item(0), "base relation contains a cycle\0");
 		return false;
 	};
+
 	if (!@this.resolve(owner)) {
 		return false;
 	};
+
 	if (owner->declaration()->record_members()->kind() == syntax_kind::noop) {
 		@this.error(bases->item(0), "base requires a complete record definition\0");
 		return false;
 	};
+
 	if (!@entity->add_base(base)) {
 		@this.error(declaration, "cannot retain base subobject metadata\0");
 		return false;
 	};
+
 	return true;
 };

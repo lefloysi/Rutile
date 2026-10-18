@@ -1,0 +1,78 @@
+fn LifetimeAnalyzer::storage_owner(const LifetimeAnalyzer& this, const SemanticExpression& expression, FlowState& state) -> rt::optional_ref<Entity> {
+	switch (expression.kind()) {
+		case semantic_kind::name: {
+			Entity* entity = expression.entity();
+
+			if (!entity || entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter) {
+				return rt::optional_ref<Entity>();
+			};
+
+			usize remaining = state.size();
+			while (entity->type()->kind() == type_kind::reference) {
+				LiveBinding* binding = @state.find(entity);
+
+				if (!binding) {
+					return rt::optional_ref<Entity>(@*entity);
+				};
+
+				if (!remaining || !binding->referent.has_value()) {
+					return rt::optional_ref<Entity>();
+				};
+
+				@entity = binding->referent.get();
+				@remaining = remaining - 1;
+			};
+
+			return rt::optional_ref<Entity>(@*entity);
+		};
+		case semantic_kind::access:
+		case semantic_kind::cast:
+		case semantic_kind::member:
+			return this.storage_owner(*expression.item(0), @state);
+		case semantic_kind::index:
+			if (expression.item(0)->type()->kind() == type_kind::array) {
+				return this.storage_owner(*expression.item(0), @state);
+			};
+
+			break;
+		case semantic_kind::dereference:
+			if (expression.item(0)->kind() == semantic_kind::address) {
+				return this.storage_owner(*expression.item(0)->item(0), @state);
+			};
+
+			break;
+		case semantic_kind::sequence:
+			return this.storage_owner(*expression.item(2), @state);
+	};
+
+	return rt::optional_ref<Entity>();
+};
+
+fn LifetimeAnalyzer::sequence(LifetimeAnalyzer& this, SemanticExpression& expression, FlowState& state) -> bool {
+	usize boundary = state.size();
+
+	if (!@this.walk(expression.item(0), @state) || !@this.walk(expression.item(1), @state) || !@this.walk(expression.item(2), @state)) {
+		return false;
+	};
+
+	if (!state.exited() && expression.category() == value_category::place) {
+		var owner = this.storage_owner(*expression.item(2), @state);
+
+		if (owner.has_value()) {
+			usize index = boundary;
+			while (index < state.size()) {
+				LiveBinding* binding = @state.at(index);
+
+				if (binding->entity == owner.get()) {
+					return @this.error(&expression, "sequence result refers to local storage\0");
+				};
+
+				@index = index + 1;
+			};
+		};
+	};
+
+	@state.truncate(boundary);
+
+	return true;
+};

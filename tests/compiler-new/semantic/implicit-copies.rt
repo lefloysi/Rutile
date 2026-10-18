@@ -1,0 +1,54 @@
+fn implicit_conversion_calls(const SemanticExpression& expression) -> usize {
+	usize count = 0;
+	if (expression.kind() == semantic_kind::call && expression.entity() && expression.entity()->role() == function_role::conversion) {
+		@count = 1;
+	};
+	usize index = 0;
+	while (index < expression.size()) {
+		@count = count + implicit_conversion_calls(*expression.item(index));
+		@index = index + 1;
+	};
+	return count;
+};
+
+fn unit_conversion_calls(const SemanticUnit& unit) -> usize {
+	usize count = 0;
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		Entity* entity = unit.entities().data()[index].get();
+		if (entity->body()) {
+			@count = count + implicit_conversion_calls(*entity->body());
+		};
+		@index = index + 1;
+	};
+	return count;
+};
+
+fn implicit_copy_tests() -> i32 {
+	var fixture0 = TemplateFixture();
+	if (!@fixture0.build("struct Counter {\n\ti32 conversions;\n};\n\nfn operator Counter*(const (Counter*)& this) -> Counter* : [implicit] {\n\t@this->conversions = this->conversions + 1;\n\treturn Counter*(this);\n};\n\nfn owned(Counter* value) -> i32 {\n\treturn value->conversions;\n};\n\nfn copied_return(const (Counter*)& value) -> Counter* {\n\treturn value;\n};\n\nfn borrowed(const (Counter*)& value) -> i32 {\n\treturn value->conversions;\n};\n\nfn main() -> i32 {\n\tCounter counter;\n\tCounter* source = &counter;\n\tCounter* initialized = source;\n\tif (counter.conversions != 1 || initialized != &counter || source != &counter) {\n\t\treturn 1;\n\t};\n\tif (owned(source) != 2 || counter.conversions != 2 || source != &counter) {\n\t\treturn 2;\n\t};\n\tvar returned = copied_return(source);\n\tif (counter.conversions != 3 || returned != &counter || source != &counter) {\n\t\treturn 3;\n\t};\n\tCounter* assigned = nullptr;\n\t@assigned = source;\n\tif (counter.conversions != 4 || assigned != &counter || source != &counter) {\n\t\treturn 4;\n\t};\n\tif (borrowed(source) != 4 || counter.conversions != 4) {\n\t\treturn 5;\n\t};\n\tvar moved = $initialized;\n\tif (owned($moved) != 4 || counter.conversions != 4 || source != &counter) {\n\t\treturn 6;\n\t};\n\treturn 42;\n};\n\0")) {
+		return 1;
+	};
+	var fixture1 = TemplateFixture();
+	if (!@fixture1.build("struct Value {\n\tfn Value(Value& this) : [default];\n\tfn Value(Value& this, const Value& other) : [default];\n\tfn Value(Value& this, Value other) : [default];\n\tfn operator=(Value& this, Value other) -> Value& : [default];\n\ti32* copies;\n\ti32 number;\n};\n\nfn operator Value(const Value& this) -> Value : [implicit] {\n\t@*this.copies = *this.copies + 1;\n\treturn Value(this);\n};\n\nfn owned(Value value) -> i32 {\n\treturn i32(value.number);\n};\n\nfn copied_return(const Value& value) -> Value {\n\treturn value;\n};\n\nfn borrowed(const Value& value) -> i32 {\n\treturn i32(value.number);\n};\n\nfn change(Value& value) {\n\t@value.number = 43;\n};\n\nfn local_copy(i32* copies) -> Value {\n\tValue local;\n\t@local.copies = $copies;\n\t@local.number = 42;\n\treturn local;\n};\n\nfn main() -> i32 {\n\ti32 copies = 0;\n\tValue source;\n\t@source.copies = &copies;\n\t@source.number = 42;\n\tValue initialized = source;\n\tif (copies != 1 || initialized.number != 42 || source.number != 42) {\n\t\treturn 1;\n\t};\n\tif (owned(source) != 42 || copies != 2) {\n\t\treturn 2;\n\t};\n\tvar returned = copied_return(source);\n\tif (copies != 3 || returned.number != 42) {\n\t\treturn 3;\n\t};\n\tValue assigned;\n\t@assigned = source;\n\tif (copies != 4 || assigned.number != 42 || source.number != 42) {\n\t\treturn 4;\n\t};\n\tif (borrowed(source) != 42 || copies != 4) {\n\t\treturn 5;\n\t};\n\tchange(@source);\n\tif (source.number != 43 || copies != 4) {\n\t\treturn 6;\n\t};\n\tvar moved = $initialized;\n\tif (owned($moved) != 42 || copies != 4) {\n\t\treturn 7;\n\t};\n\tValue explicit_copy := source;\n\tvar explicit_construct = Value(source);\n\tif (copies != 4 || explicit_copy.number != 43 || explicit_construct.number != 43) {\n\t\treturn 8;\n\t};\n\tvar local = local_copy(&copies);\n\tif (copies != 5 || local.number != 42) {\n\t\treturn 9;\n\t};\n\treturn 42;\n};\n\0")) {
+		return 2;
+	};
+	if (unit_conversion_calls(*fixture0.unit.get()) != 4 || unit_conversion_calls(*fixture1.unit.get()) != 5) {
+		return 3;
+	};
+	if (scalar_copy_tests() != 42) {
+		return 4;
+	};
+	return 42;
+};
+
+fn scalar_copy_tests() -> i32 {
+	var scalar = TemplateFixture();
+	if (!@scalar.build("i32 conversions;\nfn operator i32(const i32& this)->i32:[implicit] {\n @conversions=conversions+1;\n return i32(this);\n};\nfn main()->i32 {\n i32 source=42;\n i32 copied:=source;\n var constructed=i32(source);\n if(conversions) { return 1; };\n i32 implicit=source;\n if(conversions!=1) { return 2; };\n var moved=$implicit;\n if(conversions!=1) { return 3; };\n return 42;\n};\n\0")) {
+		return 4;
+	};
+	if (unit_conversion_calls(*scalar.unit.get()) != 1) {
+		return 5;
+	};
+	return 42;
+};

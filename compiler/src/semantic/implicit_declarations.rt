@@ -1,74 +1,156 @@
-fn Analyzer::supply_assignment(Analyzer& this, Entity* entity) -> bool {
-	if (!@this.supply_assignment_kind(entity, token_kind::op_assign)) {
+fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
+	const Type* source = entity->type();
+	const Type* copy = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
+
+	if (!copy) {
 		return false;
 	};
-	return @this.supply_assignment_kind(entity, token_kind::op_copy);
+
+	bool source_constructor = false;
+	usize index = 0;
+	while (index < entity->members()->bindings().size()) {
+		Entity* member = entity->members()->bindings().data()[index];
+
+		if (member->kind() == entity_kind::function && member->role() == function_role::constructor && member->origin() == declaration_origin::source) {
+			@source_constructor = true;
+		};
+
+		@index = index + 1;
+	};
+
+	if (!source_constructor) {
+		Entity* constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
+
+		if (!constructor) {
+			return false;
+		};
+
+		@entity->set_default_constructor(constructor);
+	};
+
+	Entity* move_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, source, function_definition::defaulted);
+	Entity* copy_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, copy, function_definition::defaulted);
+
+	if (!move_constructor || !copy_constructor) {
+		return false;
+	};
+
+	@entity->set_move_constructor(move_constructor);
+	@entity->set_copy_constructor(copy_constructor);
+
+	if (!@this.supply_special(entity, function_role::assignment, token_kind::op_assign, source, function_definition::defaulted)) {
+		return false;
+	};
+
+	if (!@this.supply_special(entity, function_role::assignment, token_kind::op_assign, copy, function_definition::defaulted)) {
+		return false;
+	};
+
+	return @this.supply_special(entity, function_role::assignment, token_kind::op_copy, copy, function_definition::defaulted) != nullptr;
 };
 
-fn Analyzer::supply_assignment_kind(Analyzer& this, Entity* entity, token_kind operation) -> bool {
+fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> Entity* {
 	const Type* receiver = @this.types->reference(entity->type());
+
 	if (!receiver) {
-		return false;
+		return nullptr;
 	};
-	const Type* source = entity->type();
-	var operator_name = rt::string_view("operator=\0");
-	if (operation == token_kind::op_copy) {
-		@source = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
-		@operator_name = rt::string_view("operator:=\0");
+
+	usize parameter_count = 1;
+
+	if (source) {
+		@parameter_count = 2;
 	};
+
 	usize index = 0;
 	while (index < entity->members()->bindings().size()) {
 		Entity* candidate = entity->members()->bindings().data()[index];
-		if (candidate->kind() == entity_kind::function && candidate->operator_kind() == operation && candidate->parameters().size() == 2 && candidate->parameters().data()[0]->type() == receiver && candidate->parameters().data()[1]->type() == source) {
-			return true;
-		};
 		@index = index + 1;
+
+		if (candidate->kind() != entity_kind::function) {
+			continue;
+		};
+
+		if (!@this.resolve(Entity*(candidate))) {
+			return nullptr;
+		};
+
+		@candidate = candidate->canonical();
+
+		if (candidate->role() == role && (role == function_role::constructor || candidate->operator_kind() == operation) && candidate->parameters().size() == parameter_count && candidate->parameters().data()[0]->type() == receiver && (!source || candidate->parameters().data()[1]->type() == source)) {
+			return candidate;
+		};
 	};
+
 	Token location = entity->token();
-	@location.kind = token_kind(operation);
-	Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
-	if (!function || !@function->set_name(operator_name)) {
-		@this.error(entity->declaration(), "cannot declare compiler-supplied assignment\0");
-		return false;
+	var name = entity->name();
+	const Type* result = this.types->find_primitive(rt::string_view("void\0"));
+
+	if (role == function_role::assignment) {
+		@location.kind = token_kind(operation);
+		@name = rt::string_view("operator=\0");
+		@result := receiver;
+
+		if (operation == token_kind::op_copy) {
+			@name = rt::string_view("operator:=\0");
+		};
 	};
+
+	Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
+
+	if (!function || !@function->set_name(name)) {
+		@this.error(entity->declaration(), "cannot declare compiler-supplied special function\0");
+		return nullptr;
+	};
+
 	@function->set_origin(declaration_origin::compiler_supplied);
-	@function->set_definition(function_definition::defaulted);
-	@function->set_role(function_role::assignment);
+	@function->set_definition(function_definition(definition));
+	@function->set_role(function_role(role));
 	@function->set_operator_kind(token_kind(operation));
 	@function->set_access(access_kind::public_access);
 	Scope* parameters = @this.unit->create_scope(entity->members(), Entity*(function));
+
 	if (!parameters) {
-		return false;
+		return nullptr;
 	};
+
 	@function->set_members(Scope*(parameters));
 	rt::buffer<const Type*> signature;
 	@index = 0;
-	while (index < 2) {
+
+	while (index < parameter_count) {
 		const Type* type = source;
-		var name = rt::string_view("other\0");
+		var parameter_name = rt::string_view("other\0");
+
 		if (!index) {
 			@type = receiver;
-			@name = rt::string_view("this\0");
+			@parameter_name = rt::string_view("this\0");
 		};
+
 		Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);
-		if (!parameter || !@parameter->set_name(name)) {
-			return false;
+
+		if (!parameter || !@parameter->set_name(parameter_name)) {
+			return nullptr;
 		};
+
 		@parameter->set_type(type);
 		@parameter->set_index(usize(index));
 		@parameter->set_state(entity_state::ready);
-		if (!@function->add_parameter(Entity*(parameter))) {
-			return false;
+
+		if (!@function->add_parameter(Entity*(parameter)) || !@signature.push_back(type)) {
+			return nullptr;
 		};
-		if (!@signature.push_back(type)) {
-			return false;
-		};
+
 		@index = index + 1;
 	};
-	@function->set_type(@this.types->function(receiver, $signature, parameter_arity::fixed));
+
+	@function->set_type(@this.types->function(result, $signature, parameter_arity::fixed));
+
 	if (!function->type()) {
-		return false;
+		return nullptr;
 	};
+
 	@function->set_state(entity_state::ready);
-	return true;
+
+	return function;
 };

@@ -1,0 +1,20 @@
+fn numeric_context_tests() -> i32 {
+	var arithmetic = TemplateFixture();
+	if (!@arithmetic.build("fn maximum(u32 bits)->u64 { return (~u64(0))>>(64-static_cast<u64>(bits)); }; fn flag()->bool { return 1/2; }; fn bytes()->usize { return 4*sizeof(i32); }; enum Result:[u64] { limit=maximum(32); grouped=(1+2)*u64(14); contextual=1+2; truth=static_cast<u64>(flag()); };\0")) {
+		return 1;
+	};
+	Entity* result = arithmetic.unit.get()->root_scope()->local(rt::string_view("Result\0"));
+	if (!result || result->members()->local(rt::string_view("limit\0"))->integer() != 4294967295 || result->members()->local(rt::string_view("grouped\0"))->integer() != 42 || result->members()->local(rt::string_view("contextual\0"))->integer() != 3 || result->members()->local(rt::string_view("truth\0"))->integer() != 1) {
+		return 2;
+	};
+	var left_typed = TemplateFixture();
+	if (@left_typed.build("fn mismatch(i32 first,u64 second)->i32 { return first+second; };\0")) {
+		return 3;
+	};
+	var right_typed = TemplateFixture();
+	if (@right_typed.build("fn mismatch(u64 first,i32 second)->u64 { return first+second; };\0")) {
+		return 4;
+	};
+	return 42;
+};
+

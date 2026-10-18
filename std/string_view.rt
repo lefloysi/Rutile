@@ -1,56 +1,16 @@
 namespace rt {
 	struct string_view {
 		fn string_view(string_view& this) : [default];
+		fn string_view(string_view& this, const string_view& other) : [implicit, default];
 		fn string_view(string_view& this, const string& text) : [implicit];
-		fn string_view(string_view& this, const char* data, usize size) {
-			@this.bytes = $data;
-			@this.length = $size;
-		};
-		fn string_view(string_view& this, const char* text) : [implicit] {
-			@this.bytes = $text;
-			while (this.bytes && this.bytes[this.length]) {
-				@this.length = this.length + 1;
-			};
-		};
-		fn data(const string_view& this) -> const char* {
-			return this.bytes;
-		};
-		fn size(const string_view& this) -> usize {
-			return this.length;
-		};
-		fn empty(const string_view& this) -> bool {
-			return !this.length;
-		};
-		fn slice(const string_view& this, usize begin, usize count) -> string_view {
-			return string_view(this.bytes + begin, $count);
-		};
-		fn compare(const string_view& this, const string_view& other) -> i32 {
-			usize count := this.length;
-			if (other.length < count) {
-				@count := other.length;
-			};
-			usize index = 0;
-			while (index < count) {
-				char first_byte := this.bytes[index];
-				char second_byte := other.bytes[index];
-				u08 first = static_cast<u08>($first_byte);
-				u08 second = static_cast<u08>($second_byte);
-				if (first < second) {
-					return -1;
-				};
-				if (first > second) {
-					return 1;
-				};
-				@index = index + 1;
-			};
-			if (this.length < other.length) {
-				return -1;
-			};
-			if (this.length > other.length) {
-				return 1;
-			};
-			return 0;
-		};
+		fn string_view(string_view& this, const char* data, usize size);
+		fn string_view(string_view& this, const char* text) : [implicit];
+
+		fn data(const string_view& this) -> const char*;
+		fn size(const string_view& this) -> usize;
+		fn empty(const string_view& this) -> bool;
+		fn slice(const string_view& this, usize begin, usize count) -> string_view;
+		fn compare(const string_view& this, const string_view& other) -> i32;
 
 	private:
 		const char* bytes;
@@ -60,19 +20,86 @@ namespace rt {
 	fn operator==(const string_view& first, const string_view& second) -> bool {
 		return !first.compare(second);
 	};
+
 	fn operator!=(const string_view& first, const string_view& second) -> bool {
 		return first.compare(second) != 0;
 	};
+
 	fn operator<(const string_view& first, const string_view& second) -> bool {
 		return first.compare(second) < 0;
 	};
+
 	fn operator<=(const string_view& first, const string_view& second) -> bool {
 		return first.compare(second) <= 0;
 	};
+
 	fn operator>(const string_view& first, const string_view& second) -> bool {
 		return first.compare(second) > 0;
 	};
+
 	fn operator>=(const string_view& first, const string_view& second) -> bool {
 		return first.compare(second) >= 0;
+	};
+
+	fn string_view::string_view(string_view& this, const char* data, usize size) {
+		@this.bytes = $data;
+		@this.length = $size;
+	};
+
+	fn string_view::string_view(string_view& this, const char* text) : [implicit] {
+		@this.bytes = $text;
+		while (this.bytes && this.bytes[this.length]) {
+			@this.length = this.length + 1;
+		};
+	};
+
+	fn string_view::data(const string_view& this) -> const char* {
+		return this.bytes;
+	};
+
+	fn string_view::size(const string_view& this) -> usize {
+		return this.length;
+	};
+
+	fn string_view::empty(const string_view& this) -> bool {
+		return !this.length;
+	};
+
+	fn string_view::slice(const string_view& this, usize begin, usize count) -> string_view {
+		return string_view(this.bytes + begin, $count);
+	};
+
+	fn string_view::compare(const string_view& this, const string_view& other) -> i32 {
+		usize count := this.length;
+		if (other.length < count) {
+			@count := other.length;
+		};
+
+		usize index = 0;
+		while (index < count) {
+			char first_byte := this.bytes[index];
+			char second_byte := other.bytes[index];
+			u08 first = static_cast<u08>($first_byte);
+			u08 second = static_cast<u08>($second_byte);
+			if (first < second) {
+				return -1;
+			};
+
+			if (first > second) {
+				return 1;
+			};
+
+			@index = index + 1;
+		};
+
+		if (this.length < other.length) {
+			return -1;
+		};
+
+		if (this.length > other.length) {
+			return 1;
+		};
+
+		return 0;
 	};
 };

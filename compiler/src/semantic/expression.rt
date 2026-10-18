@@ -14,6 +14,9 @@ enum semantic_kind : [u08] {
 	binary;
 	call;
 	brace;
+	statements;
+	sequence;
+	deferred_argument;
 	variable;
 	return_value;
 	conditional;
@@ -40,124 +43,190 @@ enum semantic_kind : [u08] {
 };
 
 struct SemanticExpression {
+	fn SemanticExpression(SemanticExpression& this, semantic_kind kind, const Type* type, const Token& token);
+
+	fn set_type_use(SemanticExpression& this, const TypeUse& use);
+	fn set_mutable_access(SemanticExpression& this, bool permitted);
+	fn append(SemanticExpression& this, rt::unique<SemanticExpression> child) -> bool;
+	fn bind(SemanticExpression& this, Entity* entity, value_category category);
+	fn set_category(SemanticExpression& this, value_category category);
+	fn set_integer(SemanticExpression& this, u64 value);
+	fn set_real(SemanticExpression& this, f64 value);
+	fn set_text(SemanticExpression& this, const rt::string_view& value) -> bool;
+
+	fn copy_constant(const SemanticExpression& this) -> rt::unique<SemanticExpression>;
 	fn constant_truth(const SemanticExpression& this, bool& result) -> bool;
 	fn constant_integer(const SemanticExpression& this, u64& result) -> bool;
 	fn constant_real(const SemanticExpression& this, f64& result) -> bool;
 	fn real_comparison(const SemanticExpression& this, u64& result) -> bool;
-	fn owned_binding(const SemanticExpression& this) -> Entity* {
-		if (this.kind() == semantic_kind::name) {
-			Entity* entity = this.entity();
-			if (entity && (entity->kind() == entity_kind::local || entity->kind() == entity_kind::parameter) && entity->type()->kind() != type_kind::reference) {
-				return $entity;
-			};
-			return nullptr;
-		};
-		if (this.kind() == semantic_kind::access || this.kind() == semantic_kind::cast && this.category() == value_category::place) {
-			return this.item(0)->owned_binding();
-		};
-		return nullptr;
-	};
-	fn indirect_storage(const SemanticExpression& this) -> bool {
-		switch (this.kind()) {
-			case semantic_kind::dereference:
-				return true;
-			case semantic_kind::index:
-				return this.item(0)->type()->kind() == type_kind::pointer || this.item(0)->indirect_storage();
-			case semantic_kind::member:
-				return this.item(0)->type()->kind() == type_kind::pointer || this.item(0)->indirect_storage();
-			case semantic_kind::access:
-			case semantic_kind::cast:
-				return this.category() == value_category::place && this.item(0)->indirect_storage();
-			default:
-				return false;
-		};
-	};
-	fn SemanticExpression(SemanticExpression& this, semantic_kind kind, const Type* type, const Token& token) {
-		@this.category_kind = $kind;
-		@this.value_type = $type;
-		@this.location := token;
-		@this.value_kind = value_category::consumable;
-	};
-	fn kind(const SemanticExpression& this) -> semantic_kind {
-		return semantic_kind(this.category_kind);
-	};
-	fn type(const SemanticExpression& this) -> const Type* {
-		return this.value_type;
-	};
-	fn token(const SemanticExpression& this) -> Token {
-		return Token(this.location);
-	};
-	fn entity(const SemanticExpression& this) -> Entity* {
-		return this.binding;
-	};
-	fn operation(const SemanticExpression& this) -> token_kind {
-		return token_kind(this.location.kind);
-	};
-	fn category(const SemanticExpression& this) -> value_category {
-		return value_category(this.value_kind);
-	};
-	fn mutable_access(const SemanticExpression& this) -> bool {
-		if (this.type()->qualifier() == type_qualifier::immutable) {
-			return false;
-		};
-		if (this.kind() == semantic_kind::access || this.reference_access) {
-			return true;
-		};
-		return this.binding && this.binding->type() && this.binding->type()->kind() == type_kind::reference && this.binding->type()->element()->qualifier() == type_qualifier::mutable;
-	};
-	fn set_mutable_access(SemanticExpression& this, bool permitted) {
-		@this.reference_access = $permitted;
-	};
-	fn integer(const SemanticExpression& this) -> u64 {
-		return this.integer_value;
-	};
-	fn real(const SemanticExpression& this) -> f64 {
-		return this.real_value;
-	};
-	fn text(const SemanticExpression& this) -> rt::string_view {
-		return this.text_value.view();
-	};
-	fn size(const SemanticExpression& this) -> usize {
-		return this.children.size();
-	};
-	fn item(const SemanticExpression& this, usize index) -> SemanticExpression* {
-		if (index >= this.children.size()) {
-			return nullptr;
-		};
-		return this.children.data()[index].get();
-	};
-	fn append(SemanticExpression& this, rt::unique<SemanticExpression> child) -> bool {
-		if (!child.get()) {
-			return false;
-		};
-		return @this.children.push_back($child);
-	};
-	fn bind(SemanticExpression& this, Entity* entity, value_category category) {
-		@this.binding = $entity;
-		@this.value_kind = $category;
-	};
-	fn set_category(SemanticExpression& this, value_category category) {
-		@this.value_kind = $category;
-	};
-	fn set_integer(SemanticExpression& this, u64 value) {
-		@this.integer_value = $value;
-	};
-	fn set_real(SemanticExpression& this, f64 value) {
-		@this.real_value = $value;
-	};
-	fn set_text(SemanticExpression& this, const rt::string_view& value) -> bool {
-		return @this.text_value.append(value);
-	};
+	fn owned_binding(const SemanticExpression& this) -> Entity*;
+	fn indirect_storage(const SemanticExpression& this) -> bool;
+	fn kind(const SemanticExpression& this) -> semantic_kind;
+	fn type_use(const SemanticExpression& this) -> const rt::optional_ref<const TypeUse>&;
+	fn type(const SemanticExpression& this) -> const Type*;
+	fn token(const SemanticExpression& this) -> Token;
+	fn entity(const SemanticExpression& this) -> Entity*;
+	fn operation(const SemanticExpression& this) -> token_kind;
+	fn category(const SemanticExpression& this) -> value_category;
+	fn mutable_access(const SemanticExpression& this) -> bool;
+	fn integer(const SemanticExpression& this) -> u64;
+	fn real(const SemanticExpression& this) -> f64;
+	fn text(const SemanticExpression& this) -> rt::string_view;
+	fn size(const SemanticExpression& this) -> usize;
+	fn item(const SemanticExpression& this, usize index) -> SemanticExpression*;
 
 private:
 	semantic_kind category_kind;
 	value_category value_kind;
 	bool reference_access;
 	const Type* value_type;
+	rt::optional_ref<const TypeUse> use;
 	Token location;
 	Entity* binding;
 	u64 integer_value;
 	f64 real_value;
 	rt::string text_value;
 	rt::buffer<rt::unique<SemanticExpression>> children;
+};
+
+fn SemanticExpression::owned_binding(const SemanticExpression& this) -> Entity* {
+	if (this.kind() == semantic_kind::name) {
+		Entity* entity = this.entity();
+
+		if (entity && (entity->kind() == entity_kind::local || entity->kind() == entity_kind::parameter) && entity->type()->kind() != type_kind::reference) {
+			return $entity;
+		};
+
+		return nullptr;
+	};
+
+	if (this.kind() == semantic_kind::access || this.kind() == semantic_kind::cast && this.category() == value_category::place) {
+		return this.item(0)->owned_binding();
+	};
+
+	return nullptr;
+};
+
+fn SemanticExpression::indirect_storage(const SemanticExpression& this) -> bool {
+	switch (this.kind()) {
+		case semantic_kind::dereference:
+			return true;
+		case semantic_kind::index:
+			return this.item(0)->type()->kind() == type_kind::pointer || this.item(0)->indirect_storage();
+		case semantic_kind::member:
+			return this.item(0)->type()->kind() == type_kind::pointer || this.item(0)->indirect_storage();
+		case semantic_kind::access:
+		case semantic_kind::cast:
+			return this.category() == value_category::place && this.item(0)->indirect_storage();
+		default:
+			return false;
+	};
+};
+
+fn SemanticExpression::SemanticExpression(SemanticExpression& this, semantic_kind kind, const Type* type, const Token& token) {
+	@this.category_kind = $kind;
+	@this.value_type = $type;
+	@this.location := token;
+	@this.value_kind = value_category::consumable;
+};
+
+fn SemanticExpression::kind(const SemanticExpression& this) -> semantic_kind {
+	return semantic_kind(this.category_kind);
+};
+
+fn SemanticExpression::type_use(const SemanticExpression& this) -> const rt::optional_ref<const TypeUse>& {
+	return this.use;
+};
+
+fn SemanticExpression::set_type_use(SemanticExpression& this, const TypeUse& use) {
+	@this.use.bind(use);
+};
+
+fn SemanticExpression::type(const SemanticExpression& this) -> const Type* {
+	return this.value_type;
+};
+
+fn SemanticExpression::token(const SemanticExpression& this) -> Token {
+	return Token(this.location);
+};
+
+fn SemanticExpression::entity(const SemanticExpression& this) -> Entity* {
+	return this.binding;
+};
+
+fn SemanticExpression::operation(const SemanticExpression& this) -> token_kind {
+	return token_kind(this.location.kind);
+};
+
+fn SemanticExpression::category(const SemanticExpression& this) -> value_category {
+	return value_category(this.value_kind);
+};
+
+fn SemanticExpression::mutable_access(const SemanticExpression& this) -> bool {
+	if (this.type()->qualifier() == type_qualifier::immutable) {
+		return false;
+	};
+
+	if (this.kind() == semantic_kind::access || this.reference_access) {
+		return true;
+	};
+
+	return this.binding && this.binding->type() && this.binding->type()->kind() == type_kind::reference && this.binding->type()->element()->qualifier() == type_qualifier::mutable;
+};
+
+fn SemanticExpression::set_mutable_access(SemanticExpression& this, bool permitted) {
+	@this.reference_access = $permitted;
+};
+
+fn SemanticExpression::integer(const SemanticExpression& this) -> u64 {
+	return this.integer_value;
+};
+
+fn SemanticExpression::real(const SemanticExpression& this) -> f64 {
+	return this.real_value;
+};
+
+fn SemanticExpression::text(const SemanticExpression& this) -> rt::string_view {
+	return this.text_value.view();
+};
+
+fn SemanticExpression::size(const SemanticExpression& this) -> usize {
+	return this.children.size();
+};
+
+fn SemanticExpression::item(const SemanticExpression& this, usize index) -> SemanticExpression* {
+	if (index >= this.children.size()) {
+		return nullptr;
+	};
+
+	return this.children.data()[index].get();
+};
+
+fn SemanticExpression::append(SemanticExpression& this, rt::unique<SemanticExpression> child) -> bool {
+	if (!child.get()) {
+		return false;
+	};
+
+	return @this.children.push_back($child);
+};
+
+fn SemanticExpression::bind(SemanticExpression& this, Entity* entity, value_category category) {
+	@this.binding = $entity;
+	@this.value_kind = $category;
+};
+
+fn SemanticExpression::set_category(SemanticExpression& this, value_category category) {
+	@this.value_kind = $category;
+};
+
+fn SemanticExpression::set_integer(SemanticExpression& this, u64 value) {
+	@this.integer_value = $value;
+};
+
+fn SemanticExpression::set_real(SemanticExpression& this, f64 value) {
+	@this.real_value = $value;
+};
+
+fn SemanticExpression::set_text(SemanticExpression& this, const rt::string_view& value) -> bool {
+	return @this.text_value.append(value);
 };

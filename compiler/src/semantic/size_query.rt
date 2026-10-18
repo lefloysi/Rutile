@@ -1,0 +1,20 @@
+fn Analyzer::size_query(Analyzer& this, Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression> {
+	if (!type.has_layout()) {
+		@this.error(&syntax, "sizeof requires a complete object storage type\0");
+
+		return rt::unique<SemanticExpression>();
+	};
+
+	var operand = @this.node(semantic_kind::noop, &type, &syntax);
+	var result = @this.node(semantic_kind::sizeof_type, this.types->find_primitive(rt::string_view("usize\0")), &syntax);
+
+	if (!operand.get() || !result.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (!@result.get()->append($operand)) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	return $result;
+};

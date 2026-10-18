@@ -1,0 +1,57 @@
+fn SemanticUnit::retain_use(SemanticUnit& this, rt::unique<TypeUse> use) -> const TypeUse* {
+	const TypeUse* borrowed = use.get();
+
+	if (!borrowed || !@this.type_uses.push_back(rt::unique<TypeUse>(@use.release()))) {
+		return nullptr;
+	};
+
+	return $borrowed;
+};
+
+fn SemanticUnit::leaf_use(SemanticUnit& this, const Type& type) -> const TypeUse* {
+	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array || type.kind() == type_kind::function) {
+		return nullptr;
+	};
+
+	return @this.retain_use(rt::unique<TypeUse>(new TypeUse(type)));
+};
+
+fn SemanticUnit::indirect_use(SemanticUnit& this, const Type& type, const TypeUse& element) -> const TypeUse* {
+	if (type.kind() != type_kind::pointer && type.kind() != type_kind::reference && type.kind() != type_kind::array) {
+		return nullptr;
+	};
+
+	if (type.element() != &element.type()) {
+		return nullptr;
+	};
+
+	return @this.retain_use(rt::unique<TypeUse>(new TypeUse(type, element)));
+};
+
+fn SemanticUnit::function_use(SemanticUnit& this, const Type& type, rt::buffer<ParameterUse> parameters, const TypeUse& result) -> const TypeUse* {
+	if (type.kind() != type_kind::function || type.signature().parameters().size() != parameters.size()) {
+		return nullptr;
+	};
+
+	if (type.signature().result() != &result.type()) {
+		return nullptr;
+	};
+
+	usize index = 0;
+	while (index < parameters.size()) {
+		if (type.signature().parameters().data()[index] != &parameters.data()[index].type().type()) {
+			return nullptr;
+		};
+
+		@index = index + 1;
+	};
+
+	var function = rt::unique<FunctionUse>(new FunctionUse($parameters, result));
+	FunctionUse* borrowed = function.get();
+
+	if (!borrowed || !@this.function_uses.push_back(rt::unique<FunctionUse>(@function.release()))) {
+		return nullptr;
+	};
+
+	return @this.retain_use(rt::unique<TypeUse>(new TypeUse(type, *borrowed)));
+};
