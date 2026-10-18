@@ -7,27 +7,26 @@
   "interpretation": "Unresolved cases remain regression expectations, not claims that their detailed behavior is normatively specified. Diagnostic-only updates preserve rejection and match the same source operation.",
   "summary": {
     "reviewed": 203,
-    "removed": 4,
+    "removed": 5,
     "diagnostics_updated": 24,
-    "retained": 199,
+    "retained": 198,
     "before": {
       "PASS": 152,
       "FAIL": 51
     },
     "classifications": {
-      "unresolved": 146,
+      "unresolved": 145,
       "keep": 36,
-      "remove": 4,
+      "remove": 5,
       "diagnostic-only": 17
     },
     "after": {
       "PASS": 176,
-      "FAIL": 23
+      "FAIL": 22
     },
     "previously_passing_regressions": [],
     "sources_reviewed": 204,
     "remaining_failures": [
-      "implicit-same-type-counted",
       "template-namespace-bare-self",
       "construction-argument-blocks",
       "constant-float-enum-order",
@@ -50,7 +49,12 @@
       "array-temporary-store",
       "array-temporary-address",
       "cast-static-aggregate-identity"
-    ]
+    ],
+    "last_matrix_run": {
+      "PASS": 176,
+      "FAIL": 23
+    },
+    "after_basis": "Derived from the last matrix run by removing implicit-same-type-counted; no matrix rerun was performed."
   },
   "cases": [
     {
@@ -670,10 +674,10 @@
     },
     {
       "name": "implicit-same-type-counted",
-      "classification": "unresolved",
-      "action": "keep",
-      "reason": "Failure is exit4 at assignment: test assumes user byvalue assignment plus implicit self-conversion is selected instead of newly generated const-reference copy assignment. Copy functions now exist by default, but their ranking versus this conversion is not settled in the archived spec.",
-      "evidence": "Explicit user decision generated copy constructor/assignment member-copy by default; dcl.implicit candidate ranking To define; baseline log exit4.",
+      "classification": "remove",
+      "action": "remove",
+      "reason": "The user confirmed generated copy assignment should bind const Value& directly, without invoking the implicit conversion. The expected conversion count at assignment is obsolete.",
+      "evidence": "Explicit user clarification following the audit: generated copy assignment is the intended selection; remove the obsolete counted-conversion expectation.",
       "expected_before": {
         "name": "implicit-same-type-counted",
         "exit": 42
@@ -682,14 +686,11 @@
       "sources_reviewed": [
         {
           "path": "tests/compiler/cases/implicit-same-type-counted/main.rt",
-          "sha256": "8287797f844fd460794ed14282f3d45ff6555959f0312941d68075151b5837f6"
+          "sha256": "8287797f844fd460794ed14282f3d45ff6555959f0312941d68075151b5837f6",
+          "removed_source": "struct Value {\n\tfn Value(Value& this) : [default];\n\tfn Value(Value& this, const Value& other) : [default];\n\tfn Value(Value& this, Value other) : [default];\n\tfn operator=(Value& this, Value other) -> Value& : [default];\n\ti32* copies;\n\ti32 number;\n};\n\nfn operator Value(const Value& this) -> Value : [implicit] {\n\t@*this.copies = *this.copies + 1;\n\treturn Value(this);\n};\n\nfn owned(Value value) -> i32 {\n\treturn i32(value.number);\n};\n\nfn copied_return(const Value& value) -> Value {\n\treturn value;\n};\n\nfn borrowed(const Value& value) -> i32 {\n\treturn i32(value.number);\n};\n\nfn change(Value& value) {\n\t@value.number = 43;\n};\n\nfn local_copy(i32* copies) -> Value {\n\tValue local;\n\t@local.copies = $copies;\n\t@local.number = 42;\n\treturn local;\n};\n\nfn main() -> i32 {\n\ti32 copies = 0;\n\tValue source;\n\t@source.copies = &copies;\n\t@source.number = 42;\n\tValue initialized = source;\n\tif (copies != 1 || initialized.number != 42 || source.number != 42) {\n\t\treturn 1;\n\t};\n\tif (owned(source) != 42 || copies != 2) {\n\t\treturn 2;\n\t};\n\tvar returned = copied_return(source);\n\tif (copies != 3 || returned.number != 42) {\n\t\treturn 3;\n\t};\n\tValue assigned;\n\t@assigned = source;\n\tif (copies != 4 || assigned.number != 42 || source.number != 42) {\n\t\treturn 4;\n\t};\n\tif (borrowed(source) != 42 || copies != 4) {\n\t\treturn 5;\n\t};\n\tchange(@source);\n\tif (source.number != 43 || copies != 4) {\n\t\treturn 6;\n\t};\n\tvar moved = $initialized;\n\tif (owned($moved) != 42 || copies != 4) {\n\t\treturn 7;\n\t};\n\tValue explicit_copy := source;\n\tvar explicit_construct = Value(source);\n\tif (copies != 4 || explicit_copy.number != 43 || explicit_construct.number != 43) {\n\t\treturn 8;\n\t};\n\tvar local = local_copy(&copies);\n\tif (copies != 5 || local.number != 42) {\n\t\treturn 9;\n\t};\n\treturn 42;\n};\n"
         }
       ],
-      "expected_after": {
-        "name": "implicit-same-type-counted",
-        "exit": 42
-      },
-      "result_after": "FAIL"
+      "result_after": "REMOVED"
     },
     {
       "name": "implicit-same-type-missing",
@@ -4946,6 +4947,9 @@
   "runs": {
     "command": "pwsh -NoProfile -File tests/compiler/matrix.ps1 -Rutile ./build/release/bin/rutile.exe -Profile release -CasePattern '*'",
     "before_log_sha256": "9baadf3541a606cb59e82652583564a3e6db04ead24bc4c99ad61af7c737ca44",
-    "after_log_sha256": "6e8626b9af016ce3c3e46cad23f7b2037d90e1707d12207f49b2bcc2ef6bc9ef"
+    "after_log_sha256": "6e8626b9af016ce3c3e46cad23f7b2037d90e1707d12207f49b2bcc2ef6bc9ef",
+    "post_run_removals": [
+      "implicit-same-type-counted"
+    ]
   }
 }
