@@ -200,7 +200,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	Syntax* source = syntax.callable();
 	Syntax* arguments = syntax.arguments();
 	Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
-	Syntax* supplied = nullptr;
+	rt::optional_ref<Syntax> supplied;
 
 	if (explicit_pattern) {
 		Syntax* application = source;
@@ -209,7 +209,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			@application = application->right();
 		};
 
-		@supplied = application->arguments();
+		@supplied.bind(@*application->arguments());
 	};
 
 	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
@@ -434,7 +434,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	};
 
 	if (group && group->kind() == entity_kind::template_pattern) {
-		@group = @this.templates.specialize_call(@this, &scope, group, supplied, values);
+		@group = @this.templates.specialize_call(@this, @scope, @*group, supplied, values);
 
 		if (!group) {
 			return rt::unique<SemanticExpression>();

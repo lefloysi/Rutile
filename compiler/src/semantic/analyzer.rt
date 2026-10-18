@@ -129,14 +129,14 @@ fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
 				return nullptr;
 			};
 
-			return @this.templates.apply(@this, owner->members(), &scope, member);
+			return @this.templates.apply(@this, @*owner->members(), @scope, @*member);
 		};
 
 		return owner->find_member(member->token().text());
 	};
 
 	if (name.kind() == syntax_kind::template_apply) {
-		return @this.templates.apply(@this, &scope, &scope, &name);
+		return @this.templates.apply(@this, @scope, @scope, @name);
 	};
 
 	Entity* result = scope.lookup(name.token().text());
@@ -219,7 +219,7 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 
 	if (kind == syntax_kind::type_auto) {
 		const Type* element = @this.type(@scope, @*syntax.designated_type());
-		const Type* actual = this.templates.qualifier(&scope, &syntax);
+		const Type* actual = this.templates.qualifier(@scope, @syntax);
 
 		if (!element || !actual) {
 			@this.error(&syntax, "automatic qualification requires a deduced parameter binding\0");
@@ -471,15 +471,15 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 			return false;
 		};
 
-		return @this.templates.collect(@this, scope_cursor, &syntax);
+		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
-	if (kind == syntax_kind::function && this.templates.qualifier_dependent(&syntax)) {
+	if (kind == syntax_kind::function && this.templates.qualifier_dependent(@syntax)) {
 		if (!@this.validate_dispatch_syntax(@syntax, scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record)) {
 			return false;
 		};
 
-		return @this.templates.collect(@this, scope_cursor, &syntax);
+		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
 	Syntax* name = nullptr;

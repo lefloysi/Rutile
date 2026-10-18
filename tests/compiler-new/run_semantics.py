@@ -120,5 +120,22 @@ check("implicit-builtin-copies", "tests/compiler/cases/implicit-same-type-builti
 check("implicit-copy-mutable-receiver", "tests/compiler/cases/implicit-same-type-mutable-receiver/main.rt",
 	reject="self conversion requires a const reference receiver")
 
+check("template-unused-deferred", "tests/compiler/cases/template-unused-deferred/main.rt")
+check("template-unused-nonintegral", "tests/compiler/cases/template-unused-nonintegral/main.rt",
+	reject="non-type template parameter requires an integral type")
+check("template-unused-duplicate", "tests/compiler/cases/template-unused-duplicate/main.rt",
+	reject="duplicate declaration in template member scope")
+check("template-unused-receiver", sources + "template-validation-constructor-receiver.rt",
+	reject="instance function requires an explicit 'this' reference parameter")
+
+check("template-validation-ordinary-operator", sources + "template-validation-ordinary-operator.rt")
+check("template-validation-value-shadow", sources + "template-validation-value-shadow.rt",
+	reject="identifier does not name a type entity")
+check("template-validation-sibling-scope", sources + "template-validation-sibling-scope.rt",
+	reject="identifier does not name a type entity")
+check("template-validation-scope-restoration", sources + "template-validation-scope-restoration.rt")
+check("template-validation-virtual-receiver", sources + "template-validation-virtual-receiver.rt",
+	reject="virtual operation requires an explicit class receiver named this")
+
 if failures:
 	sys.exit(1)

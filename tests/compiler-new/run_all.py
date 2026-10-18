@@ -70,6 +70,10 @@ model = [*frontend, "compiler/src/syntax/tree.rt", "compiler/src/frontend/parser
 run_case("primitive-scopes", [*model, "tests/compiler-new/semantic/primitive-scopes.rt"],
 	entry="primitive_scope_tests")
 run_case("semantic-templates", model, entry="template_tests")
+run_case("semantic-template-reference-inputs", [*model,
+	"tests/compiler-new/semantic/template-reference-inputs.rt"], entry="template_reference_input_tests")
+run_case("semantic-template-validation", [*model, "tests/compiler-new/semantic/template-validation.rt"],
+	entry="template_validation_tests")
 run_case("semantic-type-use", [*model, "tests/compiler-new/semantic/type-use.rt"],
 	entry="type_use_tests")
 run_case("semantic-callable-type-use", [*model, "tests/compiler-new/semantic/callable-type-use.rt"],

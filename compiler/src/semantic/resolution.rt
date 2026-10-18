@@ -571,6 +571,17 @@ fn Analyzer::analyze(Analyzer& this, const rt::buffer<rt::unique<Syntax>>& synta
 	};
 
 	@index = 0;
+	var validator = TemplateDeclarationValidator();
+
+	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
+		Entity* pattern = this.unit->entities().data()[index].get();
+		if (pattern->kind() == entity_kind::template_pattern && !@validator.validate(@this, @*pattern)) {
+			return rt::unique<SemanticUnit>();
+		};
+		@index = index + 1;
+	};
+
+	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
 		if (!@this.resolve(this.unit->entities().data()[index].get())) {

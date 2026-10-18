@@ -5819,14 +5819,14 @@ fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
 				return nullptr;
 			};
 
-			return @this.templates.apply(@this, owner->members(), &scope, member);
+			return @this.templates.apply(@this, @*owner->members(), @scope, @*member);
 		};
 
 		return owner->find_member(member->token().text());
 	};
 
 	if (name.kind() == syntax_kind::template_apply) {
-		return @this.templates.apply(@this, &scope, &scope, &name);
+		return @this.templates.apply(@this, @scope, @scope, @name);
 	};
 
 	Entity* result = scope.lookup(name.token().text());
@@ -5909,7 +5909,7 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 
 	if (kind == syntax_kind::type_auto) {
 		const Type* element = @this.type(@scope, @*syntax.designated_type());
-		const Type* actual = this.templates.qualifier(&scope, &syntax);
+		const Type* actual = this.templates.qualifier(@scope, @syntax);
 
 		if (!element || !actual) {
 			@this.error(&syntax, "automatic qualification requires a deduced parameter binding\0");
@@ -6161,15 +6161,15 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 			return false;
 		};
 
-		return @this.templates.collect(@this, scope_cursor, &syntax);
+		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
-	if (kind == syntax_kind::function && this.templates.qualifier_dependent(&syntax)) {
+	if (kind == syntax_kind::function && this.templates.qualifier_dependent(@syntax)) {
 		if (!@this.validate_dispatch_syntax(@syntax, scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record)) {
 			return false;
 		};
 
-		return @this.templates.collect(@this, scope_cursor, &syntax);
+		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
 	Syntax* name = nullptr;
@@ -7604,6 +7604,17 @@ fn Analyzer::analyze(Analyzer& this, const rt::buffer<rt::unique<Syntax>>& synta
 	};
 
 	@index = 0;
+	var validator = TemplateDeclarationValidator();
+
+	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
+		Entity* pattern = this.unit->entities().data()[index].get();
+		if (pattern->kind() == entity_kind::template_pattern && !@validator.validate(@this, @*pattern)) {
+			return rt::unique<SemanticUnit>();
+		};
+		@index = index + 1;
+	};
+
+	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
 		if (!@this.resolve(this.unit->entities().data()[index].get())) {
@@ -7809,7 +7820,7 @@ fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class
 		return false;
 	};
 
-	if (this.templates.qualifier_dependent(&syntax)) {
+	if (this.templates.qualifier_dependent(@syntax)) {
 		@this.error(&syntax, "virtual operation cannot have dependent receiver qualification\0");
 		return false;
 	};
@@ -13903,7 +13914,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	Syntax* source = syntax.callable();
 	Syntax* arguments = syntax.arguments();
 	Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
-	Syntax* supplied = nullptr;
+	rt::optional_ref<Syntax> supplied;
 
 	if (explicit_pattern) {
 		Syntax* application = source;
@@ -13912,7 +13923,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			@application = application->right();
 		};
 
-		@supplied = application->arguments();
+		@supplied.bind(@*application->arguments());
 	};
 
 	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
@@ -14137,7 +14148,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	};
 
 	if (group && group->kind() == entity_kind::template_pattern) {
-		@group = @this.templates.specialize_call(@this, &scope, group, supplied, values);
+		@group = @this.templates.specialize_call(@this, @scope, @*group, supplied, values);
 
 		if (!group) {
 			return rt::unique<SemanticExpression>();
@@ -14694,7 +14705,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 		};
 
 		if (candidate->kind() == entity_kind::template_pattern) {
-			@candidate = @this.templates.deduce(@this, &scope, candidate, arguments);
+			@candidate = @this.templates.deduce(@this, @scope, @*candidate, arguments);
 
 			if (!candidate) {
 				return rt::unique<SemanticExpression>();
@@ -17261,6 +17272,34 @@ struct TemplateArgument {
 	fn same(const TemplateArgument& this, const TemplateArgument& other) -> bool;
 };
 
+enum template_input_kind : [u08] {
+	explicit_arguments;
+	deduced_arguments;
+};
+
+union TemplateInputStorage {
+	Syntax* explicit_arguments;
+	const rt::buffer<TemplateArgument>* deduced_arguments;
+};
+
+struct TemplateInput {
+	fn TemplateInput(TemplateInput& this, Syntax& arguments);
+	fn TemplateInput(TemplateInput& this, const rt::buffer<TemplateArgument>& arguments);
+
+	template_input_kind kind;
+	TemplateInputStorage storage;
+};
+
+fn TemplateInput::TemplateInput(TemplateInput& this, Syntax& arguments) {
+	@this.kind = template_input_kind::explicit_arguments;
+	@this.storage.explicit_arguments = &arguments;
+};
+
+fn TemplateInput::TemplateInput(TemplateInput& this, const rt::buffer<TemplateArgument>& arguments) {
+	@this.kind = template_input_kind::deduced_arguments;
+	@this.storage.deduced_arguments = &arguments;
+};
+
 struct TemplateInstance {
 	Entity* pattern;
 	Entity* entity;
@@ -17275,41 +17314,41 @@ struct TemplateMemberDefinition {
 
 struct TemplateEngine {
 	fn clear(TemplateEngine& this);
-	fn collect(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* source) -> bool;
-	fn apply(TemplateEngine& this, Analyzer& analyzer, Scope* lookup_scope, Scope* argument_scope, Syntax* source) -> Entity*;
-	fn deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
+	fn collect(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& source) -> bool;
+	fn apply(TemplateEngine& this, Analyzer& analyzer, Scope& lookup_scope, Scope& argument_scope, Syntax& source) -> Entity*;
+	fn deduce(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
 	fn call_pattern(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity*;
-	fn specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
+	fn specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, rt::optional_ref<Syntax> supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
 
-	fn qualifier_dependent(const TemplateEngine& this, Syntax* declaration) -> bool;
-	fn qualifier(const TemplateEngine& this, Scope* scope, Syntax* syntax) -> const Type*;
-	fn instance(const TemplateEngine& this, Entity* entity) -> TemplateInstance*;
+	fn qualifier_dependent(const TemplateEngine& this, Syntax& declaration) -> bool;
+	fn qualifier(const TemplateEngine& this, Scope& initial, Syntax& syntax) -> const Type*;
+	fn instance(const TemplateEngine& this, Entity& entity) -> TemplateInstance*;
 
 private:
 	fn auto_declaration(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Scope& bindings, Syntax& declaration, access_kind access) -> bool;
 	fn same_auto_signature(TemplateEngine& this, Analyzer& analyzer, Scope& first_scope, Syntax& first, Scope& second_scope, Syntax& second) -> bool;
 	fn same_type_pattern(TemplateEngine& this, Analyzer& analyzer, Scope& first_scope, Syntax& first, Scope& second_scope, Syntax& second, Syntax& first_parameters, Syntax& second_parameters) -> bool;
-	fn pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* name) -> Entity*;
-	fn argument(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* source, Syntax* parameter, TemplateArgument& result) -> bool;
-	fn bind(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* parameter, const TemplateArgument& argument) -> bool;
-	fn instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<TemplateArgument>* deduced) -> Entity*;
+	fn pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity*;
+	fn argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, TemplateArgument& result) -> bool;
+	fn bind(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& parameter, const TemplateArgument& argument) -> bool;
+	fn instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, const TemplateInput& input) -> Entity*;
 	fn member_definitions(TemplateEngine& this, Analyzer& analyzer, TemplateInstance& instance) -> bool;
-	fn match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const TypeUse& actual_use, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool;
+	fn match(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& syntax, const TypeUse& actual_use, Syntax& parameters, rt::buffer<TemplateArgument>& arguments) -> bool;
 
 	fn same_parameter_expression(const TemplateEngine& this, const Syntax& first, const Syntax& second, const Syntax& first_parameters, const Syntax& second_parameters) -> bool;
-	fn auto_argument(const TemplateEngine& this, Syntax* syntax, const TypeUse& actual) -> const TypeUse*;
-	fn has_auto(const TemplateEngine& this, Syntax* syntax) -> bool;
-	fn contains(const TemplateEngine& this, Syntax* root, Syntax* syntax) -> bool;
-	fn parameter_count(const TemplateEngine& this, Entity* pattern) -> usize;
-	fn explicit_count(const TemplateEngine& this, Entity* pattern) -> usize;
-	fn function_source(const TemplateEngine& this, Entity* pattern) -> Syntax*;
+	fn auto_argument(const TemplateEngine& this, Syntax& syntax, const TypeUse& actual) -> const TypeUse*;
+	fn has_auto(const TemplateEngine& this, Syntax& syntax) -> bool;
+	fn contains(const TemplateEngine& this, Syntax& root, Syntax& syntax) -> bool;
+	fn parameter_count(const TemplateEngine& this, Entity& pattern) -> usize;
+	fn explicit_count(const TemplateEngine& this, Entity& pattern) -> usize;
+	fn function_source(const TemplateEngine& this, Entity& pattern) -> Syntax*;
 	fn deduced_pattern(const TemplateEngine& this, Syntax& syntax, Syntax& parameters, usize supplied) -> bool;
 	fn qualifications(TemplateEngine& this, Analyzer& analyzer, Syntax& declaration, const rt::buffer<rt::unique<SemanticExpression>>& values, rt::buffer<TemplateArgument>& arguments) -> bool;
-	fn parameter_at(const TemplateEngine& this, Entity* pattern, usize index) -> Syntax*;
-	fn parameter_name(const TemplateEngine& this, Syntax* parameter) -> Syntax*;
-	fn declaration_name(const TemplateEngine& this, Syntax* declaration) -> Syntax*;
-	fn unqualified(const TemplateEngine& this, Syntax* name) -> Syntax*;
-	fn argument_syntax(const TemplateEngine& this, Syntax* source, template_argument_kind kind) -> Syntax*;
+	fn parameter_at(const TemplateEngine& this, Entity& pattern, usize index) -> Syntax*;
+	fn parameter_name(const TemplateEngine& this, Syntax& parameter) -> Syntax*;
+	fn declaration_name(const TemplateEngine& this, Syntax& declaration) -> Syntax*;
+	fn unqualified(const TemplateEngine& this, Syntax& initial) -> Syntax*;
+	fn argument_syntax(const TemplateEngine& this, Syntax& source, template_argument_kind kind) -> Syntax*;
 
 	rt::buffer<rt::unique<TemplateInstance>> instances;
 	rt::buffer<TemplateMemberDefinition> definitions;
@@ -17320,12 +17359,12 @@ fn TemplateEngine::clear(TemplateEngine& this) {
 	@this.definitions.clear();
 };
 
-fn TemplateEngine::instance(const TemplateEngine& this, Entity* entity) -> TemplateInstance* {
+fn TemplateEngine::instance(const TemplateEngine& this, Entity& entity) -> TemplateInstance* {
 	usize index = 0;
 	while (index < this.instances.size()) {
 		TemplateInstance* instance = this.instances.data()[index].get();
 
-		if (instance->entity == entity) {
+		if (instance->entity == &entity) {
 			return $instance;
 		};
 
@@ -17335,22 +17374,23 @@ fn TemplateEngine::instance(const TemplateEngine& this, Entity* entity) -> Templ
 	return nullptr;
 };
 
-fn TemplateEngine::declaration_name(const TemplateEngine& this, Syntax* declaration) -> Syntax* {
-	switch (declaration->kind()) {
+fn TemplateEngine::declaration_name(const TemplateEngine& this, Syntax& declaration) -> Syntax* {
+	switch (declaration.kind()) {
 		case syntax_kind::function:
-			return declaration->function_name();
+			return declaration.function_name();
 		case syntax_kind::record:
-			return declaration->record_name();
+			return declaration.record_name();
 		case syntax_kind::namespace_body:
-			return declaration->namespace_name();
+			return declaration.namespace_name();
 		case syntax_kind::using_alias:
-			return declaration->alias_name();
+			return declaration.alias_name();
 		default:
 			return nullptr;
 	};
 };
 
-fn TemplateEngine::unqualified(const TemplateEngine& this, Syntax* name) -> Syntax* {
+fn TemplateEngine::unqualified(const TemplateEngine& this, Syntax& initial) -> Syntax* {
+	Syntax* name = &initial;
 	while (name && name->kind() == syntax_kind::qualified_name) {
 		@name = name->right();
 	};
@@ -17358,17 +17398,13 @@ fn TemplateEngine::unqualified(const TemplateEngine& this, Syntax* name) -> Synt
 	return $name;
 };
 
-fn TemplateEngine::pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* name) -> Entity* {
-	if (!name) {
-		return nullptr;
+fn TemplateEngine::pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity* {
+	if (name.kind() == syntax_kind::template_apply) {
+		return @this.pattern_owner(@analyzer, @scope, @*name.callable());
 	};
 
-	if (name->kind() == syntax_kind::template_apply) {
-		return @this.pattern_owner(@analyzer, scope, name->callable());
-	};
-
-	if (name->kind() == syntax_kind::qualified_name) {
-		Entity* owner = @this.pattern_owner(@analyzer, scope, name->left());
+	if (name.kind() == syntax_kind::qualified_name) {
+		Entity* owner = @this.pattern_owner(@analyzer, @scope, @*name.left());
 
 		if (!owner || !@analyzer.resolve(Entity*(owner))) {
 			return nullptr;
@@ -17380,43 +17416,43 @@ fn TemplateEngine::pattern_owner(TemplateEngine& this, Analyzer& analyzer, Scope
 			return nullptr;
 		};
 
-		return @this.pattern_owner(@analyzer, owner->members(), name->right());
+		return @this.pattern_owner(@analyzer, @*owner->members(), @*name.right());
 	};
 
-	return scope->lookup(name->token().text());
+	return scope.lookup(name.token().text());
 };
 
-fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* source) -> bool {
-	Syntax* declaration = source;
+fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& source) -> bool {
+	Syntax* declaration = &source;
 
-	if (source->kind() == syntax_kind::template_declaration) {
-		@declaration = source->template_declaration();
+	if (source.kind() == syntax_kind::template_declaration) {
+		@declaration = source.template_declaration();
 	};
 
-	Syntax* name = this.declaration_name(declaration);
+	Syntax* name = this.declaration_name(@*declaration);
 
 	if (!name) {
-		@analyzer.error(source, "template requires a record, function, namespace, or alias declaration\0");
+		@analyzer.error(&source, "template requires a record, function, namespace, or alias declaration\0");
 
 		return false;
 	};
 
-	if (source->kind() == syntax_kind::template_declaration && declaration->kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
-		Entity* owner = @this.pattern_owner(@analyzer, scope, name->left());
+	if (source.kind() == syntax_kind::template_declaration && declaration->kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
+		Entity* owner = @this.pattern_owner(@analyzer, @scope, @*name->left());
 
 		if (!owner || owner->kind() != entity_kind::template_pattern) {
-			@analyzer.error(source, "qualified template member requires a declared owner template\0");
+			@analyzer.error(&source, "qualified template member requires a declared owner template\0");
 
 			return false;
 		};
 
 		TemplateMemberDefinition definition;
 		@definition.owner = $owner;
-		@definition.source = source;
-		@definition.access = scope->access();
+		@definition.source = &source;
+		@definition.access = scope.access();
 
 		if (!@this.definitions.push_back($definition)) {
-			@analyzer.error(source, "template definition storage is unavailable\0");
+			@analyzer.error(&source, "template definition storage is unavailable\0");
 
 			return false;
 		};
@@ -17425,31 +17461,31 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope* scop
 	};
 
 	if (name->kind() != syntax_kind::name) {
-		if (source->kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
-			Entity* owner = @analyzer.lookup(@*scope, @*name->left());
+		if (source.kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
+			Entity* owner = @analyzer.lookup(@scope, @*name->left());
 			if (!owner || !@analyzer.resolve(Entity*(owner))) {
 				return false;
 			};
 			@owner = owner->member_owner();
 			if (!owner || !owner->members()) {
-				@analyzer.error(source, "qualified function owner has no member scope\0");
+				@analyzer.error(&source, "qualified function owner has no member scope\0");
 				return false;
 			};
-			return @this.auto_declaration(@analyzer, @*owner->members(), @*owner->members(), @*source, scope->access());
+			return @this.auto_declaration(@analyzer, @*owner->members(), @*owner->members(), @source, scope.access());
 		};
 
-		@analyzer.error(source, "template declaration requires an unqualified name\0");
+		@analyzer.error(&source, "template declaration requires an unqualified name\0");
 
 		return false;
 	};
-	if (source->kind() == syntax_kind::function) {
-		return @this.auto_declaration(@analyzer, @*scope, @*scope, @*source, scope->access());
+	if (source.kind() == syntax_kind::function) {
+		return @this.auto_declaration(@analyzer, @scope, @scope, @source, scope.access());
 	};
 
-	Entity* previous = scope->local(name->token().text());
+	Entity* previous = scope.local(name->token().text());
 
 	if (previous && previous->kind() != entity_kind::template_pattern) {
-		@analyzer.error(source, "template name conflicts with another declaration\0");
+		@analyzer.error(&source, "template name conflicts with another declaration\0");
 
 		return false;
 	};
@@ -17457,29 +17493,29 @@ fn TemplateEngine::collect(TemplateEngine& this, Analyzer& analyzer, Scope* scop
 	if (previous && declaration->kind() == syntax_kind::record) {
 		Syntax* existing = previous->declaration()->template_declaration();
 
-		if (existing->kind() != syntax_kind::record || previous->declaration()->template_parameters()->size() != source->template_parameters()->size()) {
-			@analyzer.error(source, "template redeclaration has a different parameter list\0");
+		if (existing->kind() != syntax_kind::record || previous->declaration()->template_parameters()->size() != source.template_parameters()->size()) {
+			@analyzer.error(&source, "template redeclaration has a different parameter list\0");
 
 			return false;
 		};
 
 		if (declaration->record_members()->kind() != syntax_kind::noop) {
 			if (existing->record_members()->kind() != syntax_kind::noop) {
-				@analyzer.error(source, "duplicate template definition\0");
+				@analyzer.error(&source, "duplicate template definition\0");
 
 				return false;
 			};
 
-			@previous->replace_declaration(source);
+			@previous->replace_declaration(&source);
 		};
 
 		return true;
 	};
 
-	Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, name->token(), source, scope);
+	Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, name->token(), &source, &scope);
 
 	if (!pattern) {
-		@analyzer.error(source, "template declaration storage is unavailable\0");
+		@analyzer.error(&source, "template declaration storage is unavailable\0");
 
 		return false;
 	};
@@ -17560,7 +17596,7 @@ fn TemplateEngine::same_auto_signature(TemplateEngine& this, Analyzer& analyzer,
 };
 
 fn TemplateEngine::auto_declaration(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Scope& bindings, Syntax& declaration, access_kind access) -> bool {
-	Syntax* name = this.unqualified(declaration.function_name());
+	Syntax* name = this.unqualified(@*declaration.function_name());
 	usize index = 0;
 	while (index < scope.bindings().size()) {
 		Entity* previous = scope.bindings().data()[index];
@@ -17595,14 +17631,14 @@ fn TemplateEngine::auto_declaration(TemplateEngine& this, Analyzer& analyzer, Sc
 	return true;
 };
 
-fn TemplateEngine::argument_syntax(const TemplateEngine& this, Syntax* source, template_argument_kind kind) -> Syntax* {
-	if (source->kind() != syntax_kind::ambiguity) {
-		return $source;
+fn TemplateEngine::argument_syntax(const TemplateEngine& this, Syntax& source, template_argument_kind kind) -> Syntax* {
+	if (source.kind() != syntax_kind::ambiguity) {
+		return &source;
 	};
 
 	usize index = 0;
-	while (index < source->size()) {
-		Syntax* candidate = source->item(index);
+	while (index < source.size()) {
+		Syntax* candidate = source.item(index);
 		bool type = candidate->kind() == syntax_kind::type_name || candidate->kind() == syntax_kind::type_pointer || candidate->kind() == syntax_kind::type_reference || candidate->kind() == syntax_kind::type_array || candidate->kind() == syntax_kind::type_const || candidate->kind() == syntax_kind::type_function;
 
 		if ((kind == template_argument_kind::type) == type) {
@@ -17615,24 +17651,25 @@ fn TemplateEngine::argument_syntax(const TemplateEngine& this, Syntax* source, t
 	return nullptr;
 };
 
-fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* source, Syntax* parameter, TemplateArgument& result) -> bool {
-	if (parameter->token().kind == token_kind::kw_typename) {
+fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& input, Syntax& parameter, TemplateArgument& result) -> bool {
+	Syntax* source = &input;
+	if (parameter.token().kind == token_kind::kw_typename) {
 		@result.kind = template_argument_kind::type;
-		@source = this.argument_syntax(source, template_argument_kind::type);
+		@source = this.argument_syntax(@*source, template_argument_kind::type);
 
 		if (!source) {
-			@analyzer.error(parameter, "template type argument requires a type\0");
+			@analyzer.error(&parameter, "template type argument requires a type\0");
 
 			return false;
 		};
 
-		@result.type = @analyzer.type(@*scope, @*source);
+		@result.type = @analyzer.type(@scope, @*source);
 
 		if (!result.type) {
 			return false;
 		};
 
-		const TypeUse* use = @analyzer.semantic_unit()->describe_type(@analyzer, @*scope, *source, *result.type);
+		const TypeUse* use = @analyzer.semantic_unit()->describe_type(@analyzer, @scope, *source, *result.type);
 
 		if (!use) {
 			return false;
@@ -17644,14 +17681,14 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope* sco
 	};
 
 	@result.kind = template_argument_kind::value;
-	@source = this.argument_syntax(source, template_argument_kind::value);
-	const Type* expected = @analyzer.type(@*scope, @*parameter->template_parameter_type());
+	@source = this.argument_syntax(@*source, template_argument_kind::value);
+	const Type* expected = @analyzer.type(@scope, @*parameter.template_parameter_type());
 
 	if (!source || !expected) {
 		return false;
 	};
 
-	var value = @analyzer.expression(@*scope, @*source, rt::optional_ref<const Type>(*expected));
+	var value = @analyzer.expression(@scope, @*source, rt::optional_ref<const Type>(*expected));
 
 	if (!value.get() || !@analyzer.constant_integer(*value.get(), @result.value)) {
 		@analyzer.error(source, "template value argument shall be an integer constant\0");
@@ -17664,18 +17701,18 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope* sco
 	return true;
 };
 
-fn TemplateEngine::bind(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* parameter, const TemplateArgument& argument) -> bool {
-	Syntax* name = this.parameter_name(parameter);
+fn TemplateEngine::bind(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& parameter, const TemplateArgument& argument) -> bool {
+	Syntax* name = this.parameter_name(@parameter);
 	entity_kind kind = entity_kind::type_parameter;
 
 	if (argument.kind == template_argument_kind::value) {
 		@kind = entity_kind::enumerator;
 	};
 
-	Entity* entity = @analyzer.semantic_unit()->create_entity($kind, name->token(), parameter, scope);
+	Entity* entity = @analyzer.semantic_unit()->create_entity($kind, name->token(), &parameter, &scope);
 
 	if (!entity) {
-		@analyzer.error(parameter, "template parameter binding storage is unavailable\0");
+		@analyzer.error(&parameter, "template parameter binding storage is unavailable\0");
 
 		return false;
 	};
@@ -17692,11 +17729,11 @@ fn TemplateEngine::bind(TemplateEngine& this, Analyzer& analyzer, Scope* scope, 
 	return true;
 };
 
-fn TemplateEngine::apply(TemplateEngine& this, Analyzer& analyzer, Scope* lookup_scope, Scope* argument_scope, Syntax* source) -> Entity* {
-	Entity* pattern = @analyzer.lookup(@*lookup_scope, @*source->callable());
+fn TemplateEngine::apply(TemplateEngine& this, Analyzer& analyzer, Scope& lookup_scope, Scope& argument_scope, Syntax& source) -> Entity* {
+	Entity* pattern = @analyzer.lookup(@lookup_scope, @*source.callable());
 
 	if (pattern && pattern->kind() != entity_kind::template_pattern) {
-		TemplateInstance* current = this.instance(Entity*(pattern));
+		TemplateInstance* current = this.instance(@*Entity*(pattern));
 
 		if (current) {
 			@pattern = current->pattern;
@@ -17704,25 +17741,31 @@ fn TemplateEngine::apply(TemplateEngine& this, Analyzer& analyzer, Scope* lookup
 	};
 
 	if (!pattern || pattern->kind() != entity_kind::template_pattern) {
-		@analyzer.error(source, "template arguments require a template declaration\0");
+		@analyzer.error(&source, "template arguments require a template declaration\0");
 
 		return nullptr;
 	};
 
-	return @this.instantiate(@analyzer, argument_scope, $pattern, source->arguments(), nullptr);
+	return @this.instantiate(@analyzer, @argument_scope, @*pattern, TemplateInput(@*source.arguments()));
 };
 
-fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<TemplateArgument>* deduced) -> Entity* {
-	Syntax* wrapper = pattern->declaration();
-	usize parameter_count = this.parameter_count(pattern);
+fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, const TemplateInput& input) -> Entity* {
+	TemplateDeclarationValidator validator;
 
-	if (supplied && supplied->size() > this.explicit_count(pattern)) {
-		@analyzer.error(supplied, "too many template arguments\0");
+	if (!@validator.validate(@analyzer, @pattern)) {
+		return nullptr;
+	};
+
+	Syntax* wrapper = pattern.declaration();
+	usize parameter_count = this.parameter_count(@pattern);
+
+	if (input.kind == template_input_kind::explicit_arguments && input.storage.explicit_arguments->size() > this.explicit_count(@pattern)) {
+		@analyzer.error(input.storage.explicit_arguments, "too many template arguments\0");
 
 		return nullptr;
 	};
 
-	Scope* bindings = @analyzer.semantic_unit()->create_scope(pattern->resolution_scope(), pattern->scope()->owner());
+	Scope* bindings = @analyzer.semantic_unit()->create_scope(pattern.resolution_scope(), pattern.scope()->owner());
 
 	if (!bindings) {
 		@analyzer.error(wrapper, "template binding scope storage is unavailable\0");
@@ -17738,19 +17781,19 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 		return nullptr;
 	};
 
-	@instance.get()->pattern = pattern;
+	@instance.get()->pattern = &pattern;
 	usize index = 0;
 	while (index < parameter_count) {
-		Syntax* parameter = this.parameter_at(pattern, index);
+		Syntax* parameter = this.parameter_at(@pattern, index);
 		TemplateArgument argument;
 
-		if (supplied && index < supplied->size()) {
-			if (!@this.argument(@analyzer, scope, supplied->item(index), parameter, @argument)) {
+		if (input.kind == template_input_kind::explicit_arguments && index < input.storage.explicit_arguments->size()) {
+			if (!@this.argument(@analyzer, @scope, @*input.storage.explicit_arguments->item(index), @*parameter, @argument)) {
 				return nullptr;
 			};
 		}
-		else if (deduced && index < deduced->size() && deduced->data()[index].type) {
-			@argument := deduced->data()[index];
+		else if (input.kind == template_input_kind::deduced_arguments && index < input.storage.deduced_arguments->size() && input.storage.deduced_arguments->data()[index].type) {
+			@argument := input.storage.deduced_arguments->data()[index];
 		}
 		else {
 			Syntax* fallback = nullptr;
@@ -17765,12 +17808,12 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 				return nullptr;
 			};
 
-			if (!@this.argument(@analyzer, bindings, fallback, parameter, @argument)) {
+			if (!@this.argument(@analyzer, @*bindings, @*fallback, @*parameter, @argument)) {
 				return nullptr;
 			};
 		};
 
-		if (index < this.explicit_count(pattern) && !@this.bind(@analyzer, bindings, parameter, argument)) {
+		if (index < this.explicit_count(@pattern) && !@this.bind(@analyzer, @*bindings, @*parameter, argument)) {
 			return nullptr;
 		};
 
@@ -17787,7 +17830,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 		TemplateInstance* existing = this.instances.data()[index].get();
 		@index = index + 1;
 
-		if (existing->pattern != pattern || existing->arguments.size() != instance.get()->arguments.size()) {
+		if (existing->pattern != &pattern || existing->arguments.size() != instance.get()->arguments.size()) {
 			continue;
 		};
 
@@ -17808,7 +17851,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 		@declaration = wrapper->template_declaration();
 	};
 
-	Syntax* name = this.unqualified(this.declaration_name(declaration));
+	Syntax* name = this.unqualified(@*this.declaration_name(@*declaration));
 	entity_kind kind = entity_kind::record;
 
 	if (declaration->kind() == syntax_kind::function) {
@@ -17829,7 +17872,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 		return nullptr;
 	};
 
-	@entity->set_access(pattern->access());
+	@entity->set_access(pattern.access());
 	@instance.get()->entity = entity;
 	@entity->set_instantiated();
 	TemplateInstance* published = instance.get();
@@ -17894,7 +17937,7 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 		usize parameter = 0;
 
 		while (parameter < parameters->size()) {
-			if (!@this.bind(@analyzer, bindings, parameters->item(parameter), instance.arguments.data()[parameter])) {
+			if (!@this.bind(@analyzer, @*bindings, @*parameters->item(parameter), instance.arguments.data()[parameter])) {
 				return false;
 			};
 
@@ -17902,10 +17945,10 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 		};
 
 		Syntax* declaration = definition.source->template_declaration();
-		Syntax* name = this.unqualified(declaration->function_name());
+		Syntax* name = this.unqualified(@*declaration->function_name());
 		entity_kind category = entity_kind::function;
 
-		if (this.qualifier_dependent(declaration)) {
+		if (this.qualifier_dependent(@*declaration)) {
 			if (!@this.auto_declaration(@analyzer, @*instance.entity->members(), @*bindings, @*declaration, access_kind(definition.access))) {
 				return false;
 			};
@@ -17929,47 +17972,47 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 	return true;
 };
 
-fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const TypeUse& actual_use, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool {
+fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& syntax, const TypeUse& actual_use, Syntax& parameters, rt::buffer<TemplateArgument>& arguments) -> bool {
 	const Type* actual = &actual_use.type();
 	const TypeUse* use = &actual_use;
 
-	if (syntax->kind() == syntax_kind::type_auto) {
+	if (syntax.kind() == syntax_kind::type_auto) {
 		const Type* unqualified = @analyzer.type_store()->qualified(*actual, type_qualifier::mutable);
 		@use = @analyzer.semantic_unit()->retype_use(*use, *unqualified);
 
-		return use && @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
+		return use && @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
 	};
 
-	if (syntax->kind() == syntax_kind::type_name) {
-		return @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
+	if (syntax.kind() == syntax_kind::type_name) {
+		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
 	};
 
-	if (syntax->kind() == syntax_kind::type_reference || syntax->kind() == syntax_kind::type_const) {
+	if (syntax.kind() == syntax_kind::type_reference || syntax.kind() == syntax_kind::type_const) {
 		if (actual->kind() == type_kind::reference) {
 			@actual = actual->element();
 			@use = &use->element();
 		};
 
-		return @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
+		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
 	};
 
-	if (syntax->kind() == syntax_kind::type_pointer) {
-		return actual->kind() == type_kind::pointer && @this.match(@analyzer, scope, syntax->designated_type(), use->element(), parameters, @arguments);
+	if (syntax.kind() == syntax_kind::type_pointer) {
+		return actual->kind() == type_kind::pointer && @this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments);
 	};
 
-	if (syntax->kind() == syntax_kind::type_array) {
-		if (actual->kind() != type_kind::array || !@this.match(@analyzer, scope, syntax->designated_type(), use->element(), parameters, @arguments)) {
+	if (syntax.kind() == syntax_kind::type_array) {
+		if (actual->kind() != type_kind::array || !@this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments)) {
 			return false;
 		};
 
-		Syntax* extent = syntax->array_extent();
+		Syntax* extent = syntax.array_extent();
 		usize index = 0;
-		while (index < parameters->size()) {
-			Syntax* parameter = parameters->item(index);
+		while (index < parameters.size()) {
+			Syntax* parameter = parameters.item(index);
 
 			if (parameter->token().kind != token_kind::kw_typename && parameter->template_parameter_name()->token().text() == extent->token().text()) {
 				TemplateArgument* argument = (@arguments).data() + index;
-				const Type* type = @analyzer.type(@*scope, @*parameter->template_parameter_type());
+				const Type* type = @analyzer.type(@scope, @*parameter->template_parameter_type());
 
 				if (!type || argument->type && argument->value != actual->count()) {
 					return false;
@@ -17990,12 +18033,12 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 		return @analyzer.integer(@*extent, @expected) && expected == actual->count();
 	};
 
-	if (syntax->kind() == syntax_kind::name) {
+	if (syntax.kind() == syntax_kind::name) {
 		usize index = 0;
-		while (index < parameters->size()) {
-			Syntax* parameter = parameters->item(index);
+		while (index < parameters.size()) {
+			Syntax* parameter = parameters.item(index);
 
-			if (parameter->token().kind == token_kind::kw_typename && parameter->template_parameter_name()->token().text() == syntax->token().text()) {
+			if (parameter->token().kind == token_kind::kw_typename && parameter->template_parameter_name()->token().text() == syntax.token().text()) {
 				TemplateArgument* argument = (@arguments).data() + index;
 
 				if (argument->type && argument->type != actual) {
@@ -18016,15 +18059,15 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 		};
 	};
 
-	Syntax* application = syntax;
+	Syntax* application = &syntax;
 
-	if (syntax->kind() == syntax_kind::qualified_name) {
-		@application = syntax->right();
+	if (syntax.kind() == syntax_kind::qualified_name) {
+		@application = syntax.right();
 	};
 
 	if (application->kind() == syntax_kind::template_apply && actual->kind() == type_kind::named) {
-		TemplateInstance* instance = this.instance(actual->entity());
-		Entity* pattern = @this.pattern_owner(@analyzer, scope, syntax);
+		TemplateInstance* instance = this.instance(@*actual->entity());
+		Entity* pattern = @this.pattern_owner(@analyzer, @scope, @syntax);
 
 		if (!instance || instance->pattern != pattern || application->arguments()->size() > instance->arguments.size()) {
 			return false;
@@ -18033,7 +18076,7 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 		usize index = 0;
 		while (index < application->arguments()->size()) {
 			const TemplateArgument& argument = instance->arguments.data()[index];
-			Syntax* argument_source = this.argument_syntax(application->arguments()->item(index), template_argument_kind(argument.kind));
+			Syntax* argument_source = this.argument_syntax(@*application->arguments()->item(index), template_argument_kind(argument.kind));
 
 			if (!argument_source) {
 				return false;
@@ -18046,15 +18089,15 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 					@argument_use = @analyzer.semantic_unit()->canonical_use(*argument.type);
 				};
 
-				if (!argument_use || !@this.match(@analyzer, scope, argument_source, *argument_use, parameters, @arguments)) {
+				if (!argument_use || !@this.match(@analyzer, @scope, @*argument_source, *argument_use, @parameters, @arguments)) {
 					return false;
 				};
 			}
 			else {
 				usize parameter = 0;
 
-				while (parameter < parameters->size()) {
-					Syntax* name = parameters->item(parameter)->template_parameter_name();
+				while (parameter < parameters.size()) {
+					Syntax* name = parameters.item(parameter)->template_parameter_name();
 
 					if (name->token().text() == argument_source->token().text()) {
 						break;
@@ -18063,7 +18106,7 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 					@parameter = parameter + 1;
 				};
 
-				if (parameter < parameters->size()) {
+				if (parameter < parameters.size()) {
 					TemplateArgument* bound = (@arguments).data() + parameter;
 
 					if (bound->type && !bound->same(argument)) {
@@ -18073,7 +18116,7 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 					@*bound := argument;
 				}
 				else {
-					var value = @analyzer.expression(@*scope, @*argument_source, rt::optional_ref<const Type>(*argument.type));
+					var value = @analyzer.expression(@scope, @*argument_source, rt::optional_ref<const Type>(*argument.type));
 					u64 expected = 0;
 
 					if (!value.get() || !@analyzer.constant_integer(*value.get(), @expected) || expected != argument.value) {
@@ -18088,7 +18131,7 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 		return true;
 	};
 
-	const Type* expected = @analyzer.type(@*scope, @*syntax);
+	const Type* expected = @analyzer.type(@scope, @syntax);
 
 	return expected && expected == actual;
 };
@@ -18123,7 +18166,7 @@ fn TemplateEngine::call_pattern(TemplateEngine& this, Analyzer& analyzer, Scope&
 
 	Entity* pattern = @analyzer.lookup(@*lookup, @*application->callable());
 
-	if (!pattern || pattern->kind() != entity_kind::template_pattern || !this.function_source(pattern)) {
+	if (!pattern || pattern->kind() != entity_kind::template_pattern || !this.function_source(@*pattern)) {
 		return nullptr;
 	};
 
@@ -18161,7 +18204,7 @@ fn TemplateEngine::qualifications(TemplateEngine& this, Analyzer& analyzer, Synt
 		SemanticExpression* value = values.data()[index].get();
 		@index = index + 1;
 
-		if (!this.has_auto(parameter->parameter_type())) {
+		if (!this.has_auto(@*parameter->parameter_type())) {
 			continue;
 		};
 
@@ -18175,7 +18218,7 @@ fn TemplateEngine::qualifications(TemplateEngine& this, Analyzer& analyzer, Synt
 			return false;
 		};
 
-		@use = this.auto_argument(parameter->parameter_type(), *use);
+		@use = this.auto_argument(@*parameter->parameter_type(), *use);
 
 		if (!use) {
 			return false;
@@ -18201,27 +18244,27 @@ fn TemplateEngine::qualifications(TemplateEngine& this, Analyzer& analyzer, Synt
 	return true;
 };
 
-fn TemplateEngine::deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
-	return @this.specialize_call(@analyzer, scope, pattern, nullptr, values);
+fn TemplateEngine::deduce(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
+	return @this.specialize_call(@analyzer, @scope, @pattern, rt::optional_ref<Syntax>(), values);
 };
 
-fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
-	Syntax* declaration = this.function_source(pattern);
+fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Entity& pattern, rt::optional_ref<Syntax> supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
+	Syntax* declaration = this.function_source(@pattern);
 
 	if (!declaration || declaration->function_parameters()->size() != values.size()) {
-		@analyzer.error(pattern->declaration(), "function template requires matching call arguments\0");
+		@analyzer.error(pattern.declaration(), "function template requires matching call arguments\0");
 		return nullptr;
 	};
 
-	usize visible = this.explicit_count(pattern);
+	usize visible = this.explicit_count(@pattern);
 	usize provided = 0;
 
-	if (supplied) {
-		@provided = supplied->size();
+	if (supplied.has_value()) {
+		@provided = supplied.value().size();
 	};
 
 	if (provided > visible) {
-		@analyzer.error(supplied, "too many template arguments\0");
+		@analyzer.error(supplied.get(), "too many template arguments\0");
 		return nullptr;
 	};
 
@@ -18230,7 +18273,7 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 	while (index < visible) {
 		TemplateArgument argument;
 
-		if (index < provided && !@this.argument(@analyzer, scope, supplied->item(index), this.parameter_at(pattern, index), @argument)) {
+		if (index < provided && !@this.argument(@analyzer, @scope, @*supplied.value().item(index), @*this.parameter_at(@pattern, index), @argument)) {
 			return nullptr;
 		};
 
@@ -18242,7 +18285,7 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 	};
 
 	if (visible) {
-		Syntax* parameters = pattern->declaration()->template_parameters();
+		Syntax* parameters = pattern.declaration()->template_parameters();
 		@index = 0;
 
 		while (index < values.size()) {
@@ -18260,7 +18303,7 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 				@use = @analyzer.semantic_unit()->canonical_use(*value->type());
 			};
 
-			if (!use || !@this.match(@analyzer, pattern->scope(), parameter, *use, parameters, @arguments)) {
+			if (!use || !@this.match(@analyzer, @*pattern.scope(), @*parameter, *use, @*parameters, @arguments)) {
 				return nullptr;
 			};
 		};
@@ -18270,21 +18313,17 @@ fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Sco
 		return nullptr;
 	};
 
-	return @this.instantiate(@analyzer, scope, pattern, nullptr, &arguments);
+	return @this.instantiate(@analyzer, @scope, @pattern, TemplateInput(arguments));
 };
 
-fn TemplateEngine::has_auto(const TemplateEngine& this, Syntax* syntax) -> bool {
-	if (!syntax) {
-		return false;
-	};
-
-	if (syntax->kind() == syntax_kind::type_auto) {
+fn TemplateEngine::has_auto(const TemplateEngine& this, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::type_auto) {
 		return true;
 	};
 
 	usize index = 0;
-	while (index < syntax->size()) {
-		if (this.has_auto(syntax->item(index))) {
+	while (index < syntax.size()) {
+		if (this.has_auto(@*syntax.item(index))) {
 			return true;
 		};
 
@@ -18294,14 +18333,14 @@ fn TemplateEngine::has_auto(const TemplateEngine& this, Syntax* syntax) -> bool 
 	return false;
 };
 
-fn TemplateEngine::contains(const TemplateEngine& this, Syntax* root, Syntax* syntax) -> bool {
-	if (root == syntax) {
+fn TemplateEngine::contains(const TemplateEngine& this, Syntax& root, Syntax& syntax) -> bool {
+	if (&root == &syntax) {
 		return true;
 	};
 
 	usize index = 0;
-	while (index < root->size()) {
-		if (this.contains(root->item(index), syntax)) {
+	while (index < root.size()) {
+		if (this.contains(@*root.item(index), @syntax)) {
 			return true;
 		};
 
@@ -18311,12 +18350,12 @@ fn TemplateEngine::contains(const TemplateEngine& this, Syntax* root, Syntax* sy
 	return false;
 };
 
-fn TemplateEngine::qualifier_dependent(const TemplateEngine& this, Syntax* declaration) -> bool {
-	return declaration->kind() == syntax_kind::function && this.has_auto(declaration->function_parameters());
+fn TemplateEngine::qualifier_dependent(const TemplateEngine& this, Syntax& declaration) -> bool {
+	return declaration.kind() == syntax_kind::function && this.has_auto(@*declaration.function_parameters());
 };
 
-fn TemplateEngine::function_source(const TemplateEngine& this, Entity* pattern) -> Syntax* {
-	Syntax* source = pattern->declaration();
+fn TemplateEngine::function_source(const TemplateEngine& this, Entity& pattern) -> Syntax* {
+	Syntax* source = pattern.declaration();
 
 	if (source->kind() == syntax_kind::template_declaration) {
 		@source = source->template_declaration();
@@ -18329,8 +18368,8 @@ fn TemplateEngine::function_source(const TemplateEngine& this, Entity* pattern) 
 	return source;
 };
 
-fn TemplateEngine::explicit_count(const TemplateEngine& this, Entity* pattern) -> usize {
-	Syntax* source = pattern->declaration();
+fn TemplateEngine::explicit_count(const TemplateEngine& this, Entity& pattern) -> usize {
+	Syntax* source = pattern.declaration();
 
 	if (source->kind() == syntax_kind::template_declaration) {
 		return source->template_parameters()->size();
@@ -18339,9 +18378,9 @@ fn TemplateEngine::explicit_count(const TemplateEngine& this, Entity* pattern) -
 	return 0;
 };
 
-fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) -> usize {
-	usize count = this.explicit_count(pattern);
-	Syntax* source = this.function_source(pattern);
+fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity& pattern) -> usize {
+	usize count = this.explicit_count(@pattern);
+	Syntax* source = this.function_source(@pattern);
 
 	if (!source) {
 		return $count;
@@ -18349,7 +18388,7 @@ fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) 
 
 	usize index = 0;
 	while (index < source->function_parameters()->size()) {
-		if (this.has_auto(source->function_parameters()->item(index)->parameter_type())) {
+		if (this.has_auto(@*source->function_parameters()->item(index)->parameter_type())) {
 			@count = count + 1;
 		};
 
@@ -18359,14 +18398,14 @@ fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) 
 	return $count;
 };
 
-fn TemplateEngine::parameter_at(const TemplateEngine& this, Entity* pattern, usize position) -> Syntax* {
-	usize visible = this.explicit_count(pattern);
+fn TemplateEngine::parameter_at(const TemplateEngine& this, Entity& pattern, usize position) -> Syntax* {
+	usize visible = this.explicit_count(@pattern);
 
 	if (position < visible) {
-		return pattern->declaration()->template_parameters()->item(position);
+		return pattern.declaration()->template_parameters()->item(position);
 	};
 
-	Syntax* source = this.function_source(pattern);
+	Syntax* source = this.function_source(@pattern);
 
 	if (!source) {
 		return nullptr;
@@ -18378,7 +18417,7 @@ fn TemplateEngine::parameter_at(const TemplateEngine& this, Entity* pattern, usi
 		Syntax* candidate = source->function_parameters()->item(index);
 		@index = index + 1;
 
-		if (!this.has_auto(candidate->parameter_type())) {
+		if (!this.has_auto(@*candidate->parameter_type())) {
 			continue;
 		};
 
@@ -18392,25 +18431,30 @@ fn TemplateEngine::parameter_at(const TemplateEngine& this, Entity* pattern, usi
 	return nullptr;
 };
 
-fn TemplateEngine::parameter_name(const TemplateEngine& this, Syntax* parameter) -> Syntax* {
-	if (parameter->kind() == syntax_kind::parameter) {
-		return parameter->parameter_name();
+fn TemplateEngine::parameter_name(const TemplateEngine& this, Syntax& parameter) -> Syntax* {
+	if (parameter.kind() == syntax_kind::parameter) {
+		return parameter.parameter_name();
 	};
 
-	return parameter->template_parameter_name();
+	return parameter.template_parameter_name();
 };
 
-fn TemplateEngine::qualifier(const TemplateEngine& this, Scope* scope, Syntax* syntax) -> const Type* {
+fn TemplateEngine::qualifier(const TemplateEngine& this, Scope& initial, Syntax& syntax) -> const Type* {
+	Scope* scope = &initial;
 	while (scope) {
 		Entity* owner = scope->owner();
-		TemplateInstance* instance = this.instance(Entity*(owner));
+		TemplateInstance* instance = nullptr;
 
-		if (instance && owner->declaration()->kind() == syntax_kind::function && this.function_source(instance->pattern)) {
-			usize index = this.explicit_count(instance->pattern);
+		if (owner) {
+			@instance = this.instance(@*owner);
+		};
+
+		if (instance && owner->declaration()->kind() == syntax_kind::function && this.function_source(@*instance->pattern)) {
+			usize index = this.explicit_count(@*instance->pattern);
 			while (index < instance->arguments.size()) {
-				Syntax* parameter = this.parameter_at(instance->pattern, index);
+				Syntax* parameter = this.parameter_at(@*instance->pattern, index);
 
-				if (this.contains(parameter->parameter_type(), syntax)) {
+				if (this.contains(@*parameter->parameter_type(), @syntax)) {
 					return instance->arguments.data()[index].type;
 				};
 
@@ -18424,25 +18468,25 @@ fn TemplateEngine::qualifier(const TemplateEngine& this, Scope* scope, Syntax* s
 	return nullptr;
 };
 
-fn TemplateEngine::auto_argument(const TemplateEngine& this, Syntax* syntax, const TypeUse& actual) -> const TypeUse* {
-	if (syntax->kind() == syntax_kind::type_auto) {
+fn TemplateEngine::auto_argument(const TemplateEngine& this, Syntax& syntax, const TypeUse& actual) -> const TypeUse* {
+	if (syntax.kind() == syntax_kind::type_auto) {
 		return &actual;
 	};
 
-	if (syntax->kind() == syntax_kind::type_reference) {
+	if (syntax.kind() == syntax_kind::type_reference) {
 		if (actual.type().kind() == type_kind::reference) {
-			return this.auto_argument(syntax->designated_type(), actual.element());
+			return this.auto_argument(@*syntax.designated_type(), actual.element());
 		};
 
-		return this.auto_argument(syntax->designated_type(), actual);
+		return this.auto_argument(@*syntax.designated_type(), actual);
 	};
 
-	if (syntax->kind() == syntax_kind::type_pointer && actual.type().kind() == type_kind::pointer || syntax->kind() == syntax_kind::type_array && actual.type().kind() == type_kind::array) {
-		return this.auto_argument(syntax->designated_type(), actual.element());
+	if (syntax.kind() == syntax_kind::type_pointer && actual.type().kind() == type_kind::pointer || syntax.kind() == syntax_kind::type_array && actual.type().kind() == type_kind::array) {
+		return this.auto_argument(@*syntax.designated_type(), actual.element());
 	};
 
-	if (syntax->kind() == syntax_kind::type_const) {
-		return this.auto_argument(syntax->designated_type(), actual);
+	if (syntax.kind() == syntax_kind::type_const) {
+		return this.auto_argument(@*syntax.designated_type(), actual);
 	};
 
 	return nullptr;
@@ -18450,6 +18494,289 @@ fn TemplateEngine::auto_argument(const TemplateEngine& this, Syntax* syntax, con
 
 fn TemplateArgument::same(const TemplateArgument& this, const TemplateArgument& other) -> bool {
 	return this.kind == other.kind && this.type == other.type && (this.kind == template_argument_kind::type || this.value == other.value);
+};
+
+enum template_validation_role : [u08] {
+	dependent_type;
+	dependent_value;
+	value;
+};
+
+struct TemplateValidationSymbol {
+	Token name;
+	template_validation_role role;
+};
+
+struct TemplateDeclarationValidator {
+	fn validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool;
+
+private:
+	fn dependent(const TemplateDeclarationValidator& this, const Syntax& syntax) -> bool;
+	fn lookup(const TemplateDeclarationValidator& this, const Token& name) -> const TemplateValidationSymbol*;
+	fn remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool;
+	fn restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame);
+	fn type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
+	fn declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
+	fn members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool;
+	fn certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax*;
+
+	rt::buffer<TemplateValidationSymbol> symbols;
+	usize frame_start;
+};
+
+fn TemplateDeclarationValidator::lookup(const TemplateDeclarationValidator& this, const Token& name) -> const TemplateValidationSymbol* {
+	usize index = this.symbols.size();
+	while (index) {
+		@index = index - 1;
+		if (this.symbols.data()[index].name.same(name)) {
+			return &this.symbols.data()[index];
+		};
+	};
+	return nullptr;
+};
+
+fn TemplateDeclarationValidator::dependent(const TemplateDeclarationValidator& this, const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::name) {
+		const TemplateValidationSymbol* symbol = this.lookup(syntax.token());
+		return symbol && symbol->role != template_validation_role::value;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.dependent(*syntax.item(index))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateDeclarationValidator::remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool {
+	if (name.kind() != syntax_kind::name) {
+		return true;
+	};
+	usize index = this.frame_start;
+	while (index < this.symbols.size()) {
+		const TemplateValidationSymbol& previous = this.symbols.data()[index];
+		if (previous.name.same(name.token())) {
+			if (previous.role == template_validation_role::dependent_type && role == template_validation_role::dependent_type) {
+				return true;
+			};
+			@analyzer.error(&name, "duplicate declaration in template member scope\0");
+			return false;
+		};
+		@index = index + 1;
+	};
+	TemplateValidationSymbol symbol;
+	@symbol.name = name.token();
+	@symbol.role = $role;
+	if (!@this.symbols.push_back($symbol)) {
+		@analyzer.error(&name, "out of memory storing template declaration names\0");
+		return false;
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame) {
+	while (this.symbols.size() > checkpoint) {
+		@this.symbols.pop_back();
+	};
+	@this.frame_start = $frame;
+};
+
+fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax* {
+	if (syntax.kind() != syntax_kind::ambiguity) {
+		return &syntax;
+	};
+	if (this.dependent(syntax)) {
+		return nullptr;
+	};
+	Syntax* selected = nullptr;
+	usize index = 0;
+	while (index < syntax.size()) {
+		Syntax* candidate = syntax.item(index);
+		syntax_kind kind = candidate->kind();
+		if (kind == syntax_kind::variable || kind == syntax_kind::function || kind == syntax_kind::record || kind == syntax_kind::enumeration || kind == syntax_kind::using_alias || kind == syntax_kind::template_declaration) {
+			if (selected) {
+				return nullptr;
+			};
+			@selected = candidate;
+		};
+		@index = index + 1;
+	};
+	return selected;
+};
+
+fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::type_name) {
+		if (this.dependent(syntax)) {
+			return true;
+		};
+		Syntax* name = syntax.designated_type();
+		// Applications have their own argument roles and are checked when instantiated.
+		if (name->kind() == syntax_kind::template_apply || name->kind() == syntax_kind::qualified_name) {
+			return true;
+		};
+		const TemplateValidationSymbol* symbol = this.lookup(name->token());
+		if (symbol && symbol->role == template_validation_role::value) {
+			@analyzer.error(&syntax, "identifier does not name a type entity\0");
+			return false;
+		};
+		Entity* entity = @analyzer.lookup(@scope, @*name);
+		if (!entity || !entity->denotes_type()) {
+			@analyzer.error(&syntax, "identifier does not name a type entity\0");
+			return false;
+		};
+		return true;
+	};
+	if (syntax.kind() == syntax_kind::type_pointer || syntax.kind() == syntax_kind::type_reference || syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_array) {
+		return @this.type_names(@analyzer, @scope, @*syntax.designated_type());
+	};
+	if (syntax.kind() == syntax_kind::type_function) {
+		if (!@this.type_names(@analyzer, @scope, @*syntax.function_type_result())) {
+			return false;
+		};
+		Syntax* parameters = syntax.function_type_parameters();
+		usize index = 0;
+		while (index < parameters->size()) {
+			if (!@this.type_names(@analyzer, @scope, @*parameters->item(index)->parameter_type())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool {
+	usize checkpoint = this.symbols.size();
+	usize frame = this.frame_start;
+	@this.frame_start = checkpoint;
+	usize index = 0;
+	while (index < body.size()) {
+		Syntax* member = this.certain(@*body.item(index));
+		@index = index + 1;
+		if (!member) {
+			continue;
+		};
+		if (member->kind() == syntax_kind::record || member->kind() == syntax_kind::enumeration || member->kind() == syntax_kind::using_alias) {
+			Syntax* name = member->record_name();
+			if (member->kind() == syntax_kind::using_alias) {
+				@name = member->alias_name();
+			};
+			if (!@this.remember(@analyzer, @*name, template_validation_role::dependent_type)) {
+				return false;
+			};
+		};
+	};
+	@index = 0;
+	while (index < body.size()) {
+		Syntax* member = this.certain(@*body.item(index));
+		@index = index + 1;
+		if (!member) {
+			continue;
+		};
+		if (member->kind() == syntax_kind::function && owner.kind() == syntax_kind::record) {
+			Syntax* name = member->function_name();
+			bool special = name->kind() == syntax_kind::unary || name->kind() == syntax_kind::operator_name && name->operator_token().kind == token_kind::op_assign || name->kind() == syntax_kind::conversion_name || name->kind() == syntax_kind::name && name->token().same(owner.record_name()->token());
+			if (special && (!member->function_parameters()->size() || !member->function_parameters()->item(0)->parameter_name()->token().is(rt::string_view("this\0")))) {
+				@analyzer.error(member, "instance function requires an explicit 'this' reference parameter\0");
+				return false;
+			};
+		};
+		if (!@this.declaration(@analyzer, @scope, @*member)) {
+			return false;
+		};
+		if (member->kind() == syntax_kind::variable && !@this.remember(@analyzer, @*member->variable_name(), template_validation_role::value)) {
+			return false;
+		};
+	};
+	@this.restore($checkpoint, $frame);
+	return true;
+};
+
+fn TemplateDeclarationValidator::declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::template_declaration) {
+		usize checkpoint = this.symbols.size();
+		usize frame = this.frame_start;
+		@this.frame_start = checkpoint;
+		Syntax* parameters = syntax.template_parameters();
+		usize index = 0;
+		while (index < parameters->size()) {
+			Syntax* parameter = parameters->item(index);
+			Syntax* type = parameter->template_parameter_type();
+			usize prior = 0;
+			while (prior < index) {
+				if (parameters->item(prior)->template_parameter_name()->token().same(parameter->template_parameter_name()->token())) {
+					@analyzer.error(parameter, "duplicate template parameter declaration\0");
+					return false;
+				};
+				@prior = prior + 1;
+			};
+			if (type->kind() != syntax_kind::absent && !this.dependent(*type)) {
+				const Type* resolved = @analyzer.type(@scope, @*type);
+				if (!resolved) {
+					return false;
+				};
+				if (!resolved->kind().is_integer()) {
+					@analyzer.error(parameter, "non-type template parameter requires an integral type\0");
+					return false;
+				};
+			};
+			template_validation_role role = template_validation_role::dependent_type;
+			if (type->kind() != syntax_kind::absent) {
+				@role = template_validation_role::dependent_value;
+			};
+			if (!@this.remember(@analyzer, @*parameter->template_parameter_name(), $role)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		bool valid = @this.declaration(@analyzer, @scope, @*syntax.template_declaration());
+		@this.restore($checkpoint, $frame);
+		return valid;
+	};
+	if (syntax.kind() == syntax_kind::record) {
+		usize checkpoint = this.symbols.size();
+		usize frame = this.frame_start;
+		@this.frame_start = checkpoint;
+		if (!@this.remember(@analyzer, @*syntax.record_name(), template_validation_role::dependent_type)) {
+			return false;
+		};
+		bool valid = @this.members(@analyzer, @scope, @syntax, @*syntax.record_members());
+		@this.restore($checkpoint, $frame);
+		return valid;
+	};
+	if (syntax.kind() == syntax_kind::namespace_body) {
+		return @this.members(@analyzer, @scope, @syntax, @*syntax.namespace_members());
+	};
+	if (syntax.kind() == syntax_kind::variable) {
+		return @this.type_names(@analyzer, @scope, @*syntax.variable_type());
+	};
+	if (syntax.kind() == syntax_kind::using_alias) {
+		return @this.type_names(@analyzer, @scope, @*syntax.alias_type());
+	};
+	if (syntax.kind() == syntax_kind::function) {
+		if (!@this.type_names(@analyzer, @scope, @*syntax.function_result())) {
+			return false;
+		};
+		usize index = 0;
+		while (index < syntax.function_parameters()->size()) {
+			if (!@this.type_names(@analyzer, @scope, @*syntax.function_parameters()->item(index)->parameter_type())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool {
+	@this.symbols.clear();
+	@this.frame_start = 0;
+	if (!pattern.declaration() || !pattern.resolution_scope()) {
+		return true;
+	};
+	return @this.declaration(@analyzer, @*pattern.resolution_scope(), @*pattern.declaration());
 };
 
 struct TypeUse;
