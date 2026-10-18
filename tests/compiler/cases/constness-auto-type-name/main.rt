@@ -1,0 +1,19 @@
+struct Holder {
+	i32* pointer;
+};
+
+fn data(auto Holder& Holder) -> const[Holder] i32* {
+	return Holder.pointer;
+};
+
+fn main() -> i32 {
+	i32 value = 42;
+	Holder source;
+	@source.pointer = &value;
+	i32* mutable_pointer = data(@source);
+	const i32* constant_pointer = data(source);
+	if (mutable_pointer != &value || constant_pointer != &value) {
+		return 1;
+	};
+	return *constant_pointer;
+};

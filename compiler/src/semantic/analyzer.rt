@@ -315,7 +315,32 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 			Syntax* condition = syntax.qualifier_condition();
 
 			if (condition && condition->kind() != syntax_kind::absent) {
-				Entity* parameter = @this.lookup(@scope, @*condition);
+				Entity* parameter = nullptr;
+				Scope* context = &scope;
+
+				while (context && !parameter) {
+					Entity* owner = context->owner();
+
+					if (owner && owner->kind() == entity_kind::function) {
+						usize index = 0;
+						while (index < owner->parameters().size()) {
+							Entity* candidate := owner->parameters().data()[index];
+
+							if (candidate->name() == condition->token().text()) {
+								@parameter := candidate;
+								break;
+							};
+
+							@index = index + 1;
+						};
+					};
+
+					@context = context->parent();
+				};
+
+				if (!parameter) {
+					@parameter = @this.lookup(@scope, @*condition);
+				};
 
 				if (!parameter || !parameter->type()) {
 					@this.error(&syntax, "conditional qualification requires a named parameter\0");

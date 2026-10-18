@@ -35,6 +35,12 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 };
 
 fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
+	if (!name.has_value()) {
+		@this.error(&syntax, "argument block requires a named parameter\0");
+
+		return rt::unique<SemanticExpression>();
+	};
+
 	const Type* type = &use.type();
 	const Type* value_type = type;
 	bool reference = type->kind() == type_kind::reference;

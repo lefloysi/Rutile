@@ -42,6 +42,10 @@ check("lifetime-reference-relocation", sources + "lifetime-reference-relocation.
 check("contextual-reference-escape", sources + "contextual-reference-escape.rt",
 	reject="sequence result refers to local storage")
 check("contextual-ambiguous", sources + "contextual-ambiguous.rt", reject="function selection is ambiguous")
+check("contextual-unlabeled-empty", sources + "contextual-unlabeled-empty.rt",
+	reject="argument block requires a named parameter")
+check("call-interface-unlabeled", "tests/compiler/cases/call-interface-unlabeled/main.rt",
+	reject="argument block requires a named parameter")
 for name in ["loop-result-break", "loop-result-false"]:
 	check(name, sources + name + ".rt", reject="non-void function reaches the end without a result")
 check("switch-duplicate", sources + "switch-duplicate.rt", reject="duplicate switch case value")
@@ -111,6 +115,10 @@ check("native-primitive-registry", sources + "primitive-registry.rt",
 	dependencies=[*standard, "compiler/src/semantic/type.rt", "compiler/src/semantic/type_store.rt",
 		"compiler/src/semantic/primitives.rt"])
 check("function-parameter-labels", "tests/compiler/cases/type-equivalence-function-names/main.rt")
+check("pointer-difference-type", "tests/compiler/cases/ptrdiff/main.rt")
+check("implicit-builtin-copies", "tests/compiler/cases/implicit-same-type-builtins/main.rt")
+check("implicit-copy-mutable-receiver", "tests/compiler/cases/implicit-same-type-mutable-receiver/main.rt",
+	reject="self conversion requires a const reference receiver")
 
 if failures:
 	sys.exit(1)

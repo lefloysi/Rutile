@@ -183,7 +183,13 @@ fn SemanticUnit::describe_entity(SemanticUnit& this, Analyzer& analyzer, Entity&
 		const TypeUse* result = nullptr;
 
 		if (source && source->kind() == syntax_kind::function) {
-			@result = @this.describe_type(@analyzer, @*entity.resolution_scope(), *source->function_result(), *entity.type()->signature().result());
+			Scope* signature_scope = entity.members();
+
+			if (entity.parameters().size()) {
+				@signature_scope = entity.parameters().data()[0]->resolution_scope();
+			};
+
+			@result = @this.describe_type(@analyzer, @*signature_scope, *source->function_result(), *entity.type()->signature().result());
 		}
 		else {
 			@result = @this.canonical_use(*entity.type()->signature().result());
@@ -267,7 +273,23 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 
 	const TypeUse* use = this.available_use(expression);
 
-	if (kind == semantic_kind::address) {
+	if (kind == semantic_kind::allocation && syntax.kind() == syntax_kind::allocation) {
+		Syntax* allocated = syntax.allocation_type();
+
+		if (allocated->kind() == syntax_kind::type_array) {
+			@allocated = allocated->designated_type();
+		};
+
+		const TypeUse* element = @this.describe_type(@analyzer, @scope, *allocated, *expression.type()->element());
+
+		if (element) {
+			@use = @this.indirect_use(*expression.type(), *element);
+		};
+	}
+	else if (kind == semantic_kind::construction && syntax.kind() == syntax_kind::call) {
+		@use = @this.describe_type(@analyzer, @scope, *syntax.callable(), *expression.type());
+	}
+	else if (kind == semantic_kind::address) {
 		const TypeUse* child = this.available_use(*expression.item(0));
 
 		if (child) {

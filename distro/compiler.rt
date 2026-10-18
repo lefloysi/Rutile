@@ -4406,6 +4406,7 @@ fn TypeStore::initialize_primitives(TypeStore& this, u32 pointer_bits) -> bool {
 		|| !@this.register_primitive(@names, rt::string_view("char\0"), type_kind::character, 8)
 		|| !@this.register_primitive(@names, rt::string_view("usize\0"), type_kind::unsigned_integer, u32(pointer_bits))
 		|| !@this.register_primitive(@names, rt::string_view("isize\0"), type_kind::signed_integer, u32(pointer_bits))
+		|| !@this.register_primitive(@names, rt::string_view("ptrdiff\0"), type_kind::signed_integer, u32(pointer_bits))
 		|| !@this.register_primitive(@names, rt::string_view("i8\0"), type_kind::signed_integer, 8)
 		|| !@this.register_primitive(@names, rt::string_view("i08\0"), type_kind::signed_integer, 8)
 		|| !@this.register_primitive(@names, rt::string_view("i16\0"), type_kind::signed_integer, 16)
@@ -4550,12 +4551,12 @@ fn Diagnostics::error(Diagnostics& this, const Token& location, const rt::string
 	usize path_size = path.size();
 	usize message_size = message.size();
 
-	if (path_size > 2147483647) {
-		@path_size = 2147483647;
+	if (path_size > static_cast<usize>(i32::max)) {
+		@path_size = static_cast<usize>(i32::max);
 	};
 
-	if (message_size > 2147483647) {
-		@message_size = 2147483647;
+	if (message_size > static_cast<usize>(i32::max)) {
+		@message_size = static_cast<usize>(i32::max);
 	};
 
 	fprintf(this.output, "%.*s:%llu:%llu: %.*s\n\0", static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>($message_size), message.data());
@@ -6004,7 +6005,32 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 			Syntax* condition = syntax.qualifier_condition();
 
 			if (condition && condition->kind() != syntax_kind::absent) {
-				Entity* parameter = @this.lookup(@scope, @*condition);
+				Entity* parameter = nullptr;
+				Scope* context = &scope;
+
+				while (context && !parameter) {
+					Entity* owner = context->owner();
+
+					if (owner && owner->kind() == entity_kind::function) {
+						usize index = 0;
+						while (index < owner->parameters().size()) {
+							Entity* candidate := owner->parameters().data()[index];
+
+							if (candidate->name() == condition->token().text()) {
+								@parameter := candidate;
+								break;
+							};
+
+							@index = index + 1;
+						};
+					};
+
+					@context = context->parent();
+				};
+
+				if (!parameter) {
+					@parameter = @this.lookup(@scope, @*condition);
+				};
 
 				if (!parameter || !parameter->type()) {
 					@this.error(&syntax, "conditional qualification requires a named parameter\0");
@@ -6451,7 +6477,6 @@ fn Analyzer::primitive_constants(Analyzer& this, Entity& owner) -> bool {
 
 	return true;
 };
-
 
 struct FunctionAnalysisScope {
 	fn FunctionAnalysisScope(FunctionAnalysisScope& this, Entity*& function, usize& loop_depth, SwitchAnalysis*& selection, const rt::optional_ref<Entity>& current);
@@ -7121,6 +7146,14 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		};
 
 		@entity->set_members(Scope*(local));
+		Scope* signature = @this.unit->create_scope(scope, Entity*(entity));
+
+		if (!signature) {
+			@this.error(source, "out of memory storing function signature scope\0");
+
+			return false;
+		};
+
 		rt::buffer<const Type*> signature_parameters;
 		parameter_arity arity = parameter_arity::fixed;
 		Syntax* parameters = source->function_parameters();
@@ -7134,7 +7167,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				continue;
 			};
 
-			const Type* resolved = @this.type(@*local, @*parameter->parameter_type());
+			const Type* resolved = @this.type(@*signature, @*parameter->parameter_type());
 
 			if (!resolved || resolved->kind() == type_kind::void_type || resolved->kind() == type_kind::null_type) {
 				@this.error(parameter, "parameter requires an object or reference type\0");
@@ -7159,6 +7192,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				return false;
 			};
 
+			@argument->set_resolution_scope(Scope*(signature));
 			@argument->set_type(resolved);
 			@argument->set_index(usize(index));
 			@argument->set_state(entity_state::ready);
@@ -7180,7 +7214,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			@declarator = declarator->right();
 		};
 
-		const Type* result = @this.type(@*local, @*source->function_result());
+		const Type* result = @this.type(@*signature, @*source->function_result());
 
 		if (declarator->kind() == syntax_kind::conversion_name) {
 			const Type* target = @this.type(@*scope, @*declarator->operator_target());
@@ -7292,6 +7326,24 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			};
 
 			@attribute = attribute + 1;
+		};
+
+		if (entity->role() == function_role::conversion) {
+			if (entity->parameters().size() != 1 || arity != parameter_arity::fixed || result->kind() == type_kind::reference) {
+				@this.error(source, "conversion requires one reference parameter and a result matching its target\0");
+				return false;
+			};
+
+			Entity* receiver = entity->parameters().data()[0];
+			if (receiver->type()->kind() != type_kind::reference) {
+				@this.error(source, "conversion requires one reference parameter and a result matching its target\0");
+				return false;
+			};
+
+			if (entity->conversion() == conversion_mode::implicit_allowed && receiver->type()->element()->same_shape(*result) && receiver->type()->element()->qualifier() != type_qualifier::immutable) {
+				@this.error(source, "self conversion requires a const reference receiver\0");
+				return false;
+			};
 		};
 
 		if (entity->dispatch() != function_dispatch::ordinary) {
@@ -7997,11 +8049,11 @@ fn Analyzer::expression_impl(Analyzer& this, Scope& scope, Syntax& syntax, const
 			if (!type || !type->kind().is_integer() || type->kind() == type_kind::boolean) {
 				@type = this.types->find_primitive(rt::string_view("i32\0"));
 
-				if (integer > 2147483647) {
+				if (integer > static_cast<u64>(i32::max)) {
 					@type = this.types->find_primitive(rt::string_view("i64\0"));
 				};
 
-				if (integer > 9223372036854775807) {
+				if (integer > static_cast<u64>(i64::max)) {
 					@type = this.types->find_primitive(rt::string_view("u64\0"));
 				};
 			};
@@ -13850,6 +13902,18 @@ fn Analyzer::initialize(Analyzer& this, Syntax& syntax, const Type* type, rt::un
 fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
 	Syntax* source = syntax.callable();
 	Syntax* arguments = syntax.arguments();
+	Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
+	Syntax* supplied = nullptr;
+
+	if (explicit_pattern) {
+		Syntax* application = source;
+
+		if (application->kind() == syntax_kind::qualified_name) {
+			@application = application->right();
+		};
+
+		@supplied = application->arguments();
+	};
 
 	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		const Type* target = @this.type(@scope, @*source);
@@ -13861,7 +13925,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		return @this.convert(@this.construct(@scope, @syntax, target, @*arguments), expected, @syntax);
 	};
 
-	if (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply) {
+	if (!explicit_pattern && (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply)) {
 		const Type* target = nullptr;
 		Entity* named = @this.lookup(@scope, @*source);
 
@@ -14035,6 +14099,9 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			@receiver = $access;
 		};
 	}
+	else if (explicit_pattern) {
+		@group = explicit_pattern;
+	}
 	else {
 		@group = @this.lookup(@scope, @*source);
 	};
@@ -14070,7 +14137,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	};
 
 	if (group && group->kind() == entity_kind::template_pattern) {
-		@group = @this.templates.deduce(@this, &scope, group, values);
+		@group = @this.templates.specialize_call(@this, &scope, group, supplied, values);
 
 		if (!group) {
 			return rt::unique<SemanticExpression>();
@@ -14244,6 +14311,12 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 };
 
 fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
+	if (!name.has_value()) {
+		@this.error(&syntax, "argument block requires a named parameter\0");
+
+		return rt::unique<SemanticExpression>();
+	};
+
 	const Type* type = &use.type();
 	const Type* value_type = type;
 	bool reference = type->kind() == type_kind::reference;
@@ -14448,7 +14521,7 @@ fn Analyzer::select(Analyzer& this, Entity* group, const rt::buffer<rt::unique<S
 
 fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindings, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, Syntax& syntax) -> Entity* {
 	Entity* selected = nullptr;
-	i32 best = 2147483647;
+	i32 best = i32::max;
 	i32 best_origin = 2;
 	bool ambiguous = false;
 	rt::buffer<Entity*> seen;
@@ -14667,7 +14740,7 @@ fn Analyzer::implicit_constructor(Analyzer& this, const SemanticExpression& valu
 
 	Entity* owner = expected.entity();
 	Entity* selected = nullptr;
-	i32 best = 2147483647;
+	i32 best = i32::max;
 	bool ambiguous = false;
 	usize index = 0;
 	while (index < owner->members()->bindings().size()) {
@@ -14797,12 +14870,16 @@ fn Analyzer::argument_rank(Analyzer& this, const SemanticExpression& value, cons
 		@target = target->element();
 	};
 
-	if (@this.implicit_constructor(value, *target)) {
-		return 8;
+	Entity* constructor = @this.implicit_constructor(value, *target);
+
+	if (constructor) {
+		return 16 + this.builtin_rank(value, *constructor->parameters().data()[1]->type());
 	};
 
-	if (@this.conversion_function(value, *target, conversion_mode::implicit_allowed)) {
-		return 9;
+	Entity* conversion = @this.conversion_function(value, *target, conversion_mode::implicit_allowed);
+
+	if (conversion) {
+		return 17 + this.builtin_rank(value, *conversion->parameters().data()[0]->type());
 	};
 
 	return -1;
@@ -14965,6 +15042,26 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 	return function;
 };
 
+fn numeric_literal_expression(const SemanticExpression& expression) -> bool {
+	if (expression.kind() == semantic_kind::literal_integer || expression.kind() == semantic_kind::literal_real) {
+		return expression.token().kind == token_kind::literal_number;
+	};
+
+	if (expression.kind() == semantic_kind::unary && (expression.operation() == token_kind::op_plus || expression.operation() == token_kind::op_minus)) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	if (expression.kind() == semantic_kind::binary && expression.operation() != token_kind::op_assign && expression.operation() != token_kind::op_copy) {
+		return numeric_literal_expression(*expression.item(0)) && numeric_literal_expression(*expression.item(1));
+	};
+
+	if (expression.kind() == semantic_kind::cast && expression.token().kind == token_kind::literal_number) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	return false;
+};
+
 fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* target) -> bool {
 	if (source == target) {
 		return true;
@@ -15016,6 +15113,10 @@ fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value,
 			return -1;
 		};
 
+		if (target->qualifier() == type_qualifier::immutable && target->kind().is_numeric() && value.category() == value_category::consumable && numeric_literal_expression(value)) {
+			return 1;
+		};
+
 		if ((!value.type()->same_shape(*target) && !value.type()->derived_from(*target)) || value.type()->qualifier() == type_qualifier::immutable && target->qualifier() == type_qualifier::mutable) {
 			return -1;
 		};
@@ -15031,16 +15132,26 @@ fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value,
 		return 0;
 	};
 
-	if (value.type() == &expected) {
-		if (expected.kind() == type_kind::named && expected.entity()->kind() == entity_kind::record && value.category() == value_category::place) {
-			return -1;
-		};
-
+	if (expected.kind().is_numeric() && numeric_literal_expression(value)) {
 		return 0;
 	};
 
+	i32 materialization = 0;
+
+	if (value.category() == value_category::place) {
+		if (value.type()->kind() == type_kind::named && value.type()->entity()->kind() == entity_kind::record) {
+			return -1;
+		};
+
+		@materialization = 8;
+	};
+
+	if (value.type()->same_shape(expected)) {
+		return $materialization;
+	};
+
 	if (this.compatible(value.type(), &expected)) {
-		return 1;
+		return materialization + 1;
 	};
 
 	if (value.kind() == semantic_kind::literal_integer && expected.kind().is_numeric()) {
@@ -15059,6 +15170,16 @@ fn Analyzer::convert(Analyzer& this, rt::unique<SemanticExpression> value, const
 		@this.error(&syntax, "expression cannot initialize the required type or reference\0");
 
 		return rt::unique<SemanticExpression>();
+	};
+
+	if (expected.value().kind() == type_kind::reference && expected.value().element()->qualifier() == type_qualifier::immutable && expected.value().element()->kind().is_numeric() && !value.get()->type()->same_shape(*expected.value().element()) && numeric_literal_expression(*value.get())) {
+		var converted = @this.node(semantic_kind::cast, expected.value().element(), &syntax);
+
+		if (!converted.get() || !@converted.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@value = $converted;
 	};
 
 	i32 builtin = this.builtin_rank(*value.get(), expected.value());
@@ -17134,6 +17255,7 @@ enum template_argument_kind : [u08] {
 struct TemplateArgument {
 	template_argument_kind kind;
 	const Type* type;
+	rt::optional_ref<const TypeUse> type_use;
 	u64 value;
 
 	fn same(const TemplateArgument& this, const TemplateArgument& other) -> bool;
@@ -17156,6 +17278,8 @@ struct TemplateEngine {
 	fn collect(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* source) -> bool;
 	fn apply(TemplateEngine& this, Analyzer& analyzer, Scope* lookup_scope, Scope* argument_scope, Syntax* source) -> Entity*;
 	fn deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
+	fn call_pattern(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity*;
+	fn specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity*;
 
 	fn qualifier_dependent(const TemplateEngine& this, Syntax* declaration) -> bool;
 	fn qualifier(const TemplateEngine& this, Scope* scope, Syntax* syntax) -> const Type*;
@@ -17170,13 +17294,17 @@ private:
 	fn bind(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* parameter, const TemplateArgument& argument) -> bool;
 	fn instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<TemplateArgument>* deduced) -> Entity*;
 	fn member_definitions(TemplateEngine& this, Analyzer& analyzer, TemplateInstance& instance) -> bool;
-	fn match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const Type* actual, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool;
+	fn match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const TypeUse& actual_use, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool;
 
 	fn same_parameter_expression(const TemplateEngine& this, const Syntax& first, const Syntax& second, const Syntax& first_parameters, const Syntax& second_parameters) -> bool;
-	fn auto_argument(const TemplateEngine& this, Syntax* syntax, const Type* actual) -> const Type*;
+	fn auto_argument(const TemplateEngine& this, Syntax* syntax, const TypeUse& actual) -> const TypeUse*;
 	fn has_auto(const TemplateEngine& this, Syntax* syntax) -> bool;
 	fn contains(const TemplateEngine& this, Syntax* root, Syntax* syntax) -> bool;
 	fn parameter_count(const TemplateEngine& this, Entity* pattern) -> usize;
+	fn explicit_count(const TemplateEngine& this, Entity* pattern) -> usize;
+	fn function_source(const TemplateEngine& this, Entity* pattern) -> Syntax*;
+	fn deduced_pattern(const TemplateEngine& this, Syntax& syntax, Syntax& parameters, usize supplied) -> bool;
+	fn qualifications(TemplateEngine& this, Analyzer& analyzer, Syntax& declaration, const rt::buffer<rt::unique<SemanticExpression>>& values, rt::buffer<TemplateArgument>& arguments) -> bool;
 	fn parameter_at(const TemplateEngine& this, Entity* pattern, usize index) -> Syntax*;
 	fn parameter_name(const TemplateEngine& this, Syntax* parameter) -> Syntax*;
 	fn declaration_name(const TemplateEngine& this, Syntax* declaration) -> Syntax*;
@@ -17500,7 +17628,19 @@ fn TemplateEngine::argument(TemplateEngine& this, Analyzer& analyzer, Scope* sco
 
 		@result.type = @analyzer.type(@*scope, @*source);
 
-		return result.type != nullptr;
+		if (!result.type) {
+			return false;
+		};
+
+		const TypeUse* use = @analyzer.semantic_unit()->describe_type(@analyzer, @*scope, *source, *result.type);
+
+		if (!use) {
+			return false;
+		};
+
+		@result.type_use.bind(*use);
+
+		return true;
 	};
 
 	@result.kind = template_argument_kind::value;
@@ -17541,6 +17681,11 @@ fn TemplateEngine::bind(TemplateEngine& this, Analyzer& analyzer, Scope* scope, 
 	};
 
 	@entity->set_type(argument.type);
+
+	if (argument.type_use.has_value()) {
+		@entity->set_type_use(argument.type_use.value());
+	};
+
 	@entity->set_integer(u64(argument.value));
 	@entity->set_state(entity_state::ready);
 
@@ -17571,7 +17716,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 	Syntax* wrapper = pattern->declaration();
 	usize parameter_count = this.parameter_count(pattern);
 
-	if (supplied && supplied->size() > parameter_count) {
+	if (supplied && supplied->size() > this.explicit_count(pattern)) {
 		@analyzer.error(supplied, "too many template arguments\0");
 
 		return nullptr;
@@ -17625,7 +17770,7 @@ fn TemplateEngine::instantiate(TemplateEngine& this, Analyzer& analyzer, Scope* 
 			};
 		};
 
-		if (!@this.bind(@analyzer, bindings, parameter, argument)) {
+		if (index < this.explicit_count(pattern) && !@this.bind(@analyzer, bindings, parameter, argument)) {
 			return nullptr;
 		};
 
@@ -17784,25 +17929,36 @@ fn TemplateEngine::member_definitions(TemplateEngine& this, Analyzer& analyzer, 
 	return true;
 };
 
-fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const Type* actual, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool {
-	if (syntax->kind() == syntax_kind::type_name || syntax->kind() == syntax_kind::type_auto) {
-		return @this.match(@analyzer, scope, syntax->designated_type(), actual, parameters, @arguments);
+fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Syntax* syntax, const TypeUse& actual_use, Syntax* parameters, rt::buffer<TemplateArgument>& arguments) -> bool {
+	const Type* actual = &actual_use.type();
+	const TypeUse* use = &actual_use;
+
+	if (syntax->kind() == syntax_kind::type_auto) {
+		const Type* unqualified = @analyzer.type_store()->qualified(*actual, type_qualifier::mutable);
+		@use = @analyzer.semantic_unit()->retype_use(*use, *unqualified);
+
+		return use && @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
+	};
+
+	if (syntax->kind() == syntax_kind::type_name) {
+		return @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
 	};
 
 	if (syntax->kind() == syntax_kind::type_reference || syntax->kind() == syntax_kind::type_const) {
 		if (actual->kind() == type_kind::reference) {
 			@actual = actual->element();
+			@use = &use->element();
 		};
 
-		return @this.match(@analyzer, scope, syntax->designated_type(), actual, parameters, @arguments);
+		return @this.match(@analyzer, scope, syntax->designated_type(), *use, parameters, @arguments);
 	};
 
 	if (syntax->kind() == syntax_kind::type_pointer) {
-		return actual->kind() == type_kind::pointer && @this.match(@analyzer, scope, syntax->designated_type(), actual->element(), parameters, @arguments);
+		return actual->kind() == type_kind::pointer && @this.match(@analyzer, scope, syntax->designated_type(), use->element(), parameters, @arguments);
 	};
 
 	if (syntax->kind() == syntax_kind::type_array) {
-		if (actual->kind() != type_kind::array || !@this.match(@analyzer, scope, syntax->designated_type(), actual->element(), parameters, @arguments)) {
+		if (actual->kind() != type_kind::array || !@this.match(@analyzer, scope, syntax->designated_type(), use->element(), parameters, @arguments)) {
 			return false;
 		};
 
@@ -17849,6 +18005,10 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 				@argument->kind = template_argument_kind::type;
 				@argument->type = $actual;
 
+				if (!argument->type_use.has_value()) {
+					@argument->type_use.bind(*use);
+				};
+
 				return true;
 			};
 
@@ -17880,7 +18040,13 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 			};
 
 			if (argument.kind == template_argument_kind::type) {
-				if (!@this.match(@analyzer, scope, argument_source, argument.type, parameters, @arguments)) {
+				const TypeUse* argument_use = argument.type_use.get();
+
+				if (!argument_use) {
+					@argument_use = @analyzer.semantic_unit()->canonical_use(*argument.type);
+				};
+
+				if (!argument_use || !@this.match(@analyzer, scope, argument_source, *argument_use, parameters, @arguments)) {
 					return false;
 				};
 			}
@@ -17927,55 +18093,146 @@ fn TemplateEngine::match(TemplateEngine& this, Analyzer& analyzer, Scope* scope,
 	return expected && expected == actual;
 };
 
-fn TemplateEngine::deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
-	Syntax* wrapper = pattern->declaration();
+fn TemplateEngine::call_pattern(TemplateEngine& this, Analyzer& analyzer, Scope& scope, Syntax& name) -> Entity* {
+	Syntax* application = &name;
+	Scope* lookup = &scope;
 
-	if (wrapper->kind() == syntax_kind::function) {
-		if (wrapper->function_parameters()->size() != values.size()) {
+	if (name.kind() == syntax_kind::qualified_name) {
+		@application = name.right();
+	};
+
+	if (application->kind() != syntax_kind::template_apply) {
+		return nullptr;
+	};
+
+	if (name.kind() == syntax_kind::qualified_name) {
+		Entity* owner = @analyzer.lookup(@scope, @*name.left());
+
+		if (!owner || !@analyzer.resolve(Entity*(owner))) {
 			return nullptr;
 		};
 
-		rt::buffer<TemplateArgument> qualifiers;
-		usize index = 0;
-		while (index < values.size()) {
-			Syntax* parameter = wrapper->function_parameters()->item(index);
+		@owner = owner->member_owner();
 
-			if (this.has_auto(parameter->parameter_type())) {
-				TemplateArgument argument;
-				@argument.kind = template_argument_kind::type;
-				SemanticExpression* value = values.data()[index].get();
-				@argument.type = this.auto_argument(parameter->parameter_type(), value->type());
+		if (!owner || !owner->members()) {
+			return nullptr;
+		};
 
-				if (!argument.type) {
-					return nullptr;
-				};
+		@lookup = owner->members();
+	};
 
-				if (parameter->parameter_type()->kind() == syntax_kind::type_reference && !value->mutable_access()) {
-					@argument.type = @analyzer.type_store()->qualified(*argument.type, type_qualifier::immutable);
-				};
+	Entity* pattern = @analyzer.lookup(@*lookup, @*application->callable());
 
-				if (!@qualifiers.push_back($argument)) {
-					return nullptr;
-				};
+	if (!pattern || pattern->kind() != entity_kind::template_pattern || !this.function_source(pattern)) {
+		return nullptr;
+	};
+
+	return pattern;
+};
+
+fn TemplateEngine::deduced_pattern(const TemplateEngine& this, Syntax& syntax, Syntax& parameters, usize supplied) -> bool {
+	if (syntax.kind() == syntax_kind::name) {
+		usize index = supplied;
+		while (index < parameters.size()) {
+			if (parameters.item(index)->template_parameter_name()->token().text() == syntax.token().text()) {
+				return true;
 			};
 
 			@index = index + 1;
 		};
-
-		return @this.instantiate(@analyzer, scope, pattern, nullptr, &qualifiers);
 	};
 
-	Syntax* declaration = wrapper->template_declaration();
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.deduced_pattern(@*syntax.item(index), @parameters, usize(supplied))) {
+			return true;
+		};
 
-	if (declaration->kind() != syntax_kind::function || declaration->function_parameters()->size() != values.size()) {
+		@index = index + 1;
+	};
+
+	return false;
+};
+
+fn TemplateEngine::qualifications(TemplateEngine& this, Analyzer& analyzer, Syntax& declaration, const rt::buffer<rt::unique<SemanticExpression>>& values, rt::buffer<TemplateArgument>& arguments) -> bool {
+	usize index = 0;
+	while (index < values.size()) {
+		Syntax* parameter = declaration.function_parameters()->item(index);
+		SemanticExpression* value = values.data()[index].get();
+		@index = index + 1;
+
+		if (!this.has_auto(parameter->parameter_type())) {
+			continue;
+		};
+
+		const TypeUse* use = value->type_use().get();
+
+		if (!use) {
+			@use = @analyzer.semantic_unit()->canonical_use(*value->type());
+		};
+
+		if (!use) {
+			return false;
+		};
+
+		@use = this.auto_argument(parameter->parameter_type(), *use);
+
+		if (!use) {
+			return false;
+		};
+
+		bool readonly = use->type().qualifier() == type_qualifier::immutable || parameter->parameter_type()->kind() == syntax_kind::type_reference && !value->mutable_access();
+		type_qualifier qualifier = type_qualifier::mutable;
+
+		if (readonly) {
+			@qualifier = type_qualifier::immutable;
+		};
+
+		TemplateArgument argument;
+		@argument.kind = template_argument_kind::value;
+		@argument.type = @analyzer.type_store()->qualified(*analyzer.type_store()->find_primitive(rt::string_view("bool\0")), $qualifier);
+		@argument.value = static_cast<u64>($readonly);
+
+		if (!argument.type || !@arguments.push_back($argument)) {
+			return false;
+		};
+	};
+
+	return true;
+};
+
+fn TemplateEngine::deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
+	return @this.specialize_call(@analyzer, scope, pattern, nullptr, values);
+};
+
+fn TemplateEngine::specialize_call(TemplateEngine& this, Analyzer& analyzer, Scope* scope, Entity* pattern, Syntax* supplied, const rt::buffer<rt::unique<SemanticExpression>>& values) -> Entity* {
+	Syntax* declaration = this.function_source(pattern);
+
+	if (!declaration || declaration->function_parameters()->size() != values.size()) {
+		@analyzer.error(pattern->declaration(), "function template requires matching call arguments\0");
 		return nullptr;
 	};
 
-	Syntax* parameters = wrapper->template_parameters();
+	usize visible = this.explicit_count(pattern);
+	usize provided = 0;
+
+	if (supplied) {
+		@provided = supplied->size();
+	};
+
+	if (provided > visible) {
+		@analyzer.error(supplied, "too many template arguments\0");
+		return nullptr;
+	};
+
 	rt::buffer<TemplateArgument> arguments;
 	usize index = 0;
-	while (index < parameters->size()) {
+	while (index < visible) {
 		TemplateArgument argument;
+
+		if (index < provided && !@this.argument(@analyzer, scope, supplied->item(index), this.parameter_at(pattern, index), @argument)) {
+			return nullptr;
+		};
 
 		if (!@arguments.push_back($argument)) {
 			return nullptr;
@@ -17984,19 +18241,36 @@ fn TemplateEngine::deduce(TemplateEngine& this, Analyzer& analyzer, Scope* scope
 		@index = index + 1;
 	};
 
-	@index = 0;
+	if (visible) {
+		Syntax* parameters = pattern->declaration()->template_parameters();
+		@index = 0;
 
-	while (index < values.size()) {
-		Syntax* parameter = declaration->function_parameters()->item(index)->parameter_type();
+		while (index < values.size()) {
+			Syntax* parameter = declaration->function_parameters()->item(index)->parameter_type();
+			SemanticExpression* value = values.data()[index].get();
+			@index = index + 1;
 
-		if (!@this.match(@analyzer, pattern->scope(), parameter, values.data()[index].get()->type(), parameters, @arguments)) {
-			return nullptr;
+			if (!this.deduced_pattern(@*parameter, @*parameters, usize(provided))) {
+				continue;
+			};
+
+			const TypeUse* use = value->type_use().get();
+
+			if (!use) {
+				@use = @analyzer.semantic_unit()->canonical_use(*value->type());
+			};
+
+			if (!use || !@this.match(@analyzer, pattern->scope(), parameter, *use, parameters, @arguments)) {
+				return nullptr;
+			};
 		};
-
-		@index = index + 1;
 	};
 
-	return @this.instantiate(@analyzer, scope, $pattern, nullptr, &arguments);
+	if (!@this.qualifications(@analyzer, @*declaration, values, @arguments)) {
+		return nullptr;
+	};
+
+	return @this.instantiate(@analyzer, scope, pattern, nullptr, &arguments);
 };
 
 fn TemplateEngine::has_auto(const TemplateEngine& this, Syntax* syntax) -> bool {
@@ -18041,14 +18315,38 @@ fn TemplateEngine::qualifier_dependent(const TemplateEngine& this, Syntax* decla
 	return declaration->kind() == syntax_kind::function && this.has_auto(declaration->function_parameters());
 };
 
-fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) -> usize {
+fn TemplateEngine::function_source(const TemplateEngine& this, Entity* pattern) -> Syntax* {
+	Syntax* source = pattern->declaration();
+
+	if (source->kind() == syntax_kind::template_declaration) {
+		@source = source->template_declaration();
+	};
+
+	if (source->kind() != syntax_kind::function) {
+		return nullptr;
+	};
+
+	return source;
+};
+
+fn TemplateEngine::explicit_count(const TemplateEngine& this, Entity* pattern) -> usize {
 	Syntax* source = pattern->declaration();
 
 	if (source->kind() == syntax_kind::template_declaration) {
 		return source->template_parameters()->size();
 	};
 
-	usize count = 0;
+	return 0;
+};
+
+fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) -> usize {
+	usize count = this.explicit_count(pattern);
+	Syntax* source = this.function_source(pattern);
+
+	if (!source) {
+		return $count;
+	};
+
 	usize index = 0;
 	while (index < source->function_parameters()->size()) {
 		if (this.has_auto(source->function_parameters()->item(index)->parameter_type())) {
@@ -18062,15 +18360,20 @@ fn TemplateEngine::parameter_count(const TemplateEngine& this, Entity* pattern) 
 };
 
 fn TemplateEngine::parameter_at(const TemplateEngine& this, Entity* pattern, usize position) -> Syntax* {
-	Syntax* source = pattern->declaration();
+	usize visible = this.explicit_count(pattern);
 
-	if (source->kind() == syntax_kind::template_declaration) {
-		return source->template_parameters()->item(position);
+	if (position < visible) {
+		return pattern->declaration()->template_parameters()->item(position);
+	};
+
+	Syntax* source = this.function_source(pattern);
+
+	if (!source) {
+		return nullptr;
 	};
 
 	usize index = 0;
-	usize parameter = 0;
-
+	usize parameter = visible;
 	while (index < source->function_parameters()->size()) {
 		Syntax* candidate = source->function_parameters()->item(index);
 		@index = index + 1;
@@ -18102,8 +18405,8 @@ fn TemplateEngine::qualifier(const TemplateEngine& this, Scope* scope, Syntax* s
 		Entity* owner = scope->owner();
 		TemplateInstance* instance = this.instance(Entity*(owner));
 
-		if (instance && owner->declaration()->kind() == syntax_kind::function && instance->pattern->declaration()->kind() == syntax_kind::function) {
-			usize index = 0;
+		if (instance && owner->declaration()->kind() == syntax_kind::function && this.function_source(instance->pattern)) {
+			usize index = this.explicit_count(instance->pattern);
 			while (index < instance->arguments.size()) {
 				Syntax* parameter = this.parameter_at(instance->pattern, index);
 
@@ -18121,25 +18424,25 @@ fn TemplateEngine::qualifier(const TemplateEngine& this, Scope* scope, Syntax* s
 	return nullptr;
 };
 
-fn TemplateEngine::auto_argument(const TemplateEngine& this, Syntax* syntax, const Type* actual) -> const Type* {
+fn TemplateEngine::auto_argument(const TemplateEngine& this, Syntax* syntax, const TypeUse& actual) -> const TypeUse* {
 	if (syntax->kind() == syntax_kind::type_auto) {
-		return $actual;
+		return &actual;
 	};
 
 	if (syntax->kind() == syntax_kind::type_reference) {
-		if (actual->kind() == type_kind::reference) {
-			@actual = actual->element();
+		if (actual.type().kind() == type_kind::reference) {
+			return this.auto_argument(syntax->designated_type(), actual.element());
 		};
 
-		return this.auto_argument(syntax->designated_type(), $actual);
+		return this.auto_argument(syntax->designated_type(), actual);
 	};
 
-	if (syntax->kind() == syntax_kind::type_pointer && actual->kind() == type_kind::pointer || syntax->kind() == syntax_kind::type_array && actual->kind() == type_kind::array) {
-		return this.auto_argument(syntax->designated_type(), actual->element());
+	if (syntax->kind() == syntax_kind::type_pointer && actual.type().kind() == type_kind::pointer || syntax->kind() == syntax_kind::type_array && actual.type().kind() == type_kind::array) {
+		return this.auto_argument(syntax->designated_type(), actual.element());
 	};
 
 	if (syntax->kind() == syntax_kind::type_const) {
-		return this.auto_argument(syntax->designated_type(), $actual);
+		return this.auto_argument(syntax->designated_type(), actual);
 	};
 
 	return nullptr;
@@ -18529,7 +18832,13 @@ fn SemanticUnit::describe_entity(SemanticUnit& this, Analyzer& analyzer, Entity&
 		const TypeUse* result = nullptr;
 
 		if (source && source->kind() == syntax_kind::function) {
-			@result = @this.describe_type(@analyzer, @*entity.resolution_scope(), *source->function_result(), *entity.type()->signature().result());
+			Scope* signature_scope = entity.members();
+
+			if (entity.parameters().size()) {
+				@signature_scope = entity.parameters().data()[0]->resolution_scope();
+			};
+
+			@result = @this.describe_type(@analyzer, @*signature_scope, *source->function_result(), *entity.type()->signature().result());
 		}
 		else {
 			@result = @this.canonical_use(*entity.type()->signature().result());
@@ -18613,7 +18922,23 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 
 	const TypeUse* use = this.available_use(expression);
 
-	if (kind == semantic_kind::address) {
+	if (kind == semantic_kind::allocation && syntax.kind() == syntax_kind::allocation) {
+		Syntax* allocated = syntax.allocation_type();
+
+		if (allocated->kind() == syntax_kind::type_array) {
+			@allocated = allocated->designated_type();
+		};
+
+		const TypeUse* element = @this.describe_type(@analyzer, @scope, *allocated, *expression.type()->element());
+
+		if (element) {
+			@use = @this.indirect_use(*expression.type(), *element);
+		};
+	}
+	else if (kind == semantic_kind::construction && syntax.kind() == syntax_kind::call) {
+		@use = @this.describe_type(@analyzer, @scope, *syntax.callable(), *expression.type());
+	}
+	else if (kind == semantic_kind::address) {
 		const TypeUse* child = this.available_use(*expression.item(0));
 
 		if (child) {

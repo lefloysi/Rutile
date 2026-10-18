@@ -113,6 +113,14 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		};
 
 		@entity->set_members(Scope*(local));
+		Scope* signature = @this.unit->create_scope(scope, Entity*(entity));
+
+		if (!signature) {
+			@this.error(source, "out of memory storing function signature scope\0");
+
+			return false;
+		};
+
 		rt::buffer<const Type*> signature_parameters;
 		parameter_arity arity = parameter_arity::fixed;
 		Syntax* parameters = source->function_parameters();
@@ -126,7 +134,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				continue;
 			};
 
-			const Type* resolved = @this.type(@*local, @*parameter->parameter_type());
+			const Type* resolved = @this.type(@*signature, @*parameter->parameter_type());
 
 			if (!resolved || resolved->kind() == type_kind::void_type || resolved->kind() == type_kind::null_type) {
 				@this.error(parameter, "parameter requires an object or reference type\0");
@@ -151,6 +159,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				return false;
 			};
 
+			@argument->set_resolution_scope(Scope*(signature));
 			@argument->set_type(resolved);
 			@argument->set_index(usize(index));
 			@argument->set_state(entity_state::ready);
@@ -172,7 +181,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			@declarator = declarator->right();
 		};
 
-		const Type* result = @this.type(@*local, @*source->function_result());
+		const Type* result = @this.type(@*signature, @*source->function_result());
 
 		if (declarator->kind() == syntax_kind::conversion_name) {
 			const Type* target = @this.type(@*scope, @*declarator->operator_target());
@@ -284,6 +293,24 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			};
 
 			@attribute = attribute + 1;
+		};
+
+		if (entity->role() == function_role::conversion) {
+			if (entity->parameters().size() != 1 || arity != parameter_arity::fixed || result->kind() == type_kind::reference) {
+				@this.error(source, "conversion requires one reference parameter and a result matching its target\0");
+				return false;
+			};
+
+			Entity* receiver = entity->parameters().data()[0];
+			if (receiver->type()->kind() != type_kind::reference) {
+				@this.error(source, "conversion requires one reference parameter and a result matching its target\0");
+				return false;
+			};
+
+			if (entity->conversion() == conversion_mode::implicit_allowed && receiver->type()->element()->same_shape(*result) && receiver->type()->element()->qualifier() != type_qualifier::immutable) {
+				@this.error(source, "self conversion requires a const reference receiver\0");
+				return false;
+			};
 		};
 
 		if (entity->dispatch() != function_dispatch::ordinary) {

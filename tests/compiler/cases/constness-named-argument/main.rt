@@ -1,0 +1,24 @@
+struct Text {
+	char* buffer;
+};
+
+fn data(auto Text& source) -> const[source] char* {
+	return source.buffer;
+};
+
+fn read(const Text& text) -> char {
+	const char* pointer = data(text);
+	return *pointer;
+};
+
+fn main() -> i32 {
+	char value = 'a';
+	Text text;
+	@text.buffer = &value;
+	char* pointer = data(@text);
+	@*pointer = 'b';
+	if (read(text) != 'b') {
+		return 1;
+	};
+	return 42;
+};

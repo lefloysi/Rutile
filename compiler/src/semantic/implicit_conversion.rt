@@ -5,7 +5,7 @@ fn Analyzer::implicit_constructor(Analyzer& this, const SemanticExpression& valu
 
 	Entity* owner = expected.entity();
 	Entity* selected = nullptr;
-	i32 best = 2147483647;
+	i32 best = i32::max;
 	bool ambiguous = false;
 	usize index = 0;
 	while (index < owner->members()->bindings().size()) {
@@ -135,12 +135,16 @@ fn Analyzer::argument_rank(Analyzer& this, const SemanticExpression& value, cons
 		@target = target->element();
 	};
 
-	if (@this.implicit_constructor(value, *target)) {
-		return 8;
+	Entity* constructor = @this.implicit_constructor(value, *target);
+
+	if (constructor) {
+		return 16 + this.builtin_rank(value, *constructor->parameters().data()[1]->type());
 	};
 
-	if (@this.conversion_function(value, *target, conversion_mode::implicit_allowed)) {
-		return 9;
+	Entity* conversion = @this.conversion_function(value, *target, conversion_mode::implicit_allowed);
+
+	if (conversion) {
+		return 17 + this.builtin_rank(value, *conversion->parameters().data()[0]->type());
 	};
 
 	return -1;

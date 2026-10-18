@@ -72,6 +72,10 @@ run_case("primitive-scopes", [*model, "tests/compiler-new/semantic/primitive-sco
 run_case("semantic-templates", model, entry="template_tests")
 run_case("semantic-type-use", [*model, "tests/compiler-new/semantic/type-use.rt"],
 	entry="type_use_tests")
+run_case("semantic-callable-type-use", [*model, "tests/compiler-new/semantic/callable-type-use.rt"],
+	entry="callable_type_use_tests")
+run_case("semantic-mixed-qualification", [*model, "tests/compiler-new/semantic/mixed-qualification.rt"],
+	entry="mixed_qualification_tests")
 run_case("semantic-local-alias", [*model, "tests/compiler-new/semantic/local-alias.rt"],
 	entry="local_alias_tests")
 run_case("constant-evaluator", [*model, "tests/compiler-new/semantic/constant-evaluator.rt"],

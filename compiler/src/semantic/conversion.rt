@@ -1,3 +1,23 @@
+fn numeric_literal_expression(const SemanticExpression& expression) -> bool {
+	if (expression.kind() == semantic_kind::literal_integer || expression.kind() == semantic_kind::literal_real) {
+		return expression.token().kind == token_kind::literal_number;
+	};
+
+	if (expression.kind() == semantic_kind::unary && (expression.operation() == token_kind::op_plus || expression.operation() == token_kind::op_minus)) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	if (expression.kind() == semantic_kind::binary && expression.operation() != token_kind::op_assign && expression.operation() != token_kind::op_copy) {
+		return numeric_literal_expression(*expression.item(0)) && numeric_literal_expression(*expression.item(1));
+	};
+
+	if (expression.kind() == semantic_kind::cast && expression.token().kind == token_kind::literal_number) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	return false;
+};
+
 fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* target) -> bool {
 	if (source == target) {
 		return true;
@@ -49,6 +69,10 @@ fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value,
 			return -1;
 		};
 
+		if (target->qualifier() == type_qualifier::immutable && target->kind().is_numeric() && value.category() == value_category::consumable && numeric_literal_expression(value)) {
+			return 1;
+		};
+
 		if ((!value.type()->same_shape(*target) && !value.type()->derived_from(*target)) || value.type()->qualifier() == type_qualifier::immutable && target->qualifier() == type_qualifier::mutable) {
 			return -1;
 		};
@@ -64,16 +88,26 @@ fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value,
 		return 0;
 	};
 
-	if (value.type() == &expected) {
-		if (expected.kind() == type_kind::named && expected.entity()->kind() == entity_kind::record && value.category() == value_category::place) {
-			return -1;
-		};
-
+	if (expected.kind().is_numeric() && numeric_literal_expression(value)) {
 		return 0;
 	};
 
+	i32 materialization = 0;
+
+	if (value.category() == value_category::place) {
+		if (value.type()->kind() == type_kind::named && value.type()->entity()->kind() == entity_kind::record) {
+			return -1;
+		};
+
+		@materialization = 8;
+	};
+
+	if (value.type()->same_shape(expected)) {
+		return $materialization;
+	};
+
 	if (this.compatible(value.type(), &expected)) {
-		return 1;
+		return materialization + 1;
 	};
 
 	if (value.kind() == semantic_kind::literal_integer && expected.kind().is_numeric()) {
@@ -92,6 +126,16 @@ fn Analyzer::convert(Analyzer& this, rt::unique<SemanticExpression> value, const
 		@this.error(&syntax, "expression cannot initialize the required type or reference\0");
 
 		return rt::unique<SemanticExpression>();
+	};
+
+	if (expected.value().kind() == type_kind::reference && expected.value().element()->qualifier() == type_qualifier::immutable && expected.value().element()->kind().is_numeric() && !value.get()->type()->same_shape(*expected.value().element()) && numeric_literal_expression(*value.get())) {
+		var converted = @this.node(semantic_kind::cast, expected.value().element(), &syntax);
+
+		if (!converted.get() || !@converted.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@value = $converted;
 	};
 
 	i32 builtin = this.builtin_rank(*value.get(), expected.value());

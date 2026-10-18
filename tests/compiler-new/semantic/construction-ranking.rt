@@ -1,0 +1,37 @@
+struct View {
+	fn View(View& this, const char* text) : [implicit];
+	fn View(View& this, const View& other) : [implicit];
+	i32 selected;
+	const char* text;
+};
+
+fn View::View(View& this, const char* text) : [implicit] {
+	@this.selected = 1;
+	@this.text = $text;
+};
+
+fn View::View(View& this, const View& other) : [implicit] {
+	@this.selected = 2;
+	@this.text := other.text;
+};
+
+fn make(const char* text) -> View {
+	return View(text);
+};
+
+fn main() -> i32 {
+	const char* source = "hello";
+	var direct = View(source);
+	var returned = make(source);
+	var copied = View(direct);
+
+	if (direct.selected != 1 || returned.selected != 1 || copied.selected != 2) {
+		return 1;
+	};
+
+	if (source != direct.text || source != returned.text || source != copied.text) {
+		return 2;
+	};
+
+	return 42;
+};

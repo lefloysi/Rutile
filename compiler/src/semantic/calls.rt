@@ -199,6 +199,18 @@ fn Analyzer::initialize(Analyzer& this, Syntax& syntax, const Type* type, rt::un
 fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
 	Syntax* source = syntax.callable();
 	Syntax* arguments = syntax.arguments();
+	Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
+	Syntax* supplied = nullptr;
+
+	if (explicit_pattern) {
+		Syntax* application = source;
+
+		if (application->kind() == syntax_kind::qualified_name) {
+			@application = application->right();
+		};
+
+		@supplied = application->arguments();
+	};
 
 	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		const Type* target = @this.type(@scope, @*source);
@@ -210,7 +222,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		return @this.convert(@this.construct(@scope, @syntax, target, @*arguments), expected, @syntax);
 	};
 
-	if (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply) {
+	if (!explicit_pattern && (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply)) {
 		const Type* target = nullptr;
 		Entity* named = @this.lookup(@scope, @*source);
 
@@ -384,6 +396,9 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			@receiver = $access;
 		};
 	}
+	else if (explicit_pattern) {
+		@group = explicit_pattern;
+	}
 	else {
 		@group = @this.lookup(@scope, @*source);
 	};
@@ -419,7 +434,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	};
 
 	if (group && group->kind() == entity_kind::template_pattern) {
-		@group = @this.templates.deduce(@this, &scope, group, values);
+		@group = @this.templates.specialize_call(@this, &scope, group, supplied, values);
 
 		if (!group) {
 			return rt::unique<SemanticExpression>();
