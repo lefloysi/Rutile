@@ -186,10 +186,17 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, const rt::string_view& 
 	@this.receive();
 	var LanguageIndex* index = this.published.get();
 	if (!index || index->generation < this.minimum_semantic_generation) {
+		if (method == rt::string_view("textDocument/semanticTokens/full\0") || method == rt::string_view("textDocument/semanticTokens/range\0")) {
+			var empty = rt::json_parse("{\"data\":[]}\0");
+			return @this.measured(@empty.release(), $started);
+		};
 		if (method == rt::string_view("textDocument/hover\0") || method == rt::string_view("textDocument/signatureHelp\0")) {
 			return @this.measured(rt::json_value::make_null(), $started);
 		};
 		return @this.measured(rt::json_value::make_array(), $started);
+	};
+	if (method == rt::string_view("textDocument/semanticTokens/full\0") || method == rt::string_view("textDocument/semanticTokens/range\0")) {
+		return @this.measured(@this.tokens(*index, parameters, method == rt::string_view("textDocument/semanticTokens/range\0")), $started);
 	};
 
 	if (method == rt::string_view("textDocument/completion\0")) {
@@ -306,10 +313,30 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, const rt::string_view& 
 			};
 		}
 		else {
+			if (method == rt::string_view("textDocument/typeDefinition\0")) {
+				u64 target = index->identity(index->symbols.data()[*found].type_symbol);
+				var type = index->symbol_ids.find(target);
+				if (!type) {
+					continue;
+				};
+				@found = type;
+			};
 			const NavigationSymbol& symbol = index->symbols.data()[*found].value;
 			SourceRange range := symbol.declaration;
-			if (method == rt::string_view("textDocument/definition\0") && (symbol.flags & 1)) {
-				@range = SourceRange(symbol.definition);
+			if (
+				(method == rt::string_view("textDocument/definition\0") || method == rt::string_view("textDocument/typeDefinition\0"))
+				&& (symbol.flags & 1)
+			) {
+				usize source = 0;
+				usize offset = 0;
+				if (
+					@this.cursor(*index, parameters, @source, @offset)
+					&& source == symbol.declaration.source
+					&& symbol.declaration.begin <= offset
+					&& offset < symbol.declaration.end
+				) {
+					@range = SourceRange(symbol.definition);
+				};
 			};
 			var location = @this.location(*index, range);
 			if (!LanguageWorkspace::append_location(@*result.get(), $location, @seen, @location_keys)) {

@@ -122,7 +122,7 @@ bool project_configuration_read(const std::filesystem::path& root, struct Projec
 	}
 	try {
 		auto document = YAML::Load(file);
-		if (!configuration_mapping(path, document, { "targets", "profiles" }, false, diagnostics)) {
+		if (!configuration_mapping(path, document, { "targets", "profiles", "analysis" }, false, diagnostics)) {
 			return false;
 		}
 		auto targets = document["targets"];
@@ -158,6 +158,77 @@ bool project_configuration_read(const std::filesystem::path& root, struct Projec
 				return configuration_failure(path, item.second["source"], "source folder is unavailable: " + source, diagnostics);
 			}
 			parsed.targets.push_back(std::move(target));
+		}
+		auto analysis = document["analysis"];
+		if (analysis) {
+			if (!configuration_mapping(path, analysis, {}, true, diagnostics)) {
+				return false;
+			}
+			for (const auto& item : analysis) {
+				ProjectAnalysisSource source{};
+				source.name = item.first.Scalar();
+				if (!configuration_name(source.name, true)) {
+					return configuration_failure(path, item.first, "analysis group names may contain only ASCII letters, digits, '_' and '-'", diagnostics);
+				}
+				if (!configuration_mapping(path, item.second, { "source", "sources" }, false, diagnostics)) {
+					return false;
+				}
+				auto folder = item.second["source"];
+				auto inputs = item.second["sources"];
+				if (folder && inputs) {
+					return configuration_failure(path, item.second, "analysis groups require either 'source' or 'sources', not both", diagnostics);
+				}
+				if (folder) {
+					std::string text;
+					if (!configuration_string(path, folder, "source", text, diagnostics)) {
+						return false;
+					}
+					auto directory = (root / std::filesystem::u8path(text)).lexically_normal();
+					std::error_code error;
+					if (!std::filesystem::is_directory(directory, error) || error) {
+						return configuration_failure(path, folder, "analysis source folder is unavailable: " + text, diagnostics);
+					}
+					source.sources.push_back(ProjectSourcePath{ std::move(directory) });
+				}
+				else {
+					if (!inputs || !inputs.IsSequence() || !inputs.size()) {
+						return configuration_failure(path, item.second, "analysis groups require a 'source' folder or a nonempty ordered 'sources' sequence", diagnostics);
+					}
+					for (const auto& input : inputs) {
+						if (input.IsScalar()) {
+							std::string text;
+							if (!configuration_string(path, input, "sources entry", text, diagnostics)) {
+								return false;
+							}
+							auto resolved = (root / std::filesystem::u8path(text)).lexically_normal();
+							std::error_code error;
+							if ((!std::filesystem::is_regular_file(resolved, error) && !std::filesystem::is_directory(resolved, error)) || error) {
+								return configuration_failure(path, input, "analysis source path is unavailable: " + text, diagnostics);
+							}
+							source.sources.push_back(ProjectSourcePath{ std::move(resolved) });
+							continue;
+						}
+						if (!configuration_mapping(path, input, { "manifest", "root" }, false, diagnostics)) {
+							return false;
+						}
+						std::string manifest;
+						std::string directory;
+						if (!configuration_string(path, input["manifest"], "manifest", manifest, diagnostics) || !configuration_string(path, input["root"], "root", directory, diagnostics)) {
+							return false;
+						}
+						ProjectSourceManifest entry{ (root / std::filesystem::u8path(manifest)).lexically_normal(), (root / std::filesystem::u8path(directory)).lexically_normal() };
+						std::error_code error;
+						if (!std::filesystem::is_regular_file(entry.path, error) || error) {
+							return configuration_failure(path, input["manifest"], "analysis source manifest is unavailable: " + manifest, diagnostics);
+						}
+						if (!std::filesystem::is_directory(entry.root, error) || error) {
+							return configuration_failure(path, input["root"], "analysis manifest root is unavailable: " + directory, diagnostics);
+						}
+						source.sources.push_back(std::move(entry));
+					}
+				}
+				parsed.analysis.push_back(std::move(source));
+			}
 		}
 		parsed.profiles = { { "debug", 0 }, { "release", 2 } };
 		auto profiles = document["profiles"];

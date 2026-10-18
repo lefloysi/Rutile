@@ -1,5 +1,6 @@
 enum template_validation_role : [u08] {
 	dependent_type;
+	template_type;
 	dependent_value;
 	value;
 };
@@ -60,7 +61,7 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 	while (index < this.symbols.size()) {
 		const TemplateValidationSymbol& previous = this.symbols.data()[index];
 		if (previous.name.same(name.token())) {
-			if (previous.role == template_validation_role::dependent_type && role == template_validation_role::dependent_type) {
+			if ((previous.role == template_validation_role::dependent_type || previous.role == template_validation_role::template_type) && (role == template_validation_role::dependent_type || role == template_validation_role::template_type)) {
 				return true;
 			};
 			var message = DiagnosticMessage();
@@ -116,6 +117,13 @@ fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& thi
 fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
 	if (syntax.kind() == syntax_kind::type_name) {
 		if (this.dependent(syntax)) {
+			var Syntax* name = syntax.designated_type();
+			if (name->kind() == syntax_kind::name) {
+				const TemplateValidationSymbol* symbol = this.lookup(name->token());
+				if (symbol && symbol->role == template_validation_role::template_type) {
+					return @analyzer.semantic_unit()->record_classification(name->token(), 6, 0);
+				};
+			};
 			return true;
 		};
 		var Syntax* name = syntax.designated_type();
@@ -257,11 +265,14 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 					return false;
 				};
 			};
-			template_validation_role role = template_validation_role::dependent_type;
+			template_validation_role role = template_validation_role::template_type;
 			if (type->kind() != syntax_kind::absent) {
 				@role = template_validation_role::dependent_value;
 			};
 			if (!@this.remember(@analyzer, @*parameter->template_parameter_name(), $role)) {
+				return false;
+			};
+			if (type->kind() == syntax_kind::absent && !@analyzer.semantic_unit()->record_classification(parameter->template_parameter_name()->token(), 6, 1)) {
 				return false;
 			};
 			@index = index + 1;

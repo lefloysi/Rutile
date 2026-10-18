@@ -34,6 +34,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.0.32112.339" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Client" Version="17.0.5158" />
     <PackageReference Include="Microsoft.VisualStudio.Utilities" Version="17.0.32112.339" />
+    <PackageReference Include="Microsoft.VisualStudio.Text.Logic" Version="17.0.491" />
     <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.13.2" />
     <PackageReference Include="Microsoft.VisualStudio.ComponentModelHost" Version="17.0.491" />
     <PackageReference Include="System.Collections.Immutable" Version="8.0.0" PrivateAssets="all" />
@@ -69,6 +70,10 @@
     <MakeDir Directories="$(MSBuildProjectDirectory)\obj\$(Configuration)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\source.extension.vsixmanifest" DestinationFiles="$(GeneratedRutileManifest)" />
     <XmlPoke XmlInputPath="$(GeneratedRutileManifest)" Query="/*[local-name()='PackageManifest']/*[local-name()='Metadata']/*[local-name()='Identity']/@Version" Value="$(RutileVersion)" />
+  </Target>
+  <Target Name="WriteRutilePackageManifest" BeforeTargets="CreateVsixContainer" DependsOnTargets="GenerateRutileManifest;DetokenizeVsixManifestFile">
+    <!-- This manifest contains literal paths, with no VSSDK replacement tokens. -->
+    <Copy SourceFiles="$(GeneratedRutileManifest)" DestinationFiles="$(IntermediateVsixManifest)" />
   </Target>
   <Target Name="ValidateRutileServer" BeforeTargets="CreateVsixContainer">
     <Error Condition="!Exists('$(RutileServerDirectory)\kiln.exe')" Text="Build kiln before packaging: $(RutileServerDirectory)\kiln.exe is missing." />

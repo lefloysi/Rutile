@@ -1,11 +1,16 @@
-fn LanguageWorkspace::add_project(var void* context, const char* name, const char* path) -> i32 {
+fn LanguageWorkspace::add_project(var void* context, const char* name, const char* path, i32 kind) -> i32 {
 	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	usize index = 0;
-	while (index < workspace.groups.size() && workspace.groups.data()[index].name.view() != rt::string_view(name)) {
+	language_group_kind category = language_group_kind::target;
+	if (kind == 1) {
+		@category = language_group_kind::analysis;
+	};
+	while (index < workspace.groups.size() && (workspace.groups.data()[index].kind != category || workspace.groups.data()[index].name.view() != rt::string_view(name))) {
 		@index = index + 1;
 	};
 	if (index == workspace.groups.size()) {
 		LanguageGroup group;
+		@group.kind = $category;
 		if (!@group.name.append(rt::string_view(name)) || !@workspace.groups.push_back($group)) {
 			return 0;
 		};
@@ -95,7 +100,10 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	@cancellation.stopped = this.stopped;
 	@cancellation.expected = job.generation;
 	rt::string key;
-	if (!LanguageWorkspace::target_key(job.root.view(), group, @key) || LanguageWorkspace::cancelled(&@cancellation) || !@this.compiler->expect_target(key.view(), u64(job.generation))) {
+	if (
+		LanguageWorkspace::cancelled(&@cancellation)
+		|| group.kind != language_group_kind::analysis && (!LanguageWorkspace::target_key(job.root.view(), group, @key) || !@this.compiler->expect_target(key.view(), u64(job.generation)))
+	) {
 		return false;
 	};
 
@@ -139,6 +147,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
 	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*analysis.get(), job)) {
 		return false;
+	};
+	if (group.kind == language_group_kind::analysis) {
+		return true;
 	};
 	if (!@index.targets.push_back(rt::string(key))) {
 		return false;
@@ -216,7 +227,7 @@ fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, cons
 	usize source = 0;
 	while (source < analysis.source_count()) {
 		usize target = @this.source(analysis, usize(source), job);
-		if (target == usize::max || !@mapping.push_back($target)) {
+		if (target == usize::max || !@this.classify_source(analysis, usize(source), usize(target)) || !@mapping.push_back($target)) {
 			return false;
 		};
 		@source = source + 1;
@@ -228,6 +239,10 @@ fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, cons
 		const NavigationSymbol* input = analysis.navigation().symbol_at(number);
 		LanguageIndexedSymbol symbol;
 		@symbol.value = NavigationSymbol(*input);
+		u64 type_symbol = analysis.navigation().type_symbol(input->id);
+		if (type_symbol) {
+			@symbol.type_symbol = type_symbol + this.symbol_base;
+		};
 		if (input->id > maximum) {
 			@maximum = input->id;
 		};
@@ -392,6 +407,9 @@ fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, cons
 			return false;
 		};
 		@number = number + 1;
+	};
+	if (!@this.classify_bindings(analysis, mapping)) {
+		return false;
 	};
 	@this.scope_base = this.scope_base + maximum_scope + 1;
 	@this.symbol_base = this.symbol_base + maximum + 1;

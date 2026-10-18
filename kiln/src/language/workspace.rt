@@ -14,7 +14,7 @@ fn runtime_atomic_load(const RuntimeAtomic* value) -> u64;
 fn runtime_atomic_store(var RuntimeAtomic* destination, u64 value);
 fn runtime_atomic_fetch_add(var RuntimeAtomic* destination, u64 value) -> u64;
 fn runtime_clock_nanoseconds() -> u64;
-fn kiln_project_sources(const char* root, ((var void*, const char*, const char*) -> i32)* add, var void* context, ((var void*, const char*) -> void)* diagnostic) -> i32;
+fn kiln_project_sources(const char* root, ((var void*, const char*, const char*, i32) -> i32)* add, var void* context, ((var void*, const char*) -> void)* diagnostic) -> i32;
 
 struct LanguageEdit {
 	u64 revision;
@@ -37,6 +37,7 @@ struct LanguageDocument {
 enum language_group_kind : [u08] {
 	target;
 	loose;
+	analysis;
 };
 
 struct LanguageGroup {
@@ -52,6 +53,12 @@ struct LanguageJob {
 	rt::buffer<LanguageDocument> documents;
 };
 
+struct LanguageSemanticToken {
+	SourceRange range;
+	u32 type;
+	u32 modifiers;
+};
+
 struct LanguageIndexedSource {
 	rt::string uri;
 	rt::string key;
@@ -59,6 +66,8 @@ struct LanguageIndexedSource {
 	rt::optional<i64> version;
 	u64 revision;
 	rt::unique<rt::json_value> diagnostics;
+	rt::buffer<LanguageSemanticToken> tokens;
+	rt::unordered_map<usize, usize> token_offsets;
 };
 
 struct LanguageIndexedParameter {
@@ -68,6 +77,7 @@ struct LanguageIndexedParameter {
 
 struct LanguageIndexedSymbol {
 	NavigationSymbol value;
+	u64 type_symbol;
 	rt::buffer<LanguageIndexedParameter> parameters;
 	rt::string name;
 	rt::string detail;
@@ -77,6 +87,9 @@ struct LanguageIndex {
 	fn source(var LanguageIndex& this, const Analysis& analysis, usize source, const LanguageJob& job) -> usize;
 	fn append(var LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool;
 	fn finish(var LanguageIndex& this) -> bool;
+	fn classify_source(var LanguageIndex& this, const Analysis& analysis, usize original, usize target) -> bool;
+	fn classify_syntax(var LanguageIndex& this, const Analysis& analysis, const rt::buffer<usize>& mapping, const Syntax& syntax) -> bool;
+	fn classify_bindings(var LanguageIndex& this, const Analysis& analysis, const rt::buffer<usize>& mapping) -> bool;
 	fn identity(const LanguageIndex& this, u64 id) -> u64;
 	fn before(const NavigationOccurrence& first, const NavigationOccurrence& second) -> bool;
 
@@ -136,6 +149,7 @@ private:
 	fn document_key(var LanguageWorkspace& this, const rt::string_view& key) -> var LanguageDocument*;
 	fn cursor(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, var usize& source, var usize& offset) -> bool;
 	fn completion(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
+	fn tokens(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, bool ranged) -> rt::unique<rt::json_value>;
 	fn signature_item(const LanguageIndex& index, const NavigationCall& call, u64 identity, usize offset) -> rt::unique<rt::json_value>;
 	fn signature(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn mapped(var LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& input, var SourceRange& output) -> bool;
@@ -146,7 +160,7 @@ private:
 	fn measured(var LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value>;
 	fn contains(const rt::string_view& text, const rt::string_view& part) -> bool;
 	fn append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string_view, bool>& seen, var rt::buffer<rt::string>& keys) -> bool;
-	fn add_project(var void* context, const char* group, const char* path) -> i32;
+	fn add_project(var void* context, const char* group, const char* path, i32 kind) -> i32;
 	fn project_error(var void* context, const char* text);
 	fn worker(var void* context) -> i32;
 	fn cancelled(var void* context) -> i32;

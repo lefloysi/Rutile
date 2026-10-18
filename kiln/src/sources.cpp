@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-int kiln_project_sources(const char* root, int (*add)(void*, const char*, const char*), void* context, void (*diagnostic)(void*, const char*)) {
+int kiln_project_sources(const char* root, int (*add)(void*, const char*, const char*, int), void* context, void (*diagnostic)(void*, const char*)) {
 	if (!root || !add) {
 		return 0;
 	}
@@ -41,7 +41,7 @@ int kiln_project_sources(const char* root, int (*add)(void*, const char*, const 
 	for (const auto& group : groups) {
 		for (const auto& source : group.sources) {
 			const auto path = project_path_utf8(source);
-			if (!add(context, group.name.c_str(), path.c_str())) {
+			if (!add(context, group.name.c_str(), path.c_str(), group.kind == ProjectSourceKind::analysis ? 1 : 0)) {
 				return 0;
 			}
 		}

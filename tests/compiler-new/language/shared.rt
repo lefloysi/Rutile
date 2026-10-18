@@ -60,7 +60,13 @@ fn shared_analysis_tests() -> i32 {
 	if (completion_metadata_tests() != 42) {
 		return 63;
 	};
-	return receiver_metadata_tests();
+	if (receiver_metadata_tests() != 42) {
+		return 81;
+	};
+	if (generated_navigation_tests() != 42) {
+		return 86;
+	};
+	return template_classification_tests();
 };
 
 fn target_analysis_tests() -> i32 {
@@ -325,6 +331,64 @@ fn receiver_metadata_tests() -> i32 {
 	};
 	if (!retained) {
 		return 79;
+	};
+	return 42;
+};
+
+fn generated_navigation_tests() -> i32 {
+	var analysis = Analysis();
+	if (!@analysis.add_source("generated.rt\0", "struct Foo { i32 field; }; fn sample() -> i32 { Foo first; Foo second; @first := second; return first.field; };\0") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+		return 82;
+	};
+	usize index = 0;
+	u64 record = 0;
+	while (index < analysis.navigation().symbol_count()) {
+		const NavigationSymbol* symbol = analysis.navigation().symbol_at(index);
+		@index = index + 1;
+		if (symbol->name == rt::string_view("this\0") || symbol->name == rt::string_view("other\0") || symbol->name == rt::string_view("destination\0") || symbol->name == rt::string_view("source\0")) {
+			return 83;
+		};
+		if (symbol->name == rt::string_view("Foo\0")) {
+			@record = symbol->id;
+		};
+	};
+	if (!record || analysis.navigation().semantic_token_type(u64(record)) != 5) {
+		return 84;
+	};
+	@index = 0;
+	while (index < analysis.navigation().occurrence_count()) {
+		const NavigationOccurrence* occurrence = analysis.navigation().occurrence_at(index);
+		@index = index + 1;
+		if (occurrence->range.begin == 7 && occurrence->symbol != record) {
+			return 85;
+		};
+	};
+	return 42;
+};
+
+fn template_classification_tests() -> i32 {
+	var analysis = Analysis();
+	if (!@analysis.add_source("unused.rt\0", "template<typename T> struct Box { T item; }; template<typename U> struct Shadow { i32 U; };\0") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+		return 87;
+	};
+	usize index = 0;
+	usize parameters = 0;
+	usize uses = 0;
+	while (index < analysis.navigation().classification_count()) {
+		const NavigationClassification* classification = analysis.navigation().classification_at(index);
+		@index = index + 1;
+		if (classification->type != 6) {
+			return 88;
+		};
+		if (classification->modifiers & 1) {
+			@parameters = parameters + 1;
+		}
+		else {
+			@uses = uses + 1;
+		};
+	};
+	if (parameters != 2 || uses != 1) {
+		return 89;
 	};
 	return 42;
 };

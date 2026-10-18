@@ -43,7 +43,7 @@ fn LanguageServer::initialize(var LanguageServer& this, const rt::json_value& id
 		return @this.error(id, -32602, "initialize requires a valid project file URI\0");
 	};
 
-	var description = rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}\0");
+	var description = rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}\0");
 	if (!description.value()) {
 		return false;
 	};
@@ -126,7 +126,7 @@ fn LanguageServer::dispatch(var LanguageServer& this, const rt::json_value& mess
 	if (method == rt::string_view("rutile/indexStatus\0")) {
 		return @this.send(LanguageJson::response(*id, @this.workspace->status()));
 	};
-	if (method == rt::string_view("textDocument/completion\0") || method == rt::string_view("textDocument/signatureHelp\0") || method == rt::string_view("textDocument/definition\0") || method == rt::string_view("textDocument/declaration\0") || method == rt::string_view("textDocument/references\0") || method == rt::string_view("textDocument/hover\0") || method == rt::string_view("textDocument/documentSymbol\0") || method == rt::string_view("workspace/symbol\0")) {
+	if (method == rt::string_view("textDocument/semanticTokens/full\0") || method == rt::string_view("textDocument/semanticTokens/range\0") || method == rt::string_view("textDocument/typeDefinition\0") || method == rt::string_view("textDocument/completion\0") || method == rt::string_view("textDocument/signatureHelp\0") || method == rt::string_view("textDocument/definition\0") || method == rt::string_view("textDocument/declaration\0") || method == rt::string_view("textDocument/references\0") || method == rt::string_view("textDocument/hover\0") || method == rt::string_view("textDocument/documentSymbol\0") || method == rt::string_view("workspace/symbol\0")) {
 		var result = @this.workspace->query(method, *parameters);
 		if (!result.get()) {
 			return @this.error(*id, -32602, "navigation requires a valid document URI and position\0");

@@ -98,6 +98,12 @@ struct NavigationEntry {
 	rt::buffer<rt::unique<NavigationParameterEntry>> parameters;
 };
 
+struct NavigationClassification {
+	SourceRange range;
+	u32 type;
+	u32 modifiers;
+};
+
 struct NavigationIndex {
 	fn register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool;
 	fn build(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
@@ -109,6 +115,11 @@ struct NavigationIndex {
 	fn syntax_range(const NavigationIndex& this, const Syntax& syntax) -> SourceRange;
 	fn scope_count(const NavigationIndex& this) -> usize;
 	fn scope_at(const NavigationIndex& this, usize index) -> const NavigationScope*;
+	fn classification_count(const NavigationIndex& this) -> usize;
+	fn classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification*;
+	fn type_symbol(const NavigationIndex& this, u64 symbol) -> u64;
+	fn semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32;
+	fn symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool;
 	fn member_scope(const NavigationIndex& this, u64 symbol) -> u64;
 	fn accessible(const NavigationIndex& this, u64 symbol, u64 scope) -> bool;
 	fn binding_count(const NavigationIndex& this) -> usize;
@@ -131,6 +142,7 @@ private:
 
 	rt::buffer<rt::unique<NavigationEntry>> symbols;
 	rt::buffer<NavigationOccurrence> occurrences;
+	rt::buffer<NavigationClassification> classifications;
 	rt::buffer<NavigationScope> scope_locations;
 	rt::buffer<NavigationBinding> bindings;
 	rt::buffer<rt::unique<NavigationCall>> calls;

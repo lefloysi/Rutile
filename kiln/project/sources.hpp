@@ -6,9 +6,15 @@
 #include <string>
 #include <vector>
 
+enum class ProjectSourceKind {
+	target,
+	analysis,
+};
+
 struct ProjectSourceGroup {
 	std::string name;
 	std::vector<std::filesystem::path> sources;
+	ProjectSourceKind kind = ProjectSourceKind::target;
 };
 
 bool project_target_sources(const ProjectTarget& target, std::vector<std::filesystem::path>& sources, std::string& diagnostics);

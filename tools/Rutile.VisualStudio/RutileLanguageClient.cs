@@ -8,10 +8,11 @@ using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudio.Utilities;
+using StreamJsonRpc;
 
 namespace Rutile.VisualStudio {
 	[Export(typeof(ILanguageClient)), ContentType(RutileContentType.Name), Name("Rutile Language Client")]
-	internal sealed class RutileLanguageClient : ILanguageClient, IDisposable {
+	internal sealed class RutileLanguageClient : ILanguageClient, ILanguageClientCustomMessage2, IDisposable {
 		private ServerProcess? server;
 		private WorkspaceRootMonitor? roots;
 		private string? serverRoot;
@@ -20,8 +21,15 @@ namespace Rutile.VisualStudio {
 		public string Name => "Rutile";
 		public IEnumerable<string> ConfigurationSections => Array.Empty<string>();
 		public object InitializationOptions => null!;
-		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/rutile.yaml" };
+		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/rutile.yaml", "**/*.list" };
 		public bool ShowNotificationOnInitializeFailed => true;
+		public object MiddleLayer { get; } = new RutileSemanticColors();
+		public object CustomMessageTarget => null!;
+
+		public Task AttachForCustomMessageAsync(JsonRpc rpc) {
+			return Task.CompletedTask;
+		}
+
 		public event AsyncEventHandler<EventArgs>? StartAsync;
 		public event AsyncEventHandler<EventArgs>? StopAsync;
 

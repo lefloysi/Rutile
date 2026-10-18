@@ -1,0 +1,199 @@
+fn LanguageIndex::classify_source(var LanguageIndex& this, const Analysis& analysis, usize original, usize target) -> bool {
+	var LanguageIndexedSource& source = @(@this.sources).data()[target];
+	if (source.tokens.size()) {
+		return true;
+	};
+	const rt::buffer<Token>* tokens = analysis.source_tokens(usize(original));
+	if (!tokens) {
+		return true;
+	};
+	usize index = 0;
+	while (index < tokens->size()) {
+		const Token& input = tokens->data()[index];
+		@index = index + 1;
+		if (!input.length || input.kind == token_kind::eof || input.kind >= token_kind::kw_fn && input.kind <= token_kind::kw_sizeof) {
+			continue;
+		};
+		LanguageSemanticToken token;
+		@token.range.source = target;
+		@token.range.begin = input.begin;
+		@token.range.end = input.begin + input.length;
+		@token.type = 17;
+		if (input.kind == token_kind::identifier) {
+			@token.type = u32::max;
+			if (analysis.primitive_name(input.text())) {
+				@token.type = 1;
+			};
+		}
+		else if (input.kind == token_kind::literal_number) {
+			@token.type = 16;
+		}
+		else if (input.kind == token_kind::literal_string) {
+			@token.type = 15;
+		}
+		else if (input.kind >= token_kind::kw_fn && input.kind <= token_kind::kw_sizeof) {
+			@token.type = 13;
+		};
+		if (!@source.token_offsets.insert(usize(input.begin), source.tokens.size()) || !@source.tokens.push_back($token)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn LanguageIndex::classify_bindings(var LanguageIndex& this, const Analysis& analysis, const rt::buffer<usize>& mapping) -> bool {
+	const rt::buffer<rt::unique<Syntax>>& roots = analysis.syntax_roots();
+	usize root = 0;
+	while (root < roots.size()) {
+		if (!@this.classify_syntax(analysis, mapping, *roots.data()[root].get())) {
+			return false;
+		};
+		@root = root + 1;
+	};
+	usize classification = 0;
+	while (classification < analysis.navigation().classification_count()) {
+		const NavigationClassification* input = analysis.navigation().classification_at(classification);
+		@classification = classification + 1;
+		if (input->range.source >= mapping.size()) {
+			continue;
+		};
+		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[input->range.source]];
+		var present = source.token_offsets.find(input->range.begin);
+		if (present && source.tokens.data()[*present].range.end == input->range.end) {
+			@(@source.tokens).data()[*present].type = input->type;
+			@(@source.tokens).data()[*present].modifiers = input->modifiers;
+		};
+	};
+	usize index = 0;
+	while (index < analysis.navigation().occurrence_count()) {
+		const NavigationOccurrence* occurrence = analysis.navigation().occurrence_at(index);
+		@index = index + 1;
+		if (occurrence->range.source >= mapping.size() || !occurrence->symbol) {
+			continue;
+		};
+		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[occurrence->range.source]];
+		var found = source.token_offsets.find(occurrence->range.begin);
+		if (!found) {
+			continue;
+		};
+		var LanguageSemanticToken& token = @(@source.tokens).data()[*found];
+		if (token.range.end != occurrence->range.end) {
+			continue;
+		};
+		@token.type = analysis.navigation().semantic_token_type(occurrence->symbol);
+		if (occurrence->roles & 1) {
+			@token.modifiers = token.modifiers | 1;
+		};
+		if (analysis.navigation().symbol_readonly(occurrence->symbol)) {
+			@token.modifiers = token.modifiers | 4;
+		};
+	};
+	return true;
+};
+
+fn LanguageWorkspace::tokens(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, bool ranged) -> rt::unique<rt::json_value> {
+	var response = rt::json_value::make_object();
+	var data = rt::json_value::make_array();
+	const rt::json_value* document = parameters.member("textDocument\0");
+	if (!response.get() || !data.get() || !document) {
+		return rt::unique<rt::json_value>();
+	};
+	rt::string path;
+	rt::string key;
+	if (!LanguageUri::decode(LanguageJson::text(*document, "uri\0"), @path) || !LanguageUri::key(path.view(), @key)) {
+		return rt::unique<rt::json_value>();
+	};
+	var found = index.source_ids.find(key.view());
+	if (!found) {
+		@response.get()->set("data\0", $data);
+		return $response;
+	};
+	usize source_number = *found;
+	const LanguageIndexedSource& source = index.sources.data()[source_number];
+	const LanguageText* text = &@source.text;
+	var LanguageDocument* open = @this.document_key(source.key.view());
+	if (open) {
+		@text = &@open->text;
+	};
+	usize first = 0;
+	usize last = text->view().size();
+	if (ranged) {
+		const rt::json_value* range = parameters.member("range\0");
+		if (!range || !range->member("start\0") || !range->member("end\0")) {
+			return rt::unique<rt::json_value>();
+		};
+		@first = text->offset(static_cast<usize>(LanguageJson::integer(*range->member("start\0"), "line\0", 0)), static_cast<usize>(LanguageJson::integer(*range->member("start\0"), "character\0", 0)));
+		@last = text->offset(static_cast<usize>(LanguageJson::integer(*range->member("end\0"), "line\0", 0)), static_cast<usize>(LanguageJson::integer(*range->member("end\0"), "character\0", 0)));
+	};
+	usize previous_line = 0;
+	usize previous_character = 0;
+	usize index_token = 0;
+	while (index_token < source.tokens.size()) {
+		const LanguageSemanticToken& token = source.tokens.data()[index_token];
+		@index_token = index_token + 1;
+		SourceRange current;
+		if (token.type == u32::max || !@this.mapped(index, token.range, @current) || current.end <= first || current.begin >= last) {
+			continue;
+		};
+		usize begin = current.begin;
+		usize end = current.end;
+		if (begin < first) {
+			@begin = first;
+		};
+		if (end > last) {
+			@end = last;
+		};
+		while (begin < end) {
+			usize finish = begin;
+			while (finish < end && text->view().data()[finish] != '\n' && text->view().data()[finish] != '\r') {
+				@finish = finish + 1;
+			};
+			if (finish > begin) {
+				LanguagePosition position = text->position(usize(begin));
+				LanguagePosition ending = text->position(usize(finish));
+				usize delta_character = position.character;
+				if (position.line == previous_line) {
+					@delta_character = delta_character - previous_character;
+				};
+				if (!@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(position.line - previous_line))) || !@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(delta_character))) || !@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(ending.character - position.character))) || !@data.get()->append(rt::json_value::make_unsigned(u64(token.type))) || !@data.get()->append(rt::json_value::make_unsigned(u64(token.modifiers)))) {
+					return rt::unique<rt::json_value>();
+				};
+				@previous_line = position.line;
+				@previous_character = position.character;
+			};
+			@begin = finish;
+			while (begin < end && (text->view().data()[begin] == '\n' || text->view().data()[begin] == '\r')) {
+				@begin = begin + 1;
+			};
+		};
+	};
+	if (!@response.get()->set("data\0", $data)) {
+		return rt::unique<rt::json_value>();
+	};
+	return $response;
+};
+
+fn LanguageIndex::classify_syntax(var LanguageIndex& this, const Analysis& analysis, const rt::buffer<usize>& mapping, const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::ambiguity) {
+		return true;
+	};
+	bool contextual = syntax.kind() == syntax_kind::type_auto || syntax.kind() == syntax_kind::access_label || syntax.kind() == syntax_kind::cast || syntax.kind() == syntax_kind::operator_name || syntax.kind() == syntax_kind::conversion_name;
+	if (contextual) {
+		SourceRange range = analysis.navigation().range(syntax.token());
+		if (range.source < mapping.size()) {
+			var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+			var present = source.token_offsets.find(range.begin);
+			if (present) {
+				@(@source.tokens).data()[*present].type = 13;
+			};
+		};
+	};
+	usize child = 0;
+	while (child < syntax.size()) {
+		if (!@this.classify_syntax(analysis, mapping, *syntax.item(child))) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	return true;
+};

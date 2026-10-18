@@ -230,6 +230,18 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		};
 		@index = index + 1;
 	};
+	@index = 0;
+	while (index < semantics.classifications().size()) {
+		const SemanticClassification& source = semantics.classifications().data()[index];
+		NavigationClassification classification;
+		@classification.range = this.range(source.location);
+		@classification.type = source.type;
+		@classification.modifiers = source.modifiers;
+		if (!@this.classifications.push_back($classification)) {
+			return false;
+		};
+		@index = index + 1;
+	};
 	return @this.build_contexts(semantics) && @this.build_receivers(semantics);
 };
 
@@ -571,4 +583,72 @@ fn NavigationIndex::receiver_at(const NavigationIndex& this, usize index) -> con
 		return nullptr;
 	};
 	return this.receivers.data()[index].get();
+};
+
+fn NavigationIndex::type_symbol(const NavigationIndex& this, u64 symbol) -> u64 {
+	if (!symbol || symbol > this.symbols.size()) {
+		return 0;
+	};
+	const Type* type = this.symbols.data()[symbol - 1].get()->entity->type();
+	while (type && (type->kind() == type_kind::pointer || type->kind() == type_kind::reference || type->kind() == type_kind::array)) {
+		@type = type->element();
+	};
+	if (!type || (type->kind() != type_kind::named && type->kind() != type_kind::parameter)) {
+		return 0;
+	};
+	return this.symbol_id(type->entity());
+};
+
+fn NavigationIndex::semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32 {
+	if (!symbol || symbol > this.symbols.size()) {
+		return 8;
+	};
+	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	switch (entity.kind()) {
+		case entity_kind::namespace_body: return 0;
+		case entity_kind::alias: return 1;
+		case entity_kind::record: return 5;
+		case entity_kind::enumeration: return 3;
+		case entity_kind::type_parameter: return 6;
+		case entity_kind::parameter: return 7;
+		case entity_kind::field: return 9;
+		case entity_kind::enumerator: return 10;
+		case entity_kind::function: {
+			if (entity.scope() && entity.scope()->owner() && entity.scope()->owner()->kind() == entity_kind::record) {
+				return 12;
+			};
+			return 11;
+		};
+	};
+	const NavigationSymbol& value = this.symbols.data()[symbol - 1].get()->value;
+	if (value.kind == 23) {
+		return 5;
+	};
+	if (value.kind == 26) {
+		return 6;
+	};
+	return 8;
+};
+
+fn NavigationIndex::symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool {
+	if (!symbol || symbol > this.symbols.size()) {
+		return false;
+	};
+	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	const Type* type = entity.type();
+	if (type && type->kind() == type_kind::reference) {
+		@type = type->element();
+	};
+	return entity.kind() == entity_kind::constant || entity.kind() == entity_kind::enumerator || type && type->qualifier() == type_qualifier::immutable;
+};
+
+fn NavigationIndex::classification_count(const NavigationIndex& this) -> usize {
+	return this.classifications.size();
+};
+
+fn NavigationIndex::classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification* {
+	if (index >= this.classifications.size()) {
+		return nullptr;
+	};
+	return &@this.classifications.data()[index];
 };

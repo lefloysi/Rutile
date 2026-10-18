@@ -2,13 +2,19 @@
 
 The extension registers `.rt` files and connects Visual Studio's built-in language client to
 `kiln.exe language-server --stdio`. Kiln starts in the open folder workspace or solution directory
-supplied by Visual Studio. The client does not parse Rutile.
+supplied by Visual Studio. Grammar and name binding remain in the compiler.
 
 The server provides diagnostics, hover, definitions, declarations, references, completion,
-signature help, and document and workspace symbols. Rename and semantic-token coloring are
-not advertised by the server.
+signature help, document and workspace symbols, and compiler-backed semantic tokens.
+Rename is not advertised by the server.
 
-Visual Studio watches `.rt` files and `rutile.yaml` files throughout the active workspace and
+Highlighting follows Visual Studio's existing C++ classifications and theme settings: ordinary
+keywords use the keyword style, control-flow words use the distinct C++ control-keyword style,
+and bound types use the C++ type style. Comments, strings, and numbers are colored immediately.
+User-defined type names and aliases come from compiler bindings, not naming patterns.
+Contextual words such as access labels and casts are classified from compiler syntax.
+
+Visual Studio watches `.rt`, `rutile.yaml`, and `.list` files throughout the active workspace and
 forwards external changes to Kiln. Opening a different folder or solution replaces the owned
 Kiln process. Closing the workspace stops it. These subscriptions are released with the client.
 
@@ -57,7 +63,16 @@ Run the process ownership checks without starting Visual Studio:
 ./tools/Rutile.VisualStudio/tests/Run.ps1
 ```
 
-They exercise the extension's actual process and stream implementation with an isolated child:
+Run lexical and semantic-color mapping checks without starting Visual Studio:
+
+```powershell
+./tools/Rutile.VisualStudio/tests/RunHighlighting.ps1
+```
+
+These compile against the installed SDK and check keyword categories, comments, literals,
+UTF-16 spans, and semantic legend mapping without changing token indices or modifiers.
+
+The process checks exercise the actual stream implementation with an isolated child:
 working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,
 concurrent cleanup, and unexpected exit reporting.
 

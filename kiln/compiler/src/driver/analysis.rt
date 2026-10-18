@@ -9,6 +9,9 @@ struct Analysis {
 
 	fn source_count(const Analysis& this) -> usize;
 	fn source_path(const Analysis& this, usize index) -> rt::string_view;
+	fn syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>&;
+	fn source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>*;
+	fn primitive_name(const Analysis& this, const rt::string_view& name) -> bool;
 	fn source_text(const Analysis& this, usize index) -> rt::string_view;
 	fn semantics(const Analysis& this) -> const SemanticUnit*;
 	fn diagnostics(const Analysis& this) -> const Diagnostics&;
@@ -76,4 +79,20 @@ fn Analysis::navigation(const Analysis& this) -> const NavigationIndex& {
 
 fn Analysis::pointer_bits(const Analysis& this) -> u32 {
 	return this.target_pointer_bits;
+};
+
+fn Analysis::source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>* {
+	const SourceFile* source = this.sources.at($index);
+	if (!source) {
+		return nullptr;
+	};
+	return &@source->tokens();
+};
+
+fn Analysis::primitive_name(const Analysis& this, const rt::string_view& name) -> bool {
+	return this.types.find_primitive(name) != nullptr;
+};
+
+fn Analysis::syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>& {
+	return this.syntax;
 };

@@ -6280,6 +6280,12 @@ struct SemanticReceiverSite {
 	var Entity* owner;
 };
 
+struct SemanticClassification {
+	Token location;
+	u32 type;
+	u32 modifiers;
+};
+
 struct SemanticUnit {
 	fn associate(var SemanticUnit& this, const Type& type, var Entity& owner) -> bool;
 	fn canonical_use(var SemanticUnit& this, const Type& type) -> const TypeUse*;
@@ -6309,6 +6315,8 @@ struct SemanticUnit {
 	fn record_receiver(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& owner) -> bool;
 	fn receiver_sites(const SemanticUnit& this) -> const rt::buffer<SemanticReceiverSite>&;
 	fn call_sites(const SemanticUnit& this) -> const rt::buffer<SemanticCallSite>&;
+	fn record_classification(var SemanticUnit& this, const Token& location, u32 type, u32 modifiers) -> bool;
+	fn classifications(const SemanticUnit& this) -> const rt::buffer<SemanticClassification>&;
 	fn references(const SemanticUnit& this) -> const rt::buffer<ResolvedReference>&;
 
 private:
@@ -6320,6 +6328,7 @@ private:
 	rt::buffer<rt::unique<TypeUse>> type_uses;
 	rt::buffer<rt::unique<FunctionUse>> function_uses;
 	rt::buffer<ResolvedReference> resolved_references;
+	rt::buffer<SemanticClassification> token_classifications;
 	rt::buffer<TemplateOrigin> template_origins;
 	rt::buffer<rt::unique<TemplateInstantiation>> template_instantiations;
 	rt::buffer<SemanticScopeRegion> regions;
@@ -6532,6 +6541,19 @@ fn SemanticUnit::record_incomplete_call(var SemanticUnit& this, var Scope& scope
 	@site.bound_receiver = $bound_receiver;
 
 	return @this.calls.push_back($site);
+};
+
+fn SemanticUnit::record_classification(var SemanticUnit& this, const Token& location, u32 type, u32 modifiers) -> bool {
+	SemanticClassification classification;
+	@classification.location = location;
+	@classification.type = $type;
+	@classification.modifiers = $modifiers;
+
+	return @this.token_classifications.push_back($classification);
+};
+
+fn SemanticUnit::classifications(const SemanticUnit& this) -> const rt::buffer<SemanticClassification>& {
+	return this.token_classifications;
 };
 
 fn strtod(const char* text, var (var char*)* end) -> f64;
@@ -8353,6 +8375,8 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, const Type* type) -> bo
 		return false;
 	};
 
+	@destination_binding->set_origin(declaration_origin::compiler_supplied);
+	@source_binding->set_origin(declaration_origin::compiler_supplied);
 	@destination_binding->set_type(@this.types->reference(type));
 	@source_binding->set_type(@this.types->reference(immutable));
 	@destination_binding->set_state(entity_state::ready);
@@ -15743,6 +15767,9 @@ struct Analysis {
 
 	fn source_count(const Analysis& this) -> usize;
 	fn source_path(const Analysis& this, usize index) -> rt::string_view;
+	fn syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>&;
+	fn source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>*;
+	fn primitive_name(const Analysis& this, const rt::string_view& name) -> bool;
 	fn source_text(const Analysis& this, usize index) -> rt::string_view;
 	fn semantics(const Analysis& this) -> const SemanticUnit*;
 	fn diagnostics(const Analysis& this) -> const Diagnostics&;
@@ -15810,6 +15837,22 @@ fn Analysis::navigation(const Analysis& this) -> const NavigationIndex& {
 
 fn Analysis::pointer_bits(const Analysis& this) -> u32 {
 	return this.target_pointer_bits;
+};
+
+fn Analysis::source_tokens(const Analysis& this, usize index) -> const rt::buffer<Token>* {
+	const SourceFile* source = this.sources.at($index);
+	if (!source) {
+		return nullptr;
+	};
+	return &@source->tokens();
+};
+
+fn Analysis::primitive_name(const Analysis& this, const rt::string_view& name) -> bool {
+	return this.types.find_primitive(name) != nullptr;
+};
+
+fn Analysis::syntax_roots(const Analysis& this) -> const rt::buffer<rt::unique<Syntax>>& {
+	return this.syntax;
 };
 
 struct RuntimeMutex;
@@ -17819,6 +17862,7 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 			return nullptr;
 		};
 
+		@parameter->set_origin(declaration_origin::compiler_supplied);
 		@parameter->set_type(type);
 		@parameter->set_index(usize(index));
 		@parameter->set_state(entity_state::ready);
@@ -21710,6 +21754,7 @@ fn TemplateArgument::same(const TemplateArgument& this, const TemplateArgument& 
 
 enum template_validation_role : [u08] {
 	dependent_type;
+	template_type;
 	dependent_value;
 	value;
 };
@@ -21770,7 +21815,7 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 	while (index < this.symbols.size()) {
 		const TemplateValidationSymbol& previous = this.symbols.data()[index];
 		if (previous.name.same(name.token())) {
-			if (previous.role == template_validation_role::dependent_type && role == template_validation_role::dependent_type) {
+			if ((previous.role == template_validation_role::dependent_type || previous.role == template_validation_role::template_type) && (role == template_validation_role::dependent_type || role == template_validation_role::template_type)) {
 				return true;
 			};
 			var message = DiagnosticMessage();
@@ -21826,6 +21871,13 @@ fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& thi
 fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
 	if (syntax.kind() == syntax_kind::type_name) {
 		if (this.dependent(syntax)) {
+			var Syntax* name = syntax.designated_type();
+			if (name->kind() == syntax_kind::name) {
+				const TemplateValidationSymbol* symbol = this.lookup(name->token());
+				if (symbol && symbol->role == template_validation_role::template_type) {
+					return @analyzer.semantic_unit()->record_classification(name->token(), 6, 0);
+				};
+			};
 			return true;
 		};
 		var Syntax* name = syntax.designated_type();
@@ -21967,11 +22019,14 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 					return false;
 				};
 			};
-			template_validation_role role = template_validation_role::dependent_type;
+			template_validation_role role = template_validation_role::template_type;
 			if (type->kind() != syntax_kind::absent) {
 				@role = template_validation_role::dependent_value;
 			};
 			if (!@this.remember(@analyzer, @*parameter->template_parameter_name(), $role)) {
+				return false;
+			};
+			if (type->kind() == syntax_kind::absent && !@analyzer.semantic_unit()->record_classification(parameter->template_parameter_name()->token(), 6, 1)) {
 				return false;
 			};
 			@index = index + 1;
@@ -22709,6 +22764,12 @@ struct NavigationEntry {
 	rt::buffer<rt::unique<NavigationParameterEntry>> parameters;
 };
 
+struct NavigationClassification {
+	SourceRange range;
+	u32 type;
+	u32 modifiers;
+};
+
 struct NavigationIndex {
 	fn register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool;
 	fn build(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
@@ -22720,6 +22781,11 @@ struct NavigationIndex {
 	fn syntax_range(const NavigationIndex& this, const Syntax& syntax) -> SourceRange;
 	fn scope_count(const NavigationIndex& this) -> usize;
 	fn scope_at(const NavigationIndex& this, usize index) -> const NavigationScope*;
+	fn classification_count(const NavigationIndex& this) -> usize;
+	fn classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification*;
+	fn type_symbol(const NavigationIndex& this, u64 symbol) -> u64;
+	fn semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32;
+	fn symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool;
 	fn member_scope(const NavigationIndex& this, u64 symbol) -> u64;
 	fn accessible(const NavigationIndex& this, u64 symbol, u64 scope) -> bool;
 	fn binding_count(const NavigationIndex& this) -> usize;
@@ -22742,6 +22808,7 @@ private:
 
 	rt::buffer<rt::unique<NavigationEntry>> symbols;
 	rt::buffer<NavigationOccurrence> occurrences;
+	rt::buffer<NavigationClassification> classifications;
 	rt::buffer<NavigationScope> scope_locations;
 	rt::buffer<NavigationBinding> bindings;
 	rt::buffer<rt::unique<NavigationCall>> calls;
@@ -22980,6 +23047,18 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		@occurrence.context = this.symbol_id(reference.context);
 		@occurrence.roles = reference.roles;
 		if (occurrence.symbol && occurrence.range.source != usize::max && !@this.occurrences.push_back($occurrence)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < semantics.classifications().size()) {
+		const SemanticClassification& source = semantics.classifications().data()[index];
+		NavigationClassification classification;
+		@classification.range = this.range(source.location);
+		@classification.type = source.type;
+		@classification.modifiers = source.modifiers;
+		if (!@this.classifications.push_back($classification)) {
 			return false;
 		};
 		@index = index + 1;
@@ -23325,6 +23404,74 @@ fn NavigationIndex::receiver_at(const NavigationIndex& this, usize index) -> con
 		return nullptr;
 	};
 	return this.receivers.data()[index].get();
+};
+
+fn NavigationIndex::type_symbol(const NavigationIndex& this, u64 symbol) -> u64 {
+	if (!symbol || symbol > this.symbols.size()) {
+		return 0;
+	};
+	const Type* type = this.symbols.data()[symbol - 1].get()->entity->type();
+	while (type && (type->kind() == type_kind::pointer || type->kind() == type_kind::reference || type->kind() == type_kind::array)) {
+		@type = type->element();
+	};
+	if (!type || (type->kind() != type_kind::named && type->kind() != type_kind::parameter)) {
+		return 0;
+	};
+	return this.symbol_id(type->entity());
+};
+
+fn NavigationIndex::semantic_token_type(const NavigationIndex& this, u64 symbol) -> u32 {
+	if (!symbol || symbol > this.symbols.size()) {
+		return 8;
+	};
+	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	switch (entity.kind()) {
+		case entity_kind::namespace_body: return 0;
+		case entity_kind::alias: return 1;
+		case entity_kind::record: return 5;
+		case entity_kind::enumeration: return 3;
+		case entity_kind::type_parameter: return 6;
+		case entity_kind::parameter: return 7;
+		case entity_kind::field: return 9;
+		case entity_kind::enumerator: return 10;
+		case entity_kind::function: {
+			if (entity.scope() && entity.scope()->owner() && entity.scope()->owner()->kind() == entity_kind::record) {
+				return 12;
+			};
+			return 11;
+		};
+	};
+	const NavigationSymbol& value = this.symbols.data()[symbol - 1].get()->value;
+	if (value.kind == 23) {
+		return 5;
+	};
+	if (value.kind == 26) {
+		return 6;
+	};
+	return 8;
+};
+
+fn NavigationIndex::symbol_readonly(const NavigationIndex& this, u64 symbol) -> bool {
+	if (!symbol || symbol > this.symbols.size()) {
+		return false;
+	};
+	const Entity& entity = *this.symbols.data()[symbol - 1].get()->entity;
+	const Type* type = entity.type();
+	if (type && type->kind() == type_kind::reference) {
+		@type = type->element();
+	};
+	return entity.kind() == entity_kind::constant || entity.kind() == entity_kind::enumerator || type && type->qualifier() == type_qualifier::immutable;
+};
+
+fn NavigationIndex::classification_count(const NavigationIndex& this) -> usize {
+	return this.classifications.size();
+};
+
+fn NavigationIndex::classification_at(const NavigationIndex& this, usize index) -> const NavigationClassification* {
+	if (index >= this.classifications.size()) {
+		return nullptr;
+	};
+	return &@this.classifications.data()[index];
 };
 
 struct AnalysisCancellationScope {

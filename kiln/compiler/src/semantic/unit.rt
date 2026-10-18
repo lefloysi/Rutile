@@ -54,6 +54,12 @@ struct SemanticReceiverSite {
 	var Entity* owner;
 };
 
+struct SemanticClassification {
+	Token location;
+	u32 type;
+	u32 modifiers;
+};
+
 struct SemanticUnit {
 	fn associate(var SemanticUnit& this, const Type& type, var Entity& owner) -> bool;
 	fn canonical_use(var SemanticUnit& this, const Type& type) -> const TypeUse*;
@@ -83,6 +89,8 @@ struct SemanticUnit {
 	fn record_receiver(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& owner) -> bool;
 	fn receiver_sites(const SemanticUnit& this) -> const rt::buffer<SemanticReceiverSite>&;
 	fn call_sites(const SemanticUnit& this) -> const rt::buffer<SemanticCallSite>&;
+	fn record_classification(var SemanticUnit& this, const Token& location, u32 type, u32 modifiers) -> bool;
+	fn classifications(const SemanticUnit& this) -> const rt::buffer<SemanticClassification>&;
 	fn references(const SemanticUnit& this) -> const rt::buffer<ResolvedReference>&;
 
 private:
@@ -94,6 +102,7 @@ private:
 	rt::buffer<rt::unique<TypeUse>> type_uses;
 	rt::buffer<rt::unique<FunctionUse>> function_uses;
 	rt::buffer<ResolvedReference> resolved_references;
+	rt::buffer<SemanticClassification> token_classifications;
 	rt::buffer<TemplateOrigin> template_origins;
 	rt::buffer<rt::unique<TemplateInstantiation>> template_instantiations;
 	rt::buffer<SemanticScopeRegion> regions;
@@ -306,4 +315,17 @@ fn SemanticUnit::record_incomplete_call(var SemanticUnit& this, var Scope& scope
 	@site.bound_receiver = $bound_receiver;
 
 	return @this.calls.push_back($site);
+};
+
+fn SemanticUnit::record_classification(var SemanticUnit& this, const Token& location, u32 type, u32 modifiers) -> bool {
+	SemanticClassification classification;
+	@classification.location = location;
+	@classification.type = $type;
+	@classification.modifiers = $modifiers;
+
+	return @this.token_classifications.push_back($classification);
+};
+
+fn SemanticUnit::classifications(const SemanticUnit& this) -> const rt::buffer<SemanticClassification>& {
+	return this.token_classifications;
 };
