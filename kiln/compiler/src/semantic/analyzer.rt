@@ -513,7 +513,19 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 
 	if (kind == syntax_kind::access_label) {
 		if (!scope_cursor->owner() || scope_cursor->owner()->kind() != entity_kind::record) {
-			@this.error(&syntax, "access label requires class scope\0");
+			var message = DiagnosticMessage();
+			@message.text("access label \0");
+			@message.quoted(syntax.token().text());
+			@message.text(" requires class scope; current scope is \0");
+			if (scope_cursor->owner()) {
+				diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
+				@message.text(" \0");
+				@message.quoted(scope_cursor->owner()->name());
+			}
+			else {
+				@message.text("module scope\0");
+			};
+			@this.report(syntax.token(), message.view());
 			return false;
 		};
 
@@ -541,7 +553,16 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 
 			if (category == syntax_kind::variable || category == syntax_kind::function || category == syntax_kind::record || category == syntax_kind::enumeration || category == syntax_kind::namespace_body || category == syntax_kind::template_declaration || category == syntax_kind::using_alias) {
 				if (declaration) {
-					@this.error(&syntax, "declaration has multiple unresolved interpretations\0");
+					var message = DiagnosticMessage();
+					@message.text("declaration has multiple unresolved interpretations; source begins with \0");
+					@message.quoted(syntax.token().text());
+					if (scope_cursor->owner()) {
+						@message.text(" in \0");
+						diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
+						@message.text(" \0");
+						diagnostic_entity(@message, *scope_cursor->owner());
+					};
+					@this.report(syntax.token(), message.view());
 					return false;
 				};
 
@@ -552,7 +573,16 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		};
 
 		if (!declaration) {
-			@this.error(&syntax, "declaration context has no declaration interpretation\0");
+			var message = DiagnosticMessage();
+			@message.text("declaration context has no declaration interpretation; source begins with \0");
+			@message.quoted(syntax.token().text());
+			if (scope_cursor->owner()) {
+				@message.text(" in \0");
+				diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
+				@message.text(" \0");
+				diagnostic_entity(@message, *scope_cursor->owner());
+			};
+			@this.report(syntax.token(), message.view());
 			return false;
 		};
 
@@ -614,12 +644,26 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		@category = entity_kind::alias;
 	}
 	else {
-		@this.error(&syntax, "declaration required at module or record scope\0");
+		var message = DiagnosticMessage();
+		@message.text("declaration required at module or record scope; source begins with \0");
+		@message.quoted(syntax.token().text());
+		if (scope_cursor->owner()) {
+			@message.text(" in \0");
+			diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
+			@message.text(" \0");
+			diagnostic_entity(@message, *scope_cursor->owner());
+		};
+		@this.report(syntax.token(), message.view());
 		return false;
 	};
 
 	if (!name || name->kind() == syntax_kind::absent) {
-		@this.error(&syntax, "declaration requires an unqualified name in its owning scope\0");
+		var message = DiagnosticMessage();
+		@message.text("declaration requires an unqualified name in its owning scope; \0");
+		diagnostic_entity_kind(@message, category);
+		@message.text(" declaration begins with \0");
+		@message.quoted(syntax.token().text());
+		@this.report(syntax.token(), message.view());
 		return false;
 	};
 
@@ -629,7 +673,25 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		Entity* owner = @this.lookup(@*scope_cursor, @*name->left());
 
 		if (!owner || !owner->members()) {
-			@this.error(&syntax, "qualified declaration owner has no member scope\0");
+			if (!this.failed()) {
+				var message = DiagnosticMessage();
+				@message.text("cannot declare '\0");
+				diagnostic_name(@message, *name);
+				@message.text("': owner '\0");
+				diagnostic_name(@message, *name->left());
+				if (owner) {
+					@message.text("' is a \0");
+					diagnostic_entity_kind(@message, owner->kind());
+					@message.text(" without a member scope\0");
+				}
+				else {
+					@message.text("' is not declared\0");
+				};
+				@this.report(name->token(), message.view());
+				if (owner) {
+					@this.note(owner->token(), "owner is declared here\0");
+				};
+			};
 			return false;
 		};
 
@@ -641,14 +703,29 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 
 	if (existing && category != entity_kind::function) {
 		if (existing->kind() != category) {
-			@this.error(&syntax, "conflicting declaration kind\0");
+			var message = DiagnosticMessage();
+			@message.text("conflicting declaration kind for \0");
+			@message.quoted(name->token().text());
+			@message.text(": declaring \0");
+			diagnostic_entity_kind(@message, category);
+			@message.text(" after \0");
+			diagnostic_entity_kind(@message, existing->kind());
+			@this.report(name->token(), message.view());
+			@this.note(existing->token(), "previous declaration is here\0");
 			return false;
 		};
 
 		if (category == entity_kind::record) {
 			if (members->kind() != syntax_kind::noop) {
 				if (existing->declaration()->record_members()->kind() != syntax_kind::noop) {
-					@this.error(&syntax, "duplicate record definition\0");
+					var message = DiagnosticMessage();
+					@message.text("duplicate record definition for \0");
+					@message.quoted(name->token().text());
+					@message.text(" (\0");
+					diagnostic_entity_kind(@message, category);
+					@message.text(")\0");
+					@this.report(name->token(), message.view());
+					@this.note(existing->token(), "previous record definition is here\0");
 					return false;
 				};
 
@@ -656,7 +733,14 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 			};
 		}
 		else if (category != entity_kind::namespace_body) {
-			@this.error(&syntax, "duplicate declaration\0");
+			var message = DiagnosticMessage();
+			@message.text("duplicate declaration of \0");
+			@message.quoted(name->token().text());
+			@message.text(" (\0");
+			diagnostic_entity_kind(@message, category);
+			@message.text(")\0");
+			@this.report(name->token(), message.view());
+			@this.note(existing->token(), "previous declaration is here\0");
 			return false;
 		};
 	};
@@ -697,7 +781,19 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 
 	if (entity->kind() == entity_kind::function && name->kind() == syntax_kind::unary && name->token().kind == token_kind::op_tilde) {
 		if (!scope_cursor->owner() || scope_cursor->owner()->kind() != entity_kind::record || !name->operand()->token().same(scope_cursor->owner()->token())) {
-			@this.error(&syntax, "destructor shall name its owning class\0");
+			var message = DiagnosticMessage();
+			@message.text("destructor '\0");
+			@message.text("~\0");
+			diagnostic_name(@message, *name->operand());
+			@message.text("' shall name its owning class\0");
+			if (scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record) {
+				@message.text(" \0");
+				@message.quoted(scope_cursor->owner()->name());
+			}
+			else {
+				@message.text("; declaration is outside class scope\0");
+			};
+			@this.report(name->token(), message.view());
 			return false;
 		};
 

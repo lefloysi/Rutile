@@ -7,26 +7,61 @@ fn Analyzer::resolve_bases(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (entity->layout() == record_layout::overlapping) {
-		@this.error(declaration, "union cannot contain a base subobject\0");
+		var message = DiagnosticMessage();
+		@message.text("union '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' cannot contain a base subobject\0");
+		@this.report(entity->token(), message.view());
 		return false;
 	};
 
 	if (bases->size() != 1) {
-		@this.error(declaration, "multiple base analysis is not implemented\0");
+		var message = DiagnosticMessage();
+		@message.text("record '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' declares \0");
+		@message.number(u64(bases->size()));
+		@message.text(" base types; multiple base analysis is not implemented\0");
+		@this.report(entity->token(), message.view());
 		return false;
 	};
 
 	const Type* base = @this.type(@*entity->resolution_scope(), @*bases->item(0));
 
-	if (!base || base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record || base->qualifier() != type_qualifier::mutable || base->entity()->layout() != record_layout::sequential) {
-		@this.error(bases->item(0), "base requires an unqualified nonunion record type\0");
+	if (!base) {
+		return false;
+	};
+	if (base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record || base->qualifier() != type_qualifier::mutable || base->entity()->layout() != record_layout::sequential) {
+		var message = DiagnosticMessage();
+		@message.text("invalid base type '\0");
+		diagnostic_type(@message, *base);
+		@message.text("' for record '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("': \0");
+		if (base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record) {
+			@message.text("base requires a record type\0");
+		}
+		else if (base->qualifier() != type_qualifier::mutable) {
+			@message.text("base type shall be unqualified\0");
+		}
+		else {
+			@message.text("base type shall not be a union\0");
+		};
+		@this.report(bases->item(0)->token(), message.view());
 		return false;
 	};
 
 	Entity* owner = base->entity();
 
 	if (owner->state() == entity_state::resolving) {
-		@this.error(bases->item(0), "base relation contains a cycle\0");
+		var message = DiagnosticMessage();
+		@message.text("base relation contains a cycle; record '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' names base '\0");
+		diagnostic_type(@message, *base);
+		@message.text("'\0");
+		@this.report(bases->item(0)->token(), message.view());
+		@this.note(owner->token(), "base record is declared here\0");
 		return false;
 	};
 
@@ -35,12 +70,19 @@ fn Analyzer::resolve_bases(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (owner->declaration()->record_members()->kind() == syntax_kind::noop) {
-		@this.error(bases->item(0), "base requires a complete record definition\0");
+		var message = DiagnosticMessage();
+		@message.text("base requires a complete record definition; record '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' names base '\0");
+		diagnostic_type(@message, *base);
+		@message.text("'\0");
+		@this.report(bases->item(0)->token(), message.view());
+		@this.note(owner->token(), "base record is declared here\0");
 		return false;
 	};
 
 	if (!@entity->add_base(base)) {
-		@this.error(declaration, "cannot retain base subobject metadata\0");
+		@this.error(declaration, "base subobject metadata storage is unavailable\0");
 		return false;
 	};
 

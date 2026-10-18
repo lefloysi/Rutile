@@ -8,7 +8,13 @@ fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class
 				Token token = declaration->function_attributes()->item(index)->token();
 
 				if (token.is(rt::string_view("virtual\0")) || token.is(rt::string_view("override\0")) || token.is(rt::string_view("final\0"))) {
-					@this.error(declaration, "virtual function templates are not implemented\0");
+					var message = DiagnosticMessage();
+					@message.text("attribute \0");
+					@message.quoted(token.text());
+					@message.text(" on function template '\0");
+					diagnostic_name(@message, *declaration->function_name());
+					@message.text("' requires virtual function templates, which are not implemented\0");
+					@this.report(token, message.view());
 					return false;
 				};
 
@@ -63,12 +69,33 @@ fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class
 	Syntax* parameters = syntax.function_parameters();
 
 	if ((!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) || !parameters->size() || !parameters->item(0)->parameter_name()->token().is(rt::string_view("this\0")) || parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
-		@this.error(&syntax, "virtual operation requires an explicit class receiver named this\0");
+		var message = DiagnosticMessage();
+		@message.text("virtual operation '\0");
+		diagnostic_name(@message, *syntax.function_name());
+		@message.text("' requires an explicit class receiver of reference type named 'this'\0");
+		if (!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) {
+			@message.text("; the function is not declared in class scope\0");
+		}
+		else if (!parameters->size()) {
+			@message.text("; the function has no receiver parameter\0");
+		}
+		else {
+			@message.text("; first parameter is named \0");
+			@message.quoted(parameters->item(0)->parameter_name()->token().text());
+			if (parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
+				@message.text(" and does not have reference type\0");
+			};
+		};
+		@this.report(syntax.token(), message.view());
 		return false;
 	};
 
 	if (this.templates.qualifier_dependent(@syntax)) {
-		@this.error(&syntax, "virtual operation cannot have dependent receiver qualification\0");
+		var message = DiagnosticMessage();
+		@message.text("virtual operation '\0");
+		diagnostic_name(@message, *syntax.function_name());
+		@message.text("' cannot have dependent receiver qualification\0");
+		@this.report(syntax.token(), message.view());
 		return false;
 	};
 
@@ -127,6 +154,7 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 
 		while (inherited < base.size()) {
 			if (!@entity->add_virtual(base.data()[inherited])) {
+				@this.error(entity->declaration(), "inherited virtual operation storage is unavailable\0");
 				return false;
 			};
 
@@ -160,6 +188,7 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 		};
 
 		if (!@seen.push_back(Entity*(function))) {
+			@this.error(function->declaration(), "virtual operation analysis storage is unavailable\0");
 			return false;
 		};
 
@@ -173,17 +202,43 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 			Entity* previous = entity->virtual_functions().data()[slot];
 
 			if (previous->is_final()) {
-				@this.error(function->declaration(), "final virtual operation cannot be overridden\0");
+				var message = DiagnosticMessage();
+				@message.text("final virtual operation cannot be overridden; function '\0");
+				diagnostic_entity(@message, *function);
+				@message.text("' has type '\0");
+				diagnostic_type(@message, *function->type());
+				@message.text("'\0");
+				@this.report(function->token(), message.view());
+				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
 			};
 
 			if (!function->requires_override() && !function->is_final()) {
-				@this.error(function->declaration(), "override of an inherited virtual operation requires override or final\0");
+				var message = DiagnosticMessage();
+				@message.text("override of an inherited virtual operation requires override or final; function '\0");
+				diagnostic_entity(@message, *function);
+				@message.text("' has type '\0");
+				diagnostic_type(@message, *function->type());
+				@message.text("'\0");
+				@this.report(function->token(), message.view());
+				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
 			};
 
 			if (!dispatch_result(*function->type()->signature().result(), *previous->type()->signature().result())) {
-				@this.error(function->declaration(), "virtual override has an incompatible result type\0");
+				var message = DiagnosticMessage();
+				@message.text("virtual override has an incompatible result type; function '\0");
+				diagnostic_entity(@message, *function);
+				@message.text("' has type '\0");
+				diagnostic_type(@message, *function->type());
+				@message.text("'\0");
+				@message.text(" with result '\0");
+				diagnostic_type(@message, *function->type()->signature().result());
+				@message.text("'; inherited result is '\0");
+				diagnostic_type(@message, *previous->type()->signature().result());
+				@message.text("'\0");
+				@this.report(function->token(), message.view());
+				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
 			};
 
@@ -191,20 +246,42 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 			@function->set_virtual_slot(slot);
 		}
 		else if (function->requires_override() || function->is_final() && !function->declares_virtual()) {
-			@this.error(function->declaration(), "override requires a matching inherited virtual operation\0");
+			var message = DiagnosticMessage();
+			if (function->requires_override()) {
+				@message.text("override\0");
+			}
+			else {
+				@message.text("final without virtual\0");
+			};
+			@message.text(" on function '\0");
+			diagnostic_entity(@message, *function);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *function->type());
+			@message.text("' requires a matching inherited virtual operation\0");
+			@this.report(function->token(), message.view());
+			usize inherited_index = 0;
+			while (inherited_index < inherited) {
+				diagnostic_candidate(@*this.diagnostics, *entity->virtual_functions().data()[inherited_index]);
+				@inherited_index = inherited_index + 1;
+			};
 			return false;
 		}
 		else if (function->declares_virtual()) {
 			@function->set_virtual_slot(entity->virtual_functions().size());
 
 			if (!@entity->add_virtual(Entity*(function))) {
+				@this.error(function->declaration(), "virtual operation storage is unavailable\0");
 				return false;
 			};
 		};
 	};
 
 	if (entity->layout() == record_layout::overlapping && entity->virtual_functions().size()) {
-		@this.error(entity->declaration(), "union cannot contain virtual operations\0");
+		var message = DiagnosticMessage();
+		@message.text("union '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' cannot contain virtual operations\0");
+		@this.report(entity->token(), message.view());
 		return false;
 	};
 

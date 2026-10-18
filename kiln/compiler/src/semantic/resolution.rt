@@ -12,7 +12,13 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			return true;
 		};
 
-		@this.error(entity->declaration(), "cyclic entity definition\0");
+		var message = DiagnosticMessage();
+		@message.text("cyclic entity definition for \0");
+		diagnostic_entity_kind(@message, entity->kind());
+		@message.text(" '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("'\0");
+		@this.report(entity->token(), message.view());
 		return false;
 	};
 
@@ -103,8 +109,22 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		if (source->item(1)->kind() != syntax_kind::absent) {
 			var initializer = @this.expression(@*scope, @*source->item(1), rt::optional_ref<const Type>(*owner->underlying()));
 
-			if (!initializer.get() || !@this.constant_integer(*initializer.get(), @value)) {
-				@this.error(source, "enumerator value requires an integer constant\0");
+			if (!initializer.get()) {
+				return false;
+			};
+			if (!@this.constant_integer(*initializer.get(), @value)) {
+				if (this.failed()) {
+					return false;
+				};
+				var message = DiagnosticMessage();
+				@message.text("enumerator '\0");
+				diagnostic_entity(@message, *entity);
+				@message.text("' requires an integer constant of underlying type '\0");
+				diagnostic_type(@message, *owner->underlying());
+				@message.text("'; initializer has type '\0");
+				diagnostic_type(@message, *initializer.get()->type());
+				@message.text("' and is not constant\0");
+				@this.report(source->item(1)->token(), message.view());
 				return false;
 			};
 		};
@@ -398,6 +418,9 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				@message.text("declaration '\0");
 				diagnostic_entity(@message, *entity);
 				@message.text("': self conversion requires a const reference receiver\0");
+				@message.text("; received '\0");
+				diagnostic_type(@message, *receiver->type());
+				@message.text("'\0");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -409,6 +432,32 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				@message.text("declaration '\0");
 				diagnostic_entity(@message, *entity);
 				@message.text("': virtual operation requires an explicit ordinary class receiver named this\0");
+				@message.text("; declared signature is '\0");
+				diagnostic_type(@message, *entity->type());
+				@message.text("'\0");
+				if (entity->parameters().size()) {
+					const Entity& receiver = *entity->parameters().data()[0];
+					@message.text("; first parameter is '\0");
+					diagnostic_type(@message, *receiver.type());
+					@message.text(" \0");
+					@message.text(receiver.name());
+					@message.text("'\0");
+				}
+				else {
+					@message.text("; no receiver parameter was declared\0");
+				};
+				if (!owner || owner->kind() != entity_kind::record) {
+					@message.text("; enclosing scope is \0");
+					if (owner) {
+						diagnostic_entity_kind(@message, owner->kind());
+						@message.text(" '\0");
+						diagnostic_entity(@message, *owner);
+						@message.text("'\0");
+					}
+					else {
+						@message.text("module scope\0");
+					};
+				};
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -418,6 +467,9 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				@message.text("declaration '\0");
 				diagnostic_entity(@message, *entity);
 				@message.text("': variadic virtual operations are not implemented\0");
+				@message.text("; declared signature is '\0");
+				diagnostic_type(@message, *entity->type());
+				@message.text("'\0");
 				@this.report(source->token(), message.view());
 				return false;
 			};
