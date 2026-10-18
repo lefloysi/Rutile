@@ -1,15 +1,16 @@
-fn Analyzer::names_type(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
+fn Analyzer::names_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool {
 	switch (syntax.kind()) {
 		case syntax_kind::type_pointer:
 		case syntax_kind::type_reference:
 		case syntax_kind::type_array:
 		case syntax_kind::type_const:
+		case syntax_kind::type_mutable:
 			return @this.names_type(@scope, @*syntax.designated_type());
 		case syntax_kind::type_function:
 			return true;
 		case syntax_kind::type_name: {
-			Syntax* name = syntax.designated_type();
-			Entity* entity = @this.lookup(@scope, @*name);
+			var Syntax* name = syntax.designated_type();
+			var Entity* entity = @this.lookup(@scope, @*name);
 
 			if (entity) {
 				return entity->denotes_type();

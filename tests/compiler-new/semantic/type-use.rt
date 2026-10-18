@@ -3,15 +3,15 @@ fn type_use_tests() -> i32 {
 	if (!@fixture.build("struct Item { i32 value; }; var item : Item; fn add(i32 left, i32 right) -> i32 { return left + right; }; fn subtract(i32 minuend, i32 subtrahend) -> i32 { return minuend - subtrahend; }; using Callback = ((i32 first, i32 second) -> i32)*; var original = &add; var explicit : Callback = &subtract; fn get() -> ((i32 called_left, i32 called_right) -> i32)* { return &add; }; var returned = get(); fn use() { var callable = &add; @callable = &subtract; };\0")) {
 		return 1;
 	};
-	Scope* root = fixture.unit.get()->root_scope();
-	Entity* add = root->local(rt::string_view("add\0"));
-	Entity* subtract = root->local(rt::string_view("subtract\0"));
+	var Scope* root = fixture.unit.get()->root_scope();
+	var Entity* add = root->local(rt::string_view("add\0"));
+	var Entity* subtract = root->local(rt::string_view("subtract\0"));
 	if (add->type() != subtract->type()) {
 		return 2;
 	};
-	Entity* original = root->local(rt::string_view("original\0"));
-	Entity* explicit = root->local(rt::string_view("explicit\0"));
-	Entity* returned = root->local(rt::string_view("returned\0"));
+	var Entity* original = root->local(rt::string_view("original\0"));
+	var Entity* explicit = root->local(rt::string_view("explicit\0"));
+	var Entity* returned = root->local(rt::string_view("returned\0"));
 	if (!original->type_use().has_value() || !explicit->type_use().has_value() || !returned->type_use().has_value()) {
 		return 3;
 	};
@@ -27,7 +27,7 @@ fn type_use_tests() -> i32 {
 	usize generated = 0;
 	usize declaration = 0;
 	while (declaration < fixture.unit.get()->entities().size()) {
-		Entity* function = fixture.unit.get()->entities().data()[declaration].get();
+		var Entity* function = fixture.unit.get()->entities().data()[declaration].get();
 		if (function->kind() == entity_kind::function && !function->declaration() && function->type_use().has_value()) {
 			@generated = generated + 1;
 			const FunctionUse& use = function->type_use().value().callable();
@@ -47,7 +47,7 @@ fn type_use_tests() -> i32 {
 	};
 	usize index = 0;
 	while (index < fixture.unit.get()->entities().size()) {
-		Entity* entity = fixture.unit.get()->entities().data()[index].get();
+		var Entity* entity = fixture.unit.get()->entities().data()[index].get();
 		if (entity->kind() == entity_kind::local && entity->name() == rt::string_view("callable\0")) {
 			if (!entity->type_use().has_value() || !entity->type_use().value().element().callable().parameters().data()[0].name().value().is(rt::string_view("left\0"))) {
 				return 6;

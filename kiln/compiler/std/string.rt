@@ -1,13 +1,13 @@
 namespace rt {
 	struct string {
-		fn string(string& this) : [default];
-		fn string(string& this, const string& other);
-		fn string(string& this, const string_view& text);
-		fn string(string& this, const char* text);
+		fn string(var string& this) : [default];
+		fn string(var string& this, const string& other);
+		fn string(var string& this, const string_view& text);
+		fn string(var string& this, const char* text);
 
-		fn operator=(string& this, const string& other) -> string&;
-		fn clear(string& this);
-		fn append(string& this, const string_view& text) -> bool;
+		fn operator=(var string& this, const string& other) -> var string&;
+		fn clear(var string& this);
+		fn append(var string& this, const string_view& text) -> bool;
 
 		fn size(const string& this) -> usize;
 		fn empty(const string& this) -> bool;
@@ -19,12 +19,12 @@ namespace rt {
 		buffer<char> bytes;
 	};
 
-	fn string_view::string_view(string_view& this, const string& text) {
+	fn string_view::string_view(var string_view& this, const string& text) {
 		@this.bytes = text.data();
 		@this.length = text.size();
 	};
 
-	fn string::append(string& this, const string_view& text) -> bool {
+	fn string::append(var string& this, const string_view& text) -> bool {
 		if (text.empty()) {
 			return true;
 		};
@@ -64,19 +64,19 @@ namespace rt {
 		return true;
 	};
 
-	fn string::string(string& this, const string& other) {
+	fn string::string(var string& this, const string& other) {
 		@this.append(other.view());
 	};
 
-	fn string::string(string& this, const string_view& text) {
+	fn string::string(var string& this, const string_view& text) {
 		@this.append(text);
 	};
 
-	fn string::string(string& this, const char* text) {
+	fn string::string(var string& this, const char* text) {
 		@this.append(string_view($text));
 	};
 
-	fn string::operator=(string& this, const string& other) -> string& {
+	fn string::operator=(var string& this, const string& other) -> var string& {
 		string replacement;
 		if (!@replacement.append(other.view())) {
 			return @this;
@@ -115,7 +115,7 @@ namespace rt {
 		return string_view(this.bytes.data(), this.size());
 	};
 
-	fn string::clear(string& this) {
+	fn string::clear(var string& this) {
 		@this.bytes.clear();
 	};
 };

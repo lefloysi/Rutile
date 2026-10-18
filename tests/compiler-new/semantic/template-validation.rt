@@ -15,12 +15,12 @@ fn template_validation_tests() -> i32 {
 	};
 
 	var deferred = TemplateFixture();
-	if (!@deferred.build("template<usize Value> struct Deferred { i32 value; Value * value; }; template<typename T> struct Reference { void& value; }; template<usize N> struct Sized { i32[N] value; };\0")) {
+	if (!@deferred.build("template<usize Value> struct Deferred { i32 value; Value * value; }; template<typename T> struct Reference { var void& value; }; template<usize N> struct Sized { i32[N] value; };\0")) {
 		return 4;
 	};
 
 	var dependent = TemplateFixture();
-	if (!@dependent.build("template<typename T, T N> struct Dependent { T value; }; template<typename T> struct Owner { fn Owner(Owner<T>& this); };\0")) {
+	if (!@dependent.build("template<typename T, T N> struct Dependent { T value; }; template<typename T> struct Owner { fn Owner(var Owner<T>& this); };\0")) {
 		return 5;
 	};
 
@@ -30,7 +30,7 @@ fn template_validation_tests() -> i32 {
 	};
 
 	var forward = TemplateFixture();
-	if (!@forward.build("template<typename T> struct Forward { Later* value; }; struct Later {};\0")) {
+	if (!@forward.build("template<typename T> struct Forward { var Later* value; }; struct Later {};\0")) {
 		return 7;
 	};
 	var ordinary_operator = TemplateFixture();

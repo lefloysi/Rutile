@@ -1,4 +1,4 @@
-fn SemanticUnit::canonical_use(SemanticUnit& this, const Type& type) -> const TypeUse* {
+fn SemanticUnit::canonical_use(var SemanticUnit& this, const Type& type) -> const TypeUse* {
 	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array) {
 		const TypeUse* element = @this.canonical_use(*type.element());
 
@@ -34,9 +34,9 @@ fn SemanticUnit::canonical_use(SemanticUnit& this, const Type& type) -> const Ty
 	return @this.function_use(type, $parameters, *result);
 };
 
-fn SemanticUnit::retype_use(SemanticUnit& this, const TypeUse& source, const Type& type) -> const TypeUse* {
-	if (&source.type() == &type) {
-		return &source;
+fn SemanticUnit::retype_use(var SemanticUnit& this, const TypeUse& source, const Type& type) -> const TypeUse* {
+	if (&@source.type() == &@type) {
+		return &@source;
 	};
 
 	if (source.type().kind() != type.kind()) {
@@ -79,10 +79,10 @@ fn SemanticUnit::retype_use(SemanticUnit& this, const TypeUse& source, const Typ
 	return @this.function_use(type, $parameters, *result);
 };
 
-fn SemanticUnit::describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& scope, const Syntax& syntax, const Type& type) -> const TypeUse* {
+fn SemanticUnit::describe_type(var SemanticUnit& this, var Analyzer& analyzer, var Scope& scope, const Syntax& syntax, const Type& type) -> const TypeUse* {
 	syntax_kind kind = syntax.kind();
 
-	if (kind == syntax_kind::type_name || kind == syntax_kind::type_const || kind == syntax_kind::type_auto) {
+	if (kind == syntax_kind::type_name || (kind == syntax_kind::type_const || kind == syntax_kind::type_mutable) || kind == syntax_kind::type_auto) {
 		return @this.describe_type(@analyzer, @scope, *syntax.designated_type(), type);
 	};
 
@@ -97,7 +97,7 @@ fn SemanticUnit::describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& sc
 	};
 
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
-		Entity* entity = @analyzer.lookup(@scope, @*(const_cast<Syntax*>(&syntax)));
+		var Entity* entity = @analyzer.lookup(@scope, @*(const_cast<var Syntax*>(&@syntax)));
 
 		if (entity && entity->type_use().has_value()) {
 			return @this.retype_use(entity->type_use().value(), type);
@@ -108,8 +108,8 @@ fn SemanticUnit::describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& sc
 		return @this.canonical_use(type);
 	};
 
-	Syntax* inputs = syntax.function_type_parameters();
-	Syntax* output = syntax.function_type_result();
+	var Syntax* inputs = syntax.function_type_parameters();
+	var Syntax* output = syntax.function_type_result();
 
 	if (kind == syntax_kind::function) {
 		@inputs = syntax.function_parameters();
@@ -119,7 +119,7 @@ fn SemanticUnit::describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& sc
 	rt::buffer<ParameterUse> parameters;
 	usize index = 0;
 	while (index < type.signature().parameters().size()) {
-		Syntax* parameter = inputs->item(index);
+		var Syntax* parameter = inputs->item(index);
 		const TypeUse* element = @this.describe_type(@analyzer, @scope, *parameter->parameter_type(), *type.signature().parameters().data()[index]);
 
 		if (!element) {
@@ -149,19 +149,19 @@ fn SemanticUnit::describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& sc
 	return @this.function_use(type, $parameters, *result);
 };
 
-fn SemanticUnit::describe_entity(SemanticUnit& this, Analyzer& analyzer, Entity& entity) -> bool {
+fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer, var Entity& entity) -> bool {
 	if (!entity.type() || entity.type_use().has_value() || entity.kind() == entity_kind::template_pattern) {
 		return true;
 	};
 
-	Syntax* source = entity.declaration();
+	var Syntax* source = entity.declaration();
 	const TypeUse* use = nullptr;
 
 	if (entity.kind() == entity_kind::function) {
 		rt::buffer<ParameterUse> parameters;
 		usize index = 0;
 		while (index < entity.parameters().size()) {
-			Entity* parameter = entity.parameters().data()[index];
+			var Entity* parameter = entity.parameters().data()[index];
 
 			if (!@this.describe_entity(@analyzer, @*parameter) || !parameter->type_use().has_value()) {
 				return false;
@@ -183,7 +183,7 @@ fn SemanticUnit::describe_entity(SemanticUnit& this, Analyzer& analyzer, Entity&
 		const TypeUse* result = nullptr;
 
 		if (source && source->kind() == syntax_kind::function) {
-			Scope* signature_scope = entity.members();
+			var Scope* signature_scope = entity.members();
 
 			if (entity.parameters().size()) {
 				@signature_scope = entity.parameters().data()[0]->resolution_scope();
@@ -232,16 +232,16 @@ fn SemanticUnit::available_use(const SemanticUnit& this, const SemanticExpressio
 		return expression.type_use().get();
 	};
 
-	Entity* binding = expression.entity();
+	var Entity* binding = expression.entity();
 
 	if (binding && binding->type_use().has_value()) {
-		return &binding->type_use().value().effective();
+		return &@binding->type_use().value().effective();
 	};
 
 	return nullptr;
 };
 
-fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Scope& scope, const Syntax& syntax, SemanticExpression& expression) -> bool {
+fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analyzer, var Scope& scope, const Syntax& syntax, var SemanticExpression& expression) -> bool {
 	if (expression.type_use().has_value()) {
 		return true;
 	};
@@ -249,9 +249,9 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 	semantic_kind kind = expression.kind();
 
 	if (kind == semantic_kind::variable) {
-		Entity* entity = expression.entity();
+		var Entity* entity = expression.entity();
 		const TypeUse* use = nullptr;
-		Syntax* declaration = entity->declaration();
+		var Syntax* declaration = entity->declaration();
 
 		if (declaration->kind() == syntax_kind::variable && declaration->variable_type()->kind() != syntax_kind::absent) {
 			@use = @this.describe_type(@analyzer, @scope, *declaration->variable_type(), *entity->type());
@@ -274,7 +274,7 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 	const TypeUse* use = this.available_use(expression);
 
 	if (kind == semantic_kind::allocation && syntax.kind() == syntax_kind::allocation) {
-		Syntax* allocated = syntax.allocation_type();
+		var Syntax* allocated = syntax.allocation_type();
 
 		if (allocated->kind() == syntax_kind::type_array) {
 			@allocated = allocated->designated_type();
@@ -309,7 +309,7 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 			@use = @this.describe_type(@analyzer, @scope, *syntax.cast_type(), *target);
 
 			if (use) {
-				@use = &use->effective();
+				@use = &@use->effective();
 			};
 		};
 	}
@@ -317,7 +317,7 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 		const TypeUse* child = this.available_use(*expression.item(0));
 
 		if (child && (child->type().kind() == type_kind::pointer || child->type().kind() == type_kind::array)) {
-			@use = &child->element().effective();
+			@use = &@child->element().effective();
 		};
 	}
 	else if (kind == semantic_kind::binary) {
@@ -336,11 +336,11 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 		const TypeUse* callable = this.available_use(*expression.item(0));
 
 		if (callable && callable->type().kind() == type_kind::pointer) {
-			@callable = &callable->element();
+			@callable = &@callable->element();
 		};
 
 		if (callable && callable->type().kind() == type_kind::function) {
-			@use = &callable->callable().result().effective();
+			@use = &@callable->callable().result().effective();
 		};
 	};
 
@@ -360,7 +360,7 @@ fn SemanticUnit::describe_expression(SemanticUnit& this, Analyzer& analyzer, Sco
 	return true;
 };
 
-fn Analyzer::resolve(Analyzer& this, Entity* entity) -> bool {
+fn Analyzer::resolve(var Analyzer& this, var Entity* entity) -> bool {
 	if (!@this.resolve_impl(entity)) {
 		return false;
 	};
@@ -368,9 +368,9 @@ fn Analyzer::resolve(Analyzer& this, Entity* entity) -> bool {
 	return @this.unit->describe_entity(@this, @*entity);
 };
 
-fn Analyzer::expression(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::expression(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (!@this.unit->record_scope(@scope, @syntax)) {
-		@this.error(&syntax, "semantic scope metadata storage is unavailable\0");
+		@this.error(&@syntax, "semantic scope metadata storage is unavailable\0");
 		return rt::unique<SemanticExpression>();
 	};
 	var result = @this.expression_impl(@scope, @syntax, expected);
@@ -380,7 +380,7 @@ fn Analyzer::expression(Analyzer& this, Scope& scope, Syntax& syntax, const rt::
 	};
 
 	if (!@this.unit->record_call(@scope, @syntax, *result.get()) || !@this.unit->describe_expression(@this, @scope, syntax, @*result.get())) {
-		@this.error(&syntax, "could not describe the expression's type use\0");
+		@this.error(&@syntax, "could not describe the expression's type use\0");
 
 		return rt::unique<SemanticExpression>();
 	};

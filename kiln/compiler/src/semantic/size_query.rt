@@ -1,4 +1,4 @@
-fn Analyzer::size_query(Analyzer& this, Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression> {
+fn Analyzer::size_query(var Analyzer& this, var Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression> {
 	if (!type.has_layout()) {
 		var message = DiagnosticMessage();
 		@message.text("sizeof requires a complete object storage type; received '\0");
@@ -9,8 +9,8 @@ fn Analyzer::size_query(Analyzer& this, Syntax& syntax, const Type& type) -> rt:
 		return rt::unique<SemanticExpression>();
 	};
 
-	var operand = @this.node(semantic_kind::noop, &type, &syntax);
-	var result = @this.node(semantic_kind::sizeof_type, this.types->find_primitive(rt::string_view("usize\0")), &syntax);
+	var operand = @this.node(semantic_kind::noop, &@type, &@syntax);
+	var result = @this.node(semantic_kind::sizeof_type, this.types->find_primitive(rt::string_view("usize\0")), &@syntax);
 
 	if (!operand.get() || !result.get()) {
 		return rt::unique<SemanticExpression>();

@@ -1,4 +1,4 @@
-fn SemanticExpression::constant_truth(const SemanticExpression& this, bool& result) -> bool {
+fn SemanticExpression::constant_truth(const SemanticExpression& this, var bool& result) -> bool {
 	if (this.type()->kind() == type_kind::floating_point) {
 		f64 value = 0.0;
 
@@ -22,7 +22,7 @@ fn SemanticExpression::constant_truth(const SemanticExpression& this, bool& resu
 	return true;
 };
 
-fn SemanticExpression::constant_integer(const SemanticExpression& this, u64& result) -> bool {
+fn SemanticExpression::constant_integer(const SemanticExpression& this, var u64& result) -> bool {
 	if (this.kind() == semantic_kind::null_pointer) {
 		@result = 0;
 
@@ -304,7 +304,7 @@ fn SemanticExpression::copy_constant(const SemanticExpression& this) -> rt::uniq
 			return rt::unique<SemanticExpression>();
 		};
 
-		var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_real, this.type(), this.token()));
+		var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_real, this.type(), this.token()));
 
 		if (result.get()) {
 			@result.get()->set_real(value);
@@ -319,7 +319,7 @@ fn SemanticExpression::copy_constant(const SemanticExpression& this) -> rt::uniq
 		return rt::unique<SemanticExpression>();
 	};
 
-	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_integer, this.type(), this.token()));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, this.type(), this.token()));
 
 	if (result.get()) {
 		@result.get()->set_integer(this.type()->normalize_integer(value));

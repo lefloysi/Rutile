@@ -4,8 +4,8 @@ struct AnalysisSource {
 };
 
 struct SourceRange {
-	fn SourceRange(SourceRange& this) : [default];
-	fn SourceRange(SourceRange& this, const SourceRange& other) : [implicit, default];
+	fn SourceRange(var SourceRange& this) : [default];
+	fn SourceRange(var SourceRange& this, const SourceRange& other) : [implicit, default];
 
 	usize source;
 	usize begin;
@@ -13,8 +13,8 @@ struct SourceRange {
 };
 
 struct NavigationSymbol {
-	fn NavigationSymbol(NavigationSymbol& this) : [default];
-	fn NavigationSymbol(NavigationSymbol& this, const NavigationSymbol& other) : [implicit, default];
+	fn NavigationSymbol(var NavigationSymbol& this) : [default];
+	fn NavigationSymbol(var NavigationSymbol& this, const NavigationSymbol& other) : [implicit, default];
 
 	u64 id;
 	u64 container;
@@ -28,8 +28,8 @@ struct NavigationSymbol {
 };
 
 struct NavigationOccurrence {
-	fn NavigationOccurrence(NavigationOccurrence& this) : [default];
-	fn NavigationOccurrence(NavigationOccurrence& this, const NavigationOccurrence& other) : [implicit, default];
+	fn NavigationOccurrence(var NavigationOccurrence& this) : [default];
+	fn NavigationOccurrence(var NavigationOccurrence& this, const NavigationOccurrence& other) : [implicit, default];
 
 	SourceRange range;
 	u64 symbol;
@@ -38,8 +38,8 @@ struct NavigationOccurrence {
 };
 
 struct LanguageDiagnostic {
-	fn LanguageDiagnostic(LanguageDiagnostic& this) : [default];
-	fn LanguageDiagnostic(LanguageDiagnostic& this, const LanguageDiagnostic& other) : [implicit, default];
+	fn LanguageDiagnostic(var LanguageDiagnostic& this) : [default];
+	fn LanguageDiagnostic(var LanguageDiagnostic& this, const LanguageDiagnostic& other) : [implicit, default];
 
 	SourceRange range;
 	u32 severity;
@@ -47,8 +47,8 @@ struct LanguageDiagnostic {
 };
 
 struct NavigationScope {
-	fn NavigationScope(NavigationScope& this) : [default];
-	fn NavigationScope(NavigationScope& this, const NavigationScope& other) : [implicit, default];
+	fn NavigationScope(var NavigationScope& this) : [default];
+	fn NavigationScope(var NavigationScope& this, const NavigationScope& other) : [implicit, default];
 	u64 id;
 	u64 parent;
 	u64 context;
@@ -80,7 +80,7 @@ struct NavigationParameterEntry {
 };
 
 struct NavigationEntry {
-	Entity* entity;
+	var Entity* entity;
 	u64 member_scope;
 	NavigationSymbol value;
 	rt::string name;
@@ -89,8 +89,8 @@ struct NavigationEntry {
 };
 
 struct NavigationIndex {
-	fn register_source(NavigationIndex& this, SourceFile& source, usize index) -> bool;
-	fn build(NavigationIndex& this, const SemanticUnit& semantics) -> bool;
+	fn register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool;
+	fn build(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
 	fn symbol_count(const NavigationIndex& this) -> usize;
 	fn symbol_at(const NavigationIndex& this, usize index) -> const NavigationSymbol*;
 	fn occurrence_count(const NavigationIndex& this) -> usize;
@@ -109,10 +109,10 @@ struct NavigationIndex {
 	fn call_at(const NavigationIndex& this, usize index) -> const NavigationCall*;
 
 private:
-	fn scope_id(NavigationIndex& this, const Scope& scope) -> u64;
-	fn build_contexts(NavigationIndex& this, const SemanticUnit& semantics) -> bool;
+	fn scope_id(var NavigationIndex& this, const Scope& scope) -> u64;
+	fn build_contexts(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
 	fn symbol_id(const NavigationIndex& this, const Entity* entity) -> u64;
-	fn declaration_name(const NavigationIndex& this, Syntax& declaration) -> Token;
+	fn declaration_name(const NavigationIndex& this, var Syntax& declaration) -> Token;
 	fn symbol_kind(const NavigationIndex& this, const Entity& entity) -> u32;
 
 	rt::buffer<rt::unique<NavigationEntry>> symbols;

@@ -1,4 +1,4 @@
-fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, SemanticExpression& callable, rt::buffer<rt::unique<SemanticExpression>>& values) -> bool {
+fn Analyzer::contextual_arguments(var Analyzer& this, var Scope& scope, var Syntax& syntax, var SemanticExpression& callable, var rt::buffer<rt::unique<SemanticExpression>>& values) -> bool {
 	const TypeUse* use = callable.type_use().get();
 
 	if (!use && callable.entity()) {
@@ -6,7 +6,7 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 	};
 
 	if (use && use->type().kind() == type_kind::pointer) {
-		@use = &use->element();
+		@use = &@use->element();
 	};
 
 	usize offset = values.size() - syntax.arguments()->size();
@@ -40,7 +40,7 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 	return true;
 };
 
-fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
+fn Analyzer::contextual_argument(var Analyzer& this, var Scope& scope, var Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
 	if (!name.has_value()) {
 		var message = DiagnosticMessage();
 		@message.text("argument block requires a named parameter; selected parameter has type '\0");
@@ -51,7 +51,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		return rt::unique<SemanticExpression>();
 	};
 
-	const Type* type = &use.type();
+	const Type* type = &@use.type();
 	const Type* value_type = type;
 	bool reference = type->kind() == type_kind::reference;
 
@@ -59,7 +59,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		@value_type = type->element();
 	};
 
-	Scope* local = @this.unit->create_scope(&scope, this.function);
+	var Scope* local = @this.unit->create_scope(&@scope, this.function);
 
 	if (!local) {
 		return rt::unique<SemanticExpression>();
@@ -71,12 +71,12 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		@token = name.value().location();
 	};
 
-	var init = @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &syntax);
-	var body = @this.node(semantic_kind::statements, this.types->find_primitive(rt::string_view("void\0")), &syntax);
-	Entity* binding = nullptr;
+	var init = @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	var body = @this.node(semantic_kind::statements, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	var Entity* binding = nullptr;
 
 	if (!reference) {
-		@binding = @this.unit->create_entity(entity_kind::local, token, &syntax, local);
+		@binding = @this.unit->create_entity(entity_kind::local, token, &@syntax, local);
 
 		if (!binding) {
 			return rt::unique<SemanticExpression>();
@@ -91,13 +91,13 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		@binding->set_state(entity_state::ready);
 		rt::buffer<rt::unique<SemanticExpression>> empty;
 		var initial = @this.construct_values(@syntax, type, $empty);
-		@init = @this.node(semantic_kind::variable, type, &syntax);
+		@init = @this.node(semantic_kind::variable, type, &@syntax);
 
 		if (!initial.get() || !init.get()) {
 			return rt::unique<SemanticExpression>();
 		};
 
-		@init.get()->bind(Entity*(binding), value_category::consumable);
+		@init.get()->bind((var Entity*(binding)), value_category::consumable);
 
 		if (!@init.get()->append($initial)) {
 			return rt::unique<SemanticExpression>();
@@ -110,9 +110,9 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 
 	usize index = 0;
 	while (index < syntax.size()) {
-		Syntax* statement = syntax.item(index);
+		var Syntax* statement = syntax.item(index);
 		rt::unique<SemanticExpression> child;
-		Syntax* target = nullptr;
+		var Syntax* target = nullptr;
 
 		if (reference && !binding && statement->kind() == syntax_kind::binary && (statement->token().kind == token_kind::op_assign || statement->token().kind == token_kind::op_copy)) {
 			@target = statement->left();
@@ -144,7 +144,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 				return rt::unique<SemanticExpression>();
 			};
 
-			@binding = @this.unit->create_entity(entity_kind::local, token, &syntax, local);
+			@binding = @this.unit->create_entity(entity_kind::local, token, &@syntax, local);
 
 			if (!binding) {
 				return rt::unique<SemanticExpression>();
@@ -163,7 +163,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 				return rt::unique<SemanticExpression>();
 			};
 
-			@child.get()->bind(Entity*(binding), value_category::consumable);
+			@child.get()->bind((var Entity*(binding)), value_category::consumable);
 
 			if (!@child.get()->append($value)) {
 				return rt::unique<SemanticExpression>();
@@ -197,7 +197,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		return rt::unique<SemanticExpression>();
 	};
 
-	var yield = @this.node(semantic_kind::name, value_type, &syntax);
+	var yield = @this.node(semantic_kind::name, value_type, &@syntax);
 
 	if (!yield.get()) {
 		return rt::unique<SemanticExpression>();
@@ -210,7 +210,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 	};
 
 	if (!reference) {
-		var transfer = @this.node(semantic_kind::relocation, type, &syntax);
+		var transfer = @this.node(semantic_kind::relocation, type, &@syntax);
 
 		if (!transfer.get()) {
 			return rt::unique<SemanticExpression>();
@@ -223,7 +223,7 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		@yield = $transfer;
 	};
 
-	var result = @this.node(semantic_kind::sequence, value_type, &syntax);
+	var result = @this.node(semantic_kind::sequence, value_type, &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();

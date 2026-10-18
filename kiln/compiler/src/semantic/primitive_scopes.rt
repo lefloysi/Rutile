@@ -1,9 +1,9 @@
-fn SemanticUnit::associated_owner(const SemanticUnit& this, const Type& type) -> Entity* {
+fn SemanticUnit::associated_owner(const SemanticUnit& this, const Type& type) -> var Entity* {
 	usize index = 0;
 	while (index < this.associated_scopes.size()) {
 		const AssociatedScope& association = this.associated_scopes.data()[index];
 
-		if (association.type == &type) {
+		if (association.type == &@type) {
 			return association.owner;
 		};
 
@@ -13,15 +13,15 @@ fn SemanticUnit::associated_owner(const SemanticUnit& this, const Type& type) ->
 	return nullptr;
 };
 
-fn SemanticUnit::associate(SemanticUnit& this, const Type& type, Entity& owner) -> bool {
+fn SemanticUnit::associate(var SemanticUnit& this, const Type& type, var Entity& owner) -> bool {
 	AssociatedScope association;
-	@association.type = &type;
-	@association.owner = &owner;
+	@association.type = &@type;
+	@association.owner = &@owner;
 
 	return @this.associated_scopes.push_back($association);
 };
 
-fn Analyzer::primitive_scope(Analyzer& this, const Type& type, const Token& location) -> Entity* {
+fn Analyzer::primitive_scope(var Analyzer& this, const Type& type, const Token& location) -> var Entity* {
 	if (!type.kind().is_numeric() && type.kind() != type_kind::void_type && type.kind() != type_kind::null_type) {
 		return nullptr;
 	};
@@ -31,19 +31,19 @@ fn Analyzer::primitive_scope(Analyzer& this, const Type& type, const Token& loca
 		return nullptr;
 	};
 
-	Entity* found = this.unit->associated_owner(*canonical);
+	var Entity* found = this.unit->associated_owner(*canonical);
 
 	if (found) {
 		return found;
 	};
 
-	Scope* declarations = @this.unit->create_scope(this.unit->root_scope(), nullptr);
+	var Scope* declarations = @this.unit->create_scope(this.unit->root_scope(), nullptr);
 
 	if (!declarations) {
 		return nullptr;
 	};
 
-	Entity* owner = @this.unit->create_entity(entity_kind::primitive_type, location, nullptr, declarations);
+	var Entity* owner = @this.unit->create_entity(entity_kind::primitive_type, location, nullptr, declarations);
 
 	if (!owner) {
 		return nullptr;
@@ -52,13 +52,13 @@ fn Analyzer::primitive_scope(Analyzer& this, const Type& type, const Token& loca
 	@owner->set_type(canonical);
 	@owner->set_origin(declaration_origin::compiler_supplied);
 	@owner->set_state(entity_state::ready);
-	Scope* members = @this.unit->create_scope(declarations, Entity*(owner));
+	var Scope* members = @this.unit->create_scope(declarations, (var Entity*(owner)));
 
 	if (!members) {
 		return nullptr;
 	};
 
-	@owner->set_members(Scope*(members));
+	@owner->set_members((var Scope*(members)));
 
 	if (!@this.unit->associate(*canonical, @*owner) || !@this.primitive_constants(@*owner)) {
 		return nullptr;
@@ -67,7 +67,7 @@ fn Analyzer::primitive_scope(Analyzer& this, const Type& type, const Token& loca
 	return owner;
 };
 
-fn Analyzer::primitive_constants(Analyzer& this, Entity& owner) -> bool {
+fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool {
 	const Type* type = owner.type();
 
 	if (!type->kind().is_numeric()) {
@@ -85,7 +85,7 @@ fn Analyzer::primitive_constants(Analyzer& this, Entity& owner) -> bool {
 		@kind = semantic_kind::literal_real;
 	};
 
-	var value = rt::unique<SemanticExpression>(new SemanticExpression($kind, value_type, owner.token()));
+	var value = rt::unique<SemanticExpression>(new var SemanticExpression($kind, value_type, owner.token()));
 
 	if (!value.get()) {
 		return false;
@@ -96,12 +96,12 @@ fn Analyzer::primitive_constants(Analyzer& this, Entity& owner) -> bool {
 
 		if (type->bits() == 32) {
 			u32 representation = 2139095039;
-			f32 decoded := *reinterpret_cast<const f32*>(&representation);
+			f32 decoded := *reinterpret_cast<const f32*>(&@representation);
 		@maximum = static_cast<f64>($decoded);
 		}
 		else {
 			u64 representation = 9218868437227405311;
-			@maximum := *reinterpret_cast<const f64*>(&representation);
+			@maximum := *reinterpret_cast<const f64*>(&@representation);
 		};
 
 		@value.get()->set_real($maximum);
@@ -116,7 +116,7 @@ fn Analyzer::primitive_constants(Analyzer& this, Entity& owner) -> bool {
 		@value.get()->set_integer($maximum);
 	};
 
-	Entity* constant = @this.unit->create_entity(entity_kind::constant, owner.token(), nullptr, owner.members());
+	var Entity* constant = @this.unit->create_entity(entity_kind::constant, owner.token(), nullptr, owner.members());
 
 	if (!constant || !@constant->set_name(rt::string_view("max\0"))) {
 		return false;

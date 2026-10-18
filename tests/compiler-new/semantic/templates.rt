@@ -1,5 +1,5 @@
 fn puts(const char* message) -> i32;
-fn fopen(const char* path, const char* mode) -> NativeFile*;
+fn fopen(const char* path, const char* mode) -> var NativeFile*;
 
 struct TemplateFixture {
 	SourceFile source;
@@ -7,10 +7,10 @@ struct TemplateFixture {
 	rt::buffer<rt::unique<Syntax>> syntax;
 	rt::unique<SemanticUnit> unit;
 
-	fn build(TemplateFixture& this, const char* text) -> bool;
+	fn build(var TemplateFixture& this, const char* text) -> bool;
 };
 
-fn TemplateFixture::build(TemplateFixture& this, const char* text) -> bool {
+fn TemplateFixture::build(var TemplateFixture& this, const char* text) -> bool {
 	if (!@this.source.assign(rt::string_view("templates.rt\0"), rt::string_view(text))) {
 		return false;
 	};
@@ -28,7 +28,7 @@ fn TemplateFixture::build(TemplateFixture& this, const char* text) -> bool {
 	if (!@this.syntax.push_back($syntax)) {
 		return false;
 	};
-	NativeFile* output = fopen("template-diagnostics.log\0", "wb\0");
+	var NativeFile* output = fopen("template-diagnostics.log\0", "wb\0");
 	var diagnostics = Diagnostics(output);
 	var analyzer = Analyzer(@this.types, @diagnostics, 64);
 	@this.unit = @analyzer.analyze(this.syntax);
@@ -41,8 +41,8 @@ fn template_tests() -> i32 {
 	if (!@records.build("template<typename T> struct Box { T value; }; template<typename T, typename D = Box<T>> struct Pair { T first; D second; }; var left : Pair<i32>; var right : Pair<i32, Box<i32>>;\0")) {
 		return 1;
 	};
-	Entity* left = records.unit.get()->root_scope()->local(rt::string_view("left\0"));
-	Entity* right = records.unit.get()->root_scope()->local(rt::string_view("right\0"));
+	var Entity* left = records.unit.get()->root_scope()->local(rt::string_view("left\0"));
+	var Entity* right = records.unit.get()->root_scope()->local(rt::string_view("right\0"));
 	if (!left || !right || left->type() != right->type() || left->type()->entity()->fields().size() != 2) {
 		return 2;
 	};
@@ -53,7 +53,7 @@ fn template_tests() -> i32 {
 	};
 
 	var recursive = TemplateFixture();
-	if (!@recursive.build("template<typename T> struct Node { Node<T>* next; T value; }; var node : Node<i32>;\0")) {
+	if (!@recursive.build("template<typename T> struct Node { var Node<T>* next; T value; }; var node : Node<i32>;\0")) {
 		return 4;
 	};
 	const Type* node = recursive.unit.get()->root_scope()->local(rt::string_view("node\0"))->type();

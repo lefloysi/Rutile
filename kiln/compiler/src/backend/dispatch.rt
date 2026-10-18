@@ -1,4 +1,4 @@
-fn Backend::implementation(const Backend& this, Entity* entity) -> LLVMOpaqueValue* {
+fn Backend::implementation(const Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
 	@entity = entity->canonical();
 	usize index = 0;
 
@@ -13,11 +13,11 @@ fn Backend::implementation(const Backend& this, Entity* entity) -> LLVMOpaqueVal
 	return nullptr;
 };
 
-fn Backend::field_index(const Backend& this, Entity* entity, usize index) -> u32 {
+fn Backend::field_index(const Backend& this, var Entity* entity, usize index) -> u32 {
 	return static_cast<u32>(entity->bases().size() + static_cast<usize>(entity->owns_dispatch()) + index);
 };
 
-fn Backend::table(Backend& this, Entity* entity) -> LLVMOpaqueValue* {
+fn Backend::table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
 	usize index = 0;
 
 	while (index < this.tables.size()) {
@@ -28,12 +28,12 @@ fn Backend::table(Backend& this, Entity* entity) -> LLVMOpaqueValue* {
 		@index = index + 1;
 	};
 
-	rt::buffer<LLVMOpaqueValue*> functions;
+	rt::buffer<var LLVMOpaqueValue*> functions;
 	@index = 0;
 
 	while (index < entity->virtual_functions().size()) {
-		Entity* function = entity->virtual_functions().data()[index];
-		LLVMOpaqueValue* implementation = this.implementation(function);
+		var Entity* function = entity->virtual_functions().data()[index];
+		var LLVMOpaqueValue* implementation = this.implementation(function);
 
 		if (!implementation) {
 			@this.error(function->token(), rt::string_view("virtual implementation has no prepared native declaration\0"));
@@ -48,9 +48,9 @@ fn Backend::table(Backend& this, Entity* entity) -> LLVMOpaqueValue* {
 		@index = index + 1;
 	};
 
-	LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
-	LLVMOpaqueValue* contents = LLVMConstArray2(pointer, (@functions).data(), functions.size());
-	LLVMOpaqueValue* value = LLVMAddGlobal(this.module(), LLVMTypeOf(contents), "rt.vtable\0");
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
+	var LLVMOpaqueValue* contents = LLVMConstArray2(pointer, (@functions).data(), functions.size());
+	var LLVMOpaqueValue* value = LLVMAddGlobal(this.module(), LLVMTypeOf(contents), "rt.vtable\0");
 	LLVMSetInitializer(value, contents);
 	LLVMSetGlobalConstant(value, 1);
 	LLVMSetLinkage(value, 9);
@@ -66,33 +66,33 @@ fn Backend::table(Backend& this, Entity* entity) -> LLVMOpaqueValue* {
 	return value;
 };
 
-fn Backend::dispatch_target(Backend& this, Entity* entity, LLVMOpaqueValue* receiver) -> LLVMOpaqueValue* {
-	Entity* owner = entity->scope()->owner()->virtual_owner();
+fn Backend::dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqueValue* receiver) -> var LLVMOpaqueValue* {
+	var Entity* owner = entity->scope()->owner()->virtual_owner();
 
 	if (!owner || !receiver) {
 		@this.error(entity->token(), rt::string_view("virtual dispatch has no owning receiver layout\0"));
 		return nullptr;
 	};
 
-	LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
-	LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.builder(), @this.type(owner->type()), receiver, static_cast<u32>(owner->bases().size()), "dispatch.header\0");
-	LLVMOpaqueValue* table = LLVMBuildLoad2(this.builder(), pointer, header, "dispatch.table\0");
-	LLVMOpaqueValue* index = LLVMConstInt(LLVMIntTypeInContext(this.context(), this.pointer_bits()), entity->virtual_slot(), 0);
-	LLVMOpaqueValue* slot = LLVMBuildGEP2(this.builder(), pointer, table, &index, 1, "dispatch.slot\0");
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
+	var LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.builder(), @this.type(owner->type()), receiver, static_cast<u32>(owner->bases().size()), "dispatch.header\0");
+	var LLVMOpaqueValue* table = LLVMBuildLoad2(this.builder(), pointer, header, "dispatch.table\0");
+	var LLVMOpaqueValue* index = LLVMConstInt(LLVMIntTypeInContext(this.context(), this.pointer_bits()), entity->virtual_slot(), 0);
+	var LLVMOpaqueValue* slot = LLVMBuildGEP2(this.builder(), pointer, table, &@index, 1, "dispatch.slot\0");
 
 	return LLVMBuildLoad2(this.builder(), pointer, slot, "dispatch.target\0");
 };
 
-fn Backend::emit_dispatch(Backend& this, Entity* entity) -> bool {
+fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
 	const FunctionSignature& signature = entity->type()->signature();
 
 	if (!signature.parameters().size() || signature.parameters().data()[0]->kind() != type_kind::reference || signature.arity() == parameter_arity::variadic) {
 		return @this.error(entity->token(), rt::string_view("virtual dispatch requires a fixed signature with an object receiver\0"));
 	};
 
-	LLVMOpaqueValue* function = this.symbol(entity);
+	var LLVMOpaqueValue* function = this.symbol(entity);
 	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), function, "entry\0"));
-	rt::buffer<LLVMOpaqueValue*> arguments;
+	rt::buffer<var LLVMOpaqueValue*> arguments;
 	usize index = 0;
 
 	while (index < signature.parameters().size()) {
@@ -103,13 +103,13 @@ fn Backend::emit_dispatch(Backend& this, Entity* entity) -> bool {
 		@index = index + 1;
 	};
 
-	LLVMOpaqueValue* target = @this.dispatch_target(entity, arguments.data()[0]);
+	var LLVMOpaqueValue* target = @this.dispatch_target(entity, arguments.data()[0]);
 
 	if (!target) {
 		return false;
 	};
 
-	LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), target, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
+	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), target, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
 
 	if (signature.result()->kind() == type_kind::void_type) {
 		LLVMBuildRetVoid(this.builder());
@@ -121,21 +121,21 @@ fn Backend::emit_dispatch(Backend& this, Entity* entity) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::initialize_dispatch(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
-	Entity* record = type->entity();
-	Entity* owner = record->virtual_owner();
+fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+	var Entity* record = type->entity();
+	var Entity* owner = record->virtual_owner();
 
 	if (!owner) {
 		return true;
 	};
 
-	LLVMOpaqueValue* table = @this.backend->table(record);
+	var LLVMOpaqueValue* table = @this.backend->table(record);
 
 	if (!table) {
 		return false;
 	};
 
-	LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner->type()), address, static_cast<u32>(owner->bases().size()), "initialize.dispatch\0");
+	var LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner->type()), address, static_cast<u32>(owner->bases().size()), "initialize.dispatch\0");
 	LLVMBuildStore(this.backend->builder(), table, header);
 
 	return true;

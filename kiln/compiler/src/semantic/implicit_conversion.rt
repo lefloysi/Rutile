@@ -1,38 +1,38 @@
-fn ConversionSelection::unique(const ConversionSelection& this) -> Entity* {
+fn ConversionSelection::unique(const ConversionSelection& this) -> var Entity* {
 	if (this.conflict) {
 		return nullptr;
 	};
 	return this.selected;
 };
 
-fn Analyzer::implicit_constructor(Analyzer& this, const SemanticExpression& value, const Type& expected) -> Entity* {
+fn Analyzer::implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> var Entity* {
 	var result = @this.select_implicit_constructor(value, expected);
 	return result.unique();
 };
 
-fn Analyzer::conversion_function(Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> Entity* {
+fn Analyzer::conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> var Entity* {
 	var result = @this.select_conversion_function(value, expected, $mode);
 	return result.unique();
 };
 
-fn Analyzer::select_implicit_constructor(Analyzer& this, const SemanticExpression& value, const Type& expected) -> ConversionSelection {
+fn Analyzer::select_implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> ConversionSelection {
 	if (expected.kind() != type_kind::named || expected.entity()->kind() != entity_kind::record) {
 		return ConversionSelection();
 	};
 
-	Entity* owner = expected.entity();
+	var Entity* owner = expected.entity();
 	ConversionSelection result;
 	i32 best = i32::max;
 	usize index = 0;
 	while (index < owner->members()->bindings().size()) {
-		Entity* candidate = owner->members()->bindings().data()[index];
+		var Entity* candidate = owner->members()->bindings().data()[index];
 		@index = index + 1;
 
 		if (candidate->kind() != entity_kind::function || !candidate->token().same(owner->token())) {
 			continue;
 		};
 
-		if (!@this.resolve(Entity*(candidate))) {
+		if (!@this.resolve((var Entity*(candidate)))) {
 			return ConversionSelection();
 		};
 
@@ -63,20 +63,20 @@ fn Analyzer::select_implicit_constructor(Analyzer& this, const SemanticExpressio
 	return $result;
 };
 
-fn Analyzer::select_conversion_function(Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> ConversionSelection {
+fn Analyzer::select_conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> ConversionSelection {
 	const Type* source = value.type();
 
 	ConversionSelection result;
 	usize index = 0;
 	while (index < this.unit->entities().size()) {
-		Entity* candidate = this.unit->entities().data()[index].get();
+		var Entity* candidate = this.unit->entities().data()[index].get();
 		@index = index + 1;
 
 		if (candidate->kind() != entity_kind::function) {
 			continue;
 		};
 
-		Syntax* name = nullptr;
+		var Syntax* name = nullptr;
 		if (candidate->declaration() && candidate->declaration()->kind() == syntax_kind::function) {
 			@name = candidate->declaration()->function_name();
 			while (name->kind() == syntax_kind::qualified_name) {
@@ -92,7 +92,7 @@ fn Analyzer::select_conversion_function(Analyzer& this, const SemanticExpression
 			continue;
 		};
 
-		if (!@this.resolve(Entity*(candidate))) {
+		if (!@this.resolve((var Entity*(candidate)))) {
 			return ConversionSelection();
 		};
 
@@ -117,7 +117,7 @@ fn Analyzer::select_conversion_function(Analyzer& this, const SemanticExpression
 	return $result;
 };
 
-fn Analyzer::argument_rank(Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
+fn Analyzer::argument_rank(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
 	if (value.kind() == semantic_kind::deferred_argument) {
 		return 0;
 	};
@@ -142,19 +142,19 @@ fn Analyzer::argument_rank(Analyzer& this, const SemanticExpression& value, cons
 		return -1;
 	};
 
-	const Type* target = &expected;
+	const Type* target = &@expected;
 
 	if (target->kind() == type_kind::reference) {
 		@target = target->element();
 	};
 
-	Entity* constructor = @this.implicit_constructor(value, *target);
+	var Entity* constructor = @this.implicit_constructor(value, *target);
 
 	if (constructor) {
 		return 16 + this.builtin_rank(value, *constructor->parameters().data()[1]->type());
 	};
 
-	Entity* conversion = @this.conversion_function(value, *target, conversion_mode::implicit_allowed);
+	var Entity* conversion = @this.conversion_function(value, *target, conversion_mode::implicit_allowed);
 
 	if (conversion) {
 		return 17 + this.builtin_rank(value, *conversion->parameters().data()[0]->type());

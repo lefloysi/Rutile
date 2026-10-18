@@ -1,17 +1,17 @@
 struct Tracker {
-	fn Tracker(Tracker& this, i32* trace, i32 id);
-	fn ~Tracker(Tracker& this);
-	i32* trace;
+	fn Tracker(var Tracker& this, var i32* trace, i32 id);
+	fn ~Tracker(var Tracker& this);
+	var i32* trace;
 	i32 id;
 };
 
-fn Tracker::Tracker(Tracker& this, i32* trace, i32 id) {
+fn Tracker::Tracker(var Tracker& this, var i32* trace, i32 id) {
 	@this.trace = $trace;
 	@this.id := id;
 	@*this.trace = *this.trace * 10 + id;
 };
 
-fn Tracker::~Tracker(Tracker& this) {
+fn Tracker::~Tracker(var Tracker& this) {
 	@*this.trace = *this.trace * 10 + this.id + 3;
 };
 
@@ -20,14 +20,14 @@ fn main() -> i32 {
 	i32 index = 0;
 	while (true) {
 		@index = index + 1;
-		var outer = Tracker(&trace, 1);
+		var outer = Tracker(&@trace, 1);
 		switch (index) {
 		case 1: {
-			var inner = Tracker(&trace, 2);
+			var inner = Tracker(&@trace, 2);
 			continue;
 		};
 		default: {
-			var inner = Tracker(&trace, 2);
+			var inner = Tracker(&@trace, 2);
 			break;
 		};
 		};

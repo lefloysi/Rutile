@@ -1,4 +1,4 @@
-fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
+fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 	if (entity->kind() == entity_kind::template_pattern) {
 		return true;
 	};
@@ -23,14 +23,14 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	@entity->set_state(entity_state::resolving);
-	Syntax* source = entity->declaration();
-	Scope* scope = entity->resolution_scope();
+	var Syntax* source = entity->declaration();
+	var Scope* scope = entity->resolution_scope();
 	entity_kind kind = entity->kind();
 
 	if (kind == entity_kind::record) {
-		@entity->set_type(@this.types->named(type_kind::named, Entity*(entity)));
+		@entity->set_type(@this.types->named(type_kind::named, (var Entity*(entity))));
 
-		if (!@this.resolve_bases(Entity*(entity))) {
+		if (!@this.resolve_bases((var Entity*(entity)))) {
 			return false;
 		};
 
@@ -43,16 +43,16 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			@index = index + 1;
 		};
 
-		if (!@this.build_dispatch(Entity*(entity))) {
+		if (!@this.build_dispatch((var Entity*(entity)))) {
 			return false;
 		};
 
-		if (!@this.supply_special_functions(Entity*(entity))) {
+		if (!@this.supply_special_functions((var Entity*(entity)))) {
 			return false;
 		};
 	}
 	else if (kind == entity_kind::enumeration) {
-		@entity->set_type(@this.types->named(type_kind::named, Entity*(entity)));
+		@entity->set_type(@this.types->named(type_kind::named, (var Entity*(entity))));
 		const Type* underlying = @this.type(@*scope, @*source->enum_underlying());
 
 		if (!underlying) {
@@ -82,21 +82,21 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		@entity->set_type(@this.type(@*scope, @*source->alias_type()));
 	}
 	else if (kind == entity_kind::enumerator) {
-		Entity* owner = scope->owner();
+		var Entity* owner = scope->owner();
 
-		if (!@this.resolve(Entity*(owner))) {
+		if (!@this.resolve((var Entity*(owner)))) {
 			return false;
 		};
 
 		@entity->set_type(owner->type());
 		u64 value = 0;
-		const rt::buffer<Entity*>& members = scope->bindings();
+		const rt::buffer<var Entity*>& members = scope->bindings();
 		usize index = 0;
 		while (index < members.size() && members.data()[index] != entity) {
-			Entity* previous := members.data()[index];
+			var Entity* previous := members.data()[index];
 
 			if (previous->kind() == entity_kind::enumerator) {
-				if (!@this.resolve(Entity*(previous))) {
+				if (!@this.resolve((var Entity*(previous)))) {
 					return false;
 				};
 
@@ -132,15 +132,15 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		@entity->set_integer($value);
 	}
 	else if (kind == entity_kind::function) {
-		Scope* local = @this.unit->create_scope(scope, Entity*(entity));
+		var Scope* local = @this.unit->create_scope(scope, (var Entity*(entity)));
 
 		if (!local) {
 			@this.error(source, "out of memory storing function scope\0");
 			return false;
 		};
 
-		@entity->set_members(Scope*(local));
-		Scope* signature = @this.unit->create_scope(scope, Entity*(entity));
+		@entity->set_members((var Scope*(local)));
+		var Scope* signature = @this.unit->create_scope(scope, (var Entity*(entity)));
 
 		if (!signature) {
 			@this.error(source, "out of memory storing function signature scope\0");
@@ -150,10 +150,10 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 
 		rt::buffer<const Type*> signature_parameters;
 		parameter_arity arity = parameter_arity::fixed;
-		Syntax* parameters = source->function_parameters();
+		var Syntax* parameters = source->function_parameters();
 		usize index = 0;
 		while (index < parameters->size()) {
-			Syntax* parameter = parameters->item(index);
+			var Syntax* parameter = parameters->item(index);
 
 			if (parameter->token().kind == token_kind::punct_ellipsis) {
 				@arity = parameter_arity::variadic;
@@ -181,7 +181,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				return false;
 			};
 
-			Syntax* name = parameter->parameter_name();
+			var Syntax* name = parameter->parameter_name();
 			Token token = parameter->token();
 
 			if (name->kind() != syntax_kind::absent) {
@@ -200,13 +200,13 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				};
 			};
 
-			Entity* argument = @this.unit->create_entity(entity_kind::parameter, token, parameter, local);
+			var Entity* argument = @this.unit->create_entity(entity_kind::parameter, token, parameter, local);
 
 			if (!argument) {
 				return false;
 			};
 
-			@argument->set_resolution_scope(Scope*(signature));
+			@argument->set_resolution_scope((var Scope*(signature)));
 			@argument->set_type(resolved);
 			@argument->set_index(usize(index));
 			@argument->set_state(entity_state::ready);
@@ -222,7 +222,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			@index = index + 1;
 		};
 
-		Syntax* declarator = source->function_name();
+		var Syntax* declarator = source->function_name();
 
 		while (declarator->kind() == syntax_kind::qualified_name) {
 			@declarator = declarator->right();
@@ -265,7 +265,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		};
 
 		@entity->set_type(@this.types->function(result, $signature_parameters, parameter_arity(arity)));
-		Entity* owner = entity->scope()->owner();
+		var Entity* owner = entity->scope()->owner();
 		bool destructor = declarator->kind() == syntax_kind::unary && declarator->token().kind == token_kind::op_tilde;
 		bool constructor = owner && owner->kind() == entity_kind::record && entity->token().same(owner->token());
 
@@ -401,7 +401,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 				return false;
 			};
 
-			Entity* receiver = entity->parameters().data()[0];
+			var Entity* receiver = entity->parameters().data()[0];
 			if (receiver->type()->kind() != type_kind::reference) {
 				var message = DiagnosticMessage();
 				@message.text("conversion '\0");
@@ -484,11 +484,11 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 			return false;
 		};
 
-		const rt::buffer<Entity*>& names = entity->scope()->bindings();
+		const rt::buffer<var Entity*>& names = entity->scope()->bindings();
 		@index = 0;
 
 		while (index < names.size() && names.data()[index] != entity) {
-			Entity* previous = names.data()[index]->canonical();
+			var Entity* previous = names.data()[index]->canonical();
 
 			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type() == entity->type()) {
 				@previous->merge_dispatch(*entity);
@@ -521,7 +521,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 		const Type* resolved = @this.type(@*scope, @*source->variable_type());
 
 		if (!resolved) {
-			Syntax* initial = source->variable_initializer();
+			var Syntax* initial = source->variable_initializer();
 
 			if (initial->kind() == syntax_kind::unary) {
 				@initial = initial->operand();
@@ -585,7 +585,7 @@ fn Analyzer::resolve_impl(Analyzer& this, Entity* entity) -> bool {
 	return true;
 };
 
-fn Analyzer::function_body(Analyzer& this, Entity* entity) -> bool {
+fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> bool {
 	if (!@this.resolve(entity)) {
 		return false;
 	};
@@ -615,7 +615,7 @@ fn Analyzer::function_body(Analyzer& this, Entity* entity) -> bool {
 	var context = FunctionAnalysisScope(@this.function, @this.loop_depth, @this.active_switch, rt::optional_ref<Entity>(@*entity));
 
 	if (entity->role() == function_role::constructor && entity->scope()->owner()->layout() != record_layout::overlapping && (entity->definition() == function_definition::user_defined || entity->parameters().size() == 1)) {
-		Entity* owner = entity->scope()->owner();
+		var Entity* owner = entity->scope()->owner();
 		usize index = 0;
 		while (index < owner->bases().size()) {
 			if (!@this.prepare_default(owner->bases().data()[index])) {
@@ -628,9 +628,9 @@ fn Analyzer::function_body(Analyzer& this, Entity* entity) -> bool {
 		@index = 0;
 
 		while (index < owner->fields().size()) {
-			Entity* field = owner->fields().data()[index];
+			var Entity* field = owner->fields().data()[index];
 
-			if (!@this.field_initializer(Entity*(field))) {
+			if (!@this.field_initializer((var Entity*(field)))) {
 				return false;
 			};
 
@@ -653,7 +653,7 @@ fn Analyzer::function_body(Analyzer& this, Entity* entity) -> bool {
 			return false;
 		};
 
-		Entity* owner = receiver->entity();
+		var Entity* owner = receiver->entity();
 
 		if (entity->role() == function_role::constructor && entity->parameters().size() == 2 && entity->parameters().data()[1]->type()->kind() == type_kind::reference && owner->layout() != record_layout::overlapping) {
 			usize index = 0;
@@ -720,7 +720,7 @@ fn Analyzer::function_body(Analyzer& this, Entity* entity) -> bool {
 	return @this.prepare_expression(entity->body());
 };
 
-fn Analyzer::analyze(Analyzer& this, const rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit> {
+fn Analyzer::analyze(var Analyzer& this, const rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit> {
 	var owned = rt::unique<SemanticUnit>::make();
 	if (!owned.get() || !@this.analyze_into(@*owned.get(), syntax)) {
 		return rt::unique<SemanticUnit>();
@@ -728,10 +728,10 @@ fn Analyzer::analyze(Analyzer& this, const rt::buffer<rt::unique<Syntax>>& synta
 	return $owned;
 };
 
-fn Analyzer::analyze_into(Analyzer& this, SemanticUnit& unit, const rt::buffer<rt::unique<Syntax>>& syntax) -> bool {
+fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, const rt::buffer<rt::unique<Syntax>>& syntax) -> bool {
 	@this.templates.clear();
-	@this.unit = &unit;
-	Scope* root = @this.unit->create_scope(nullptr, nullptr);
+	@this.unit = &@unit;
+	var Scope* root = @this.unit->create_scope(nullptr, nullptr);
 
 	if (!root) {
 		return false;
@@ -750,7 +750,7 @@ fn Analyzer::analyze_into(Analyzer& this, SemanticUnit& unit, const rt::buffer<r
 	var validator = TemplateDeclarationValidator();
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
-		Entity* pattern = this.unit->entities().data()[index].get();
+		var Entity* pattern = this.unit->entities().data()[index].get();
 		if (pattern->kind() == entity_kind::template_pattern && !@validator.validate(@this, @*pattern)) {
 			return false;
 		};
@@ -770,17 +770,17 @@ fn Analyzer::analyze_into(Analyzer& this, SemanticUnit& unit, const rt::buffer<r
 	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
-		Entity* entity = this.unit->entities().data()[index].get();
+		var Entity* entity = this.unit->entities().data()[index].get();
 
-		if (!@this.resolve(Entity*(entity))) {
+		if (!@this.resolve((var Entity*(entity)))) {
 			return false;
 		};
 
-		if (entity->kind() == entity_kind::function && !entity->instantiated() && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !@this.function_body(Entity*(entity))) {
+		if (entity->kind() == entity_kind::function && !entity->instantiated() && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !@this.function_body((var Entity*(entity)))) {
 			return false;
 		};
 
-		if (entity->kind() == entity_kind::field && !entity->instantiated() && !@this.field_initializer(Entity*(entity))) {
+		if (entity->kind() == entity_kind::field && !entity->instantiated() && !@this.field_initializer((var Entity*(entity)))) {
 			return false;
 		};
 

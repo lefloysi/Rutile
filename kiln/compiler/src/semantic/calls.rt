@@ -1,4 +1,4 @@
-fn Analyzer::construct(Analyzer& this, Scope& scope, Syntax& syntax, const Type* type, Syntax& arguments) -> rt::unique<SemanticExpression> {
+fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, const Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
 	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
 		if (this.failed()) {
 			return rt::unique<SemanticExpression>();
@@ -37,25 +37,25 @@ fn Analyzer::construct(Analyzer& this, Scope& scope, Syntax& syntax, const Type*
 	return @this.construct_values(@syntax, type, $raw);
 };
 
-fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression> {
-	var values = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, const Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression> {
+	var values = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
 
 	if (!values.get()) {
 		return rt::unique<SemanticExpression>();
 	};
 
 	usize index = 0;
-	Entity* constructor = nullptr;
+	var Entity* constructor = nullptr;
 	bool transfer = false;
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
-		Entity* owner = type->entity();
+		var Entity* owner = type->entity();
 
-		if (!@this.resolve(Entity*(owner))) {
+		if (!@this.resolve((var Entity*(owner)))) {
 			return rt::unique<SemanticExpression>();
 		};
 
-		Entity* candidate = owner->members()->local(owner->name());
+		var Entity* candidate = owner->members()->local(owner->name());
 
 		if (candidate && candidate->kind() == entity_kind::function) {
 			@constructor = @this.select(candidate, raw, 1, conversion_mode::explicit_only, @syntax);
@@ -78,7 +78,7 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 		bool declared_constructor = false;
 		usize member = 0;
 		while (member < owner->members()->bindings().size()) {
-			Entity* declaration = owner->members()->bindings().data()[member];
+			var Entity* declaration = owner->members()->bindings().data()[member];
 			if (declaration->kind() == entity_kind::function && declaration->name() == owner->name() && declaration->origin() == declaration_origin::source) {
 				@declared_constructor = true;
 			};
@@ -128,7 +128,7 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 	};
 
 	@index = 0;
-	rt::unique<SemanticExpression>* owned = (@raw).data();
+	var rt::unique<SemanticExpression>* owned = (@raw).data();
 
 	while (index < raw.size()) {
 		const Type* expected = type;
@@ -148,7 +148,7 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 			};
 		}
 		else if (type->kind().is_numeric() && value.get()->type()->kind().is_numeric() || type->kind() != type_kind::named && type->same_shape(*value.get()->type())) {
-			var conversion = @this.node(semantic_kind::cast, type, &syntax);
+			var conversion = @this.node(semantic_kind::cast, type, &@syntax);
 
 			if (!conversion.get()) {
 				return rt::unique<SemanticExpression>();
@@ -175,7 +175,7 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 		@index = index + 1;
 	};
 
-	var result = @this.node(semantic_kind::construction, type, &syntax);
+	var result = @this.node(semantic_kind::construction, type, &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -190,7 +190,7 @@ fn Analyzer::construct_values(Analyzer& this, Syntax& syntax, const Type* type, 
 	return $result;
 };
 
-fn Analyzer::initialize(Analyzer& this, Syntax& syntax, const Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
+fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, const Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
 	if (!type) {
 		return $value;
 	};
@@ -233,14 +233,14 @@ fn Analyzer::initialize(Analyzer& this, Syntax& syntax, const Type* type, rt::un
 	return @this.construct_values(@syntax, type, $arguments);
 };
 
-fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
-	Syntax* source = syntax.callable();
-	Syntax* arguments = syntax.arguments();
-	Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
+fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression> {
+	var Syntax* source = syntax.callable();
+	var Syntax* arguments = syntax.arguments();
+	var Entity* explicit_pattern = @this.templates.call_pattern(@this, @scope, @*source);
 	rt::optional_ref<Syntax> supplied;
 
 	if (explicit_pattern) {
-		Syntax* application = source;
+		var Syntax* application = source;
 
 		if (application->kind() == syntax_kind::qualified_name) {
 			@application = application->right();
@@ -249,7 +249,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		@supplied.bind(@*application->arguments());
 	};
 
-	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
+	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		const Type* target = @this.type(@scope, @*source);
 
 		if (!target) {
@@ -261,7 +261,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 
 	if (!explicit_pattern && (source->kind() == syntax_kind::name || source->kind() == syntax_kind::qualified_name || source->kind() == syntax_kind::template_apply)) {
 		const Type* target = nullptr;
-		Entity* named = @this.lookup(@scope, @*source);
+		var Entity* named = @this.lookup(@scope, @*source);
 
 		if (source->kind() == syntax_kind::name && !named) {
 			@target = this.types->find_primitive(source->token().text());
@@ -276,7 +276,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		};
 	};
 
-	Entity* group = nullptr;
+	var Entity* group = nullptr;
 	rt::unique<SemanticExpression> receiver;
 	rt::unique<SemanticExpression> callable;
 
@@ -319,7 +319,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 
 		if (owner->kind() != type_kind::named || !owner->entity()->members()) {
 			if (source->member_name()->kind() != syntax_kind::unary) {
-				Entity* alias = @this.lookup(@scope, @*source->member_name());
+				var Entity* alias = @this.lookup(@scope, @*source->member_name());
 				if (this.failed()) {
 					return rt::unique<SemanticExpression>();
 				};
@@ -339,7 +339,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			};
 		};
 
-		Syntax* member = source->member_name();
+		var Syntax* member = source->member_name();
 		bool destructor = member->kind() == syntax_kind::unary && member->token().kind == token_kind::op_tilde;
 		const Type* designated = nullptr;
 
@@ -348,13 +348,13 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		}
 		else {
 			@designated = this.types->find_primitive(member->token().text());
-			Entity* alias = @this.lookup(@scope, @*member);
+			var Entity* alias = @this.lookup(@scope, @*member);
 			if (this.failed()) {
 				return rt::unique<SemanticExpression>();
 			};
 
 			if (alias && alias->denotes_type()) {
-				if (!@this.resolve(Entity*(alias))) {
+				if (!@this.resolve((var Entity*(alias)))) {
 					return rt::unique<SemanticExpression>();
 				};
 
@@ -396,13 +396,13 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 					return rt::unique<SemanticExpression>();
 				};
 
-				var result = @this.node(semantic_kind::destruction, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+				var result = @this.node(semantic_kind::destruction, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
 
 				if (!result.get()) {
 					return rt::unique<SemanticExpression>();
 				};
 
-				Entity* finalizer = nullptr;
+				var Entity* finalizer = nullptr;
 
 				if (owner->kind() == type_kind::named && owner->entity()->kind() == entity_kind::record) {
 					@finalizer = owner->entity()->destructor();
@@ -531,7 +531,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 		};
 	};
 
-	Entity* selected = nullptr;
+	var Entity* selected = nullptr;
 
 	if (group && group->kind() == entity_kind::function) {
 		@selected = @this.select(group, values, 0, conversion_mode::explicit_only, @syntax);
@@ -575,7 +575,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 			return rt::unique<SemanticExpression>();
 		};
 
-		@callable.get()->bind(Entity*(selected), value_category::place);
+		@callable.get()->bind((var Entity*(selected)), value_category::place);
 	}
 	else if (!callable.get()) {
 		@callable = @this.expression(@scope, @*source, rt::optional_ref<const Type>());
@@ -588,7 +588,7 @@ fn Analyzer::call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	return @this.invoke(@syntax, selected, $callable, $values, expected);
 };
 
-fn Analyzer::invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (!callable.get()) {
 		return rt::unique<SemanticExpression>();
 	};
@@ -629,14 +629,14 @@ fn Analyzer::invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique
 		return rt::unique<SemanticExpression>();
 	};
 
-	var converted = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+	var converted = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
 
 	if (!converted.get()) {
 		return rt::unique<SemanticExpression>();
 	};
 
 	usize index = 0;
-	rt::unique<SemanticExpression>* owners = (@values).data();
+	var rt::unique<SemanticExpression>* owners = (@values).data();
 
 	while (index < values.size()) {
 		var value = rt::unique<SemanticExpression>(@owners[index].release());
@@ -677,7 +677,7 @@ fn Analyzer::invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique
 		@category = value_category::place;
 	};
 
-	var result = @this.node(semantic_kind::call, result_type, &syntax);
+	var result = @this.node(semantic_kind::call, result_type, &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -692,7 +692,7 @@ fn Analyzer::invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique
 	};
 
 	if (selected && this.function && this.function->members() && !@this.unit->record_name(@this, @*this.function->members(), @syntax, @*selected, 16)) {
-		@this.error(&syntax, "navigation index storage is unavailable\0");
+		@this.error(&@syntax, "navigation index storage is unavailable\0");
 		return rt::unique<SemanticExpression>();
 	};
 	@result.get()->bind(selected, $category);

@@ -1,9 +1,9 @@
-fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
+fn Backend::type(var Backend& this, const Type* source) -> var LLVMOpaqueType* {
 	Token origin;
 	return @this.type(source, origin);
 };
 
-fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVMOpaqueType* {
+fn Backend::type(var Backend& this, const Type* source, const Token& origin) -> var LLVMOpaqueType* {
 	if (!source || this.failed()) {
 		return nullptr;
 	};
@@ -20,7 +20,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 		@index = index + 1;
 	};
 
-	LLVMOpaqueType* result;
+	var LLVMOpaqueType* result;
 
 	switch (source->kind()) {
 		case type_kind::void_type:
@@ -49,7 +49,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 			@result = LLVMPointerTypeInContext(this.context(), 0);
 			break;
 		case type_kind::array: {
-			LLVMOpaqueType* element = @this.type(source->element(), origin);
+			var LLVMOpaqueType* element = @this.type(source->element(), origin);
 
 			if (!element) {
 				return nullptr;
@@ -81,11 +81,11 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 
 		case type_kind::function: {
 			const FunctionSignature& signature = source->signature();
-			rt::buffer<LLVMOpaqueType*> parameters;
+			rt::buffer<var LLVMOpaqueType*> parameters;
 			@index = 0;
 
 			while (index < signature.parameters().size()) {
-				LLVMOpaqueType* parameter = @this.type(signature.parameters().data()[index], origin);
+				var LLVMOpaqueType* parameter = @this.type(signature.parameters().data()[index], origin);
 
 				if (!parameter) {
 					return nullptr;
@@ -99,7 +99,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 				@index = index + 1;
 			};
 
-			LLVMOpaqueType* result_type = @this.type(signature.result(), origin);
+			var LLVMOpaqueType* result_type = @this.type(signature.result(), origin);
 
 			if (!result_type) {
 				return nullptr;
@@ -110,7 +110,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 		};
 
 		case type_kind::named: {
-			Entity* record = source->entity();
+			var Entity* record = source->entity();
 
 			if (record && record->kind() == entity_kind::enumeration) {
 				@result = @this.type(record->underlying(), origin);
@@ -140,11 +140,11 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 				return nullptr;
 			};
 
-			rt::buffer<LLVMOpaqueType*> fields;
+			rt::buffer<var LLVMOpaqueType*> fields;
 			@index = 0;
 
 			while (index < record->bases().size()) {
-				LLVMOpaqueType* base = @this.type(record->bases().data()[index], record->token());
+				var LLVMOpaqueType* base = @this.type(record->bases().data()[index], record->token());
 
 				if (!base) {
 					return nullptr;
@@ -165,7 +165,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 			@index = 0;
 
 			while (index < record->fields().size()) {
-				LLVMOpaqueType* field = @this.type(record->fields().data()[index]->type(), record->fields().data()[index]->token());
+				var LLVMOpaqueType* field = @this.type(record->fields().data()[index]->type(), record->fields().data()[index]->token());
 
 				if (!field) {
 					return nullptr;
@@ -179,13 +179,13 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 			};
 
 			if (record->layout() == record_layout::overlapping && fields.size()) {
-				LLVMOpaqueType* aligned = fields.data()[0];
+				var LLVMOpaqueType* aligned = fields.data()[0];
 				u64 maximum = 0;
 				u64 alignment = 1;
 				@index = 0;
 
 				while (index < fields.size()) {
-					LLVMOpaqueType* field = fields.data()[index];
+					var LLVMOpaqueType* field = fields.data()[index];
 					u64 size = LLVMABISizeOfType(this.layout(), field);
 					u64 field_alignment = static_cast<u64>(LLVMABIAlignmentOfType(this.layout(), field));
 
@@ -212,7 +212,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 				u64 occupied = LLVMABISizeOfType(this.layout(), aligned);
 
 				if (maximum > occupied) {
-					LLVMOpaqueType* padding = LLVMArrayType2(LLVMIntTypeInContext(this.context(), 8), maximum - occupied);
+					var LLVMOpaqueType* padding = LLVMArrayType2(LLVMIntTypeInContext(this.context(), 8), maximum - occupied);
 
 					if (!@fields.push_back(padding)) {
 						@this.error(record->token(), rt::string_view("cannot allocate native union padding\0"));
@@ -221,7 +221,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 				};
 			};
 
-			LLVMStructSetBody(LLVMOpaqueType*(result), (@fields).data(), static_cast<u32>(fields.size()), 0);
+			LLVMStructSetBody((var LLVMOpaqueType*(result)), (@fields).data(), static_cast<u32>(fields.size()), 0);
 
 			return result;
 		};
@@ -246,7 +246,7 @@ fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVM
 	return result;
 };
 
-fn Backend::symbol(const Backend& this, Entity* entity) -> LLVMOpaqueValue* {
+fn Backend::symbol(const Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
 	@entity = entity->canonical();
 	usize index = 0;
 
@@ -261,8 +261,8 @@ fn Backend::symbol(const Backend& this, Entity* entity) -> LLVMOpaqueValue* {
 	return nullptr;
 };
 
-fn Backend::declare(Backend& this, Entity* entity) -> bool {
-	if (!this.required(entity) || this.symbol(Entity*(entity))) {
+fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
+	if (!this.required(entity) || this.symbol((var Entity*(entity)))) {
 		return true;
 	};
 
@@ -292,27 +292,27 @@ fn Backend::declare(Backend& this, Entity* entity) -> bool {
 	if (entity->kind() == entity_kind::function) {
 		usize parameter = 0;
 		while (parameter < entity->parameters().size()) {
-			Entity* argument = entity->parameters().data()[parameter];
+			var Entity* argument = entity->parameters().data()[parameter];
 			if (!@this.type(argument->type(), argument->token())) {
 				return false;
 			};
 			@parameter = parameter + 1;
 		};
 	};
-	LLVMOpaqueType* type = @this.type(entity->type(), entity->token());
+	var LLVMOpaqueType* type = @this.type(entity->type(), entity->token());
 
 	if (!type) {
 		return false;
 	};
 
-	LLVMOpaqueValue* value;
+	var LLVMOpaqueValue* value;
 
 	if (entity->kind() == entity_kind::function) {
 		@value = LLVMAddFunction(this.module(), name.c_str(), type);
 	}
 	else {
-		@value = LLVMAddGlobal(this.module(), LLVMOpaqueType*(type), name.c_str());
-		LLVMSetInitializer(LLVMOpaqueValue*(value), LLVMConstNull(type));
+		@value = LLVMAddGlobal(this.module(), (var LLVMOpaqueType*(type)), name.c_str());
+		LLVMSetInitializer((var LLVMOpaqueValue*(value)), LLVMConstNull(type));
 	};
 
 	NativeEntity native;
@@ -339,7 +339,7 @@ fn Backend::declare(Backend& this, Entity* entity) -> bool {
 	return true;
 };
 
-fn Backend::required(const Backend& this, Entity* entity) -> bool {
+fn Backend::required(const Backend& this, var Entity* entity) -> bool {
 	if (entity->canonical() != entity || (entity->kind() != entity_kind::function && entity->kind() != entity_kind::global)) {
 		return false;
 	};

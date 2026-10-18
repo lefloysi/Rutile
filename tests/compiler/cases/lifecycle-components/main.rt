@@ -6,28 +6,28 @@ struct Counts {
 };
 
 struct Tracker {
-	fn Tracker(Tracker& this) :[default];
-	fn Tracker(Tracker& this, const Tracker& other);
-	fn operator=(Tracker& this, const Tracker& other) -> Tracker&;
-	fn ~Tracker(Tracker& this);
-	Counts* counts;
+	fn Tracker(var Tracker& this) :[default];
+	fn Tracker(var Tracker& this, const Tracker& other);
+	fn operator=(var Tracker& this, const Tracker& other) -> var Tracker&;
+	fn ~Tracker(var Tracker& this);
+	var Counts* counts;
 	i32 id;
 };
 
-fn Tracker::Tracker(Tracker& this, const Tracker& other) {
+fn Tracker::Tracker(var Tracker& this, const Tracker& other) {
 	@this.counts := other.counts;
 	@this.id := other.id;
 	@this.counts->copies = this.counts->copies + 1;
 };
 
-fn Tracker::operator=(Tracker& this, const Tracker& other) -> Tracker& {
+fn Tracker::operator=(var Tracker& this, const Tracker& other) -> var Tracker& {
 	@this.counts := other.counts;
 	@this.id := other.id;
 	@this.counts->assignments = this.counts->assignments + 1;
 	return @this;
 };
 
-fn Tracker::~Tracker(Tracker& this) {
+fn Tracker::~Tracker(var Tracker& this) {
 	if (this.counts) {
 		@this.counts->destroyed = this.counts->destroyed + 1;
 		@this.counts->order = this.counts->order * 10 + this.id;
@@ -40,7 +40,7 @@ struct Pair {
 };
 
 struct DefaultPair {
-	fn operator=(DefaultPair& this, const DefaultPair& other) -> DefaultPair& :[default];
+	fn operator=(var DefaultPair& this, const DefaultPair& other) -> var DefaultPair& :[default];
 	Tracker first;
 	Tracker second;
 };
@@ -49,9 +49,9 @@ fn main() -> i32 {
 	Counts counts;
 	{
 		Pair original;
-		@original.first.counts = &counts;
+		@original.first.counts = &@counts;
 		@original.first.id = 1;
-		@original.second.counts = &counts;
+		@original.second.counts = &@counts;
 		@original.second.id = 2;
 		Pair copy := original;
 		Pair target;
@@ -66,9 +66,9 @@ fn main() -> i32 {
 	Counts default_counts;
 	{
 		DefaultPair original;
-		@original.first.counts = &default_counts;
+		@original.first.counts = &@default_counts;
 		@original.first.id = 1;
-		@original.second.counts = &default_counts;
+		@original.second.counts = &@default_counts;
 		@original.second.id = 2;
 		DefaultPair copy := original;
 		DefaultPair target;

@@ -18,7 +18,7 @@ CASES = [
 		[r"conversion function result does not match its named target", r"result is 'bool'", r"target is 'i32'"]),
 	("constructor-receiver", "struct Box { fn Box(i32 wrong); };",
 		[r"declaration 'Box::Box'", r"expected first parameter 'Box& this'", r"received 'i32 wrong'"]),
-	("constructor-result", "struct Box { fn Box(Box& this) -> i32; };",
+	("constructor-result", "struct Box { fn Box(var Box& this) -> i32; };",
 		[r"declaration 'Box::Box'", r"no result annotation", r"declared signature", r"i32"]),
 	("enum-underlying", "enum Colour : [f64] {};",
 		[r"declaration 'Colour'", r"integer type", r"received 'f64'"]),

@@ -22,7 +22,7 @@ CASES = [
 		[r"template arguments for 'Plain' require a template declaration", r"resolved declaration is 'Plain'", r"note: non-template declaration is here"], []),
 	("unknown-type-argument", "template<typename T> struct Box {}; Box<Missing> value;",
 		[r"Missing", r"note: while checking argument 1 for parameter 'T' of template 'Box'"], []),
-	("value-argument-role", "template<i32 Count> struct Box {}; Box<i32*> value;",
+	("value-argument-role", "template<i32 Count> struct Box {}; Box<var i32*> value;",
 		[r"value parameter 'Count' of template 'Box' at position 1", r"requires a value expression", r"note: value parameter is declared here"], []),
 	("nonconstant-value", "i32 runtime; template<i32 Count> struct Box {}; Box<runtime> value;",
 		[r"value parameter 'Count' of template 'Box' at position 1", r"integer constant of type 'i32'", r"supplied expression 'runtime' has type 'i32'"], []),

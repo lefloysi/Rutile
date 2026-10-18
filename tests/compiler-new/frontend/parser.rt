@@ -4,10 +4,10 @@ struct ParseFixture {
 	SourceFile source;
 	rt::unique<Syntax> tree;
 
-	fn build(ParseFixture& this, const char* text) -> bool;
+	fn build(var ParseFixture& this, const char* text) -> bool;
 };
 
-fn ParseFixture::build(ParseFixture& this, const char* text) -> bool {
+fn ParseFixture::build(var ParseFixture& this, const char* text) -> bool {
 	if (!@this.source.assign(rt::string_view("parser.rt\0"), rt::string_view(text))) {
 		return false;
 	};
@@ -30,11 +30,11 @@ fn parser_tests() -> i32 {
 	if (!@expression.build("fn main() -> i32 { return 1 + 2 * 3; };\0")) {
 		return 1;
 	};
-	Syntax* function = expression.tree.get()->item(0);
+	var Syntax* function = expression.tree.get()->item(0);
 	if (function->kind() != syntax_kind::function || function->function_body()->kind() != syntax_kind::brace) {
 		return 2;
 	};
-	Syntax* sum = function->function_body()->item(0)->operand();
+	var Syntax* sum = function->function_body()->item(0)->operand();
 	if (sum->kind() != syntax_kind::binary || sum->token().kind != token_kind::op_plus || sum->right()->token().kind != token_kind::op_star) {
 		return 3;
 	};
@@ -59,7 +59,7 @@ fn parser_tests() -> i32 {
 	if (!@control.build("fn choose(i32 value) -> i32 { if (value) return 42; else return 0; };\0")) {
 		return 8;
 	};
-	Syntax* condition = control.tree.get()->item(0)->function_body()->item(0);
+	var Syntax* condition = control.tree.get()->item(0)->function_body()->item(0);
 	if (condition->kind() != syntax_kind::conditional || condition->body()->kind() != syntax_kind::return_value || condition->alternative()->kind() != syntax_kind::return_value) {
 		return 9;
 	};
@@ -72,7 +72,7 @@ fn parser_tests() -> i32 {
 		return 11;
 	};
 	var declarations = ParseFixture();
-	if (!@declarations.build("template<typename T, typename D = Owner<T>> struct Box { private: T* data; fn Box(Box& this); fn operator=(Box& this, Box other) -> Box& : [default]; }; var callback : ((i32 value) -> i32)*; struct { i32 field; }* object;\0")) {
+	if (!@declarations.build("template<typename T, typename D = Owner<T>> struct Box { private: var T* data; fn Box(var Box& this); fn operator=(var Box& this, Box other) -> var Box& : [default]; }; var callback : ((i32 value) -> i32)*; struct { i32 field; }* object;\0")) {
 		return 12;
 	};
 	if (declarations.tree.get()->size() != 3 || declarations.tree.get()->item(0)->kind() != syntax_kind::template_declaration || declarations.tree.get()->item(1)->variable_type()->designated_type()->kind() != syntax_kind::type_function) {
@@ -104,7 +104,7 @@ fn parser_tests() -> i32 {
 	if (!@nested.build("struct Manager { rt::buffer<rt::unique<SourceFile>> files; };\0")) {
 		return 20;
 	};
-	Syntax* choices = nested.tree.get()->item(0)->record_members()->item(0);
+	var Syntax* choices = nested.tree.get()->item(0)->record_members()->item(0);
 	if (choices->kind() != syntax_kind::ambiguity) {
 		return 21;
 	};

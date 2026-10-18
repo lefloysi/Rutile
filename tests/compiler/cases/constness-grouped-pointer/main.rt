@@ -1,22 +1,22 @@
-fn data(auto (i32*)& source) -> const[source] i32* {
+fn data(auto (var i32*)& source) -> const[source] i32* {
 	return source;
 };
 
-fn pointee(auto (i32*)& source) -> i32* {
+fn pointee(auto (var i32*)& source) -> var i32* {
 	return source;
 };
 
-fn read(const (i32*)& source) -> i32 {
+fn read(const (var i32*)& source) -> i32 {
 	const i32* read_only = data(source);
-	i32* writable_pointee = pointee(source);
+	var i32* writable_pointee = pointee(source);
 	@*writable_pointee = *read_only + 1;
 	return *read_only;
 };
 
 fn main() -> i32 {
 	i32 value = 40;
-	i32* source = &value;
-	i32* writable = data(@source);
+	var i32* source = &@value;
+	var i32* writable = data(@source);
 	@*writable = 41;
 	return read(source);
 };

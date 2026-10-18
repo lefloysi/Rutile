@@ -24,7 +24,7 @@ CASES = [
 	("duplicate-variable", "i32 value; i64 value;", [r"duplicate declaration of 'value' \(global variable\)", r"note: previous declaration is here"]),
 	("duplicate-alias", "using Count = i32; using Count = i64;", [r"duplicate declaration of 'Count' \(type alias\)", r"note: previous declaration is here"]),
 	("duplicate-enumerator", "enum Colour { red; red; };", [r"duplicate declaration of 'red' \(enumerator\)", r"note: previous declaration is here"]),
-	("destructor-owner", "struct Box { fn ~Other(Box& this); };", [r"destructor '~Other' shall name its owning class 'Box'"]),
+	("destructor-owner", "struct Box { fn ~Other(var Box& this); };", [r"destructor '~Other' shall name its owning class 'Box'"]),
 	("destructor-module", "fn ~Other();", [r"destructor '~Other' shall name its owning class; declaration is outside class scope"]),
 ]
 

@@ -7,7 +7,7 @@ fn FunctionEmitter::needs_destruction(const Type* type) -> bool {
 		return false;
 	};
 
-	Entity* record = type->entity();
+	var Entity* record = type->entity();
 
 	if (record->destructor()) {
 		return true;
@@ -36,20 +36,20 @@ fn FunctionEmitter::needs_destruction(const Type* type) -> bool {
 	return false;
 };
 
-fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::destroy(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
 	if (!FunctionEmitter::needs_destruction(type)) {
 		return true;
 	};
 
 	if (type->kind() == type_kind::array) {
-		LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
-		LLVMOpaqueValue* count = LLVMConstInt(integer, type->count(), 0);
+		var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
+		var LLVMOpaqueValue* count = LLVMConstInt(integer, type->count(), 0);
 
 		return @this.destroy_range(type->element(), address, count);
 	};
 
-	Entity* record = type->entity();
-	Entity* destructor = record->destructor();
+	var Entity* record = type->entity();
+	var Entity* destructor = record->destructor();
 
 	if (!@this.initialize_dispatch(type, address)) {
 		return false;
@@ -60,7 +60,7 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 
 		while (index < record->fields().size()) {
 			if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
-				Entity* member = record->fields().data()[index];
+				var Entity* member = record->fields().data()[index];
 				var message = DiagnosticMessage();
 				@message.text("union '\0");
 				diagnostic_entity(@message, *record);
@@ -93,9 +93,9 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 			return false;
 		};
 
-		LLVMOpaqueValue*[1] arguments {};
+		var LLVMOpaqueValue*[1] arguments {};
 		@arguments[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &arguments[0], 1, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1, "\0");
 	};
 
 	if (record->layout() == record_layout::overlapping) {
@@ -106,10 +106,10 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 
 	while (index) {
 		@index = index - 1;
-		Entity* field = record->fields().data()[index];
+		var Entity* field = record->fields().data()[index];
 
 		if (FunctionEmitter::needs_destruction(field->type())) {
-			LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0");
+			var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0");
 
 			if (!@this.destroy(field->type(), member)) {
 				return false;
@@ -121,7 +121,7 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 
 	while (index) {
 		@index = index - 1;
-		LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0");
+		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0");
 
 		if (!@this.destroy(record->bases().data()[index], base)) {
 			return false;
@@ -131,8 +131,8 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 	return true;
 };
 
-fn FunctionEmitter::slot(FunctionEmitter& this, const Type* type) -> LLVMOpaqueValue* {
-	LLVMOpaqueType* native = @this.backend->type(type);
+fn FunctionEmitter::slot(var FunctionEmitter& this, const Type* type) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return nullptr;
@@ -141,9 +141,9 @@ fn FunctionEmitter::slot(FunctionEmitter& this, const Type* type) -> LLVMOpaqueV
 	return @this.native_slot(native);
 };
 
-fn FunctionEmitter::live_flag(FunctionEmitter& this) -> LLVMOpaqueValue* {
-	LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
-	LLVMOpaqueValue* flag = @this.native_slot(boolean);
+fn FunctionEmitter::live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
+	var LLVMOpaqueValue* flag = @this.native_slot(boolean);
 
 	if (!flag) {
 		return nullptr;
@@ -157,7 +157,7 @@ fn FunctionEmitter::live_flag(FunctionEmitter& this) -> LLVMOpaqueValue* {
 		return nullptr;
 	};
 
-	LLVMOpaqueValue* next = LLVMGetNextInstruction(flag);
+	var LLVMOpaqueValue* next = LLVMGetNextInstruction(flag);
 
 	if (next) {
 		LLVMPositionBuilderBefore(builder.get(), next);
@@ -171,7 +171,7 @@ fn FunctionEmitter::live_flag(FunctionEmitter& this) -> LLVMOpaqueValue* {
 	return flag;
 };
 
-fn FunctionEmitter::temporary(const FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+fn FunctionEmitter::temporary(const FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	usize index = this.temporaries.size();
 
 	while (index) {
@@ -185,7 +185,7 @@ fn FunctionEmitter::temporary(const FunctionEmitter& this, SemanticExpression* e
 	return nullptr;
 };
 
-fn FunctionEmitter::remember(FunctionEmitter& this, SemanticExpression* expression, LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool {
 	NativeTemporary temporary;
 	@temporary.expression = expression;
 	@temporary.address = address;
@@ -207,15 +207,15 @@ fn FunctionEmitter::remember(FunctionEmitter& this, SemanticExpression* expressi
 	return true;
 };
 
-fn FunctionEmitter::value(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
-	LLVMOpaqueValue* value = @this.evaluate(expression);
+fn FunctionEmitter::value(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueValue* value = @this.evaluate(expression);
 
 	if (!value) {
 		return nullptr;
 	};
 
 	if (expression->category() == value_category::consumable && FunctionEmitter::needs_destruction(expression->type()) && !this.temporary(expression)) {
-		LLVMOpaqueValue* storage = @this.slot(expression->type());
+		var LLVMOpaqueValue* storage = @this.slot(expression->type());
 
 		if (!storage) {
 			return nullptr;
@@ -231,8 +231,8 @@ fn FunctionEmitter::value(FunctionEmitter& this, SemanticExpression* expression)
 	return value;
 };
 
-fn FunctionEmitter::take(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
-	LLVMOpaqueValue* value = @this.value(expression);
+fn FunctionEmitter::take(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueValue* value = @this.value(expression);
 	usize index = this.temporaries.size();
 
 	while (index) {
@@ -248,7 +248,7 @@ fn FunctionEmitter::take(FunctionEmitter& this, SemanticExpression* expression) 
 	return value;
 };
 
-fn FunctionEmitter::set_live(FunctionEmitter& this, SemanticExpression* expression, bool live) {
+fn FunctionEmitter::set_live(var FunctionEmitter& this, var SemanticExpression* expression, bool live) {
 	if (expression->indirect_storage()) {
 		return;
 	};
@@ -256,7 +256,7 @@ fn FunctionEmitter::set_live(FunctionEmitter& this, SemanticExpression* expressi
 	@this.binding_live(expression->owned_binding(), live);
 };
 
-fn FunctionEmitter::binding_live(FunctionEmitter& this, Entity* entity, bool live) {
+fn FunctionEmitter::binding_live(var FunctionEmitter& this, var Entity* entity, bool live) {
 	usize index = this.bindings.size();
 
 	while (index) {
@@ -270,14 +270,14 @@ fn FunctionEmitter::binding_live(FunctionEmitter& this, Entity* entity, bool liv
 	};
 };
 
-fn FunctionEmitter::guarded_destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address, LLVMOpaqueValue* live) -> bool {
+fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> bool {
 	if (!live) {
 		return true;
 	};
 
-	LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy\0");
-	LLVMOpaqueBasicBlock* after = @this.block("cleanup.after\0");
-	LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
+	var LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy\0");
+	var LLVMOpaqueBasicBlock* after = @this.block("cleanup.after\0");
+	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
 	LLVMBuildCondBr(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), boolean, live, "live\0"), destroy, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 	LLVMBuildStore(this.backend->builder(), LLVMConstNull(boolean), live);
@@ -292,7 +292,7 @@ fn FunctionEmitter::guarded_destroy(FunctionEmitter& this, const Type* type, LLV
 	return true;
 };
 
-fn FunctionEmitter::cleanup_temporaries(FunctionEmitter& this, usize begin) -> bool {
+fn FunctionEmitter::cleanup_temporaries(var FunctionEmitter& this, usize begin) -> bool {
 	usize index = this.temporaries.size();
 
 	while (index > begin) {
@@ -307,7 +307,7 @@ fn FunctionEmitter::cleanup_temporaries(FunctionEmitter& this, usize begin) -> b
 	return true;
 };
 
-fn FunctionEmitter::cleanup_bindings(FunctionEmitter& this, usize begin) -> bool {
+fn FunctionEmitter::cleanup_bindings(var FunctionEmitter& this, usize begin) -> bool {
 	usize index = this.bindings.size();
 
 	while (index > begin) {
@@ -322,13 +322,13 @@ fn FunctionEmitter::cleanup_bindings(FunctionEmitter& this, usize begin) -> bool
 	return true;
 };
 
-fn FunctionEmitter::forget_temporaries(FunctionEmitter& this, usize begin) {
+fn FunctionEmitter::forget_temporaries(var FunctionEmitter& this, usize begin) {
 	while (this.temporaries.size() > begin) {
 		@this.temporaries.pop_back();
 	};
 };
 
-fn FunctionEmitter::leave_scope(FunctionEmitter& this, usize begin) -> bool {
+fn FunctionEmitter::leave_scope(var FunctionEmitter& this, usize begin) -> bool {
 	if (!this.terminated() && !@this.cleanup_bindings(begin)) {
 		return false;
 	};
@@ -340,7 +340,7 @@ fn FunctionEmitter::leave_scope(FunctionEmitter& this, usize begin) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::scoped_statement(FunctionEmitter& this, SemanticExpression* expression) -> bool {
+fn FunctionEmitter::scoped_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
 	usize begin = this.bindings.size();
 
 	if (!@this.statement(expression)) {

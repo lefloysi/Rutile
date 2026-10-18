@@ -2,7 +2,7 @@ struct TypeUse;
 
 // A label's semantic spelling can be generated independently of its source location.
 struct ParameterLabel {
-	fn ParameterLabel(ParameterLabel& this, const Token& location, const rt::string_view& spelling);
+	fn ParameterLabel(var ParameterLabel& this, const Token& location, const rt::string_view& spelling);
 
 	fn location(const ParameterLabel& this) -> Token;
 	fn text(const ParameterLabel& this) -> rt::string_view;
@@ -14,7 +14,7 @@ private:
 };
 
 struct ParameterUse {
-	fn ParameterUse(ParameterUse& this, rt::optional<ParameterLabel> name, const TypeUse& type);
+	fn ParameterUse(var ParameterUse& this, rt::optional<ParameterLabel> name, const TypeUse& type);
 
 	fn name(const ParameterUse& this) -> const rt::optional<ParameterLabel>&;
 	fn type(const ParameterUse& this) -> const TypeUse&;
@@ -25,7 +25,7 @@ private:
 };
 
 struct FunctionUse {
-	fn FunctionUse(FunctionUse& this, rt::buffer<ParameterUse> parameters, const TypeUse& result);
+	fn FunctionUse(var FunctionUse& this, rt::buffer<ParameterUse> parameters, const TypeUse& result);
 
 	fn parameters(const FunctionUse& this) -> const rt::buffer<ParameterUse>&;
 	fn result(const FunctionUse& this) -> const TypeUse&;
@@ -44,9 +44,9 @@ union TypeUseDetail {
 // Nominal and primitive uses are leaves. Indirect/array uses carry their element use;
 // callable uses carry parameter labels and nested uses in a separately owned FunctionUse.
 struct TypeUse {
-	fn TypeUse(TypeUse& this, const Type& type);
-	fn TypeUse(TypeUse& this, const Type& type, const TypeUse& element);
-	fn TypeUse(TypeUse& this, const Type& type, const FunctionUse& callable);
+	fn TypeUse(var TypeUse& this, const Type& type);
+	fn TypeUse(var TypeUse& this, const Type& type, const TypeUse& element);
+	fn TypeUse(var TypeUse& this, const Type& type, const FunctionUse& callable);
 
 	fn type(const TypeUse& this) -> const Type&;
 	fn element(const TypeUse& this) -> const TypeUse&;
@@ -58,7 +58,7 @@ private:
 	TypeUseDetail detail;
 };
 
-fn ParameterLabel::ParameterLabel(ParameterLabel& this, const Token& location, const rt::string_view& spelling) {
+fn ParameterLabel::ParameterLabel(var ParameterLabel& this, const Token& location, const rt::string_view& spelling) {
 	@this.source_location := location;
 	@this.spelling = rt::string_view(spelling.data(), spelling.size());
 };
@@ -75,9 +75,9 @@ fn ParameterLabel::is(const ParameterLabel& this, const rt::string_view& spellin
 	return this.spelling == spelling;
 };
 
-fn ParameterUse::ParameterUse(ParameterUse& this, rt::optional<ParameterLabel> name, const TypeUse& type) {
+fn ParameterUse::ParameterUse(var ParameterUse& this, rt::optional<ParameterLabel> name, const TypeUse& type) {
 	@this.parameter_name = $name;
-	@this.parameter_type = &type;
+	@this.parameter_type = &@type;
 };
 
 fn ParameterUse::name(const ParameterUse& this) -> const rt::optional<ParameterLabel>& {
@@ -88,9 +88,9 @@ fn ParameterUse::type(const ParameterUse& this) -> const TypeUse& {
 	return *this.parameter_type;
 };
 
-fn FunctionUse::FunctionUse(FunctionUse& this, rt::buffer<ParameterUse> parameters, const TypeUse& result) {
+fn FunctionUse::FunctionUse(var FunctionUse& this, rt::buffer<ParameterUse> parameters, const TypeUse& result) {
 	@this.arguments = $parameters;
-	@this.return_type = &result;
+	@this.return_type = &@result;
 };
 
 fn FunctionUse::parameters(const FunctionUse& this) -> const rt::buffer<ParameterUse>& {
@@ -101,18 +101,18 @@ fn FunctionUse::result(const FunctionUse& this) -> const TypeUse& {
 	return *this.return_type;
 };
 
-fn TypeUse::TypeUse(TypeUse& this, const Type& type) {
-	@this.canonical_type = &type;
+fn TypeUse::TypeUse(var TypeUse& this, const Type& type) {
+	@this.canonical_type = &@type;
 };
 
-fn TypeUse::TypeUse(TypeUse& this, const Type& type, const TypeUse& element) {
-	@this.canonical_type = &type;
-	@this.detail.element = &element;
+fn TypeUse::TypeUse(var TypeUse& this, const Type& type, const TypeUse& element) {
+	@this.canonical_type = &@type;
+	@this.detail.element = &@element;
 };
 
-fn TypeUse::TypeUse(TypeUse& this, const Type& type, const FunctionUse& callable) {
-	@this.canonical_type = &type;
-	@this.detail.callable = &callable;
+fn TypeUse::TypeUse(var TypeUse& this, const Type& type, const FunctionUse& callable) {
+	@this.canonical_type = &@type;
+	@this.detail.callable = &@callable;
 };
 
 fn TypeUse::type(const TypeUse& this) -> const Type& {

@@ -1,13 +1,13 @@
-fn Analyzer::select(Analyzer& this, Entity* group, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, Syntax& syntax) -> Entity* {
-	rt::buffer<Entity*> candidates;
-	const rt::buffer<Entity*>& bindings = group->scope()->bindings();
+fn Analyzer::select(var Analyzer& this, var Entity* group, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
+	rt::buffer<var Entity*> candidates;
+	const rt::buffer<var Entity*>& bindings = group->scope()->bindings();
 	usize index = 0;
 	while (index < bindings.size()) {
-		Entity* candidate = bindings.data()[index];
+		var Entity* candidate = bindings.data()[index];
 
 		if (candidate->kind() == entity_kind::function && candidate->name() == group->name()) {
-			if (!@candidates.push_back(Entity*(candidate))) {
-				@this.error(&syntax, "out of memory collecting function candidates\0");
+			if (!@candidates.push_back((var Entity*(candidate)))) {
+				@this.error(&@syntax, "out of memory collecting function candidates\0");
 
 				return nullptr;
 			};
@@ -19,22 +19,22 @@ fn Analyzer::select(Analyzer& this, Entity* group, const rt::buffer<rt::unique<S
 	return @this.select_candidates(candidates, arguments, $skipped, $mode, @syntax);
 };
 
-fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindings, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, Syntax& syntax) -> Entity* {
-	Entity* selected = nullptr;
+fn Analyzer::select_candidates(var Analyzer& this, const rt::buffer<var Entity*>& bindings, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
+	var Entity* selected = nullptr;
 	i32 best = i32::max;
 	i32 best_origin = 2;
-	rt::buffer<Entity*> best_matches;
-	rt::buffer<Entity*> seen;
+	rt::buffer<var Entity*> best_matches;
+	rt::buffer<var Entity*> seen;
 	usize index = 0;
 	while (index < bindings.size()) {
-		Entity* candidate = bindings.data()[index];
+		var Entity* candidate = bindings.data()[index];
 		@index = index + 1;
 
 		if (candidate->kind() != entity_kind::function) {
 			continue;
 		};
 
-		if (!@this.resolve(Entity*(candidate))) {
+		if (!@this.resolve((var Entity*(candidate)))) {
 			return nullptr;
 		};
 
@@ -49,8 +49,8 @@ fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindin
 			continue;
 		};
 
-		if (!@seen.push_back(Entity*(candidate))) {
-			@this.error(&syntax, "out of memory ranking overload candidates\0");
+		if (!@seen.push_back((var Entity*(candidate)))) {
+			@this.error(&@syntax, "out of memory ranking overload candidates\0");
 
 			return nullptr;
 		};
@@ -103,8 +103,8 @@ fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindin
 		if (rank != best || origin != best_origin) {
 			@best_matches.clear();
 		};
-		if (!@best_matches.push_back(Entity*(candidate))) {
-			@this.error(&syntax, "out of memory retaining equally ranked overload candidates\0");
+		if (!@best_matches.push_back((var Entity*(candidate)))) {
+			@this.error(&@syntax, "out of memory retaining equally ranked overload candidates\0");
 			return nullptr;
 		};
 		if (rank == best && origin == best_origin) {
@@ -125,7 +125,7 @@ fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindin
 		@this.diagnostics->error(syntax.token(), message.view());
 		usize candidate_index = 0;
 		while (candidate_index < best_matches.size()) {
-			Entity* candidate = best_matches.data()[candidate_index];
+			var Entity* candidate = best_matches.data()[candidate_index];
 			@candidate_index = candidate_index + 1;
 			var detail = DiagnosticMessage();
 			@detail.text("equally ranked candidate '\0");
@@ -142,11 +142,11 @@ fn Analyzer::select_candidates(Analyzer& this, const rt::buffer<Entity*>& bindin
 	return $selected;
 };
 
-fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	rt::buffer<Entity*> candidates;
+fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	rt::buffer<var Entity*> candidates;
 	usize index = 0;
 	while (index < this.unit->entities().size()) {
-		Entity* candidate = this.unit->entities().data()[index].get();
+		var Entity* candidate = this.unit->entities().data()[index].get();
 		@index = index + 1;
 
 		if (candidate->kind() != entity_kind::function && candidate->kind() != entity_kind::template_pattern) {
@@ -159,7 +159,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 			};
 		}
 		else {
-			Syntax* declaration = candidate->declaration();
+			var Syntax* declaration = candidate->declaration();
 
 			if (!declaration) {
 				continue;
@@ -173,7 +173,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 				continue;
 			};
 
-			Syntax* name = declaration->function_name();
+			var Syntax* name = declaration->function_name();
 
 			while (name->kind() == syntax_kind::qualified_name) {
 				@name = name->right();
@@ -185,7 +185,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 		};
 
 		bool visible = false;
-		Scope* enclosing = &scope;
+		var Scope* enclosing = &@scope;
 
 		while (enclosing) {
 			if (candidate->scope() == enclosing) {
@@ -201,7 +201,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 			const Type* type = arguments.data()[argument].get()->type();
 
 			if (type->kind() == type_kind::named) {
-				Entity* owner = type->entity();
+				var Entity* owner = type->entity();
 
 				if (candidate->scope() == owner->members() || candidate->scope() == owner->scope()) {
 					@visible = true;
@@ -223,14 +223,14 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 			};
 		};
 
-		if (!@candidates.push_back(Entity*(candidate))) {
-			@this.error(&syntax, "out of memory collecting operator candidates\0");
+		if (!@candidates.push_back((var Entity*(candidate)))) {
+			@this.error(&@syntax, "out of memory collecting operator candidates\0");
 
 			return rt::unique<SemanticExpression>();
 		};
 	};
 
-	Entity* selected = @this.select_candidates(candidates, arguments, 0, conversion_mode::explicit_only, @syntax);
+	var Entity* selected = @this.select_candidates(candidates, arguments, 0, conversion_mode::explicit_only, @syntax);
 
 	if (!selected) {
 		if (!this.diagnostics->failed()) {
@@ -242,7 +242,7 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 			@this.diagnostics->error(syntax.token(), message.view());
 			usize candidate_index = 0;
 			while (candidate_index < candidates.size()) {
-				Entity* candidate = candidates.data()[candidate_index];
+				var Entity* candidate = candidates.data()[candidate_index];
 				@candidate_index = candidate_index + 1;
 				if (!candidate->type()) {
 					continue;
@@ -275,13 +275,13 @@ fn Analyzer::overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer
 		return rt::unique<SemanticExpression>();
 	};
 
-	var callable = @this.node(semantic_kind::name, selected->type(), &syntax);
+	var callable = @this.node(semantic_kind::name, selected->type(), &@syntax);
 
 	if (!callable.get()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	@callable.get()->bind(Entity*(selected), value_category::place);
+	@callable.get()->bind((var Entity*(selected)), value_category::place);
 
 	return @this.invoke(@syntax, selected, $callable, $arguments, expected);
 };

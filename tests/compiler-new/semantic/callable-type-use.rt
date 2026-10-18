@@ -10,7 +10,7 @@ fn callable_type_use_tests() -> i32 {
 	};
 
 	TemplateFixture nested;
-	if (!@nested.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(T* slot)->i32 {return (*slot)({@value=42;});}; fn answer()->i32 {var callback=&identity;return call(&callback);};\0")) {
+	if (!@nested.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(var T* slot)->i32 {return (*slot)({@value=42;});}; fn answer()->i32 {var callback=&identity;return call(&@callback);};\0")) {
 		return 3;
 	};
 
@@ -20,7 +20,7 @@ fn callable_type_use_tests() -> i32 {
 	};
 
 	TemplateFixture allocated;
-	if (!@allocated.build("fn identity(i32 original)->i32 {return $original;}; fn answer()->i32 {var box=new ((i32 allocated)->i32)*(&identity);i32 result=(*box)({@allocated=42;});delete box;return result;};\0")) {
+	if (!@allocated.build("fn identity(i32 original)->i32 {return $original;}; fn answer()->i32 {var box=new (var ((i32 allocated)->i32)*)(&identity);i32 result=(*box)({@allocated=42;});delete box;return result;};\0")) {
 		return 5;
 	};
 

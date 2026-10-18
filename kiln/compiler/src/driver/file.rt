@@ -1,31 +1,31 @@
 struct NativeFile;
 
-fn platform_open_utf8_file(const char* path, const char* mode) -> NativeFile*;
+fn platform_open_utf8_file(const char* path, const char* mode) -> var NativeFile*;
 
-fn fclose(NativeFile* file) -> i32;
+fn fclose(var NativeFile* file) -> i32;
 
-fn fread(void* destination, usize size, usize count, NativeFile* file) -> usize;
+fn fread(var void* destination, usize size, usize count, var NativeFile* file) -> usize;
 
-fn fwrite(const void* source, usize size, usize count, NativeFile* file) -> usize;
+fn fwrite(const void* source, usize size, usize count, var NativeFile* file) -> usize;
 
-fn ferror(NativeFile* file) -> i32;
+fn ferror(var NativeFile* file) -> i32;
 
-using FileOpener = ((const char*, const char*) -> NativeFile*)*;
+using FileOpener = ((const char*, const char*) -> var NativeFile*)*;
 
 struct FileCloser {
-	fn dispose(NativeFile* file);
+	fn dispose(var NativeFile* file);
 };
 
 struct File {
-	fn File(File& this, NativeFile* file);
-	fn File(File& this, const File& other) : [delete];
-	fn File(File& this, File other) : [default];
+	fn File(var File& this, var NativeFile* file);
+	fn File(var File& this, const File& other) : [delete];
+	fn File(var File& this, File other) : [default];
 
-	fn operator=(File& this, const File& other) -> File& : [delete];
-	fn operator=(File& this, File other) -> File& : [default];
-	fn read(File& this, char* destination, usize capacity) -> usize;
-	fn write(File& this, const rt::string_view& bytes) -> bool;
-	fn close(File& this) -> bool;
+	fn operator=(var File& this, const File& other) -> var File& : [delete];
+	fn operator=(var File& this, File other) -> var File& : [default];
+	fn read(var File& this, var char* destination, usize capacity) -> usize;
+	fn write(var File& this, const rt::string_view& bytes) -> bool;
+	fn close(var File& this) -> bool;
 
 	fn is_open(const File& this) -> bool;
 	fn failed(const File& this) -> bool;
@@ -34,13 +34,13 @@ private:
 	rt::unique<NativeFile, FileCloser> handle;
 };
 
-fn FileCloser::dispose(NativeFile* file) {
+fn FileCloser::dispose(var NativeFile* file) {
 	if (file) {
 		fclose($file);
 	};
 };
 
-fn File::File(File& this, NativeFile* file) {
+fn File::File(var File& this, var NativeFile* file) {
 	@this.handle = rt::unique<NativeFile, FileCloser>($file);
 };
 
@@ -52,16 +52,16 @@ fn File::failed(const File& this) -> bool {
 	return !this.handle.get() || ferror(this.handle.get());
 };
 
-fn File::read(File& this, char* destination, usize capacity) -> usize {
+fn File::read(var File& this, var char* destination, usize capacity) -> usize {
 	return fread($destination, 1, $capacity, this.handle.get());
 };
 
-fn File::write(File& this, const rt::string_view& bytes) -> bool {
+fn File::write(var File& this, const rt::string_view& bytes) -> bool {
 	return fwrite(bytes.data(), 1, bytes.size(), this.handle.get()) == bytes.size();
 };
 
-fn File::close(File& this) -> bool {
-	NativeFile* handle = @this.handle.release();
+fn File::close(var File& this) -> bool {
+	var NativeFile* handle = @this.handle.release();
 
 	if (!handle) {
 		return true;

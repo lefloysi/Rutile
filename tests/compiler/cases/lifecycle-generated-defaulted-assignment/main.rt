@@ -5,20 +5,20 @@ struct Counts {
 };
 
 struct Owner {
-	fn Owner(Owner& this, Counts* counts, i32 value);
-	fn Owner(Owner& this, Owner other);
-	fn operator=(Owner& this, Owner other) -> Owner& : [default];
-	fn ~Owner(Owner& this);
-	Counts* counts;
-	i32* value;
+	fn Owner(var Owner& this, var Counts* counts, i32 value);
+	fn Owner(var Owner& this, Owner other);
+	fn operator=(var Owner& this, Owner other) -> var Owner& : [default];
+	fn ~Owner(var Owner& this);
+	var Counts* counts;
+	var i32* value;
 };
 
-fn Owner::Owner(Owner& this, Counts* counts, i32 value) {
+fn Owner::Owner(var Owner& this, var Counts* counts, i32 value) {
 	@this.counts = $counts;
-	@this.value = new i32($value);
+	@this.value = new var i32($value);
 };
 
-fn Owner::Owner(Owner& this, Owner other) {
+fn Owner::Owner(var Owner& this, Owner other) {
 	@this.counts := other.counts;
 	@this.value := other.value;
 	@this.counts->moved = this.counts->moved + 1;
@@ -26,17 +26,17 @@ fn Owner::Owner(Owner& this, Owner other) {
 	discard $other;
 };
 
-fn Owner::~Owner(Owner& this) {
+fn Owner::~Owner(var Owner& this) {
 	@this.counts->destroyed = this.counts->destroyed + 1;
 	@this.counts->order = this.counts->order * 10 + *this.value;
-	delete i32*(this.value);
+	delete (var i32*(this.value));
 };
 
 fn main() -> i32 {
 	Counts counts;
 	{
-		var source = Owner(&counts, 3);
-		var target = Owner(&counts, 1);
+		var source = Owner(&@counts, 3);
+		var target = Owner(&@counts, 1);
 		@target = $source;
 		if (counts.moved != 1 || counts.destroyed != 1 || counts.order != 12) {
 			return 1;

@@ -1,60 +1,60 @@
 struct NativeType {
 	const Type* source;
-	LLVMOpaqueType* value;
+	var LLVMOpaqueType* value;
 };
 
 struct NativeEntity {
-	Entity* source;
-	LLVMOpaqueValue* value;
-	LLVMOpaqueValue* implementation;
+	var Entity* source;
+	var LLVMOpaqueValue* value;
+	var LLVMOpaqueValue* implementation;
 };
 
 struct NativeTable {
-	Entity* source;
-	LLVMOpaqueValue* value;
+	var Entity* source;
+	var LLVMOpaqueValue* value;
 };
 
 struct Backend {
-	fn Backend(Backend& this, Diagnostics& diagnostics);
+	fn Backend(var Backend& this, var Diagnostics& diagnostics);
 
-	fn ~Backend(Backend& this);
+	fn ~Backend(var Backend& this);
 
-	fn initialize(Backend& this, i32 optimization) -> bool;
-	fn emit(Backend& this, const SemanticUnit& unit, const rt::string_view& entry, output_kind output) -> bool;
-	fn write(Backend& this, File& output) -> bool;
+	fn initialize(var Backend& this, i32 optimization) -> bool;
+	fn emit(var Backend& this, const SemanticUnit& unit, const rt::string_view& entry, output_kind output) -> bool;
+	fn write(var Backend& this, var File& output) -> bool;
 
 	fn pointer_bits(const Backend& this) -> u32;
-	fn type(Backend& this, const Type* source) -> LLVMOpaqueType*;
-	fn type(Backend& this, const Type* source, const Token& origin) -> LLVMOpaqueType*;
-	fn symbol(const Backend& this, Entity* entity) -> LLVMOpaqueValue*;
-	fn implementation(const Backend& this, Entity* entity) -> LLVMOpaqueValue*;
-	fn table(Backend& this, Entity* entity) -> LLVMOpaqueValue*;
-	fn field_index(const Backend& this, Entity* entity, usize index) -> u32;
+	fn type(var Backend& this, const Type* source) -> var LLVMOpaqueType*;
+	fn type(var Backend& this, const Type* source, const Token& origin) -> var LLVMOpaqueType*;
+	fn symbol(const Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
+	fn implementation(const Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
+	fn table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
+	fn field_index(const Backend& this, var Entity* entity, usize index) -> u32;
 
-	fn context(const Backend& this) -> LLVMOpaqueContext*;
-	fn module(const Backend& this) -> LLVMOpaqueModule*;
-	fn builder(const Backend& this) -> LLVMOpaqueBuilder*;
-	fn layout(const Backend& this) -> LLVMOpaqueTargetData*;
+	fn context(const Backend& this) -> var LLVMOpaqueContext*;
+	fn module(const Backend& this) -> var LLVMOpaqueModule*;
+	fn builder(const Backend& this) -> var LLVMOpaqueBuilder*;
+	fn layout(const Backend& this) -> var LLVMOpaqueTargetData*;
 
-	fn error(Backend& this, const Token& token, const rt::string_view& message) -> bool;
-	fn note(Backend& this, const Token& token, const rt::string_view& message);
+	fn error(var Backend& this, const Token& token, const rt::string_view& message) -> bool;
+	fn note(var Backend& this, const Token& token, const rt::string_view& message);
 	fn failed(const Backend& this) -> bool;
 
 private:
-	fn verify(Backend& this) -> bool;
-	fn optimize(Backend& this) -> bool;
+	fn verify(var Backend& this) -> bool;
+	fn optimize(var Backend& this) -> bool;
 
-	fn declare(Backend& this, Entity* entity) -> bool;
-	fn required(const Backend& this, Entity* entity) -> bool;
-	fn external_signature(Backend& this, Entity* entity) -> bool;
+	fn declare(var Backend& this, var Entity* entity) -> bool;
+	fn required(const Backend& this, var Entity* entity) -> bool;
+	fn external_signature(var Backend& this, var Entity* entity) -> bool;
 
-	fn emit_dispatch(Backend& this, Entity* entity) -> bool;
-	fn dispatch_target(Backend& this, Entity* entity, LLVMOpaqueValue* receiver) -> LLVMOpaqueValue*;
-	fn entry(Backend& this, Entity* entity) -> bool;
-	fn register_lifecycle(Backend& this, LLVMOpaqueValue* function, const char* name);
+	fn emit_dispatch(var Backend& this, var Entity* entity) -> bool;
+	fn dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqueValue* receiver) -> var LLVMOpaqueValue*;
+	fn entry(var Backend& this, var Entity* entity) -> bool;
+	fn register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, const char* name);
 
-	Diagnostics* diagnostics;
-	Entity* selected_entry;
+	var Diagnostics* diagnostics;
+	var Entity* selected_entry;
 	i32 optimization;
 	rt::unique<LLVMOpaqueContext, ContextDisposer> native_context;
 	rt::unique<LLVMOpaqueTargetMachine, MachineDisposer> native_machine;
@@ -66,11 +66,11 @@ private:
 	rt::buffer<NativeTable> tables;
 };
 
-fn Backend::Backend(Backend& this, Diagnostics& diagnostics) {
-	@this.diagnostics = &diagnostics;
+fn Backend::Backend(var Backend& this, var Diagnostics& diagnostics) {
+	@this.diagnostics = &@diagnostics;
 };
 
-fn Backend::~Backend(Backend& this) {
+fn Backend::~Backend(var Backend& this) {
 	@this.native_layout.reset(nullptr);
 	@this.native_builder.reset(nullptr);
 	@this.native_module.reset(nullptr);
@@ -78,19 +78,19 @@ fn Backend::~Backend(Backend& this) {
 	@this.native_context.reset(nullptr);
 };
 
-fn Backend::context(const Backend& this) -> LLVMOpaqueContext* {
+fn Backend::context(const Backend& this) -> var LLVMOpaqueContext* {
 	return this.native_context.get();
 };
 
-fn Backend::module(const Backend& this) -> LLVMOpaqueModule* {
+fn Backend::module(const Backend& this) -> var LLVMOpaqueModule* {
 	return this.native_module.get();
 };
 
-fn Backend::builder(const Backend& this) -> LLVMOpaqueBuilder* {
+fn Backend::builder(const Backend& this) -> var LLVMOpaqueBuilder* {
 	return this.native_builder.get();
 };
 
-fn Backend::layout(const Backend& this) -> LLVMOpaqueTargetData* {
+fn Backend::layout(const Backend& this) -> var LLVMOpaqueTargetData* {
 	return this.native_layout.get();
 };
 
@@ -98,7 +98,7 @@ fn Backend::failed(const Backend& this) -> bool {
 	return this.diagnostics->failed();
 };
 
-fn Backend::error(Backend& this, const Token& token, const rt::string_view& message) -> bool {
+fn Backend::error(var Backend& this, const Token& token, const rt::string_view& message) -> bool {
 	@this.diagnostics->error(token, message);
 	return false;
 };
@@ -111,7 +111,7 @@ fn Backend::pointer_bits(const Backend& this) -> u32 {
 	return LLVMPointerSize(this.native_layout.get()) * 8;
 };
 
-fn Backend::initialize(Backend& this, i32 optimization) -> bool {
+fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	Token location;
 
 	if (optimization < 0 || optimization > 3) {
@@ -122,7 +122,7 @@ fn Backend::initialize(Backend& this, i32 optimization) -> bool {
 	u32 major;
 	u32 minor;
 	u32 patch;
-	LLVMGetVersion(&major, &minor, &patch);
+	LLVMGetVersion(&@major, &@minor, &@patch);
 
 	if (major != 21 || minor != 1 || patch != 0) {
 		return @this.error(location, rt::string_view("LLVM runtime version must be 21.1.0\0"));
@@ -151,10 +151,10 @@ fn Backend::initialize(Backend& this, i32 optimization) -> bool {
 		return @this.error(location, rt::string_view("cannot obtain target triple\0"));
 	};
 
-	LLVMTarget* target;
-	char* failure;
+	var LLVMTarget* target;
+	var char* failure;
 
-	if (LLVMGetTargetFromTriple(triple.get(), &target, &failure)) {
+	if (LLVMGetTargetFromTriple(triple.get(), &@target, &@failure)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
 		return @this.error(location, rt::string_view(message.get()));
@@ -184,10 +184,10 @@ fn Backend::initialize(Backend& this, i32 optimization) -> bool {
 	return true;
 };
 
-fn Backend::verify(Backend& this) -> bool {
-	char* failure;
+fn Backend::verify(var Backend& this) -> bool {
+	var char* failure;
 
-	if (!LLVMVerifyModule(this.module(), 2, &failure)) {
+	if (!LLVMVerifyModule(this.module(), 2, &@failure)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
 		return true;
@@ -199,7 +199,7 @@ fn Backend::verify(Backend& this) -> bool {
 	return @this.error(location, rt::string_view(message.get()));
 };
 
-fn Backend::optimize(Backend& this) -> bool {
+fn Backend::optimize(var Backend& this) -> bool {
 	if (!@this.verify()) {
 		return false;
 	};
@@ -226,7 +226,7 @@ fn Backend::optimize(Backend& this) -> bool {
 			break;
 	};
 
-	LLVMOpaqueError* error = LLVMRunPasses(this.module(), pipeline, this.native_machine.get(), options.get());
+	var LLVMOpaqueError* error = LLVMRunPasses(this.module(), pipeline, this.native_machine.get(), options.get());
 
 	if (error) {
 		var message = rt::unique<char, ErrorMessageDisposer>(LLVMGetErrorMessage(error));
@@ -237,16 +237,16 @@ fn Backend::optimize(Backend& this) -> bool {
 	return @this.verify();
 };
 
-fn Backend::write(Backend& this, File& output) -> bool {
+fn Backend::write(var Backend& this, var File& output) -> bool {
 	if (this.failed() || !@this.optimize()) {
 		return false;
 	};
 
-	LLVMOpaqueMemoryBuffer* bytes;
-	char* failure;
+	var LLVMOpaqueMemoryBuffer* bytes;
+	var char* failure;
 	Token location;
 
-	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &failure, &bytes)) {
+	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &@failure, &@bytes)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
 		return @this.error(location, rt::string_view(message.get()));
@@ -261,6 +261,6 @@ fn Backend::write(Backend& this, File& output) -> bool {
 	return true;
 };
 
-fn Backend::note(Backend& this, const Token& token, const rt::string_view& message) {
+fn Backend::note(var Backend& this, const Token& token, const rt::string_view& message) {
 	@this.diagnostics->note(token, message);
 };

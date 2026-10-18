@@ -1,4 +1,4 @@
-fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
+fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) -> bool {
 	const Type* source = entity->type();
 	const Type* copy = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
 
@@ -9,7 +9,7 @@ fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
 	bool source_constructor = false;
 	usize index = 0;
 	while (index < entity->members()->bindings().size()) {
-		Entity* member = entity->members()->bindings().data()[index];
+		var Entity* member = entity->members()->bindings().data()[index];
 
 		if (member->kind() == entity_kind::function && member->role() == function_role::constructor && member->origin() == declaration_origin::source) {
 			@source_constructor = true;
@@ -19,7 +19,7 @@ fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
 	};
 
 	if (!source_constructor) {
-		Entity* constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
+		var Entity* constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
 
 		if (!constructor) {
 			return false;
@@ -28,8 +28,8 @@ fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
 		@entity->set_default_constructor(constructor);
 	};
 
-	Entity* move_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, source, function_definition::defaulted);
-	Entity* copy_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, copy, function_definition::defaulted);
+	var Entity* move_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, source, function_definition::defaulted);
+	var Entity* copy_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, copy, function_definition::defaulted);
 
 	if (!move_constructor || !copy_constructor) {
 		return false;
@@ -49,7 +49,7 @@ fn Analyzer::supply_special_functions(Analyzer& this, Entity* entity) -> bool {
 	return @this.supply_special(entity, function_role::assignment, token_kind::op_copy, copy, function_definition::defaulted) != nullptr;
 };
 
-fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> Entity* {
+fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> var Entity* {
 	const Type* receiver = @this.types->reference(entity->type());
 
 	if (!receiver) {
@@ -64,14 +64,14 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 
 	usize index = 0;
 	while (index < entity->members()->bindings().size()) {
-		Entity* candidate = entity->members()->bindings().data()[index];
+		var Entity* candidate = entity->members()->bindings().data()[index];
 		@index = index + 1;
 
 		if (candidate->kind() != entity_kind::function) {
 			continue;
 		};
 
-		if (!@this.resolve(Entity*(candidate))) {
+		if (!@this.resolve((var Entity*(candidate)))) {
 			return nullptr;
 		};
 
@@ -96,7 +96,7 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 		};
 	};
 
-	Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
+	var Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
 
 	if (!function || !@function->set_name(name)) {
 		@this.error(entity->declaration(), "cannot declare compiler-supplied special function\0");
@@ -108,13 +108,13 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 	@function->set_role(function_role(role));
 	@function->set_operator_kind(token_kind(operation));
 	@function->set_access(access_kind::public_access);
-	Scope* parameters = @this.unit->create_scope(entity->members(), Entity*(function));
+	var Scope* parameters = @this.unit->create_scope(entity->members(), (var Entity*(function)));
 
 	if (!parameters) {
 		return nullptr;
 	};
 
-	@function->set_members(Scope*(parameters));
+	@function->set_members((var Scope*(parameters)));
 	rt::buffer<const Type*> signature;
 	@index = 0;
 
@@ -127,7 +127,7 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 			@parameter_name = rt::string_view("this\0");
 		};
 
-		Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);
+		var Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);
 
 		if (!parameter || !@parameter->set_name(parameter_name)) {
 			return nullptr;
@@ -137,7 +137,7 @@ fn Analyzer::supply_special(Analyzer& this, Entity* entity, function_role role, 
 		@parameter->set_index(usize(index));
 		@parameter->set_state(entity_state::ready);
 
-		if (!@function->add_parameter(Entity*(parameter)) || !@signature.push_back(type)) {
+		if (!@function->add_parameter((var Entity*(parameter))) || !@signature.push_back(type)) {
 			return nullptr;
 		};
 

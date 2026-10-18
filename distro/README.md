@@ -2,13 +2,13 @@
 
 The Windows x64 compiler in `windows-x64/compiler.exe` is built from the included
 `compiler.rt` snapshot of the compiler source inputs. `CMakeLists.txt` lists the standard
-library inputs; `compiler/sources.list` orders the implementation files by subsystem.
+library inputs; `kiln/compiler/sources.list` orders the implementation files by subsystem.
 Its runtime DLLs are included beside it.
 `version.txt` identifies the release; `source.sha256` identifies the included source.
 
 CMake uses this compiler by default. The compiler implementation is written entirely in Rutile.
 The existing LLVM SDK, C++ toolchain, and vcpkg dependencies are still required.
-The single C++ driver in `compiler/src/main.cpp` supplies the command-line entry point.
+The C++ driver in `kiln/compiler/src/main.cpp` supplies the command-line entry point.
 Directory inputs concatenate every regular file recursively in sorted relative-path order,
 preserving the bytes exactly without adding separators.
 

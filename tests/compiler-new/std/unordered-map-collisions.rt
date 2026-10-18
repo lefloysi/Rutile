@@ -1,25 +1,25 @@
 i32 destroyed = 0;
 struct Key {
-	fn Key(Key& this, i32 number) {
+	fn Key(var Key& this, i32 number) {
 		@this.number = $number;
 	};
-	fn Key(Key& this, const Key& other) : [delete];
-	fn Key(Key& this, Key other) : [default];
+	fn Key(var Key& this, const Key& other) : [delete];
+	fn Key(var Key& this, Key other) : [default];
 	i32 number;
 };
 struct Value {
-	fn Value(Value& this, i32 number) {
+	fn Value(var Value& this, i32 number) {
 		@this.number = $number;
 	};
-	fn Value(Value& this, const Value& other) : [delete];
-	fn Value(Value& this, Value other) : [default];
-	fn ~Value(Value& this) {
+	fn Value(var Value& this, const Value& other) : [delete];
+	fn Value(var Value& this, Value other) : [default];
+	fn ~Value(var Value& this) {
 		@destroyed = destroyed + 1;
 	};
 	i32 number;
 };
 struct CollisionHash {
-	fn CollisionHash(CollisionHash& this, usize seed) {
+	fn CollisionHash(var CollisionHash& this, usize seed) {
 		@this.seed = $seed;
 	};
 	fn hash(const CollisionHash& this, const Key& key) -> usize {
@@ -28,7 +28,7 @@ struct CollisionHash {
 	usize seed;
 };
 struct ModuloEqual {
-	fn ModuloEqual(ModuloEqual& this, i32 modulus) {
+	fn ModuloEqual(var ModuloEqual& this, i32 modulus) {
 		@this.modulus = $modulus;
 	};
 	fn equal(const ModuloEqual& this, const Key& first, const Key& second) -> bool {
@@ -50,7 +50,7 @@ fn main() -> i32 {
 			return 2;
 		};
 		var key = Key(500);
-		Value* stable = (@values).find(key);
+		var Value* stable = (@values).find(key);
 		if (!stable || stable->number != 500 || !@values.reserve(8192) || (@values).find(key) != stable) {
 			return 3;
 		};

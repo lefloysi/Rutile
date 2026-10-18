@@ -1,8 +1,8 @@
 struct RuntimeMutex;
-fn runtime_mutex_create() -> RuntimeMutex*;
-fn runtime_mutex_destroy(RuntimeMutex* mutex);
-fn runtime_mutex_lock(RuntimeMutex* mutex);
-fn runtime_mutex_unlock(RuntimeMutex* mutex);
+fn runtime_mutex_create() -> var RuntimeMutex*;
+fn runtime_mutex_destroy(var RuntimeMutex* mutex);
+fn runtime_mutex_lock(var RuntimeMutex* mutex);
+fn runtime_mutex_unlock(var RuntimeMutex* mutex);
 
 struct Compiler;
 
@@ -25,25 +25,25 @@ struct TargetAnalysis {
 };
 
 struct AnalysisLease {
-	fn AnalysisLease(AnalysisLease& this) : [default];
-	fn AnalysisLease(AnalysisLease& this, const AnalysisLease& other) : [delete];
-	fn operator=(AnalysisLease& this, const AnalysisLease& other) -> AnalysisLease& : [delete];
-	fn operator:=(AnalysisLease& this, const AnalysisLease& other) -> AnalysisLease& : [delete];
-	fn AnalysisLease(AnalysisLease& this, Compiler& owner, PublishedAnalysis* entry);
-	fn ~AnalysisLease(AnalysisLease& this);
+	fn AnalysisLease(var AnalysisLease& this) : [default];
+	fn AnalysisLease(var AnalysisLease& this, const AnalysisLease& other) : [delete];
+	fn operator=(var AnalysisLease& this, const AnalysisLease& other) -> var AnalysisLease& : [delete];
+	fn operator:=(var AnalysisLease& this, const AnalysisLease& other) -> var AnalysisLease& : [delete];
+	fn AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry);
+	fn ~AnalysisLease(var AnalysisLease& this);
 
 	fn get(const AnalysisLease& this) -> const Analysis*;
 	fn value(const AnalysisLease& this) -> const Analysis&;
 	fn revision(const AnalysisLease& this) -> u64;
 
 private:
-	Compiler* owner;
-	PublishedAnalysis* entry;
+	var Compiler* owner;
+	var PublishedAnalysis* entry;
 };
 
 struct Compilation {
-	fn Compilation(Compilation& this, const Analysis& analysis, FileOpener opener, NativeFile* output);
-	fn run(Compilation& this, char* output_path, char* entry, i32 optimization, output_kind kind) -> i32;
+	fn Compilation(var Compilation& this, const Analysis& analysis, FileOpener opener, var NativeFile* output);
+	fn run(var Compilation& this, var char* output_path, var char* entry, i32 optimization, output_kind kind) -> i32;
 
 private:
 	const Analysis* analysis;
@@ -51,40 +51,40 @@ private:
 	Diagnostics diagnostics;
 	rt::unique<Backend> backend;
 
-	fn failure(Compilation& this, const char* message) -> i32;
-	fn output_failure(Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32;
+	fn failure(var Compilation& this, const char* message) -> i32;
+	fn output_failure(var Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32;
 };
 
 struct Compiler {
-	fn Compiler(Compiler& this);
-	fn ~Compiler(Compiler& this);
+	fn Compiler(var Compiler& this);
+	fn ~Compiler(var Compiler& this);
 
-	fn expect_target(Compiler& this, const rt::string_view& key, u64 revision) -> bool;
-	fn publish_target(Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
-	fn acquire_target(Compiler& this, const rt::string_view& key) -> AnalysisLease;
-	fn acquire_current_target(Compiler& this, const rt::string_view& key) -> AnalysisLease;
-	fn emit_target(Compiler& this, const rt::string_view& key, char* output_path, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32;
+	fn expect_target(var Compiler& this, const rt::string_view& key, u64 revision) -> bool;
+	fn publish_target(var Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
+	fn acquire_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease;
+	fn acquire_current_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease;
+	fn emit_target(var Compiler& this, const rt::string_view& key, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
-	fn publish(Compiler& this, rt::unique<Analysis> analysis) -> bool;
-	fn acquire_analysis(Compiler& this) -> AnalysisLease;
-	fn release_analysis(Compiler& this, PublishedAnalysis& entry);
-	fn emit_current(Compiler& this, char* output_path, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32;
-	fn compile(Compiler& this, char** paths, usize count, char* output_path, FileOpener opener, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32;
+	fn publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool;
+	fn acquire_analysis(var Compiler& this) -> AnalysisLease;
+	fn release_analysis(var Compiler& this, var PublishedAnalysis& entry);
+	fn emit_current(var Compiler& this, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn compile(var Compiler& this, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 private:
-	fn collect_retired(Compiler& this);
+	fn collect_retired(var Compiler& this);
 
-	RuntimeMutex* publication_mutex;
+	var RuntimeMutex* publication_mutex;
 	rt::unordered_map<rt::string_view, rt::unique<TargetAnalysis>> targets;
 	rt::buffer<rt::unique<PublishedAnalysis>> retired;
 };
 
-fn AnalysisLease::AnalysisLease(AnalysisLease& this, Compiler& owner, PublishedAnalysis* entry) {
-	@this.owner = &owner;
+fn AnalysisLease::AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry) {
+	@this.owner = &@owner;
 	@this.entry = $entry;
 };
 
-fn AnalysisLease::~AnalysisLease(AnalysisLease& this) {
+fn AnalysisLease::~AnalysisLease(var AnalysisLease& this) {
 	if (this.owner && this.entry) {
 		@this.owner->release_analysis(@*this.entry);
 	};
@@ -101,11 +101,11 @@ fn AnalysisLease::value(const AnalysisLease& this) -> const Analysis& {
 	return *this.get();
 };
 
-fn Compiler::Compiler(Compiler& this) {
+fn Compiler::Compiler(var Compiler& this) {
 	@this.publication_mutex = runtime_mutex_create();
 };
 
-fn Compiler::~Compiler(Compiler& this) {
+fn Compiler::~Compiler(var Compiler& this) {
 	runtime_mutex_destroy(this.publication_mutex);
 };
 
@@ -116,7 +116,7 @@ fn AnalysisLease::revision(const AnalysisLease& this) -> u64 {
 	return this.entry->revision;
 };
 
-fn Compiler::expect_target(Compiler& this, const rt::string_view& key, u64 revision) -> bool {
+fn Compiler::expect_target(var Compiler& this, const rt::string_view& key, u64 revision) -> bool {
 	if (!this.publication_mutex) {
 		return false;
 	};
@@ -127,7 +127,7 @@ fn Compiler::expect_target(Compiler& this, const rt::string_view& key, u64 revis
 	@fresh.get()->expected_revision = revision;
 
 	runtime_mutex_lock(this.publication_mutex);
-	rt::unique<TargetAnalysis>* found = @this.targets.find(key);
+	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
 	if (found) {
 		if (revision < found->get()->expected_revision) {
 			runtime_mutex_unlock(this.publication_mutex);
@@ -143,7 +143,7 @@ fn Compiler::expect_target(Compiler& this, const rt::string_view& key, u64 revis
 	return $inserted;
 };
 
-fn Compiler::publish_target(Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
+fn Compiler::publish_target(var Compiler& this, const rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
 	if (!this.publication_mutex || !analysis.get()) {
 		return analysis_publication::unavailable;
 	};
@@ -155,12 +155,12 @@ fn Compiler::publish_target(Compiler& this, const rt::string_view& key, u64 revi
 	@next.get()->revision = revision;
 
 	runtime_mutex_lock(this.publication_mutex);
-	rt::unique<TargetAnalysis>* found = @this.targets.find(key);
+	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
 	if (!found) {
 		runtime_mutex_unlock(this.publication_mutex);
 		return analysis_publication::unavailable;
 	};
-	TargetAnalysis* target = found->get();
+	var TargetAnalysis* target = found->get();
 	if (target->expected_revision != revision) {
 		runtime_mutex_unlock(this.publication_mutex);
 		return analysis_publication::obsolete;
@@ -176,7 +176,7 @@ fn Compiler::publish_target(Compiler& this, const rt::string_view& key, u64 revi
 				return analysis_publication::unavailable;
 			};
 		};
-		rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
+		var rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
 		@entries[index].reset(@target->published.release());
 	};
 	@target->published.reset(@next.release());
@@ -185,7 +185,7 @@ fn Compiler::publish_target(Compiler& this, const rt::string_view& key, u64 revi
 	return analysis_publication::published;
 };
 
-fn Compiler::publish(Compiler& this, rt::unique<Analysis> analysis) -> bool {
+fn Compiler::publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool {
 	var key = rt::string_view();
 	if (!@this.expect_target(key, 0)) {
 		return false;
@@ -193,13 +193,13 @@ fn Compiler::publish(Compiler& this, rt::unique<Analysis> analysis) -> bool {
 	return @this.publish_target(key, 0, $analysis) == analysis_publication::published;
 };
 
-fn Compiler::acquire_target(Compiler& this, const rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
 	runtime_mutex_lock(this.publication_mutex);
-	rt::unique<TargetAnalysis>* found = @this.targets.find(key);
-	PublishedAnalysis* entry = nullptr;
+	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
+	var PublishedAnalysis* entry = nullptr;
 	if (found) {
 		@entry = found->get()->published.get();
 	};
@@ -210,13 +210,13 @@ fn Compiler::acquire_target(Compiler& this, const rt::string_view& key) -> Analy
 	return AnalysisLease(@this, $entry);
 };
 
-fn Compiler::acquire_current_target(Compiler& this, const rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_current_target(var Compiler& this, const rt::string_view& key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
 	runtime_mutex_lock(this.publication_mutex);
-	rt::unique<TargetAnalysis>* found = @this.targets.find(key);
-	PublishedAnalysis* entry = nullptr;
+	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
+	var PublishedAnalysis* entry = nullptr;
 	if (found && found->get()->published.get() && found->get()->expected_revision == found->get()->published.get()->revision) {
 		@entry = found->get()->published.get();
 		@entry->readers = entry->readers + 1;
@@ -225,11 +225,11 @@ fn Compiler::acquire_current_target(Compiler& this, const rt::string_view& key) 
 	return AnalysisLease(@this, $entry);
 };
 
-fn Compiler::acquire_analysis(Compiler& this) -> AnalysisLease {
+fn Compiler::acquire_analysis(var Compiler& this) -> AnalysisLease {
 	return @this.acquire_target(rt::string_view());
 };
 
-fn Compiler::release_analysis(Compiler& this, PublishedAnalysis& entry) {
+fn Compiler::release_analysis(var Compiler& this, var PublishedAnalysis& entry) {
 	runtime_mutex_lock(this.publication_mutex);
 	if (entry.readers) {
 		@entry.readers = entry.readers - 1;
@@ -237,15 +237,15 @@ fn Compiler::release_analysis(Compiler& this, PublishedAnalysis& entry) {
 	runtime_mutex_unlock(this.publication_mutex);
 };
 
-fn Compiler::collect_retired(Compiler& this) {
+fn Compiler::collect_retired(var Compiler& this) {
 	while (true) {
 		rt::unique<PublishedAnalysis> garbage;
 		runtime_mutex_lock(this.publication_mutex);
 		usize index = 0;
 		while (index < this.retired.size()) {
-			PublishedAnalysis* entry = this.retired.data()[index].get();
+			var PublishedAnalysis* entry = this.retired.data()[index].get();
 			if (entry && !entry->readers) {
-				rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
+				var rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
 				@garbage.reset(@entries[index].release());
 				break;
 			};
@@ -259,13 +259,13 @@ fn Compiler::collect_retired(Compiler& this) {
 	};
 };
 
-fn Compilation::Compilation(Compilation& this, const Analysis& analysis, FileOpener opener, NativeFile* output) {
+fn Compilation::Compilation(var Compilation& this, const Analysis& analysis, FileOpener opener, var NativeFile* output) {
 	@this.opener = $opener;
-	@this.analysis = &analysis;
+	@this.analysis = &@analysis;
 	@this.diagnostics = Diagnostics($output);
 };
 
-fn Compilation::failure(Compilation& this, const char* message) -> i32 {
+fn Compilation::failure(var Compilation& this, const char* message) -> i32 {
 	if (!this.diagnostics.failed()) {
 		Token location;
 		@this.diagnostics.error(location, rt::string_view($message));
@@ -273,7 +273,7 @@ fn Compilation::failure(Compilation& this, const char* message) -> i32 {
 	return 1;
 };
 
-fn Compilation::output_failure(Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32 {
+fn Compilation::output_failure(var Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32 {
 	var message = DiagnosticMessage();
 	@message.text(operation);
 	@message.text(" native object output \0");
@@ -288,7 +288,7 @@ fn Compilation::output_failure(Compilation& this, const rt::string_view& operati
 	return 1;
 };
 
-fn Compilation::run(Compilation& this, char* output_path, char* entry, i32 optimization, output_kind kind) -> i32 {
+fn Compilation::run(var Compilation& this, var char* output_path, var char* entry, i32 optimization, output_kind kind) -> i32 {
 	Token location;
 	if (this.analysis->diagnostics().failed() || !this.analysis->semantics()) {
 		return 1;
@@ -299,7 +299,7 @@ fn Compilation::run(Compilation& this, char* output_path, char* entry, i32 optim
 	if (optimization < 0 || optimization > 3) {
 		return @this.failure("optimization level must be between 0 and 3\0");
 	};
-	@this.backend = rt::unique<Backend>(new Backend(@this.diagnostics));
+	@this.backend = rt::unique<Backend>(new var Backend(@this.diagnostics));
 	if (!this.backend.get() || !@this.backend.get()->initialize($optimization)) {
 		return @this.failure("internal compiler error: target initialization failed without a diagnostic\0");
 	};
@@ -326,7 +326,7 @@ fn Compilation::run(Compilation& this, char* output_path, char* entry, i32 optim
 	return 0;
 };
 
-fn Compiler::emit_target(Compiler& this, const rt::string_view& key, char* output_path, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::emit_target(var Compiler& this, const rt::string_view& key, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var lease = @this.acquire_current_target(key);
 	if (!lease.get()) {
 		var errors = Diagnostics($diagnostics);
@@ -342,11 +342,11 @@ fn Compiler::emit_target(Compiler& this, const rt::string_view& key, char* outpu
 	return @compilation.run($output_path, $entry, $optimization, $kind);
 };
 
-fn Compiler::emit_current(Compiler& this, char* output_path, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::emit_current(var Compiler& this, var char* output_path, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	return @this.emit_target(rt::string_view(), $output_path, $entry, $optimization, $diagnostics, $kind);
 };
 
-fn Compiler::compile(Compiler& this, char** paths, usize count, char* output_path, FileOpener opener, char* entry, i32 optimization, NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::compile(var Compiler& this, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var errors = Diagnostics(diagnostics);
 	Token location;
 	if (!paths || !count) {
@@ -357,14 +357,14 @@ fn Compiler::compile(Compiler& this, char** paths, usize count, char* output_pat
 		@errors.error(location, "native object output path is required\0");
 		return 1;
 	};
-	var analysis = rt::unique<Analysis>(new Analysis(diagnostics));
+	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
 	if (!analysis.get()) {
 		@errors.error(location, "analysis storage is unavailable\0");
 		return 1;
 	};
 	usize index = 0;
 	while (index < count) {
-		char* path = paths[index];
+		var char* path = paths[index];
 		if (!path || rt::string_view(path) == rt::string_view(output_path)) {
 			@errors.error(location, "output cannot overwrite a source file\0");
 			return 1;

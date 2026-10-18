@@ -1,4 +1,4 @@
-fn FunctionEmitter::truth(FunctionEmitter& this, LLVMOpaqueValue* value, const Type* type) -> LLVMOpaqueValue* {
+fn FunctionEmitter::truth(var FunctionEmitter& this, var LLVMOpaqueValue* value, const Type* type) -> var LLVMOpaqueValue* {
 	if (!value) {
 		return nullptr;
 	};
@@ -7,7 +7,7 @@ fn FunctionEmitter::truth(FunctionEmitter& this, LLVMOpaqueValue* value, const T
 		return value;
 	};
 
-	LLVMOpaqueValue* zero = LLVMConstNull(@this.backend->type(type));
+	var LLVMOpaqueValue* zero = LLVMConstNull(@this.backend->type(type));
 
 	if (type->kind() == type_kind::floating_point) {
 		return LLVMBuildFCmp(this.backend->builder(), 14, value, zero, "truth\0");
@@ -16,16 +16,16 @@ fn FunctionEmitter::truth(FunctionEmitter& this, LLVMOpaqueValue* value, const T
 	return LLVMBuildICmp(this.backend->builder(), 33, value, zero, "truth\0");
 };
 
-fn FunctionEmitter::convert(FunctionEmitter& this, LLVMOpaqueValue* value, const Type* source, const Type* target) -> LLVMOpaqueValue* {
+fn FunctionEmitter::convert(var FunctionEmitter& this, var LLVMOpaqueValue* value, const Type* source, const Type* target) -> var LLVMOpaqueValue* {
 	if (!value || !source || !target) {
 		return nullptr;
 	};
 
 	@source = FunctionEmitter::representation(source);
 	@target = FunctionEmitter::representation(target);
-	LLVMOpaqueType* native = @this.backend->type(target);
+	var LLVMOpaqueType* native = @this.backend->type(target);
 
-	if (LLVMTypeOf(LLVMOpaqueValue*(value)) == native) {
+	if (LLVMTypeOf((var LLVMOpaqueValue*(value))) == native) {
 		return value;
 	};
 
@@ -95,10 +95,10 @@ fn FunctionEmitter::convert(FunctionEmitter& this, LLVMOpaqueValue* value, const
 	return LLVMBuildSExt(this.backend->builder(), value, native, "signed.widen\0");
 };
 
-fn FunctionEmitter::logical(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
-	SemanticExpression* left = expression->item(0);
+fn FunctionEmitter::logical(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
+	var SemanticExpression* left = expression->item(0);
 	usize temporary_boundary = this.temporaries.size();
-	LLVMOpaqueValue* first = @this.truth(@this.value(left), left->type());
+	var LLVMOpaqueValue* first = @this.truth(@this.value(left), left->type());
 
 	if (!first) {
 		return nullptr;
@@ -109,22 +109,22 @@ fn FunctionEmitter::logical(FunctionEmitter& this, SemanticExpression* expressio
 	};
 
 	@this.forget_temporaries(temporary_boundary);
-	LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	LLVMOpaqueBasicBlock* right = @this.block("logical.right\0");
-	LLVMOpaqueBasicBlock* after = @this.block("logical.after\0");
+	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
+	var LLVMOpaqueBasicBlock* right = @this.block("logical.right\0");
+	var LLVMOpaqueBasicBlock* after = @this.block("logical.after\0");
 	u64 immediate = 0;
 
 	if (expression->operation() == token_kind::op_and) {
-		LLVMBuildCondBr(this.backend->builder(), first, LLVMOpaqueBasicBlock*(right), LLVMOpaqueBasicBlock*(after));
+		LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(right)), (var LLVMOpaqueBasicBlock*(after)));
 	}
 	else {
 		@immediate = 1;
-		LLVMBuildCondBr(this.backend->builder(), first, LLVMOpaqueBasicBlock*(after), LLVMOpaqueBasicBlock*(right));
+		LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(after)), (var LLVMOpaqueBasicBlock*(right)));
 	};
 
 	LLVMPositionBuilderAtEnd(this.backend->builder(), right);
-	SemanticExpression* source = expression->item(1);
-	LLVMOpaqueValue* second = @this.truth(@this.value(source), source->type());
+	var SemanticExpression* source = expression->item(1);
+	var LLVMOpaqueValue* second = @this.truth(@this.value(source), source->type());
 
 	if (!second) {
 		return nullptr;
@@ -135,31 +135,31 @@ fn FunctionEmitter::logical(FunctionEmitter& this, SemanticExpression* expressio
 	};
 
 	@this.forget_temporaries(temporary_boundary);
-	LLVMOpaqueBasicBlock* last = LLVMGetInsertBlock(this.backend->builder());
-	LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(after));
+	var LLVMOpaqueBasicBlock* last = LLVMGetInsertBlock(this.backend->builder());
+	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
-	LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
-	LLVMOpaqueValue* phi = LLVMBuildPhi(this.backend->builder(), LLVMOpaqueType*(boolean), "logical\0");
-	LLVMOpaqueValue*[2] values {};
+	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
+	var LLVMOpaqueValue* phi = LLVMBuildPhi(this.backend->builder(), (var LLVMOpaqueType*(boolean)), "logical\0");
+	var LLVMOpaqueValue*[2] values {};
 	@values[0] = LLVMConstInt(boolean, $immediate, 0);
 	@values[1] = second;
-	LLVMOpaqueBasicBlock*[2] blocks {};
+	var LLVMOpaqueBasicBlock*[2] blocks {};
 	@blocks[0] = before;
 	@blocks[1] = last;
-	LLVMAddIncoming(LLVMOpaqueValue*(phi), &values[0], &blocks[0], 2);
+	LLVMAddIncoming((var LLVMOpaqueValue*(phi)), &@values[0], &@blocks[0], 2);
 
 	return phi;
 };
 
-fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	token_kind operation = expression->operation();
 
 	if (operation == token_kind::op_and || operation == token_kind::op_or) {
 		return @this.logical(expression);
 	};
 
-	SemanticExpression* left = expression->item(0);
-	SemanticExpression* right = expression->item(1);
+	var SemanticExpression* left = expression->item(0);
+	var SemanticExpression* right = expression->item(1);
 
 	if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
 		var assigned = @this.assign(expression);
@@ -167,8 +167,8 @@ fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression
 		return assigned.value;
 	};
 
-	LLVMOpaqueValue* first = @this.value(left);
-	LLVMOpaqueValue* second = @this.value(right);
+	var LLVMOpaqueValue* first = @this.value(left);
+	var LLVMOpaqueValue* second = @this.value(right);
 
 	if (!first || !second) {
 		return nullptr;
@@ -176,7 +176,7 @@ fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression
 
 	if ((operation == token_kind::op_plus || operation == token_kind::op_minus) && (left->type()->kind() == type_kind::pointer || right->type()->kind() == type_kind::pointer)) {
 		if (left->type()->kind() == type_kind::pointer && right->type()->kind() == type_kind::pointer) {
-			LLVMOpaqueValue* difference = LLVMBuildPtrDiff2(this.backend->builder(), @this.backend->type(left->type()->element()), first, second, "pointer.difference\0");
+			var LLVMOpaqueValue* difference = LLVMBuildPtrDiff2(this.backend->builder(), @this.backend->type(left->type()->element()), first, second, "pointer.difference\0");
 
 			return LLVMBuildIntCast2(this.backend->builder(), difference, @this.backend->type(expression->type()), 1, "pointer.distance\0");
 		};
@@ -187,7 +187,7 @@ fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression
 		if (right->type()->kind() == type_kind::pointer) {
 			@pointer_type = right->type();
 			@offset_type = left->type();
-			LLVMOpaqueValue* swap = first;
+			var LLVMOpaqueValue* swap = first;
 			@first = second;
 			@second = swap;
 		};
@@ -204,17 +204,17 @@ fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression
 			@second = LLVMBuildNeg(this.backend->builder(), second, "pointer.backward\0");
 		};
 
-		LLVMOpaqueType* native = @this.backend->type(pointer_type->element(), expression->token());
+		var LLVMOpaqueType* native = @this.backend->type(pointer_type->element(), expression->token());
 		if (!native) {
 			return nullptr;
 		};
-		return LLVMBuildGEP2(this.backend->builder(), native, first, &second, 1, "pointer.advance\0");
+		return LLVMBuildGEP2(this.backend->builder(), native, first, &@second, 1, "pointer.advance\0");
 	};
 
 	const Type* operand_type = FunctionEmitter::representation(left->type());
 	bool real = operand_type->kind() == type_kind::floating_point;
 	bool unsigned_value = operand_type->kind() == type_kind::unsigned_integer || operand_type->kind() == type_kind::boolean || operand_type->kind() == type_kind::pointer;
-	LLVMOpaqueBuilder* builder = this.backend->builder();
+	var LLVMOpaqueBuilder* builder = this.backend->builder();
 
 	switch (operation) {
 		case token_kind::op_plus:
@@ -348,10 +348,10 @@ fn FunctionEmitter::representation(const Type* type) -> const Type* {
 	return type;
 };
 
-fn FunctionEmitter::assign(FunctionEmitter& this, SemanticExpression* expression) -> NativeAssignment {
+fn FunctionEmitter::assign(var FunctionEmitter& this, var SemanticExpression* expression) -> NativeAssignment {
 	NativeAssignment result;
-	LLVMOpaqueValue* value = @this.value(expression->item(1));
-	LLVMOpaqueValue* address = @this.address(expression->item(0));
+	var LLVMOpaqueValue* value = @this.value(expression->item(1));
+	var LLVMOpaqueValue* address = @this.address(expression->item(0));
 
 	if (!address || !value) {
 		return $result;

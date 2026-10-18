@@ -6,16 +6,16 @@ struct Counts {
 };
 
 struct Value {
-	fn Value(Value& this) :[default];
-	fn Value(Value& this, const Value& other) :[delete];
-	fn operator=(Value& this, const Value& other) -> Value& :[delete];
-	fn operator=(Value& this, Value other) -> Value&;
-	fn ~Value(Value& this);
-	Counts* counts;
+	fn Value(var Value& this) :[default];
+	fn Value(var Value& this, const Value& other) :[delete];
+	fn operator=(var Value& this, const Value& other) -> var Value& :[delete];
+	fn operator=(var Value& this, Value other) -> var Value&;
+	fn ~Value(var Value& this);
+	var Counts* counts;
 	i32 id;
 };
 
-fn Value::operator=(Value& this, Value other) -> Value& {
+fn Value::operator=(var Value& this, Value other) -> var Value& {
 	@this.counts := other.counts;
 	@this.id := other.id;
 	@this.counts->assignments = this.counts->assignments + 1;
@@ -23,7 +23,7 @@ fn Value::operator=(Value& this, Value other) -> Value& {
 	return @this;
 };
 
-fn Value::~Value(Value& this) {
+fn Value::~Value(var Value& this) {
 	if (this.counts) {
 		@this.counts->destroyed = this.counts->destroyed + 1;
 		@this.counts->order = this.counts->order * 10 + this.id;
@@ -35,22 +35,22 @@ struct Base {
 };
 
 struct Wrapper : [Base] {
-	fn Wrapper(Wrapper& this) :[default];
-	fn Wrapper(Wrapper& this, Wrapper other) :[default];
-	fn operator=(Wrapper& this, Wrapper other) -> Wrapper& :[default];
-	fn ~Wrapper(Wrapper& this);
+	fn Wrapper(var Wrapper& this) :[default];
+	fn Wrapper(var Wrapper& this, Wrapper other) :[default];
+	fn operator=(var Wrapper& this, Wrapper other) -> var Wrapper& :[default];
+	fn ~Wrapper(var Wrapper& this);
 	Value[2] items;
-	Counts* counts;
+	var Counts* counts;
 };
 
-fn Wrapper::~Wrapper(Wrapper& this) {
+fn Wrapper::~Wrapper(var Wrapper& this) {
 	@this.counts->objects = this.counts->objects + 1;
 };
 
 struct Outer {
-	fn Outer(Outer& this) :[default];
-	fn Outer(Outer& this, Outer other) :[default];
-	fn operator=(Outer& this, Outer other) -> Outer& :[default];
+	fn Outer(var Outer& this) :[default];
+	fn Outer(var Outer& this, Outer other) :[default];
+	fn operator=(var Outer& this, Outer other) -> var Outer& :[default];
 	Wrapper inner;
 };
 
@@ -58,24 +58,24 @@ fn main() -> i32 {
 	Counts counts;
 	{
 		Outer source;
-		@source.inner.counts = &counts;
-		@source.inner.base.counts = &counts;
+		@source.inner.counts = &@counts;
+		@source.inner.base.counts = &@counts;
 		@source.inner.base.id = 1;
-		@source.inner.items[0].counts = &counts;
+		@source.inner.items[0].counts = &@counts;
 		@source.inner.items[0].id = 2;
-		@source.inner.items[1].counts = &counts;
+		@source.inner.items[1].counts = &@counts;
 		@source.inner.items[1].id = 3;
 		var moved = Outer($source);
 		if (counts.assignments || counts.destroyed || counts.objects) {
 			return 1;
 		};
 		Outer target;
-		@target.inner.counts = &counts;
-		@target.inner.base.counts = &counts;
+		@target.inner.counts = &@counts;
+		@target.inner.base.counts = &@counts;
 		@target.inner.base.id = 4;
-		@target.inner.items[0].counts = &counts;
+		@target.inner.items[0].counts = &@counts;
 		@target.inner.items[0].id = 5;
-		@target.inner.items[1].counts = &counts;
+		@target.inner.items[1].counts = &@counts;
 		@target.inner.items[1].id = 6;
 		@target = $moved;
 		if (counts.assignments || counts.destroyed != 3 || counts.objects != 1 || counts.order != 654) {

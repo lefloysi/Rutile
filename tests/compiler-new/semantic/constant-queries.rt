@@ -1,6 +1,6 @@
 fn query_literal(const Type* type, u64 value) -> rt::unique<SemanticExpression> {
 	Token token;
-	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_integer, type, token));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, type, token));
 	@result.get()->set_integer(value);
 	return $result;
 };
@@ -8,7 +8,7 @@ fn query_literal(const Type* type, u64 value) -> rt::unique<SemanticExpression> 
 fn query_binary(const Type* type, token_kind operation, rt::unique<SemanticExpression> first, rt::unique<SemanticExpression> second) -> rt::unique<SemanticExpression> {
 	Token token;
 	@token.kind = $operation;
-	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::binary, type, token));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::binary, type, token));
 	@result.get()->append($first);
 	@result.get()->append($second);
 	return $result;
@@ -16,7 +16,7 @@ fn query_binary(const Type* type, token_kind operation, rt::unique<SemanticExpre
 
 fn query_real(const Type* type, f64 value) -> rt::unique<SemanticExpression> {
 	Token token;
-	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_real, type, token));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_real, type, token));
 	@result.get()->set_real(value);
 	return $result;
 };
@@ -77,8 +77,8 @@ fn main() -> i32 {
 	const Type* null_type = @types.primitive(type_kind::null_type, 0);
 	const Type* null_pointer = @types.pointer(null_type);
 	Token token;
-	var null_value = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::null_pointer, null_pointer, token));
-	var pointer_cast = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::cast, pointer, token));
+	var null_value = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::null_pointer, null_pointer, token));
+	var pointer_cast = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::cast, pointer, token));
 	@pointer_cast.get()->append($null_value);
 	var pointer_arithmetic = query_binary(pointer, token_kind::op_plus, $pointer_cast, query_literal(byte, 1));
 	if (pointer_arithmetic.get()->constant_integer(@value)) {

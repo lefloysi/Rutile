@@ -1,9 +1,9 @@
-fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	if (!expression || this.backend->failed()) {
 		return nullptr;
 	};
 
-	LLVMOpaqueType* type = @this.backend->type(expression->type(), expression->token());
+	var LLVMOpaqueType* type = @this.backend->type(expression->type(), expression->token());
 
 	if (!type) {
 		return nullptr;
@@ -11,7 +11,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 
 	switch (expression->kind()) {
 		case semantic_kind::sequence: {
-			LLVMOpaqueValue* result;
+			var LLVMOpaqueValue* result;
 
 			if (!@this.sequence(expression, native_evaluation::value, @result)) {
 				return nullptr;
@@ -28,7 +28,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 				return nullptr;
 			};
 
-			LLVMOpaqueType* native = @this.backend->type(queried, expression->token());
+			var LLVMOpaqueType* native = @this.backend->type(queried, expression->token());
 			if (!native) {
 				return nullptr;
 			};
@@ -43,17 +43,17 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 			return LLVMConstNull(type);
 		case semantic_kind::literal_text: {
 			var text = expression->text();
-			LLVMOpaqueValue* bytes = LLVMConstStringInContext2(this.backend->context(), text.data(), text.size(), 1);
-			LLVMOpaqueValue* global = LLVMAddGlobal(this.backend->module(), LLVMTypeOf(LLVMOpaqueValue*(bytes)), "literal\0");
-			LLVMSetInitializer(LLVMOpaqueValue*(global), bytes);
-			LLVMSetGlobalConstant(LLVMOpaqueValue*(global), 1);
-			LLVMSetLinkage(LLVMOpaqueValue*(global), 9);
+			var LLVMOpaqueValue* bytes = LLVMConstStringInContext2(this.backend->context(), text.data(), text.size(), 1);
+			var LLVMOpaqueValue* global = LLVMAddGlobal(this.backend->module(), LLVMTypeOf((var LLVMOpaqueValue*(bytes))), "literal\0");
+			LLVMSetInitializer((var LLVMOpaqueValue*(global)), bytes);
+			LLVMSetGlobalConstant((var LLVMOpaqueValue*(global)), 1);
+			LLVMSetLinkage((var LLVMOpaqueValue*(global)), 9);
 
 			return global;
 		};
 
 		case semantic_kind::name: {
-			Entity* entity = expression->entity();
+			var Entity* entity = expression->entity();
 
 			if (entity->kind() == entity_kind::function) {
 				return this.backend->symbol(entity);
@@ -63,7 +63,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 				return LLVMConstInt(type, entity->integer(), 0);
 			};
 
-			LLVMOpaqueValue* storage = @this.address(expression);
+			var LLVMOpaqueValue* storage = @this.address(expression);
 
 			if (!storage) {
 				return nullptr;
@@ -76,7 +76,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 		case semantic_kind::dereference:
 		case semantic_kind::index:
 		case semantic_kind::member: {
-			LLVMOpaqueValue* storage = @this.address(expression);
+			var LLVMOpaqueValue* storage = @this.address(expression);
 
 			if (!storage) {
 				return nullptr;
@@ -88,20 +88,20 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 		case semantic_kind::address:
 			return @this.address(expression->item(0));
 		case semantic_kind::relocation: {
-			LLVMOpaqueValue* storage = @this.address(expression->item(0));
+			var LLVMOpaqueValue* storage = @this.address(expression->item(0));
 
 			if (!storage) {
 				return nullptr;
 			};
 
-			LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, storage, "relocated\0");
+			var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, storage, "relocated\0");
 			@this.set_live(expression->item(0), false);
 
 			return value;
 		};
 
 		case semantic_kind::call: {
-			LLVMOpaqueValue* value = @this.call(expression);
+			var LLVMOpaqueValue* value = @this.call(expression);
 
 			if (!value) {
 				return nullptr;
@@ -123,8 +123,8 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 		case semantic_kind::binary:
 			return @this.binary(expression);
 		case semantic_kind::unary: {
-			SemanticExpression* operand = expression->item(0);
-			LLVMOpaqueValue* value = @this.value(operand);
+			var SemanticExpression* operand = expression->item(0);
+			var LLVMOpaqueValue* value = @this.value(operand);
 
 			if (!value) {
 				return nullptr;
@@ -150,7 +150,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 
 		case semantic_kind::cast:
 			if (expression->category() == value_category::place) {
-				LLVMOpaqueValue* storage = @this.address(expression);
+				var LLVMOpaqueValue* storage = @this.address(expression);
 
 				if (!storage) {
 					return nullptr;
@@ -165,7 +165,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 		case semantic_kind::allocation:
 			return @this.allocate(expression);
 		case semantic_kind::deallocation: {
-			LLVMOpaqueValue* pointer = @this.value(expression->item(0));
+			var LLVMOpaqueValue* pointer = @this.value(expression->item(0));
 
 			if (!pointer) {
 				return nullptr;
@@ -174,8 +174,8 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 			const Type* element = expression->item(0)->type()->element();
 
 			if (FunctionEmitter::needs_destruction(element)) {
-				LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy\0");
-				LLVMOpaqueBasicBlock* after = @this.block("delete.after\0");
+				var LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy\0");
+				var LLVMOpaqueBasicBlock* after = @this.block("delete.after\0");
 				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 
@@ -183,7 +183,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 					return nullptr;
 				};
 
-				LLVMOpaqueValue* disposed = LLVMBuildFree(this.backend->builder(), pointer);
+				var LLVMOpaqueValue* disposed = LLVMBuildFree(this.backend->builder(), pointer);
 				LLVMBuildBr(this.backend->builder(), after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 

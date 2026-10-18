@@ -1,12 +1,12 @@
-fn fgetc(NativeFile* file) -> i32;
-fn fflush(NativeFile* file) -> i32;
+fn fgetc(var NativeFile* file) -> i32;
+fn fflush(var NativeFile* file) -> i32;
 
 struct RuntimeMutex;
 
-fn runtime_mutex_create() -> RuntimeMutex*;
-fn runtime_mutex_destroy(RuntimeMutex* mutex);
-fn runtime_mutex_lock(RuntimeMutex* mutex);
-fn runtime_mutex_unlock(RuntimeMutex* mutex);
+fn runtime_mutex_create() -> var RuntimeMutex*;
+fn runtime_mutex_destroy(var RuntimeMutex* mutex);
+fn runtime_mutex_lock(var RuntimeMutex* mutex);
+fn runtime_mutex_unlock(var RuntimeMutex* mutex);
 
 enum language_frame_status : [u08] {
 	message;
@@ -15,36 +15,36 @@ enum language_frame_status : [u08] {
 };
 
 struct LanguageProtocol {
-	fn LanguageProtocol(LanguageProtocol& this, NativeFile& input, NativeFile& output);
-	fn LanguageProtocol(LanguageProtocol& this, const LanguageProtocol& other) : [delete];
-	fn LanguageProtocol(LanguageProtocol& this, LanguageProtocol other) : [delete];
-	fn ~LanguageProtocol(LanguageProtocol& this);
+	fn LanguageProtocol(var LanguageProtocol& this, var NativeFile& input, var NativeFile& output);
+	fn LanguageProtocol(var LanguageProtocol& this, const LanguageProtocol& other) : [delete];
+	fn LanguageProtocol(var LanguageProtocol& this, LanguageProtocol other) : [delete];
+	fn ~LanguageProtocol(var LanguageProtocol& this);
 
-	fn read(LanguageProtocol& this, rt::string& body) -> language_frame_status;
-	fn send(LanguageProtocol& this, const rt::string_view& body) -> bool;
+	fn read(var LanguageProtocol& this, var rt::string& body) -> language_frame_status;
+	fn send(var LanguageProtocol& this, const rt::string_view& body) -> bool;
 	fn error(const LanguageProtocol& this) -> rt::string_view;
 	fn ready(const LanguageProtocol& this) -> bool;
 
 private:
-	fn fail(LanguageProtocol& this, const rt::string_view& message) -> language_frame_status;
+	fn fail(var LanguageProtocol& this, const rt::string_view& message) -> language_frame_status;
 	fn header_name(const rt::string_view& name, const rt::string_view& expected) -> bool;
-	fn length(const rt::string_view& text, usize& result) -> bool;
-	fn decimal(rt::string& output, u64 value) -> bool;
-	fn write(LanguageProtocol& this, const rt::string_view& bytes) -> bool;
+	fn length(const rt::string_view& text, var usize& result) -> bool;
+	fn decimal(var rt::string& output, u64 value) -> bool;
+	fn write(var LanguageProtocol& this, const rt::string_view& bytes) -> bool;
 
-	NativeFile* input;
-	NativeFile* output;
-	RuntimeMutex* output_mutex;
+	var NativeFile* input;
+	var NativeFile* output;
+	var RuntimeMutex* output_mutex;
 	rt::string_view failure;
 };
 
-fn LanguageProtocol::LanguageProtocol(LanguageProtocol& this, NativeFile& input, NativeFile& output) {
-	@this.input = &input;
-	@this.output = &output;
+fn LanguageProtocol::LanguageProtocol(var LanguageProtocol& this, var NativeFile& input, var NativeFile& output) {
+	@this.input = &@input;
+	@this.output = &@output;
 	@this.output_mutex = runtime_mutex_create();
 };
 
-fn LanguageProtocol::~LanguageProtocol(LanguageProtocol& this) {
+fn LanguageProtocol::~LanguageProtocol(var LanguageProtocol& this) {
 	if (this.output_mutex) {
 		runtime_mutex_destroy(this.output_mutex);
 	};
@@ -58,7 +58,7 @@ fn LanguageProtocol::error(const LanguageProtocol& this) -> rt::string_view {
 	return rt::string_view(this.failure);
 };
 
-fn LanguageProtocol::fail(LanguageProtocol& this, const rt::string_view& message) -> language_frame_status {
+fn LanguageProtocol::fail(var LanguageProtocol& this, const rt::string_view& message) -> language_frame_status {
 	@this.failure = rt::string_view(message);
 	return language_frame_status::error;
 };
@@ -84,7 +84,7 @@ fn LanguageProtocol::header_name(const rt::string_view& name, const rt::string_v
 	return true;
 };
 
-fn LanguageProtocol::length(const rt::string_view& text, usize& result) -> bool {
+fn LanguageProtocol::length(const rt::string_view& text, var usize& result) -> bool {
 	if (text.empty()) {
 		return false;
 	};
@@ -110,7 +110,7 @@ fn LanguageProtocol::length(const rt::string_view& text, usize& result) -> bool 
 	return true;
 };
 
-fn LanguageProtocol::read(LanguageProtocol& this, rt::string& body) -> language_frame_status {
+fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> language_frame_status {
 	@body.clear();
 	@this.failure = rt::string_view();
 	rt::optional<usize> content_length;
@@ -136,7 +136,7 @@ fn LanguageProtocol::read(LanguageProtocol& this, rt::string& body) -> language_
 				break;
 			};
 			char byte = static_cast<char>(value);
-			if (!@header.append(rt::string_view(&byte, 1))) {
+			if (!@header.append(rt::string_view(&@byte, 1))) {
 				return @this.fail("out of memory reading protocol header\0");
 			};
 		};
@@ -188,11 +188,11 @@ fn LanguageProtocol::read(LanguageProtocol& this, rt::string& body) -> language_
 			@request = usize(remaining);
 		};
 
-		usize count = fread(&chunk[0], 1, $request, this.input);
+		usize count = fread(&@chunk[0], 1, $request, this.input);
 		if (!count) {
 			return @this.fail("unexpected end of protocol message body\0");
 		};
-		if (!@body.append(rt::string_view(&chunk[0], usize(count)))) {
+		if (!@body.append(rt::string_view(&@chunk[0], usize(count)))) {
 			return @this.fail("out of memory reading protocol body\0");
 		};
 		@remaining = remaining - count;
@@ -201,7 +201,7 @@ fn LanguageProtocol::read(LanguageProtocol& this, rt::string& body) -> language_
 	return language_frame_status::message;
 };
 
-fn LanguageProtocol::decimal(rt::string& output, u64 value) -> bool {
+fn LanguageProtocol::decimal(var rt::string& output, u64 value) -> bool {
 	char[20] digits;
 	usize count = 0;
 	while (true) {
@@ -215,14 +215,14 @@ fn LanguageProtocol::decimal(rt::string& output, u64 value) -> bool {
 
 	while (count) {
 		@count = count - 1;
-		if (!@output.append(rt::string_view(&digits[count], 1))) {
+		if (!@output.append(rt::string_view(&@digits[count], 1))) {
 			return false;
 		};
 	};
 	return true;
 };
 
-fn LanguageProtocol::write(LanguageProtocol& this, const rt::string_view& bytes) -> bool {
+fn LanguageProtocol::write(var LanguageProtocol& this, const rt::string_view& bytes) -> bool {
 	usize offset = 0;
 	while (offset < bytes.size()) {
 		usize written = fwrite(bytes.data() + offset, 1, bytes.size() - offset, this.output);
@@ -234,7 +234,7 @@ fn LanguageProtocol::write(LanguageProtocol& this, const rt::string_view& bytes)
 	return true;
 };
 
-fn LanguageProtocol::send(LanguageProtocol& this, const rt::string_view& body) -> bool {
+fn LanguageProtocol::send(var LanguageProtocol& this, const rt::string_view& body) -> bool {
 	if (!this.ready()) {
 		return false;
 	};

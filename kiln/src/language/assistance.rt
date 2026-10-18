@@ -1,4 +1,4 @@
-fn LanguageWorkspace::cursor(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, usize& source, usize& offset) -> bool {
+fn LanguageWorkspace::cursor(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, var usize& source, var usize& offset) -> bool {
 	const rt::json_value* document = parameters.member("textDocument\0");
 	const rt::json_value* position = parameters.member("position\0");
 	if (!document || !position) {
@@ -14,10 +14,10 @@ fn LanguageWorkspace::cursor(LanguageWorkspace& this, const LanguageIndex& index
 		return false;
 	};
 	@source = *found;
-	const LanguageText* text = &index.sources.data()[source].text;
-	LanguageDocument* open = @this.document_key(key.view());
+	const LanguageText* text = &@index.sources.data()[source].text;
+	var LanguageDocument* open = @this.document_key(key.view());
 	if (open) {
-		@text = &open->text;
+		@text = &@open->text;
 	};
 	i64 line = LanguageJson::integer(*position, "line\0", -1);
 	i64 character = LanguageJson::integer(*position, "character\0", -1);
@@ -28,7 +28,7 @@ fn LanguageWorkspace::cursor(LanguageWorkspace& this, const LanguageIndex& index
 	return @this.old_offset(index, usize(source), $current, @offset);
 };
 
-fn LanguageWorkspace::completion(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::completion(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_array();
 	usize source = 0;
 	usize offset = 0;
@@ -94,7 +94,7 @@ fn LanguageWorkspace::completion(LanguageWorkspace& this, const LanguageIndex& i
 	return $result;
 };
 
-fn LanguageWorkspace::signature(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::signature(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
 	usize source = 0;
 	usize offset = 0;
 	if (!@this.cursor(index, parameters, @source, @offset)) {
@@ -109,7 +109,7 @@ fn LanguageWorkspace::signature(LanguageWorkspace& this, const LanguageIndex& in
 			continue;
 		};
 		if (!selected || call.range.end - call.range.begin < selected->range.end - selected->range.begin) {
-			@selected = &call;
+			@selected = &@call;
 		};
 	};
 	if (!selected) {

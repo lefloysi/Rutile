@@ -5,22 +5,22 @@ struct Counts {
 };
 
 struct Owner {
-	fn Owner(Owner& this) : [default];
-	fn Owner(Owner& this, const Owner& other);
-	fn ~Owner(Owner& this);
-	Counts* counts;
-	i32* value;
+	fn Owner(var Owner& this) : [default];
+	fn Owner(var Owner& this, const Owner& other);
+	fn ~Owner(var Owner& this);
+	var Counts* counts;
+	var i32* value;
 };
 
-fn Owner::Owner(Owner& this, const Owner& other) {
+fn Owner::Owner(var Owner& this, const Owner& other) {
 	@this.counts := other.counts;
-	@this.value = new i32(i32(*other.value));
+	@this.value = new var i32(i32(*other.value));
 	@this.counts->copies = this.counts->copies + 1;
 };
 
-fn Owner::~Owner(Owner& this) {
+fn Owner::~Owner(var Owner& this) {
 	@this.counts->destroyed = this.counts->destroyed + 1;
-	delete i32*(this.value);
+	delete (var i32*(this.value));
 };
 
 fn operator Owner(const Owner& this) -> Owner : [implicit] {
@@ -37,8 +37,8 @@ fn main() -> i32 {
 	Counts counts;
 	{
 		Owner source;
-		@source.counts = &counts;
-		@source.value = new i32(42);
+		@source.counts = &@counts;
+		@source.value = new var i32(42);
 		if (consume(source) != 43) {
 			return 1;
 		};

@@ -1,10 +1,10 @@
 struct Analysis {
-	fn Analysis(Analysis& this) : [default];
-	fn Analysis(Analysis& this, NativeFile* output);
+	fn Analysis(var Analysis& this) : [default];
+	fn Analysis(var Analysis& this, var NativeFile* output);
 
-	fn add_source(Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool;
-	fn load_source(Analysis& this, const char* path, FileOpener opener) -> bool;
-	fn analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancelled, void* context) -> bool;
+	fn add_source(var Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool;
+	fn load_source(var Analysis& this, const char* path, FileOpener opener) -> bool;
+	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 
 	fn source_count(const Analysis& this) -> usize;
 	fn source_path(const Analysis& this, usize index) -> rt::string_view;
@@ -24,18 +24,18 @@ private:
 	u32 target_pointer_bits;
 };
 
-fn Analysis::Analysis(Analysis& this, NativeFile* output) {
+fn Analysis::Analysis(var Analysis& this, var NativeFile* output) {
 	@this.messages = Diagnostics($output);
 };
 
-fn Analysis::add_source(Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool {
-	SourceFile* source = @this.sources.add(path, text);
+fn Analysis::add_source(var Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool {
+	var SourceFile* source = @this.sources.add(path, text);
 	return source && @this.index.register_source(@*source, this.sources.count() - 1);
 };
 
-fn Analysis::load_source(Analysis& this, const char* path, FileOpener opener) -> bool {
+fn Analysis::load_source(var Analysis& this, const char* path, FileOpener opener) -> bool {
 	var reader = SourceReader($opener, @this.sources, @this.messages);
-	SourceFile* source = @reader.load($path);
+	var SourceFile* source = @reader.load($path);
 	return source && @this.index.register_source(@*source, this.sources.count() - 1);
 };
 

@@ -1,5 +1,5 @@
 struct Text {
-	char* buffer;
+	var char* buffer;
 };
 
 fn first_data(auto Text& first, auto Text& second) -> const[first] char* {
@@ -10,14 +10,14 @@ fn second_data(auto Text& first, auto Text& second) -> const[second] char* {
 	return second.buffer;
 };
 
-fn check(const Text& read_only, Text& writable) -> i32 {
+fn check(const Text& read_only, var Text& writable) -> i32 {
 	const char* first_const = first_data(read_only, @writable);
-	char* second_mutable = second_data(read_only, @writable);
+	var char* second_mutable = second_data(read_only, @writable);
 	@*second_mutable = 'b';
 	if (*first_const != 'a') {
 		return 1;
 	};
-	char* first_mutable = first_data(@writable, read_only);
+	var char* first_mutable = first_data(@writable, read_only);
 	const char* second_const = second_data(@writable, read_only);
 	@*first_mutable = 'c';
 	if (*second_const != 'a' || *second_mutable != 'c') {
@@ -30,8 +30,8 @@ fn main() -> i32 {
 	char first = 'a';
 	char second = 'a';
 	Text read_only;
-	@read_only.buffer = &first;
+	@read_only.buffer = &@first;
 	Text writable;
-	@writable.buffer = &second;
+	@writable.buffer = &@second;
 	return check(read_only, @writable);
 };

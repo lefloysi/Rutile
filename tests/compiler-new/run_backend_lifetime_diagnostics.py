@@ -7,12 +7,12 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
-	("array-arguments", "fn main() -> i32 { i32* values = new i32[2](42); return 0; };", [r"array constructor argument evaluation is not specified for element type 'i32' with arguments \(i32\)"]),
-	("array-delete-layout", "fn main() -> i32 { void* values; delete[] values; return 0; };", [r"array deallocation requires a supported object layout for element type 'void'"]),
+	("array-arguments", "fn main() -> i32 { var i32* values = new var i32[2](42); return 0; };", [r"array constructor argument evaluation is not specified for element type 'i32' with arguments \(i32\)"]),
+	("array-delete-layout", "fn main() -> i32 { var void* values; delete[] values; return 0; };", [r"array deallocation requires a supported object layout for element type 'void'"]),
 	("base-aggregate", "struct Base { i32 first; }; struct Child : [Base] { i32 second; }; fn main() -> i32 { Child value = Child(42); return 0; };", [r"base aggregate argument initialization is not implemented for type 'Child' with argument types \(i32\)"]),
 	("union-aggregate", "union Choice { i32 first; i32 second; }; fn main() -> i32 { Choice value = Choice(42); return 0; };", [r"union aggregate argument selection is not implemented for type 'Choice' with argument types \(i32\)"]),
-	("reference-field", "struct Owner { i32& borrowed; }; fn main() -> i32 { Owner value; return 0; };", [r"reference member 'Owner::borrowed' of type 'i32&' requires an explicit initializer"]),
-	("union-destructor", "struct Payload { fn ~Payload(Payload& this); }; fn Payload::~Payload(Payload& this) {}; union Choice { Payload owned; }; fn main() -> i32 { Choice value; return 0; };", [r"union 'Choice' requires an explicit destructor because member 'Choice::owned' of type 'Payload' requires destruction", r"note: member requiring destruction is declared here"]),
+	("reference-field", "struct Owner { var i32& borrowed; }; fn main() -> i32 { Owner value; return 0; };", ["reference\\ member\\ 'Owner::borrowed'\\ of\\ type\\ 'var\\ i32\\&'\\ requires\\ an\\ explicit\\ initializer"]),
+	("union-destructor", "struct Payload { fn ~Payload(var Payload& this); }; fn Payload::~Payload(var Payload& this) {}; union Choice { Payload owned; }; fn main() -> i32 { Choice value; return 0; };", [r"union 'Choice' requires an explicit destructor because member 'Choice::owned' of type 'Payload' requires destruction", r"note: member requiring destruction is declared here"]),
 ]
 
 

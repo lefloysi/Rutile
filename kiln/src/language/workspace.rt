@@ -2,19 +2,19 @@ struct RuntimeCondition;
 struct RuntimeThread;
 struct RuntimeAtomic;
 
-fn runtime_condition_create() -> RuntimeCondition*;
-fn runtime_condition_destroy(RuntimeCondition* condition);
-fn runtime_condition_wait(RuntimeCondition* condition, RuntimeMutex* mutex, u32 milliseconds) -> i32;
-fn runtime_condition_notify(RuntimeCondition* condition);
-fn runtime_thread_start(((void*) -> i32)* callback, void* context) -> RuntimeThread*;
-fn runtime_thread_join(RuntimeThread* thread);
-fn runtime_atomic_create(u64 value) -> RuntimeAtomic*;
-fn runtime_atomic_destroy(RuntimeAtomic* value);
+fn runtime_condition_create() -> var RuntimeCondition*;
+fn runtime_condition_destroy(var RuntimeCondition* condition);
+fn runtime_condition_wait(var RuntimeCondition* condition, var RuntimeMutex* mutex, u32 milliseconds) -> i32;
+fn runtime_condition_notify(var RuntimeCondition* condition);
+fn runtime_thread_start(((var void*) -> i32)* callback, var void* context) -> var RuntimeThread*;
+fn runtime_thread_join(var RuntimeThread* thread);
+fn runtime_atomic_create(u64 value) -> var RuntimeAtomic*;
+fn runtime_atomic_destroy(var RuntimeAtomic* value);
 fn runtime_atomic_load(const RuntimeAtomic* value) -> u64;
-fn runtime_atomic_store(RuntimeAtomic* destination, u64 value);
-fn runtime_atomic_fetch_add(RuntimeAtomic* destination, u64 value) -> u64;
+fn runtime_atomic_store(var RuntimeAtomic* destination, u64 value);
+fn runtime_atomic_fetch_add(var RuntimeAtomic* destination, u64 value) -> u64;
 fn runtime_clock_nanoseconds() -> u64;
-fn kiln_project_sources(const char* root, ((void*, const char*, const char*) -> i32)* add, void* context, ((void*, const char*) -> void)* diagnostic) -> i32;
+fn kiln_project_sources(const char* root, ((var void*, const char*, const char*) -> i32)* add, var void* context, ((var void*, const char*) -> void)* diagnostic) -> i32;
 
 struct LanguageEdit {
 	u64 revision;
@@ -74,9 +74,9 @@ struct LanguageIndexedSymbol {
 };
 
 struct LanguageIndex {
-	fn source(LanguageIndex& this, const Analysis& analysis, usize source, const LanguageJob& job) -> usize;
-	fn append(LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool;
-	fn finish(LanguageIndex& this) -> bool;
+	fn source(var LanguageIndex& this, const Analysis& analysis, usize source, const LanguageJob& job) -> usize;
+	fn append(var LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool;
+	fn finish(var LanguageIndex& this) -> bool;
 	fn identity(const LanguageIndex& this, u64 id) -> u64;
 	fn before(const NavigationOccurrence& first, const NavigationOccurrence& second) -> bool;
 
@@ -101,62 +101,62 @@ struct LanguageIndex {
 };
 
 struct LanguageCancellation {
-	RuntimeAtomic* generation;
-	RuntimeAtomic* stopped;
+	var RuntimeAtomic* generation;
+	var RuntimeAtomic* stopped;
 	u64 expected;
 };
 
 struct LanguageWorkspace {
-	fn LanguageWorkspace(LanguageWorkspace& this, Compiler& compiler, LanguageProtocol& protocol, const rt::string_view& root);
-	fn LanguageWorkspace(LanguageWorkspace& this, const LanguageWorkspace& other) : [delete];
-	fn LanguageWorkspace(LanguageWorkspace& this, LanguageWorkspace other) : [delete];
-	fn ~LanguageWorkspace(LanguageWorkspace& this);
+	fn LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, const rt::string_view& root);
+	fn LanguageWorkspace(var LanguageWorkspace& this, const LanguageWorkspace& other) : [delete];
+	fn LanguageWorkspace(var LanguageWorkspace& this, LanguageWorkspace other) : [delete];
+	fn ~LanguageWorkspace(var LanguageWorkspace& this);
 	fn ready(const LanguageWorkspace& this) -> bool;
-	fn configure(LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
-	fn open(LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
-	fn change(LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
-	fn close(LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
-	fn refresh(LanguageWorkspace& this) -> bool;
-	fn cancel(LanguageWorkspace& this);
-	fn query(LanguageWorkspace& this, const rt::string_view& method, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
-	fn status(LanguageWorkspace& this) -> rt::unique<rt::json_value>;
+	fn configure(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
+	fn open(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
+	fn change(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
+	fn close(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool;
+	fn refresh(var LanguageWorkspace& this) -> bool;
+	fn cancel(var LanguageWorkspace& this);
+	fn query(var LanguageWorkspace& this, const rt::string_view& method, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
+	fn status(var LanguageWorkspace& this) -> rt::unique<rt::json_value>;
 
-	fn target_key(const rt::string_view& root, const LanguageGroup& group, rt::string& key) -> bool;
+	fn target_key(const rt::string_view& root, const LanguageGroup& group, var rt::string& key) -> bool;
 
 private:
-	fn schedule(LanguageWorkspace& this) -> bool;
-	fn run(LanguageWorkspace& this) -> i32;
-	fn analyze(LanguageWorkspace& this, LanguageJob& job) -> rt::unique<LanguageIndex>;
-	fn analyze_group(LanguageWorkspace& this, LanguageGroup& group, LanguageJob& job, LanguageIndex& index) -> bool;
-	fn receive(LanguageWorkspace& this);
-	fn retire(LanguageWorkspace& this, rt::unique<LanguageIndex> index);
-	fn collect_retired(LanguageWorkspace& this);
-	fn document(LanguageWorkspace& this, const rt::string_view& uri) -> LanguageDocument*;
-	fn document_key(LanguageWorkspace& this, const rt::string_view& key) -> LanguageDocument*;
-	fn cursor(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, usize& source, usize& offset) -> bool;
-	fn completion(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
-	fn signature(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
-	fn mapped(LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& input, SourceRange& output) -> bool;
-	fn old_offset(LanguageWorkspace& this, const LanguageIndex& index, usize source, usize current, usize& original) -> bool;
-	fn location(LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& range) -> rt::unique<rt::json_value>;
-	fn bindings(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, rt::buffer<u64>& result) -> bool;
-	fn notify(LanguageWorkspace& this, const rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool;
-	fn measured(LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value>;
+	fn schedule(var LanguageWorkspace& this) -> bool;
+	fn run(var LanguageWorkspace& this) -> i32;
+	fn analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex>;
+	fn analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> bool;
+	fn receive(var LanguageWorkspace& this);
+	fn retire(var LanguageWorkspace& this, rt::unique<LanguageIndex> index);
+	fn collect_retired(var LanguageWorkspace& this);
+	fn document(var LanguageWorkspace& this, const rt::string_view& uri) -> var LanguageDocument*;
+	fn document_key(var LanguageWorkspace& this, const rt::string_view& key) -> var LanguageDocument*;
+	fn cursor(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, var usize& source, var usize& offset) -> bool;
+	fn completion(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
+	fn signature(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value>;
+	fn mapped(var LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& input, var SourceRange& output) -> bool;
+	fn old_offset(var LanguageWorkspace& this, const LanguageIndex& index, usize source, usize current, var usize& original) -> bool;
+	fn location(var LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& range) -> rt::unique<rt::json_value>;
+	fn bindings(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, var rt::buffer<u64>& result) -> bool;
+	fn notify(var LanguageWorkspace& this, const rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool;
+	fn measured(var LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value>;
 	fn contains(const rt::string_view& text, const rt::string_view& part) -> bool;
-	fn append_location(rt::json_value& result, rt::unique<rt::json_value> location, rt::unordered_map<rt::string_view, bool>& seen, rt::buffer<rt::string>& keys) -> bool;
-	fn add_project(void* context, const char* group, const char* path) -> i32;
-	fn project_error(void* context, const char* text);
-	fn worker(void* context) -> i32;
-	fn cancelled(void* context) -> i32;
+	fn append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string_view, bool>& seen, var rt::buffer<rt::string>& keys) -> bool;
+	fn add_project(var void* context, const char* group, const char* path) -> i32;
+	fn project_error(var void* context, const char* text);
+	fn worker(var void* context) -> i32;
+	fn cancelled(var void* context) -> i32;
 
-	Compiler* compiler;
-	LanguageProtocol* protocol;
-	RuntimeMutex* jobs_mutex;
-	RuntimeMutex* publication_mutex;
-	RuntimeCondition* wake;
-	RuntimeThread* thread;
-	RuntimeAtomic* generation;
-	RuntimeAtomic* stopped;
+	var Compiler* compiler;
+	var LanguageProtocol* protocol;
+	var RuntimeMutex* jobs_mutex;
+	var RuntimeMutex* publication_mutex;
+	var RuntimeCondition* wake;
+	var RuntimeThread* thread;
+	var RuntimeAtomic* generation;
+	var RuntimeAtomic* stopped;
 	rt::string root;
 	u64 configuration;
 	u64 cached_configuration;
@@ -165,7 +165,7 @@ private:
 	u64 queries;
 	u64 query_nanoseconds;
 	rt::buffer<rt::unique<LanguageDocument>> documents;
-	rt::unordered_map<rt::string_view, LanguageDocument*> document_names;
+	rt::unordered_map<rt::string_view, var LanguageDocument*> document_names;
 	rt::buffer<LanguageGroup> groups;
 	rt::buffer<rt::string> known_targets;
 	rt::string discovery_error;
@@ -175,9 +175,9 @@ private:
 	rt::unique<LanguageIndex> retired;
 };
 
-fn LanguageWorkspace::LanguageWorkspace(LanguageWorkspace& this, Compiler& compiler, LanguageProtocol& protocol, const rt::string_view& root) {
-	@this.compiler = &compiler;
-	@this.protocol = &protocol;
+fn LanguageWorkspace::LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, const rt::string_view& root) {
+	@this.compiler = &@compiler;
+	@this.protocol = &@protocol;
 	@this.root = rt::string(root);
 	@this.configuration = 1;
 	@this.jobs_mutex = runtime_mutex_create();
@@ -186,11 +186,11 @@ fn LanguageWorkspace::LanguageWorkspace(LanguageWorkspace& this, Compiler& compi
 	@this.generation = runtime_atomic_create(0);
 	@this.stopped = runtime_atomic_create(0);
 	if (this.jobs_mutex && this.publication_mutex && this.wake && this.generation && this.stopped) {
-		@this.thread = runtime_thread_start(&LanguageWorkspace::worker, &this);
+		@this.thread = runtime_thread_start(&LanguageWorkspace::worker, &@this);
 	};
 };
 
-fn LanguageWorkspace::~LanguageWorkspace(LanguageWorkspace& this) {
+fn LanguageWorkspace::~LanguageWorkspace(var LanguageWorkspace& this) {
 	@this.cancel();
 	if (this.thread) {
 		runtime_thread_join(this.thread);
@@ -219,7 +219,7 @@ fn LanguageWorkspace::ready(const LanguageWorkspace& this) -> bool {
 	return this.thread != nullptr;
 };
 
-fn LanguageWorkspace::cancel(LanguageWorkspace& this) {
+fn LanguageWorkspace::cancel(var LanguageWorkspace& this) {
 	if (this.stopped) {
 		runtime_atomic_store(this.stopped, 1);
 	};
@@ -231,16 +231,16 @@ fn LanguageWorkspace::cancel(LanguageWorkspace& this) {
 	};
 };
 
-fn LanguageWorkspace::worker(void* context) -> i32 {
-	return @reinterpret_cast<LanguageWorkspace*>(context)->run();
+fn LanguageWorkspace::worker(var void* context) -> i32 {
+	return @reinterpret_cast<var LanguageWorkspace*>(context)->run();
 };
 
-fn LanguageWorkspace::cancelled(void* context) -> i32 {
-	LanguageCancellation* cancellation = reinterpret_cast<LanguageCancellation*>(context);
+fn LanguageWorkspace::cancelled(var void* context) -> i32 {
+	var LanguageCancellation* cancellation = reinterpret_cast<var LanguageCancellation*>(context);
 	return static_cast<i32>(runtime_atomic_load(cancellation->stopped) || runtime_atomic_load(cancellation->generation) != cancellation->expected);
 };
 
-fn LanguageWorkspace::run(LanguageWorkspace& this) -> i32 {
+fn LanguageWorkspace::run(var LanguageWorkspace& this) -> i32 {
 	while (true) {
 		@this.collect_retired();
 		runtime_mutex_lock(this.jobs_mutex);
@@ -278,7 +278,7 @@ fn LanguageWorkspace::run(LanguageWorkspace& this) -> i32 {
 	};
 };
 
-fn LanguageWorkspace::receive(LanguageWorkspace& this) {
+fn LanguageWorkspace::receive(var LanguageWorkspace& this) {
 	rt::unique<LanguageIndex> next;
 	runtime_mutex_lock(this.publication_mutex);
 	@next = rt::unique<LanguageIndex>(@this.incoming.release());
@@ -307,7 +307,7 @@ fn LanguageWorkspace::receive(LanguageWorkspace& this) {
 	};
 };
 
-fn LanguageWorkspace::retire(LanguageWorkspace& this, rt::unique<LanguageIndex> index) {
+fn LanguageWorkspace::retire(var LanguageWorkspace& this, rt::unique<LanguageIndex> index) {
 	if (!index.get()) {
 		return;
 	};
@@ -318,7 +318,7 @@ fn LanguageWorkspace::retire(LanguageWorkspace& this, rt::unique<LanguageIndex> 
 	runtime_condition_notify(this.wake);
 };
 
-fn LanguageWorkspace::collect_retired(LanguageWorkspace& this) {
+fn LanguageWorkspace::collect_retired(var LanguageWorkspace& this) {
 	rt::unique<LanguageIndex> garbage;
 	runtime_mutex_lock(this.publication_mutex);
 	@garbage = rt::unique<LanguageIndex>(@this.retired.release());
@@ -330,7 +330,7 @@ fn LanguageWorkspace::collect_retired(LanguageWorkspace& this) {
 	};
 };
 
-fn LanguageWorkspace::schedule(LanguageWorkspace& this) -> bool {
+fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 	if (!this.ready() || runtime_atomic_load(this.stopped)) {
 		return false;
 	};
@@ -352,7 +352,7 @@ fn LanguageWorkspace::schedule(LanguageWorkspace& this) -> bool {
 	usize index = 0;
 	while (index < this.documents.size()) {
 		if (this.published.get()) {
-			LanguageDocument& document = @*(@this.documents).data()[index].get();
+			var LanguageDocument& document = @*(@this.documents).data()[index].get();
 			var source = this.published.get()->source_ids.find(document.key.view());
 			if (source) {
 				u64 revision = this.published.get()->sources.data()[*source].revision;
@@ -386,7 +386,7 @@ fn LanguageWorkspace::schedule(LanguageWorkspace& this) -> bool {
 	return true;
 };
 
-fn LanguageWorkspace::configure(LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::configure(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
 	var uri = LanguageJson::text(parameters, "rootUri\0");
 	if (!uri.empty()) {
 		rt::string path;
@@ -400,7 +400,7 @@ fn LanguageWorkspace::configure(LanguageWorkspace& this, const rt::json_value& p
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::document_key(LanguageWorkspace& this, const rt::string_view& key) -> LanguageDocument* {
+fn LanguageWorkspace::document_key(var LanguageWorkspace& this, const rt::string_view& key) -> var LanguageDocument* {
 	var found = this.document_names.find(key);
 	if (found) {
 		return *found;
@@ -408,7 +408,7 @@ fn LanguageWorkspace::document_key(LanguageWorkspace& this, const rt::string_vie
 	return nullptr;
 };
 
-fn LanguageWorkspace::document(LanguageWorkspace& this, const rt::string_view& uri) -> LanguageDocument* {
+fn LanguageWorkspace::document(var LanguageWorkspace& this, const rt::string_view& uri) -> var LanguageDocument* {
 	rt::string path;
 	rt::string key;
 	if (!LanguageUri::decode(uri, @path) || !LanguageUri::key(path.view(), @key)) {
@@ -417,7 +417,7 @@ fn LanguageWorkspace::document(LanguageWorkspace& this, const rt::string_view& u
 	return @this.document_key(key.view());
 };
 
-fn LanguageWorkspace::open(LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::open(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
 	const rt::json_value* identity = parameters.member("textDocument\0");
 	if (!identity) {
 		return false;
@@ -444,11 +444,11 @@ fn LanguageWorkspace::open(LanguageWorkspace& this, const rt::json_value& parame
 		@(@this.documents).data()[existing] = $document;
 	}
 	else {
-		LanguageDocument* added = document.get();
+		var LanguageDocument* added = document.get();
 		if (!@this.documents.push_back($document)) {
 			return false;
 		};
-		if (!@this.document_names.insert(added->key.view(), LanguageDocument*(added))) {
+		if (!@this.document_names.insert(added->key.view(), (var LanguageDocument*(added)))) {
 			@this.documents.pop_back();
 			return false;
 		};
@@ -457,13 +457,13 @@ fn LanguageWorkspace::open(LanguageWorkspace& this, const rt::json_value& parame
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::change(LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::change(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
 	const rt::json_value* identity = parameters.member("textDocument\0");
 	const rt::json_value* changes = parameters.member("contentChanges\0");
 	if (!identity || !changes || changes->kind() != rt::json_kind::array) {
 		return false;
 	};
-	LanguageDocument* document = @this.document(LanguageJson::text(*identity, "uri\0"));
+	var LanguageDocument* document = @this.document(LanguageJson::text(*identity, "uri\0"));
 	i64 version = LanguageJson::integer(*identity, "version\0", -1);
 	if (!document) {
 		return false;
@@ -525,13 +525,13 @@ fn LanguageWorkspace::change(LanguageWorkspace& this, const rt::json_value& para
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::close(LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::close(var LanguageWorkspace& this, const rt::json_value& parameters) -> bool {
 	const rt::json_value* identity = parameters.member("textDocument\0");
 	if (!identity) {
 		return false;
 	};
 	var uri = LanguageJson::text(*identity, "uri\0");
-	LanguageDocument* document = @this.document(uri);
+	var LanguageDocument* document = @this.document(uri);
 	usize index = 0;
 	while (index < this.documents.size()) {
 		if (this.documents.data()[index].get() == document) {
@@ -556,13 +556,13 @@ fn LanguageWorkspace::close(LanguageWorkspace& this, const rt::json_value& param
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::refresh(LanguageWorkspace& this) -> bool {
+fn LanguageWorkspace::refresh(var LanguageWorkspace& this) -> bool {
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::notify(LanguageWorkspace& this, const rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool {
+fn LanguageWorkspace::notify(var LanguageWorkspace& this, const rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool {
 	var message = LanguageJson::notification(method, $parameters);
 	rt::string output;
 	return message.get() && rt::json_write(*message.get(), @output) && @this.protocol->send(output.view());

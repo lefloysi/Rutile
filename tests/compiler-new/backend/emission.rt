@@ -1,12 +1,12 @@
 fn backend_literal(const Type* type, const Token& token, u64 value) -> rt::unique<SemanticExpression> {
-	var result = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::literal_integer, type, token));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, type, token));
 	if (result.get()) {
 		@result.get()->set_integer(value);
 	};
 	return $result;
 };
 
-fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
+fn rutile_backend_fixture(var NativeFile* output, i32 optimization) -> i32 {
 	var diagnostics = Diagnostics(nullptr);
 	var backend = Backend(@diagnostics);
 	if (!@backend.initialize($optimization)) {
@@ -19,9 +19,9 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 		return 2;
 	};
 	SemanticUnit unit;
-	Scope* scope = @unit.create_scope(nullptr, nullptr);
+	var Scope* scope = @unit.create_scope(nullptr, nullptr);
 	SourceManager sources;
-	SourceFile* source = @sources.add(rt::string_view("backend.rt\0"), rt::string_view("g main\0"));
+	var SourceFile* source = @sources.add(rt::string_view("backend.rt\0"), rt::string_view("g main\0"));
 	if (!scope || !source) {
 		return 3;
 	};
@@ -34,9 +34,9 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	Token union_token = Token(name);
 	@union_token.kind = token_kind::kw_union;
 	var union_syntax = Syntax(syntax_kind::record, union_token);
-	Entity* overlapping = @unit.create_entity(entity_kind::record, name, &union_syntax, scope);
-	Entity* bytes = @unit.create_entity(entity_kind::field, name, nullptr, scope);
-	Entity* aligned = @unit.create_entity(entity_kind::field, name, nullptr, scope);
+	var Entity* overlapping = @unit.create_entity(entity_kind::record, name, &@union_syntax, scope);
+	var Entity* bytes = @unit.create_entity(entity_kind::field, name, nullptr, scope);
+	var Entity* aligned = @unit.create_entity(entity_kind::field, name, nullptr, scope);
 	if (!overlapping || !bytes || !aligned) {
 		return 4;
 	};
@@ -47,11 +47,11 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	};
 	const Type* union_type = @types.named(type_kind::named, overlapping);
 	@overlapping->set_type(union_type);
-	LLVMOpaqueType* union_layout = @backend.type(union_type);
+	var LLVMOpaqueType* union_layout = @backend.type(union_type);
 	if (!union_layout || LLVMABISizeOfType(backend.layout(), union_layout) != 24 || LLVMABIAlignmentOfType(backend.layout(), union_layout) != 8) {
 		return 4;
 	};
-	Entity* global = @unit.create_entity(entity_kind::global, name, nullptr, scope);
+	var Entity* global = @unit.create_entity(entity_kind::global, name, nullptr, scope);
 	if (!global) {
 		return 4;
 	};
@@ -60,7 +60,7 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	@name.begin = 2;
 	@name.length = 4;
 	@name.column = 3;
-	Entity* function = @unit.create_entity(entity_kind::function, name, nullptr, scope);
+	var Entity* function = @unit.create_entity(entity_kind::function, name, nullptr, scope);
 	rt::buffer<const Type*> parameters;
 	const Type* signature = @types.function(integer, $parameters, parameter_arity::fixed);
 	if (!function || !signature) {
@@ -70,8 +70,8 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	Token unused_name = Token(name);
 	@unused_name.begin = 0;
 	@unused_name.length = 1;
-	Entity* unused = @unit.create_entity(entity_kind::function, unused_name, nullptr, scope);
-	Entity* unused_default = @unit.create_entity(entity_kind::function, unused_name, nullptr, scope);
+	var Entity* unused = @unit.create_entity(entity_kind::function, unused_name, nullptr, scope);
+	var Entity* unused_default = @unit.create_entity(entity_kind::function, unused_name, nullptr, scope);
 	if (!unused || !unused_default) {
 		return 5;
 	};
@@ -79,11 +79,11 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	@unused_default->set_instantiated();
 	@unused_default->set_type(signature);
 	@unused_default->set_definition(function_definition::defaulted);
-	var body = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::brace, empty, name));
-	var returned = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::return_value, empty, name));
+	var body = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::brace, empty, name));
+	var returned = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::return_value, empty, name));
 	@name.kind = token_kind::op_plus;
-	var sum = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::binary, integer, name));
-	var reference = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::name, integer, name));
+	var sum = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::binary, integer, name));
+	var reference = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::name, integer, name));
 	if (!body.get() || !returned.get() || !sum.get() || !reference.get()) {
 		return 6;
 	};
@@ -94,13 +94,13 @@ fn rutile_backend_fixture(NativeFile* output, i32 optimization) -> i32 {
 	if (!@returned.get()->append($sum)) {
 		return 8;
 	};
-	var selection = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::switch_expression, empty, name));
-	var cases = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::brace, empty, name));
+	var selection = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::switch_expression, empty, name));
+	var cases = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::brace, empty, name));
 	@name.kind = token_kind::kw_case;
-	var label = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::case_label, empty, name));
+	var label = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::case_label, empty, name));
 	@name.kind = token_kind::kw_default;
-	var fallback = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::case_label, empty, name));
-	var rejected = rt::unique<SemanticExpression>(new SemanticExpression(semantic_kind::return_value, empty, name));
+	var fallback = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::case_label, empty, name));
+	var rejected = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::return_value, empty, name));
 	if (!selection.get() || !cases.get() || !label.get() || !fallback.get() || !rejected.get()) {
 		return 8;
 	};

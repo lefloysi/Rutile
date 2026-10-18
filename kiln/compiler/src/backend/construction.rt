@@ -1,6 +1,6 @@
-fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+fn FunctionEmitter::construct(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	if (expression->size() > 1) {
-		LLVMOpaqueValue* storage = @this.address(expression);
+		var LLVMOpaqueValue* storage = @this.address(expression);
 
 		if (!storage) {
 			return nullptr;
@@ -9,7 +9,7 @@ fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* express
 		return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), storage, "reconstructed\0");
 	};
 
-	LLVMOpaqueValue* storage = @this.slot(expression->type());
+	var LLVMOpaqueValue* storage = @this.slot(expression->type());
 
 	if (!storage || !@this.construct_into(expression, storage) || !@this.remember(expression, storage)) {
 		return nullptr;
@@ -18,21 +18,21 @@ fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* express
 	return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), storage, "constructed\0");
 };
 
-fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* expression, LLVMOpaqueValue* storage) -> bool {
+fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
 	const Type* type = expression->type();
-	LLVMOpaqueType* native = @this.backend->type(type, expression->token());
+	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 
 	if (!native) {
 		return false;
 	};
 
-	SemanticExpression* arguments = expression->item(0);
-	LLVMOpaqueValue* value = LLVMConstNull(native);
+	var SemanticExpression* arguments = expression->item(0);
+	var LLVMOpaqueValue* value = LLVMConstNull(native);
 	LLVMBuildStore(this.backend->builder(), value, storage);
-	Entity* constructor = expression->entity();
+	var Entity* constructor = expression->entity();
 
 	if (constructor) {
-		rt::buffer<LLVMOpaqueValue*> inputs;
+		rt::buffer<var LLVMOpaqueValue*> inputs;
 
 		if (!@inputs.push_back(storage)) {
 			return @this.backend->error(expression->token(), rt::string_view("cannot allocate constructor arguments\0"));
@@ -41,7 +41,7 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 		usize index = 0;
 
 		while (index < arguments->size()) {
-			LLVMOpaqueValue* argument;
+			var LLVMOpaqueValue* argument;
 
 			if (constructor->parameters().data()[index + 1]->type()->kind() == type_kind::reference) {
 				@argument = @this.address(arguments->item(index));
@@ -72,7 +72,7 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 
 	if (type->kind().is_scalar() || (arguments->size() == 1 && arguments->item(0)->type()->same_shape(*type))) {
 		if (!type->kind().is_scalar() && arguments->item(0)->category() == value_category::place) {
-			LLVMOpaqueValue* source = @this.address(arguments->item(0));
+			var LLVMOpaqueValue* source = @this.address(arguments->item(0));
 
 			if (!source) {
 				return false;
@@ -134,8 +134,8 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 		};
 
 		while (index < type->entity()->fields().size()) {
-			Entity* field = type->entity()->fields().data()[index];
-			LLVMOpaqueValue* destination = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(type->entity(), index), "aggregate.field\0");
+			var Entity* field = type->entity()->fields().data()[index];
+			var LLVMOpaqueValue* destination = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(type->entity(), index), "aggregate.field\0");
 
 			if (!@this.initialize_value(field->type(), destination, arguments->item(index))) {
 				return false;
@@ -148,7 +148,7 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 	};
 
 	while (index < arguments->size()) {
-		LLVMOpaqueValue* element = @this.take(arguments->item(index));
+		var LLVMOpaqueValue* element = @this.take(arguments->item(index));
 
 		if (!element) {
 			return false;
@@ -163,30 +163,30 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 	return true;
 };
 
-fn FunctionEmitter::allocate(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
+fn FunctionEmitter::allocate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	if (expression->size() != 1) {
 		return @this.allocate_array(expression);
 	};
 
 	const Type* element = expression->type()->element();
-	LLVMOpaqueType* type = @this.backend->type(element, expression->token());
+	var LLVMOpaqueType* type = @this.backend->type(element, expression->token());
 
 	if (!type) {
 		return nullptr;
 	};
 
-	LLVMOpaqueValue* pointer = LLVMBuildMalloc(this.backend->builder(), type, "allocation\0");
-	LLVMOpaqueValue* exists = @this.truth(LLVMOpaqueValue*(pointer), expression->type());
-	LLVMOpaqueBasicBlock* initialize = @this.block("new.initialize\0");
-	LLVMOpaqueBasicBlock* after = @this.block("new.after\0");
-	LLVMBuildCondBr(this.backend->builder(), exists, LLVMOpaqueBasicBlock*(initialize), LLVMOpaqueBasicBlock*(after));
+	var LLVMOpaqueValue* pointer = LLVMBuildMalloc(this.backend->builder(), type, "allocation\0");
+	var LLVMOpaqueValue* exists = @this.truth((var LLVMOpaqueValue*(pointer)), expression->type());
+	var LLVMOpaqueBasicBlock* initialize = @this.block("new.initialize\0");
+	var LLVMOpaqueBasicBlock* after = @this.block("new.after\0");
+	LLVMBuildCondBr(this.backend->builder(), exists, (var LLVMOpaqueBasicBlock*(initialize)), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
 
 	if (!@this.construct_into(expression->item(0), pointer)) {
 		return nullptr;
 	};
 
-	LLVMBuildBr(this.backend->builder(), LLVMOpaqueBasicBlock*(after));
+	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 	return pointer;

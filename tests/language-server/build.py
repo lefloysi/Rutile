@@ -48,7 +48,7 @@ profiles:
 
 			# Disk remains valid. The build must report the unsaved source's actual failure.
 			replace_document(client, uri,
-				"fn take(i32* value); fn main() -> i32 { take(true); return 0; };\n", 2)
+				"fn take(var i32* value); fn main() -> i32 { take(true); return 0; };\n", 2)
 			client.ready({uri: 2})
 			result = subprocess.run([str(command), "run", "app"], cwd=root,
 				capture_output=True, text=True, timeout=15)

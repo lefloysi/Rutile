@@ -5,26 +5,26 @@ struct Counts {
 };
 
 struct Result {
-	Counts* counts;
+	var Counts* counts;
 
-	fn ~Result(Result& this) {
+	fn ~Result(var Result& this) {
 		@this.counts->results = this.counts->results + 1;
 	};
 };
 
 struct Member {
-	Counts* counts;
+	var Counts* counts;
 	i32 value;
 
-	fn Member(Member& this) : [default];
+	fn Member(var Member& this) : [default];
 
-	fn Member(Member& this, const Member& other) {
+	fn Member(var Member& this, const Member& other) {
 		@this.counts := other.counts;
 		@this.value := other.value;
 		@this.counts->copies = this.counts->copies + 1;
 	};
 
-	fn operator=(Member& this, const Member& other) -> Result {
+	fn operator=(var Member& this, const Member& other) -> Result {
 		@this.counts := other.counts;
 		@this.value := other.value;
 		@this.counts->assigned = this.counts->assigned + 1;
@@ -38,15 +38,15 @@ struct Member {
 struct Holder {
 	Member[2] members;
 
-	fn operator=(Holder& this, const Holder& other) -> Holder& : [default];
+	fn operator=(var Holder& this, const Holder& other) -> var Holder& : [default];
 };
 
 fn main() -> i32 {
 	Counts counts;
 	Holder source;
-	@source.members[0].counts = &counts;
+	@source.members[0].counts = &@counts;
 	@source.members[0].value = 20;
-	@source.members[1].counts = &counts;
+	@source.members[1].counts = &@counts;
 	@source.members[1].value = 22;
 	Holder target;
 

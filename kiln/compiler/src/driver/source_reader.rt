@@ -1,16 +1,16 @@
 struct SourceReader {
-	fn SourceReader(SourceReader& this, FileOpener opener, SourceManager& sources, Diagnostics& diagnostics);
+	fn SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics);
 
-	fn load(SourceReader& this, const char* path) -> SourceFile*;
+	fn load(var SourceReader& this, const char* path) -> var SourceFile*;
 
 private:
-	fn error(SourceReader& this, const char* path, const rt::string_view& operation);
+	fn error(var SourceReader& this, const char* path, const rt::string_view& operation);
 	FileOpener opener;
-	SourceManager* sources;
-	Diagnostics* diagnostics;
+	var SourceManager* sources;
+	var Diagnostics* diagnostics;
 };
 
-fn SourceReader::error(SourceReader& this, const char* path, const rt::string_view& operation) {
+fn SourceReader::error(var SourceReader& this, const char* path, const rt::string_view& operation) {
 	var message = DiagnosticMessage();
 	@message.text(operation);
 	@message.text(" source file \0");
@@ -19,13 +19,13 @@ fn SourceReader::error(SourceReader& this, const char* path, const rt::string_vi
 	@this.diagnostics->error(location, message.view());
 };
 
-fn SourceReader::SourceReader(SourceReader& this, FileOpener opener, SourceManager& sources, Diagnostics& diagnostics) {
+fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics) {
 	@this.opener = $opener;
-	@this.sources = &sources;
-	@this.diagnostics = &diagnostics;
+	@this.sources = &@sources;
+	@this.diagnostics = &@diagnostics;
 };
 
-fn SourceReader::load(SourceReader& this, const char* path) -> SourceFile* {
+fn SourceReader::load(var SourceReader& this, const char* path) -> var SourceFile* {
 	var file = File(this.opener(path, "rb\0"));
 
 	if (!file.is_open()) {
@@ -37,13 +37,13 @@ fn SourceReader::load(SourceReader& this, const char* path) -> SourceFile* {
 	char[4096] chunk {};
 
 	while (true) {
-		usize count = @file.read(&chunk[0], sizeof(chunk));
+		usize count = @file.read(&@chunk[0], sizeof(chunk));
 
 		if (!count) {
 			break;
 		};
 
-		if (!@contents.append(rt::string_view(&chunk[0], $count))) {
+		if (!@contents.append(rt::string_view(&@chunk[0], $count))) {
 			@this.error(path, "cannot buffer\0");
 			return nullptr;
 		};
@@ -59,7 +59,7 @@ fn SourceReader::load(SourceReader& this, const char* path) -> SourceFile* {
 		return nullptr;
 	};
 
-	SourceFile* source = @this.sources->add(rt::string_view(path), contents.view());
+	var SourceFile* source = @this.sources->add(rt::string_view(path), contents.view());
 
 	if (!source) {
 		@this.error(path, "cannot retain\0");

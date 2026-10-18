@@ -1,13 +1,13 @@
 fn mixed_qualification_tests() -> i32 {
 	TemplateFixture fixture;
-	if (!@fixture.build("struct Holder {i32* pointer;}; template<typename T> fn data(auto T& source)->const[source] i32* {return source.pointer;}; fn answer()->i32 {i32 value=42;Holder source;@source.pointer=&value;i32* first=data<Holder>(@source);const i32* second=data<Holder>(source);i32* third=data(@source);const i32* fourth=data(source);const Holder& borrowed=source;const i32* fifth=data<Holder>(borrowed);return *fourth;};\0")) {
+	if (!@fixture.build("struct Holder {var i32* pointer;}; template<typename T> fn data(auto T& source)->const[source] i32* {return source.pointer;}; fn answer()->i32 {i32 value=42;Holder source;@source.pointer=&@value;var i32* first=data<Holder>(@source);const i32* second=data<Holder>(source);var i32* third=data(@source);const i32* fourth=data(source);const Holder& borrowed=source;const i32* fifth=data<Holder>(borrowed);return *fourth;};\0")) {
 		return 1;
 	};
 
 	usize instances = 0;
 	usize index = 0;
 	while (index < fixture.unit.get()->entities().size()) {
-		Entity* entity = fixture.unit.get()->entities().data()[index].get();
+		var Entity* entity = fixture.unit.get()->entities().data()[index].get();
 		if (entity->kind() == entity_kind::function && entity->instantiated() && entity->name() == rt::string_view("data\0")) {
 			@instances = instances + 1;
 		};
@@ -19,7 +19,7 @@ fn mixed_qualification_tests() -> i32 {
 	};
 
 	TemplateFixture invalid;
-	if (@invalid.build("struct Holder {i32* pointer;}; template<typename T> fn data(auto T& source)->const[source] i32* {return source.pointer;}; fn answer()->i32 {Holder source;data<Holder,true>(@source);return 42;};\0")) {
+	if (@invalid.build("struct Holder {var i32* pointer;}; template<typename T> fn data(auto T& source)->const[source] i32* {return source.pointer;}; fn answer()->i32 {Holder source;data<Holder,true>(@source);return 42;};\0")) {
 		return 3;
 	};
 

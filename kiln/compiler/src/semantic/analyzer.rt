@@ -1,97 +1,97 @@
-fn strtod(const char* text, char** end) -> f64;
+fn strtod(const char* text, var (var char*)* end) -> f64;
 
 struct SwitchAnalysis;
 
 struct ConversionSelection {
-	Entity* selected;
-	Entity* conflict;
+	var Entity* selected;
+	var Entity* conflict;
 
-	fn unique(const ConversionSelection& this) -> Entity*;
+	fn unique(const ConversionSelection& this) -> var Entity*;
 };
 
 struct Analyzer {
-	fn Analyzer(Analyzer& this, TypeStore& types, Diagnostics& diagnostics, u32 pointer_bits);
+	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
-	fn analyze(Analyzer& this, const rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
-	fn analyze_into(Analyzer& this, SemanticUnit& unit, const rt::buffer<rt::unique<Syntax>>& syntax) -> bool;
-	fn error(Analyzer& this, Syntax* syntax, const char* message);
-	fn report(Analyzer& this, const Token& token, const rt::string_view& message);
-	fn note(Analyzer& this, const Token& token, const rt::string_view& message);
-	fn deleted_function(Analyzer& this, const Token& token, const Entity& function);
+	fn analyze(var Analyzer& this, const rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
+	fn analyze_into(var Analyzer& this, var SemanticUnit& unit, const rt::buffer<rt::unique<Syntax>>& syntax) -> bool;
+	fn error(var Analyzer& this, var Syntax* syntax, const char* message);
+	fn report(var Analyzer& this, const Token& token, const rt::string_view& message);
+	fn note(var Analyzer& this, const Token& token, const rt::string_view& message);
+	fn deleted_function(var Analyzer& this, const Token& token, const Entity& function);
 	fn cancelled(const Analyzer& this) -> bool;
 	fn failed(const Analyzer& this) -> bool;
-	fn infer_variable(Analyzer& this, Syntax& declaration, const SemanticExpression& initializer) -> const Type*;
-	fn type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type*;
-	fn lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity*;
-	fn primitive_scope(Analyzer& this, const Type& type, const Token& location) -> Entity*;
-	fn primitive_constants(Analyzer& this, Entity& owner) -> bool;
-	fn collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool;
-	fn resolve(Analyzer& this, Entity* entity) -> bool;
-	fn integer(Analyzer& this, Syntax& syntax, u64& result) -> bool;
-	fn expression(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn function_body(Analyzer& this, Entity* entity) -> bool;
-	fn global_initializer(Analyzer& this, Entity& entity) -> bool;
-	fn constant_integer(Analyzer& this, const SemanticExpression& expression, u64& result) -> bool;
-	fn validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class_scope) -> bool;
+	fn infer_variable(var Analyzer& this, var Syntax& declaration, const SemanticExpression& initializer) -> const Type*;
+	fn type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> const Type*;
+	fn lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> var Entity*;
+	fn primitive_scope(var Analyzer& this, const Type& type, const Token& location) -> var Entity*;
+	fn primitive_constants(var Analyzer& this, var Entity& owner) -> bool;
+	fn collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool;
+	fn resolve(var Analyzer& this, var Entity* entity) -> bool;
+	fn integer(var Analyzer& this, var Syntax& syntax, var u64& result) -> bool;
+	fn expression(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn function_body(var Analyzer& this, var Entity* entity) -> bool;
+	fn global_initializer(var Analyzer& this, var Entity& entity) -> bool;
+	fn constant_integer(var Analyzer& this, const SemanticExpression& expression, var u64& result) -> bool;
+	fn validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bool class_scope) -> bool;
 
-	fn semantic_unit(const Analyzer& this) -> SemanticUnit*;
-	fn type_store(const Analyzer& this) -> TypeStore*;
-	fn accessible(const Analyzer& this, const Entity& entity, Scope& scope) -> bool;
+	fn semantic_unit(const Analyzer& this) -> var SemanticUnit*;
+	fn type_store(const Analyzer& this) -> var TypeStore*;
+	fn accessible(const Analyzer& this, const Entity& entity, var Scope& scope) -> bool;
 
 private:
-	fn resolve_impl(Analyzer& this, Entity* entity) -> bool;
-	fn expression_impl(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn names_type(Analyzer& this, Scope& scope, Syntax& syntax) -> bool;
-	fn size_query(Analyzer& this, Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression>;
-	fn selection(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression>;
-	fn label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression>;
-	fn prepare_expression(Analyzer& this, SemanticExpression* expression) -> bool;
-	fn prepare_lifetime(Analyzer& this, const Type* type) -> bool;
-	fn prepare_default(Analyzer& this, const Type* type) -> bool;
-	fn prepare_copy(Analyzer& this, const Type* type) -> bool;
-	fn prepare_copy_assignment(Analyzer& this, const Type* type) -> bool;
-	fn field_initializer(Analyzer& this, Entity* entity) -> bool;
-	fn resolve_bases(Analyzer& this, Entity* entity) -> bool;
-	fn build_dispatch(Analyzer& this, Entity* entity) -> bool;
-	fn supply_special_functions(Analyzer& this, Entity* entity) -> bool;
-	fn contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression>;
-	fn contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, SemanticExpression& callable, rt::buffer<rt::unique<SemanticExpression>>& values) -> bool;
-	fn supply_special(Analyzer& this, Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> Entity*;
-	fn node(Analyzer& this, semantic_kind kind, const Type* type, Syntax* syntax) -> rt::unique<SemanticExpression>;
-	fn unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn call(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression>;
-	fn cast(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn component(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn member_value(Analyzer& this, Scope& scope, Syntax& syntax, rt::unique<SemanticExpression> object, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn construct(Analyzer& this, Scope& scope, Syntax& syntax, const Type* type, Syntax& arguments) -> rt::unique<SemanticExpression>;
-	fn construct_values(Analyzer& this, Syntax& syntax, const Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression>;
-	fn initialize(Analyzer& this, Syntax& syntax, const Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression>;
-	fn select_candidates(Analyzer& this, const rt::buffer<Entity*>& candidates, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, Syntax& syntax) -> Entity*;
-	fn invoke(Analyzer& this, Syntax& syntax, Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn overloaded(Analyzer& this, Scope& scope, Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn select(Analyzer& this, Entity* group, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, Syntax& syntax) -> Entity*;
-	fn convert(Analyzer& this, rt::unique<SemanticExpression> value, const rt::optional_ref<const Type>& expected, Syntax& syntax) -> rt::unique<SemanticExpression>;
-	fn argument_rank(Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32;
-	fn implicit_constructor(Analyzer& this, const SemanticExpression& value, const Type& expected) -> Entity*;
-	fn select_implicit_constructor(Analyzer& this, const SemanticExpression& value, const Type& expected) -> ConversionSelection;
-	fn conversion_function(Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> Entity*;
-	fn select_conversion_function(Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> ConversionSelection;
+	fn resolve_impl(var Analyzer& this, var Entity* entity) -> bool;
+	fn expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn names_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool;
+	fn size_query(var Analyzer& this, var Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression>;
+	fn selection(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> rt::unique<SemanticExpression>;
+	fn label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> rt::unique<SemanticExpression>;
+	fn prepare_expression(var Analyzer& this, var SemanticExpression* expression) -> bool;
+	fn prepare_lifetime(var Analyzer& this, const Type* type) -> bool;
+	fn prepare_default(var Analyzer& this, const Type* type) -> bool;
+	fn prepare_copy(var Analyzer& this, const Type* type) -> bool;
+	fn prepare_copy_assignment(var Analyzer& this, const Type* type) -> bool;
+	fn field_initializer(var Analyzer& this, var Entity* entity) -> bool;
+	fn resolve_bases(var Analyzer& this, var Entity* entity) -> bool;
+	fn build_dispatch(var Analyzer& this, var Entity* entity) -> bool;
+	fn supply_special_functions(var Analyzer& this, var Entity* entity) -> bool;
+	fn contextual_argument(var Analyzer& this, var Scope& scope, var Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression>;
+	fn contextual_arguments(var Analyzer& this, var Scope& scope, var Syntax& syntax, var SemanticExpression& callable, var rt::buffer<rt::unique<SemanticExpression>>& values) -> bool;
+	fn supply_special(var Analyzer& this, var Entity* entity, function_role role, token_kind operation, const Type* source, function_definition definition) -> var Entity*;
+	fn node(var Analyzer& this, semantic_kind kind, const Type* type, var Syntax* syntax) -> rt::unique<SemanticExpression>;
+	fn unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn call(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected, bool accessed) -> rt::unique<SemanticExpression>;
+	fn cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn component(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn member_value(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> object, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, const Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression>;
+	fn construct_values(var Analyzer& this, var Syntax& syntax, const Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression>;
+	fn initialize(var Analyzer& this, var Syntax& syntax, const Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression>;
+	fn select_candidates(var Analyzer& this, const rt::buffer<var Entity*>& candidates, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity*;
+	fn invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::buffer<rt::unique<SemanticExpression>> arguments, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn select(var Analyzer& this, var Entity* group, const rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity*;
+	fn convert(var Analyzer& this, rt::unique<SemanticExpression> value, const rt::optional_ref<const Type>& expected, var Syntax& syntax) -> rt::unique<SemanticExpression>;
+	fn argument_rank(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32;
+	fn implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> var Entity*;
+	fn select_implicit_constructor(var Analyzer& this, const SemanticExpression& value, const Type& expected) -> ConversionSelection;
+	fn conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> var Entity*;
+	fn select_conversion_function(var Analyzer& this, const SemanticExpression& value, const Type& expected, conversion_mode mode) -> ConversionSelection;
 
 	fn compatible(const Analyzer& this, const Type* source, const Type* target) -> bool;
 	fn builtin_rank(const Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32;
 
-	TypeStore* types;
-	Diagnostics* diagnostics;
-	SemanticUnit* unit;
-	Entity* function;
+	var TypeStore* types;
+	var Diagnostics* diagnostics;
+	var SemanticUnit* unit;
+	var Entity* function;
 	u32 pointer_bits;
 	usize loop_depth;
-	SwitchAnalysis* active_switch;
+	var SwitchAnalysis* active_switch;
 	TemplateEngine templates;
 };
 
-fn Analyzer::error(Analyzer& this, Syntax* syntax, const char* message) {
+fn Analyzer::error(var Analyzer& this, var Syntax* syntax, const char* message) {
 	Token token;
 
 	if (syntax) {
@@ -101,14 +101,14 @@ fn Analyzer::error(Analyzer& this, Syntax* syntax, const char* message) {
 	@this.diagnostics->error(token, rt::string_view($message));
 };
 
-fn Analyzer::node(Analyzer& this, semantic_kind kind, const Type* type, Syntax* syntax) -> rt::unique<SemanticExpression> {
+fn Analyzer::node(var Analyzer& this, semantic_kind kind, const Type* type, var Syntax* syntax) -> rt::unique<SemanticExpression> {
 	Token location;
 
 	if (syntax) {
 		@location = syntax->token();
 	};
 
-	var result = rt::unique<SemanticExpression>(new SemanticExpression($kind, type, location));
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression($kind, type, location));
 
 	if (!result.get()) {
 		@this.error(syntax, "out of memory during semantic analysis\0");
@@ -118,15 +118,15 @@ fn Analyzer::node(Analyzer& this, semantic_kind kind, const Type* type, Syntax* 
 };
 
 
-fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
+fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> var Entity* {
 	if (name.kind() == syntax_kind::qualified_name) {
-		Entity* owner = @this.lookup(@scope, @*name.left());
+		var Entity* owner = @this.lookup(@scope, @*name.left());
 
-		if (!owner || !@this.resolve(Entity*(owner))) {
+		if (!owner || !@this.resolve((var Entity*(owner)))) {
 			return nullptr;
 		};
 
-		Entity* associated = owner->member_owner();
+		var Entity* associated = owner->member_owner();
 
 		if (!associated && owner->denotes_type() && owner->type()) {
 			@associated = @this.primitive_scope(*owner->type(), owner->token());
@@ -138,7 +138,7 @@ fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
 			return nullptr;
 		};
 
-		Syntax* member = name.right();
+		var Syntax* member = name.right();
 
 		if (member->kind() == syntax_kind::template_apply) {
 			if (!owner->members()->local(member->callable()->token().text())) {
@@ -155,7 +155,7 @@ fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
 		return @this.templates.apply(@this, @scope, @scope, @name);
 	};
 
-	Entity* result = scope.lookup(name.token().text());
+	var Entity* result = scope.lookup(name.token().text());
 
 	if (result) {
 		return result;
@@ -170,7 +170,7 @@ fn Analyzer::lookup(Analyzer& this, Scope& scope, Syntax& name) -> Entity* {
 	return @this.primitive_scope(*primitive, name.token());
 };
 
-fn Analyzer::integer(Analyzer& this, Syntax& syntax, u64& result) -> bool {
+fn Analyzer::integer(var Analyzer& this, var Syntax& syntax, var u64& result) -> bool {
 	if (syntax.kind() != syntax_kind::number) {
 		return false;
 	};
@@ -226,7 +226,7 @@ fn Analyzer::integer(Analyzer& this, Syntax& syntax, u64& result) -> bool {
 	return true;
 };
 
-fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
+fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> const Type* {
 	if (syntax.kind() == syntax_kind::absent) {
 		return nullptr;
 	};
@@ -241,7 +241,7 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 			if (this.failed()) {
 				return nullptr;
 			};
-			@this.error(&syntax, "automatic qualification requires a deduced parameter binding\0");
+			@this.error(&@syntax, "automatic qualification requires a deduced parameter binding\0");
 
 			return nullptr;
 		};
@@ -254,7 +254,7 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 	};
 
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
-		Entity* entity = @this.lookup(@scope, @syntax);
+		var Entity* entity = @this.lookup(@scope, @syntax);
 		if (this.failed()) {
 			return nullptr;
 		};
@@ -296,12 +296,12 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 			return nullptr;
 		};
 
-		if (!@this.resolve(Entity*(entity))) {
+		if (!@this.resolve((var Entity*(entity)))) {
 			return nullptr;
 		};
 
 		if (!@this.unit->record_name(@this, @scope, @syntax, @*entity, 2)) {
-			@this.error(&syntax, "navigation index storage is unavailable\0");
+			@this.error(&@syntax, "navigation index storage is unavailable\0");
 			return nullptr;
 		};
 		return entity->type();
@@ -310,10 +310,10 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 	if (kind == syntax_kind::type_function) {
 		rt::buffer<const Type*> parameters;
 		parameter_arity arity = parameter_arity::fixed;
-		Syntax* list = syntax.function_type_parameters();
+		var Syntax* list = syntax.function_type_parameters();
 		usize index = 0;
 		while (list && index < list->size()) {
-			Syntax* parameter = list->item(index);
+			var Syntax* parameter = list->item(index);
 
 			if (parameter->token().kind == token_kind::punct_ellipsis) {
 				@arity = parameter_arity::variadic;
@@ -347,27 +347,27 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		return @this.types->function($result, $parameters, parameter_arity(arity));
 	};
 
-	if (kind == syntax_kind::type_pointer || kind == syntax_kind::type_reference || kind == syntax_kind::type_array || kind == syntax_kind::type_const) {
+	if (kind == syntax_kind::type_pointer || kind == syntax_kind::type_reference || kind == syntax_kind::type_array || (kind == syntax_kind::type_const || kind == syntax_kind::type_mutable)) {
 		const Type* element = @this.type(@scope, @*syntax.designated_type());
 
 		if (!element) {
 			return nullptr;
 		};
 
-		if (kind == syntax_kind::type_const) {
-			Syntax* condition = syntax.qualifier_condition();
+		if ((kind == syntax_kind::type_const || kind == syntax_kind::type_mutable)) {
+			var Syntax* condition = syntax.qualifier_condition();
 
 			if (condition && condition->kind() != syntax_kind::absent) {
-				Entity* parameter = nullptr;
-				Scope* context = &scope;
+				var Entity* parameter = nullptr;
+				var Scope* context = &@scope;
 
 				while (context && !parameter) {
-					Entity* owner = context->owner();
+					var Entity* owner = context->owner();
 
 					if (owner && owner->kind() == entity_kind::function) {
 						usize index = 0;
 						while (index < owner->parameters().size()) {
-							Entity* candidate := owner->parameters().data()[index];
+							var Entity* candidate := owner->parameters().data()[index];
 
 							if (candidate->name() == condition->token().text()) {
 								@parameter := candidate;
@@ -404,12 +404,26 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 					@actual = actual->element();
 				};
 
-				return @this.types->qualified(*element, actual->qualifier());
+				if (actual->qualifier() == type_qualifier::immutable) {
+					return @this.types->qualified(*element, type_qualifier::immutable);
+				};
+				return $element;
 			};
 
+			if (kind == syntax_kind::type_mutable) {
+				return $element;
+			};
 			return @this.types->qualified(*element, type_qualifier::immutable);
 		};
 
+		if (kind == syntax_kind::type_pointer || kind == syntax_kind::type_reference) {
+			if (!syntax.designated_type()->explicitly_qualified()) {
+				@element = @this.types->qualified(*element, type_qualifier::immutable);
+				if (!element) {
+					return nullptr;
+				};
+			};
+		};
 		if (kind == syntax_kind::type_pointer) {
 			return @this.types->pointer(element);
 		};
@@ -490,8 +504,8 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 	return nullptr;
 };
 
-fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
-	Scope* scope_cursor = &scope;
+fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool {
+	var Scope* scope_cursor = &@scope;
 	syntax_kind kind = syntax.kind();
 
 	if (kind == syntax_kind::unit || kind == syntax_kind::brace || kind == syntax_kind::list) {
@@ -545,10 +559,10 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 	};
 
 	if (kind == syntax_kind::ambiguity) {
-		Syntax* declaration = nullptr;
+		var Syntax* declaration = nullptr;
 		usize index = 0;
 		while (index < syntax.size()) {
-			Syntax* candidate = syntax.item(index);
+			var Syntax* candidate = syntax.item(index);
 			syntax_kind category = candidate->kind();
 
 			if (category == syntax_kind::variable || category == syntax_kind::function || category == syntax_kind::record || category == syntax_kind::enumeration || category == syntax_kind::namespace_body || category == syntax_kind::template_declaration || category == syntax_kind::using_alias) {
@@ -605,9 +619,9 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
-	Syntax* name = nullptr;
+	var Syntax* name = nullptr;
 	entity_kind category = entity_kind::global;
-	Syntax* members = nullptr;
+	var Syntax* members = nullptr;
 
 	if (kind == syntax_kind::function) {
 		@name = syntax.function_name();
@@ -670,7 +684,7 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 	access_kind declaration_access = scope_cursor->access();
 
 	if (name->kind() == syntax_kind::qualified_name) {
-		Entity* owner = @this.lookup(@*scope_cursor, @*name->left());
+		var Entity* owner = @this.lookup(@*scope_cursor, @*name->left());
 
 		if (!owner || !owner->members()) {
 			if (!this.failed()) {
@@ -699,7 +713,7 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		@name = name->right();
 	};
 
-	Entity* existing = scope_cursor->local(name->token().text());
+	var Entity* existing = scope_cursor->local(name->token().text());
 
 	if (existing && category != entity_kind::function) {
 		if (existing->kind() != category) {
@@ -729,7 +743,7 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 					return false;
 				};
 
-				@existing->replace_declaration(&syntax);
+				@existing->replace_declaration(&@syntax);
 			};
 		}
 		else if (category != entity_kind::namespace_body) {
@@ -745,10 +759,10 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 		};
 	};
 
-	Entity* entity = existing;
+	var Entity* entity = existing;
 
 	if (!entity || category == entity_kind::function) {
-		@entity = @this.unit->create_entity(entity_kind(category), name->token(), &syntax, scope_cursor);
+		@entity = @this.unit->create_entity(entity_kind(category), name->token(), &@syntax, scope_cursor);
 
 		if (entity) {
 			@entity->set_access(access_kind(declaration_access));
@@ -756,16 +770,16 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 	};
 
 	if (!entity) {
-		@this.error(&syntax, "out of memory storing declaration\0");
+		@this.error(&@syntax, "out of memory storing declaration\0");
 		return false;
 	};
 
 	if (members) {
-		Scope* nested = entity->members();
+		var Scope* nested = entity->members();
 
 		if (!nested) {
-			@nested = @this.unit->create_scope(scope_cursor, Entity*(entity));
-			@entity->set_members(Scope*(nested));
+			@nested = @this.unit->create_scope(scope_cursor, (var Entity*(entity)));
+			@entity->set_members((var Scope*(nested)));
 		};
 
 		if (!nested || !@this.collect(@*nested, @*members)) {
@@ -803,9 +817,9 @@ fn Analyzer::collect(Analyzer& this, Scope& scope, Syntax& syntax) -> bool {
 	return true;
 };
 
-fn Analyzer::Analyzer(Analyzer& this, TypeStore& types, Diagnostics& diagnostics, u32 pointer_bits) {
-	@this.types = &types;
-	@this.diagnostics = &diagnostics;
+fn Analyzer::Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits) {
+	@this.types = &@types;
+	@this.diagnostics = &@diagnostics;
 	@this.pointer_bits = $pointer_bits;
 
 	if (!@types.initialize_primitives(this.pointer_bits)) {
@@ -814,14 +828,14 @@ fn Analyzer::Analyzer(Analyzer& this, TypeStore& types, Diagnostics& diagnostics
 	};
 };
 
-fn Analyzer::semantic_unit(const Analyzer& this) -> SemanticUnit* {
+fn Analyzer::semantic_unit(const Analyzer& this) -> var SemanticUnit* {
 	return this.unit;
 };
 
-fn Analyzer::type_store(const Analyzer& this) -> TypeStore* {
+fn Analyzer::type_store(const Analyzer& this) -> var TypeStore* {
 	return this.types;
 };
 
-fn Analyzer::accessible(const Analyzer& this, const Entity& entity, Scope& scope) -> bool {
+fn Analyzer::accessible(const Analyzer& this, const Entity& entity, var Scope& scope) -> bool {
 	return entity.accessible_from(@scope);
 };

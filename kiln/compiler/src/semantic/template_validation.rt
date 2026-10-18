@@ -10,17 +10,17 @@ struct TemplateValidationSymbol {
 };
 
 struct TemplateDeclarationValidator {
-	fn validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool;
+	fn validate(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Entity& pattern) -> bool;
 
 private:
 	fn dependent(const TemplateDeclarationValidator& this, const Syntax& syntax) -> bool;
 	fn lookup(const TemplateDeclarationValidator& this, const Token& name) -> const TemplateValidationSymbol*;
-	fn remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool;
-	fn restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame);
-	fn type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
-	fn declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
-	fn members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool;
-	fn certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax*;
+	fn remember(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Syntax& name, template_validation_role role) -> bool;
+	fn restore(var TemplateDeclarationValidator& this, usize checkpoint, usize frame);
+	fn type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool;
+	fn declaration(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool;
+	fn members(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& owner, var Syntax& body) -> bool;
+	fn certain(const TemplateDeclarationValidator& this, var Syntax& syntax) -> var Syntax*;
 
 	rt::buffer<TemplateValidationSymbol> symbols;
 	usize frame_start;
@@ -31,7 +31,7 @@ fn TemplateDeclarationValidator::lookup(const TemplateDeclarationValidator& this
 	while (index) {
 		@index = index - 1;
 		if (this.symbols.data()[index].name.same(name)) {
-			return &this.symbols.data()[index];
+			return &@this.symbols.data()[index];
 		};
 	};
 	return nullptr;
@@ -52,7 +52,7 @@ fn TemplateDeclarationValidator::dependent(const TemplateDeclarationValidator& t
 	return false;
 };
 
-fn TemplateDeclarationValidator::remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool {
+fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Syntax& name, template_validation_role role) -> bool {
 	if (name.kind() != syntax_kind::name) {
 		return true;
 	};
@@ -77,30 +77,30 @@ fn TemplateDeclarationValidator::remember(TemplateDeclarationValidator& this, An
 	@symbol.name = name.token();
 	@symbol.role = $role;
 	if (!@this.symbols.push_back($symbol)) {
-		@analyzer.error(&name, "out of memory storing template declaration names\0");
+		@analyzer.error(&@name, "out of memory storing template declaration names\0");
 		return false;
 	};
 	return true;
 };
 
-fn TemplateDeclarationValidator::restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame) {
+fn TemplateDeclarationValidator::restore(var TemplateDeclarationValidator& this, usize checkpoint, usize frame) {
 	while (this.symbols.size() > checkpoint) {
 		@this.symbols.pop_back();
 	};
 	@this.frame_start = $frame;
 };
 
-fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax* {
+fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& this, var Syntax& syntax) -> var Syntax* {
 	if (syntax.kind() != syntax_kind::ambiguity) {
-		return &syntax;
+		return &@syntax;
 	};
 	if (this.dependent(syntax)) {
 		return nullptr;
 	};
-	Syntax* selected = nullptr;
+	var Syntax* selected = nullptr;
 	usize index = 0;
 	while (index < syntax.size()) {
-		Syntax* candidate = syntax.item(index);
+		var Syntax* candidate = syntax.item(index);
 		syntax_kind kind = candidate->kind();
 		if (kind == syntax_kind::variable || kind == syntax_kind::function || kind == syntax_kind::record || kind == syntax_kind::enumeration || kind == syntax_kind::using_alias || kind == syntax_kind::template_declaration) {
 			if (selected) {
@@ -113,12 +113,12 @@ fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& thi
 	return selected;
 };
 
-fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
 	if (syntax.kind() == syntax_kind::type_name) {
 		if (this.dependent(syntax)) {
 			return true;
 		};
-		Syntax* name = syntax.designated_type();
+		var Syntax* name = syntax.designated_type();
 		// Applications have their own argument roles and are checked when instantiated.
 		if (name->kind() == syntax_kind::template_apply || name->kind() == syntax_kind::qualified_name) {
 			return true;
@@ -132,7 +132,7 @@ fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, 
 			@analyzer.report(name->token(), message.view());
 			return false;
 		};
-		Entity* entity = @analyzer.lookup(@scope, @*name);
+		var Entity* entity = @analyzer.lookup(@scope, @*name);
 		if (!entity || !entity->denotes_type()) {
 			var message = DiagnosticMessage();
 			@message.text("'\0");
@@ -143,14 +143,14 @@ fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, 
 		};
 		return true;
 	};
-	if (syntax.kind() == syntax_kind::type_pointer || syntax.kind() == syntax_kind::type_reference || syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_array) {
+	if (syntax.kind() == syntax_kind::type_pointer || syntax.kind() == syntax_kind::type_reference || (syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_mutable) || syntax.kind() == syntax_kind::type_array) {
 		return @this.type_names(@analyzer, @scope, @*syntax.designated_type());
 	};
 	if (syntax.kind() == syntax_kind::type_function) {
 		if (!@this.type_names(@analyzer, @scope, @*syntax.function_type_result())) {
 			return false;
 		};
-		Syntax* parameters = syntax.function_type_parameters();
+		var Syntax* parameters = syntax.function_type_parameters();
 		usize index = 0;
 		while (index < parameters->size()) {
 			if (!@this.type_names(@analyzer, @scope, @*parameters->item(index)->parameter_type())) {
@@ -162,19 +162,19 @@ fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, 
 	return true;
 };
 
-fn TemplateDeclarationValidator::members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool {
+fn TemplateDeclarationValidator::members(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& owner, var Syntax& body) -> bool {
 	usize checkpoint = this.symbols.size();
 	usize frame = this.frame_start;
 	@this.frame_start = checkpoint;
 	usize index = 0;
 	while (index < body.size()) {
-		Syntax* member = this.certain(@*body.item(index));
+		var Syntax* member = this.certain(@*body.item(index));
 		@index = index + 1;
 		if (!member) {
 			continue;
 		};
 		if (member->kind() == syntax_kind::record || member->kind() == syntax_kind::enumeration || member->kind() == syntax_kind::using_alias) {
-			Syntax* name = member->record_name();
+			var Syntax* name = member->record_name();
 			if (member->kind() == syntax_kind::using_alias) {
 				@name = member->alias_name();
 			};
@@ -185,13 +185,13 @@ fn TemplateDeclarationValidator::members(TemplateDeclarationValidator& this, Ana
 	};
 	@index = 0;
 	while (index < body.size()) {
-		Syntax* member = this.certain(@*body.item(index));
+		var Syntax* member = this.certain(@*body.item(index));
 		@index = index + 1;
 		if (!member) {
 			continue;
 		};
 		if (member->kind() == syntax_kind::function && owner.kind() == syntax_kind::record) {
-			Syntax* name = member->function_name();
+			var Syntax* name = member->function_name();
 			bool special = name->kind() == syntax_kind::unary || name->kind() == syntax_kind::operator_name && name->operator_token().kind == token_kind::op_assign || name->kind() == syntax_kind::conversion_name || name->kind() == syntax_kind::name && name->token().same(owner.record_name()->token());
 			if (special && (!member->function_parameters()->size() || !member->function_parameters()->item(0)->parameter_name()->token().is(rt::string_view("this\0")))) {
 				var message = DiagnosticMessage();
@@ -215,16 +215,16 @@ fn TemplateDeclarationValidator::members(TemplateDeclarationValidator& this, Ana
 	return true;
 };
 
-fn TemplateDeclarationValidator::declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
 	if (syntax.kind() == syntax_kind::template_declaration) {
 		usize checkpoint = this.symbols.size();
 		usize frame = this.frame_start;
 		@this.frame_start = checkpoint;
-		Syntax* parameters = syntax.template_parameters();
+		var Syntax* parameters = syntax.template_parameters();
 		usize index = 0;
 		while (index < parameters->size()) {
-			Syntax* parameter = parameters->item(index);
-			Syntax* type = parameter->template_parameter_type();
+			var Syntax* parameter = parameters->item(index);
+			var Syntax* type = parameter->template_parameter_type();
 			usize prior = 0;
 			while (prior < index) {
 				if (parameters->item(prior)->template_parameter_name()->token().same(parameter->template_parameter_name()->token())) {
@@ -305,7 +305,7 @@ fn TemplateDeclarationValidator::declaration(TemplateDeclarationValidator& this,
 	return true;
 };
 
-fn TemplateDeclarationValidator::validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool {
+fn TemplateDeclarationValidator::validate(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Entity& pattern) -> bool {
 	@this.symbols.clear();
 	@this.frame_start = 0;
 	if (!pattern.declaration() || !pattern.resolution_scope()) {

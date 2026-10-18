@@ -1,25 +1,25 @@
 struct SwitchCase {
 	u64 value;
-	Syntax* declaration;
+	var Syntax* declaration;
 };
 
 struct SwitchAnalysis {
 	const Type* condition_type;
 	const Type* source_type;
 	rt::buffer<SwitchCase> cases;
-	Syntax* default_label;
+	var Syntax* default_label;
 };
 
 struct SwitchAnalysisScope {
-	fn SwitchAnalysisScope(SwitchAnalysisScope& this, SwitchAnalysis*& slot, SwitchAnalysis& current);
-	fn ~SwitchAnalysisScope(SwitchAnalysisScope& this);
+	fn SwitchAnalysisScope(var SwitchAnalysisScope& this, var (var SwitchAnalysis*)& slot, var SwitchAnalysis& current);
+	fn ~SwitchAnalysisScope(var SwitchAnalysisScope& this);
 
 private:
-	SwitchAnalysis** slot;
-	SwitchAnalysis* previous;
+	var (var SwitchAnalysis*)* slot;
+	var SwitchAnalysis* previous;
 };
 
-fn Analyzer::selection(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression> {
+fn Analyzer::selection(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> rt::unique<SemanticExpression> {
 	var condition = @this.expression(@scope, @*syntax.item(0), rt::optional_ref<const Type>());
 
 	if (!condition.get()) {
@@ -48,7 +48,7 @@ fn Analyzer::selection(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::uniq
 		return rt::unique<SemanticExpression>();
 	};
 
-	var result = @this.node(semantic_kind::switch_expression, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+	var result = @this.node(semantic_kind::switch_expression, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -65,7 +65,7 @@ fn Analyzer::selection(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::uniq
 	return $result;
 };
 
-fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<SemanticExpression> {
+fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> rt::unique<SemanticExpression> {
 	if (!this.active_switch) {
 		var message = DiagnosticMessage();
 		@message.quoted(syntax.token().text());
@@ -75,7 +75,7 @@ fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<S
 		return rt::unique<SemanticExpression>();
 	};
 
-	var result = @this.node(semantic_kind::case_label, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+	var result = @this.node(semantic_kind::case_label, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
@@ -83,13 +83,13 @@ fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<S
 
 	if (syntax.token().kind == token_kind::kw_default) {
 		if (this.active_switch->default_label) {
-			@this.error(&syntax, "switch contains more than one default label\0");
+			@this.error(&@syntax, "switch contains more than one default label\0");
 			@this.note(this.active_switch->default_label->token(), "previous default label is here\0");
 
 			return rt::unique<SemanticExpression>();
 		};
 
-		@this.active_switch->default_label = &syntax;
+		@this.active_switch->default_label = &@syntax;
 
 		return $result;
 	};
@@ -146,9 +146,9 @@ fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<S
 
 	SwitchCase current;
 	@current.value = value;
-	@current.declaration = &syntax;
+	@current.declaration = &@syntax;
 	if (!@this.active_switch->cases.push_back($current)) {
-		@this.error(&syntax, "switch label storage is unavailable\0");
+		@this.error(&@syntax, "switch label storage is unavailable\0");
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -158,12 +158,12 @@ fn Analyzer::label(Analyzer& this, Scope& scope, Syntax& syntax) -> rt::unique<S
 	return $result;
 };
 
-fn SwitchAnalysisScope::SwitchAnalysisScope(SwitchAnalysisScope& this, SwitchAnalysis*& slot, SwitchAnalysis& current) {
-	@this.slot = &slot;
+fn SwitchAnalysisScope::SwitchAnalysisScope(var SwitchAnalysisScope& this, var (var SwitchAnalysis*)& slot, var SwitchAnalysis& current) {
+	@this.slot = &@slot;
 	@this.previous := slot;
-	@slot = &current;
+	@slot = &@current;
 };
 
-fn SwitchAnalysisScope::~SwitchAnalysisScope(SwitchAnalysisScope& this) {
+fn SwitchAnalysisScope::~SwitchAnalysisScope(var SwitchAnalysisScope& this) {
 	@*this.slot := this.previous;
 };

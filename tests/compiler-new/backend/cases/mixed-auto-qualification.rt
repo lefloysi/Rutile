@@ -1,5 +1,5 @@
 struct Holder {
-	i32* pointer;
+	var i32* pointer;
 };
 
 template<typename T>
@@ -10,16 +10,16 @@ fn data(auto T& source) -> const[source] i32* {
 fn main() -> i32 {
 	i32 value = 42;
 	Holder source;
-	@source.pointer = &value;
+	@source.pointer = &@value;
 
-	i32* explicit_mutable = data<Holder>(@source);
+	var i32* explicit_mutable = data<Holder>(@source);
 	const i32* explicit_constant = data<Holder>(source);
-	i32* deduced_mutable = data(@source);
+	var i32* deduced_mutable = data(@source);
 	const i32* deduced_constant = data(source);
 	const Holder& borrowed = source;
 	const i32* borrowed_constant = data<Holder>(borrowed);
 
-	if (explicit_mutable != &value || explicit_constant != &value || deduced_mutable != &value || deduced_constant != &value || borrowed_constant != &value) {
+	if (explicit_mutable != &@value || explicit_constant != &@value || deduced_mutable != &@value || deduced_constant != &@value || borrowed_constant != &@value) {
 		return 1;
 	};
 

@@ -9,8 +9,8 @@ namespace rt {
 	};
 
 	struct json_member {
-		fn json_member(json_member& this, string key, unique<json_value> value);
-		fn json_member(json_member& this, const json_member& other) : [delete];
+		fn json_member(var json_member& this, string key, unique<json_value> value);
+		fn json_member(var json_member& this, const json_member& other) : [delete];
 
 		string key;
 		unique<json_value> value;
@@ -20,8 +20,8 @@ namespace rt {
 	using json_object = buffer<json_member>;
 
 	union json_payload {
-		fn json_payload(json_payload& this) : [default];
-		fn ~json_payload(json_payload& this) : [default];
+		fn json_payload(var json_payload& this) : [default];
+		fn ~json_payload(var json_payload& this) : [default];
 
 		u08 empty;
 		bool boolean;
@@ -33,9 +33,9 @@ namespace rt {
 	// Text is UTF-8. Object keys are unique; set and parsing retain the last duplicate value.
 	// Number spelling is retained without conversion to binary floating point.
 	struct json_value {
-		fn json_value(json_value& this) : [default];
-		fn json_value(json_value& this, const json_value& other) : [delete];
-		fn ~json_value(json_value& this);
+		fn json_value(var json_value& this) : [default];
+		fn json_value(var json_value& this, const json_value& other) : [delete];
+		fn ~json_value(var json_value& this);
 
 		fn make_null() -> unique<json_value>;
 		fn make_boolean(bool value) -> unique<json_value>;
@@ -46,13 +46,13 @@ namespace rt {
 		fn make_string(const string_view& value) -> unique<json_value>;
 		fn make_array() -> unique<json_value>;
 		fn make_object() -> unique<json_value>;
-		fn append(json_value& this, unique<json_value> value) -> bool;
-		fn set(json_value& this, const string_view& key, unique<json_value> value) -> bool;
+		fn append(var json_value& this, unique<json_value> value) -> bool;
+		fn set(var json_value& this, const string_view& key, unique<json_value> value) -> bool;
 
 		fn kind(const json_value& this) -> json_kind;
 		fn text(const json_value& this) -> string_view;
 		fn boolean(const json_value& this) -> bool;
-		fn integer(const json_value& this, i64& result) -> bool;
+		fn integer(const json_value& this, var i64& result) -> bool;
 		fn member(const json_value& this, const string_view& key) -> const json_value*;
 		fn item(const json_value& this, usize index) -> const json_value*;
 		fn key(const json_value& this, usize index) -> string_view;
@@ -64,12 +64,12 @@ namespace rt {
 	};
 
 	struct json_document {
-		fn json_document(json_document& this) : [default];
-		fn json_document(json_document& this, unique<json_value> root, usize offset, string error);
-		fn json_document(json_document& this, const json_document& other) : [delete];
+		fn json_document(var json_document& this) : [default];
+		fn json_document(var json_document& this, unique<json_value> root, usize offset, string error);
+		fn json_document(var json_document& this, const json_document& other) : [delete];
 
 		fn value(const json_document& this) -> const json_value*;
-		fn release(json_document& this) -> unique<json_value>;
+		fn release(var json_document& this) -> unique<json_value>;
 		fn error(const json_document& this) -> string_view;
 		fn error_offset(const json_document& this) -> usize;
 
@@ -80,8 +80,8 @@ namespace rt {
 	};
 
 	struct json_parser {
-		fn json_parser(json_parser& this, const string_view& text);
-		fn parse(json_parser& this) -> json_document;
+		fn json_parser(var json_parser& this, const string_view& text);
+		fn parse(var json_parser& this) -> json_document;
 
 	private:
 		string_view input;
@@ -89,19 +89,19 @@ namespace rt {
 		usize failure_offset;
 		string failure;
 
-		fn whitespace(json_parser& this);
-		fn fail(json_parser& this, const string_view& message) -> bool;
-		fn hex_quad(json_parser& this, u32& value) -> bool;
-		fn string_value(json_parser& this, string& result) -> bool;
-		fn value(json_parser& this, usize depth) -> unique<json_value>;
+		fn whitespace(var json_parser& this);
+		fn fail(var json_parser& this, const string_view& message) -> bool;
+		fn hex_quad(var json_parser& this, var u32& value) -> bool;
+		fn string_value(var json_parser& this, var string& result) -> bool;
+		fn value(var json_parser& this, usize depth) -> unique<json_value>;
 	};
 
-	fn json_member::json_member(json_member& this, string key, unique<json_value> value) {
+	fn json_member::json_member(var json_member& this, string key, unique<json_value> value) {
 		@this.key = $key;
 		@this.value = $value;
 	};
 
-	fn json_value::~json_value(json_value& this) {
+	fn json_value::~json_value(var json_value& this) {
 		if (this.tag == json_kind::number || this.tag == json_kind::string) {
 			@this.payload.text.~string();
 		}
@@ -257,7 +257,7 @@ namespace rt {
 				break;
 			};
 		};
-		return make_number(string_view(&digits[begin], 20 - begin));
+		return make_number(string_view(&@digits[begin], 20 - begin));
 	};
 
 	fn json_value::make_integer(i64 value) -> unique<json_value> {
@@ -338,14 +338,14 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::append(json_value& this, unique<json_value> value) -> bool {
+	fn json_value::append(var json_value& this, unique<json_value> value) -> bool {
 		if (this.tag != json_kind::array || !value.get()) {
 			return false;
 		};
 		return @this.payload.array.push_back($value);
 	};
 
-	fn json_value::set(json_value& this, const string_view& key, unique<json_value> value) -> bool {
+	fn json_value::set(var json_value& this, const string_view& key, unique<json_value> value) -> bool {
 		if (this.tag != json_kind::object || !value.get() || !json_valid_utf8(key)) {
 			return false;
 		};
@@ -379,7 +379,7 @@ namespace rt {
 		return this.tag == json_kind::boolean && this.payload.boolean;
 	};
 
-	fn json_value::integer(const json_value& this, i64& result) -> bool {
+	fn json_value::integer(const json_value& this, var i64& result) -> bool {
 		if (this.tag != json_kind::number) {
 			return false;
 		};
@@ -456,7 +456,7 @@ namespace rt {
 		return 0;
 	};
 
-	fn json_document::json_document(json_document& this, unique<json_value> root, usize offset, string error) {
+	fn json_document::json_document(var json_document& this, unique<json_value> root, usize offset, string error) {
 		@this.root = $root;
 		@this.offset = $offset;
 		@this.failure = $error;
@@ -466,7 +466,7 @@ namespace rt {
 		return this.root.get();
 	};
 
-	fn json_document::release(json_document& this) -> unique<json_value> {
+	fn json_document::release(var json_document& this) -> unique<json_value> {
 		return unique<json_value>(@this.root.release());
 	};
 
@@ -478,11 +478,11 @@ namespace rt {
 		return this.offset;
 	};
 
-	fn json_parser::json_parser(json_parser& this, const string_view& text) {
+	fn json_parser::json_parser(var json_parser& this, const string_view& text) {
 		@this.input := text;
 	};
 
-	fn json_parser::whitespace(json_parser& this) {
+	fn json_parser::whitespace(var json_parser& this) {
 		while (this.cursor < this.input.size()) {
 			char byte = this.input.data()[this.cursor];
 			if (byte != ' ' && byte != '\t' && byte != '\r' && byte != '\n') {
@@ -492,7 +492,7 @@ namespace rt {
 		};
 	};
 
-	fn json_parser::fail(json_parser& this, const string_view& message) -> bool {
+	fn json_parser::fail(var json_parser& this, const string_view& message) -> bool {
 		if (!this.failure.size()) {
 			@this.failure_offset = this.cursor;
 			@this.failure.append(message);
@@ -500,7 +500,7 @@ namespace rt {
 		return false;
 	};
 
-	fn json_parser::hex_quad(json_parser& this, u32& value) -> bool {
+	fn json_parser::hex_quad(var json_parser& this, var u32& value) -> bool {
 		@value = 0;
 		usize index = 0;
 		while (index < 4) {
@@ -528,7 +528,7 @@ namespace rt {
 		return true;
 	};
 
-	fn json_append_codepoint(string& output, u32 code) -> bool {
+	fn json_append_codepoint(var string& output, u32 code) -> bool {
 		char[4] bytes;
 		usize count = 0;
 		if (code < 128) {
@@ -553,10 +553,10 @@ namespace rt {
 			@bytes[3] = static_cast<char>(128 | (code & 63));
 			@count = 4;
 		};
-		return @output.append(string_view(&bytes[0], $count));
+		return @output.append(string_view(&@bytes[0], $count));
 	};
 
-	fn json_parser::string_value(json_parser& this, string& result) -> bool {
+	fn json_parser::string_value(var json_parser& this, var string& result) -> bool {
 		if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != '"') {
 			return @this.fail("expected a JSON string\0");
 		};
@@ -636,14 +636,14 @@ namespace rt {
 					continue;
 				};
 			};
-			if (!@result.append(string_view(&byte, 1))) {
+			if (!@result.append(string_view(&@byte, 1))) {
 				return @this.fail("cannot allocate JSON string\0");
 			};
 		};
 		return @this.fail("unterminated JSON string\0");
 	};
 
-	fn json_parser::value(json_parser& this, usize depth) -> unique<json_value> {
+	fn json_parser::value(var json_parser& this, usize depth) -> unique<json_value> {
 		@this.whitespace();
 		if (depth > 128 || this.cursor >= this.input.size()) {
 			@this.fail("expected JSON value within nesting limit\0");
@@ -743,7 +743,7 @@ namespace rt {
 		return unique<json_value>();
 	};
 
-	fn json_parser::parse(json_parser& this) -> json_document {
+	fn json_parser::parse(var json_parser& this) -> json_document {
 		var root = @this.value(0);
 		@this.whitespace();
 		if (root.get() && this.cursor != this.input.size()) {
@@ -762,7 +762,7 @@ namespace rt {
 		return @parser.parse();
 	};
 
-	fn json_write_string(const string_view& value, string& output) -> bool {
+	fn json_write_string(const string_view& value, var string& output) -> bool {
 		if (!@output.append("\"\0")) {
 			return false;
 		};
@@ -779,7 +779,7 @@ namespace rt {
 				char[2] hex;
 				@hex[0] := digits.data()[byte >> 4];
 				@hex[1] := digits.data()[byte & 15];
-				if (!@output.append("\\u00\0") || !@output.append(string_view(&hex[0], 2))) {
+				if (!@output.append("\\u00\0") || !@output.append(string_view(&@hex[0], 2))) {
 					return false;
 				};
 			}
@@ -791,7 +791,7 @@ namespace rt {
 		return @output.append("\"\0");
 	};
 
-	fn json_write_value(const json_value& value, string& output, usize depth) -> bool {
+	fn json_write_value(const json_value& value, var string& output, usize depth) -> bool {
 		if (depth > 128) {
 			return false;
 		};
@@ -834,7 +834,7 @@ namespace rt {
 		return @output.append("]\0");
 	};
 
-	fn json_write(const json_value& value, string& output) -> bool {
+	fn json_write(const json_value& value, var string& output) -> bool {
 		string encoded;
 		if (!json_write_value(value, @encoded, 0)) {
 			return false;

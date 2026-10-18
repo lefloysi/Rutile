@@ -1,22 +1,22 @@
 i32 copies;
 struct Leaf {
-	fn Leaf(Leaf& this) : [default];
-	fn Leaf(Leaf& this, const Leaf& other);
+	fn Leaf(var Leaf& this) : [default];
+	fn Leaf(var Leaf& this, const Leaf& other);
 	i32 number;
 };
-fn Leaf::Leaf(Leaf& this, const Leaf& other) {
+fn Leaf::Leaf(var Leaf& this, const Leaf& other) {
 	@this.number = other.number;
 	@copies = copies + 1;
 };
 struct Wrapper {
 	Leaf leaf;
-	i32* pointer;
+	var i32* pointer;
 };
 fn main() -> i32 {
 	i32 external = 1;
 	Wrapper source;
 	@source.leaf.number = 42;
-	@source.pointer = &external;
+	@source.pointer = &@external;
 	var copied = Wrapper(source);
 	if (copies != 1 || copied.leaf.number != 42 || copied.pointer != source.pointer) {
 		return 1;

@@ -1,15 +1,15 @@
 struct Target {
-	fn ~Target(Target& this);
+	fn ~Target(var Target& this);
 	i32 value;
-	i32* destroyed;
+	var i32* destroyed;
 };
 
 struct Source {
 	i32 value;
-	i32* destroyed;
+	var i32* destroyed;
 };
 
-fn Target::~Target(Target& this) {
+fn Target::~Target(var Target& this) {
 	@*this.destroyed = *this.destroyed + 1;
 };
 
@@ -24,7 +24,7 @@ fn main() -> i32 {
 	i32 destroyed = 0;
 	Source source;
 	@source.value = 42;
-	@source.destroyed = &destroyed;
+	@source.destroyed = &@destroyed;
 	{
 		var target = static_cast<Target>(source);
 		if (target.value != 42 || destroyed != 0 || source.value != 42) {

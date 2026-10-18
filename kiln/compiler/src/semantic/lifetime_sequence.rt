@@ -1,7 +1,7 @@
-fn LifetimeAnalyzer::storage_owner(const LifetimeAnalyzer& this, const SemanticExpression& expression, FlowState& state) -> rt::optional_ref<Entity> {
+fn LifetimeAnalyzer::storage_owner(const LifetimeAnalyzer& this, const SemanticExpression& expression, var FlowState& state) -> rt::optional_ref<Entity> {
 	switch (expression.kind()) {
 		case semantic_kind::name: {
-			Entity* entity = expression.entity();
+			var Entity* entity = expression.entity();
 
 			if (!entity || entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter) {
 				return rt::optional_ref<Entity>();
@@ -9,7 +9,7 @@ fn LifetimeAnalyzer::storage_owner(const LifetimeAnalyzer& this, const SemanticE
 
 			usize remaining = state.size();
 			while (entity->type()->kind() == type_kind::reference) {
-				LiveBinding* binding = @state.find(entity);
+				var LiveBinding* binding = @state.find(entity);
 
 				if (!binding) {
 					return rt::optional_ref<Entity>(@*entity);
@@ -48,7 +48,7 @@ fn LifetimeAnalyzer::storage_owner(const LifetimeAnalyzer& this, const SemanticE
 	return rt::optional_ref<Entity>();
 };
 
-fn LifetimeAnalyzer::sequence(LifetimeAnalyzer& this, SemanticExpression& expression, FlowState& state) -> bool {
+fn LifetimeAnalyzer::sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> bool {
 	usize boundary = state.size();
 
 	if (!@this.walk(expression.item(0), @state) || !@this.walk(expression.item(1), @state) || !@this.walk(expression.item(2), @state)) {
@@ -61,10 +61,10 @@ fn LifetimeAnalyzer::sequence(LifetimeAnalyzer& this, SemanticExpression& expres
 		if (owner.has_value()) {
 			usize index = boundary;
 			while (index < state.size()) {
-				LiveBinding* binding = @state.at(index);
+				var LiveBinding* binding = @state.at(index);
 
 				if (binding->entity == owner.get()) {
-					return @this.binding_error(&expression, "sequence result refers to local storage\0", *binding->entity);
+					return @this.binding_error(&@expression, "sequence result refers to local storage\0", *binding->entity);
 				};
 
 				@index = index + 1;

@@ -1,18 +1,18 @@
 fn out_of_line_auto_tests() -> i32 {
 	var concrete = TemplateFixture();
-	if (!@concrete.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<i32&>(this.number)); }; fn main()->i32 { var value:Value; @value.get()=42; return value.get(); };\0")) {
+	if (!@concrete.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<var i32&>(this.number)); }; fn main()->i32 { var value:Value; @value.get()=42; return value.get(); };\0")) {
 		return 1;
 	};
 	var generic = TemplateFixture();
-	if (!@generic.build("template<typename T> struct Value { T number; fn get(auto Value& this)->const[this] T&; }; template<typename Item> fn Value<Item>::get(auto Value& this)->const[this] Item& { return const_cast<const[this] Item&>(@const_cast<Item&>(this.number)); }; fn main()->i32 { var value:Value<i32>; @value.get()=42; return value.get(); };\0")) {
+	if (!@generic.build("template<typename T> struct Value { T number; fn get(auto Value& this)->const[this] T&; }; template<typename Item> fn Value<Item>::get(auto Value& this)->const[this] Item& { return const_cast<const[this] Item&>(@const_cast<var Item&>(this.number)); }; fn main()->i32 { var value:Value<i32>; @value.get()=42; return value.get(); };\0")) {
 		return 2;
 	};
 	var duplicate = TemplateFixture();
-	if (@duplicate.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<i32&>(this.number)); }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<i32&>(this.number)); };\0")) {
+	if (@duplicate.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<var i32&>(this.number)); }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<var i32&>(this.number)); };\0")) {
 		return 3;
 	};
 	var readonly = TemplateFixture();
-	if (@readonly.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<i32&>(this.number)); }; fn main()->i32 { const Value value; @value.get()=42; return 42; };\0")) {
+	if (@readonly.build("struct Value { i32 number; fn get(auto Value& this)->const[this] i32&; }; fn Value::get(auto Value& this)->const[this] i32& { return const_cast<const[this] i32&>(@const_cast<var i32&>(this.number)); }; fn main()->i32 { const Value value; @value.get()=42; return 42; };\0")) {
 		return 4;
 	};
 	return 42;

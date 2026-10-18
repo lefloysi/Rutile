@@ -1,6 +1,6 @@
-fn LanguageWorkspace::old_offset(LanguageWorkspace& this, const LanguageIndex& index, usize source, usize current, usize& original) -> bool {
+fn LanguageWorkspace::old_offset(var LanguageWorkspace& this, const LanguageIndex& index, usize source, usize current, var usize& original) -> bool {
 	const LanguageIndexedSource& input = index.sources.data()[source];
-	LanguageDocument* document = @this.document_key(input.key.view());
+	var LanguageDocument* document = @this.document_key(input.key.view());
 	if (!document) {
 		if (input.version.has_value()) {
 			return false;
@@ -31,13 +31,13 @@ fn LanguageWorkspace::old_offset(LanguageWorkspace& this, const LanguageIndex& i
 	return true;
 };
 
-fn LanguageWorkspace::mapped(LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& input, SourceRange& output) -> bool {
+fn LanguageWorkspace::mapped(var LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& input, var SourceRange& output) -> bool {
 	if (input.source >= index.sources.size()) {
 		return false;
 	};
 	@output = SourceRange(input);
 	const LanguageIndexedSource& source = index.sources.data()[input.source];
-	LanguageDocument* document = @this.document_key(source.key.view());
+	var LanguageDocument* document = @this.document_key(source.key.view());
 	if (!document) {
 		return !source.version.has_value();
 	};
@@ -61,16 +61,16 @@ fn LanguageWorkspace::mapped(LanguageWorkspace& this, const LanguageIndex& index
 	return true;
 };
 
-fn LanguageWorkspace::location(LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& range) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::location(var LanguageWorkspace& this, const LanguageIndex& index, const SourceRange& range) -> rt::unique<rt::json_value> {
 	SourceRange current;
 	if (!@this.mapped(index, range, @current)) {
 		return rt::unique<rt::json_value>();
 	};
 	const LanguageIndexedSource& source = index.sources.data()[range.source];
-	const LanguageText* text = &source.text;
-	LanguageDocument* document = @this.document_key(source.key.view());
+	const LanguageText* text = &@source.text;
+	var LanguageDocument* document = @this.document_key(source.key.view());
 	if (document) {
-		@text = &document->text;
+		@text = &@document->text;
 	};
 
 	var result = rt::json_value::make_object();
@@ -80,7 +80,7 @@ fn LanguageWorkspace::location(LanguageWorkspace& this, const LanguageIndex& ind
 	return $result;
 };
 
-fn LanguageWorkspace::bindings(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, rt::buffer<u64>& result) -> bool {
+fn LanguageWorkspace::bindings(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, var rt::buffer<u64>& result) -> bool {
 	const rt::json_value* document = parameters.member("textDocument\0");
 	const rt::json_value* position = parameters.member("position\0");
 	if (!document || !position) {
@@ -96,10 +96,10 @@ fn LanguageWorkspace::bindings(LanguageWorkspace& this, const LanguageIndex& ind
 		return true;
 	};
 	usize source = *found;
-	const LanguageText* text = &index.sources.data()[source].text;
-	LanguageDocument* open = @this.document_key(key.view());
+	const LanguageText* text = &@index.sources.data()[source].text;
+	var LanguageDocument* open = @this.document_key(key.view());
 	if (open) {
-		@text = &open->text;
+		@text = &@open->text;
 	};
 	i64 line = LanguageJson::integer(*position, "line\0", -1);
 	i64 character = LanguageJson::integer(*position, "character\0", -1);
@@ -158,13 +158,13 @@ fn LanguageWorkspace::contains(const rt::string_view& text, const rt::string_vie
 	return false;
 };
 
-fn LanguageWorkspace::measured(LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::measured(var LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value> {
 	@this.queries = this.queries + 1;
 	@this.query_nanoseconds = this.query_nanoseconds + runtime_clock_nanoseconds() - started;
 	return $result;
 };
 
-fn LanguageWorkspace::append_location(rt::json_value& result, rt::unique<rt::json_value> location, rt::unordered_map<rt::string_view, bool>& seen, rt::buffer<rt::string>& keys) -> bool {
+fn LanguageWorkspace::append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string_view, bool>& seen, var rt::buffer<rt::string>& keys) -> bool {
 	if (!location.get()) {
 		return true;
 	};
@@ -181,10 +181,10 @@ fn LanguageWorkspace::append_location(rt::json_value& result, rt::unique<rt::jso
 	return @result.append($location);
 };
 
-fn LanguageWorkspace::query(LanguageWorkspace& this, const rt::string_view& method, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::query(var LanguageWorkspace& this, const rt::string_view& method, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
 	u64 started = runtime_clock_nanoseconds();
 	@this.receive();
-	LanguageIndex* index = this.published.get();
+	var LanguageIndex* index = this.published.get();
 	if (!index || index->generation < this.minimum_semantic_generation) {
 		if (method == rt::string_view("textDocument/hover\0") || method == rt::string_view("textDocument/signatureHelp\0")) {
 			return @this.measured(rt::json_value::make_null(), $started);
@@ -320,7 +320,7 @@ fn LanguageWorkspace::query(LanguageWorkspace& this, const rt::string_view& meth
 	return @this.measured($result, $started);
 };
 
-fn LanguageWorkspace::status(LanguageWorkspace& this) -> rt::unique<rt::json_value> {
+fn LanguageWorkspace::status(var LanguageWorkspace& this) -> rt::unique<rt::json_value> {
 	@this.receive();
 	var result = rt::json_value::make_object();
 	var documents = rt::json_value::make_array();

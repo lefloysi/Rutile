@@ -7,29 +7,29 @@ struct Counts {
 };
 
 struct Tracker {
-	fn Tracker(Tracker& this, Counts* counts, i32 value);
-	fn Tracker(Tracker& this, const Tracker& other) : [delete];
-	fn Tracker(Tracker& this, Tracker other);
-	fn ~Tracker(Tracker& this);
-	Counts* counts;
+	fn Tracker(var Tracker& this, var Counts* counts, i32 value);
+	fn Tracker(var Tracker& this, const Tracker& other) : [delete];
+	fn Tracker(var Tracker& this, Tracker other);
+	fn ~Tracker(var Tracker& this);
+	var Counts* counts;
 	i32 value;
 };
 
-fn Tracker::Tracker(Tracker& this, Counts* counts, i32 value) {
+fn Tracker::Tracker(var Tracker& this, var Counts* counts, i32 value) {
 	@this.counts = $counts;
 	@this.value = $value;
 	@this.counts->live = this.counts->live + 1;
 	@this.counts->constructed = this.counts->constructed + 1;
 };
 
-fn Tracker::Tracker(Tracker& this, Tracker other) {
+fn Tracker::Tracker(var Tracker& this, Tracker other) {
 	@this.counts := other.counts;
 	@this.value := other.value;
 	@this.counts->moved = this.counts->moved + 1;
 	discard $other;
 };
 
-fn Tracker::~Tracker(Tracker& this) {
+fn Tracker::~Tracker(var Tracker& this) {
 	@this.counts->live = this.counts->live - 1;
 	@this.counts->destroyed = this.counts->destroyed + 1;
 	@this.counts->order = this.counts->order * 10 + this.value;
@@ -42,7 +42,7 @@ fn main() -> i32 {
 		if (!@values.reserve(16) || counts.constructed || counts.destroyed) {
 			return 1;
 		};
-		if (!@values.push_back(Tracker(&counts, 1)) || !@values.push_back(Tracker(&counts, 2))) {
+		if (!@values.push_back(Tracker(&@counts, 1)) || !@values.push_back(Tracker(&@counts, 2))) {
 			return 2;
 		};
 		if (counts.live != 2 || counts.constructed != 2 || counts.destroyed) {
@@ -58,7 +58,7 @@ fn main() -> i32 {
 		};
 		var transferred = $values;
 		rt::buffer<Tracker> destination;
-		if (!@destination.push_back(Tracker(&counts, 3))) {
+		if (!@destination.push_back(Tracker(&@counts, 3))) {
 			return 6;
 		};
 		@destination = $transferred;
@@ -69,7 +69,7 @@ fn main() -> i32 {
 		if (counts.live || counts.destroyed != 3 || counts.order != 321) {
 			return 8;
 		};
-		if (!@destination.push_back(Tracker(&counts, 4))) {
+		if (!@destination.push_back(Tracker(&@counts, 4))) {
 			return 9;
 		};
 	};

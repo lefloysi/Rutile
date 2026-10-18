@@ -9,10 +9,10 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
 	("unknown-character", "fn main()->i32 {return #;};", "#", [r"unknown source character; found '#'" ]),
-	("source-nul", "fn main()->i32 {return \0;};", "\0", [r"NUL byte in source; found '\\0'"]),
+	("source-nul", "fn main()->i32 {return \u0000;};", "\0", [r"NUL byte in source; found '\\0'"]),
 	("exponent-digits", "fn main()->i32 {return 1e+;};", "1e+", [r"expected exponent digits; found '1e\+'"]),
-	("unterminated-string", '"unfinished', '"', [r"unterminated string literal; found '\"unfinished'", r"^(?!.*found end of file)" ]),
-	("string-newline", '"first\nsecond', '"', [r"newline in string literal; found '\"first'"]),
+	("unterminated-string", "\"unfinished", '"', [r"unterminated string literal; found '\"unfinished'", r"^(?!.*found end of file)" ]),
+	("string-newline", "\"first\nsecond", '"', [r"newline in string literal; found '\"first'"]),
 	("unterminated-comment", "/* unfinished", "/*", [r"unterminated comment; found '/\* unfinished'"]),
 	("actual-delimiter", "fn take(i32 value];", "]", [r"expected.*; found '\]'" ]),
 	("actual-closing-brace", "fn main()->i32 {return 1}", "}", [r"expected.*; found '}'"]),

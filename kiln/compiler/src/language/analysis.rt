@@ -1,20 +1,20 @@
 struct AnalysisCancellationScope {
-	fn AnalysisCancellationScope(AnalysisCancellationScope& this, Diagnostics& diagnostics);
-	fn ~AnalysisCancellationScope(AnalysisCancellationScope& this);
+	fn AnalysisCancellationScope(var AnalysisCancellationScope& this, var Diagnostics& diagnostics);
+	fn ~AnalysisCancellationScope(var AnalysisCancellationScope& this);
 
 private:
-	Diagnostics* diagnostics;
+	var Diagnostics* diagnostics;
 };
 
-fn AnalysisCancellationScope::AnalysisCancellationScope(AnalysisCancellationScope& this, Diagnostics& diagnostics) {
-	@this.diagnostics = &diagnostics;
+fn AnalysisCancellationScope::AnalysisCancellationScope(var AnalysisCancellationScope& this, var Diagnostics& diagnostics) {
+	@this.diagnostics = &@diagnostics;
 };
 
-fn AnalysisCancellationScope::~AnalysisCancellationScope(AnalysisCancellationScope& this) {
+fn AnalysisCancellationScope::~AnalysisCancellationScope(var AnalysisCancellationScope& this) {
 	@this.diagnostics->set_cancellation(nullptr, nullptr);
 };
 
-fn Analysis::analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancelled, void* context) -> bool {
+fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool {
 	@this.messages.set_cancellation(cancelled, context);
 	var cancellation_scope = AnalysisCancellationScope(@this.messages);
 	@this.target_pointer_bits = pointer_bits;
@@ -33,7 +33,7 @@ fn Analysis::analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancell
 		if (this.messages.cancelled()) {
 			return false;
 		};
-		SourceFile* file = @this.sources.at(index);
+		var SourceFile* file = @this.sources.at(index);
 		var lexer = Lexer(@*file);
 		if (!@lexer.scan()) {
 			@parse_errors.syntax_error(lexer.error_token(), lexer.error());

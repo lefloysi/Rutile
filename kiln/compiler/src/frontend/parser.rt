@@ -12,10 +12,10 @@ struct ParseChoices {
 };
 
 struct Parser {
-	fn Parser(Parser& this, const rt::buffer<Token>& tokens);
+	fn Parser(var Parser& this, const rt::buffer<Token>& tokens);
 
-	fn parse(Parser& this) -> rt::unique<Syntax>;
-	fn set_cancellation(Parser& this, ((void*) -> i32)* callback, void* context);
+	fn parse(var Parser& this) -> rt::unique<Syntax>;
+	fn set_cancellation(var Parser& this, ((var void*) -> i32)* callback, var void* context);
 
 	fn error(const Parser& this) -> rt::string_view;
 	fn error_token(const Parser& this) -> Token;
@@ -25,61 +25,61 @@ private:
 	usize offset;
 	usize pending_greater;
 	const ParseChoices* selections;
-	rt::buffer<usize>* discoveries;
-	((void*) -> i32)* cancellation;
-	void* cancellation_context;
-	fn cancelled(Parser& this) -> bool;
+	var rt::buffer<usize>* discoveries;
+	((var void*) -> i32)* cancellation;
+	var void* cancellation_context;
+	fn cancelled(var Parser& this) -> bool;
 	const char* failure;
 	Token failure_location;
 
 	fn peek(const Parser& this) -> Token;
-	fn take(Parser& this) -> Token;
-	fn accept(Parser& this, const token_kind& kind) -> bool;
-	fn require(Parser& this, const token_kind& kind, const char* message) -> bool;
-	fn fail(Parser& this, const char* message);
+	fn take(var Parser& this) -> Token;
+	fn accept(var Parser& this, const token_kind& kind) -> bool;
+	fn require(var Parser& this, const token_kind& kind, const char* message) -> bool;
+	fn fail(var Parser& this, const char* message);
 
-	fn node(Parser& this, syntax_kind kind, const Token& token) -> rt::unique<Syntax>;
-	fn absent(Parser& this) -> rt::unique<Syntax>;
-	fn add(Parser& this, Syntax& parent, rt::unique<Syntax> child) -> bool;
-	fn factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
-	fn factor_group(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
-	fn alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool;
+	fn node(var Parser& this, syntax_kind kind, const Token& token) -> rt::unique<Syntax>;
+	fn absent(var Parser& this) -> rt::unique<Syntax>;
+	fn add(var Parser& this, var Syntax& parent, rt::unique<Syntax> child) -> bool;
+	fn factor(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
+	fn factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax>;
+	fn alternative_add(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool;
 
-	fn expression(Parser& this, i32 minimum) -> rt::unique<Syntax>;
-	fn primary(Parser& this) -> rt::unique<Syntax>;
-	fn postfix(Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax>;
-	fn sequence(Parser& this, const Token& opening, token_kind close, syntax_kind kind) -> rt::unique<Syntax>;
-	fn arguments(Parser& this, token_kind close) -> rt::unique<Syntax>;
+	fn expression(var Parser& this, i32 minimum) -> rt::unique<Syntax>;
+	fn primary(var Parser& this) -> rt::unique<Syntax>;
+	fn postfix(var Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax>;
+	fn sequence(var Parser& this, const Token& opening, token_kind close, syntax_kind kind) -> rt::unique<Syntax>;
+	fn arguments(var Parser& this, token_kind close) -> rt::unique<Syntax>;
 
-	fn type(Parser& this) -> rt::unique<Syntax>;
-	fn close_template(Parser& this) -> bool;
-	fn name_part(Parser& this, const name_role& role) -> rt::unique<Syntax>;
-	fn name_in(Parser& this, const name_role& role) -> rt::unique<Syntax>;
-	fn name(Parser& this) -> rt::unique<Syntax>;
+	fn type(var Parser& this) -> rt::unique<Syntax>;
+	fn close_template(var Parser& this) -> bool;
+	fn name_part(var Parser& this, const name_role& role) -> rt::unique<Syntax>;
+	fn name_in(var Parser& this, const name_role& role) -> rt::unique<Syntax>;
+	fn name(var Parser& this) -> rt::unique<Syntax>;
 	fn precedence(const token_kind& kind) -> i32;
 
-	fn statement_one(Parser& this) -> rt::unique<Syntax>;
-	fn statement(Parser& this) -> rt::unique<Syntax>;
-	fn variable(Parser& this) -> rt::unique<Syntax>;
-	fn parameters(Parser& this) -> rt::unique<Syntax>;
-	fn function(Parser& this) -> rt::unique<Syntax>;
-	fn record(Parser& this) -> rt::unique<Syntax>;
-	fn enumeration(Parser& this) -> rt::unique<Syntax>;
-	fn namespace_body(Parser& this) -> rt::unique<Syntax>;
-	fn template_declaration(Parser& this) -> rt::unique<Syntax>;
-	fn control(Parser& this) -> rt::unique<Syntax>;
+	fn statement_one(var Parser& this) -> rt::unique<Syntax>;
+	fn statement(var Parser& this) -> rt::unique<Syntax>;
+	fn variable(var Parser& this) -> rt::unique<Syntax>;
+	fn parameters(var Parser& this) -> rt::unique<Syntax>;
+	fn function(var Parser& this) -> rt::unique<Syntax>;
+	fn record(var Parser& this) -> rt::unique<Syntax>;
+	fn enumeration(var Parser& this) -> rt::unique<Syntax>;
+	fn namespace_body(var Parser& this) -> rt::unique<Syntax>;
+	fn template_declaration(var Parser& this) -> rt::unique<Syntax>;
+	fn control(var Parser& this) -> rt::unique<Syntax>;
 };
 
-fn Parser::Parser(Parser& this, const rt::buffer<Token>& tokens) {
-	@this.tokens = &tokens;
+fn Parser::Parser(var Parser& this, const rt::buffer<Token>& tokens) {
+	@this.tokens = &@tokens;
 };
 
-fn Parser::set_cancellation(Parser& this, ((void*) -> i32)* callback, void* context) {
+fn Parser::set_cancellation(var Parser& this, ((var void*) -> i32)* callback, var void* context) {
 	@this.cancellation = $callback;
 	@this.cancellation_context = $context;
 };
 
-fn Parser::cancelled(Parser& this) -> bool {
+fn Parser::cancelled(var Parser& this) -> bool {
 	if (this.cancellation && this.cancellation(this.cancellation_context)) {
 		@this.fail("analysis cancelled\0");
 		return true;
@@ -119,7 +119,7 @@ fn Parser::peek(const Parser& this) -> Token {
 	return $token;
 };
 
-fn Parser::take(Parser& this) -> Token {
+fn Parser::take(var Parser& this) -> Token {
 	Token token = this.peek();
 
 	if (this.pending_greater) {
@@ -135,7 +135,7 @@ fn Parser::take(Parser& this) -> Token {
 	return $token;
 };
 
-fn Parser::accept(Parser& this, const token_kind& kind) -> bool {
+fn Parser::accept(var Parser& this, const token_kind& kind) -> bool {
 	if (this.peek().kind != kind) {
 		return false;
 	};
@@ -145,7 +145,7 @@ fn Parser::accept(Parser& this, const token_kind& kind) -> bool {
 	return true;
 };
 
-fn Parser::require(Parser& this, const token_kind& kind, const char* message) -> bool {
+fn Parser::require(var Parser& this, const token_kind& kind, const char* message) -> bool {
 	if (@this.accept(kind)) {
 		return true;
 	};
@@ -154,15 +154,15 @@ fn Parser::require(Parser& this, const token_kind& kind, const char* message) ->
 	return false;
 };
 
-fn Parser::fail(Parser& this, const char* message) {
+fn Parser::fail(var Parser& this, const char* message) {
 	if (!this.failure) {
 		@this.failure = $message;
 		@this.failure_location = this.peek();
 	};
 };
 
-fn Parser::node(Parser& this, syntax_kind kind, const Token& token) -> rt::unique<Syntax> {
-	var result = rt::unique<Syntax>(new Syntax($kind, token));
+fn Parser::node(var Parser& this, syntax_kind kind, const Token& token) -> rt::unique<Syntax> {
+	var result = rt::unique<Syntax>(new var Syntax($kind, token));
 
 	if (!result.get()) {
 		@this.fail("syntax allocation failed\0");
@@ -171,11 +171,11 @@ fn Parser::node(Parser& this, syntax_kind kind, const Token& token) -> rt::uniqu
 	return $result;
 };
 
-fn Parser::absent(Parser& this) -> rt::unique<Syntax> {
+fn Parser::absent(var Parser& this) -> rt::unique<Syntax> {
 	return @this.node(syntax_kind::absent, this.peek());
 };
 
-fn Parser::add(Parser& this, Syntax& parent, rt::unique<Syntax> child) -> bool {
+fn Parser::add(var Parser& this, var Syntax& parent, rt::unique<Syntax> child) -> bool {
 	if (!child.get()) {
 		return false;
 	};
@@ -226,7 +226,7 @@ fn Parser::precedence(const token_kind& kind) -> i32 {
 	};
 };
 
-fn Parser::parse(Parser& this) -> rt::unique<Syntax> {
+fn Parser::parse(var Parser& this) -> rt::unique<Syntax> {
 	var result = @this.node(syntax_kind::unit, this.peek());
 
 	while (this.peek().kind != token_kind::eof && !this.failure) {
@@ -252,7 +252,7 @@ fn Parser::parse(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::sequence(Parser& this, const Token& opening, token_kind close, syntax_kind kind) -> rt::unique<Syntax> {
+fn Parser::sequence(var Parser& this, const Token& opening, token_kind close, syntax_kind kind) -> rt::unique<Syntax> {
 	var result = @this.node($kind, opening);
 
 	while (this.peek().kind != close && this.peek().kind != token_kind::eof && !this.failure) {
@@ -268,7 +268,7 @@ fn Parser::sequence(Parser& this, const Token& opening, token_kind close, syntax
 	return $result;
 };
 
-fn Parser::arguments(Parser& this, token_kind close) -> rt::unique<Syntax> {
+fn Parser::arguments(var Parser& this, token_kind close) -> rt::unique<Syntax> {
 	var result = @this.node(syntax_kind::list, this.peek());
 
 	if (@this.accept(close)) {
@@ -292,7 +292,7 @@ fn Parser::arguments(Parser& this, token_kind close) -> rt::unique<Syntax> {
 	return rt::unique<Syntax>();
 };
 
-fn Parser::close_template(Parser& this) -> bool {
+fn Parser::close_template(var Parser& this) -> bool {
 	if (@this.accept(token_kind::op_greater)) {
 		return true;
 	};
@@ -307,7 +307,7 @@ fn Parser::close_template(Parser& this) -> bool {
 	return false;
 };
 
-fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> {
+fn Parser::name_part(var Parser& this, const name_role& role) -> rt::unique<Syntax> {
 	Token first = this.peek();
 
 	if (@this.accept(token_kind::op_tilde)) {
@@ -347,7 +347,7 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 			@operator_suffix = @this.node(syntax_kind::name, this.peek());
 			@this.require(token_kind::identifier, "expected literal operator suffix\0");
 		}
-		else if (operation.kind == token_kind::identifier) {
+		else if (operation.kind == token_kind::identifier || operation.kind == token_kind::kw_var || operation.kind == token_kind::kw_const) {
 			var conversion = Parser(*this.tokens);
 		@conversion.set_cancellation(this.cancellation, this.cancellation_context);
 			@conversion.offset = beginning;
@@ -469,11 +469,11 @@ fn Parser::name_part(Parser& this, const name_role& role) -> rt::unique<Syntax> 
 	return $applied;
 };
 
-fn Parser::name(Parser& this) -> rt::unique<Syntax> {
+fn Parser::name(var Parser& this) -> rt::unique<Syntax> {
 	return @this.name_in(name_role::designator);
 };
 
-fn Parser::name_in(Parser& this, const name_role& role) -> rt::unique<Syntax> {
+fn Parser::name_in(var Parser& this, const name_role& role) -> rt::unique<Syntax> {
 	Token first = this.peek();
 	var result = @this.name_part(role);
 
@@ -487,7 +487,7 @@ fn Parser::name_in(Parser& this, const name_role& role) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::type(Parser& this) -> rt::unique<Syntax> {
+fn Parser::type(var Parser& this) -> rt::unique<Syntax> {
 	Token start = this.peek();
 	bool automatic = start.kind == token_kind::identifier && start.is(rt::string_view("auto\0"));
 
@@ -496,6 +496,11 @@ fn Parser::type(Parser& this) -> rt::unique<Syntax> {
 	};
 
 	bool qualified = @this.accept(token_kind::kw_const);
+	bool mutable_type = false;
+	if (!qualified) {
+		@mutable_type = @this.accept(token_kind::kw_var);
+		@qualified = mutable_type;
+	};
 	var condition = @this.absent();
 
 	if (qualified && @this.accept(token_kind::punct_left_bracket)) {
@@ -542,7 +547,11 @@ fn Parser::type(Parser& this) -> rt::unique<Syntax> {
 	};
 
 	if (qualified) {
-		var constant = @this.node(syntax_kind::type_const, start);
+		syntax_kind qualifier_kind = syntax_kind::type_const;
+		if (mutable_type) {
+			@qualifier_kind = syntax_kind::type_mutable;
+		};
+		var constant = @this.node($qualifier_kind, start);
 		@this.add(@*constant.get(), rt::unique<Syntax>(@result.release()));
 		@this.add(@*constant.get(), rt::unique<Syntax>(@condition.release()));
 		@result = $constant;
@@ -556,6 +565,14 @@ fn Parser::type(Parser& this) -> rt::unique<Syntax> {
 
 	while (!this.failure) {
 		Token suffix = this.peek();
+		bool mutable_pointer = suffix.kind == token_kind::kw_var;
+		if (mutable_pointer) {
+			@this.take();
+			if (this.peek().kind != token_kind::op_star) {
+				@this.fail("a suffix var qualifier shall precede a pointer '*'; use a grouped type to qualify another type constructor\0");
+				return rt::unique<Syntax>();
+			};
+		};
 		syntax_kind kind = syntax_kind::absent;
 
 		if (@this.accept(token_kind::op_star)) {
@@ -576,15 +593,21 @@ fn Parser::type(Parser& this) -> rt::unique<Syntax> {
 			break;
 		};
 
-		var indirect = @this.node($kind, $suffix);
+		var indirect = @this.node($kind, suffix);
 		@this.add(@*indirect.get(), rt::unique<Syntax>(@result.release()));
 		@result = rt::unique<Syntax>(@indirect.release());
+		if (mutable_pointer) {
+			var qualifier = @this.node(syntax_kind::type_mutable, suffix);
+			@this.add(@*qualifier.get(), rt::unique<Syntax>(@result.release()));
+			@this.add(@*qualifier.get(), @this.absent());
+			@result = rt::unique<Syntax>(@qualifier.release());
+		};
 	};
 
 	return $result;
 };
 
-fn Parser::expression(Parser& this, i32 minimum) -> rt::unique<Syntax> {
+fn Parser::expression(var Parser& this, i32 minimum) -> rt::unique<Syntax> {
 	var left = @this.primary();
 
 	if (!left.get()) {
@@ -621,7 +644,7 @@ fn Parser::expression(Parser& this, i32 minimum) -> rt::unique<Syntax> {
 	return $left;
 };
 
-fn Parser::postfix(Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax> {
+fn Parser::postfix(var Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax> {
 	while (!this.failure) {
 		Token token = this.peek();
 
@@ -667,10 +690,10 @@ fn Parser::postfix(Parser& this, rt::unique<Syntax> value) -> rt::unique<Syntax>
 	return $value;
 };
 
-fn Parser::primary(Parser& this) -> rt::unique<Syntax> {
+fn Parser::primary(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
 
-	if (token.kind == token_kind::identifier || token.kind == token_kind::kw_const || token.kind == token_kind::kw_struct || token.kind == token_kind::kw_class || token.kind == token_kind::kw_union) {
+	if (token.kind == token_kind::identifier || token.kind == token_kind::kw_var || token.kind == token_kind::kw_const || token.kind == token_kind::kw_struct || token.kind == token_kind::kw_class || token.kind == token_kind::kw_union) {
 		// Type suffixes and value operators share tokens. Enumerate both complete
 		// continuations instead of deciding whether an identifier denotes a type here.
 		usize choice = this.tokens->size() + this.offset;
@@ -894,17 +917,32 @@ fn Parser::primary(Parser& this) -> rt::unique<Syntax> {
 	};
 };
 
-fn Parser::variable(Parser& this) -> rt::unique<Syntax> {
+fn Parser::variable(var Parser& this) -> rt::unique<Syntax> {
 	Token start = this.peek();
 	var declared_type = @this.absent();
 	var declared_name = @this.absent();
 
 	if (start.kind == token_kind::kw_var) {
-		@this.take();
-		@declared_name = @this.name();
-
-		if (@this.accept(token_kind::punct_colon)) {
-			@declared_type = @this.type();
+		var candidate = Parser(*this.tokens);
+		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+		@candidate.offset = this.offset;
+		@candidate.pending_greater = this.pending_greater;
+		@candidate.selections = this.selections;
+		@candidate.discoveries = this.discoveries;
+		var typed = @candidate.type();
+		var named = @candidate.name();
+		if (!candidate.failure && typed.get() && named.get()) {
+			@declared_type = rt::unique<Syntax>(@typed.release());
+			@declared_name = rt::unique<Syntax>(@named.release());
+			@this.offset = candidate.offset;
+			@this.pending_greater = candidate.pending_greater;
+		}
+		else {
+			@this.take();
+			@declared_name = @this.name();
+			if (@this.accept(token_kind::punct_colon)) {
+				@declared_type = @this.type();
+			};
 		};
 	}
 	else {
@@ -936,7 +974,7 @@ fn Parser::variable(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::parameters(Parser& this) -> rt::unique<Syntax> {
+fn Parser::parameters(var Parser& this) -> rt::unique<Syntax> {
 	var result = @this.node(syntax_kind::list, this.peek());
 
 	if (@this.accept(token_kind::punct_right_paren)) {
@@ -988,7 +1026,7 @@ fn Parser::parameters(Parser& this) -> rt::unique<Syntax> {
 	return rt::unique<Syntax>();
 };
 
-fn Parser::function(Parser& this) -> rt::unique<Syntax> {
+fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::function, start);
 	@this.add(@*result.get(), @this.name());
@@ -1031,7 +1069,7 @@ fn Parser::function(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::record(Parser& this) -> rt::unique<Syntax> {
+fn Parser::record(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::record, start);
 
@@ -1064,7 +1102,7 @@ fn Parser::record(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::enumeration(Parser& this) -> rt::unique<Syntax> {
+fn Parser::enumeration(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::enumeration, start);
 	@this.add(@*result.get(), @this.name());
@@ -1115,7 +1153,7 @@ fn Parser::enumeration(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::namespace_body(Parser& this) -> rt::unique<Syntax> {
+fn Parser::namespace_body(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::namespace_body, start);
 	@this.add(@*result.get(), @this.name());
@@ -1128,7 +1166,7 @@ fn Parser::namespace_body(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::template_declaration(Parser& this) -> rt::unique<Syntax> {
+fn Parser::template_declaration(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::template_declaration, start);
 	var parameters = @this.node(syntax_kind::list, this.peek());
@@ -1173,7 +1211,7 @@ fn Parser::template_declaration(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::control(Parser& this) -> rt::unique<Syntax> {
+fn Parser::control(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	@this.require(token_kind::punct_left_paren, "expected '(' before control condition\0");
 
@@ -1229,7 +1267,7 @@ fn Parser::control(Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
-fn Parser::statement_one(Parser& this) -> rt::unique<Syntax> {
+fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
 
 	if (token.kind == token_kind::identifier && (token.is(rt::string_view("public\0")) || token.is(rt::string_view("private\0")) || token.is(rt::string_view("protected\0")))) {
@@ -1348,11 +1386,11 @@ fn Parser::statement_one(Parser& this) -> rt::unique<Syntax> {
 	return $expression;
 };
 
-fn Parser::statement(Parser& this) -> rt::unique<Syntax> {
+fn Parser::statement(var Parser& this) -> rt::unique<Syntax> {
 	rt::buffer<rt::unique<ParseChoices>> work;
 	rt::buffer<rt::unique<Syntax>> alternatives;
 
-	if (!@work.push_back(rt::unique<ParseChoices>(new ParseChoices()))) {
+	if (!@work.push_back(rt::unique<ParseChoices>(new var ParseChoices()))) {
 		@this.fail("parse alternatives storage is unavailable\0");
 		return rt::unique<Syntax>();
 	};
@@ -1368,14 +1406,14 @@ fn Parser::statement(Parser& this) -> rt::unique<Syntax> {
 		if (@this.cancelled()) {
 			return rt::unique<Syntax>();
 		};
-		ParseChoices* choices = work.data()[next].get();
+		var ParseChoices* choices = work.data()[next].get();
 		var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
 		@candidate.offset = this.offset;
 		@candidate.pending_greater = this.pending_greater;
 		@candidate.selections = choices;
 		rt::buffer<usize> discoveries;
-		@candidate.discoveries = &discoveries;
+		@candidate.discoveries = &@discoveries;
 		var syntax = @candidate.statement_one();
 
 		if (syntax.get() && !candidate.failure) {
@@ -1442,7 +1480,7 @@ fn Parser::statement(Parser& this) -> rt::unique<Syntax> {
 	return @this.factor(@alternatives);
 };
 
-fn Parser::alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool {
+fn Parser::alternative_add(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives, rt::unique<Syntax> syntax) -> bool {
 	if (syntax.get()->kind() == syntax_kind::ambiguity) {
 		usize index = 0;
 
@@ -1475,14 +1513,14 @@ fn Parser::alternative_add(Parser& this, rt::buffer<rt::unique<Syntax>>& alterna
 	return true;
 };
 
-fn Parser::factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
+fn Parser::factor(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
 	// Factor each parent shape before preserving alternatives of different grammar roles.
 	// This keeps type/value choices local even when declarations also compete with expressions.
 	rt::buffer<rt::unique<Syntax>> factored;
 	usize index = 0;
 
 	while (index < alternatives.size()) {
-		Syntax* first = alternatives.data()[index].get();
+		var Syntax* first = alternatives.data()[index].get();
 
 		if (!first) {
 			@index = index + 1;
@@ -1493,7 +1531,7 @@ fn Parser::factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) ->
 		usize candidate = index;
 
 		while (candidate < alternatives.size()) {
-			Syntax* other = alternatives.data()[candidate].get();
+			var Syntax* other = alternatives.data()[candidate].get();
 
 			if (other && other->kind() == first->kind() && other->token().source == first->token().source && other->token().begin == first->token().begin && other->token().length == first->token().length && other->size() == first->size()) {
 				if (!@this.alternative_add(@group, rt::unique<Syntax>(@((@alternatives).data()[candidate]).release()))) {
@@ -1514,18 +1552,18 @@ fn Parser::factor(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) ->
 	return @this.factor_group(@factored);
 };
 
-fn Parser::factor_group(Parser& this, rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
+fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
 	if (alternatives.size() == 1) {
 		return rt::unique<Syntax>(@((@alternatives).data()[0]).release());
 	};
 
-	Syntax* first = alternatives.data()[0].get();
+	var Syntax* first = alternatives.data()[0].get();
 	usize difference = usize::max;
 	bool compatible = true;
 	usize candidate = 1;
 
 	while (candidate < alternatives.size() && compatible) {
-		Syntax* other = alternatives.data()[candidate].get();
+		var Syntax* other = alternatives.data()[candidate].get();
 
 		if (other->kind() != first->kind() || other->token().source != first->token().source || other->token().begin != first->token().begin || other->token().length != first->token().length || other->size() != first->size()) {
 			@compatible = false;
@@ -1638,7 +1676,7 @@ fn ParseChoices::contains(const ParseChoices& this, usize position) -> bool {
 };
 
 fn ParseChoices::extended(const ParseChoices& this, usize position) -> rt::unique<ParseChoices> {
-	var result = rt::unique<ParseChoices>(new ParseChoices());
+	var result = rt::unique<ParseChoices>(new var ParseChoices());
 	usize index = 0;
 
 	while (index < this.operators.size()) {

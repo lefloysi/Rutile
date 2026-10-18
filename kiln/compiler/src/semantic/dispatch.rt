@@ -1,6 +1,6 @@
-fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class_scope) -> bool {
+fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bool class_scope) -> bool {
 	if (syntax.kind() == syntax_kind::template_declaration) {
-		Syntax* declaration = syntax.template_declaration();
+		var Syntax* declaration = syntax.template_declaration();
 
 		if (declaration->kind() == syntax_kind::function) {
 			usize index = 0;
@@ -66,7 +66,7 @@ fn Analyzer::validate_dispatch_syntax(Analyzer& this, Syntax& syntax, bool class
 		return true;
 	};
 
-	Syntax* parameters = syntax.function_parameters();
+	var Syntax* parameters = syntax.function_parameters();
 
 	if ((!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) || !parameters->size() || !parameters->item(0)->parameter_name()->token().is(rt::string_view("this\0")) || parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
 		var message = DiagnosticMessage();
@@ -112,8 +112,8 @@ fn dispatch_signature(const Entity& function, const Entity& inherited) -> bool {
 		return false;
 	};
 
-	const rt::buffer<Entity*>& first = function.parameters();
-	const rt::buffer<Entity*>& second = inherited.parameters();
+	const rt::buffer<var Entity*>& first = function.parameters();
+	const rt::buffer<var Entity*>& second = inherited.parameters();
 
 	if (!first.size() || first.size() != second.size() || first.data()[0]->type()->kind() != type_kind::reference || second.data()[0]->type()->kind() != type_kind::reference || first.data()[0]->type()->element()->qualifier() != second.data()[0]->type()->element()->qualifier()) {
 		return false;
@@ -146,11 +146,11 @@ fn dispatch_result(const Type& result, const Type& inherited) -> bool {
 	return source->derived_from(*destination) && (source->qualifier() != type_qualifier::immutable || destination->qualifier() == type_qualifier::immutable);
 };
 
-fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
+fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 	usize inherited = 0;
 
 	if (entity->bases().size()) {
-		const rt::buffer<Entity*>& base = entity->bases().data()[0]->entity()->virtual_functions();
+		const rt::buffer<var Entity*>& base = entity->bases().data()[0]->entity()->virtual_functions();
 
 		while (inherited < base.size()) {
 			if (!@entity->add_virtual(base.data()[inherited])) {
@@ -162,17 +162,17 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 		};
 	};
 
-	rt::buffer<Entity*> seen;
+	rt::buffer<var Entity*> seen;
 	usize index = 0;
 	while (index < entity->members()->bindings().size()) {
-		Entity* function = entity->members()->bindings().data()[index];
+		var Entity* function = entity->members()->bindings().data()[index];
 		@index = index + 1;
 
 		if (function->kind() != entity_kind::function) {
 			continue;
 		};
 
-		if (!@this.resolve(Entity*(function))) {
+		if (!@this.resolve((var Entity*(function)))) {
 			return false;
 		};
 
@@ -187,7 +187,7 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 			continue;
 		};
 
-		if (!@seen.push_back(Entity*(function))) {
+		if (!@seen.push_back((var Entity*(function)))) {
 			@this.error(function->declaration(), "virtual operation analysis storage is unavailable\0");
 			return false;
 		};
@@ -199,7 +199,7 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 		};
 
 		if (slot < inherited) {
-			Entity* previous = entity->virtual_functions().data()[slot];
+			var Entity* previous = entity->virtual_functions().data()[slot];
 
 			if (previous->is_final()) {
 				var message = DiagnosticMessage();
@@ -269,7 +269,7 @@ fn Analyzer::build_dispatch(Analyzer& this, Entity* entity) -> bool {
 		else if (function->declares_virtual()) {
 			@function->set_virtual_slot(entity->virtual_functions().size());
 
-			if (!@entity->add_virtual(Entity*(function))) {
+			if (!@entity->add_virtual((var Entity*(function)))) {
 				@this.error(function->declaration(), "virtual operation storage is unavailable\0");
 				return false;
 			};

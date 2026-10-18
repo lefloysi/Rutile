@@ -7,35 +7,35 @@ enum language_server_state : [u08] {
 };
 
 struct LanguageServer {
-	fn LanguageServer(LanguageServer& this, LanguageProtocol& protocol, LanguageWorkspace& workspace);
-	fn run(LanguageServer& this) -> i32;
+	fn LanguageServer(var LanguageServer& this, var LanguageProtocol& protocol, var LanguageWorkspace& workspace);
+	fn run(var LanguageServer& this) -> i32;
 
 private:
-	fn dispatch(LanguageServer& this, const rt::json_value& message) -> bool;
-	fn send(LanguageServer& this, rt::unique<rt::json_value> message) -> bool;
-	fn error(LanguageServer& this, const rt::json_value& id, i64 code, const rt::string_view& text) -> bool;
-	fn initialize(LanguageServer& this, const rt::json_value& id, const rt::json_value& parameters) -> bool;
+	fn dispatch(var LanguageServer& this, const rt::json_value& message) -> bool;
+	fn send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool;
+	fn error(var LanguageServer& this, const rt::json_value& id, i64 code, const rt::string_view& text) -> bool;
+	fn initialize(var LanguageServer& this, const rt::json_value& id, const rt::json_value& parameters) -> bool;
 
-	LanguageProtocol* protocol;
-	LanguageWorkspace* workspace;
+	var LanguageProtocol* protocol;
+	var LanguageWorkspace* workspace;
 	language_server_state state;
 };
 
-fn LanguageServer::LanguageServer(LanguageServer& this, LanguageProtocol& protocol, LanguageWorkspace& workspace) {
-	@this.protocol = &protocol;
-	@this.workspace = &workspace;
+fn LanguageServer::LanguageServer(var LanguageServer& this, var LanguageProtocol& protocol, var LanguageWorkspace& workspace) {
+	@this.protocol = &@protocol;
+	@this.workspace = &@workspace;
 };
 
-fn LanguageServer::send(LanguageServer& this, rt::unique<rt::json_value> message) -> bool {
+fn LanguageServer::send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool {
 	rt::string text;
 	return message.get() && rt::json_write(*message.get(), @text) && @this.protocol->send(text.view());
 };
 
-fn LanguageServer::error(LanguageServer& this, const rt::json_value& id, i64 code, const rt::string_view& text) -> bool {
+fn LanguageServer::error(var LanguageServer& this, const rt::json_value& id, i64 code, const rt::string_view& text) -> bool {
 	return @this.send(LanguageJson::failure(id, $code, text));
 };
 
-fn LanguageServer::initialize(LanguageServer& this, const rt::json_value& id, const rt::json_value& parameters) -> bool {
+fn LanguageServer::initialize(var LanguageServer& this, const rt::json_value& id, const rt::json_value& parameters) -> bool {
 	if (this.state != language_server_state::uninitialized) {
 		return @this.error(id, -32600, "language server is already initialized\0");
 	};
@@ -51,7 +51,7 @@ fn LanguageServer::initialize(LanguageServer& this, const rt::json_value& id, co
 	return @this.send(LanguageJson::response(id, @description.release()));
 };
 
-fn LanguageServer::dispatch(LanguageServer& this, const rt::json_value& message) -> bool {
+fn LanguageServer::dispatch(var LanguageServer& this, const rt::json_value& message) -> bool {
 	var absent = rt::json_value::make_null();
 	if (!absent.get()) {
 		return false;
@@ -147,7 +147,7 @@ fn LanguageServer::dispatch(LanguageServer& this, const rt::json_value& message)
 	return !supplied_id || @this.error(*id, -32601, "method is not implemented\0");
 };
 
-fn LanguageServer::run(LanguageServer& this) -> i32 {
+fn LanguageServer::run(var LanguageServer& this) -> i32 {
 	while (this.state != language_server_state::exited_clean && this.state != language_server_state::exited_unclean) {
 		rt::string body;
 		language_frame_status status = @this.protocol->read(@body);
@@ -181,15 +181,15 @@ fn LanguageServer::run(LanguageServer& this) -> i32 {
 	return 1;
 };
 
-fn kiln_language_server(Compiler* compiler, NativeFile* input, NativeFile* output, const char* root) -> i32 {
+fn kiln_language_server(var Compiler* compiler, var NativeFile* input, var NativeFile* output, const char* root) -> i32 {
 	if (!compiler || !input || !output || !root) {
 		return 1;
 	};
-	var protocol = rt::unique<LanguageProtocol>(new LanguageProtocol(@*input, @*output));
+	var protocol = rt::unique<LanguageProtocol>(new var LanguageProtocol(@*input, @*output));
 	if (!protocol.get() || !protocol.get()->ready()) {
 		return 1;
 	};
-	var workspace = rt::unique<LanguageWorkspace>(new LanguageWorkspace(@*compiler, @*protocol.get(), rt::string_view(root)));
+	var workspace = rt::unique<LanguageWorkspace>(new var LanguageWorkspace(@*compiler, @*protocol.get(), rt::string_view(root)));
 	if (!workspace.get() || !workspace.get()->ready()) {
 		return 1;
 	};
@@ -197,7 +197,7 @@ fn kiln_language_server(Compiler* compiler, NativeFile* input, NativeFile* outpu
 	return @server.run();
 };
 
-fn kiln_emit_target(Compiler* compiler, const char* root, const char* name, char* output, char* entry, i32 optimization, NativeFile* diagnostics) -> i32 {
+fn kiln_emit_target(var Compiler* compiler, const char* root, const char* name, var char* output, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	if (!compiler || !root || !name) {
 		return 1;
 	};

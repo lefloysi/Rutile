@@ -1,40 +1,40 @@
-fn malloc(usize size) -> void*;
+fn malloc(usize size) -> var void*;
 
-fn free(void* memory);
+fn free(const void* memory);
 
 namespace rt {
 	template<typename T>
 	struct buffer {
-		fn buffer(buffer& this) : [default];
-		fn buffer(buffer& this, const buffer& other);
-		fn ~buffer(buffer& this);
+		fn buffer(var buffer& this) : [default];
+		fn buffer(var buffer& this, const buffer& other);
+		fn ~buffer(var buffer& this);
 
-		fn operator=(buffer& this, const buffer& other) -> buffer&;
-		fn operator:=(buffer& this, const buffer& other) -> buffer&;
-		fn reserve(buffer& this, usize required) -> bool;
-		fn push_back(buffer& this, T value) -> bool;
-		fn pop_back(buffer& this) -> bool;
-		fn clear(buffer& this);
+		fn operator=(var buffer& this, const buffer& other) -> var buffer&;
+		fn operator:=(var buffer& this, const buffer& other) -> var buffer&;
+		fn reserve(var buffer& this, usize required) -> bool;
+		fn push_back(var buffer& this, T value) -> bool;
+		fn pop_back(var buffer& this) -> bool;
+		fn clear(var buffer& this);
 
 		fn data(auto buffer& this) -> const[this] T*;
 		fn size(const buffer& this) -> usize;
 		fn capacity(const buffer& this) -> usize;
 
 	private:
-		fn copy_from(buffer& this, const buffer& other) -> bool;
+		fn copy_from(var buffer& this, const buffer& other) -> bool;
 
-		T* _storage;
+		var T* _storage;
 		usize _size;
 		usize _capacity;
 	};
 
 	template<typename T>
-	fn buffer<T>::buffer(buffer& this, const buffer& other) {
+	fn buffer<T>::buffer(var buffer& this, const buffer& other) {
 		@this.copy_from(other);
 	};
 
 	template<typename T>
-	fn buffer<T>::operator=(buffer& this, const buffer& other) -> buffer& {
+	fn buffer<T>::operator=(var buffer& this, const buffer& other) -> var buffer& {
 		buffer replacement;
 		if (!@replacement.copy_from(other)) {
 			return @this;
@@ -46,7 +46,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::copy_from(buffer& this, const buffer& other) -> bool {
+	fn buffer<T>::copy_from(var buffer& this, const buffer& other) -> bool {
 		if (!@this.reserve(other._size)) {
 			return false;
 		};
@@ -60,18 +60,18 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::operator:=(buffer& this, const buffer& other) -> buffer& {
+	fn buffer<T>::operator:=(var buffer& this, const buffer& other) -> var buffer& {
 		return @this = other;
 	};
 
 	template<typename T>
-	fn buffer<T>::~buffer(buffer& this) {
+	fn buffer<T>::~buffer(var buffer& this) {
 		@this.clear();
 		free(this._storage);
 	};
 
 	template<typename T>
-	fn buffer<T>::reserve(buffer& this, usize required) -> bool {
+	fn buffer<T>::reserve(var buffer& this, usize required) -> bool {
 		if (required <= this._capacity) {
 			return true;
 		};
@@ -99,7 +99,7 @@ namespace rt {
 			@bytes = 1;
 		};
 
-		T* replacement = static_cast<T*>(malloc($bytes));
+		var T* replacement = static_cast<var T*>(malloc($bytes));
 		if (!replacement) {
 			return false;
 		};
@@ -118,7 +118,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::push_back(buffer& this, T value) -> bool {
+	fn buffer<T>::push_back(var buffer& this, T value) -> bool {
 		if (this._size == usize::max || !@this.reserve(this._size + 1)) {
 			return false;
 		};
@@ -130,7 +130,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::pop_back(buffer& this) -> bool {
+	fn buffer<T>::pop_back(var buffer& this) -> bool {
 		if (!this._size) {
 			return false;
 		};
@@ -142,7 +142,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::clear(buffer& this) {
+	fn buffer<T>::clear(var buffer& this) {
 		while (this._size) {
 			@this._size = this._size - 1;
 			@this._storage[this._size].~T();

@@ -1,4 +1,4 @@
-fn diagnostic_entity_kind(DiagnosticMessage& message, entity_kind kind) {
+fn diagnostic_entity_kind(var DiagnosticMessage& message, entity_kind kind) {
 	switch (kind) {
 		case entity_kind::function: {
 			@message.text("function\0");
@@ -59,9 +59,9 @@ fn diagnostic_entity_kind(DiagnosticMessage& message, entity_kind kind) {
 	};
 };
 
-fn diagnostic_entity(DiagnosticMessage& message, const Entity& entity) {
-	Scope* scope = entity.scope();
-	if (scope && scope->owner() && scope->owner() != &entity) {
+fn diagnostic_entity(var DiagnosticMessage& message, const Entity& entity) {
+	var Scope* scope = entity.scope();
+	if (scope && scope->owner() && scope->owner() != &@entity) {
 		diagnostic_entity(@message, *scope->owner());
 		@message.text("::\0");
 	};
@@ -93,7 +93,7 @@ fn diagnostic_entity(DiagnosticMessage& message, const Entity& entity) {
 	};
 };
 
-fn diagnostic_name(DiagnosticMessage& message, const Syntax& syntax) {
+fn diagnostic_name(var DiagnosticMessage& message, const Syntax& syntax) {
 	if (syntax.kind() == syntax_kind::qualified_name) {
 		diagnostic_name(@message, *syntax.left());
 		@message.text("::\0");
@@ -121,8 +121,23 @@ fn diagnostic_name(DiagnosticMessage& message, const Syntax& syntax) {
 	@message.text(syntax.token().text());
 };
 
-fn diagnostic_type(DiagnosticMessage& message, const Type& type) {
-	if (type.qualifier() == type_qualifier::immutable) {
+fn diagnostic_indirection_target(var DiagnosticMessage& message, const Type& type) {
+	bool grouped = type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array || type.kind() == type_kind::function;
+	if (type.qualifier() == type_qualifier::mutable) {
+		@message.text("var \0");
+	};
+	if (grouped) {
+		@message.text("(\0");
+	};
+	Type view = type.qualified(type_qualifier::mutable);
+	diagnostic_type(@message, view);
+	if (grouped) {
+		@message.text(")\0");
+	};
+};
+
+fn diagnostic_type(var DiagnosticMessage& message, const Type& type) {
+	if (type.qualifier() == type_qualifier::immutable && type.kind() != type_kind::pointer && type.kind() != type_kind::reference && type.kind() != type_kind::array && type.kind() != type_kind::function) {
 		@message.text("const \0");
 	};
 
@@ -149,19 +164,31 @@ fn diagnostic_type(DiagnosticMessage& message, const Type& type) {
 			break;
 		case type_kind::pointer:
 		case type_kind::reference:
-			diagnostic_type(@message, *type.element());
+			if (type.kind() == type_kind::pointer && type.qualifier() == type_qualifier::immutable) {
+				@message.text("const (\0");
+			};
+			diagnostic_indirection_target(@message, *type.element());
 			if (type.kind() == type_kind::pointer) {
 				@message.text("*\0");
+				if (type.qualifier() == type_qualifier::immutable) {
+					@message.text(")\0");
+				};
 			}
 			else {
 				@message.text("&\0");
 			};
 			break;
 		case type_kind::array:
+			if (type.qualifier() == type_qualifier::immutable) {
+				@message.text("const (\0");
+			};
 			diagnostic_type(@message, *type.element());
 			@message.text("[\0");
 			@message.number(type.count());
 			@message.text("]\0");
+			if (type.qualifier() == type_qualifier::immutable) {
+				@message.text(")\0");
+			};
 			break;
 		case type_kind::function: {
 			@message.text("(\0");
@@ -195,15 +222,15 @@ fn Analyzer::failed(const Analyzer& this) -> bool {
 	return this.diagnostics->failed();
 };
 
-fn Analyzer::report(Analyzer& this, const Token& token, const rt::string_view& message) {
+fn Analyzer::report(var Analyzer& this, const Token& token, const rt::string_view& message) {
 	@this.diagnostics->error(token, message);
 };
 
-fn Analyzer::note(Analyzer& this, const Token& token, const rt::string_view& message) {
+fn Analyzer::note(var Analyzer& this, const Token& token, const rt::string_view& message) {
 	@this.diagnostics->note(token, message);
 };
 
-fn Analyzer::deleted_function(Analyzer& this, const Token& token, const Entity& function) {
+fn Analyzer::deleted_function(var Analyzer& this, const Token& token, const Entity& function) {
 	var message = DiagnosticMessage();
 	@message.text("selected function '\0");
 	diagnostic_entity(@message, function);
@@ -214,7 +241,7 @@ fn Analyzer::deleted_function(Analyzer& this, const Token& token, const Entity& 
 	@this.note(function.token(), "function is declared deleted here\0");
 };
 
-fn diagnostic_arguments(DiagnosticMessage& message, const rt::buffer<rt::unique<SemanticExpression>>& arguments) {
+fn diagnostic_arguments(var DiagnosticMessage& message, const rt::buffer<rt::unique<SemanticExpression>>& arguments) {
 	@message.text("(\0");
 	usize index = 0;
 	while (index < arguments.size()) {
@@ -233,7 +260,7 @@ fn diagnostic_arguments(DiagnosticMessage& message, const rt::buffer<rt::unique<
 	@message.text(")\0");
 };
 
-fn diagnostic_candidate(Diagnostics& diagnostics, const Entity& candidate) {
+fn diagnostic_candidate(var Diagnostics& diagnostics, const Entity& candidate) {
 	var detail = DiagnosticMessage();
 	@detail.text("candidate '\0");
 	diagnostic_entity(@detail, candidate);
@@ -243,7 +270,7 @@ fn diagnostic_candidate(Diagnostics& diagnostics, const Entity& candidate) {
 	@diagnostics.note(candidate.token(), detail.view());
 };
 
-fn diagnostic_conversion_ambiguity(Diagnostics& diagnostics, const Token& token, const Type& source, const Type& target, const ConversionSelection& selection) {
+fn diagnostic_conversion_ambiguity(var Diagnostics& diagnostics, const Token& token, const Type& source, const Type& target, const ConversionSelection& selection) {
 	var message = DiagnosticMessage();
 	@message.text("ambiguous implicit conversion from '\0");
 	diagnostic_type(@message, source);
@@ -255,8 +282,8 @@ fn diagnostic_conversion_ambiguity(Diagnostics& diagnostics, const Token& token,
 	diagnostic_candidate(@diagnostics, *selection.conflict);
 };
 
-fn diagnostic_candidates(Diagnostics& diagnostics, const Entity& group) {
-	const rt::buffer<Entity*>& candidates = group.scope()->bindings();
+fn diagnostic_candidates(var Diagnostics& diagnostics, const Entity& group) {
+	const rt::buffer<var Entity*>& candidates = group.scope()->bindings();
 	usize index = 0;
 	while (index < candidates.size()) {
 		const Entity& candidate = *candidates.data()[index];
@@ -269,7 +296,7 @@ fn diagnostic_candidates(Diagnostics& diagnostics, const Entity& group) {
 	};
 };
 
-fn Analyzer::infer_variable(Analyzer& this, Syntax& declaration, const SemanticExpression& initializer) -> const Type* {
+fn Analyzer::infer_variable(var Analyzer& this, var Syntax& declaration, const SemanticExpression& initializer) -> const Type* {
 	const Type* type = initializer.type();
 	if (
 		type

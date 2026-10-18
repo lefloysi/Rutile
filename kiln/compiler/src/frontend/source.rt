@@ -1,9 +1,9 @@
 struct SourceFile {
-	fn SourceFile(SourceFile& this) : [default];
+	fn SourceFile(var SourceFile& this) : [default];
 
-	fn assign(SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool;
-	fn append_token(SourceFile& this, Token token) -> bool;
-	fn clear_tokens(SourceFile& this);
+	fn assign(var SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool;
+	fn append_token(var SourceFile& this, Token token) -> bool;
+	fn clear_tokens(var SourceFile& this);
 
 	fn path(const SourceFile& this) -> rt::string_view;
 	fn text(const SourceFile& this) -> rt::string_view;
@@ -19,9 +19,9 @@ private:
 };
 
 struct SourceManager {
-	fn add(SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> SourceFile*;
+	fn add(var SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> var SourceFile*;
 	fn at(auto SourceManager& this, usize index) -> const[this] SourceFile*;
-	fn clear(SourceManager& this);
+	fn clear(var SourceManager& this);
 
 	fn count(const SourceManager& this) -> usize;
 
@@ -29,7 +29,7 @@ private:
 	rt::buffer<rt::unique<SourceFile>> files;
 };
 
-fn SourceFile::assign(SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool {
+fn SourceFile::assign(var SourceFile& this, const rt::string_view& path, const rt::string_view& text) -> bool {
 	rt::string next_path;
 	rt::string next_text;
 	rt::buffer<usize> next_lines;
@@ -91,22 +91,22 @@ fn SourceFile::token_count(const SourceFile& this) -> usize {
 	return this.token_buffer.size();
 };
 
-fn SourceFile::append_token(SourceFile& this, Token token) -> bool {
+fn SourceFile::append_token(var SourceFile& this, Token token) -> bool {
 	return @this.token_buffer.push_back($token);
 };
 
-fn SourceFile::clear_tokens(SourceFile& this) {
+fn SourceFile::clear_tokens(var SourceFile& this) {
 	@this.token_buffer.clear();
 };
 
-fn SourceManager::add(SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> SourceFile* {
+fn SourceManager::add(var SourceManager& this, const rt::string_view& path, const rt::string_view& text) -> var SourceFile* {
 	var file = rt::unique<SourceFile>::make();
 
 	if (!file.get() || !@file.get()->assign(path, text)) {
 		return nullptr;
 	};
 
-	SourceFile* result = file.get();
+	var SourceFile* result = file.get();
 
 	if (!@this.files.push_back($file)) {
 		return nullptr;
@@ -127,6 +127,6 @@ fn SourceManager::at(auto SourceManager& this, usize index) -> const[this] Sourc
 	return const_cast<const[this] SourceFile*>(this.files.data()[index].get());
 };
 
-fn SourceManager::clear(SourceManager& this) {
+fn SourceManager::clear(var SourceManager& this) {
 	@this.files.clear();
 };

@@ -1,5 +1,5 @@
-fn LanguageWorkspace::add_project(void* context, const char* name, const char* path) -> i32 {
-	LanguageWorkspace& workspace = @*reinterpret_cast<LanguageWorkspace*>(context);
+fn LanguageWorkspace::add_project(var void* context, const char* name, const char* path) -> i32 {
+	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	usize index = 0;
 	while (index < workspace.groups.size() && workspace.groups.data()[index].name.view() != rt::string_view(name)) {
 		@index = index + 1;
@@ -13,17 +13,17 @@ fn LanguageWorkspace::add_project(void* context, const char* name, const char* p
 	return static_cast<i32>(@(@workspace.groups).data()[index].paths.push_back(rt::string(path)));
 };
 
-fn LanguageWorkspace::project_error(void* context, const char* text) {
-	LanguageWorkspace& workspace = @*reinterpret_cast<LanguageWorkspace*>(context);
+fn LanguageWorkspace::project_error(var void* context, const char* text) {
+	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	@workspace.discovery_error = rt::string(text);
 };
 
-fn LanguageWorkspace::analyze(LanguageWorkspace& this, LanguageJob& job) -> rt::unique<LanguageIndex> {
+fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex> {
 	u64 started = runtime_clock_nanoseconds();
 	if (this.cached_configuration != job.configuration) {
 		@this.groups.clear();
 		@this.discovery_error.clear();
-		if (!kiln_project_sources(job.root.c_str(), &LanguageWorkspace::add_project, &this, &LanguageWorkspace::project_error)) {
+		if (!kiln_project_sources(job.root.c_str(), &LanguageWorkspace::add_project, &@this, &LanguageWorkspace::project_error)) {
 			var parameters = rt::json_value::make_object();
 			if (parameters.get()) {
 				@parameters.get()->set("type\0", rt::json_value::make_unsigned(1));
@@ -43,7 +43,7 @@ fn LanguageWorkspace::analyze(LanguageWorkspace& this, LanguageJob& job) -> rt::
 	rt::unordered_map<rt::string_view, bool> assigned;
 	usize group = 0;
 	while (group < this.groups.size()) {
-		LanguageGroup& input = @(@this.groups).data()[group];
+		var LanguageGroup& input = @(@this.groups).data()[group];
 		if (!@this.analyze_group(@input, @job, @*index.get())) {
 			return rt::unique<LanguageIndex>();
 		};
@@ -85,7 +85,7 @@ fn LanguageWorkspace::analyze(LanguageWorkspace& this, LanguageJob& job) -> rt::
 	return $index;
 };
 
-fn LanguageWorkspace::analyze_group(LanguageWorkspace& this, LanguageGroup& group, LanguageJob& job, LanguageIndex& index) -> bool {
+fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> bool {
 	var analysis = rt::unique<Analysis>::make();
 	if (!analysis.get()) {
 		return false;
@@ -95,13 +95,13 @@ fn LanguageWorkspace::analyze_group(LanguageWorkspace& this, LanguageGroup& grou
 	@cancellation.stopped = this.stopped;
 	@cancellation.expected = job.generation;
 	rt::string key;
-	if (!LanguageWorkspace::target_key(job.root.view(), group, @key) || LanguageWorkspace::cancelled(&cancellation) || !@this.compiler->expect_target(key.view(), u64(job.generation))) {
+	if (!LanguageWorkspace::target_key(job.root.view(), group, @key) || LanguageWorkspace::cancelled(&@cancellation) || !@this.compiler->expect_target(key.view(), u64(job.generation))) {
 		return false;
 	};
 
 	usize source = 0;
 	while (source < group.paths.size()) {
-		if (LanguageWorkspace::cancelled(&cancellation)) {
+		if (LanguageWorkspace::cancelled(&@cancellation)) {
 			return false;
 		};
 		const rt::string& path = group.paths.data()[source];
@@ -121,7 +121,7 @@ fn LanguageWorkspace::analyze_group(LanguageWorkspace& this, LanguageGroup& grou
 		else if (!@analysis.get()->load_source(path.c_str(), &platform_open_utf8_file)) {
 			usize diagnostic = 0;
 			while (diagnostic < analysis.get()->diagnostics().records().size()) {
-				if (LanguageWorkspace::cancelled(&cancellation)) {
+				if (LanguageWorkspace::cancelled(&@cancellation)) {
 					return false;
 				};
 				const DiagnosticRecord& record = analysis.get()->diagnostics().records().data()[diagnostic];
@@ -136,18 +136,18 @@ fn LanguageWorkspace::analyze_group(LanguageWorkspace& this, LanguageGroup& grou
 		@source = source + 1;
 	};
 
-	@analysis.get()->analyze(64, &LanguageWorkspace::cancelled, &cancellation);
-	if (LanguageWorkspace::cancelled(&cancellation) || !@index.append(*analysis.get(), job)) {
+	@analysis.get()->analyze(64, &LanguageWorkspace::cancelled, &@cancellation);
+	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*analysis.get(), job)) {
 		return false;
 	};
 	if (!@index.targets.push_back(rt::string(key))) {
 		return false;
 	};
 	analysis_publication publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
-	return publication == analysis_publication::published && !LanguageWorkspace::cancelled(&cancellation);
+	return publication == analysis_publication::published && !LanguageWorkspace::cancelled(&@cancellation);
 };
 
-fn LanguageWorkspace::target_key(const rt::string_view& root, const LanguageGroup& group, rt::string& key) -> bool {
+fn LanguageWorkspace::target_key(const rt::string_view& root, const LanguageGroup& group, var rt::string& key) -> bool {
 	rt::string result;
 	if (!LanguageUri::key(root, @result)) {
 		return false;
@@ -164,7 +164,7 @@ fn LanguageWorkspace::target_key(const rt::string_view& root, const LanguageGrou
 	return true;
 };
 
-fn LanguageIndex::source(LanguageIndex& this, const Analysis& analysis, usize number, const LanguageJob& job) -> usize {
+fn LanguageIndex::source(var LanguageIndex& this, const Analysis& analysis, usize number, const LanguageJob& job) -> usize {
 	var path = analysis.source_path(usize(number));
 	rt::string key;
 	if (!LanguageUri::key(path, @key)) {
@@ -211,7 +211,7 @@ fn LanguageIndex::identity(const LanguageIndex& this, u64 id) -> u64 {
 	return $id;
 };
 
-fn LanguageIndex::append(LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool {
+fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool {
 	rt::buffer<usize> mapping;
 	usize source = 0;
 	while (source < analysis.source_count()) {
@@ -361,7 +361,7 @@ fn LanguageIndex::append(LanguageIndex& this, const Analysis& analysis, const La
 		const DiagnosticRecord& record = analysis.diagnostics().records().data()[number];
 		SourceRange range = analysis.navigation().range(record.location);
 		if (range.source < mapping.size()) {
-			LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+			var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
 			var diagnostic = rt::json_value::make_object();
 			if (!diagnostic.get() || !@diagnostic.get()->set("range\0", LanguageJson::range(source.text, usize(range.begin), usize(range.end))) || !@diagnostic.get()->set("severity\0", rt::json_value::make_unsigned(1)) || !@diagnostic.get()->set("source\0", rt::json_value::make_string("rutile\0")) || !@diagnostic.get()->set("message\0", rt::json_value::make_string(record.message.view()))) {
 				return false;
@@ -402,7 +402,7 @@ fn LanguageIndex::before(const NavigationOccurrence& first, const NavigationOccu
 	return first.range.end < second.range.end;
 };
 
-fn LanguageIndex::finish(LanguageIndex& this) -> bool {
+fn LanguageIndex::finish(var LanguageIndex& this) -> bool {
 	rt::buffer<NavigationOccurrence> scratch;
 	usize size = this.occurrences.size();
 	usize index = 0;

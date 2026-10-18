@@ -4,8 +4,8 @@ enum component_transfer : [u08] {
 	copy_assign;
 };
 
-fn FunctionEmitter::initialize(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
-	LLVMOpaqueType* native = @this.backend->type(type);
+fn FunctionEmitter::initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return false;
@@ -21,8 +21,8 @@ fn FunctionEmitter::initialize(FunctionEmitter& this, const Type* type, LLVMOpaq
 		return true;
 	};
 
-	Entity* record = type->entity();
-	Entity* constructor = record->default_constructor();
+	var Entity* record = type->entity();
+	var Entity* constructor = record->default_constructor();
 
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
@@ -39,9 +39,9 @@ fn FunctionEmitter::initialize(FunctionEmitter& this, const Type* type, LLVMOpaq
 			return false;
 		};
 
-		LLVMOpaqueValue*[1] inputs {};
+		var LLVMOpaqueValue*[1] inputs {};
 		@inputs[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 1, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 1, "\0");
 
 		return true;
 	};
@@ -49,8 +49,8 @@ fn FunctionEmitter::initialize(FunctionEmitter& this, const Type* type, LLVMOpaq
 	return @this.initialize_members(type, address);
 };
 
-fn FunctionEmitter::copy_initialize(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
-	LLVMOpaqueType* native = @this.backend->type(type);
+fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return false;
@@ -66,8 +66,8 @@ fn FunctionEmitter::copy_initialize(FunctionEmitter& this, const Type* type, LLV
 		return true;
 	};
 
-	Entity* record = type->entity();
-	Entity* constructor = record->copy_constructor();
+	var Entity* record = type->entity();
+	var Entity* constructor = record->copy_constructor();
 
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
@@ -84,10 +84,10 @@ fn FunctionEmitter::copy_initialize(FunctionEmitter& this, const Type* type, LLV
 			return false;
 		};
 
-		LLVMOpaqueValue*[2] inputs {};
+		var LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = source;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 2, "\0");
 
 		return true;
 	};
@@ -95,17 +95,17 @@ fn FunctionEmitter::copy_initialize(FunctionEmitter& this, const Type* type, LLV
 	return @this.copy_members(type, destination, source);
 };
 
-fn FunctionEmitter::move_initialize(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
-	LLVMOpaqueType* native = @this.backend->type(type);
+fn FunctionEmitter::move_initialize(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return false;
 	};
 
-	LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "move.source\0");
+	var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "move.source\0");
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record && type->entity()->move_constructor()) {
-		Entity* constructor = type->entity()->move_constructor();
+		var Entity* constructor = type->entity()->move_constructor();
 
 		if (constructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
@@ -121,10 +121,10 @@ fn FunctionEmitter::move_initialize(FunctionEmitter& this, const Type* type, LLV
 			return false;
 		};
 
-		LLVMOpaqueValue*[2] inputs {};
+		var LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = value;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 2, "\0");
 
 		return true;
 	};
@@ -132,13 +132,13 @@ fn FunctionEmitter::move_initialize(FunctionEmitter& this, const Type* type, LLV
 	return @this.copy_representation(type, destination, source);
 };
 
-fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
+fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -> bool {
 	if (!function->parameters().size() || function->parameters().data()[0]->type()->kind() != type_kind::reference) {
 		return @this.backend->error(function->token(), rt::string_view("defaulted function requires an object receiver\0"));
 	};
 
 	const Type* type = function->parameters().data()[0]->type()->element();
-	LLVMOpaqueValue* destination = LLVMGetParam(this.function, 0);
+	var LLVMOpaqueValue* destination = LLVMGetParam(this.function, 0);
 
 	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
 		LLVMBuildStore(this.backend->builder(), LLVMConstNull(@this.backend->type(type, function->token())), destination);
@@ -148,10 +148,10 @@ fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
 		};
 	}
 	else if (function->role() == function_role::constructor && function->parameters().size() == 2) {
-		Entity* source = function->parameters().data()[1];
+		var Entity* source = function->parameters().data()[1];
 
 		if (source->type()->kind() == type_kind::reference) {
-			LLVMOpaqueValue* input = LLVMGetParam(this.function, 1);
+			var LLVMOpaqueValue* input = LLVMGetParam(this.function, 1);
 
 			if (!@this.copy_members(type, destination, input)) {
 				return false;
@@ -166,7 +166,7 @@ fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
 		};
 	}
 	else if (function->role() == function_role::assignment && function->parameters().size() == 2) {
-		Entity* source = function->parameters().data()[1];
+		var Entity* source = function->parameters().data()[1];
 
 		if (source->type()->kind() == type_kind::reference) {
 			if (!@this.copy_assign_members(type, destination, LLVMGetParam(this.function, 1))) {
@@ -206,24 +206,24 @@ fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::transfer_elements(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source, component_transfer operation) -> bool {
-	LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
-	LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	LLVMOpaqueBasicBlock* test = @this.block("array.initialize.test\0");
-	LLVMOpaqueBasicBlock* body = @this.block("array.initialize.element\0");
-	LLVMOpaqueBasicBlock* after = @this.block("array.initialize.after\0");
+fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> bool {
+	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
+	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
+	var LLVMOpaqueBasicBlock* test = @this.block("array.initialize.test\0");
+	var LLVMOpaqueBasicBlock* body = @this.block("array.initialize.element\0");
+	var LLVMOpaqueBasicBlock* after = @this.block("array.initialize.after\0");
 	LLVMBuildBr(this.backend->builder(), test);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), test);
-	LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "index\0");
+	var LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "index\0");
 	LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 36, index, LLVMConstInt(integer, type->count(), 0), "within.array\0"), body, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
-	LLVMOpaqueValue*[2] indices {};
+	var LLVMOpaqueValue*[2] indices {};
 	@indices[0] = LLVMConstNull(integer);
 	@indices[1] = index;
-	LLVMOpaqueValue* output = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), destination, &indices[0], 2, "initialize.destination\0");
+	var LLVMOpaqueValue* output = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), destination, &@indices[0], 2, "initialize.destination\0");
 
 	if (operation != component_transfer::initialize) {
-		LLVMOpaqueValue* input = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), source, &indices[0], 2, "initialize.source\0");
+		var LLVMOpaqueValue* input = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), source, &@indices[0], 2, "initialize.source\0");
 
 		if (operation == component_transfer::copy_assign) {
 			if (!@this.copy_assign(type->element(), output, input)) {
@@ -242,28 +242,28 @@ fn FunctionEmitter::transfer_elements(FunctionEmitter& this, const Type* type, L
 		};
 	};
 
-	LLVMOpaqueValue* next = LLVMBuildAdd(this.backend->builder(), index, LLVMConstInt(integer, 1, 0), "next\0");
-	LLVMOpaqueBasicBlock* tail = LLVMGetInsertBlock(this.backend->builder());
+	var LLVMOpaqueValue* next = LLVMBuildAdd(this.backend->builder(), index, LLVMConstInt(integer, 1, 0), "next\0");
+	var LLVMOpaqueBasicBlock* tail = LLVMGetInsertBlock(this.backend->builder());
 	LLVMBuildBr(this.backend->builder(), test);
-	LLVMOpaqueValue*[2] values {};
+	var LLVMOpaqueValue*[2] values {};
 	@values[0] = LLVMConstNull(integer);
 	@values[1] = next;
-	LLVMOpaqueBasicBlock*[2] blocks {};
+	var LLVMOpaqueBasicBlock*[2] blocks {};
 	@blocks[0] = before;
 	@blocks[1] = tail;
-	LLVMAddIncoming(index, &values[0], &blocks[0], 2);
+	LLVMAddIncoming(index, &@values[0], &@blocks[0], 2);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 	return true;
 };
 
-fn FunctionEmitter::initialize_value(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address, SemanticExpression* expression) -> bool {
+fn FunctionEmitter::initialize_value(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address, var SemanticExpression* expression) -> bool {
 	if (!expression || expression->kind() == semantic_kind::noop) {
 		return @this.initialize(type, address);
 	};
 
 	if (type->kind() == type_kind::reference) {
-		LLVMOpaqueValue* value = @this.address(expression);
+		var LLVMOpaqueValue* value = @this.address(expression);
 
 		if (!value) {
 			return false;
@@ -278,14 +278,14 @@ fn FunctionEmitter::initialize_value(FunctionEmitter& this, const Type* type, LL
 		return @this.construct_into(expression, address);
 	};
 
-	LLVMOpaqueValue* value = @this.take(expression);
+	var LLVMOpaqueValue* value = @this.take(expression);
 
 	if (!value) {
 		return false;
 	};
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record && type->entity()->move_constructor()) {
-		LLVMOpaqueValue* source = @this.slot(type);
+		var LLVMOpaqueValue* source = @this.slot(type);
 
 		if (!source) {
 			return false;
@@ -301,7 +301,7 @@ fn FunctionEmitter::initialize_value(FunctionEmitter& this, const Type* type, LL
 	return true;
 };
 
-fn FunctionEmitter::finish_expression(FunctionEmitter& this) -> bool {
+fn FunctionEmitter::finish_expression(var FunctionEmitter& this) -> bool {
 	if (!@this.cleanup_temporaries(0)) {
 		return false;
 	};
@@ -311,35 +311,35 @@ fn FunctionEmitter::finish_expression(FunctionEmitter& this) -> bool {
 	return true;
 };
 
-fn FunctionEmitter::copy_representation(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
-	LLVMOpaqueType* native = @this.backend->type(type);
+fn FunctionEmitter::copy_representation(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return false;
 	};
 
 	if (type->kind() != type_kind::array && (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record)) {
-		LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "transfer.value\0");
+		var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "transfer.value\0");
 		LLVMBuildStore(this.backend->builder(), value, destination);
 
 		return true;
 	};
 
 	u64 size = LLVMABISizeOfType(this.backend->layout(), native);
-	LLVMOpaqueValue* bytes = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 64), size, 0);
+	var LLVMOpaqueValue* bytes = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 64), size, 0);
 	LLVMBuildMemCpy(this.backend->builder(), destination, 0, source, 0, bytes);
 
 	return true;
 };
 
-fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* address) -> bool {
-	Entity* record = type->entity();
+fn FunctionEmitter::initialize_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* address) -> bool {
+	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
 		return true;
 	};
 
-	LLVMOpaqueType* native = @this.backend->type(type);
+	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
 		return false;
@@ -348,7 +348,7 @@ fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, 
 	usize index = 0;
 
 	while (index < record->bases().size()) {
-		LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), native, address, static_cast<u32>(index), "initialize.base\0");
+		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), native, address, static_cast<u32>(index), "initialize.base\0");
 
 		if (!@this.initialize(record->bases().data()[index], base)) {
 			return false;
@@ -364,7 +364,7 @@ fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, 
 	@index = 0;
 
 	while (index < record->fields().size()) {
-		Entity* field = record->fields().data()[index];
+		var Entity* field = record->fields().data()[index];
 
 		if (field->type()->kind() == type_kind::reference && !field->body()) {
 			var message = DiagnosticMessage();
@@ -376,7 +376,7 @@ fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, 
 			return @this.backend->error(field->token(), message.view());
 		};
 
-		LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(record, index), "initialize.field\0");
+		var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(record, index), "initialize.field\0");
 		usize temporary_boundary = this.temporaries.size();
 
 		if (!@this.initialize_value(field->type(), member, field->body()) || !@this.cleanup_temporaries(temporary_boundary)) {
@@ -390,19 +390,19 @@ fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, 
 	return true;
 };
 
-fn FunctionEmitter::copy_members(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
-	Entity* record = type->entity();
+fn FunctionEmitter::copy_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
 		return @this.copy_representation(type, destination, source);
 	};
 
-	LLVMOpaqueType* native = @this.backend->type(type);
+	var LLVMOpaqueType* native = @this.backend->type(type);
 	usize index = 0;
 
 	while (index < record->bases().size()) {
-		LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, static_cast<u32>(index), "copy.base.destination\0");
-		LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "copy.base.source\0");
+		var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, static_cast<u32>(index), "copy.base.destination\0");
+		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "copy.base.source\0");
 
 		if (!@this.copy_initialize(record->bases().data()[index], output, input)) {
 			return false;
@@ -418,10 +418,10 @@ fn FunctionEmitter::copy_members(FunctionEmitter& this, const Type* type, LLVMOp
 	@index = 0;
 
 	while (index < record->fields().size()) {
-		Entity* field = record->fields().data()[index];
+		var Entity* field = record->fields().data()[index];
 		u32 component = this.backend->field_index(record, index);
-		LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, component, "copy.field.destination\0");
-		LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "copy.field.source\0");
+		var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, component, "copy.field.destination\0");
+		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "copy.field.source\0");
 
 		if (!@this.copy_initialize(field->type(), output, input)) {
 			return false;
@@ -433,7 +433,7 @@ fn FunctionEmitter::copy_members(FunctionEmitter& this, const Type* type, LLVMOp
 	return true;
 };
 
-fn FunctionEmitter::copy_assign(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
+fn FunctionEmitter::copy_assign(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
 	if (type->qualifier() == type_qualifier::immutable || type->kind() == type_kind::reference) {
 		Token token;
 
@@ -448,7 +448,7 @@ fn FunctionEmitter::copy_assign(FunctionEmitter& this, const Type* type, LLVMOpa
 		return @this.copy_initialize(type, destination, source);
 	};
 
-	CopyAssignmentPlan* assignment = type->entity()->copy_assignment();
+	var CopyAssignmentPlan* assignment = type->entity()->copy_assignment();
 
 	if (!assignment) {
 		return @this.backend->error(type->entity()->token(), rt::string_view("member copy assignment has no prepared function\0"));
@@ -456,8 +456,8 @@ fn FunctionEmitter::copy_assign(FunctionEmitter& this, const Type* type, LLVMOpa
 
 	usize binding_boundary = this.bindings.size();
 	usize temporary_boundary = this.temporaries.size();
-	LLVMOpaqueValue* destination_slot = @this.slot(assignment->destination().type());
-	LLVMOpaqueValue* source_slot = @this.slot(assignment->source().type());
+	var LLVMOpaqueValue* destination_slot = @this.slot(assignment->destination().type());
+	var LLVMOpaqueValue* source_slot = @this.slot(assignment->source().type());
 
 	if (!destination_slot || !source_slot) {
 		return false;
@@ -466,11 +466,11 @@ fn FunctionEmitter::copy_assign(FunctionEmitter& this, const Type* type, LLVMOpa
 	LLVMBuildStore(this.backend->builder(), destination, destination_slot);
 	LLVMBuildStore(this.backend->builder(), source, source_slot);
 
-	if (!@this.bind(&assignment->destination(), destination_slot) || !@this.bind(&assignment->source(), source_slot)) {
+	if (!@this.bind(&@assignment->destination(), destination_slot) || !@this.bind(&@assignment->source(), source_slot)) {
 		return false;
 	};
 
-	if (!@this.value(&assignment->expression()) || !@this.cleanup_temporaries(temporary_boundary)) {
+	if (!@this.value(&@assignment->expression()) || !@this.cleanup_temporaries(temporary_boundary)) {
 		return false;
 	};
 
@@ -479,19 +479,19 @@ fn FunctionEmitter::copy_assign(FunctionEmitter& this, const Type* type, LLVMOpa
 	return @this.leave_scope(binding_boundary);
 };
 
-fn FunctionEmitter::copy_assign_members(FunctionEmitter& this, const Type* type, LLVMOpaqueValue* destination, LLVMOpaqueValue* source) -> bool {
-	Entity* record = type->entity();
+fn FunctionEmitter::copy_assign_members(var FunctionEmitter& this, const Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool {
+	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
 		return @this.copy_representation(type, destination, source);
 	};
 
-	LLVMOpaqueType* native = @this.backend->type(type);
+	var LLVMOpaqueType* native = @this.backend->type(type);
 	usize index = 0;
 
 	while (index < record->bases().size()) {
-		LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, static_cast<u32>(index), "assign.base.destination\0");
-		LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "assign.base.source\0");
+		var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, static_cast<u32>(index), "assign.base.destination\0");
+		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "assign.base.source\0");
 
 		if (!@this.copy_assign(record->bases().data()[index], output, input)) {
 			return false;
@@ -503,10 +503,10 @@ fn FunctionEmitter::copy_assign_members(FunctionEmitter& this, const Type* type,
 	@index = 0;
 
 	while (index < record->fields().size()) {
-		Entity* field = record->fields().data()[index];
+		var Entity* field = record->fields().data()[index];
 		u32 component = this.backend->field_index(record, index);
-		LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, component, "assign.field.destination\0");
-		LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "assign.field.source\0");
+		var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, component, "assign.field.destination\0");
+		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "assign.field.source\0");
 
 		if (!@this.copy_assign(field->type(), output, input)) {
 			return false;

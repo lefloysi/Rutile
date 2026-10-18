@@ -1,8 +1,8 @@
-fn fopen(const char* path, const char* mode) -> NativeFile*;
+fn fopen(const char* path, const char* mode) -> var NativeFile*;
 
-fn platform_standard_error() -> NativeFile*;
+fn platform_standard_error() -> var NativeFile*;
 
-fn rutile_compiler_session(((Compiler*, void*) -> i32)* callback, void* data) -> i32 {
+fn rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var void* data) -> i32 {
 	var compiler = rt::unique<Compiler>::make();
 
 	if (!compiler.get()) {
@@ -12,7 +12,7 @@ fn rutile_compiler_session(((Compiler*, void*) -> i32)* callback, void* data) ->
 	return callback(compiler.get(), $data);
 };
 
-fn rutile_compile(Compiler* compiler, char** paths, usize count, char* output_path, FileOpener opener, char* entry, i32 optimization, NativeFile* diagnostics) -> i32 {
+fn rutile_compile(var Compiler* compiler, var (var char*)* paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	if (!compiler) {
 		return 1;
 	};
@@ -28,7 +28,7 @@ fn rutile_compile(Compiler* compiler, char** paths, usize count, char* output_pa
 	return @compiler->compile($paths, $count, $output_path, $opener, $entry, $optimization, $diagnostics, output_kind::executable);
 };
 
-fn rutile_compile_library(char** paths, usize count, char* output_path, FileOpener opener, i32 optimization, NativeFile* diagnostics) -> i32 {
+fn rutile_compile_library(var (var char*)* paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	Compiler compiler;
 
 	if (!opener) {

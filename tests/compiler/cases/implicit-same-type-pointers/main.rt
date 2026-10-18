@@ -1,8 +1,8 @@
 struct Holder {
-	i32* pointer;
+	var i32* pointer;
 };
 
-fn mutable_pointer(const Holder& holder) -> i32* {
+fn mutable_pointer(const Holder& holder) -> var i32* {
 	return holder.pointer;
 };
 
@@ -10,13 +10,13 @@ fn const_pointer(const Holder& holder) -> const i32* {
 	return holder.pointer;
 };
 
-fn owned_pointer(i32* pointer) -> i32* {
+fn owned_pointer(var i32* pointer) -> var i32* {
 	return pointer;
 };
 
-using Pointer = i32*;
+using Pointer = var i32*;
 
-fn copied_pointer(const Pointer& pointer) -> i32* {
+fn copied_pointer(const Pointer& pointer) -> var i32* {
 	return pointer;
 };
 
@@ -24,7 +24,7 @@ fn owned_const_pointer(const i32* pointer) -> const i32* {
 	return pointer;
 };
 
-fn owned_void_pointer(void* pointer) -> void* {
+fn owned_void_pointer(var void* pointer) -> var void* {
 	return pointer;
 };
 
@@ -40,11 +40,11 @@ fn owned_callable(Callable callable) -> Callable {
 
 fn main() -> i32 {
 	i32 value = 42;
-	i32* source = &value;
-	i32* initialized = source;
-	i32* assigned = nullptr;
+	var i32* source = &@value;
+	var i32* initialized = source;
+	var i32* assigned = nullptr;
 	@assigned = source;
-	if (owned_pointer(source) != &value || copied_pointer(source) != &value || initialized != &value || assigned != &value || source != &value) {
+	if (owned_pointer(source) != &@value || copied_pointer(source) != &@value || initialized != &@value || assigned != &@value || source != &@value) {
 		return 1;
 	};
 	Holder holder;
@@ -54,9 +54,9 @@ fn main() -> i32 {
 	if (mutable_pointer(holder) != source || const_pointer(holder) != read_only || owned_const_pointer(read_only) != source || copied_read_only != source || holder.pointer != source) {
 		return 2;
 	};
-	void* opaque = void*(source);
-	void* opaque_copy = opaque;
-	if (owned_void_pointer(opaque) != opaque || opaque_copy != opaque || source != &value) {
+	var void* opaque = (var void*(source));
+	var void* opaque_copy = opaque;
+	if (owned_void_pointer(opaque) != opaque || opaque_copy != opaque || source != &@value) {
 		return 3;
 	};
 	Callable callable = &answer;

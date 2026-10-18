@@ -1,25 +1,25 @@
 struct Lexer {
-	fn Lexer(Lexer& this, SourceFile& source);
+	fn Lexer(var Lexer& this, var SourceFile& source);
 
-	fn scan(Lexer& this) -> bool;
+	fn scan(var Lexer& this) -> bool;
 
 	fn error(const Lexer& this) -> rt::string_view;
 	fn error_token(const Lexer& this) -> Token;
 
 private:
-	SourceFile* source;
+	var SourceFile* source;
 	usize offset;
 	usize line;
 	usize column;
 	rt::string_view failure;
 	Token failure_token;
 
-	fn advance(Lexer& this) -> char;
-	fn fail(Lexer& this, const Token& token, const rt::string_view& message) -> bool;
-	fn trivia(Lexer& this) -> bool;
-	fn number(Lexer& this, const Token& token) -> bool;
-	fn quoted(Lexer& this, const Token& token, char quote) -> bool;
-	fn symbol(Lexer& this, Token& token) -> bool;
+	fn advance(var Lexer& this) -> char;
+	fn fail(var Lexer& this, const Token& token, const rt::string_view& message) -> bool;
+	fn trivia(var Lexer& this) -> bool;
+	fn number(var Lexer& this, const Token& token) -> bool;
+	fn quoted(var Lexer& this, const Token& token, char quote) -> bool;
+	fn symbol(var Lexer& this, var Token& token) -> bool;
 	fn identifier_kind(const rt::string_view& spelling) -> token_kind;
 	fn identifier_start(char value) -> bool;
 	fn digit(char value) -> bool;
@@ -28,8 +28,8 @@ private:
 	fn location(const Lexer& this) -> Token;
 };
 
-fn Lexer::Lexer(Lexer& this, SourceFile& source) {
-	@this.source = &source;
+fn Lexer::Lexer(var Lexer& this, var SourceFile& source) {
+	@this.source = &@source;
 	@this.line = 1;
 	@this.column = 1;
 };
@@ -44,7 +44,7 @@ fn Lexer::peek(const Lexer& this, usize distance) -> char {
 	return text.data()[this.offset + distance];
 };
 
-fn Lexer::advance(Lexer& this) -> char {
+fn Lexer::advance(var Lexer& this) -> char {
 	char value = this.peek(0);
 
 	if (!value) {
@@ -74,7 +74,7 @@ fn Lexer::location(const Lexer& this) -> Token {
 	return $token;
 };
 
-fn Lexer::fail(Lexer& this, const Token& token, const rt::string_view& message) -> bool {
+fn Lexer::fail(var Lexer& this, const Token& token, const rt::string_view& message) -> bool {
 	@this.failure = rt::string_view(message);
 	@this.failure_token = Token(token);
 	usize size = this.source->text().size();
@@ -240,7 +240,7 @@ fn Lexer::identifier_kind(const rt::string_view& spelling) -> token_kind {
 	return token_kind::identifier;
 };
 
-fn Lexer::trivia(Lexer& this) -> bool {
+fn Lexer::trivia(var Lexer& this) -> bool {
 	while (true) {
 		char value = this.peek(0);
 
@@ -287,7 +287,7 @@ fn Lexer::trivia(Lexer& this) -> bool {
 	return true;
 };
 
-fn Lexer::number(Lexer& this, const Token& token) -> bool {
+fn Lexer::number(var Lexer& this, const Token& token) -> bool {
 	while (Lexer::digit(this.peek(0))) {
 		@this.advance();
 	};
@@ -321,7 +321,7 @@ fn Lexer::number(Lexer& this, const Token& token) -> bool {
 	return true;
 };
 
-fn Lexer::quoted(Lexer& this, const Token& token, char quote) -> bool {
+fn Lexer::quoted(var Lexer& this, const Token& token, char quote) -> bool {
 	@this.advance();
 
 	if (quote == '\'') {
@@ -365,7 +365,7 @@ fn Lexer::quoted(Lexer& this, const Token& token, char quote) -> bool {
 	return true;
 };
 
-fn Lexer::symbol(Lexer& this, Token& token) -> bool {
+fn Lexer::symbol(var Lexer& this, var Token& token) -> bool {
 	usize width = 1;
 	char next = this.peek(1);
 
@@ -528,7 +528,7 @@ fn Lexer::symbol(Lexer& this, Token& token) -> bool {
 	return true;
 };
 
-fn Lexer::scan(Lexer& this) -> bool {
+fn Lexer::scan(var Lexer& this) -> bool {
 	@this.offset = 0;
 	@this.line = 1;
 	@this.column = 1;

@@ -6,37 +6,37 @@ struct Counts {
 };
 
 struct Result {
-	Counts* counts;
+	var Counts* counts;
 
-	fn ~Result(Result& this);
+	fn ~Result(var Result& this);
 };
 
-fn Result::~Result(Result& this) {
+fn Result::~Result(var Result& this) {
 	@this.counts->results = this.counts->results + 1;
 };
 
 struct Member {
-	Counts* counts;
+	var Counts* counts;
 	i32 value;
 
-	fn Member(Member& this) : [default];
-	fn Member(Member& this, const Member& other) : [implicit];
-	fn operator=(Member& this, const Member& other) -> Result;
-	fn assign_value(Member& this, Member other) -> Result;
-	fn ~Member(Member& this);
+	fn Member(var Member& this) : [default];
+	fn Member(var Member& this, const Member& other) : [implicit];
+	fn operator=(var Member& this, const Member& other) -> Result;
+	fn assign_value(var Member& this, Member other) -> Result;
+	fn ~Member(var Member& this);
 };
 
-fn Member::Member(Member& this, const Member& other) : [implicit] {
+fn Member::Member(var Member& this, const Member& other) : [implicit] {
 	@this.counts := other.counts;
 	@this.value := other.value;
 	@this.counts->copies = this.counts->copies + 1;
 };
 
-fn Member::operator=(Member& this, const Member& other) -> Result {
+fn Member::operator=(var Member& this, const Member& other) -> Result {
 	return @this.assign_value(other);
 };
 
-fn Member::assign_value(Member& this, Member other) -> Result {
+fn Member::assign_value(var Member& this, Member other) -> Result {
 	@this.counts := other.counts;
 	@this.value := other.value;
 	@this.counts->assigned = this.counts->assigned + 1;
@@ -46,7 +46,7 @@ fn Member::assign_value(Member& this, Member other) -> Result {
 	return $result;
 };
 
-fn Member::~Member(Member& this) {
+fn Member::~Member(var Member& this) {
 	if (this.counts) {
 		@this.counts->destroyed = this.counts->destroyed + 1;
 	};
@@ -55,14 +55,14 @@ fn Member::~Member(Member& this) {
 struct Holder {
 	Member member;
 
-	fn operator=(Holder& this, const Holder& other) -> Holder& : [default];
+	fn operator=(var Holder& this, const Holder& other) -> var Holder& : [default];
 };
 
 fn main() -> i32 {
 	Counts counts;
 	{
 		Holder source;
-		@source.member.counts = &counts;
+		@source.member.counts = &@counts;
 		@source.member.value = 42;
 		Holder target;
 

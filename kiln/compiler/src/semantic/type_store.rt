@@ -1,37 +1,37 @@
 struct TypeEntry {
 	Type value;
-	TypeEntry* next;
+	var TypeEntry* next;
 };
 
 struct TypeStore {
-	fn TypeStore(TypeStore& this) : [default];
-	fn TypeStore(TypeStore& this, const TypeStore& other) : [delete];
-	fn TypeStore(TypeStore& this, TypeStore other) : [default];
+	fn TypeStore(var TypeStore& this) : [default];
+	fn TypeStore(var TypeStore& this, const TypeStore& other) : [delete];
+	fn TypeStore(var TypeStore& this, TypeStore other) : [default];
 
-	fn operator=(TypeStore& this, const TypeStore& other) -> TypeStore& : [delete];
-	fn operator=(TypeStore& this, TypeStore other) -> TypeStore& : [default];
-	fn primitive(TypeStore& this, type_kind kind, u32 bits) -> const Type*;
-	fn initialize_primitives(TypeStore& this, u32 pointer_bits) -> bool;
-	fn named(TypeStore& this, type_kind kind, Entity* entity) -> const Type*;
-	fn pointer(TypeStore& this, const Type* element) -> const Type*;
-	fn reference(TypeStore& this, const Type* element) -> const Type*;
-	fn array(TypeStore& this, const Type* element, u64 count) -> const Type*;
-	fn function(TypeStore& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) -> const Type*;
-	fn qualified(TypeStore& this, const Type& type, type_qualifier qualifier) -> const Type*;
-	fn clear(TypeStore& this);
+	fn operator=(var TypeStore& this, const TypeStore& other) -> var TypeStore& : [delete];
+	fn operator=(var TypeStore& this, TypeStore other) -> var TypeStore& : [default];
+	fn primitive(var TypeStore& this, type_kind kind, u32 bits) -> const Type*;
+	fn initialize_primitives(var TypeStore& this, u32 pointer_bits) -> bool;
+	fn named(var TypeStore& this, type_kind kind, var Entity* entity) -> const Type*;
+	fn pointer(var TypeStore& this, const Type* element) -> const Type*;
+	fn reference(var TypeStore& this, const Type* element) -> const Type*;
+	fn array(var TypeStore& this, const Type* element, u64 count) -> const Type*;
+	fn function(var TypeStore& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) -> const Type*;
+	fn qualified(var TypeStore& this, const Type& type, type_qualifier qualifier) -> const Type*;
+	fn clear(var TypeStore& this);
 
 	fn find_primitive(const TypeStore& this, const rt::string_view& name) -> const Type*;
 
 private:
-	fn register_primitive(TypeStore& this, rt::unordered_map<rt::string_view, const Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool;
-	fn intern(TypeStore& this, Type key) -> const Type*;
-	fn rehash(TypeStore& this, usize count) -> bool;
+	fn register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, const Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool;
+	fn intern(var TypeStore& this, Type key) -> const Type*;
+	fn rehash(var TypeStore& this, usize count) -> bool;
 
 	fn find(const TypeStore& this, const Type& key) -> const Type*;
 
 	rt::buffer<rt::unique<FunctionSignature>> signatures;
 	rt::buffer<rt::unique<TypeEntry>> entries;
-	rt::buffer<TypeEntry*> buckets;
+	rt::buffer<var TypeEntry*> buckets;
 	rt::unordered_map<rt::string_view, const Type*> primitive_names;
 };
 
@@ -40,11 +40,11 @@ fn TypeStore::find(const TypeStore& this, const Type& key) -> const Type* {
 		return nullptr;
 	};
 
-	TypeEntry* entry := this.buckets.data()[key.hash() % this.buckets.size()];
+	var TypeEntry* entry := this.buckets.data()[key.hash() % this.buckets.size()];
 
 	while (entry) {
 		if (entry->value.equals(key)) {
-			return &entry->value;
+			return &@entry->value;
 		};
 
 		@entry := entry->next;
@@ -53,8 +53,8 @@ fn TypeStore::find(const TypeStore& this, const Type& key) -> const Type* {
 	return nullptr;
 };
 
-fn TypeStore::rehash(TypeStore& this, usize count) -> bool {
-	rt::buffer<TypeEntry*> replacement;
+fn TypeStore::rehash(var TypeStore& this, usize count) -> bool {
+	rt::buffer<var TypeEntry*> replacement;
 
 	if (!@replacement.reserve(usize(count))) {
 		return false;
@@ -70,10 +70,10 @@ fn TypeStore::rehash(TypeStore& this, usize count) -> bool {
 	};
 
 	@index = 0;
-	TypeEntry** buckets = (@replacement).data();
+	var (var TypeEntry*)* buckets = (@replacement).data();
 
 	while (index < this.entries.size()) {
-		TypeEntry* entry = this.entries.data()[index].get();
+		var TypeEntry* entry = this.entries.data()[index].get();
 		usize bucket = entry->value.hash() % count;
 		@entry->next := buckets[bucket];
 		@buckets[bucket] := entry;
@@ -85,7 +85,7 @@ fn TypeStore::rehash(TypeStore& this, usize count) -> bool {
 	return true;
 };
 
-fn TypeStore::intern(TypeStore& this, Type key) -> const Type* {
+fn TypeStore::intern(var TypeStore& this, Type key) -> const Type* {
 	const Type* found = this.find(key);
 
 	if (found) {
@@ -109,7 +109,7 @@ fn TypeStore::intern(TypeStore& this, Type key) -> const Type* {
 		return nullptr;
 	};
 
-	TypeEntry* entry = owner.get();
+	var TypeEntry* entry = owner.get();
 	@entry->value = $key;
 
 	if (!@this.entries.push_back($owner)) {
@@ -117,42 +117,42 @@ fn TypeStore::intern(TypeStore& this, Type key) -> const Type* {
 	};
 
 	usize bucket = entry->value.hash() % this.buckets.size();
-	TypeEntry** buckets = (@this.buckets).data();
+	var (var TypeEntry*)* buckets = (@this.buckets).data();
 	@entry->next := buckets[bucket];
 	@buckets[bucket] := entry;
 
-	return &entry->value;
+	return &@entry->value;
 };
 
-fn TypeStore::primitive(TypeStore& this, type_kind kind, u32 bits) -> const Type* {
+fn TypeStore::primitive(var TypeStore& this, type_kind kind, u32 bits) -> const Type* {
 	TypeShape shape;
 	@shape.bits = $bits;
 
 	return @this.intern(Type($kind, $shape));
 };
 
-fn TypeStore::named(TypeStore& this, type_kind kind, Entity* entity) -> const Type* {
+fn TypeStore::named(var TypeStore& this, type_kind kind, var Entity* entity) -> const Type* {
 	TypeShape shape;
 	@shape.entity = $entity;
 
 	return @this.intern(Type($kind, $shape));
 };
 
-fn TypeStore::pointer(TypeStore& this, const Type* element) -> const Type* {
+fn TypeStore::pointer(var TypeStore& this, const Type* element) -> const Type* {
 	TypeShape shape;
 	@shape.element = $element;
 
 	return @this.intern(Type(type_kind::pointer, $shape));
 };
 
-fn TypeStore::reference(TypeStore& this, const Type* element) -> const Type* {
+fn TypeStore::reference(var TypeStore& this, const Type* element) -> const Type* {
 	TypeShape shape;
 	@shape.element = $element;
 
 	return @this.intern(Type(type_kind::reference, $shape));
 };
 
-fn TypeStore::array(TypeStore& this, const Type* element, u64 count) -> const Type* {
+fn TypeStore::array(var TypeStore& this, const Type* element, u64 count) -> const Type* {
 	TypeShape shape;
 	@shape.array.element = $element;
 	@shape.array.count = $count;
@@ -160,8 +160,8 @@ fn TypeStore::array(TypeStore& this, const Type* element, u64 count) -> const Ty
 	return @this.intern(Type(type_kind::array, $shape));
 };
 
-fn TypeStore::function(TypeStore& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) -> const Type* {
-	var signature = rt::unique<FunctionSignature>(new FunctionSignature($result, $parameters, $arity));
+fn TypeStore::function(var TypeStore& this, const Type* result, rt::buffer<const Type*> parameters, parameter_arity arity) -> const Type* {
+	var signature = rt::unique<FunctionSignature>(new var FunctionSignature($result, $parameters, $arity));
 
 	if (!signature.get()) {
 		return nullptr;
@@ -183,11 +183,11 @@ fn TypeStore::function(TypeStore& this, const Type* result, rt::buffer<const Typ
 	return @this.intern($key);
 };
 
-fn TypeStore::qualified(TypeStore& this, const Type& type, type_qualifier qualifier) -> const Type* {
+fn TypeStore::qualified(var TypeStore& this, const Type& type, type_qualifier qualifier) -> const Type* {
 	return @this.intern(type.qualified($qualifier));
 };
 
-fn TypeStore::clear(TypeStore& this) {
+fn TypeStore::clear(var TypeStore& this) {
 	@this.primitive_names.clear();
 	@this.buckets.clear();
 	@this.entries.clear();
