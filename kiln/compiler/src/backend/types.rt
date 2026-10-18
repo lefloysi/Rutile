@@ -1,4 +1,9 @@
 fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
+	Token origin;
+	return @this.type(source, origin);
+};
+
+fn Backend::type(Backend& this, const Type* source, const Token& origin) -> LLVMOpaqueType* {
 	if (!source || this.failed()) {
 		return nullptr;
 	};
@@ -44,7 +49,7 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			@result = LLVMPointerTypeInContext(this.context(), 0);
 			break;
 		case type_kind::array: {
-			LLVMOpaqueType* element = @this.type(source->element());
+			LLVMOpaqueType* element = @this.type(source->element(), origin);
 
 			if (!element) {
 				return nullptr;
@@ -54,8 +59,19 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			u64 maximum = (u64::max) >> (64 - static_cast<u64>(this.pointer_bits()));
 
 			if (element_size && source->count() > maximum / element_size) {
-				Token location;
-				@this.error(location, rt::string_view("array storage size exceeds target address space\0"));
+				var message = DiagnosticMessage();
+				@message.text("array storage size exceeds target address space for type '\0");
+				diagnostic_type(@message, *source);
+				@message.text("': \0");
+				@message.number(source->count());
+				@message.text(" elements of \0");
+				@message.number(element_size);
+				@message.text(" bytes exceed the \0");
+				@message.number(u64(this.pointer_bits()));
+				@message.text("-bit target limit of \0");
+				@message.number(maximum);
+				@message.text(" bytes\0");
+				@this.error(origin, message.view());
 				return nullptr;
 			};
 
@@ -69,9 +85,12 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			@index = 0;
 
 			while (index < signature.parameters().size()) {
-				LLVMOpaqueType* parameter = @this.type(signature.parameters().data()[index]);
+				LLVMOpaqueType* parameter = @this.type(signature.parameters().data()[index], origin);
 
-				if (!parameter || !@parameters.push_back(parameter)) {
+				if (!parameter) {
+					return nullptr;
+				};
+				if (!@parameters.push_back(parameter)) {
 					Token location;
 					@this.error(location, rt::string_view("cannot allocate native signature\0"));
 					return nullptr;
@@ -80,7 +99,7 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 				@index = index + 1;
 			};
 
-			LLVMOpaqueType* result_type = @this.type(signature.result());
+			LLVMOpaqueType* result_type = @this.type(signature.result(), origin);
 
 			if (!result_type) {
 				return nullptr;
@@ -94,7 +113,7 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			Entity* record = source->entity();
 
 			if (record && record->kind() == entity_kind::enumeration) {
-				@result = @this.type(record->underlying());
+				@result = @this.type(record->underlying(), origin);
 				break;
 			};
 
@@ -125,9 +144,12 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			@index = 0;
 
 			while (index < record->bases().size()) {
-				LLVMOpaqueType* base = @this.type(record->bases().data()[index]);
+				LLVMOpaqueType* base = @this.type(record->bases().data()[index], record->token());
 
-				if (!base || !@fields.push_back(base)) {
+				if (!base) {
+					return nullptr;
+				};
+				if (!@fields.push_back(base)) {
 					@this.error(record->token(), rt::string_view("cannot allocate native base layout\0"));
 					return nullptr;
 				};
@@ -143,9 +165,12 @@ fn Backend::type(Backend& this, const Type* source) -> LLVMOpaqueType* {
 			@index = 0;
 
 			while (index < record->fields().size()) {
-				LLVMOpaqueType* field = @this.type(record->fields().data()[index]->type());
+				LLVMOpaqueType* field = @this.type(record->fields().data()[index]->type(), record->fields().data()[index]->token());
 
-				if (!field || !@fields.push_back(field)) {
+				if (!field) {
+					return nullptr;
+				};
+				if (!@fields.push_back(field)) {
 					@this.error(record->token(), rt::string_view("cannot allocate native record layout\0"));
 					return nullptr;
 				};
@@ -264,7 +289,17 @@ fn Backend::declare(Backend& this, Entity* entity) -> bool {
 		return @this.error(entity->token(), rt::string_view("cannot allocate native symbol name\0"));
 	};
 
-	LLVMOpaqueType* type = @this.type(entity->type());
+	if (entity->kind() == entity_kind::function) {
+		usize parameter = 0;
+		while (parameter < entity->parameters().size()) {
+			Entity* argument = entity->parameters().data()[parameter];
+			if (!@this.type(argument->type(), argument->token())) {
+				return false;
+			};
+			@parameter = parameter + 1;
+		};
+	};
+	LLVMOpaqueType* type = @this.type(entity->type(), entity->token());
 
 	if (!type) {
 		return false;

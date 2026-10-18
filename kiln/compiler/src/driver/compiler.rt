@@ -52,6 +52,7 @@ private:
 	rt::unique<Backend> backend;
 
 	fn failure(Compilation& this, const char* message) -> i32;
+	fn output_failure(Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32;
 };
 
 struct Compiler {
@@ -272,6 +273,21 @@ fn Compilation::failure(Compilation& this, const char* message) -> i32 {
 	return 1;
 };
 
+fn Compilation::output_failure(Compilation& this, const rt::string_view& operation, const rt::string_view& path) -> i32 {
+	var message = DiagnosticMessage();
+	@message.text(operation);
+	@message.text(" native object output \0");
+	@message.quoted(path);
+	Token location;
+	if (this.diagnostics.failed()) {
+		@this.diagnostics.note(location, message.view());
+	}
+	else {
+		@this.diagnostics.error(location, message.view());
+	};
+	return 1;
+};
+
 fn Compilation::run(Compilation& this, char* output_path, char* entry, i32 optimization, output_kind kind) -> i32 {
 	Token location;
 	if (this.analysis->diagnostics().failed() || !this.analysis->semantics()) {
@@ -297,12 +313,15 @@ fn Compilation::run(Compilation& this, char* output_path, char* entry, i32 optim
 	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry_name, $kind)) {
 		return @this.failure("internal compiler error: native emission failed without a diagnostic\0");
 	};
-	var output = File(this.opener($output_path, "wb\0"));
+	var output = File(this.opener(output_path, "wb\0"));
 	if (!output.is_open()) {
-		return @this.failure("cannot open native object output\0");
+		return @this.output_failure("cannot open\0", rt::string_view(output_path));
 	};
-	if (!@this.backend.get()->write(@output) || !@output.close()) {
-		return @this.failure("cannot write native object output\0");
+	if (!@this.backend.get()->write(@output)) {
+		return @this.output_failure("cannot write\0", rt::string_view(output_path));
+	};
+	if (!@output.close()) {
+		return @this.output_failure("cannot close\0", rt::string_view(output_path));
 	};
 	return 0;
 };

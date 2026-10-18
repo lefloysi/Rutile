@@ -128,6 +128,8 @@ def main():
 	var character = 'x';
 	var condition = 1 < 2;
 	var computed = answer + 1;
+	char* bytes = new char[42]();
+	delete[] bytes;
 	return answer;
 };
 """, encoding="utf-8")

@@ -136,11 +136,11 @@ check("template-validation-sibling-scope", sources + "template-validation-siblin
 	reject="identifier does not name a type entity")
 check("template-validation-scope-restoration", sources + "template-validation-scope-restoration.rt")
 check("template-validation-virtual-receiver", sources + "template-validation-virtual-receiver.rt",
-	reject="virtual operation requires an explicit class receiver named this")
+	reject="virtual operation 'function' requires an explicit class receiver of reference type named 'this'")
 
 check("union-defaulted-lifetimes", "tests/compiler-new/backend/cases/union-defaulted-lifetimes.rt")
 check("union-missing-destructor", "tests/compiler-new/backend/cases/union-missing-destructor.rt",
-	reject="union with nontrivial members requires an explicit destructor")
+	reject="union 'Missing' requires an explicit destructor because member 'Missing::value'")
 
 check("native-unordered-map-function-default-hash", "tests/compiler-new/std/unordered-map-function-default-hash.rt",
 	reject="no applicable function", dependencies=standard)

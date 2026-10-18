@@ -3,7 +3,7 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 		return nullptr;
 	};
 
-	LLVMOpaqueType* type = @this.backend->type(expression->type());
+	LLVMOpaqueType* type = @this.backend->type(expression->type(), expression->token());
 
 	if (!type) {
 		return nullptr;
@@ -28,7 +28,11 @@ fn FunctionEmitter::evaluate(FunctionEmitter& this, SemanticExpression* expressi
 				return nullptr;
 			};
 
-			return LLVMConstInt(type, LLVMABISizeOfType(this.backend->layout(), @this.backend->type(queried)), 0);
+			LLVMOpaqueType* native = @this.backend->type(queried, expression->token());
+			if (!native) {
+				return nullptr;
+			};
+			return LLVMConstInt(type, LLVMABISizeOfType(this.backend->layout(), native), 0);
 		};
 
 		case semantic_kind::literal_integer:

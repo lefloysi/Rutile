@@ -9,12 +9,26 @@ fn FunctionEmitter::allocate_array(FunctionEmitter& this, SemanticExpression* ex
 	SemanticExpression* construction = expression->item(0);
 
 	if (construction->item(0)->size()) {
-		@this.backend->error(expression->token(), rt::string_view("array constructor argument evaluation is not specified\0"));
+		var message = DiagnosticMessage();
+		@message.text("array constructor argument evaluation is not specified for element type '\0");
+		diagnostic_type(@message, *expression->type()->element());
+		@message.text("' with arguments \0");
+		@message.text("(\0");
+		usize argument = 0;
+		while (argument < construction->item(0)->size()) {
+			if (argument) {
+				@message.text(", \0");
+			};
+			diagnostic_type(@message, *construction->item(0)->item(argument)->type());
+			@argument = argument + 1;
+		};
+		@message.text(")\0");
+		@this.backend->error(expression->token(), message.view());
 		return nullptr;
 	};
 
 	const Type* element = expression->type()->element();
-	LLVMOpaqueType* native = @this.backend->type(element);
+	LLVMOpaqueType* native = @this.backend->type(element, expression->token());
 
 	if (!native) {
 		return nullptr;
@@ -37,7 +51,7 @@ fn FunctionEmitter::allocate_array(FunctionEmitter& this, SemanticExpression* ex
 	u64 maximum = (u64::max) >> (64 - static_cast<u64>(bits));
 
 	if (prefix > maximum) {
-		return LLVMConstNull(@this.backend->type(expression->type()));
+		return LLVMConstNull(@this.backend->type(expression->type(), expression->token()));
 	};
 
 	u64 maximum_count = maximum;
@@ -106,9 +120,9 @@ fn FunctionEmitter::allocate_array(FunctionEmitter& this, SemanticExpression* ex
 	LLVMPositionBuilderAtEnd(this.backend->builder(), failure);
 	LLVMBuildBr(this.backend->builder(), after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
-	LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), @this.backend->type(expression->type()), "array.result\0");
+	LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), "array.result\0");
 	@values[0] = data;
-	@values[1] = LLVMConstNull(@this.backend->type(expression->type()));
+	@values[1] = LLVMConstNull(@this.backend->type(expression->type(), expression->token()));
 	@blocks[0] = done;
 	@blocks[1] = failure;
 	LLVMAddIncoming(result, &values[0], &blocks[0], 2);
@@ -121,7 +135,11 @@ fn FunctionEmitter::deallocate_array(FunctionEmitter& this, SemanticExpression* 
 	const Type* element = operand->type()->element();
 
 	if (element->kind() == type_kind::void_type || element->kind() == type_kind::null_type || element->kind() == type_kind::function) {
-		@this.backend->error(expression->token(), rt::string_view("array deallocation requires a supported object layout\0"));
+		var message = DiagnosticMessage();
+		@message.text("array deallocation requires a supported object layout for element type '\0");
+		diagnostic_type(@message, *element);
+		@message.text("'\0");
+		@this.backend->error(expression->token(), message.view());
 		return nullptr;
 	};
 

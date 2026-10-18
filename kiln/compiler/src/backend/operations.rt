@@ -204,7 +204,11 @@ fn FunctionEmitter::binary(FunctionEmitter& this, SemanticExpression* expression
 			@second = LLVMBuildNeg(this.backend->builder(), second, "pointer.backward\0");
 		};
 
-		return LLVMBuildGEP2(this.backend->builder(), @this.backend->type(pointer_type->element()), first, &second, 1, "pointer.advance\0");
+		LLVMOpaqueType* native = @this.backend->type(pointer_type->element(), expression->token());
+		if (!native) {
+			return nullptr;
+		};
+		return LLVMBuildGEP2(this.backend->builder(), native, first, &second, 1, "pointer.advance\0");
 	};
 
 	const Type* operand_type = FunctionEmitter::representation(left->type());

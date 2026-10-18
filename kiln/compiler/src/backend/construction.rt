@@ -6,7 +6,7 @@ fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* express
 			return nullptr;
 		};
 
-		return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type()), storage, "reconstructed\0");
+		return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), storage, "reconstructed\0");
 	};
 
 	LLVMOpaqueValue* storage = @this.slot(expression->type());
@@ -15,12 +15,12 @@ fn FunctionEmitter::construct(FunctionEmitter& this, SemanticExpression* express
 		return nullptr;
 	};
 
-	return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type()), storage, "constructed\0");
+	return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), storage, "constructed\0");
 };
 
 fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* expression, LLVMOpaqueValue* storage) -> bool {
 	const Type* type = expression->type();
-	LLVMOpaqueType* native = @this.backend->type(type);
+	LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 
 	if (!native) {
 		return false;
@@ -61,7 +61,7 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 			@index = index + 1;
 		};
 
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type()), this.backend->symbol(constructor), (@inputs).data(), static_cast<u32>(inputs.size()), "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), (@inputs).data(), static_cast<u32>(inputs.size()), "\0");
 
 		return true;
 	};
@@ -96,11 +96,37 @@ fn FunctionEmitter::construct_into(FunctionEmitter& this, SemanticExpression* ex
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		if (type->entity()->bases().size()) {
-			return @this.backend->error(expression->token(), rt::string_view("base aggregate argument initialization is not implemented\0"));
+			var message = DiagnosticMessage();
+			@message.text("base aggregate argument initialization is not implemented for type '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' with argument types (\0");
+			usize argument = 0;
+			while (argument < arguments->size()) {
+				if (argument) {
+					@message.text(", \0");
+				};
+				diagnostic_type(@message, *arguments->item(argument)->type());
+				@argument = argument + 1;
+			};
+			@message.text(")\0");
+			return @this.backend->error(expression->token(), message.view());
 		};
 
 		if (type->entity()->layout() == record_layout::overlapping) {
-			return @this.backend->error(expression->token(), rt::string_view("union aggregate argument selection is not implemented\0"));
+			var message = DiagnosticMessage();
+			@message.text("union aggregate argument selection is not implemented for type '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' with argument types (\0");
+			usize argument = 0;
+			while (argument < arguments->size()) {
+				if (argument) {
+					@message.text(", \0");
+				};
+				diagnostic_type(@message, *arguments->item(argument)->type());
+				@argument = argument + 1;
+			};
+			@message.text(")\0");
+			return @this.backend->error(expression->token(), message.view());
 		};
 
 		if (!@this.initialize_dispatch(type, storage)) {
@@ -143,7 +169,7 @@ fn FunctionEmitter::allocate(FunctionEmitter& this, SemanticExpression* expressi
 	};
 
 	const Type* element = expression->type()->element();
-	LLVMOpaqueType* type = @this.backend->type(element);
+	LLVMOpaqueType* type = @this.backend->type(element, expression->token());
 
 	if (!type) {
 		return nullptr;

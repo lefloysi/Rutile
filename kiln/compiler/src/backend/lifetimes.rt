@@ -60,7 +60,18 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 
 		while (index < record->fields().size()) {
 			if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
-				return @this.backend->error(record->token(), rt::string_view("union with nontrivial members requires an explicit destructor\0"));
+				Entity* member = record->fields().data()[index];
+				var message = DiagnosticMessage();
+				@message.text("union '\0");
+				diagnostic_entity(@message, *record);
+				@message.text("' requires an explicit destructor because member '\0");
+				diagnostic_entity(@message, *member);
+				@message.text("' of type '\0");
+				diagnostic_type(@message, *member->type());
+				@message.text("' requires destruction\0");
+				@this.backend->error(record->token(), message.view());
+				@this.backend->note(member->token(), "member requiring destruction is declared here\0");
+				return false;
 			};
 
 			@index = index + 1;
@@ -69,12 +80,22 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 
 	if (destructor) {
 		if (destructor->definition() == function_definition::deleted) {
-			return @this.backend->error(destructor->token(), rt::string_view("selected destructor is deleted\0"));
+			var message = DiagnosticMessage();
+			@message.text("destruction of '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' selects deleted destructor '\0");
+			diagnostic_entity(@message, *destructor);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *destructor->type());
+			@message.text("'\0");
+			@this.backend->error(destructor->token(), message.view());
+			@this.backend->note(destructor->token(), "destructor is declared deleted here\0");
+			return false;
 		};
 
 		LLVMOpaqueValue*[1] arguments {};
 		@arguments[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type()), this.backend->symbol(destructor), &arguments[0], 1, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &arguments[0], 1, "\0");
 	};
 
 	if (record->layout() == record_layout::overlapping) {
@@ -88,7 +109,7 @@ fn FunctionEmitter::destroy(FunctionEmitter& this, const Type* type, LLVMOpaqueV
 		Entity* field = record->fields().data()[index];
 
 		if (FunctionEmitter::needs_destruction(field->type())) {
-			LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, this.backend->field_index(record, index), "destroy.field\0");
+			LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0");
 
 			if (!@this.destroy(field->type(), member)) {
 				return false;

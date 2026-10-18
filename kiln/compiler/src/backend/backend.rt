@@ -25,6 +25,7 @@ struct Backend {
 
 	fn pointer_bits(const Backend& this) -> u32;
 	fn type(Backend& this, const Type* source) -> LLVMOpaqueType*;
+	fn type(Backend& this, const Type* source, const Token& origin) -> LLVMOpaqueType*;
 	fn symbol(const Backend& this, Entity* entity) -> LLVMOpaqueValue*;
 	fn implementation(const Backend& this, Entity* entity) -> LLVMOpaqueValue*;
 	fn table(Backend& this, Entity* entity) -> LLVMOpaqueValue*;
@@ -36,6 +37,7 @@ struct Backend {
 	fn layout(const Backend& this) -> LLVMOpaqueTargetData*;
 
 	fn error(Backend& this, const Token& token, const rt::string_view& message) -> bool;
+	fn note(Backend& this, const Token& token, const rt::string_view& message);
 	fn failed(const Backend& this) -> bool;
 
 private:
@@ -257,4 +259,8 @@ fn Backend::write(Backend& this, File& output) -> bool {
 	};
 
 	return true;
+};
+
+fn Backend::note(Backend& this, const Token& token, const rt::string_view& message) {
+	@this.diagnostics->note(token, message);
 };

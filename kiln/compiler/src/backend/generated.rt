@@ -26,12 +26,22 @@ fn FunctionEmitter::initialize(FunctionEmitter& this, const Type* type, LLVMOpaq
 
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
-			return @this.backend->error(constructor->token(), rt::string_view("default construction selects a deleted function\0"));
+			var message = DiagnosticMessage();
+			@message.text("default construction of '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' selects deleted function '\0");
+			diagnostic_entity(@message, *constructor);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *constructor->type());
+			@message.text("'\0");
+			@this.backend->error(constructor->token(), message.view());
+			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			return false;
 		};
 
 		LLVMOpaqueValue*[1] inputs {};
 		@inputs[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type()), this.backend->symbol(constructor), &inputs[0], 1, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 1, "\0");
 
 		return true;
 	};
@@ -61,13 +71,23 @@ fn FunctionEmitter::copy_initialize(FunctionEmitter& this, const Type* type, LLV
 
 	if (constructor) {
 		if (constructor->definition() == function_definition::deleted) {
-			return @this.backend->error(constructor->token(), rt::string_view("member copy selects a deleted function\0"));
+			var message = DiagnosticMessage();
+			@message.text("member copy of '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' selects deleted function '\0");
+			diagnostic_entity(@message, *constructor);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *constructor->type());
+			@message.text("'\0");
+			@this.backend->error(constructor->token(), message.view());
+			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			return false;
 		};
 
 		LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = source;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
 
 		return true;
 	};
@@ -88,13 +108,23 @@ fn FunctionEmitter::move_initialize(FunctionEmitter& this, const Type* type, LLV
 		Entity* constructor = type->entity()->move_constructor();
 
 		if (constructor->definition() == function_definition::deleted) {
-			return @this.backend->error(constructor->token(), rt::string_view("move construction selects a deleted function\0"));
+			var message = DiagnosticMessage();
+			@message.text("move construction of '\0");
+			diagnostic_type(@message, *type);
+			@message.text("' selects deleted function '\0");
+			diagnostic_entity(@message, *constructor);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *constructor->type());
+			@message.text("'\0");
+			@this.backend->error(constructor->token(), message.view());
+			@this.backend->note(constructor->token(), "function is declared deleted here\0");
+			return false;
 		};
 
 		LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = value;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &inputs[0], 2, "\0");
 
 		return true;
 	};
@@ -111,7 +141,7 @@ fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
 	LLVMOpaqueValue* destination = LLVMGetParam(this.function, 0);
 
 	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
-		LLVMBuildStore(this.backend->builder(), LLVMConstNull(@this.backend->type(type)), destination);
+		LLVMBuildStore(this.backend->builder(), LLVMConstNull(@this.backend->type(type, function->token())), destination);
 
 		if (!@this.initialize_members(type, destination)) {
 			return false;
@@ -170,7 +200,7 @@ fn FunctionEmitter::generated(FunctionEmitter& this, Entity* function) -> bool {
 		LLVMBuildRet(this.backend->builder(), destination);
 	}
 	else {
-		LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result), destination, "generated.result\0"));
+		LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result, function->token()), destination, "generated.result\0"));
 	};
 
 	return true;
@@ -337,7 +367,13 @@ fn FunctionEmitter::initialize_members(FunctionEmitter& this, const Type* type, 
 		Entity* field = record->fields().data()[index];
 
 		if (field->type()->kind() == type_kind::reference && !field->body()) {
-			return @this.backend->error(field->token(), rt::string_view("reference member requires an explicit initializer\0"));
+			var message = DiagnosticMessage();
+			@message.text("reference member '\0");
+			diagnostic_entity(@message, *field);
+			@message.text("' of type '\0");
+			diagnostic_type(@message, *field->type());
+			@message.text("' requires an explicit initializer\0");
+			return @this.backend->error(field->token(), message.view());
 		};
 
 		LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(record, index), "initialize.field\0");

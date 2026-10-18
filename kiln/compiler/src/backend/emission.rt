@@ -2,7 +2,13 @@ fn Backend::entry(Backend& this, Entity* entity) -> bool {
 	const FunctionSignature& signature = entity->type()->signature();
 
 	if (signature.parameters().size() || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
-		return @this.error(entity->token(), rt::string_view("executable entry requires no parameters and an integer or void result\0"));
+		var message = DiagnosticMessage();
+		@message.text("executable entry '\0");
+		diagnostic_entity(@message, *entity);
+		@message.text("' requires no parameters and an integer or void result; declared signature is '\0");
+		diagnostic_type(@message, *entity->type());
+		@message.text("'\0");
+		return @this.error(entity->token(), message.view());
 	};
 
 	LLVMOpaqueType* integer = LLVMIntTypeInContext(this.context(), 32);
@@ -47,8 +53,27 @@ fn Backend::emit(Backend& this, const SemanticUnit& unit, const rt::string_view&
 
 		if (!selected || selected->kind() != entity_kind::function || !selected->body() || selected->body()->kind() == semantic_kind::noop) {
 			Token location;
-
-			return @this.error(location, rt::string_view("executable entry requires a defined function\0"));
+			var message = DiagnosticMessage();
+			@message.text("executable entry \0");
+			@message.quoted(entry);
+			@message.text(" requires a defined function; \0");
+			if (!selected) {
+				@message.text("the requested name is not declared\0");
+			}
+			else {
+				@location = selected->token();
+				@message.text("selected declaration is \0");
+				diagnostic_entity_kind(@message, selected->kind());
+				@message.text(" '\0");
+				diagnostic_entity(@message, *selected);
+				@message.text("'\0");
+				if (selected->kind() == entity_kind::function) {
+					@message.text(" of type '\0");
+					diagnostic_type(@message, *selected->type());
+					@message.text("' without a definition\0");
+				};
+			};
+			return @this.error(location, message.view());
 		};
 
 		@this.selected_entry = selected->canonical();

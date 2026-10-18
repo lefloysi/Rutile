@@ -226,7 +226,13 @@ fn FunctionEmitter::emit(FunctionEmitter& this, Entity* function) -> bool {
 		return true;
 	};
 
-	return @this.backend->error(function->token(), rt::string_view("non-void function reaches the end without a result\0"));
+	var message = DiagnosticMessage();
+	@message.text("non-void function reaches the end without a result: '\0");
+	diagnostic_entity(@message, *function);
+	@message.text("' has result type '\0");
+	diagnostic_type(@message, *this.result);
+	@message.text("'\0");
+	return @this.backend->error(function->token(), message.view());
 };
 
 fn FunctionEmitter::address(FunctionEmitter& this, SemanticExpression* expression) -> LLVMOpaqueValue* {
@@ -289,7 +295,11 @@ fn FunctionEmitter::address(FunctionEmitter& this, SemanticExpression* expressio
 			const Type* owner = expression->entity()->scope()->owner()->type();
 
 			if (owner->entity()->layout() == record_layout::sequential) {
-				@field = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner), address, this.backend->field_index(owner->entity(), expression->entity()->index()), "field\0");
+				LLVMOpaqueType* native = @this.backend->type(owner, expression->token());
+				if (!native) {
+					return nullptr;
+				};
+				@field = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(owner->entity(), expression->entity()->index()), "field\0");
 			};
 
 			if (expression->entity()->type()->kind() == type_kind::reference) {
@@ -337,7 +347,11 @@ fn FunctionEmitter::address(FunctionEmitter& this, SemanticExpression* expressio
 				return nullptr;
 			};
 
-			return LLVMBuildGEP2(this.backend->builder(), @this.backend->type(element), base, (@indices).data(), static_cast<u32>(indices.size()), "element\0");
+			LLVMOpaqueType* native = @this.backend->type(element, expression->token());
+			if (!native) {
+				return nullptr;
+			};
+			return LLVMBuildGEP2(this.backend->builder(), native, base, (@indices).data(), static_cast<u32>(indices.size()), "element\0");
 		};
 
 		case semantic_kind::cast:
@@ -436,7 +450,20 @@ fn FunctionEmitter::call(FunctionEmitter& this, SemanticExpression* expression) 
 		SemanticExpression* source = source_arguments->item(index);
 
 		if (index >= signature.parameters().size() && signature.arity() == parameter_arity::variadic && !source->type()->representation()->kind().is_scalar()) {
-			@this.backend->error(source->token(), rt::string_view("aggregate variadic arguments require unsupported C ABI lowering\0"));
+			var message = DiagnosticMessage();
+			@message.text("aggregate variadic argument \0");
+			@message.number(u64(index + 1));
+			@message.text(" of type '\0");
+			diagnostic_type(@message, *source->type());
+			@message.text("' requires unsupported C ABI lowering for callable '\0");
+			if (callable->entity()) {
+				diagnostic_entity(@message, *callable->entity());
+			}
+			else {
+				diagnostic_type(@message, *type);
+			};
+			@message.text("'\0");
+			@this.backend->error(source->token(), message.view());
 			return nullptr;
 		};
 
@@ -473,7 +500,11 @@ fn FunctionEmitter::call(FunctionEmitter& this, SemanticExpression* expression) 
 		@index = index + 1;
 	};
 
-	return LLVMBuildCall2(this.backend->builder(), @this.backend->type(type), function, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
+	LLVMOpaqueType* native = @this.backend->type(type, expression->token());
+	if (!native) {
+		return nullptr;
+	};
+	return LLVMBuildCall2(this.backend->builder(), native, function, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
 };
 
 fn FunctionEmitter::native_slot(FunctionEmitter& this, LLVMOpaqueType* native) -> LLVMOpaqueValue* {
