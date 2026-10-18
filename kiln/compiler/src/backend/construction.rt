@@ -28,10 +28,13 @@ fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpres
 
 	var SemanticExpression* arguments = expression->item(0);
 	var LLVMOpaqueValue* value = LLVMConstNull(native);
-	LLVMBuildStore(this.backend->builder(), value, storage);
 	var Entity* constructor = expression->entity();
 
 	if (constructor) {
+		if (constructor->definition() != function_definition::defaulted || constructor->parameters().size() != 2) {
+			LLVMBuildStore(this.backend->builder(), value, storage);
+		};
+
 		rt::buffer<var LLVMOpaqueValue*> inputs;
 
 		if (!@inputs.push_back(storage)) {
@@ -92,6 +95,7 @@ fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpres
 		return true;
 	};
 
+	LLVMBuildStore(this.backend->builder(), value, storage);
 	usize index = 0;
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {

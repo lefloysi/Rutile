@@ -71,7 +71,7 @@ for name in ["sizeof-incomplete", "sizeof-void"]:
 	check(name, sources + name + ".rt", reject="sizeof requires a complete object storage type")
 
 for name in ["owned-lifetimes", "scope-exits", "allocation-lifetimes", "return-lifetimes",
-	"generated-move", "reconstruction", "switch", "array-lifetimes", "array-invalid-size",
+	"generated-move", "complete-initialization", "reconstruction", "switch", "array-lifetimes", "array-invalid-size",
 	"union-layout", "union-lifetimes", "member-initialization", "inheritance-casts",
 	"inheritance-lifetimes", "virtual-dispatch", "virtual-layout", "external-enum", "aggregate-copy",
 	"inactive-array-storage", "lifetime-conditional-unused", "reference-call-temporary",

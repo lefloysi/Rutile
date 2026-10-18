@@ -84,6 +84,10 @@ fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, Type* type, var L
 			return false;
 		};
 
+		if (record->layout() == record_layout::overlapping && constructor->definition() != function_definition::defaulted) {
+			LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), destination);
+		};
+
 		var LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = source;
