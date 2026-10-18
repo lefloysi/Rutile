@@ -8,6 +8,50 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
+	("unknown-type", "fn main() -> i32 { Missing value; return 0; };",
+		[r"unknown type name 'Missing'"]),
+	("value-as-type", "i32 count; fn main() -> i32 { count value; return 0; };",
+		[r"name does not denote a type: 'count'", r"note: referenced declaration is here"]),
+	("array-extent-type", "fn main() -> i32 { i32[1.5] values; return 0; };",
+		[r"array extent shall be a positive integer constant; received type 'f64'"]),
+	("array-extent-variable", "fn main() -> i32 { i32 count = 2; i32[count] values; return 0; };",
+		[r"array extent shall be a positive integer constant", r"'count' of type 'i32' is not constant"]),
+	("array-extent-zero", "fn main() -> i32 { i32[0] values; return 0; };",
+		[r"array extent shall be a positive integer constant; received 0"]),
+	("array-extent-negative", "fn main() -> i32 { i32[-1] values; return 0; };",
+		[r"array extent shall be positive; received -1"]),
+	("array-extent-unknown", "fn main() -> i32 { i32[missing] values; return 0; };",
+		[r"unknown identifier 'missing'"]),
+	("continue-context", "fn main() -> i32 { continue; return 0; };",
+		[r"'continue' requires an enclosing loop"]),
+	("break-context", "fn main() -> i32 { break; return 0; };",
+		[r"'break' requires an enclosing loop or switch"]),
+	("discard-place", "fn main() -> i32 { i32 value = 1; discard value; return 0; };",
+		[r"discard requires a consumable; operand is a place of type 'i32'"]),
+	("discard-unknown", "fn main() -> i32 { discard missing; return 0; };",
+		[r"unknown identifier 'missing'"]),
+	("allocation-count-type", "fn main() -> i32 { i32* values = new i32[1.5](); return 0; };",
+		[r"array allocation count requires an integer; received 'f64'", r"elements of type 'i32'"]),
+	("allocation-count-unknown", "fn main() -> i32 { i32* values = new i32[missing](); return 0; };",
+		[r"unknown identifier 'missing'"]),
+	("delete-type", "fn main() -> i32 { delete 1.5; return 0; };",
+		[r"delete requires a pointer; operand has type 'f64'"]),
+	("delete-array-type", "fn main() -> i32 { delete[] true; return 0; };",
+		[r"delete\[\] requires a pointer; operand has type 'bool'"]),
+	("delete-unknown", "fn main() -> i32 { delete missing; return 0; };",
+		[r"unknown identifier 'missing'"]),
+	("local-reference-initializer", "fn main() -> i32 { i32& value; return 0; };",
+		[r"reference 'value' of type 'i32&' requires an initializer"]),
+	("local-void-type", "fn main() -> i32 { void value; return 0; };",
+		[r"variable 'value' requires object storage or a reference; declared type is 'void'"]),
+	("namespace-value", "namespace owner {}; fn main() -> i32 { return owner; };",
+		[r"identifier 'owner' does not denote a value", r"note: referenced declaration is here"]),
+	("literal-escape", r'fn main() -> i32 { const char* value = "\q"; return 0; };',
+		[r"unsupported escape", r"\\\\q", r"in literal"]),
+	("context-reference-unknown", "fn take(const i32& value); fn main() -> i32 { take({ @value = missing; }); return 0; };",
+		[r"unknown identifier 'missing'"]),
+	("context-reference-unbound", "fn take(const i32& value); fn main() -> i32 { take({ }); return 0; };",
+		[r"reference contextual argument 'value' of type 'const i32&' requires a bound initializer", r"note: parameter is declared here"]),
 	("implicit-constructor-ambiguity", "struct Box { fn Box(Box& this, const i32& value) : [implicit]; fn Box(Box& this, const u32& value) : [implicit]; }; fn make() -> Box { return 42; }; fn main() -> i32 { return 0; };",
 		[r"ambiguous implicit conversion from 'i32' to 'Box'", r"multiple conversion functions are applicable",
 			r"note: candidate 'Box::Box' has type.*const i32&", r"note: candidate 'Box::Box' has type.*const u32&"]),
@@ -74,7 +118,7 @@ def main():
 		result = subprocess.run([str(compiler), str(path), "--output",
 			str(directory / (name + ".obj"))], capture_output=True, text=True, timeout=30)
 		output = result.stdout + result.stderr
-		if result.returncode != 1 or "internal compiler error" in output or any(not re.search(pattern, output) for pattern in patterns):
+		if result.returncode != 1 or "internal compiler error" in output or len(re.findall(r": error:", output)) != 1 or any(not re.search(pattern, output) for pattern in patterns):
 			raise RuntimeError(f"{name}: unexpected diagnostic (exit {result.returncode})\n{output}")
 		print(name + ": PASS")
 

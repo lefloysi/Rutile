@@ -238,6 +238,9 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		const Type* actual = this.templates.qualifier(@scope, @syntax);
 
 		if (!element || !actual) {
+			if (this.failed()) {
+				return nullptr;
+			};
 			@this.error(&syntax, "automatic qualification requires a deduced parameter binding\0");
 
 			return nullptr;
@@ -252,6 +255,9 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
 		Entity* entity = @this.lookup(@scope, @syntax);
+		if (this.failed()) {
+			return nullptr;
+		};
 
 		if (kind == syntax_kind::name && !entity) {
 			const Type* builtin = this.types->find_primitive(syntax.token().text());
@@ -262,13 +268,30 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		};
 
 		if (!entity || !entity->denotes_type()) {
-			@this.error(&syntax, "name does not denote a type\0");
+			var message = DiagnosticMessage();
+			if (!entity) {
+				@message.text("unknown type name '\0");
+			}
+			else {
+				@message.text("name does not denote a type: '\0");
+			};
+			diagnostic_name(@message, syntax);
+			@message.text("'\0");
+			@this.report(syntax.token(), message.view());
+			if (entity) {
+				@this.note(entity->token(), "referenced declaration is here\0");
+			};
 
 			return nullptr;
 		};
 
 		if (!this.accessible(*entity, @scope)) {
-			@this.error(&syntax, "private or protected type is not accessible\0");
+			var message = DiagnosticMessage();
+			@message.text("type '\0");
+			diagnostic_entity(@message, *entity);
+			@message.text("' is not accessible from this scope\0");
+			@this.report(syntax.token(), message.view());
+			@this.note(entity->token(), "type is declared here\0");
 
 			return nullptr;
 		};
@@ -363,7 +386,14 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 				};
 
 				if (!parameter || !parameter->type()) {
-					@this.error(&syntax, "conditional qualification requires a named parameter\0");
+					if (this.failed()) {
+						return nullptr;
+					};
+					var message = DiagnosticMessage();
+					@message.text("conditional qualification requires a named parameter; '\0");
+					diagnostic_name(@message, *condition);
+					@message.text("' does not provide a parameter type\0");
+					@this.report(condition->token(), message.view());
 
 					return nullptr;
 				};
@@ -385,7 +415,17 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		};
 
 		if (element->kind() == type_kind::void_type || element->kind() == type_kind::null_type || element->kind() == type_kind::reference) {
-			@this.error(&syntax, "type has no object storage\0");
+			var message = DiagnosticMessage();
+			@message.text("cannot form \0");
+			if (kind == syntax_kind::type_reference) {
+				@message.text("a reference to '\0");
+			}
+			else {
+				@message.text("an array of '\0");
+			};
+			diagnostic_type(@message, *element);
+			@message.text("'; the element type has no object storage\0");
+			@this.report(syntax.token(), message.view());
 
 			return nullptr;
 		};
@@ -397,14 +437,44 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		u64 count = 0;
 		var extent = @this.expression(@scope, @*syntax.array_extent(), rt::optional_ref<const Type>());
 
-		if (!extent.get() || !extent.get()->type()->kind().is_integer() || !@this.constant_integer(*extent.get(), @count) || !count) {
-			@this.error(&syntax, "array extent shall be a positive integer constant\0");
+		if (!extent.get()) {
+			return nullptr;
+		};
+
+		if (!extent.get()->type()->kind().is_integer()) {
+			var message = DiagnosticMessage();
+			@message.text("array extent shall be a positive integer constant; received type '\0");
+			diagnostic_type(@message, *extent.get()->type());
+			@message.text("'\0");
+			@this.report(syntax.array_extent()->token(), message.view());
+			return nullptr;
+		};
+
+		if (!@this.constant_integer(*extent.get(), @count)) {
+			if (this.failed()) {
+				return nullptr;
+			};
+			var message = DiagnosticMessage();
+			@message.text("array extent shall be a positive integer constant; expression beginning with \0");
+			@message.quoted(syntax.array_extent()->token().text());
+			@message.text(" of type '\0");
+			diagnostic_type(@message, *extent.get()->type());
+			@message.text("' is not constant\0");
+			@this.report(syntax.array_extent()->token(), message.view());
+			return nullptr;
+		};
+
+		if (!count) {
+			@this.report(syntax.array_extent()->token(), "array extent shall be a positive integer constant; received 0\0");
 
 			return nullptr;
 		};
 
 		if (extent.get()->type()->kind() == type_kind::signed_integer && count & (u64(1) << (static_cast<u64>(extent.get()->type()->bits()) - 1))) {
-			@this.error(&syntax, "array extent shall be positive\0");
+			var message = DiagnosticMessage();
+			@message.text("array extent shall be positive; received -\0");
+			@message.number(u64(0) - u64(extent.get()->type()->signed_value(count)));
+			@this.report(syntax.array_extent()->token(), message.view());
 
 			return nullptr;
 		};
@@ -412,7 +482,10 @@ fn Analyzer::type(Analyzer& this, Scope& scope, Syntax& syntax) -> const Type* {
 		return @this.types->array(element, $count);
 	};
 
-	@this.error(&syntax, "unsupported type syntax\0");
+	var message = DiagnosticMessage();
+	@message.text("unsupported type syntax beginning with \0");
+	@message.quoted(syntax.token().text());
+	@this.report(syntax.token(), message.view());
 
 	return nullptr;
 };

@@ -21,16 +21,18 @@ def main():
 	arguments = argparse.ArgumentParser(description=__doc__)
 	arguments.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
 	arguments.add_argument("--build", default="build/release")
+	arguments.add_argument("--source-root", type=Path, default=ROOT)
 	options = arguments.parse_args()
 	build = ROOT / options.build
 	cache = (build / "CMakeCache.txt").read_text()
 	runtime = "/MDd" if "CMAKE_BUILD_TYPE:STRING=Debug" in cache else "/MD"
+	source_root = options.source_root.resolve()
 	directory = ROOT / "build/compiler-new/language-shared"
 	directory.mkdir(parents=True, exist_ok=True)
-	standard = [ROOT / "kiln/compiler/std" / (name + ".rt") for name in
+	standard = [source_root / "kiln/compiler/std" / (name + ".rt") for name in
 		["unique", "optional", "buffer", "string_view", "string", "hash", "equal", "unordered_map"]]
-	modules = [ROOT / "kiln/compiler/src" / name for name in
-		(ROOT / "kiln/compiler/sources.list").read_text().splitlines() if name and not name.startswith("#")]
+	modules = [source_root / "kiln/compiler/src" / name for name in
+		(source_root / "kiln/compiler/sources.list").read_text().splitlines() if name and not name.startswith("#")]
 	output = directory / "case.obj"
 	checked([str(ROOT / options.compiler), *map(str, standard + modules),
 		str(ROOT / "tests/compiler-new/language/shared.rt"), "--output", str(output), "--optimization", "0"])

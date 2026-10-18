@@ -14,7 +14,13 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 	while (index < values.size()) {
 		if (values.data()[index].get()->kind() == semantic_kind::deferred_argument) {
 			if (!use || use->type().kind() != type_kind::function || index >= use->callable().parameters().size()) {
-				@this.error(&syntax, "contextual argument requires a fixed parameter type\0");
+				var message = DiagnosticMessage();
+				@message.text("contextual argument \0");
+				@message.number(u64(index + 1 - offset));
+				@message.text(" requires a fixed parameter type; callable has type '\0");
+				diagnostic_type(@message, *callable.type());
+				@message.text("'\0");
+				@this.report(syntax.arguments()->item(index - offset)->token(), message.view());
 				return false;
 			};
 
@@ -36,7 +42,11 @@ fn Analyzer::contextual_arguments(Analyzer& this, Scope& scope, Syntax& syntax, 
 
 fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, const TypeUse& use, const rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {
 	if (!name.has_value()) {
-		@this.error(&syntax, "argument block requires a named parameter\0");
+		var message = DiagnosticMessage();
+		@message.text("argument block requires a named parameter; selected parameter has type '\0");
+		diagnostic_type(@message, use.type());
+		@message.text("' and no parameter name\0");
+		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -115,8 +125,21 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 		if (target && name.has_value() && target->kind() == syntax_kind::name && name.value().is(target->token().text())) {
 			var value = @this.expression(@*local, @*statement->right(), rt::optional_ref<const Type>(*type));
 
-			if (!value.get() || value.get()->category() != value_category::place) {
-				@this.error(statement, "reference contextual argument requires a borrowed initializer\0");
+			if (!value.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (value.get()->category() != value_category::place) {
+				var message = DiagnosticMessage();
+				@message.text("reference contextual argument \0");
+				@message.quoted(name.value().text());
+				@message.text(" of type '\0");
+				diagnostic_type(@message, *type);
+				@message.text("' requires a borrowed initializer; received a consumable of type '\0");
+				diagnostic_type(@message, *value.get()->type());
+				@message.text("'\0");
+				@this.report(statement->token(), message.view());
+				@this.note(name.value().location(), "parameter is declared here\0");
 
 				return rt::unique<SemanticExpression>();
 			};
@@ -162,7 +185,14 @@ fn Analyzer::contextual_argument(Analyzer& this, Scope& scope, Syntax& syntax, c
 	};
 
 	if (!binding) {
-		@this.error(&syntax, "reference requires a bound initializer\0");
+		var message = DiagnosticMessage();
+		@message.text("reference contextual argument \0");
+		@message.quoted(name.value().text());
+		@message.text(" of type '\0");
+		diagnostic_type(@message, *type);
+		@message.text("' requires a bound initializer in its argument block\0");
+		@this.report(syntax.token(), message.view());
+		@this.note(name.value().location(), "parameter is declared here\0");
 
 		return rt::unique<SemanticExpression>();
 	};

@@ -77,6 +77,25 @@ fn Lexer::location(const Lexer& this) -> Token {
 fn Lexer::fail(Lexer& this, const Token& token, const rt::string_view& message) -> bool {
 	@this.failure = rt::string_view(message);
 	@this.failure_token = Token(token);
+	usize size = this.source->text().size();
+	if (token.begin <= size) {
+		usize consumed = 0;
+		if (this.offset >= token.begin) {
+			@consumed = this.offset - token.begin;
+		};
+		if (consumed > this.failure_token.length) {
+			@this.failure_token.length = consumed;
+		};
+		if (!this.failure_token.length && token.begin < size) {
+			@this.failure_token.length = 1;
+		};
+		if (this.failure_token.length > size - token.begin) {
+			@this.failure_token.length = size - token.begin;
+		};
+		if (token.begin == size) {
+			@this.failure_token.kind = token_kind::eof;
+		};
+	};
 
 	return false;
 };

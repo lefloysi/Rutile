@@ -36,7 +36,7 @@ fn Analysis::analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancell
 		SourceFile* file = @this.sources.at(index);
 		var lexer = Lexer(@*file);
 		if (!@lexer.scan()) {
-			@parse_errors.error(lexer.error_token(), lexer.error());
+			@parse_errors.syntax_error(lexer.error_token(), lexer.error());
 			@index = index + 1;
 			continue;
 		};
@@ -47,7 +47,7 @@ fn Analysis::analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancell
 			if (this.messages.cancelled()) {
 				return false;
 			};
-			@parse_errors.error(parser.error_token(), parser.error());
+			@parse_errors.syntax_error(parser.error_token(), parser.error());
 		}
 		else if (!@this.syntax.push_back($syntax)) {
 			return false;

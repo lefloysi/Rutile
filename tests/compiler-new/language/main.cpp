@@ -45,6 +45,19 @@ int cancelled(void*) {
 	return 1;
 }
 
+void check_syntax_diagnostic(std::string_view source, std::size_t begin, std::size_t end, std::string_view expected) {
+	RutileLanguageSource input{ text("syntax.rt"), text(source) };
+	Snapshot snapshot(rutile_language_analyze(&input, 1, 64, nullptr, nullptr), rutile_language_destroy);
+	assert(snapshot);
+	assert(rutile_language_diagnostic_count(snapshot.get()) == 1);
+	RutileLanguageDiagnostic diagnostic{};
+	assert(rutile_language_diagnostic(snapshot.get(), 0, &diagnostic));
+	assert(diagnostic.range.source == 0);
+	assert(diagnostic.range.begin == begin);
+	assert(diagnostic.range.end == end);
+	assert(std::string_view(diagnostic.message.data, diagnostic.message.size).find(expected) != std::string_view::npos);
+}
+
 int main() {
 	std::string declarations = R"rt(
 struct Foo { i32 data; };
@@ -138,5 +151,10 @@ fn use() -> i32 {
 	assert(rutile_language_symbol_count(snapshot.get()) > 0);
 	assert(!rutile_language_analyze(input, 2, 64, cancelled, nullptr));
 	assert(shared_analysis_tests() == 42);
+	check_syntax_diagnostic("?", 0, 1, "found '?'");
+	check_syntax_diagnostic(std::string_view("\0", 1), 0, 1, "found '\\0'");
+	check_syntax_diagnostic("1e+", 0, 3, "found '1e+'");
+	check_syntax_diagnostic("\"open", 0, 5, "found '\"open'");
+	check_syntax_diagnostic("fn broken(", 10, 10, "found end of file");
 	return 42;
 }

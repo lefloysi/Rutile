@@ -37,6 +37,7 @@ struct Diagnostics {
 	fn Diagnostics(Diagnostics& this, NativeFile* output);
 
 	fn error(Diagnostics& this, const Token& location, const rt::string_view& message);
+	fn syntax_error(Diagnostics& this, const Token& location, const rt::string_view& message);
 	fn note(Diagnostics& this, const Token& location, const rt::string_view& message);
 	fn replay(const Diagnostics& this, NativeFile* output);
 	fn records(const Diagnostics& this) -> const rt::buffer<DiagnosticRecord>&;
@@ -193,4 +194,19 @@ fn Diagnostics::replay(const Diagnostics& this, NativeFile* output) {
 		};
 		@index = index + 1;
 	};
+};
+
+fn Diagnostics::syntax_error(Diagnostics& this, const Token& location, const rt::string_view& message) {
+	var rendered = DiagnosticMessage();
+	@rendered.text(message);
+	if (location.source) {
+		if (location.kind == token_kind::eof) {
+			@rendered.text("; found end of file\0");
+		}
+		else if (location.length) {
+			@rendered.text("; found \0");
+			@rendered.quoted(location.text());
+		};
+	};
+	@this.error(location, rendered.view());
 };

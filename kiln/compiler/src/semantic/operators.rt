@@ -1,3 +1,33 @@
+fn diagnostic_unary_operand(Diagnostics& diagnostics, Syntax& syntax, const rt::string_view& reason, const SemanticExpression& operand) {
+	var message = DiagnosticMessage();
+	@message.text(reason);
+	@message.text("; operator \0");
+	@message.quoted(syntax.token().text());
+	@message.text(" received \0");
+	if (operand.category() == value_category::place) {
+		@message.text("a place of type '\0");
+	}
+	else {
+		@message.text("a consumable of type '\0");
+	};
+	diagnostic_type(@message, *operand.type());
+	@message.text("'\0");
+	@diagnostics.error(syntax.token(), message.view());
+};
+
+fn diagnostic_binary_operands(Diagnostics& diagnostics, Syntax& syntax, const rt::string_view& reason, const Type& first, const Type& second) {
+	var message = DiagnosticMessage();
+	@message.text(reason);
+	@message.text("; operator \0");
+	@message.quoted(syntax.token().text());
+	@message.text(" received operand types '\0");
+	diagnostic_type(@message, first);
+	@message.text("' and '\0");
+	diagnostic_type(@message, second);
+	@message.text("'\0");
+	@diagnostics.error(syntax.token(), message.view());
+};
+
 fn numeric_literal_expression(const Syntax& syntax) -> bool {
 	if (syntax.kind() == syntax_kind::number) {
 		return true;
@@ -47,7 +77,7 @@ fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optio
 
 	if (operation.kind == token_kind::op_access || operation.kind == token_kind::op_relocate || operation.kind == token_kind::op_ampersand) {
 		if (operand.get()->category() != value_category::place) {
-			@this.error(&syntax, "operator requires a place\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "operator requires a place\0", *operand.get());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -61,7 +91,12 @@ fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optio
 		}
 		else {
 			if (type->qualifier() == type_qualifier::immutable || !operand.get()->owned_binding() && !operand.get()->indirect_storage()) {
-				@this.error(&syntax, "cannot relocate a const object or a borrowed reference\0");
+				if (type->qualifier() == type_qualifier::immutable) {
+					diagnostic_unary_operand(@*this.diagnostics, @syntax, "cannot relocate a const object\0", *operand.get());
+				}
+				else {
+					diagnostic_unary_operand(@*this.diagnostics, @syntax, "cannot relocate a borrowed reference\0", *operand.get());
+				};
 
 				return rt::unique<SemanticExpression>();
 			};
@@ -71,7 +106,7 @@ fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optio
 	}
 	else if (operation.kind == token_kind::op_star) {
 		if (type->kind() != type_kind::pointer || type->element()->kind() == type_kind::void_type || type->element()->kind() == type_kind::null_type) {
-			@this.error(&syntax, "dereference requires a pointer to an object\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "dereference requires a pointer to an object\0", *operand.get());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -81,7 +116,7 @@ fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optio
 	}
 	else if (operation.kind == token_kind::op_bang) {
 		if (!type->kind().is_scalar()) {
-			@this.error(&syntax, "logical negation requires a scalar\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "logical negation requires a scalar\0", *operand.get());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -90,20 +125,20 @@ fn Analyzer::unary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optio
 	}
 	else if (operation.kind == token_kind::op_tilde) {
 		if (!type->kind().is_integer()) {
-			@this.error(&syntax, "bitwise complement requires an integer\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "bitwise complement requires an integer\0", *operand.get());
 
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else if (operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus) {
 		if (!type->kind().is_numeric()) {
-			@this.error(&syntax, "unary arithmetic requires a numeric value\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "unary arithmetic requires a numeric value\0", *operand.get());
 
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else {
-		@this.error(&syntax, "unary operator is not implemented\0");
+		diagnostic_unary_operand(@*this.diagnostics, @syntax, "unary operator is not implemented\0", *operand.get());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -188,7 +223,7 @@ fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::opti
 	};
 
 	if (assignment && (left.get()->category() != value_category::place || !left.get()->mutable_access())) {
-		@this.error(&syntax, "assignment requires explicit mutable access to a place\0");
+		diagnostic_unary_operand(@*this.diagnostics, @syntax, "assignment requires explicit mutable access to a place\0", *left.get());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -205,7 +240,7 @@ fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::opti
 
 	if (comparison && (type->kind() == type_kind::pointer || other->kind() == type_kind::pointer)) {
 		if (type->kind() != type_kind::pointer || other->kind() != type_kind::pointer) {
-			@this.error(&syntax, "pointer comparison requires compatible pointer types\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "pointer comparison requires compatible pointer types\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -218,7 +253,7 @@ fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::opti
 			@type = other;
 		}
 		else {
-			@this.error(&syntax, "pointer comparison requires compatible pointer types\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "pointer comparison requires compatible pointer types\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -240,20 +275,20 @@ fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::opti
 
 	if (assignment) {
 		if (type->kind() == type_kind::array) {
-			@this.error(&syntax, "aggregate assignment function selection is not implemented\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "aggregate assignment function selection is not implemented\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
 
 		if (type->kind() == type_kind::named && !type->same_shape(*other)) {
-			@this.error(&syntax, "enumeration assignment requires the same enumeration type\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "enumeration assignment requires the same enumeration type\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else if (logical || comparison) {
 		if (!type->representation()->kind().is_scalar() || !other->representation()->kind().is_scalar()) {
-			@this.error(&syntax, "built-in comparison requires scalar operands\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "built-in comparison requires scalar operands\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -262,20 +297,20 @@ fn Analyzer::binary(Analyzer& this, Scope& scope, Syntax& syntax, const rt::opti
 	}
 	else if (type->kind() == type_kind::pointer && (operation.kind == token_kind::op_plus || operation.kind == token_kind::op_minus)) {
 		if (!other->kind().is_integer() || type->element()->kind() == type_kind::void_type || type->element()->kind() == type_kind::null_type) {
-			@this.error(&syntax, "pointer offset requires an integer and object element type\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "pointer offset requires an integer and object element type\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
 	}
 	else {
 		if (!type->kind().is_numeric() || !other->kind().is_numeric() || type->kind() != other->kind() || type->bits() != other->bits()) {
-			@this.error(&syntax, "arithmetic requires matching numeric types\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "arithmetic requires matching numeric types\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
 
 		if ((operation.kind == token_kind::op_remainder || operation.kind == token_kind::op_ampersand || operation.kind == token_kind::op_pipe || operation.kind == token_kind::op_caret || operation.kind == token_kind::op_shift_left || operation.kind == token_kind::op_shift_right) && !type->kind().is_integer()) {
-			@this.error(&syntax, "bitwise arithmetic requires integers\0");
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "bitwise arithmetic requires integers\0", *type, *other);
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -323,7 +358,15 @@ fn Analyzer::cast(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 
 	if (destination->kind() == type_kind::reference) {
 		if (value.get()->category() != value_category::place) {
-			@this.error(&syntax, "reference cast requires a place\0");
+			var message = DiagnosticMessage();
+			@message.text("reference cast \0");
+			@message.quoted(operation.text());
+			@message.text(" to '\0");
+			diagnostic_type(@message, *target);
+			@message.text("' requires a place; received a consumable of type '\0");
+			diagnostic_type(@message, *source);
+			@message.text("'\0");
+			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -349,9 +392,23 @@ fn Analyzer::cast(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	else {
 		Entity* conversion = @this.conversion_function(*value.get(), *destination, conversion_mode::explicit_only);
 
+		if (this.failed()) {
+			return rt::unique<SemanticExpression>();
+		};
 		if (conversion) {
-			if (conversion->definition() == function_definition::deleted || !this.accessible(*conversion, @scope)) {
-				@this.error(&syntax, "selected conversion is deleted or inaccessible\0");
+			if (conversion->definition() == function_definition::deleted) {
+				@this.deleted_function(syntax.token(), *conversion);
+				return rt::unique<SemanticExpression>();
+			};
+			if (!this.accessible(*conversion, @scope)) {
+				var message = DiagnosticMessage();
+				@message.text("selected conversion '\0");
+				diagnostic_entity(@message, *conversion);
+				@message.text("' of type '\0");
+				diagnostic_type(@message, *conversion->type());
+				@message.text("' is not accessible from this scope\0");
+				@this.report(syntax.token(), message.view());
+				@this.note(conversion->token(), "conversion is declared here\0");
 
 				return rt::unique<SemanticExpression>();
 			};
@@ -395,7 +452,15 @@ fn Analyzer::cast(Analyzer& this, Scope& scope, Syntax& syntax, const rt::option
 	};
 
 	if (!allowed) {
-		@this.error(&syntax, "cast does not permit this conversion\0");
+		var message = DiagnosticMessage();
+		@message.text("cast \0");
+		@message.quoted(operation.text());
+		@message.text(" does not permit conversion from '\0");
+		diagnostic_type(@message, *source);
+		@message.text("' to '\0");
+		diagnostic_type(@message, *target);
+		@message.text("'\0");
+		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
@@ -429,7 +494,7 @@ fn Analyzer::component(Analyzer& this, Scope& scope, Syntax& syntax, const rt::o
 
 	if (syntax.kind() == syntax_kind::index) {
 		if (type->kind() != type_kind::pointer && type->kind() != type_kind::array) {
-			@this.error(&syntax, "indexing requires an array or pointer\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "indexing requires an array or pointer\0", *object.get());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -437,8 +502,11 @@ fn Analyzer::component(Analyzer& this, Scope& scope, Syntax& syntax, const rt::o
 		const Type* element = type->element();
 		var index = @this.expression(@scope, @*syntax.item(1), rt::optional_ref<const Type>());
 
-		if (!index.get() || !index.get()->type()->kind().is_integer()) {
-			@this.error(&syntax, "index requires an integer\0");
+		if (!index.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (!index.get()->type()->kind().is_integer()) {
+			diagnostic_binary_operands(@*this.diagnostics, @syntax, "index requires an integer\0", *type, *index.get()->type());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -464,7 +532,7 @@ fn Analyzer::component(Analyzer& this, Scope& scope, Syntax& syntax, const rt::o
 
 	if (syntax.token().kind == token_kind::op_arrow) {
 		if (type->kind() != type_kind::pointer) {
-			@this.error(&syntax, "arrow member access requires a pointer\0");
+			diagnostic_unary_operand(@*this.diagnostics, @syntax, "arrow member access requires a pointer\0", *object.get());
 
 			return rt::unique<SemanticExpression>();
 		};
@@ -491,21 +559,53 @@ fn Analyzer::member_value(Analyzer& this, Scope& scope, Syntax& syntax, rt::uniq
 	const Type* type = object.get()->type();
 
 	if (type->kind() != type_kind::named || !type->entity()->members()) {
-		@this.error(&syntax, "member access requires a class or enum object\0");
+		var message = DiagnosticMessage();
+		@message.text("member access for \0");
+		@message.quoted(syntax.member_name()->token().text());
+		@message.text(" requires a class or enum object; received '\0");
+		diagnostic_type(@message, *type);
+		@message.text("'\0");
+		@this.report(syntax.member_name()->token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
 
 	Entity* field = type->entity()->find_member(syntax.member_name()->token().text());
 
-	if (!field || field->kind() != entity_kind::field || !@this.resolve(Entity*(field))) {
-		@this.error(&syntax, "unknown data member\0");
+	if (!field || field->kind() != entity_kind::field) {
+		var message = DiagnosticMessage();
+		if (!field) {
+			@message.text("unknown data member \0");
+			@message.quoted(syntax.member_name()->token().text());
+			@message.text(" in type '\0");
+			diagnostic_type(@message, *type);
+			@message.text("'\0");
+		}
+		else {
+			@message.text("member '\0");
+			diagnostic_entity(@message, *field);
+			@message.text("' does not denote a data member\0");
+		};
+		@this.report(syntax.member_name()->token(), message.view());
+		if (field) {
+			@this.note(field->token(), "member is declared here\0");
+		};
 
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (!@this.resolve(Entity*(field))) {
+		return rt::unique<SemanticExpression>();
+	};
 	if (!this.accessible(*field, @scope)) {
-		@this.error(&syntax, "private or protected member is not accessible\0");
+		var message = DiagnosticMessage();
+		@message.text("data member '\0");
+		diagnostic_entity(@message, *field);
+		@message.text("' of type '\0");
+		diagnostic_type(@message, *field->type());
+		@message.text("' is not accessible from this scope\0");
+		@this.report(syntax.member_name()->token(), message.view());
+		@this.note(field->token(), "data member is declared here\0");
 
 		return rt::unique<SemanticExpression>();
 	};
