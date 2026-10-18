@@ -38,7 +38,7 @@ internal static class HighlightingTests {
 	private static async Task Semantic() {
 		var layer = new RutileSemanticColors();
 		Require(layer.CanHandle("initialize") && !layer.CanHandle("textDocument/hover"), "initialize only");
-		var response = JObject.Parse("{ 'capabilities': { 'semanticTokensProvider': { 'legend': { 'tokenTypes': ['type','class','struct','enum','interface','typeParameter','keyword','number','custom'], 'tokenModifiers':['declaration','readonly'] }, 'full': true } } }");
+		var response = JObject.Parse("{ 'capabilities': { 'semanticTokensProvider': { 'legend': { 'tokenTypes': ['type','class','struct','enum','interface','typeParameter','keyword','number','custom','function','method','namespace','enumMember'], 'tokenModifiers':['declaration','readonly'] }, 'full': true } } }");
 		var parameters = new JObject();
 		var calls = 0;
 		var result = await layer.HandleRequestAsync("initialize", parameters, value => {
@@ -48,10 +48,13 @@ internal static class HighlightingTests {
 		});
 		Require(calls == 1 && ReferenceEquals(result, response), "response forwarding");
 		var legend = result!["capabilities"]!["semanticTokensProvider"]!["legend"]!;
-		Require(legend["tokenTypes"]!.Count() == 9, "legend index count must not change");
+		Require(legend["tokenTypes"]!.Count() == 13, "legend index count must not change");
 		Require(legend["tokenTypes"]!.Take(5).All(value => (string?)value == "cppType"), "bound types use C++ type style");
 		Require((string?)legend["tokenTypes"]![5] == "cppGenericType", "template parameter classification");
 		Require((string?)legend["tokenTypes"]![6] == "keyword" && (string?)legend["tokenTypes"]![8] == "custom", "unmapped tokens unchanged");
+		Require((string?)legend["tokenTypes"]![9] == "cppFunction" && (string?)legend["tokenTypes"]![10] == "cppMemberFunction", "functions use C++ function colors");
+		Require((string?)legend["tokenTypes"]![11] == "cppNamespace", "namespaces use C++ namespace colors");
+		Require((string?)legend["tokenTypes"]![12] == (string?)legend["tokenTypes"]![9], "enum values share the function palette");
 		Require(legend["tokenModifiers"]!.Count() == 2 && (string?)legend["tokenModifiers"]![1] == "readonly", "modifiers unchanged");
 		var missing = new JObject();
 		Require(ReferenceEquals(await layer.HandleRequestAsync("initialize", parameters, _ => Task.FromResult<JToken?>(missing)), missing), "server without semantic tokens");

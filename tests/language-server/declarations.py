@@ -12,8 +12,8 @@ def matches(locations, uri, source, name):
 	assert locations and all(item['uri'] == uri and item['range']['start'] == expected for item in locations), (locations, uri, expected)
 
 
-def follow(client, location, method='textDocument/definition'):
-	return client.request(method, {'textDocument': {'uri': location['uri']}, 'position': location['range']['start']})
+def follow(client, location, method='textDocument/definition', endpoint='start'):
+	return client.request(method, {'textDocument': {'uri': location['uri']}, 'position': location['range'][endpoint]})
 
 
 def main(server):
@@ -42,11 +42,13 @@ def main(server):
 			]:
 				locations = client.request('textDocument/definition', at(third, uses, use))
 				matches(locations, first, declarations, declaration)
-				for _ in range(3):
-					locations = follow(client, locations[0])
-					matches(locations, second, definitions, definition)
-					locations = follow(client, locations[0])
-					matches(locations, first, declarations, declaration)
+				for endpoint in ['start', 'end']:
+					for _ in range(3):
+						locations = follow(client, locations[0], endpoint=endpoint)
+						matches(locations, second, definitions, definition)
+						locations = follow(client, locations[0], endpoint=endpoint)
+						matches(locations, first, declarations, declaration)
+
 				print(name + ' use->declaration->definition->declaration: PASS', flush=True)
 
 			for needle in ['object.value=42', 'pointer->value']:
@@ -60,8 +62,10 @@ def main(server):
 			field = client.request('textDocument/definition', at(third, uses, 'value=42'))
 			matches(field, second, definitions, 'value;')
 			matches(follow(client, field[0]), second, definitions, 'value;')
+			matches(follow(client, field[0], endpoint='end'), second, definitions, 'value;')
 			alias = client.request('textDocument/definition', at(third, uses, 'Alias='))
 			matches(alias, third, uses, 'Alias=')
+			matches(follow(client, alias[0], endpoint='end'), third, uses, 'Alias=')
 			print('single-location fields and aliases retain their declaration: PASS', flush=True)
 
 			# Moving a declaration must preserve toggling in the new snapshot.

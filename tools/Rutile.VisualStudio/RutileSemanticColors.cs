@@ -53,7 +53,7 @@ namespace Rutile.VisualStudio {
 				case "property":
 					return "cppMemberField";
 				case "enumMember":
-					return "cppEnumerator";
+					return "cppFunction";
 				default:
 					return null;
 			}

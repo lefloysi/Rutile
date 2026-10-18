@@ -64,13 +64,15 @@ that the installed Visual Studio client activates correctly; verify that separat
 F12 on a use navigates to its declaration. F12 on that declaration navigates to its definition;
 F12 on the definition returns to the declaration. A type name follows the same rule. Type
 navigation on an object follows its compiler-resolved type, including pointer and reference
-targets. Symbols with only one source location retain that location.
+targets. Repeated F12 also works when the editor leaves the target name selected, with the caret
+at either end. Symbols with only one source location retain that location.
 
 Semantic colors come from compiler bindings, including template parameters validated before
 instantiation. Visual Studio uses its existing C++ classifications: ordinary keywords, control
-keywords, types, members, and functions retain their theme-specific C++ colors. Comments, strings,
-numbers, and reserved keywords are highlighted immediately by the editor. Contextual keywords
-are classified by the compiler syntax tree.
+keywords, types, members, and functions retain their theme-specific C++ colors. Built-in type
+names use the keyword classification; user-defined types retain the type classification. Comments,
+strings, numbers, and reserved keywords are highlighted immediately by the editor. Contextual
+keywords are classified by the compiler syntax tree.
 
 Projects built by another build system can define
 [editor source groups](../compiler/docs/editor-project.md).

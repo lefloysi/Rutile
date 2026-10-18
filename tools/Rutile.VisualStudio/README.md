@@ -10,7 +10,11 @@ Rename is not advertised by the server.
 
 Highlighting follows Visual Studio's existing C++ classifications and theme settings: ordinary
 keywords use the keyword style, control-flow words use the distinct C++ control-keyword style,
-and bound types use the C++ type style. Comments, strings, and numbers are colored immediately.
+and bound user types use the C++ type style. Primitive types use the ordinary keyword style.
+Functions and enum values share the C++ function palette; methods retain the C++ member-function
+style, and namespaces use the C++ namespace style. These respect Visual Studio theme and user
+Fonts and Colors settings rather than fixing RGB values independently.
+Comments, strings, and numbers are colored immediately.
 User-defined type names and aliases come from compiler bindings, not naming patterns.
 Contextual words such as access labels and casts are classified from compiler syntax.
 

@@ -40,6 +40,9 @@ private:
 	i32 hidden;
 };
 using Alias = Foo;
+using Byte = u08;
+fn primitive_shadow(i32 u08)->i32 { return u08; };
+fn primitives(u08 small, usize count, bool flag, char letter, ptrdiff difference)->i32 { return 0; };
 template<typename T> struct Box { T item; };
 template<typename U> struct Shadow { i32 U; };
 fn shadow_name(i32 T)->i32 { return T; };
@@ -60,7 +63,7 @@ fn main()->i32 { Foo value; "emoji 😀"; return read(value); };
 			assert latest_diagnostics(client, uri, 1) == []
 			full = client.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
 			tokens = decode(full, legend)
-			for needle, expected in [("Foo {", "struct"), ("Foo;", "struct"), ("Alias =", "type"), ("T> struct", "typeParameter"), ("T item", "typeParameter"), ("input)->", "parameter"), ("field;", "property"), ("read(Foo", "function"), ("i32 field", "type"), ("public:", "keyword"), ("private:", "keyword"), ("operator+", "keyword"), ("auto Foo", "keyword"), ("static_cast<i32>", "keyword"), ("auto =", "variable"), ("public =", "variable")]:
+			for needle, expected in [("Foo {", "struct"), ("Foo;", "struct"), ("Alias =", "type"), ("T> struct", "typeParameter"), ("T item", "typeParameter"), ("input)->", "parameter"), ("field;", "property"), ("read(Foo", "function"), ("i32 field", "keyword"), ("u08;", "keyword"), ("Byte =", "type"), ("u08 small", "keyword"), ("usize count", "keyword"), ("bool flag", "keyword"), ("char letter", "keyword"), ("ptrdiff difference", "keyword"), ("u08)->i32", "parameter"), ("u08; };", "parameter"), ("public:", "keyword"), ("private:", "keyword"), ("operator+", "keyword"), ("auto Foo", "keyword"), ("static_cast<i32>", "keyword"), ("auto =", "variable"), ("public =", "variable")]:
 				token_at(tokens, source, needle, expected)
 			token_at(tokens, source, "T)->i32", "parameter")
 			token_at(tokens, source, "U> struct", "typeParameter")

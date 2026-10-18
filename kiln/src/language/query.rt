@@ -124,22 +124,33 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, const LanguageIndex&
 			@last = $middle;
 		};
 	};
-	while (first) {
-		@first = first - 1;
-		const NavigationOccurrence& candidate = index.occurrences.data()[first];
-		if (candidate.range.source != source || candidate.range.end <= original) {
-			break;
-		};
-		SourceRange mapped;
-		if (@this.mapped(index, candidate.range, @mapped) && mapped.begin <= current && current < mapped.end) {
-			usize duplicate = 0;
-			while (duplicate < result.size() && result.data()[duplicate] != candidate.symbol) {
-				@duplicate = duplicate + 1;
+	usize boundary = first;
+	usize pass = 0;
+	while (pass < 2 && !result.size()) {
+		@first = boundary;
+		while (first) {
+			@first = first - 1;
+			const NavigationOccurrence& candidate = index.occurrences.data()[first];
+			if (candidate.range.source != source || candidate.range.end < original) {
+				break;
 			};
-			if (duplicate == result.size() && !@result.push_back(u64(candidate.symbol))) {
-				return false;
+			SourceRange mapped;
+			if (!@this.mapped(index, candidate.range, @mapped)) {
+				continue;
+			};
+			bool contains = mapped.begin <= current && current < mapped.end;
+			bool selected_end = pass == 1 && mapped.begin < mapped.end && current == mapped.end;
+			if (contains || selected_end) {
+				usize duplicate = 0;
+				while (duplicate < result.size() && result.data()[duplicate] != candidate.symbol) {
+					@duplicate = duplicate + 1;
+				};
+				if (duplicate == result.size() && !@result.push_back(u64(candidate.symbol))) {
+					return false;
+				};
 			};
 		};
+		@pass = pass + 1;
 	};
 	return true;
 };
@@ -333,7 +344,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, const rt::string_view& 
 					@this.cursor(*index, parameters, @source, @offset)
 					&& source == symbol.declaration.source
 					&& symbol.declaration.begin <= offset
-					&& offset < symbol.declaration.end
+					&& offset <= symbol.declaration.end
 				) {
 					@range = SourceRange(symbol.definition);
 				};
