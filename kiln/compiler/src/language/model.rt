@@ -1,0 +1,127 @@
+struct AnalysisSource {
+	rt::string_view path;
+	rt::string_view text;
+};
+
+struct SourceRange {
+	fn SourceRange(SourceRange& this) : [default];
+	fn SourceRange(SourceRange& this, const SourceRange& other) : [implicit, default];
+
+	usize source;
+	usize begin;
+	usize end;
+};
+
+struct NavigationSymbol {
+	fn NavigationSymbol(NavigationSymbol& this) : [default];
+	fn NavigationSymbol(NavigationSymbol& this, const NavigationSymbol& other) : [implicit, default];
+
+	u64 id;
+	u64 container;
+	u64 origin;
+	u32 kind;
+	u32 flags;
+	SourceRange declaration;
+	SourceRange definition;
+	rt::string_view name;
+	rt::string_view detail;
+};
+
+struct NavigationOccurrence {
+	fn NavigationOccurrence(NavigationOccurrence& this) : [default];
+	fn NavigationOccurrence(NavigationOccurrence& this, const NavigationOccurrence& other) : [implicit, default];
+
+	SourceRange range;
+	u64 symbol;
+	u64 context;
+	u32 roles;
+};
+
+struct LanguageDiagnostic {
+	fn LanguageDiagnostic(LanguageDiagnostic& this) : [default];
+	fn LanguageDiagnostic(LanguageDiagnostic& this, const LanguageDiagnostic& other) : [implicit, default];
+
+	SourceRange range;
+	u32 severity;
+	rt::string_view message;
+};
+
+struct NavigationScope {
+	fn NavigationScope(NavigationScope& this) : [default];
+	fn NavigationScope(NavigationScope& this, const NavigationScope& other) : [implicit, default];
+	u64 id;
+	u64 parent;
+	u64 context;
+	SourceRange range;
+};
+
+struct NavigationBinding {
+	u64 scope;
+	u64 symbol;
+};
+
+struct NavigationCall {
+	u64 symbol;
+	u64 scope;
+	u64 context;
+	SourceRange range;
+	SourceRange callee;
+	rt::buffer<SourceRange> arguments;
+};
+
+struct NavigationParameter {
+	rt::string_view name;
+	rt::string_view detail;
+};
+
+struct NavigationParameterEntry {
+	NavigationParameter value;
+	rt::string detail;
+};
+
+struct NavigationEntry {
+	Entity* entity;
+	u64 member_scope;
+	NavigationSymbol value;
+	rt::string name;
+	rt::string detail;
+	rt::buffer<rt::unique<NavigationParameterEntry>> parameters;
+};
+
+struct NavigationIndex {
+	fn register_source(NavigationIndex& this, SourceFile& source, usize index) -> bool;
+	fn build(NavigationIndex& this, const SemanticUnit& semantics) -> bool;
+	fn symbol_count(const NavigationIndex& this) -> usize;
+	fn symbol_at(const NavigationIndex& this, usize index) -> const NavigationSymbol*;
+	fn occurrence_count(const NavigationIndex& this) -> usize;
+	fn occurrence_at(const NavigationIndex& this, usize index) -> const NavigationOccurrence*;
+	fn range(const NavigationIndex& this, const Token& token) -> SourceRange;
+	fn syntax_range(const NavigationIndex& this, const Syntax& syntax) -> SourceRange;
+	fn scope_count(const NavigationIndex& this) -> usize;
+	fn scope_at(const NavigationIndex& this, usize index) -> const NavigationScope*;
+	fn member_scope(const NavigationIndex& this, u64 symbol) -> u64;
+	fn accessible(const NavigationIndex& this, u64 symbol, u64 scope) -> bool;
+	fn binding_count(const NavigationIndex& this) -> usize;
+	fn binding_at(const NavigationIndex& this, usize index) -> const NavigationBinding*;
+	fn parameter_count(const NavigationIndex& this, u64 symbol) -> usize;
+	fn parameter_at(const NavigationIndex& this, u64 symbol, usize index) -> const NavigationParameter*;
+	fn call_count(const NavigationIndex& this) -> usize;
+	fn call_at(const NavigationIndex& this, usize index) -> const NavigationCall*;
+
+private:
+	fn scope_id(NavigationIndex& this, const Scope& scope) -> u64;
+	fn build_contexts(NavigationIndex& this, const SemanticUnit& semantics) -> bool;
+	fn symbol_id(const NavigationIndex& this, const Entity* entity) -> u64;
+	fn declaration_name(const NavigationIndex& this, Syntax& declaration) -> Token;
+	fn symbol_kind(const NavigationIndex& this, const Entity& entity) -> u32;
+
+	rt::buffer<rt::unique<NavigationEntry>> symbols;
+	rt::buffer<NavigationOccurrence> occurrences;
+	rt::buffer<NavigationScope> scope_locations;
+	rt::buffer<NavigationBinding> bindings;
+	rt::buffer<rt::unique<NavigationCall>> calls;
+	rt::unordered_map<const Scope*, u64> scope_ids;
+	rt::buffer<const Scope*> scope_records;
+	rt::unordered_map<const Entity*, u64> ids;
+	rt::unordered_map<const SourceFile*, usize> source_ids;
+};

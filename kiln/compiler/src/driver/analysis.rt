@@ -1,0 +1,76 @@
+struct Analysis {
+	fn Analysis(Analysis& this) : [default];
+	fn Analysis(Analysis& this, NativeFile* output);
+
+	fn add_source(Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool;
+	fn load_source(Analysis& this, const char* path, FileOpener opener) -> bool;
+	fn analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancelled, void* context) -> bool;
+
+	fn source_count(const Analysis& this) -> usize;
+	fn source_path(const Analysis& this, usize index) -> rt::string_view;
+	fn source_text(const Analysis& this, usize index) -> rt::string_view;
+	fn semantics(const Analysis& this) -> const SemanticUnit*;
+	fn diagnostics(const Analysis& this) -> const Diagnostics&;
+	fn navigation(const Analysis& this) -> const NavigationIndex&;
+	fn pointer_bits(const Analysis& this) -> u32;
+
+private:
+	SourceManager sources;
+	TypeStore types;
+	rt::buffer<rt::unique<Syntax>> syntax;
+	rt::unique<SemanticUnit> semantic_unit;
+	Diagnostics messages;
+	NavigationIndex index;
+	u32 target_pointer_bits;
+};
+
+fn Analysis::Analysis(Analysis& this, NativeFile* output) {
+	@this.messages = Diagnostics($output);
+};
+
+fn Analysis::add_source(Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool {
+	SourceFile* source = @this.sources.add(path, text);
+	return source && @this.index.register_source(@*source, this.sources.count() - 1);
+};
+
+fn Analysis::load_source(Analysis& this, const char* path, FileOpener opener) -> bool {
+	var reader = SourceReader($opener, @this.sources, @this.messages);
+	SourceFile* source = @reader.load($path);
+	return source && @this.index.register_source(@*source, this.sources.count() - 1);
+};
+
+fn Analysis::source_count(const Analysis& this) -> usize {
+	return this.sources.count();
+};
+
+fn Analysis::source_path(const Analysis& this, usize index) -> rt::string_view {
+	const SourceFile* source = this.sources.at($index);
+	if (!source) {
+		return rt::string_view();
+	};
+	return source->path();
+};
+
+fn Analysis::source_text(const Analysis& this, usize index) -> rt::string_view {
+	const SourceFile* source = this.sources.at($index);
+	if (!source) {
+		return rt::string_view();
+	};
+	return source->text();
+};
+
+fn Analysis::semantics(const Analysis& this) -> const SemanticUnit* {
+	return this.semantic_unit.get();
+};
+
+fn Analysis::diagnostics(const Analysis& this) -> const Diagnostics& {
+	return this.messages;
+};
+
+fn Analysis::navigation(const Analysis& this) -> const NavigationIndex& {
+	return this.index;
+};
+
+fn Analysis::pointer_bits(const Analysis& this) -> u32 {
+	return this.target_pointer_bits;
+};

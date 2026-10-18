@@ -1,0 +1,33 @@
+fn language_text_tests() -> i32 {
+	LanguageText text;
+	if (!@text.assign(rt::string_view("a😀b\r\nc\0"))) {
+		return 1;
+	};
+	if (text.offset(0, 3) != 5 || text.offset(1, 0) != 8 || text.offset(0, 2) != 1) {
+		return 2;
+	};
+	var position = text.position(5);
+	if (position.line || position.character != 3) {
+		return 3;
+	};
+	var second = text.position(8);
+	if (second.line != 1 || second.character) {
+		return 4;
+	};
+
+	rt::string uri;
+	if (!LanguageUri::encode(rt::string_view("C:/with space/é.rt\0"), @uri) || uri.view() != rt::string_view("file:///C:/with%20space/%C3%A9.rt\0")) {
+		return 5;
+	};
+	rt::string path;
+	if (!LanguageUri::decode(uri.view(), @path) || path.view() != rt::string_view("C:/with space/é.rt\0")) {
+		return 6;
+	};
+	if (LanguageUri::decode(rt::string_view("file:///C:/bad%00.rt\0"), @path) || LanguageUri::decode(rt::string_view("file:///C:/bad%QZ.rt\0"), @path)) {
+		return 7;
+	};
+	if (!LanguageUri::decode(rt::string_view("file://server/share/test.rt\0"), @path) || path.view() != rt::string_view("//server/share/test.rt\0")) {
+		return 8;
+	};
+	return 42;
+};

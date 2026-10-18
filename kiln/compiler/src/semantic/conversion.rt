@@ -1,0 +1,299 @@
+fn numeric_literal_expression(const SemanticExpression& expression) -> bool {
+	if (expression.kind() == semantic_kind::literal_integer || expression.kind() == semantic_kind::literal_real) {
+		return expression.token().kind == token_kind::literal_number;
+	};
+
+	if (expression.kind() == semantic_kind::unary && (expression.operation() == token_kind::op_plus || expression.operation() == token_kind::op_minus)) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	if (expression.kind() == semantic_kind::binary && expression.operation() != token_kind::op_assign && expression.operation() != token_kind::op_copy) {
+		return numeric_literal_expression(*expression.item(0)) && numeric_literal_expression(*expression.item(1));
+	};
+
+	if (expression.kind() == semantic_kind::cast && expression.token().kind == token_kind::literal_number) {
+		return numeric_literal_expression(*expression.item(0));
+	};
+
+	return false;
+};
+
+fn Analyzer::compatible(const Analyzer& this, const Type* source, const Type* target) -> bool {
+	if (source == target) {
+		return true;
+	};
+
+	if (!source || !target) {
+		return false;
+	};
+
+	if (source->same_shape(*target) && source->representation()->kind().is_scalar()) {
+		return true;
+	};
+
+	if (target->kind() == type_kind::boolean && source->representation()->kind().is_scalar()) {
+		return true;
+	};
+
+	if (source->kind() != type_kind::pointer || target->kind() != type_kind::pointer) {
+		return false;
+	};
+
+	const Type* from = source->element();
+	const Type* to = target->element();
+
+	if (from->kind() == type_kind::null_type) {
+		return true;
+	};
+
+	if (from->qualifier() == type_qualifier::immutable && to->qualifier() == type_qualifier::mutable) {
+		return false;
+	};
+
+	if (to->kind() == type_kind::void_type && from->kind() != type_kind::function) {
+		return true;
+	};
+
+	return from->same_shape(*to) || from->derived_from(*to);
+};
+
+fn Analyzer::builtin_rank(const Analyzer& this, const SemanticExpression& value, const Type& expected) -> i32 {
+	if (expected.kind() == type_kind::reference) {
+		if (value.category() != value_category::place && expected.element()->qualifier() == type_qualifier::mutable) {
+			return -1;
+		};
+
+		const Type* target = expected.element();
+
+		if (target->qualifier() == type_qualifier::mutable && !value.mutable_access()) {
+			return -1;
+		};
+
+		if (target->qualifier() == type_qualifier::immutable && target->kind().is_numeric() && value.category() == value_category::consumable && numeric_literal_expression(value)) {
+			return 1;
+		};
+
+		if ((!value.type()->same_shape(*target) && !value.type()->derived_from(*target)) || value.type()->qualifier() == type_qualifier::immutable && target->qualifier() == type_qualifier::mutable) {
+			return -1;
+		};
+
+		if (value.category() == value_category::consumable) {
+			return 1;
+		};
+
+		if (!value.type()->same_shape(*target)) {
+			return 1;
+		};
+
+		return 0;
+	};
+
+	if (expected.kind().is_numeric() && numeric_literal_expression(value)) {
+		return 0;
+	};
+
+	i32 materialization = 0;
+
+	if (value.category() == value_category::place) {
+		if (value.type()->kind() == type_kind::named && value.type()->entity()->kind() == entity_kind::record) {
+			return -1;
+		};
+
+		@materialization = 8;
+	};
+
+	if (value.type()->same_shape(expected)) {
+		return $materialization;
+	};
+
+	if (this.compatible(value.type(), &expected)) {
+		return materialization + 1;
+	};
+
+	if (value.kind() == semantic_kind::literal_integer && expected.kind().is_numeric()) {
+		return 2;
+	};
+
+	return -1;
+};
+
+fn Analyzer::convert(Analyzer& this, rt::unique<SemanticExpression> value, const rt::optional_ref<const Type>& expected, Syntax& syntax) -> rt::unique<SemanticExpression> {
+	if (!value.get() || !expected.has_value()) {
+		return $value;
+	};
+
+	if (@this.argument_rank(*value.get(), expected.value()) < 0) {
+		if (this.failed()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		const Type* target = expected.get();
+		if (target->kind() == type_kind::reference) {
+			@target = target->element();
+		};
+		if (expected.value().kind() != type_kind::reference || target->qualifier() == type_qualifier::immutable) {
+			var constructor = @this.select_implicit_constructor(*value.get(), *target);
+			var conversion = @this.select_conversion_function(*value.get(), *target, conversion_mode::implicit_allowed);
+			if (this.failed()) {
+				return rt::unique<SemanticExpression>();
+			};
+			if (constructor.conflict) {
+				diagnostic_conversion_ambiguity(@*this.diagnostics, syntax.token(), *value.get()->type(), expected.value(), constructor);
+				return rt::unique<SemanticExpression>();
+			};
+			if (conversion.conflict) {
+				diagnostic_conversion_ambiguity(@*this.diagnostics, syntax.token(), *value.get()->type(), expected.value(), conversion);
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		var message = DiagnosticMessage();
+		@message.text("cannot initialize '\0");
+		diagnostic_type(@message, expected.value());
+		@message.text("' from \0");
+		if (value.get()->category() == value_category::place) {
+			@message.text("a place of type '\0");
+		}
+		else {
+			@message.text("a consumable of type '\0");
+		};
+		diagnostic_type(@message, *value.get()->type());
+		@message.text("'\0");
+		@this.diagnostics->error(syntax.token(), message.view());
+
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (expected.value().kind() == type_kind::reference && expected.value().element()->qualifier() == type_qualifier::immutable && expected.value().element()->kind().is_numeric() && !value.get()->type()->same_shape(*expected.value().element()) && numeric_literal_expression(*value.get())) {
+		var converted = @this.node(semantic_kind::cast, expected.value().element(), &syntax);
+
+		if (!converted.get() || !@converted.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@value = $converted;
+	};
+
+	i32 builtin = this.builtin_rank(*value.get(), expected.value());
+	const Type* target = expected.get();
+	if (target->kind() == type_kind::reference) {
+		@target = target->element();
+	};
+
+	Entity* constructor = nullptr;
+	Entity* conversion = nullptr;
+	if (builtin < 0 || expected.value().kind() != type_kind::reference && value.get()->category() == value_category::place && value.get()->type()->same_shape(*target)) {
+		@constructor = @this.implicit_constructor(*value.get(), *target);
+
+		if (!constructor) {
+			@conversion = @this.conversion_function(*value.get(), *target, conversion_mode::implicit_allowed);
+		};
+	};
+
+	if (builtin < 0 || constructor || conversion) {
+		Entity* selected = constructor;
+		usize source_index = 1;
+
+		if (!selected) {
+			@selected := conversion;
+			@source_index = 0;
+		};
+
+		if (!selected) {
+			var message = DiagnosticMessage();
+			@message.text("no applicable implicit conversion from '\0");
+			diagnostic_type(@message, *value.get()->type());
+			@message.text("' to '\0");
+			diagnostic_type(@message, expected.value());
+			@message.text("'\0");
+			@this.report(syntax.token(), message.view());
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (selected->definition() == function_definition::deleted) {
+			@this.deleted_function(syntax.token(), *selected);
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		@value = @this.convert(rt::unique<SemanticExpression>(@value.release()), rt::optional_ref<const Type>(*selected->parameters().data()[source_index]->type()), @syntax);
+
+		if (!value.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		var arguments = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void\0")), &syntax);
+
+		if (!arguments.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@arguments.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (constructor) {
+			var construction = @this.node(semantic_kind::construction, target, &syntax);
+
+			if (!construction.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@construction.get()->bind(constructor, value_category::consumable);
+
+			if (!@construction.get()->append($arguments)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@value = $construction;
+		}
+		else {
+			var callable = @this.node(semantic_kind::name, conversion->type(), &syntax);
+
+			if (!callable.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@callable.get()->bind(conversion, value_category::place);
+			var call = @this.node(semantic_kind::call, target, &syntax);
+
+			if (!call.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@call.get()->bind(conversion, value_category::consumable);
+
+			if (!@call.get()->append($callable)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (!@call.get()->append($arguments)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@value = $call;
+		};
+	};
+
+	if (value.get()->type() == expected.get() && expected.value().kind() != type_kind::reference) {
+		return $value;
+	};
+
+	var result = @this.node(semantic_kind::cast, target, &syntax);
+
+	if (!result.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (!@result.get()->append($value)) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (expected.value().kind() == type_kind::reference) {
+		@result.get()->set_category(value_category::place);
+		@result.get()->set_mutable_access(target->qualifier() == type_qualifier::mutable);
+	};
+
+	return $result;
+};

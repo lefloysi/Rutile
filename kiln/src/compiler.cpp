@@ -4,6 +4,7 @@
 #include "project.hpp"
 #include "status.hpp"
 #include "configuration.hpp"
+#include "../project/sources.hpp"
 #include "linker.hpp"
 
 #include <nlohmann/json.hpp>
@@ -18,6 +19,8 @@
 extern "C" std::FILE* compiler_open_file(const char* path, const char* mode) {
 	return platform_open_file(std::filesystem::u8path(path), mode);
 }
+
+extern "C" int kiln_emit_target(Compiler* compiler, const char* root, const char* name, const char* output, const char* entry, int optimization, std::FILE* diagnostics);
 
 std::filesystem::path kiln_artifact(const std::filesystem::path& root, std::string_view target, std::string_view profile) {
 	const char* digits = "0123456789abcdef";
@@ -51,7 +54,7 @@ std::string kiln_diagnostics(std::FILE* file) {
 	return text;
 }
 
-std::string kiln_build(struct Compiler* compiler, std::string_view request) {
+std::string kiln_build(struct Compiler* compiler, std::string_view request, build_input source_input) {
 	std::error_code error;
 	auto root = std::filesystem::current_path(error);
 	if (error) {
@@ -92,20 +95,10 @@ std::string kiln_build(struct Compiler* compiler, std::string_view request) {
 	}
 	auto output = kiln_artifact(root, target->name, profile->name);
 	std::vector<std::filesystem::path> sources;
-	std::filesystem::recursive_directory_iterator iterator(target->source, error);
-	while (!error && iterator != std::filesystem::recursive_directory_iterator{}) {
-		if (iterator->is_directory(error) && iterator->path().filename() == ".rt") {
-			iterator.disable_recursion_pending();
-		}
-		else if (!error && iterator->is_regular_file(error) && iterator->path().extension() == ".rt") {
-			sources.push_back(iterator->path());
-		}
-		iterator.increment(error);
+	std::string source_diagnostics;
+	if (!project_target_sources(*target, sources, source_diagnostics)) {
+		return kiln_build_failure(source_diagnostics);
 	}
-	if (error || sources.empty()) {
-		return kiln_build_failure("No readable Rutile source files found in the target source folder.\n");
-	}
-	std::sort(sources.begin(), sources.end());
 	std::filesystem::create_directories(output.parent_path(), error);
 	if (error) {
 		return kiln_build_failure("Could not create .rt/build.\n");
@@ -142,7 +135,13 @@ std::string kiln_build(struct Compiler* compiler, std::string_view request) {
 		return kiln_build_failure("Could not prepare the executable output.\n");
 	}
 	auto start = std::chrono::steady_clock::now();
-	int result = rutile_compile(compiler, arguments.data(), arguments.size(), project_path_utf8(object).c_str(), compiler_open_file, target->entry.c_str(), profile->optimization, diagnostics.get());
+	int result = 1;
+	if (source_input == build_input::editor) {
+		result = kiln_emit_target(compiler, project_path_utf8(root).c_str(), target->name.c_str(), project_path_utf8(object).c_str(), target->entry.c_str(), profile->optimization, diagnostics.get());
+	}
+	else {
+		result = rutile_compile(compiler, arguments.data(), arguments.size(), project_path_utf8(object).c_str(), compiler_open_file, target->entry.c_str(), profile->optimization, diagnostics.get());
+	}
 	std::string messages = kiln_diagnostics(diagnostics.get());
 	if (!result) {
 		result = kiln_link(object, staged, log);

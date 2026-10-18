@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RutileVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\version\release.txt').Trim())</RutileVersion>
+    <Version>$(RutileVersion)</Version>
+    <AssemblyVersion>$(RutileVersion).0</AssemblyVersion>
+    <FileVersion>$(RutileVersion).0</FileVersion>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <GeneratedRutileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\source.extension.vsixmanifest</GeneratedRutileManifest>
+    <GeneratePkgDefFile>false</GeneratePkgDefFile>
+    <IncludePkgdefInVSIXContainer>false</IncludePkgdefInVSIXContainer>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
+    <CreateVsixContainer>true</CreateVsixContainer>
+    <DeployExtension>false</DeployExtension>
+    <RutileBuildProfile>$([System.String]::Copy('$(Configuration)').ToLowerInvariant())</RutileBuildProfile>
+    <RutileServerDirectory Condition="'$(RutileServerDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\build\$(RutileBuildProfile)\bin</RutileServerDirectory>
+    <RutileCrtDirectory Condition="'$(RutileCrtDirectory)' == ''">$(RutileServerDirectory)</RutileCrtDirectory>
+    <RutileYamlName Condition="'$(Configuration)' == 'Debug'">yaml-cppd.dll</RutileYamlName>
+    <RutileYamlName Condition="'$(Configuration)' != 'Debug'">yaml-cpp.dll</RutileYamlName>
+    <RutileDebugCrtDirectory Condition="'$(RutileDebugCrtDirectory)' == ''">$(RutileServerDirectory)</RutileDebugCrtDirectory>
+    <RutileUcrtDirectory Condition="'$(RutileUcrtDirectory)' == ''">$(RutileServerDirectory)</RutileUcrtDirectory>
+    <FileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-files.json</FileManifest>
+    <TemplateOutputDirectory>$(MSBuildProjectDirectory)\obj\$(Configuration)\</TemplateOutputDirectory>
+    <TemplateFileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-template-files.json</TemplateFileManifest>
+    <CreateTemplateManifestsCacheFile>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-template-manifests.cache</CreateTemplateManifestsCacheFile>
+    <TargetVsixContainer>$(MSBuildProjectDirectory)\bin\$(Configuration)\Rutile.VisualStudio.vsix</TargetVsixContainer>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.0.32112.339" />
+    <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Client" Version="17.0.5158" />
+    <PackageReference Include="Microsoft.VisualStudio.Utilities" Version="17.0.32112.339" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.13.2" />
+    <PackageReference Include="Microsoft.VisualStudio.ComponentModelHost" Version="17.0.491" />
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="Microsoft.VisualStudio.Workspace">
+      <HintPath>$(MSBuildToolsPath)\..\..\..\Common7\IDE\CommonExtensions\Microsoft\OpenFolder\Microsoft.VisualStudio.Workspace.dll</HintPath>
+      <Private>false</Private>
+      <IncludeInVSIX>false</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.VisualStudio.Workspace.VSIntegration.Contracts">
+      <HintPath>$(MSBuildToolsPath)\..\..\..\Common7\IDE\CommonExtensions\Microsoft\OpenFolder\Microsoft.VisualStudio.Workspace.VSIntegration.Contracts.dll</HintPath>
+      <Private>false</Private>
+      <IncludeInVSIX>false</IncludeInVSIX>
+    </Reference>
+    <None Include="source.extension.vsixmanifest" />
+    <SourceVsixManifest Include="$(GeneratedRutileManifest)" />
+    <Content Include="$(RutileServerDirectory)\kiln.exe;$(RutileServerDirectory)\LLVM-C.dll;$(RutileServerDirectory)\$(RutileYamlName);$(RutileCrtDirectory)\vcruntime*.dll;$(RutileCrtDirectory)\msvcp*.dll;$(RutileCrtDirectory)\concrt*.dll">
+      <Link>%(Filename)%(Extension)</Link>
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+    <Content Include="$(RutileDebugCrtDirectory)\*.dll;$(RutileUcrtDirectory)\ucrtbased.dll" Condition="'$(Configuration)' == 'Debug'">
+      <Link>%(Filename)%(Extension)</Link>
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets')" />
+  <Target Name="GenerateRutileManifest" BeforeTargets="FindSourceVsixManifest;DetokenizeVsixManifestFile;ValidateVsixManifest">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(RutileVersion)', '^0\.0\.[1-9][0-9]*$'))" Text="version/release.txt has an invalid Rutile release version." />
+    <MakeDir Directories="$(MSBuildProjectDirectory)\obj\$(Configuration)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\source.extension.vsixmanifest" DestinationFiles="$(GeneratedRutileManifest)" />
+    <XmlPoke XmlInputPath="$(GeneratedRutileManifest)" Query="/*[local-name()='PackageManifest']/*[local-name()='Metadata']/*[local-name()='Identity']/@Version" Value="$(RutileVersion)" />
+  </Target>
+  <Target Name="ValidateRutileServer" BeforeTargets="CreateVsixContainer">
+    <Error Condition="!Exists('$(RutileServerDirectory)\kiln.exe')" Text="Build kiln before packaging: $(RutileServerDirectory)\kiln.exe is missing." />
+    <Error Condition="!Exists('$(RutileServerDirectory)\LLVM-C.dll')" Text="LLVM-C.dll is missing from RutileServerDirectory." />
+    <Error Condition="!Exists('$(RutileServerDirectory)\$(RutileYamlName)')" Text="$(RutileYamlName) is missing from RutileServerDirectory." />
+    <Error Condition="!Exists('$(RutileCrtDirectory)\vcruntime140.dll') Or !Exists('$(RutileCrtDirectory)\msvcp140.dll')" Text="The x64 MSVC runtime is missing from RutileCrtDirectory." />
+    <Error Condition="'$(Configuration)' == 'Debug' And (!Exists('$(RutileDebugCrtDirectory)\vcruntime140d.dll') Or !Exists('$(RutileDebugCrtDirectory)\msvcp140d.dll') Or !Exists('$(RutileUcrtDirectory)\ucrtbased.dll'))" Text="The x64 Debug CRT or debug Universal CRT is missing." />
+  </Target>
+</Project>

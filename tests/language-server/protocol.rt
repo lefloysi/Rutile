@@ -1,0 +1,58 @@
+fn tmpfile() -> NativeFile*;
+fn rewind(NativeFile* file);
+
+fn language_protocol_tests() -> i32 {
+	NativeFile* input = tmpfile();
+	NativeFile* output = tmpfile();
+	if (!input || !output) {
+		return 1;
+	};
+
+	var text = rt::string_view("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 2\r\n\r\n{}Content-Length: 4\r\n\r\ntrue\0");
+	if (fwrite(text.data(), 1, text.size(), input) != text.size()) {
+		return 2;
+	};
+	rewind(input);
+
+	{
+		var protocol = LanguageProtocol(@*input, @*output);
+		rt::string body;
+		if (!protocol.ready() || @protocol.read(@body) != language_frame_status::message || body.view() != rt::string_view("{}\0")) {
+			return 3;
+		};
+		if (@protocol.read(@body) != language_frame_status::message || body.view() != rt::string_view("true\0")) {
+			return 4;
+		};
+		if (@protocol.read(@body) != language_frame_status::end_of_stream) {
+			return 5;
+		};
+		if (!@protocol.send(rt::string_view("{}\0"))) {
+			return 6;
+		};
+	};
+
+	rewind(output);
+	char[64] bytes;
+	usize count = fread(&bytes[0], 1, sizeof(bytes), output);
+	if (rt::string_view(&bytes[0], usize(count)) != rt::string_view("Content-Length: 2\r\n\r\n{}\0")) {
+		return 7;
+	};
+	fclose(input);
+	fclose(output);
+
+	@input = tmpfile();
+	@output = tmpfile();
+	var duplicate = rt::string_view("Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}\0");
+	fwrite(duplicate.data(), 1, duplicate.size(), input);
+	rewind(input);
+	{
+		var protocol = LanguageProtocol(@*input, @*output);
+		rt::string body;
+		if (@protocol.read(@body) != language_frame_status::error || protocol.error() != rt::string_view("duplicate protocol Content-Length header\0")) {
+			return 8;
+		};
+	};
+	fclose(input);
+	fclose(output);
+	return 42;
+};

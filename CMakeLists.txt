@@ -38,15 +38,15 @@ add_library("rutile-compiler" STATIC)
 rutile_configure_llvm("rutile-compiler")
 
 set(rutile_compiler_sources
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/unique.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/optional.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/buffer.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/string_view.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/string.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/hash.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/equal.rt"
-	"${CMAKE_CURRENT_SOURCE_DIR}/std/unordered_map.rt")
-set(rutile_compiler_manifest "${CMAKE_CURRENT_SOURCE_DIR}/compiler/sources.list")
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/unique.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/optional.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/buffer.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/string_view.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/string.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/hash.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/equal.rt"
+	"${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/unordered_map.rt")
+set(rutile_compiler_manifest "${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/sources.list")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${rutile_compiler_manifest}")
 file(STRINGS "${rutile_compiler_manifest}" rutile_compiler_modules)
 foreach(module IN LISTS rutile_compiler_modules)
@@ -57,7 +57,7 @@ foreach(module IN LISTS rutile_compiler_modules)
 	if(IS_ABSOLUTE "${module}" OR module MATCHES "(^|/)\\.\\.(/|$)" OR NOT module MATCHES "\\.rt$")
 		message(FATAL_ERROR "Invalid compiler source path: ${module}")
 	endif()
-	set(source "${CMAKE_CURRENT_SOURCE_DIR}/compiler/src/${module}")
+	set(source "${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/src/${module}")
 	if(NOT EXISTS "${source}" OR source IN_LIST rutile_compiler_sources)
 		message(FATAL_ERROR "Missing or duplicate compiler source: ${module}")
 	endif()
@@ -96,7 +96,7 @@ endif()
 set_target_properties("rutile-compiler" PROPERTIES LINKER_LANGUAGE "C")
 
 add_executable("rutile-selfhost" EXCLUDE_FROM_ALL)
-target_sources("rutile-selfhost" PRIVATE "compiler/src/main.cpp")
+target_sources("rutile-selfhost" PRIVATE "kiln/compiler/src/main.cpp")
 target_link_libraries("rutile-selfhost" PRIVATE "rutile-compiler" "rutile-version" "base" "CLI11::CLI11")
 
 if(WIN32)
@@ -112,7 +112,7 @@ add_custom_command(OUTPUT "${rutile_selfhost_object}"
 	VERBATIM)
 set_source_files_properties("${rutile_selfhost_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
 add_executable("rutile-stage2" EXCLUDE_FROM_ALL)
-target_sources("rutile-stage2" PRIVATE "compiler/src/main.cpp" "${rutile_selfhost_object}")
+target_sources("rutile-stage2" PRIVATE "kiln/compiler/src/main.cpp" "${rutile_selfhost_object}")
 target_link_libraries("rutile-stage2" PRIVATE "rutile-llvm" "rutile-version" "base" "CLI11::CLI11")
 if(MSVC)
 	target_link_libraries("rutile-stage2" PRIVATE "legacy_stdio_definitions")
@@ -141,8 +141,8 @@ target_include_directories("rutile-version" PUBLIC "version")
 target_compile_definitions("rutile-version" PRIVATE "RUTILE_VERSION=\"${PROJECT_VERSION}\"" "RUTILE_PROTOCOL_VERSION=${RUTILE_PROTOCOL_VERSION}")
 
 add_library("rutile-project" STATIC)
-target_sources("rutile-project" PRIVATE "project/session.cpp" "project/status.cpp" "project/compilation.cpp" "project/execution.cpp" "project/configuration.cpp")
-target_include_directories("rutile-project" PUBLIC "project")
+target_sources("rutile-project" PRIVATE "kiln/project/session.cpp" "kiln/project/status.cpp" "kiln/project/compilation.cpp" "kiln/project/execution.cpp" "kiln/project/configuration.cpp" "kiln/project/sources.cpp")
+target_include_directories("rutile-project" PUBLIC "kiln/project")
 target_link_libraries("rutile-project" PRIVATE "base" "rutile-version" "nlohmann_json::nlohmann_json" "yaml-cpp::yaml-cpp")
 target_compile_definitions("rutile-project" PRIVATE "KILN_EXECUTABLE_NAME=\"kiln${CMAKE_EXECUTABLE_SUFFIX}\"")
 
@@ -151,8 +151,36 @@ target_sources("rutile" PRIVATE "rutile/src/main.cpp")
 target_link_libraries("rutile" PRIVATE "rutile-project" "rutile-version" "base" "CLI11::CLI11")
 
 add_executable("kiln")
-target_sources("kiln" PRIVATE "kiln/src/main.cpp" "kiln/src/server.cpp" "kiln/src/compiler.cpp" "kiln/src/linker.cpp")
-target_link_libraries("kiln" PRIVATE "base" "rutile-project" "rutile-version" "rutile-compiler" "CLI11::CLI11" "nlohmann_json::nlohmann_json")
+set(rutile_kiln_sources ${rutile_compiler_sources} "${CMAKE_CURRENT_SOURCE_DIR}/kiln/compiler/std/json.rt")
+set(rutile_kiln_manifest "${CMAKE_CURRENT_SOURCE_DIR}/kiln/sources.list")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${rutile_kiln_manifest}")
+file(STRINGS "${rutile_kiln_manifest}" rutile_kiln_modules)
+foreach(module IN LISTS rutile_kiln_modules)
+	string(STRIP "${module}" module)
+	if(module STREQUAL "" OR module MATCHES "^#")
+		continue()
+	endif()
+	if(IS_ABSOLUTE "${module}" OR module MATCHES "(^|/)\\.\\.(/|$)" OR NOT module MATCHES "\\.rt$")
+		message(FATAL_ERROR "Invalid Kiln source path: ${module}")
+	endif()
+	set(source "${CMAKE_CURRENT_SOURCE_DIR}/kiln/src/${module}")
+	if(NOT EXISTS "${source}" OR source IN_LIST rutile_kiln_sources)
+		message(FATAL_ERROR "Missing or duplicate Kiln source: ${module}")
+	endif()
+	list(APPEND rutile_kiln_sources "${source}")
+endforeach()
+set(rutile_kiln_object "${CMAKE_BINARY_DIR}/kiln/kiln${CMAKE_C_OUTPUT_EXTENSION}")
+add_custom_command(OUTPUT "${rutile_kiln_object}"
+	COMMAND "${CMAKE_COMMAND}" "-E" "make_directory" "${CMAKE_BINARY_DIR}/kiln"
+	COMMAND "$<TARGET_FILE:rutile-selfhost>" ${rutile_kiln_sources} "--output" "${rutile_kiln_object}" "--optimization" "$<IF:$<CONFIG:Debug>,0,2>"
+	DEPENDS "rutile-selfhost" ${rutile_kiln_sources}
+	VERBATIM)
+set_source_files_properties("${rutile_kiln_object}" PROPERTIES GENERATED "ON" EXTERNAL_OBJECT "ON")
+target_sources("kiln" PRIVATE "kiln/src/main.cpp" "kiln/src/server.cpp" "kiln/src/compiler.cpp" "kiln/src/linker.cpp" "kiln/src/sources.cpp" "${rutile_kiln_object}")
+target_link_libraries("kiln" PRIVATE "base" "rutile-project" "rutile-version" "rutile-llvm" "CLI11::CLI11" "nlohmann_json::nlohmann_json")
+if(MSVC)
+	target_link_libraries("kiln" PRIVATE "legacy_stdio_definitions")
+endif()
 target_compile_definitions("kiln" PRIVATE "RUTILE_EXECUTABLE_SUFFIX=\"${CMAKE_EXECUTABLE_SUFFIX}\"")
 rutile_configure_linker("kiln")
 if(MSVC)

@@ -1,0 +1,271 @@
+enum template_argument_kind : [u08] {
+	type;
+	value;
+};
+
+struct TemplateArgument {
+	template_argument_kind kind;
+	const Type* type;
+	rt::optional_ref<const TypeUse> type_use;
+	u64 value;
+
+	fn same(const TemplateArgument& this, const TemplateArgument& other) -> bool;
+};
+
+struct TemplateInstantiation {
+	Entity* pattern;
+	rt::buffer<TemplateArgument> arguments;
+};
+
+struct AssociatedScope {
+	const Type* type;
+	Entity* owner;
+};
+
+struct ResolvedReference {
+	Token location;
+	Entity* target;
+	Entity* context;
+	u32 roles;
+};
+
+struct TemplateOrigin {
+	Entity* instance;
+	Entity* pattern;
+};
+
+struct SemanticScopeRegion {
+	Scope* scope;
+	Syntax* syntax;
+};
+
+struct SemanticCallSite {
+	Scope* scope;
+	Syntax* syntax;
+	Entity* selected;
+};
+
+struct SemanticUnit {
+	fn associate(SemanticUnit& this, const Type& type, Entity& owner) -> bool;
+	fn canonical_use(SemanticUnit& this, const Type& type) -> const TypeUse*;
+	fn retype_use(SemanticUnit& this, const TypeUse& source, const Type& type) -> const TypeUse*;
+	fn describe_type(SemanticUnit& this, Analyzer& analyzer, Scope& scope, const Syntax& syntax, const Type& type) -> const TypeUse*;
+	fn describe_entity(SemanticUnit& this, Analyzer& analyzer, Entity& entity) -> bool;
+	fn describe_expression(SemanticUnit& this, Analyzer& analyzer, Scope& scope, const Syntax& syntax, SemanticExpression& expression) -> bool;
+	fn leaf_use(SemanticUnit& this, const Type& type) -> const TypeUse*;
+	fn indirect_use(SemanticUnit& this, const Type& type, const TypeUse& element) -> const TypeUse*;
+	fn function_use(SemanticUnit& this, const Type& type, rt::buffer<ParameterUse> parameters, const TypeUse& result) -> const TypeUse*;
+	fn create_scope(SemanticUnit& this, Scope* parent, Entity* owner) -> Scope*;
+	fn create_entity(SemanticUnit& this, entity_kind kind, const Token& token, Syntax* syntax, Scope* scope) -> Entity*;
+
+	fn associated_owner(const SemanticUnit& this, const Type& type) -> Entity*;
+	fn entities(const SemanticUnit& this) -> const rt::buffer<rt::unique<Entity>>&;
+	fn root_scope(const SemanticUnit& this) -> Scope*;
+
+	fn record_name(SemanticUnit& this, Analyzer& analyzer, Scope& scope, Syntax& name, Entity& target, u32 roles) -> bool;
+	fn record_reference(SemanticUnit& this, const Token& token, Entity& target, Entity* context, u32 roles) -> bool;
+	fn record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments) -> bool;
+	fn reference_context(const SemanticUnit& this, Scope& scope) -> Entity*;
+	fn template_origin(const SemanticUnit& this, const Entity& entity) -> Entity*;
+	fn record_scope(SemanticUnit& this, Scope& scope, Syntax& syntax) -> bool;
+	fn record_call(SemanticUnit& this, Scope& scope, Syntax& syntax, const SemanticExpression& expression) -> bool;
+	fn scope_regions(const SemanticUnit& this) -> const rt::buffer<SemanticScopeRegion>&;
+	fn call_sites(const SemanticUnit& this) -> const rt::buffer<SemanticCallSite>&;
+	fn references(const SemanticUnit& this) -> const rt::buffer<ResolvedReference>&;
+
+private:
+	fn retain_use(SemanticUnit& this, rt::unique<TypeUse> use) -> const TypeUse*;
+
+	fn available_use(const SemanticUnit& this, const SemanticExpression& expression) -> const TypeUse*;
+
+	rt::buffer<AssociatedScope> associated_scopes;
+	rt::buffer<rt::unique<TypeUse>> type_uses;
+	rt::buffer<rt::unique<FunctionUse>> function_uses;
+	rt::buffer<ResolvedReference> resolved_references;
+	rt::buffer<TemplateOrigin> template_origins;
+	rt::buffer<rt::unique<TemplateInstantiation>> template_instantiations;
+	rt::buffer<SemanticScopeRegion> regions;
+	rt::buffer<SemanticCallSite> calls;
+	Scope* global_scope;
+	rt::buffer<rt::unique<Scope>> scopes;
+	rt::buffer<rt::unique<Entity>> declarations;
+};
+
+fn SemanticUnit::entities(const SemanticUnit& this) -> const rt::buffer<rt::unique<Entity>>& {
+	return this.declarations;
+};
+
+fn SemanticUnit::root_scope(const SemanticUnit& this) -> Scope* {
+	return this.global_scope;
+};
+
+fn SemanticUnit::create_scope(SemanticUnit& this, Scope* parent, Entity* owner) -> Scope* {
+	var owned = rt::unique<Scope>(new Scope($parent, $owner));
+	Scope* result = owned.get();
+
+	if (!result) {
+		return nullptr;
+	};
+
+	if (!@this.scopes.push_back($owned)) {
+		return nullptr;
+	};
+
+	if (!this.global_scope) {
+		@this.global_scope := result;
+	};
+
+	return $result;
+};
+
+fn SemanticUnit::create_entity(SemanticUnit& this, entity_kind kind, const Token& token, Syntax* syntax, Scope* scope) -> Entity* {
+	var owned = rt::unique<Entity>(new Entity($kind, token, $syntax, scope));
+	Entity* result = owned.get();
+
+	if (!result) {
+		return nullptr;
+	};
+
+	@result->set_access(scope->access());
+
+	if (scope->owner() && scope->owner()->instantiated()) {
+		@result->set_instantiated();
+	};
+
+	if (!@this.declarations.push_back($owned)) {
+		return nullptr;
+	};
+
+	if (!@scope->define(Entity*(result))) {
+		return nullptr;
+	};
+
+	return $result;
+};
+
+fn SemanticUnit::record_reference(SemanticUnit& this, const Token& token, Entity& target, Entity* context, u32 roles) -> bool {
+	if (!token.source || !token.length || target.origin() == declaration_origin::compiler_supplied) {
+		return true;
+	};
+	ResolvedReference reference;
+	@reference.location = token;
+	@reference.target = target.canonical();
+	@reference.context = $context;
+	@reference.roles = $roles;
+	return @this.resolved_references.push_back($reference);
+};
+
+fn SemanticUnit::record_origin(SemanticUnit& this, Entity& instance, Entity& pattern, const rt::buffer<TemplateArgument>& arguments) -> bool {
+	var metadata = rt::unique<TemplateInstantiation>::make();
+	if (!metadata.get()) {
+		return false;
+	};
+	@metadata.get()->pattern = &pattern;
+	usize index = 0;
+	while (index < arguments.size()) {
+		const TemplateArgument& source = arguments.data()[index];
+		TemplateArgument argument;
+		@argument.kind = source.kind;
+		@argument.type = source.type;
+		@argument.type_use = source.type_use;
+		@argument.value = source.value;
+		if (!@metadata.get()->arguments.push_back($argument)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	const TemplateInstantiation* retained = metadata.get();
+	if (!@this.template_instantiations.push_back($metadata)) {
+		return false;
+	};
+	@instance.set_template_arguments(retained);
+
+	TemplateOrigin origin;
+	@origin.instance = &instance;
+	@origin.pattern = &pattern;
+	return @this.template_origins.push_back($origin);
+};
+
+fn SemanticUnit::reference_context(const SemanticUnit& this, Scope& scope) -> Entity* {
+	Scope* current = &scope;
+	while (current) {
+		Entity* owner = current->owner();
+		if (owner && owner->instantiated()) {
+			return owner->canonical();
+		};
+		@current = current->parent();
+	};
+	return nullptr;
+};
+
+fn SemanticUnit::template_origin(const SemanticUnit& this, const Entity& entity) -> Entity* {
+	usize index = 0;
+	while (index < this.template_origins.size()) {
+		const TemplateOrigin& origin = this.template_origins.data()[index];
+		if (origin.instance == &entity) {
+			return origin.pattern;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn SemanticUnit::references(const SemanticUnit& this) -> const rt::buffer<ResolvedReference>& {
+	return this.resolved_references;
+};
+
+fn SemanticUnit::record_name(SemanticUnit& this, Analyzer& analyzer, Scope& scope, Syntax& name, Entity& target, u32 roles) -> bool {
+	if (name.kind() == syntax_kind::type_name) {
+		return @this.record_name(@analyzer, @scope, @*name.designated_type(), @target, $roles);
+	};
+	if (name.kind() == syntax_kind::call || name.kind() == syntax_kind::template_apply) {
+		return @this.record_name(@analyzer, @scope, @*name.callable(), @target, $roles);
+	};
+	if (name.kind() == syntax_kind::member) {
+		return @this.record_name(@analyzer, @scope, @*name.member_name(), @target, $roles);
+	};
+	if (name.kind() == syntax_kind::qualified_name) {
+		Entity* owner = @analyzer.lookup(@scope, @*name.left());
+		if (owner && !@this.record_name(@analyzer, @scope, @*name.left(), @*owner, 2)) {
+			return false;
+		};
+		return @this.record_name(@analyzer, @scope, @*name.right(), @target, $roles);
+	};
+	if (name.kind() == syntax_kind::unary) {
+		return @this.record_name(@analyzer, @scope, @*name.operand(), @target, $roles);
+	};
+	return @this.record_reference(name.token(), @target, this.reference_context(@scope), $roles);
+};
+
+fn SemanticUnit::record_scope(SemanticUnit& this, Scope& scope, Syntax& syntax) -> bool {
+	SemanticScopeRegion region;
+	@region.scope = &scope;
+	@region.syntax = &syntax;
+	return @this.regions.push_back($region);
+};
+
+fn SemanticUnit::scope_regions(const SemanticUnit& this) -> const rt::buffer<SemanticScopeRegion>& {
+	return this.regions;
+};
+
+fn SemanticUnit::call_sites(const SemanticUnit& this) -> const rt::buffer<SemanticCallSite>& {
+	return this.calls;
+};
+
+fn SemanticUnit::record_call(SemanticUnit& this, Scope& scope, Syntax& syntax, const SemanticExpression& expression) -> bool {
+	if (syntax.kind() != syntax_kind::call) {
+		return true;
+	};
+	const SemanticExpression* call = &expression;
+	while (call->kind() != semantic_kind::call && call->size() == 1) {
+		@call = call->item(0);
+	};
+	if (call->kind() != semantic_kind::call || !call->entity()) {
+		return true;
+	};
+	SemanticCallSite site;
+	@site.scope = &scope;
+	@site.syntax = &syntax;
+	@site.selected = call->entity()->canonical();
+	return @this.calls.push_back($site);
+};

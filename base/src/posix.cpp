@@ -4,6 +4,8 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <cstdint>
+#include <chrono>
+#include <climits>
 #include <new>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +24,22 @@
 
 std::FILE* platform_standard_error() {
 	return stderr;
+}
+
+std::FILE* platform_standard_input() {
+	return stdin;
+}
+
+std::FILE* platform_standard_output() {
+	return stdout;
+}
+
+std::FILE* platform_open_utf8_file(const char* path, const char* mode) {
+	return platform_open_file(std::filesystem::u8path(path), mode);
+}
+
+int platform_language_stdio() {
+	return 1;
 }
 
 struct PlatformLock {
@@ -516,38 +534,51 @@ struct PlatformServer* platform_server_open(const char* endpoint) {
 	return server;
 }
 
-bool platform_server_accept(struct PlatformServer* server) {
+platform_accept platform_server_accept_for(struct PlatformServer* server, unsigned int timeout_ms) {
 	platform_server_disconnect(server);
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 	while (true) {
 		struct pollfd state = { server->listener, POLLIN, 0 };
-		int result = poll(&state, 1, -1);
+		int wait = -1;
+		if (timeout_ms != UINT_MAX) {
+			const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+			wait = remaining <= 0 ? 0 : remaining > INT_MAX ? INT_MAX : static_cast<int>(remaining);
+		}
+		int result = poll(&state, 1, wait);
+		if (!result) {
+			return platform_accept::timeout;
+		}
 		if (result < 0 && errno == EINTR) {
 			continue;
 		}
 		if (result <= 0 || !(state.revents & POLLIN)) {
-			return false;
+			return platform_accept::error;
 		}
 		int client = accept(server->listener, nullptr, nullptr);
 		if (client < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
 			continue;
 		}
 		if (client < 0) {
-			return false;
+			return platform_accept::error;
 		}
 		if (fcntl(client, F_SETFD, FD_CLOEXEC) < 0 || fcntl(client, F_SETFL, O_NONBLOCK) < 0) {
 			close(client);
-			return false;
+			return platform_accept::error;
 		}
 #if defined(SO_NOSIGPIPE)
 		int enabled = 1;
 		if (setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled))) {
 			close(client);
-			return false;
+			return platform_accept::error;
 		}
 #endif
 		server->client = client;
-		return true;
+		return platform_accept::accepted;
 	}
+}
+
+bool platform_server_accept(struct PlatformServer* server) {
+	return platform_server_accept_for(server, UINT_MAX) == platform_accept::accepted;
 }
 
 bool platform_server_read(struct PlatformServer* server, char* command, std::size_t capacity) {

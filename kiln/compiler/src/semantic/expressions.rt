@@ -1,0 +1,688 @@
+fn Analyzer::expression_impl(Analyzer& this, Scope& scope, Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	if (this.diagnostics->failed()) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	const Type* void_type = this.types->find_primitive(rt::string_view("void\0"));
+	const Type* bool_type = this.types->find_primitive(rt::string_view("bool\0"));
+	syntax_kind kind = syntax.kind();
+
+	if (kind == syntax_kind::grouping) {
+		return @this.expression(@scope, @*syntax.operand(), expected);
+	};
+
+	if (kind == syntax_kind::switch_expression) {
+		return @this.selection(@scope, @syntax);
+	};
+
+	if (kind == syntax_kind::case_label) {
+		return @this.label(@scope, @syntax);
+	};
+
+	if (kind == syntax_kind::sizeof_type) {
+		const Type* target = @this.type(@scope, @*syntax.designated_type());
+
+		if (!target) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return @this.convert(@this.size_query(@syntax, *target), expected, @syntax);
+	};
+
+	if (kind == syntax_kind::noop || kind == syntax_kind::absent) {
+		return @this.node(semantic_kind::noop, void_type, &syntax);
+	};
+
+	if (kind == syntax_kind::ambiguity) {
+		usize index = 0;
+		while (index < syntax.size()) {
+			Syntax* candidate = syntax.item(index);
+			Syntax* type = nullptr;
+
+			if (candidate->kind() == syntax_kind::variable) {
+				@type = candidate->variable_type();
+			}
+			else if (candidate->kind() == syntax_kind::sizeof_type) {
+				@type = candidate->designated_type();
+			};
+
+			if (candidate->kind() == syntax_kind::call) {
+				@type = candidate->callable();
+			};
+
+			if (type && @this.names_type(@scope, @*type)) {
+				return @this.expression(@scope, @*candidate, expected);
+			};
+
+			@index = index + 1;
+		};
+
+		@index = 0;
+
+		while (index < syntax.size()) {
+			Syntax* candidate = syntax.item(index);
+
+			if (candidate->kind() == syntax_kind::call) {
+				syntax_kind callee = candidate->callable()->kind();
+
+				if (callee == syntax_kind::type_name || callee == syntax_kind::type_pointer || callee == syntax_kind::type_reference || callee == syntax_kind::type_array || callee == syntax_kind::type_const || callee == syntax_kind::type_function || callee == syntax_kind::type_auto) {
+					@index = index + 1;
+					continue;
+				};
+			};
+
+			if (syntax.item(index)->kind() != syntax_kind::variable && syntax.item(index)->kind() != syntax_kind::sizeof_type) {
+				return @this.expression(@scope, @*syntax.item(index), expected);
+			};
+
+			@index = index + 1;
+		};
+
+		@this.error(&syntax, "syntax has no interpretation in this scope\0");
+
+		return rt::unique<SemanticExpression>();
+	};
+
+	bool character_literal = kind == syntax_kind::number && syntax.token().text().size() && syntax.token().text().data()[0] == '\'';
+
+	if (kind == syntax_kind::number && !character_literal) {
+		u64 integer = 0;
+
+		if (@this.integer(@syntax, @integer)) {
+			const Type* type = expected.get();
+
+			if (!type || !type->kind().is_integer() || type->kind() == type_kind::boolean) {
+				@type = this.types->find_primitive(rt::string_view("i32\0"));
+
+				if (integer > static_cast<u64>(i32::max)) {
+					@type = this.types->find_primitive(rt::string_view("i64\0"));
+				};
+
+				if (integer > static_cast<u64>(i64::max)) {
+					@type = this.types->find_primitive(rt::string_view("u64\0"));
+				};
+			};
+
+			var result = @this.node(semantic_kind::literal_integer, type, &syntax);
+
+			if (result.get()) {
+				@result.get()->set_integer(u64(integer));
+			};
+
+			return @this.convert($result, expected, @syntax);
+		};
+
+		var spelling = rt::string(syntax.token().text());
+		char* end = nullptr;
+		f64 real = strtod(spelling.c_str(), &end);
+
+		if (!end || end[0]) {
+			@this.error(&syntax, "numeric literal is not representable\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		const Type* type = this.types->find_primitive(rt::string_view("f64\0"));
+
+		if (expected.has_value() && expected.value().kind() == type_kind::floating_point) {
+			@type = expected.get();
+		};
+
+		var result = @this.node(semantic_kind::literal_real, type, &syntax);
+
+		if (result.get()) {
+			@result.get()->set_real(f64(real));
+		};
+
+		return $result;
+	};
+
+	if (kind == syntax_kind::string || character_literal) {
+		var text = syntax.token().text();
+		rt::string decoded;
+		usize index = 1;
+		while (index + 1 < text.size()) {
+			char character := text.data()[index];
+			@index = index + 1;
+
+			if (character == '\\' && index + 1 < text.size()) {
+				@character := text.data()[index];
+				@index = index + 1;
+
+				if (character == 'n') {
+					@character = '\n';
+				}
+				else if (character == 'r') {
+					@character = '\r';
+				}
+				else if (character == 't') {
+					@character = '\t';
+				}
+				else if (character == '0') {
+					@character = '\0';
+				}
+				else if (character != '\\' && character != '\'' && character != '"') {
+					@this.error(&syntax, "unsupported escape in literal\0");
+
+					return rt::unique<SemanticExpression>();
+				};
+			};
+
+			if (!@decoded.append(rt::string_view(&character, 1))) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		const Type* character_type = this.types->find_primitive(rt::string_view("char\0"));
+
+		if (text.data()[0] == '\'') {
+			if (decoded.size() != 1) {
+				@this.error(&syntax, "character literal shall contain one character\0");
+
+				return rt::unique<SemanticExpression>();
+			};
+
+			var result = @this.node(semantic_kind::literal_integer, character_type, &syntax);
+
+			if (result.get()) {
+				char character := decoded.data()[0];
+				@result.get()->set_integer(static_cast<u64>($character));
+			};
+
+			return @this.convert($result, expected, @syntax);
+		};
+
+		const Type* element = @this.types->qualified(*character_type, type_qualifier::immutable);
+		var result = @this.node(semantic_kind::literal_text, @this.types->pointer(element), &syntax);
+
+		if (result.get()) {
+			@result.get()->set_text(decoded.view());
+		};
+
+		return @this.convert($result, expected, @syntax);
+	};
+
+	if (kind == syntax_kind::null_pointer) {
+		const Type* type = @this.types->pointer(this.types->find_primitive(rt::string_view("null\0")));
+
+		return @this.convert(@this.node(semantic_kind::null_pointer, type, &syntax), expected, @syntax);
+	};
+
+	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
+		Token token = syntax.token();
+
+		if (token.is(rt::string_view("true\0")) || token.is(rt::string_view("false\0"))) {
+			var result = @this.node(semantic_kind::literal_integer, bool_type, &syntax);
+
+			if (result.get() && token.is(rt::string_view("true\0"))) {
+				@result.get()->set_integer(1);
+			};
+
+			return @this.convert($result, expected, @syntax);
+		};
+
+		Entity* entity = @this.lookup(@scope, @syntax);
+
+		if (!entity) {
+			if (!this.diagnostics->failed()) {
+				var message = DiagnosticMessage();
+				@message.text("unknown identifier '\0");
+				diagnostic_name(@message, syntax);
+				@message.text("'\0");
+				@this.diagnostics->error(syntax.token(), message.view());
+			};
+			return rt::unique<SemanticExpression>();
+		};
+		if (!@this.resolve(Entity*(entity))) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@entity = entity->canonical();
+
+		if (entity->kind() != entity_kind::function && !@this.unit->record_name(@this, @scope, @syntax, @*entity, 4)) {
+			@this.error(&syntax, "navigation index storage is unavailable\0");
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (entity->kind() == entity_kind::constant) {
+			return @this.convert(entity->body()->copy_constant(), expected, @syntax);
+		};
+
+		if (entity->kind() == entity_kind::enumerator) {
+			var result = @this.node(semantic_kind::literal_integer, entity->type(), &syntax);
+
+			if (result.get()) {
+				@result.get()->set_integer(entity->integer());
+			};
+
+			return @this.convert($result, expected, @syntax);
+		};
+
+		if (entity->kind() != entity_kind::function && entity->kind() != entity_kind::global && entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter && entity->kind() != entity_kind::field) {
+			@this.error(&syntax, "identifier does not denote a value\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (entity->kind() == entity_kind::function && entity->definition() == function_definition::deleted) {
+			@this.deleted_function(syntax.token(), *entity);
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (entity->kind() == entity_kind::field) {
+			Entity* receiver = scope.lookup(rt::string_view("this\0"));
+
+			if (!receiver || receiver->type()->kind() != type_kind::reference || receiver->type()->element()->kind() != type_kind::named || receiver->type()->element()->entity() != entity->scope()->owner()) {
+				@this.error(&syntax, "field access requires an instance receiver\0");
+
+				return rt::unique<SemanticExpression>();
+			};
+
+			const Type* owner = receiver->type()->element();
+			const Type* field_type = entity->type();
+
+			if (field_type->kind() == type_kind::reference) {
+				@field_type = field_type->element();
+			}
+			else if (owner->qualifier() == type_qualifier::immutable) {
+				@field_type = @this.types->qualified(*field_type, type_qualifier::immutable);
+			};
+
+			var object = @this.node(semantic_kind::name, owner, &syntax);
+
+			if (!object.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@object.get()->bind(receiver, value_category::place);
+			var member = @this.node(semantic_kind::member, field_type, &syntax);
+
+			if (!member.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@member.get()->bind(entity, value_category::place);
+
+			if (!@member.get()->append($object)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			return @this.convert($member, expected, @syntax);
+		};
+
+		const Type* type = entity->type();
+
+		if (type->kind() == type_kind::reference) {
+			@type = type->element();
+		};
+
+		var result = @this.node(semantic_kind::name, type, &syntax);
+
+		if (result.get()) {
+			@result.get()->bind(entity, value_category::place);
+		};
+
+		return @this.convert($result, expected, @syntax);
+	};
+
+	if (kind == syntax_kind::brace || kind == syntax_kind::list) {
+		if (kind == syntax_kind::brace && !syntax.size() && expected.has_value() && expected.value().kind() == type_kind::array) {
+			const Type* element = expected.get();
+
+			while (element->kind() == type_kind::array) {
+				@element = element->element();
+			};
+
+			if (!element->representation()->kind().is_scalar()) {
+				@this.error(&syntax, "empty initialization of object arrays is not specified\0");
+
+				return rt::unique<SemanticExpression>();
+			};
+
+			return @this.construct(@scope, @syntax, expected.get(), @syntax);
+		};
+
+		Scope* local = &scope;
+
+		if (kind == syntax_kind::brace) {
+			@local = @this.unit->create_scope(&scope, this.function);
+			if (local && !@this.unit->record_scope(@*local, @syntax)) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		var result = @this.node(semantic_kind::brace, void_type, &syntax);
+
+		if (!local || !result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		usize index = 0;
+		while (index < syntax.size()) {
+			var child = @this.expression(@*local, @*syntax.item(index), rt::optional_ref<const Type>());
+
+			if (!child.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (!@result.get()->append($child)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@index = index + 1;
+		};
+
+		return @this.convert($result, expected, @syntax);
+	};
+
+	if (kind == syntax_kind::using_alias) {
+		if (!@this.collect(@scope, @syntax)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		Entity* alias = scope.local(syntax.alias_name()->token().text());
+
+		if (!alias || !@this.resolve(alias)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return @this.node(semantic_kind::noop, void_type, &syntax);
+	};
+
+	if (kind == syntax_kind::variable) {
+		Token name = syntax.variable_name()->token();
+
+		Entity* previous = scope.local(name.text());
+		if (previous) {
+			var message = DiagnosticMessage();
+			@message.text("duplicate local declaration of \0");
+			@message.quoted(name.text());
+			@this.diagnostics->error(name, message.view());
+			@this.diagnostics->note(previous->token(), "previous declaration is here\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		const Type* type = @this.type(@scope, @*syntax.variable_type());
+		Syntax* initializer = syntax.variable_initializer();
+
+		if (initializer->kind() == syntax_kind::unary) {
+			@initializer = initializer->operand();
+		};
+
+		rt::optional_ref<const Type> initializer_type;
+
+		if (type && !(type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) && syntax.variable_initializer()->token().kind != token_kind::op_copy) {
+			@initializer_type.bind(*type);
+		};
+
+		var value = @this.expression(@scope, @*initializer, initializer_type);
+
+		if (!value.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!type && value.get()->kind() != semantic_kind::noop) {
+			@type = @this.infer_variable(@syntax, *value.get());
+			if (!type) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function) {
+			@this.error(&syntax, "variable requires object storage or a reference\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (type->kind() == type_kind::reference && value.get()->kind() == semantic_kind::noop) {
+			@this.error(&syntax, "reference requires an initializer\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		@value = @this.initialize(@syntax, type, rt::unique<SemanticExpression>(@value.release()));
+
+		if (!value.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		Entity* entity = @this.unit->create_entity(entity_kind::local, name, &syntax, &scope);
+
+		if (!entity) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@entity->set_type(type);
+		@entity->set_state(entity_state::ready);
+		var result = @this.node(semantic_kind::variable, void_type, &syntax);
+
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@result.get()->append($value)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		@result.get()->bind(entity, value_category::consumable);
+
+		return $result;
+	};
+
+	if (kind == syntax_kind::return_value) {
+		if (!this.function) {
+			@this.error(&syntax, "return requires an enclosing function\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		const Type* result_type = this.function->type()->signature().result();
+		var result = @this.node(semantic_kind::return_value, void_type, &syntax);
+		var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*result_type));
+
+		if (!value.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@result.get()->append($value)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return $result;
+	};
+
+	if (kind == syntax_kind::conditional || kind == syntax_kind::while_loop || kind == syntax_kind::for_loop) {
+		semantic_kind category = semantic_kind::conditional;
+		Scope* local = &scope;
+
+		if (kind != syntax_kind::conditional) {
+			@this.loop_depth = this.loop_depth + 1;
+			@category = semantic_kind::while_loop;
+		};
+
+		if (kind == syntax_kind::for_loop) {
+			@category = semantic_kind::for_loop;
+			@local = @this.unit->create_scope(&scope, this.function);
+			if (local && !@this.unit->record_scope(@*local, @syntax)) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		var result = @this.node(semantic_kind(category), void_type, &syntax);
+
+		if (!local || !result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		usize index = 0;
+		while (index < syntax.size()) {
+			rt::optional_ref<const Type> context;
+
+			if (kind == syntax_kind::for_loop && index == 1 || kind != syntax_kind::for_loop && !index) {
+				if (syntax.item(index)->kind() != syntax_kind::absent) {
+					@context.bind(*bool_type);
+				};
+			};
+
+			var child = @this.expression(@*local, @*syntax.item(index), context);
+
+			if (!child.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (!@result.get()->append($child)) {
+				return rt::unique<SemanticExpression>();
+			};
+
+			@index = index + 1;
+		};
+
+		if (kind != syntax_kind::conditional) {
+			@this.loop_depth = this.loop_depth - 1;
+		};
+
+		return $result;
+	};
+
+	if (kind == syntax_kind::break_loop || kind == syntax_kind::continue_loop) {
+		if (!this.loop_depth && (kind == syntax_kind::continue_loop || !this.active_switch)) {
+			@this.error(&syntax, "control transfer requires an enclosing loop or switch\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (kind == syntax_kind::break_loop) {
+			return @this.node(semantic_kind::break_loop, void_type, &syntax);
+		};
+
+		return @this.node(semantic_kind::continue_loop, void_type, &syntax);
+	};
+
+	if (kind == syntax_kind::unary) {
+		return @this.unary(@scope, @syntax, expected);
+	};
+
+	if (kind == syntax_kind::binary) {
+		return @this.binary(@scope, @syntax, expected);
+	};
+
+	if (kind == syntax_kind::call) {
+		return @this.call(@scope, @syntax, expected, false);
+	};
+
+	if (kind == syntax_kind::cast) {
+		return @this.cast(@scope, @syntax, expected);
+	};
+
+	if (kind == syntax_kind::member || kind == syntax_kind::index) {
+		return @this.component(@scope, @syntax, expected);
+	};
+
+	if (kind == syntax_kind::discard_value) {
+		var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>());
+
+		if (!value.get() || value.get()->category() != value_category::consumable) {
+			@this.error(&syntax, "discard requires a consumable\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		var result = @this.node(semantic_kind::discard_value, void_type, &syntax);
+
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@result.get()->append($value)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return $result;
+	};
+
+	if (kind == syntax_kind::allocation) {
+		Syntax* type_syntax = syntax.allocation_type();
+		Syntax* count = nullptr;
+
+		if (type_syntax->kind() == syntax_kind::type_array) {
+			@count = type_syntax->array_extent();
+			@type_syntax = type_syntax->designated_type();
+		};
+
+		const Type* target = @this.type(@scope, @*type_syntax);
+
+		if (!target) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		var construction = @this.construct(@scope, @syntax, target, @*syntax.allocation_arguments());
+
+		if (!construction.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		var result = @this.node(semantic_kind::allocation, @this.types->pointer(target), &syntax);
+
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@result.get()->append($construction)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (count) {
+			var extent = @this.expression(@scope, @*count, rt::optional_ref<const Type>());
+
+			if (!extent.get() || !extent.get()->type()->kind().is_integer()) {
+				@this.error(&syntax, "array allocation count requires an integer\0");
+
+				return rt::unique<SemanticExpression>();
+			};
+
+			if (!@result.get()->append($extent)) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+
+		return @this.convert($result, expected, @syntax);
+	};
+
+	if (kind == syntax_kind::deallocation || kind == syntax_kind::array_deallocation) {
+		var pointer = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>());
+
+		if (!pointer.get() || pointer.get()->type()->kind() != type_kind::pointer) {
+			@this.error(&syntax, "deallocation requires a pointer\0");
+
+			return rt::unique<SemanticExpression>();
+		};
+
+		semantic_kind category = semantic_kind::deallocation;
+
+		if (kind == syntax_kind::array_deallocation) {
+			@category = semantic_kind::array_deallocation;
+		};
+
+		var result = @this.node(semantic_kind(category), void_type, &syntax);
+
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		if (!@result.get()->append($pointer)) {
+			return rt::unique<SemanticExpression>();
+		};
+
+		return $result;
+	};
+
+	@this.error(&syntax, "semantic analysis for this expression is not implemented\0");
+
+	return rt::unique<SemanticExpression>();
+};

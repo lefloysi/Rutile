@@ -1,4 +1,5 @@
 add_library("base" STATIC)
+target_sources("base" PRIVATE "src/runtime.cpp")
 target_include_directories("base" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 if(WIN32)

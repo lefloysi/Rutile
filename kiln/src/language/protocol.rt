@@ -1,0 +1,251 @@
+fn fgetc(NativeFile* file) -> i32;
+fn fflush(NativeFile* file) -> i32;
+
+struct RuntimeMutex;
+
+fn runtime_mutex_create() -> RuntimeMutex*;
+fn runtime_mutex_destroy(RuntimeMutex* mutex);
+fn runtime_mutex_lock(RuntimeMutex* mutex);
+fn runtime_mutex_unlock(RuntimeMutex* mutex);
+
+enum language_frame_status : [u08] {
+	message;
+	end_of_stream;
+	error;
+};
+
+struct LanguageProtocol {
+	fn LanguageProtocol(LanguageProtocol& this, NativeFile& input, NativeFile& output);
+	fn LanguageProtocol(LanguageProtocol& this, const LanguageProtocol& other) : [delete];
+	fn LanguageProtocol(LanguageProtocol& this, LanguageProtocol other) : [delete];
+	fn ~LanguageProtocol(LanguageProtocol& this);
+
+	fn read(LanguageProtocol& this, rt::string& body) -> language_frame_status;
+	fn send(LanguageProtocol& this, const rt::string_view& body) -> bool;
+	fn error(const LanguageProtocol& this) -> rt::string_view;
+	fn ready(const LanguageProtocol& this) -> bool;
+
+private:
+	fn fail(LanguageProtocol& this, const rt::string_view& message) -> language_frame_status;
+	fn header_name(const rt::string_view& name, const rt::string_view& expected) -> bool;
+	fn length(const rt::string_view& text, usize& result) -> bool;
+	fn decimal(rt::string& output, u64 value) -> bool;
+	fn write(LanguageProtocol& this, const rt::string_view& bytes) -> bool;
+
+	NativeFile* input;
+	NativeFile* output;
+	RuntimeMutex* output_mutex;
+	rt::string_view failure;
+};
+
+fn LanguageProtocol::LanguageProtocol(LanguageProtocol& this, NativeFile& input, NativeFile& output) {
+	@this.input = &input;
+	@this.output = &output;
+	@this.output_mutex = runtime_mutex_create();
+};
+
+fn LanguageProtocol::~LanguageProtocol(LanguageProtocol& this) {
+	if (this.output_mutex) {
+		runtime_mutex_destroy(this.output_mutex);
+	};
+};
+
+fn LanguageProtocol::ready(const LanguageProtocol& this) -> bool {
+	return this.output_mutex != nullptr;
+};
+
+fn LanguageProtocol::error(const LanguageProtocol& this) -> rt::string_view {
+	return rt::string_view(this.failure);
+};
+
+fn LanguageProtocol::fail(LanguageProtocol& this, const rt::string_view& message) -> language_frame_status {
+	@this.failure = rt::string_view(message);
+	return language_frame_status::error;
+};
+
+fn LanguageProtocol::header_name(const rt::string_view& name, const rt::string_view& expected) -> bool {
+	if (name.size() != expected.size()) {
+		return false;
+	};
+
+	usize index = 0;
+	while (index < name.size()) {
+		char value = name.data()[index];
+		if (value >= 'A' && value <= 'Z') {
+			@value = static_cast<char>(static_cast<i32>(value) + 32);
+		};
+
+		if (value != expected.data()[index]) {
+			return false;
+		};
+		@index = index + 1;
+	};
+
+	return true;
+};
+
+fn LanguageProtocol::length(const rt::string_view& text, usize& result) -> bool {
+	if (text.empty()) {
+		return false;
+	};
+
+	usize value = 0;
+	usize index = 0;
+	while (index < text.size()) {
+		char character = text.data()[index];
+		if (character < '0' || character > '9') {
+			return false;
+		};
+
+		usize digit = static_cast<usize>(static_cast<i32>(character) - 48);
+		if (value > (usize::max - digit) / 10) {
+			return false;
+		};
+
+		@value = value * 10 + digit;
+		@index = index + 1;
+	};
+
+	@result = $value;
+	return true;
+};
+
+fn LanguageProtocol::read(LanguageProtocol& this, rt::string& body) -> language_frame_status {
+	@body.clear();
+	@this.failure = rt::string_view();
+	rt::optional<usize> content_length;
+	usize header_bytes = 0;
+
+	while (true) {
+		rt::string header;
+		while (true) {
+			i32 value = fgetc(this.input);
+			if (value < 0) {
+				if (!header_bytes && !ferror(this.input)) {
+					return language_frame_status::end_of_stream;
+				};
+				return @this.fail("unexpected end of protocol header\0");
+			};
+
+			@header_bytes = header_bytes + 1;
+			if (header_bytes > 8192) {
+				return @this.fail("protocol headers exceed 8192 bytes\0");
+			};
+
+			if (value == 10) {
+				break;
+			};
+			char byte = static_cast<char>(value);
+			if (!@header.append(rt::string_view(&byte, 1))) {
+				return @this.fail("out of memory reading protocol header\0");
+			};
+		};
+
+		usize size = header.size();
+		if (size && header.data()[size - 1] == '\r') {
+			@size = size - 1;
+		};
+		if (!size) {
+			break;
+		};
+
+		usize separator = 0;
+		while (separator < size && header.data()[separator] != ':') {
+			@separator = separator + 1;
+		};
+		if (separator == size) {
+			return @this.fail("protocol header requires a colon\0");
+		};
+
+		var name = rt::string_view(header.data(), usize(separator));
+		if (!LanguageProtocol::header_name(name, rt::string_view("content-length\0"))) {
+			continue;
+		};
+		if (content_length.has_value()) {
+			return @this.fail("duplicate protocol Content-Length header\0");
+		};
+
+		@separator = separator + 1;
+		while (separator < size && (header.data()[separator] == ' ' || header.data()[separator] == '\t')) {
+			@separator = separator + 1;
+		};
+		usize parsed = 0;
+		if (!LanguageProtocol::length(rt::string_view(header.data() + separator, size - separator), @parsed) || parsed > 67108864) {
+			return @this.fail("invalid protocol Content-Length; expected a decimal byte count up to 67108864\0");
+		};
+		@content_length.emplace($parsed);
+	};
+
+	if (!content_length.has_value()) {
+		return @this.fail("protocol message is missing Content-Length\0");
+	};
+
+	usize remaining = content_length.value();
+	char[4096] chunk;
+	while (remaining) {
+		usize request = sizeof(chunk);
+		if (request > remaining) {
+			@request = usize(remaining);
+		};
+
+		usize count = fread(&chunk[0], 1, $request, this.input);
+		if (!count) {
+			return @this.fail("unexpected end of protocol message body\0");
+		};
+		if (!@body.append(rt::string_view(&chunk[0], usize(count)))) {
+			return @this.fail("out of memory reading protocol body\0");
+		};
+		@remaining = remaining - count;
+	};
+
+	return language_frame_status::message;
+};
+
+fn LanguageProtocol::decimal(rt::string& output, u64 value) -> bool {
+	char[20] digits;
+	usize count = 0;
+	while (true) {
+		@digits[count] = static_cast<char>(48 + static_cast<i32>(value % 10));
+		@count = count + 1;
+		@value = value / 10;
+		if (!value) {
+			break;
+		};
+	};
+
+	while (count) {
+		@count = count - 1;
+		if (!@output.append(rt::string_view(&digits[count], 1))) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn LanguageProtocol::write(LanguageProtocol& this, const rt::string_view& bytes) -> bool {
+	usize offset = 0;
+	while (offset < bytes.size()) {
+		usize written = fwrite(bytes.data() + offset, 1, bytes.size() - offset, this.output);
+		if (!written) {
+			return false;
+		};
+		@offset = offset + written;
+	};
+	return true;
+};
+
+fn LanguageProtocol::send(LanguageProtocol& this, const rt::string_view& body) -> bool {
+	if (!this.ready()) {
+		return false;
+	};
+
+	rt::string header;
+	if (!@header.append("Content-Length: \0") || !LanguageProtocol::decimal(@header, static_cast<u64>(body.size())) || !@header.append("\r\n\r\n\0")) {
+		return false;
+	};
+
+	runtime_mutex_lock(this.output_mutex);
+	bool written = @this.write(header.view()) && @this.write(body) && !fflush(this.output);
+	runtime_mutex_unlock(this.output_mutex);
+	return $written;
+};

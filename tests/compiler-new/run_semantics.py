@@ -64,9 +64,9 @@ check("inferred-copy-assignment-deleted", sources + "inferred-copy-assignment-de
 	reject="deleted")
 check("out-of-line-private", sources + "out-of-line-private.rt", reject="not accessible")
 check("template-extension-private", sources + "template-extension-private.rt",
-	reject="private or protected function")
+	reject="not accessible from this scope")
 check("template-private-function", sources + "template-private-function.rt",
-	reject="private or protected function")
+	reject="not accessible from this scope")
 for name in ["sizeof-incomplete", "sizeof-void"]:
 	check(name, sources + name + ".rt", reject="sizeof requires a complete object storage type")
 
@@ -101,19 +101,20 @@ check("variadic-aggregate", "tests/compiler-new/backend/cases/variadic-aggregate
 
 for name in ["optional", "optional-ref", "optional-lifetime"]:
 	check("native-" + name, "tests/compiler-new/std/" + name + ".rt",
-		dependencies=["std/optional.rt"])
+		dependencies=["kiln/compiler/std/optional.rt"])
 check("native-optional-copy", "tests/compiler-new/std/optional-copy.rt", reject="deleted",
-	dependencies=["std/optional.rt"])
+	dependencies=["kiln/compiler/std/optional.rt"])
 check("native-unique-policy", "tests/compiler-new/std/unique-policy.rt",
-	dependencies=["std/unique.rt"])
-standard = ["std/unique.rt", "std/optional.rt", "std/buffer.rt", "std/string_view.rt",
-	"std/string.rt", "std/hash.rt", "std/equal.rt", "std/unordered_map.rt"]
+	dependencies=["kiln/compiler/std/unique.rt"])
+standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt",
+	"kiln/compiler/std/string.rt", "kiln/compiler/std/hash.rt", "kiln/compiler/std/equal.rt", "kiln/compiler/std/unordered_map.rt"]
 for name in ["buffer", "buffer-copy", "buffer-lifetime", "buffer-alias", "buffer-owners", "unique", "text",
-	"hash", "unordered-map", "unordered-map-collisions"]:
+	"hash", "unordered-map", "unordered-map-collisions", "unordered-map-default-hash",
+	"unordered-map-function-hash"]:
 	check("native-" + name, "tests/compiler-new/std/" + name + ".rt", dependencies=standard)
 check("native-primitive-registry", sources + "primitive-registry.rt",
-	dependencies=[*standard, "compiler/src/semantic/type.rt", "compiler/src/semantic/type_store.rt",
-		"compiler/src/semantic/primitives.rt"])
+	dependencies=[*standard, "kiln/compiler/src/semantic/type.rt", "kiln/compiler/src/semantic/type_store.rt",
+		"kiln/compiler/src/semantic/primitives.rt"])
 check("function-parameter-labels", "tests/compiler/cases/type-equivalence-function-names/main.rt")
 check("pointer-difference-type", "tests/compiler/cases/ptrdiff/main.rt")
 check("implicit-builtin-copies", "tests/compiler/cases/implicit-same-type-builtins/main.rt")
@@ -136,6 +137,13 @@ check("template-validation-sibling-scope", sources + "template-validation-siblin
 check("template-validation-scope-restoration", sources + "template-validation-scope-restoration.rt")
 check("template-validation-virtual-receiver", sources + "template-validation-virtual-receiver.rt",
 	reject="virtual operation requires an explicit class receiver named this")
+
+check("union-defaulted-lifetimes", "tests/compiler-new/backend/cases/union-defaulted-lifetimes.rt")
+check("union-missing-destructor", "tests/compiler-new/backend/cases/union-missing-destructor.rt",
+	reject="union with nontrivial members requires an explicit destructor")
+
+check("native-unordered-map-function-default-hash", "tests/compiler-new/std/unordered-map-function-default-hash.rt",
+	reject="no applicable function", dependencies=standard)
 
 if failures:
 	sys.exit(1)

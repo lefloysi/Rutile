@@ -1,0 +1,171 @@
+namespace rt {
+	const u64 splitmix64_first_multiplier = 13787848793156543929;
+	const u64 splitmix64_second_multiplier = 10723151780598845931;
+	const u64 splitmix64_first_shift = 30;
+	const u64 splitmix64_second_shift = 27;
+	const u64 splitmix64_final_shift = 31;
+	const u64 fnv1a64_offset_basis = 14695981039346656037;
+	const u64 fnv1a64_prime = 1099511628211;
+
+	fn mix_hash(u64 value) -> usize {
+		@value = (value ^ (value >> splitmix64_first_shift)) * splitmix64_first_multiplier;
+		@value = (value ^ (value >> splitmix64_second_shift)) * splitmix64_second_multiplier;
+
+		return static_cast<usize>(value ^ (value >> splitmix64_final_shift));
+	};
+
+	template<typename K>
+	struct integer_hash {
+		fn hash(const integer_hash& this, const K& value) -> usize;
+	};
+
+	template<typename T>
+	struct pointer_hash {
+		fn hash(const pointer_hash& this, const T* value) -> usize;
+	};
+
+	struct f32_hash {
+		fn hash(const f32_hash& this, const f32& value) -> usize;
+	};
+
+	struct f64_hash {
+		fn hash(const f64_hash& this, const f64& value) -> usize;
+	};
+
+	struct string_view_hash {
+		fn hash(const string_view_hash& this, const string_view& value) -> usize;
+	};
+
+	template<typename K>
+	fn integer_hash<K>::hash(const integer_hash& this, const K& value) -> usize {
+		return mix_hash(static_cast<u64>(value));
+	};
+
+	template<typename T>
+	fn pointer_hash<T>::hash(const pointer_hash& this, const T* value) -> usize {
+		return mix_hash(static_cast<u64>(reinterpret_cast<usize>(value)));
+	};
+
+	fn f32_hash::hash(const f32_hash& this, const f32& value) -> usize {
+		if (value == 0.0) {
+			return 0;
+		};
+
+		return mix_hash(static_cast<u64>(*reinterpret_cast<const u32*>(&value)));
+	};
+
+	fn f64_hash::hash(const f64_hash& this, const f64& value) -> usize {
+		if (value == 0.0) {
+			return 0;
+		};
+
+		return mix_hash(*reinterpret_cast<const u64*>(&value));
+	};
+
+	fn string_view_hash::hash(const string_view_hash& this, const string_view& value) -> usize {
+		u64 result := fnv1a64_offset_basis;
+		usize index = 0;
+		while (index < value.size()) {
+			char byte = value.data()[index];
+
+			@result = (result ^ static_cast<u64>(static_cast<u08>($byte))) * fnv1a64_prime;
+			@index = index + 1;
+		};
+
+		return static_cast<usize>(result);
+	};
+
+	// Default pointer hashing accepts object pointers through const void*.
+	// Function pointers require an explicit compatible hash policy.
+	template<typename K>
+	struct default_hash {
+		fn hash(const default_hash& this, const K& value) -> usize;
+	};
+
+	fn hash_value(const bool& value) -> usize {
+		integer_hash<bool> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const char& value) -> usize {
+		integer_hash<char> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const i08& value) -> usize {
+		integer_hash<i08> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const i16& value) -> usize {
+		integer_hash<i16> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const i32& value) -> usize {
+		integer_hash<i32> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const i64& value) -> usize {
+		integer_hash<i64> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const u08& value) -> usize {
+		integer_hash<u08> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const u16& value) -> usize {
+		integer_hash<u16> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const u32& value) -> usize {
+		integer_hash<u32> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const u64& value) -> usize {
+		integer_hash<u64> policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const f32& value) -> usize {
+		f32_hash policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const f64& value) -> usize {
+		f64_hash policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const string_view& value) -> usize {
+		string_view_hash policy;
+
+		return policy.hash(value);
+	};
+
+	fn hash_value(const void* value) -> usize {
+		return mix_hash(static_cast<u64>(reinterpret_cast<usize>(value)));
+	};
+
+	template<typename K>
+	fn default_hash<K>::hash(const default_hash& this, const K& value) -> usize {
+		return hash_value(value);
+	};
+};

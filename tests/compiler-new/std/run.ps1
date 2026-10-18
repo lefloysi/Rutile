@@ -18,10 +18,10 @@ if (!$DeveloperCommand) {
 }
 $DeveloperCommand = (Resolve-Path -LiteralPath $DeveloperCommand).Path
 $libraries = @(
-	"$root/std/unique.rt",
-	"$root/std/buffer.rt",
-	"$root/std/string_view.rt",
-	"$root/std/string.rt"
+	"$root/kiln/compiler/std/unique.rt",
+	"$root/kiln/compiler/std/buffer.rt",
+	"$root/kiln/compiler/std/string_view.rt",
+	"$root/kiln/compiler/std/string.rt"
 )
 $checks = @(
 	@{ name = 'buffer'; fixture = 'buffer.rt' },
@@ -45,7 +45,7 @@ foreach ($check in $checks) {
 		if ($status -ne 1 -or !$diagnostics.Contains($check.diagnostic)) {
 			throw "$($check.name): expected '$($check.diagnostic)', exit=$status output=$diagnostics"
 		}
-		Write-Output "std/$($check.name): PASS"
+		Write-Output "kiln/compiler/std/$($check.name): PASS"
 		continue
 	}
 	if ($status) {
@@ -60,5 +60,5 @@ foreach ($check in $checks) {
 	if ($LASTEXITCODE -ne 42) {
 		throw "$($check.name): expected exit 42, got $LASTEXITCODE"
 	}
-	Write-Output "std/$($check.name): PASS"
+	Write-Output "kiln/compiler/std/$($check.name): PASS"
 }

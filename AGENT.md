@@ -92,6 +92,11 @@ Always use goals and subagents when performing work.
 - Do not impose a fixed column limit. Keep straightforward declarations and expressions on one
   line; wrap when it improves readability.
 - Keep argument and parameter lists on one line.
+- When a parenthesized expression spans multiple lines, give every continuation term its own line.
+  Put continuation operators at the start of those lines. Put the closing parenthesis on a separate
+  line before the attached opening brace, never at the end of the final term.
+- Keep multiline conditions consistent from the first line, rather than starting with an operand
+  inline and wrapping only the remaining operands.
 - Separate functions and distinct declaration groups with one blank line.
 - Separate validation, preparation, mutation, and result handling with logical blank lines.
 - Write function bodies on multiple lines, even when they contain only one statement.
@@ -141,6 +146,10 @@ Always use goals and subagents when performing work.
 
 ## File organization
 
+- Keep the repository root for files that need a root-level location, such as build and repository
+  configuration. Put generated logs, temporary scripts, binaries, and intermediate files under
+  build/ or an appropriate component directory. Run tools from a suitable output directory or
+  specify all output paths explicitly so they do not leave artifacts in the root.
 - Use the .hpp extension for headers in both C and C++, rather than .h.
 - When multiple files share a naming prefix, consider grouping them in a folder for that concept.
 - Remove the shared prefix from filenames inside that folder.

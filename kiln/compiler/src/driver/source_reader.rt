@@ -1,0 +1,69 @@
+struct SourceReader {
+	fn SourceReader(SourceReader& this, FileOpener opener, SourceManager& sources, Diagnostics& diagnostics);
+
+	fn load(SourceReader& this, const char* path) -> SourceFile*;
+
+private:
+	fn error(SourceReader& this, const char* path, const rt::string_view& operation);
+	FileOpener opener;
+	SourceManager* sources;
+	Diagnostics* diagnostics;
+};
+
+fn SourceReader::error(SourceReader& this, const char* path, const rt::string_view& operation) {
+	var message = DiagnosticMessage();
+	@message.text(operation);
+	@message.text(" source file \0");
+	@message.quoted(rt::string_view(path));
+	Token location;
+	@this.diagnostics->error(location, message.view());
+};
+
+fn SourceReader::SourceReader(SourceReader& this, FileOpener opener, SourceManager& sources, Diagnostics& diagnostics) {
+	@this.opener = $opener;
+	@this.sources = &sources;
+	@this.diagnostics = &diagnostics;
+};
+
+fn SourceReader::load(SourceReader& this, const char* path) -> SourceFile* {
+	var file = File(this.opener(path, "rb\0"));
+
+	if (!file.is_open()) {
+		@this.error(path, "cannot open\0");
+		return nullptr;
+	};
+
+	rt::string contents;
+	char[4096] chunk {};
+
+	while (true) {
+		usize count = @file.read(&chunk[0], sizeof(chunk));
+
+		if (!count) {
+			break;
+		};
+
+		if (!@contents.append(rt::string_view(&chunk[0], $count))) {
+			@this.error(path, "cannot buffer\0");
+			return nullptr;
+		};
+	};
+
+	if (file.failed()) {
+		@this.error(path, "cannot read\0");
+		return nullptr;
+	};
+
+	if (!@file.close()) {
+		@this.error(path, "cannot close\0");
+		return nullptr;
+	};
+
+	SourceFile* source = @this.sources->add(rt::string_view(path), contents.view());
+
+	if (!source) {
+		@this.error(path, "cannot retain\0");
+	};
+
+	return $source;
+};

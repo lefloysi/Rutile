@@ -1,0 +1,256 @@
+struct LanguagePosition {
+	fn LanguagePosition(LanguagePosition& this, usize line, usize character);
+	fn LanguagePosition(LanguagePosition& this, const LanguagePosition& other) : [implicit, default];
+	usize line;
+	usize character;
+};
+
+struct LanguageText {
+	fn assign(LanguageText& this, const rt::string_view& text) -> bool;
+	fn view(const LanguageText& this) -> rt::string_view;
+	fn offset(const LanguageText& this, usize line, usize character) -> usize;
+	fn position(const LanguageText& this, usize offset) -> LanguagePosition;
+	fn width(const rt::string_view& text, usize offset) -> usize;
+
+private:
+	rt::string text;
+	rt::buffer<usize> lines;
+};
+
+struct LanguageUri {
+	fn decode(const rt::string_view& uri, rt::string& path) -> bool;
+	fn encode(const rt::string_view& path, rt::string& uri) -> bool;
+	fn key(const rt::string_view& path, rt::string& result) -> bool;
+
+private:
+	fn hexadecimal(char value) -> i32;
+};
+
+fn LanguagePosition::LanguagePosition(LanguagePosition& this, usize line, usize character) {
+	@this.line = $line;
+	@this.character = $character;
+};
+
+fn LanguageText::assign(LanguageText& this, const rt::string_view& text) -> bool {
+	rt::string contents;
+	rt::buffer<usize> offsets;
+	if (!@contents.append(text) || !@offsets.push_back(0)) {
+		return false;
+	};
+
+	usize index = 0;
+	while (index < text.size()) {
+		if (text.data()[index] == '\n' && !@offsets.push_back(index + 1)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+
+	@this.text = $contents;
+	@this.lines = $offsets;
+	return true;
+};
+
+fn LanguageText::view(const LanguageText& this) -> rt::string_view {
+	return this.text.view();
+};
+
+fn LanguageText::width(const rt::string_view& text, usize offset) -> usize {
+	u08 first = static_cast<u08>(text.data()[offset]);
+	usize width = 1;
+	if (first >= 194 && first <= 223) {
+		@width = 2;
+	}
+	else if (first >= 224 && first <= 239) {
+		@width = 3;
+	}
+	else if (first >= 240 && first <= 244) {
+		@width = 4;
+	};
+	if (width > text.size() - offset) {
+		return 1;
+	};
+
+	usize index = 1;
+	while (index < width) {
+		if ((static_cast<u08>(text.data()[offset + index]) & 192) != 128) {
+			return 1;
+		};
+		@index = index + 1;
+	};
+	return $width;
+};
+
+fn LanguageText::offset(const LanguageText& this, usize line, usize character) -> usize {
+	if (line >= this.lines.size()) {
+		return this.text.size();
+	};
+
+	usize offset = this.lines.data()[line];
+	usize units = 0;
+	while (offset < this.text.size() && this.text.data()[offset] != '\r' && this.text.data()[offset] != '\n') {
+		usize width = LanguageText::width(this.text.view(), usize(offset));
+		usize count = 1;
+		if (width == 4) {
+			@count = 2;
+		};
+		if (units + count > character) {
+			break;
+		};
+		@units = units + count;
+		@offset = offset + width;
+	};
+	return $offset;
+};
+
+fn LanguageText::position(const LanguageText& this, usize offset) -> LanguagePosition {
+	if (offset > this.text.size()) {
+		@offset = this.text.size();
+	};
+	if (!this.lines.size()) {
+		return LanguagePosition(0, 0);
+	};
+
+	usize first = 0;
+	usize last = this.lines.size();
+	while (first + 1 < last) {
+		usize middle = first + (last - first) / 2;
+		if (this.lines.data()[middle] <= offset) {
+			@first = $middle;
+		}
+		else {
+			@last = $middle;
+		};
+	};
+
+	usize cursor = this.lines.data()[first];
+	usize units = 0;
+	while (cursor < offset) {
+		usize width = LanguageText::width(this.text.view(), usize(cursor));
+		if (cursor + width > offset) {
+			break;
+		};
+		if (width == 4) {
+			@units = units + 2;
+		}
+		else {
+			@units = units + 1;
+		};
+		@cursor = cursor + width;
+	};
+	return LanguagePosition($first, $units);
+};
+
+fn LanguageUri::hexadecimal(char value) -> i32 {
+	if (value >= '0' && value <= '9') {
+		return static_cast<i32>(value) - 48;
+	};
+	if (value >= 'a' && value <= 'f') {
+		return static_cast<i32>(value) - 87;
+	};
+	if (value >= 'A' && value <= 'F') {
+		return static_cast<i32>(value) - 55;
+	};
+	return -1;
+};
+
+fn LanguageUri::decode(const rt::string_view& uri, rt::string& path) -> bool {
+	if (uri.size() < 7 || rt::string_view(uri.data(), 7) != rt::string_view("file://\0")) {
+		return false;
+	};
+
+	rt::string result;
+	usize cursor = 7;
+	if (uri.size() >= 17 && rt::string_view(uri.data() + 7, 10) == rt::string_view("localhost/\0")) {
+		@cursor = 16;
+	};
+	if (cursor < uri.size() && uri.data()[cursor] != '/' && !@result.append("//\0")) {
+		return false;
+	};
+	if (cursor + 2 < uri.size() && uri.data()[cursor] == '/' && uri.data()[cursor + 2] == ':') {
+		@cursor = cursor + 1;
+	};
+
+	while (cursor < uri.size()) {
+		char byte = uri.data()[cursor];
+		if (byte == '%') {
+			if (cursor + 2 >= uri.size()) {
+				return false;
+			};
+			i32 high = LanguageUri::hexadecimal(uri.data()[cursor + 1]);
+			i32 low = LanguageUri::hexadecimal(uri.data()[cursor + 2]);
+			if (high < 0 || low < 0 || !(high * 16 + low)) {
+				return false;
+			};
+			@byte = static_cast<char>(high * 16 + low);
+			@cursor = cursor + 2;
+		};
+		if (!@result.append(rt::string_view(&byte, 1))) {
+			return false;
+		};
+		@cursor = cursor + 1;
+	};
+	@path = $result;
+	return true;
+};
+
+fn LanguageUri::encode(const rt::string_view& path, rt::string& uri) -> bool {
+	rt::string result;
+	var prefix = rt::string_view("file:///\0");
+	if (path.size() >= 2 && (path.data()[0] == '/' || path.data()[0] == '\\') && (path.data()[1] == '/' || path.data()[1] == '\\')) {
+		@prefix = rt::string_view("file:\0");
+	}
+	else if (path.size() && path.data()[0] == '/') {
+		@prefix = rt::string_view("file://\0");
+	};
+	if (!@result.append(prefix)) {
+		return false;
+	};
+
+	var digits = rt::string_view("0123456789ABCDEF\0");
+	usize cursor = 0;
+	while (cursor < path.size()) {
+		char byte = path.data()[cursor];
+		if (byte == '\\') {
+			@byte = '/';
+		};
+		if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '/' || byte == ':' || byte == '-' || byte == '_' || byte == '.' || byte == '~') {
+			if (!@result.append(rt::string_view(&byte, 1))) {
+				return false;
+			};
+		}
+		else {
+			u08 value = static_cast<u08>(byte);
+			char[3] encoded;
+			@encoded[0] = '%';
+			@encoded[1] = digits.data()[static_cast<usize>(value >> 4)];
+			@encoded[2] = digits.data()[static_cast<usize>(value & 15)];
+			if (!@result.append(rt::string_view(&encoded[0], 3))) {
+				return false;
+			};
+		};
+		@cursor = cursor + 1;
+	};
+	@uri = $result;
+	return true;
+};
+
+fn LanguageUri::key(const rt::string_view& path, rt::string& result) -> bool {
+	rt::string key;
+	usize index = 0;
+	while (index < path.size()) {
+		char byte = path.data()[index];
+		if (byte == '\\') {
+			@byte = '/';
+		};
+		if (byte >= 'A' && byte <= 'Z') {
+			@byte = static_cast<char>(static_cast<i32>(byte) + 32);
+		};
+		if (!@key.append(rt::string_view(&byte, 1))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@result = $key;
+	return true;
+};

@@ -1,0 +1,315 @@
+enum template_validation_role : [u08] {
+	dependent_type;
+	dependent_value;
+	value;
+};
+
+struct TemplateValidationSymbol {
+	Token name;
+	template_validation_role role;
+};
+
+struct TemplateDeclarationValidator {
+	fn validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool;
+
+private:
+	fn dependent(const TemplateDeclarationValidator& this, const Syntax& syntax) -> bool;
+	fn lookup(const TemplateDeclarationValidator& this, const Token& name) -> const TemplateValidationSymbol*;
+	fn remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool;
+	fn restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame);
+	fn type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
+	fn declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool;
+	fn members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool;
+	fn certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax*;
+
+	rt::buffer<TemplateValidationSymbol> symbols;
+	usize frame_start;
+};
+
+fn TemplateDeclarationValidator::lookup(const TemplateDeclarationValidator& this, const Token& name) -> const TemplateValidationSymbol* {
+	usize index = this.symbols.size();
+	while (index) {
+		@index = index - 1;
+		if (this.symbols.data()[index].name.same(name)) {
+			return &this.symbols.data()[index];
+		};
+	};
+	return nullptr;
+};
+
+fn TemplateDeclarationValidator::dependent(const TemplateDeclarationValidator& this, const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::name) {
+		const TemplateValidationSymbol* symbol = this.lookup(syntax.token());
+		return symbol && symbol->role != template_validation_role::value;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.dependent(*syntax.item(index))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateDeclarationValidator::remember(TemplateDeclarationValidator& this, Analyzer& analyzer, Syntax& name, template_validation_role role) -> bool {
+	if (name.kind() != syntax_kind::name) {
+		return true;
+	};
+	usize index = this.frame_start;
+	while (index < this.symbols.size()) {
+		const TemplateValidationSymbol& previous = this.symbols.data()[index];
+		if (previous.name.same(name.token())) {
+			if (previous.role == template_validation_role::dependent_type && role == template_validation_role::dependent_type) {
+				return true;
+			};
+			var message = DiagnosticMessage();
+			@message.text("duplicate declaration of '\0");
+			diagnostic_name(@message, name);
+			@message.text("' in template member scope\0");
+			@analyzer.report(name.token(), message.view());
+			@analyzer.note(previous.name, "previous declaration is here\0");
+			return false;
+		};
+		@index = index + 1;
+	};
+	TemplateValidationSymbol symbol;
+	@symbol.name = name.token();
+	@symbol.role = $role;
+	if (!@this.symbols.push_back($symbol)) {
+		@analyzer.error(&name, "out of memory storing template declaration names\0");
+		return false;
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::restore(TemplateDeclarationValidator& this, usize checkpoint, usize frame) {
+	while (this.symbols.size() > checkpoint) {
+		@this.symbols.pop_back();
+	};
+	@this.frame_start = $frame;
+};
+
+fn TemplateDeclarationValidator::certain(const TemplateDeclarationValidator& this, Syntax& syntax) -> Syntax* {
+	if (syntax.kind() != syntax_kind::ambiguity) {
+		return &syntax;
+	};
+	if (this.dependent(syntax)) {
+		return nullptr;
+	};
+	Syntax* selected = nullptr;
+	usize index = 0;
+	while (index < syntax.size()) {
+		Syntax* candidate = syntax.item(index);
+		syntax_kind kind = candidate->kind();
+		if (kind == syntax_kind::variable || kind == syntax_kind::function || kind == syntax_kind::record || kind == syntax_kind::enumeration || kind == syntax_kind::using_alias || kind == syntax_kind::template_declaration) {
+			if (selected) {
+				return nullptr;
+			};
+			@selected = candidate;
+		};
+		@index = index + 1;
+	};
+	return selected;
+};
+
+fn TemplateDeclarationValidator::type_names(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::type_name) {
+		if (this.dependent(syntax)) {
+			return true;
+		};
+		Syntax* name = syntax.designated_type();
+		// Applications have their own argument roles and are checked when instantiated.
+		if (name->kind() == syntax_kind::template_apply || name->kind() == syntax_kind::qualified_name) {
+			return true;
+		};
+		const TemplateValidationSymbol* symbol = this.lookup(name->token());
+		if (symbol && symbol->role == template_validation_role::value) {
+			var message = DiagnosticMessage();
+			@message.text("'\0");
+			diagnostic_name(@message, *name);
+			@message.text("' names a value; a type is required here\0");
+			@analyzer.report(name->token(), message.view());
+			return false;
+		};
+		Entity* entity = @analyzer.lookup(@scope, @*name);
+		if (!entity || !entity->denotes_type()) {
+			var message = DiagnosticMessage();
+			@message.text("'\0");
+			diagnostic_name(@message, *name);
+			@message.text("' does not name a type entity\0");
+			@analyzer.report(name->token(), message.view());
+			return false;
+		};
+		return true;
+	};
+	if (syntax.kind() == syntax_kind::type_pointer || syntax.kind() == syntax_kind::type_reference || syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_array) {
+		return @this.type_names(@analyzer, @scope, @*syntax.designated_type());
+	};
+	if (syntax.kind() == syntax_kind::type_function) {
+		if (!@this.type_names(@analyzer, @scope, @*syntax.function_type_result())) {
+			return false;
+		};
+		Syntax* parameters = syntax.function_type_parameters();
+		usize index = 0;
+		while (index < parameters->size()) {
+			if (!@this.type_names(@analyzer, @scope, @*parameters->item(index)->parameter_type())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::members(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& owner, Syntax& body) -> bool {
+	usize checkpoint = this.symbols.size();
+	usize frame = this.frame_start;
+	@this.frame_start = checkpoint;
+	usize index = 0;
+	while (index < body.size()) {
+		Syntax* member = this.certain(@*body.item(index));
+		@index = index + 1;
+		if (!member) {
+			continue;
+		};
+		if (member->kind() == syntax_kind::record || member->kind() == syntax_kind::enumeration || member->kind() == syntax_kind::using_alias) {
+			Syntax* name = member->record_name();
+			if (member->kind() == syntax_kind::using_alias) {
+				@name = member->alias_name();
+			};
+			if (!@this.remember(@analyzer, @*name, template_validation_role::dependent_type)) {
+				return false;
+			};
+		};
+	};
+	@index = 0;
+	while (index < body.size()) {
+		Syntax* member = this.certain(@*body.item(index));
+		@index = index + 1;
+		if (!member) {
+			continue;
+		};
+		if (member->kind() == syntax_kind::function && owner.kind() == syntax_kind::record) {
+			Syntax* name = member->function_name();
+			bool special = name->kind() == syntax_kind::unary || name->kind() == syntax_kind::operator_name && name->operator_token().kind == token_kind::op_assign || name->kind() == syntax_kind::conversion_name || name->kind() == syntax_kind::name && name->token().same(owner.record_name()->token());
+			if (special && (!member->function_parameters()->size() || !member->function_parameters()->item(0)->parameter_name()->token().is(rt::string_view("this\0")))) {
+				var message = DiagnosticMessage();
+				@message.text("instance function '\0");
+				diagnostic_name(@message, *owner.record_name());
+				@message.text("::\0");
+				diagnostic_name(@message, *name);
+				@message.text("' requires an explicit first reference parameter named 'this'\0");
+				@analyzer.report(name->token(), message.view());
+				return false;
+			};
+		};
+		if (!@this.declaration(@analyzer, @scope, @*member)) {
+			return false;
+		};
+		if (member->kind() == syntax_kind::variable && !@this.remember(@analyzer, @*member->variable_name(), template_validation_role::value)) {
+			return false;
+		};
+	};
+	@this.restore($checkpoint, $frame);
+	return true;
+};
+
+fn TemplateDeclarationValidator::declaration(TemplateDeclarationValidator& this, Analyzer& analyzer, Scope& scope, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::template_declaration) {
+		usize checkpoint = this.symbols.size();
+		usize frame = this.frame_start;
+		@this.frame_start = checkpoint;
+		Syntax* parameters = syntax.template_parameters();
+		usize index = 0;
+		while (index < parameters->size()) {
+			Syntax* parameter = parameters->item(index);
+			Syntax* type = parameter->template_parameter_type();
+			usize prior = 0;
+			while (prior < index) {
+				if (parameters->item(prior)->template_parameter_name()->token().same(parameter->template_parameter_name()->token())) {
+					var message = DiagnosticMessage();
+					@message.text("duplicate template parameter '\0");
+					diagnostic_name(@message, *parameter->template_parameter_name());
+					@message.text("' at position \0");
+					@message.number(index + 1);
+					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
+					@analyzer.note(parameters->item(prior)->template_parameter_name()->token(), "previous template parameter is declared here\0");
+					return false;
+				};
+				@prior = prior + 1;
+			};
+			if (type->kind() != syntax_kind::absent && !this.dependent(*type)) {
+				const Type* resolved = @analyzer.type(@scope, @*type);
+				if (!resolved) {
+					return false;
+				};
+				if (!resolved->kind().is_integer()) {
+					var message = DiagnosticMessage();
+					@message.text("non-type template parameter '\0");
+					diagnostic_name(@message, *parameter->template_parameter_name());
+					@message.text("' at position \0");
+					@message.number(index + 1);
+					@message.text(" requires an integral type; received '\0");
+					diagnostic_type(@message, *resolved);
+					@message.text("'\0");
+					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
+					return false;
+				};
+			};
+			template_validation_role role = template_validation_role::dependent_type;
+			if (type->kind() != syntax_kind::absent) {
+				@role = template_validation_role::dependent_value;
+			};
+			if (!@this.remember(@analyzer, @*parameter->template_parameter_name(), $role)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		bool valid = @this.declaration(@analyzer, @scope, @*syntax.template_declaration());
+		@this.restore($checkpoint, $frame);
+		return valid;
+	};
+	if (syntax.kind() == syntax_kind::record) {
+		usize checkpoint = this.symbols.size();
+		usize frame = this.frame_start;
+		@this.frame_start = checkpoint;
+		if (!@this.remember(@analyzer, @*syntax.record_name(), template_validation_role::dependent_type)) {
+			return false;
+		};
+		bool valid = @this.members(@analyzer, @scope, @syntax, @*syntax.record_members());
+		@this.restore($checkpoint, $frame);
+		return valid;
+	};
+	if (syntax.kind() == syntax_kind::namespace_body) {
+		return @this.members(@analyzer, @scope, @syntax, @*syntax.namespace_members());
+	};
+	if (syntax.kind() == syntax_kind::variable) {
+		return @this.type_names(@analyzer, @scope, @*syntax.variable_type());
+	};
+	if (syntax.kind() == syntax_kind::using_alias) {
+		return @this.type_names(@analyzer, @scope, @*syntax.alias_type());
+	};
+	if (syntax.kind() == syntax_kind::function) {
+		if (!@this.type_names(@analyzer, @scope, @*syntax.function_result())) {
+			return false;
+		};
+		usize index = 0;
+		while (index < syntax.function_parameters()->size()) {
+			if (!@this.type_names(@analyzer, @scope, @*syntax.function_parameters()->item(index)->parameter_type())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+	};
+	return true;
+};
+
+fn TemplateDeclarationValidator::validate(TemplateDeclarationValidator& this, Analyzer& analyzer, Entity& pattern) -> bool {
+	@this.symbols.clear();
+	@this.frame_start = 0;
+	if (!pattern.declaration() || !pattern.resolution_scope()) {
+		return true;
+	};
+	return @this.declaration(@analyzer, @*pattern.resolution_scope(), @*pattern.declaration());
+};

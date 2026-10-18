@@ -10,6 +10,9 @@ struct PlatformLock;
 struct PlatformServer;
 
 extern "C" std::FILE* platform_standard_error();
+extern "C" std::FILE* platform_standard_input();
+extern "C" std::FILE* platform_standard_output();
+extern "C" int platform_language_stdio();
 
 bool platform_current_directory(char* path, std::size_t capacity);
 bool platform_executable_path(char* path, std::size_t capacity);
@@ -17,6 +20,7 @@ bool platform_directory_exists(const char* path);
 bool platform_file_exists(const char* path);
 bool platform_create_directory(const char* path);
 std::FILE* platform_open_file(const std::filesystem::path& path, const char* mode);
+extern "C" std::FILE* platform_open_utf8_file(const char* path, const char* mode);
 bool platform_read_file(const char* path, char* data, std::size_t capacity);
 bool platform_write_file(const char* path, const char* data);
 bool platform_replace_file(const std::filesystem::path& source, const std::filesystem::path& destination);
@@ -30,6 +34,13 @@ void platform_lock_release(struct PlatformLock* lock);
 
 bool platform_request(const char* endpoint, const char* command, char* response, std::size_t capacity, unsigned int timeout_ms = 1000);
 struct PlatformServer* platform_server_open(const char* endpoint);
+enum class platform_accept {
+	accepted,
+	timeout,
+	error,
+};
+
+platform_accept platform_server_accept_for(struct PlatformServer* server, unsigned int timeout_ms);
 bool platform_server_accept(struct PlatformServer* server);
 bool platform_server_read(struct PlatformServer* server, char* command, std::size_t capacity);
 bool platform_server_write(struct PlatformServer* server, const char* response);

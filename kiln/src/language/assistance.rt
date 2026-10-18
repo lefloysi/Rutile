@@ -1,0 +1,169 @@
+fn LanguageWorkspace::cursor(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters, usize& source, usize& offset) -> bool {
+	const rt::json_value* document = parameters.member("textDocument\0");
+	const rt::json_value* position = parameters.member("position\0");
+	if (!document || !position) {
+		return false;
+	};
+	rt::string path;
+	rt::string key;
+	if (!LanguageUri::decode(LanguageJson::text(*document, "uri\0"), @path) || !LanguageUri::key(path.view(), @key)) {
+		return false;
+	};
+	var found = index.source_ids.find(key.view());
+	if (!found) {
+		return false;
+	};
+	@source = *found;
+	const LanguageText* text = &index.sources.data()[source].text;
+	LanguageDocument* open = @this.document_key(key.view());
+	if (open) {
+		@text = &open->text;
+	};
+	i64 line = LanguageJson::integer(*position, "line\0", -1);
+	i64 character = LanguageJson::integer(*position, "character\0", -1);
+	if (line < 0 || character < 0) {
+		return false;
+	};
+	usize current = text->offset(static_cast<usize>(line), static_cast<usize>(character));
+	return @this.old_offset(index, usize(source), $current, @offset);
+};
+
+fn LanguageWorkspace::completion(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_array();
+	usize source = 0;
+	usize offset = 0;
+	if (!result.get() || !@this.cursor(index, parameters, @source, @offset)) {
+		return $result;
+	};
+
+	// Candidate identities come only from compiler bindings in the enclosing scope.
+	// Prefix extraction filters these candidates; it never resolves an identifier.
+	rt::string_view text = index.sources.data()[source].text.view();
+	usize begin = offset;
+	while (begin) {
+		char character = text.data()[begin - 1];
+		if (!(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_')) {
+			break;
+		};
+		@begin = begin - 1;
+	};
+	if (begin && (text.data()[begin - 1] == '.' || text.data()[begin - 1] == ':')) {
+		return $result;
+	};
+	var prefix = rt::string_view(text.data() + begin, offset - begin);
+	u64 scope = 0;
+	usize width = usize::max;
+	usize region = 0;
+	while (region < index.scopes.size()) {
+		const NavigationScope& candidate = index.scopes.data()[region];
+		@region = region + 1;
+		if (candidate.range.begin < candidate.range.end && candidate.range.source == source && candidate.range.begin <= offset && offset <= candidate.range.end && candidate.range.end - candidate.range.begin < width) {
+			@scope = candidate.id;
+			@width = candidate.range.end - candidate.range.begin;
+		};
+	};
+	rt::unordered_map<rt::string_view, u64> names;
+	while (scope) {
+		var members = index.scope_members.find(scope);
+		usize member = 0;
+		while (members && member < members->size()) {
+			const LanguageIndexedSymbol& symbol = index.symbols.data()[members->data()[member]];
+			@member = member + 1;
+			rt::string_view name = symbol.name.view();
+			if (name.empty() || name.size() < prefix.size() || rt::string_view(name.data(), prefix.size()) != prefix || symbol.value.kind == 13 && symbol.value.declaration.source == source && symbol.value.declaration.begin > offset) {
+				continue;
+			};
+			var hidden = names.find(name);
+			if (hidden && *hidden != scope) {
+				continue;
+			};
+			if (!hidden && !@names.insert(name, u64(scope))) {
+				return rt::unique<rt::json_value>();
+			};
+			var item = rt::json_value::make_object();
+			if (!item.get() || !@item.get()->set("label\0", rt::json_value::make_string(name)) || !@item.get()->set("detail\0", rt::json_value::make_string(symbol.detail.view())) || !@result.get()->append($item)) {
+				return rt::unique<rt::json_value>();
+			};
+		};
+		var descriptor = index.scope_ids.find(scope);
+		if (!descriptor) {
+			break;
+		};
+		@scope = index.scopes.data()[*descriptor].parent;
+	};
+	return $result;
+};
+
+fn LanguageWorkspace::signature(LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+	usize source = 0;
+	usize offset = 0;
+	if (!@this.cursor(index, parameters, @source, @offset)) {
+		return rt::json_value::make_null();
+	};
+	const NavigationCall* selected = nullptr;
+	usize number = 0;
+	while (number < index.calls.size()) {
+		const NavigationCall& call = index.calls.data()[number];
+		@number = number + 1;
+		if (call.range.source != source || offset <= call.callee.end || offset >= call.range.end) {
+			continue;
+		};
+		if (!selected || call.range.end - call.range.begin < selected->range.end - selected->range.begin) {
+			@selected = &call;
+		};
+	};
+	if (!selected) {
+		return rt::json_value::make_null();
+	};
+	var found = index.symbol_ids.find(selected->symbol);
+	if (!found) {
+		return rt::json_value::make_null();
+	};
+	const LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
+	var help = rt::json_value::make_object();
+	var signatures = rt::json_value::make_array();
+	var signature = rt::json_value::make_object();
+	var parameters_json = rt::json_value::make_array();
+	if (!help.get() || !signatures.get() || !signature.get() || !parameters_json.get()) {
+		return rt::unique<rt::json_value>();
+	};
+	rt::string label;
+	if (!@label.append(symbol.name.view()) || !@label.append("(\0")) {
+		return rt::unique<rt::json_value>();
+	};
+	usize displayed = 0;
+	usize parameter = 0;
+	if (symbol.parameters.size() == selected->arguments.size() + 1 && symbol.parameters.data()[0].name.view() == rt::string_view("this\0")) {
+		@parameter = 1;
+	};
+	while (parameter < symbol.parameters.size()) {
+		const LanguageIndexedParameter& input = symbol.parameters.data()[parameter];
+		if (displayed && !@label.append(", \0")) {
+			return rt::unique<rt::json_value>();
+		};
+		if (!@label.append(input.detail.view())) {
+			return rt::unique<rt::json_value>();
+		};
+		@displayed = displayed + 1;
+		var item = rt::json_value::make_object();
+		if (!item.get() || !@item.get()->set("label\0", rt::json_value::make_string(input.detail.view())) || !@parameters_json.get()->append($item)) {
+			return rt::unique<rt::json_value>();
+		};
+		@parameter = parameter + 1;
+	};
+	if (!@label.append(")\0")) {
+		return rt::unique<rt::json_value>();
+	};
+	usize active = 0;
+	while (active + 1 < selected->arguments.size() && offset > selected->arguments.data()[active].end) {
+		@active = active + 1;
+	};
+	if (!@signature.get()->set("label\0", rt::json_value::make_string(label.view())) || !@signature.get()->set("documentation\0", rt::json_value::make_string(symbol.detail.view())) || !@signature.get()->set("parameters\0", $parameters_json) || !@signatures.get()->append($signature) || !@help.get()->set("signatures\0", $signatures) || !@help.get()->set("activeSignature\0", rt::json_value::make_unsigned(0))) {
+		return rt::unique<rt::json_value>();
+	};
+	if (displayed && !@help.get()->set("activeParameter\0", rt::json_value::make_unsigned(static_cast<u64>(active)))) {
+		return rt::unique<rt::json_value>();
+	};
+	return $help;
+};
+

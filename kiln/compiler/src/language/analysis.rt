@@ -1,0 +1,84 @@
+struct AnalysisCancellationScope {
+	fn AnalysisCancellationScope(AnalysisCancellationScope& this, Diagnostics& diagnostics);
+	fn ~AnalysisCancellationScope(AnalysisCancellationScope& this);
+
+private:
+	Diagnostics* diagnostics;
+};
+
+fn AnalysisCancellationScope::AnalysisCancellationScope(AnalysisCancellationScope& this, Diagnostics& diagnostics) {
+	@this.diagnostics = &diagnostics;
+};
+
+fn AnalysisCancellationScope::~AnalysisCancellationScope(AnalysisCancellationScope& this) {
+	@this.diagnostics->set_cancellation(nullptr, nullptr);
+};
+
+fn Analysis::analyze(Analysis& this, u32 pointer_bits, ((void*) -> i32)* cancelled, void* context) -> bool {
+	@this.messages.set_cancellation(cancelled, context);
+	var cancellation_scope = AnalysisCancellationScope(@this.messages);
+	@this.target_pointer_bits = pointer_bits;
+	@this.semantic_unit = rt::unique<SemanticUnit>::make();
+	if (!this.semantic_unit.get()) {
+		return false;
+	};
+	Token location;
+	if (pointer_bits != 32 && pointer_bits != 64) {
+		@this.messages.error(location, "language analysis requires a 32-bit or 64-bit target\0");
+		return true;
+	};
+	Diagnostics parse_errors;
+	usize index = 0;
+	while (index < this.sources.count()) {
+		if (this.messages.cancelled()) {
+			return false;
+		};
+		SourceFile* file = @this.sources.at(index);
+		var lexer = Lexer(@*file);
+		if (!@lexer.scan()) {
+			@parse_errors.error(lexer.error_token(), lexer.error());
+			@index = index + 1;
+			continue;
+		};
+		var parser = Parser(file->tokens());
+		@parser.set_cancellation(cancelled, context);
+		var syntax = @parser.parse();
+		if (!syntax.get()) {
+			if (this.messages.cancelled()) {
+				return false;
+			};
+			@parse_errors.error(parser.error_token(), parser.error());
+		}
+		else if (!@this.syntax.push_back($syntax)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
+	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
+	if (!analyzed && !this.messages.failed()) {
+		@this.messages.error(location, "internal compiler error: semantic analysis failed without a diagnostic\0");
+	};
+	if (analyzed) {
+		var lifetimes = LifetimeAnalyzer(@this.messages);
+		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
+			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic\0");
+		};
+	};
+	if (this.messages.cancelled()) {
+		return false;
+	};
+	const rt::buffer<DiagnosticRecord>& records = parse_errors.records();
+	@index = 0;
+	while (index < records.size()) {
+		const DiagnosticRecord& record = records.data()[index];
+		@this.messages.error(record.location, record.message.view());
+		usize note = 0;
+		while (note < record.notes.size()) {
+			@this.messages.note(record.notes.data()[note].location, record.notes.data()[note].message.view());
+			@note = note + 1;
+		};
+		@index = index + 1;
+	};
+	return @this.index.build(*this.semantic_unit.get());
+};

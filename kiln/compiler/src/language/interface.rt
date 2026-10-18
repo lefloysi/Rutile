@@ -1,0 +1,143 @@
+fn rutile_language_analyze(const AnalysisSource* sources, usize count, u32 pointer_bits, ((void*) -> i32)* cancelled, void* context) -> void* {
+	if (count && !sources || cancelled && cancelled(context)) {
+		return nullptr;
+	};
+	var analysis = rt::unique<Analysis>::make();
+	var compiler = rt::unique<Compiler>::make();
+	if (!analysis.get() || !compiler.get()) {
+		return nullptr;
+	};
+	usize index = 0;
+	while (index < count) {
+		if (!@analysis.get()->add_source(sources[index].path, sources[index].text)) {
+			return nullptr;
+		};
+		@index = index + 1;
+	};
+	if (!@analysis.get()->analyze($pointer_bits, $cancelled, $context) || !@compiler.get()->publish($analysis)) {
+		return nullptr;
+	};
+	return @compiler.release();
+};
+
+fn rutile_language_destroy(void* snapshot) {
+	delete static_cast<Compiler*>($snapshot);
+};
+
+fn rutile_language_symbol_count(const void* snapshot) -> usize {
+	if (!snapshot) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	return lease.value().navigation().symbol_count();
+};
+
+fn rutile_language_symbol(const void* snapshot, usize index, NavigationSymbol* result) -> i32 {
+	if (!snapshot || !result) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	const NavigationSymbol* symbol = lease.value().navigation().symbol_at($index);
+	if (!symbol) {
+		return 0;
+	};
+	@*result := *symbol;
+	return 1;
+};
+
+fn rutile_language_occurrence_count(const void* snapshot) -> usize {
+	if (!snapshot) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	return lease.value().navigation().occurrence_count();
+};
+
+fn rutile_language_occurrence(const void* snapshot, usize index, NavigationOccurrence* result) -> i32 {
+	if (!snapshot || !result) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	const NavigationOccurrence* occurrence = lease.value().navigation().occurrence_at($index);
+	if (!occurrence) {
+		return 0;
+	};
+	@*result := *occurrence;
+	return 1;
+};
+
+fn rutile_language_diagnostic_count(const void* snapshot) -> usize {
+	if (!snapshot) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	return lease.value().diagnostics().records().size();
+};
+
+fn rutile_language_diagnostic(const void* snapshot, usize index, LanguageDiagnostic* result) -> i32 {
+	if (!snapshot || !result) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	const rt::buffer<DiagnosticRecord>& records = lease.value().diagnostics().records();
+	if (index >= records.size()) {
+		return 0;
+	};
+	const DiagnosticRecord& record = records.data()[index];
+	@result->range = lease.value().navigation().range(record.location);
+	@result->severity = 1;
+	@result->message = record.message.view();
+	return 1;
+};
+
+fn rutile_language_related_count(const void* snapshot, usize diagnostic) -> usize {
+	if (!snapshot) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	const rt::buffer<DiagnosticRecord>& records = lease.value().diagnostics().records();
+	if (diagnostic >= records.size()) {
+		return 0;
+	};
+	return records.data()[diagnostic].notes.size();
+};
+
+fn rutile_language_related(const void* snapshot, usize diagnostic, usize index, LanguageDiagnostic* result) -> i32 {
+	if (!snapshot || !result) {
+		return 0;
+	};
+	var lease = @const_cast<Compiler*>(static_cast<const Compiler*>(snapshot))->acquire_analysis();
+	if (!lease.get()) {
+		return 0;
+	};
+	const rt::buffer<DiagnosticRecord>& records = lease.value().diagnostics().records();
+	if (diagnostic >= records.size() || index >= records.data()[diagnostic].notes.size()) {
+		return 0;
+	};
+	const DiagnosticNote& note = records.data()[diagnostic].notes.data()[index];
+	@result->range = lease.value().navigation().range(note.location);
+	@result->severity = 3;
+	@result->message = note.message.view();
+	return 1;
+};

@@ -53,7 +53,7 @@ run_case("signature-construction-ranking", ["tests/compiler-new/semantic/constru
 	compiler=args.compiler)
 
 run_case("signature-string-view-construction-ranking",
-	["std/unique.rt", "std/buffer.rt", "std/string_view.rt", "std/string.rt",
+	["kiln/compiler/std/unique.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt", "kiln/compiler/std/string.rt",
 		"tests/compiler-new/semantic/string-view-construction-ranking.rt"], compiler=args.compiler)
 run_case("signature-mixed-auto", ["tests/compiler-new/backend/cases/mixed-auto-qualification.rt"],
 	compiler=args.compiler)

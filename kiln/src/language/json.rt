@@ -1,0 +1,84 @@
+struct LanguageJson {
+	fn object() -> rt::unique<rt::json_value>;
+	fn text(const rt::json_value& object, const rt::string_view& key) -> rt::string_view;
+	fn integer(const rt::json_value& object, const rt::string_view& key, i64 fallback) -> i64;
+	fn position(const LanguagePosition& position) -> rt::unique<rt::json_value>;
+	fn range(const LanguageText& text, usize begin, usize end) -> rt::unique<rt::json_value>;
+	fn notification(const rt::string_view& method, rt::unique<rt::json_value> parameters) -> rt::unique<rt::json_value>;
+	fn response(const rt::json_value& id, rt::unique<rt::json_value> value) -> rt::unique<rt::json_value>;
+	fn failure(const rt::json_value& id, i64 code, const rt::string_view& text) -> rt::unique<rt::json_value>;
+};
+
+fn LanguageJson::object() -> rt::unique<rt::json_value> {
+	return rt::json_value::make_object();
+};
+
+fn LanguageJson::text(const rt::json_value& object, const rt::string_view& key) -> rt::string_view {
+	const rt::json_value* value = object.member(key);
+	if (!value || value->kind() != rt::json_kind::string) {
+		return rt::string_view();
+	};
+	return value->text();
+};
+
+fn LanguageJson::integer(const rt::json_value& object, const rt::string_view& key, i64 fallback) -> i64 {
+	const rt::json_value* value = object.member(key);
+	i64 result = 0;
+	if (!value || !value->integer(@result)) {
+		return $fallback;
+	};
+	return $result;
+};
+
+fn LanguageJson::position(const LanguagePosition& position) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	if (!result.get() || !@result.get()->set("line\0", rt::json_value::make_unsigned(static_cast<u64>(position.line))) || !@result.get()->set("character\0", rt::json_value::make_unsigned(static_cast<u64>(position.character)))) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};
+
+fn LanguageJson::range(const LanguageText& text, usize begin, usize end) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	if (!result.get() || !@result.get()->set("start\0", LanguageJson::position(text.position($begin))) || !@result.get()->set("end\0", LanguageJson::position(text.position($end)))) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};
+
+fn LanguageJson::notification(const rt::string_view& method, rt::unique<rt::json_value> parameters) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	if (!result.get() || !@result.get()->set("jsonrpc\0", rt::json_value::make_string("2.0\0")) || !@result.get()->set("method\0", rt::json_value::make_string(method))) {
+		return rt::unique<rt::json_value>();
+	};
+	if (!@result.get()->set("params\0", $parameters)) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};
+
+fn LanguageJson::response(const rt::json_value& id, rt::unique<rt::json_value> value) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	if (!result.get() || !@result.get()->set("jsonrpc\0", rt::json_value::make_string("2.0\0")) || !@result.get()->set("id\0", id.clone())) {
+		return rt::unique<rt::json_value>();
+	};
+	if (!@result.get()->set("result\0", $value)) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};
+
+fn LanguageJson::failure(const rt::json_value& id, i64 code, const rt::string_view& text) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_object();
+	var error = rt::json_value::make_object();
+	if (!result.get() || !error.get() || !@error.get()->set("code\0", rt::json_value::make_integer($code)) || !@error.get()->set("message\0", rt::json_value::make_string(text))) {
+		return rt::unique<rt::json_value>();
+	};
+	if (!@result.get()->set("jsonrpc\0", rt::json_value::make_string("2.0\0")) || !@result.get()->set("id\0", id.clone())) {
+		return rt::unique<rt::json_value>();
+	};
+	if (!@result.get()->set("error\0", $error)) {
+		return rt::unique<rt::json_value>();
+	};
+	return $result;
+};

@@ -1,0 +1,488 @@
+fn LanguageWorkspace::add_project(void* context, const char* name, const char* path) -> i32 {
+	LanguageWorkspace& workspace = @*reinterpret_cast<LanguageWorkspace*>(context);
+	usize index = 0;
+	while (index < workspace.groups.size() && workspace.groups.data()[index].name.view() != rt::string_view(name)) {
+		@index = index + 1;
+	};
+	if (index == workspace.groups.size()) {
+		LanguageGroup group;
+		if (!@group.name.append(rt::string_view(name)) || !@workspace.groups.push_back($group)) {
+			return 0;
+		};
+	};
+	return static_cast<i32>(@(@workspace.groups).data()[index].paths.push_back(rt::string(path)));
+};
+
+fn LanguageWorkspace::project_error(void* context, const char* text) {
+	LanguageWorkspace& workspace = @*reinterpret_cast<LanguageWorkspace*>(context);
+	@workspace.discovery_error = rt::string(text);
+};
+
+fn LanguageWorkspace::analyze(LanguageWorkspace& this, LanguageJob& job) -> rt::unique<LanguageIndex> {
+	u64 started = runtime_clock_nanoseconds();
+	if (this.cached_configuration != job.configuration) {
+		@this.groups.clear();
+		@this.discovery_error.clear();
+		if (!kiln_project_sources(job.root.c_str(), &LanguageWorkspace::add_project, &this, &LanguageWorkspace::project_error)) {
+			var parameters = rt::json_value::make_object();
+			if (parameters.get()) {
+				@parameters.get()->set("type\0", rt::json_value::make_unsigned(1));
+				@parameters.get()->set("message\0", rt::json_value::make_string(this.discovery_error.view()));
+				@this.notify("window/logMessage\0", $parameters);
+			};
+			return rt::unique<LanguageIndex>();
+		};
+		@this.cached_configuration = job.configuration;
+	};
+
+	var index = rt::unique<LanguageIndex>::make();
+	if (!index.get()) {
+		return rt::unique<LanguageIndex>();
+	};
+	@index.get()->generation = job.generation;
+	rt::unordered_map<rt::string_view, bool> assigned;
+	usize group = 0;
+	while (group < this.groups.size()) {
+		LanguageGroup& input = @(@this.groups).data()[group];
+		if (!@this.analyze_group(@input, @job, @*index.get())) {
+			return rt::unique<LanguageIndex>();
+		};
+		usize path = 0;
+		while (path < input.paths.size()) {
+			var current = input.paths.data()[path].view();
+			usize document = 0;
+			while (document < job.documents.size()) {
+				rt::string key;
+				if (!LanguageUri::key(current, @key)) {
+					return rt::unique<LanguageIndex>();
+				};
+				if (job.documents.data()[document].key.view() == key.view() && !assigned.find(job.documents.data()[document].key.view())) {
+					@assigned.insert(job.documents.data()[document].key.view(), true);
+				};
+				@document = document + 1;
+			};
+			@path = path + 1;
+		};
+		@group = group + 1;
+	};
+
+	LanguageGroup loose;
+	@loose.kind = language_group_kind::loose;
+	usize document = 0;
+	while (document < job.documents.size()) {
+		if (!assigned.find(job.documents.data()[document].key.view()) && !@loose.paths.push_back(rt::string(job.documents.data()[document].path))) {
+			return rt::unique<LanguageIndex>();
+		};
+		@document = document + 1;
+	};
+	if (loose.paths.size() && !@this.analyze_group(@loose, @job, @*index.get())) {
+		return rt::unique<LanguageIndex>();
+	};
+	if (!@index.get()->finish()) {
+		return rt::unique<LanguageIndex>();
+	};
+	@index.get()->build_nanoseconds = runtime_clock_nanoseconds() - started;
+	return $index;
+};
+
+fn LanguageWorkspace::analyze_group(LanguageWorkspace& this, LanguageGroup& group, LanguageJob& job, LanguageIndex& index) -> bool {
+	var analysis = rt::unique<Analysis>::make();
+	if (!analysis.get()) {
+		return false;
+	};
+	LanguageCancellation cancellation;
+	@cancellation.generation = this.generation;
+	@cancellation.stopped = this.stopped;
+	@cancellation.expected = job.generation;
+	rt::string key;
+	if (!LanguageWorkspace::target_key(job.root.view(), group, @key) || LanguageWorkspace::cancelled(&cancellation) || !@this.compiler->expect_target(key.view(), u64(job.generation))) {
+		return false;
+	};
+
+	usize source = 0;
+	while (source < group.paths.size()) {
+		if (LanguageWorkspace::cancelled(&cancellation)) {
+			return false;
+		};
+		const rt::string& path = group.paths.data()[source];
+		rt::string key;
+		if (!LanguageUri::key(path.view(), @key)) {
+			return false;
+		};
+		usize document = 0;
+		while (document < job.documents.size() && job.documents.data()[document].key.view() != key.view()) {
+			@document = document + 1;
+		};
+		if (document < job.documents.size()) {
+			if (!@analysis.get()->add_source(path.view(), job.documents.data()[document].text.view())) {
+				return false;
+			};
+		}
+		else if (!@analysis.get()->load_source(path.c_str(), &platform_open_utf8_file)) {
+			usize diagnostic = 0;
+			while (diagnostic < analysis.get()->diagnostics().records().size()) {
+				if (LanguageWorkspace::cancelled(&cancellation)) {
+					return false;
+				};
+				const DiagnosticRecord& record = analysis.get()->diagnostics().records().data()[diagnostic];
+				var parameters = rt::json_value::make_object();
+				if (!parameters.get() || !@parameters.get()->set("type\0", rt::json_value::make_unsigned(1)) || !@parameters.get()->set("message\0", rt::json_value::make_string(record.message.view())) || !@this.notify("window/logMessage\0", $parameters)) {
+					return false;
+				};
+				@diagnostic = diagnostic + 1;
+			};
+			return false;
+		};
+		@source = source + 1;
+	};
+
+	@analysis.get()->analyze(64, &LanguageWorkspace::cancelled, &cancellation);
+	if (LanguageWorkspace::cancelled(&cancellation) || !@index.append(*analysis.get(), job)) {
+		return false;
+	};
+	if (!@index.targets.push_back(rt::string(key))) {
+		return false;
+	};
+	analysis_publication publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
+	return publication == analysis_publication::published && !LanguageWorkspace::cancelled(&cancellation);
+};
+
+fn LanguageWorkspace::target_key(const rt::string_view& root, const LanguageGroup& group, rt::string& key) -> bool {
+	rt::string result;
+	if (!LanguageUri::key(root, @result)) {
+		return false;
+	};
+	if (group.kind == language_group_kind::loose) {
+		if (!@result.append("::editor::loose\0")) {
+			return false;
+		};
+	}
+	else if (!@result.append("::target::\0") || !@result.append(group.name.view())) {
+		return false;
+	};
+	@key = $result;
+	return true;
+};
+
+fn LanguageIndex::source(LanguageIndex& this, const Analysis& analysis, usize number, const LanguageJob& job) -> usize {
+	var path = analysis.source_path(usize(number));
+	rt::string key;
+	if (!LanguageUri::key(path, @key)) {
+		return usize::max;
+	};
+	var previous = this.source_ids.find(key.view());
+	if (previous) {
+		return *previous;
+	};
+
+	LanguageIndexedSource source;
+	@source.key = $key;
+	@source.diagnostics = rt::json_value::make_array();
+	if (!source.diagnostics.get() || !LanguageUri::encode(path, @source.uri) || !@source.text.assign(analysis.source_text(usize(number)))) {
+		return usize::max;
+	};
+	usize document = 0;
+	while (document < job.documents.size()) {
+		if (job.documents.data()[document].key.view() == source.key.view()) {
+			@source.uri = rt::string(job.documents.data()[document].uri);
+			@source.version.emplace(i64(job.documents.data()[document].version));
+			@source.revision = job.documents.data()[document].revision;
+			break;
+		};
+		@document = document + 1;
+	};
+	usize result = this.sources.size();
+	if (!@this.source_ids.insert(source.key.view(), usize(result)) || !@this.sources.push_back($source)) {
+		return usize::max;
+	};
+	return $result;
+};
+
+fn LanguageIndex::identity(const LanguageIndex& this, u64 id) -> u64 {
+	usize remaining = this.symbols.size();
+	while (remaining) {
+		var found = this.symbol_ids.find(id);
+		if (!found || !this.symbols.data()[*found].value.origin || this.symbols.data()[*found].value.origin == id) {
+			return $id;
+		};
+		@id = this.symbols.data()[*found].value.origin;
+		@remaining = remaining - 1;
+	};
+	return $id;
+};
+
+fn LanguageIndex::append(LanguageIndex& this, const Analysis& analysis, const LanguageJob& job) -> bool {
+	rt::buffer<usize> mapping;
+	usize source = 0;
+	while (source < analysis.source_count()) {
+		usize target = @this.source(analysis, usize(source), job);
+		if (target == usize::max || !@mapping.push_back($target)) {
+			return false;
+		};
+		@source = source + 1;
+	};
+
+	u64 maximum = 0;
+	usize number = 0;
+	while (number < analysis.navigation().symbol_count()) {
+		const NavigationSymbol* input = analysis.navigation().symbol_at(number);
+		LanguageIndexedSymbol symbol;
+		@symbol.value = NavigationSymbol(*input);
+		if (input->id > maximum) {
+			@maximum = input->id;
+		};
+		@symbol.value.id = input->id + this.symbol_base;
+		if (input->origin) {
+			@symbol.value.origin = input->origin + this.symbol_base;
+		};
+		if (input->container) {
+			@symbol.value.container = input->container + this.symbol_base;
+		};
+		if (input->declaration.source < mapping.size()) {
+			@symbol.value.declaration.source = mapping.data()[input->declaration.source];
+		};
+		if (input->definition.source < mapping.size()) {
+			@symbol.value.definition.source = mapping.data()[input->definition.source];
+		};
+		if (!@symbol.name.append(input->name) || !@symbol.detail.append(input->detail)) {
+			return false;
+		};
+		usize parameter = 0;
+		while (parameter < analysis.navigation().parameter_count(input->id)) {
+			const NavigationParameter* input_parameter = analysis.navigation().parameter_at(input->id, parameter);
+			LanguageIndexedParameter copy;
+			if (!@copy.name.append(input_parameter->name) || !@copy.detail.append(input_parameter->detail) || !@symbol.parameters.push_back($copy)) {
+				return false;
+			};
+			@parameter = parameter + 1;
+		};
+		@symbol.value.name = symbol.name.view();
+		@symbol.value.detail = symbol.detail.view();
+		if (!@this.symbol_ids.insert(u64(symbol.value.id), this.symbols.size()) || !@this.symbols.push_back($symbol)) {
+			return false;
+		};
+		@number = number + 1;
+	};
+
+	@number = 0;
+	while (number < analysis.navigation().occurrence_count()) {
+		const NavigationOccurrence* input = analysis.navigation().occurrence_at(number);
+		if (input->range.source < mapping.size() && input->range.begin < input->range.end) {
+			NavigationOccurrence occurrence := *input;
+			@occurrence.range.source = mapping.data()[input->range.source];
+			@occurrence.symbol = this.identity(input->symbol + this.symbol_base);
+			if (!@this.occurrences.push_back($occurrence)) {
+				return false;
+			};
+		};
+		@number = number + 1;
+	};
+	u64 maximum_scope = 0;
+	@number = 0;
+	while (number < analysis.navigation().scope_count()) {
+		const NavigationScope* input = analysis.navigation().scope_at(number);
+		NavigationScope copy := *input;
+		if (input->id > maximum_scope) {
+			@maximum_scope = input->id;
+		};
+		@copy.id = input->id + this.scope_base;
+		if (copy.parent) {
+			@copy.parent = copy.parent + this.scope_base;
+		};
+		if (copy.context) {
+			@copy.context = copy.context + this.symbol_base;
+		};
+		if (copy.range.source < mapping.size()) {
+			@copy.range.source = mapping.data()[copy.range.source];
+		};
+		if (!this.scope_ids.find(copy.id) && !@this.scope_ids.insert(u64(copy.id), this.scopes.size())) {
+			return false;
+		};
+		if (!@this.scopes.push_back($copy)) {
+			return false;
+		};
+		@number = number + 1;
+	};
+	@number = 0;
+	while (number < analysis.navigation().binding_count()) {
+		const NavigationBinding* input = analysis.navigation().binding_at(number);
+		NavigationBinding copy;
+		@copy.scope = input->scope + this.scope_base;
+		@copy.symbol = input->symbol + this.symbol_base;
+		if (!this.scope_members.find(copy.scope)) {
+			rt::buffer<usize> members;
+			if (!@this.scope_members.insert(u64(copy.scope), $members)) {
+				return false;
+			};
+		};
+		var members = @this.scope_members.find(copy.scope);
+		var symbol = this.symbol_ids.find(copy.symbol);
+		if (!symbol || !@members->push_back(usize(*symbol)) || !@this.scope_bindings.push_back($copy)) {
+			return false;
+		};
+		@number = number + 1;
+	};
+	@number = 0;
+	while (number < analysis.navigation().call_count()) {
+		const NavigationCall* input = analysis.navigation().call_at(number);
+		NavigationCall copy;
+		@copy.symbol = input->symbol + this.symbol_base;
+		@copy.scope = input->scope + this.scope_base;
+		@copy.context = input->context + this.symbol_base;
+		@copy.range = SourceRange(input->range);
+		@copy.callee = SourceRange(input->callee);
+		if (copy.range.source < mapping.size()) {
+			@copy.range.source = mapping.data()[copy.range.source];
+		};
+		if (copy.callee.source < mapping.size()) {
+			@copy.callee.source = mapping.data()[copy.callee.source];
+		};
+		usize argument = 0;
+		while (argument < input->arguments.size()) {
+			SourceRange range := input->arguments.data()[argument];
+			if (range.source < mapping.size()) {
+				@range.source = mapping.data()[range.source];
+			};
+			if (!@copy.arguments.push_back($range)) {
+				return false;
+			};
+			@argument = argument + 1;
+		};
+		if (!@this.calls.push_back($copy)) {
+			return false;
+		};
+		@number = number + 1;
+	};
+	@this.scope_base = this.scope_base + maximum_scope + 1;
+	@this.symbol_base = this.symbol_base + maximum + 1;
+
+	@number = 0;
+	while (number < analysis.diagnostics().records().size()) {
+		const DiagnosticRecord& record = analysis.diagnostics().records().data()[number];
+		SourceRange range = analysis.navigation().range(record.location);
+		if (range.source < mapping.size()) {
+			LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+			var diagnostic = rt::json_value::make_object();
+			if (!diagnostic.get() || !@diagnostic.get()->set("range\0", LanguageJson::range(source.text, usize(range.begin), usize(range.end))) || !@diagnostic.get()->set("severity\0", rt::json_value::make_unsigned(1)) || !@diagnostic.get()->set("source\0", rt::json_value::make_string("rutile\0")) || !@diagnostic.get()->set("message\0", rt::json_value::make_string(record.message.view()))) {
+				return false;
+			};
+			var related = rt::json_value::make_array();
+			usize note = 0;
+			while (related.get() && note < record.notes.size()) {
+				SourceRange note_range = analysis.navigation().range(record.notes.data()[note].location);
+				if (note_range.source < mapping.size()) {
+					const LanguageIndexedSource& target = this.sources.data()[mapping.data()[note_range.source]];
+					var location = rt::json_value::make_object();
+					var information = rt::json_value::make_object();
+					if (!location.get() || !information.get() || !@location.get()->set("uri\0", rt::json_value::make_string(target.uri.view())) || !@location.get()->set("range\0", LanguageJson::range(target.text, usize(note_range.begin), usize(note_range.end)))) {
+						return false;
+					};
+					if (!@information.get()->set("location\0", $location) || !@information.get()->set("message\0", rt::json_value::make_string(record.notes.data()[note].message.view())) || !@related.get()->append($information)) {
+						return false;
+					};
+				};
+				@note = note + 1;
+			};
+			if (!related.get() || !@diagnostic.get()->set("relatedInformation\0", $related) || !@source.diagnostics.get()->append($diagnostic)) {
+				return false;
+			};
+		};
+		@number = number + 1;
+	};
+	return true;
+};
+
+fn LanguageIndex::before(const NavigationOccurrence& first, const NavigationOccurrence& second) -> bool {
+	if (first.range.source != second.range.source) {
+		return first.range.source < second.range.source;
+	};
+	if (first.range.begin != second.range.begin) {
+		return first.range.begin < second.range.begin;
+	};
+	return first.range.end < second.range.end;
+};
+
+fn LanguageIndex::finish(LanguageIndex& this) -> bool {
+	rt::buffer<NavigationOccurrence> scratch;
+	usize size = this.occurrences.size();
+	usize index = 0;
+	while (index < size) {
+		if (!@scratch.push_back(NavigationOccurrence())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	usize width = 1;
+	while (width < size) {
+		usize start = 0;
+		while (start < size) {
+			usize middle = start + width;
+			if (middle > size) {
+				@middle = usize(size);
+			};
+			usize end = middle + width;
+			if (end > size) {
+				@end = usize(size);
+			};
+			usize first = usize(start);
+			usize second = usize(middle);
+			usize output = usize(start);
+			while (output < end) {
+				if (first < middle && (second == end || LanguageIndex::before(this.occurrences.data()[first], this.occurrences.data()[second]))) {
+					@(@scratch).data()[output] = NavigationOccurrence(this.occurrences.data()[first]);
+					@first = first + 1;
+				}
+				else {
+					@(@scratch).data()[output] = NavigationOccurrence(this.occurrences.data()[second]);
+					@second = second + 1;
+				};
+				@output = output + 1;
+			};
+			@start = $end;
+		};
+		usize output = 0;
+		while (output < size) {
+			@(@this.occurrences).data()[output] = NavigationOccurrence(scratch.data()[output]);
+			@output = output + 1;
+		};
+		if (width > size / 2) {
+			break;
+		};
+		@width = width * 2;
+	};
+
+	@index = 0;
+	while (index < size) {
+		u64 symbol = this.occurrences.data()[index].symbol;
+		var list = @this.references.find(symbol);
+		if (!list) {
+			rt::buffer<usize> positions;
+			if (!@this.references.insert(u64(symbol), $positions)) {
+				return false;
+			};
+			@list = @this.references.find(symbol);
+		};
+		if (!list || !@list->push_back(usize(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+
+	@this.diagnostics = rt::json_value::make_array();
+	@index = 0;
+	while (this.diagnostics.get() && index < this.sources.size()) {
+		const LanguageIndexedSource& source = this.sources.data()[index];
+		var parameters = rt::json_value::make_object();
+		if (!parameters.get() || !@parameters.get()->set("uri\0", rt::json_value::make_string(source.uri.view())) || !@parameters.get()->set("diagnostics\0", source.diagnostics.get()->clone())) {
+			return false;
+		};
+		if (source.version.has_value() && !@parameters.get()->set("version\0", rt::json_value::make_integer(i64(source.version.value())))) {
+			return false;
+		};
+		if (!@this.diagnostics.get()->append($parameters)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return this.diagnostics.get() != nullptr;
+};

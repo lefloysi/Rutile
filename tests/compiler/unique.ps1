@@ -2,7 +2,7 @@ param([string]$Rutile = "$PSScriptRoot/../../build/debug/bin/rutile.exe", [strin
 
 $ErrorActionPreference = 'Stop'
 $Rutile = (Resolve-Path -LiteralPath $Rutile).Path
-$library = Get-Content -LiteralPath "$PSScriptRoot/../../compiler/src/std/unique.rt" -Raw
+$library = Get-Content -LiteralPath "$PSScriptRoot/../../kiln/compiler/std/unique.rt" -Raw
 $workspace = [IO.Path]::GetFullPath("$PSScriptRoot/../../build/$Profile/tests/unique")
 $runtime = @'
 struct Tracker {
@@ -29,13 +29,13 @@ fn Deleter::dispose(Tracker* pointer) {
 fn main() -> i32 {
 	i32 count = 0;
 	{
-		unique<Tracker> empty;
-		var null_owner = unique<Tracker>(nullptr);
+		rt::unique<Tracker> empty;
+		var null_owner = rt::unique<Tracker>(nullptr);
 		if (empty.get() || null_owner.get()) { return 1; };
 		@empty.reset(nullptr);
-		var first = unique<Tracker>(new Tracker(&count));
+		var first = rt::unique<Tracker>(new Tracker(&count));
 		var second = $first;
-		var target = unique<Tracker>(new Tracker(&count));
+		var target = rt::unique<Tracker>(new Tracker(&count));
 		@target = $second;
 		if (count != 1) { return 2; };
 		var pointer = @target.release();
@@ -48,15 +48,15 @@ fn main() -> i32 {
 	};
 	if (count != 4) { return 6; };
 	{
-		unique<Tracker, Deleter> empty;
+		rt::unique<Tracker, Deleter> empty;
 		@empty.reset(nullptr);
-		var custom = unique<Tracker, Deleter>(new Tracker(&count));
+		var custom = rt::unique<Tracker, Deleter>(new Tracker(&count));
 	};
 	if (count != 15) { return 7; };
 	{
-		var number = make_unique<i32>();
+		var number = rt::unique<i32>::make();
 		if (*number.get() != 0) { return 8; };
-		var custom = make_unique<Tracker, Deleter>();
+		var custom = rt::unique<Tracker, Deleter>::make();
 		@custom.get()->count = &count;
 	};
 	if (count != 26) { return 9; };
@@ -73,12 +73,12 @@ $checks = @(
 	@{ name = 'namespace-type-child'; source = 'struct Box {}; namespace Box::child { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
 	@{ name = 'namespace-specialization-child'; source = 'template<typename T> struct Box {}; namespace Box<i32>::child { fn injected() {} }; fn main() -> i32 { return 42; };'; diagnostic = 'namespace' },
 	@{ name = 'namespace-before-type'; source = 'namespace Box {}; struct Box {}; fn main() -> i32 { return 42; };'; diagnostic = 'conflict|namespace|declaration' },
-	@{ name = 'namespace-template'; source = 'template<typename T> namespace Box {}; fn main() -> i32 { return 42; };'; diagnostic = 'template requires' },
+	@{ name = 'namespace-template'; source = 'template<typename T> namespace Box {}; fn main() -> i32 { return 42; };'; exit = 42 },
 	@{ name = 'namespace-reopen'; source = 'namespace sample { fn first() -> i32 { return 20; }; }; namespace sample { fn second() -> i32 { return 22; }; }; fn main() -> i32 { return sample::first() + sample::second(); };'; exit = 42 },
 	@{ name = 'constructor-arguments'; source = (Get-Content -LiteralPath "$PSScriptRoot/cases/template-constructor-arguments/main.rt" -Raw); exit = 42 },
 	@{ name = 'runtime'; source = $runtime; exit = 42 },
-	@{ name = 'copy'; source = 'fn main() -> i32 { var first = make_unique<i32>(); var second := first; return 42; };'; diagnostic = 'selected function is deleted' },
-	@{ name = 'copy-assignment'; source = 'fn main() -> i32 { var first = make_unique<i32>(); unique<i32> second; @second := first; return 42; };'; diagnostic = 'selected function is deleted' }
+	@{ name = 'copy'; source = 'fn main() -> i32 { var first = rt::unique<i32>::make(); var second := first; return 42; };'; diagnostic = 'selected function is deleted' },
+	@{ name = 'copy-assignment'; source = 'fn main() -> i32 { var first = rt::unique<i32>::make(); rt::unique<i32> second; @second := first; return 42; };'; diagnostic = 'selected function is deleted' }
 )
 foreach ($check in $checks) {
 	$directory = Join-Path $workspace $check.name

@@ -4,6 +4,8 @@
 #include <windows.h>
 
 #include <climits>
+#include <fcntl.h>
+#include <io.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +16,25 @@
 
 std::FILE* platform_standard_error() {
 	return stderr;
+}
+
+std::FILE* platform_standard_input() {
+	return stdin;
+}
+
+std::FILE* platform_standard_output() {
+	return stdout;
+}
+
+std::FILE* platform_open_utf8_file(const char* path, const char* mode) {
+	return platform_open_file(std::filesystem::u8path(path), mode);
+}
+
+int platform_language_stdio() {
+	if (_setmode(_fileno(stdin), _O_BINARY) == -1) {
+		return 0;
+	}
+	return _setmode(_fileno(stdout), _O_BINARY) != -1 ? 1 : 0;
 }
 
 struct PlatformLock {
@@ -429,27 +450,42 @@ struct PlatformServer* platform_server_open(const char* endpoint) {
 	return server;
 }
 
-bool platform_server_accept(struct PlatformServer* server) {
+platform_accept platform_server_accept_for(struct PlatformServer* server, unsigned int timeout_ms) {
 	OVERLAPPED operation{};
 	operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 	if (!operation.hEvent) {
-		return false;
+		return platform_accept::error;
 	}
 	BOOL success = ConnectNamedPipe(server->pipe, &operation);
+	platform_accept result = platform_accept::error;
 	if (!success) {
 		DWORD error = GetLastError();
 		if (error == ERROR_PIPE_CONNECTED) {
 			success = TRUE;
 		}
 		else if (error == ERROR_IO_PENDING) {
+			DWORD waited = WaitForSingleObject(operation.hEvent, timeout_ms);
+			if (waited != WAIT_OBJECT_0) {
+				CancelIoEx(server->pipe, &operation);
+			}
 			DWORD transferred = 0;
 			success = GetOverlappedResult(server->pipe, &operation, &transferred, TRUE);
+			if (!success && waited == WAIT_TIMEOUT && GetLastError() == ERROR_OPERATION_ABORTED) {
+				result = platform_accept::timeout;
+			}
 		}
 	}
 	CloseHandle(operation.hEvent);
-	server->connected = success;
+	server->connected = success != FALSE;
 	server->replied = false;
-	return server->connected;
+	if (success) {
+		return platform_accept::accepted;
+	}
+	return result;
+}
+
+bool platform_server_accept(struct PlatformServer* server) {
+	return platform_server_accept_for(server, INFINITE) == platform_accept::accepted;
 }
 
 bool platform_server_read(struct PlatformServer* server, char* command, std::size_t capacity) {
