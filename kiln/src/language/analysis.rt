@@ -136,7 +136,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@source = source + 1;
 	};
 
-	@analysis.get()->analyze(64, &LanguageWorkspace::cancelled, &@cancellation);
+	@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
 	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*analysis.get(), job)) {
 		return false;
 	};
@@ -326,9 +326,21 @@ fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, cons
 	while (number < analysis.navigation().call_count()) {
 		const NavigationCall* input = analysis.navigation().call_at(number);
 		NavigationCall copy;
-		@copy.symbol = input->symbol + this.symbol_base;
+		if (input->symbol) {
+			@copy.symbol = input->symbol + this.symbol_base;
+		};
 		@copy.scope = input->scope + this.scope_base;
-		@copy.context = input->context + this.symbol_base;
+		if (input->context) {
+			@copy.context = input->context + this.symbol_base;
+		};
+		@copy.bound_receiver = bool(input->bound_receiver);
+		usize candidate = 0;
+		while (candidate < input->candidates.size()) {
+			if (!@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base)) {
+				return false;
+			};
+			@candidate = candidate + 1;
+		};
 		@copy.range = SourceRange(input->range);
 		@copy.callee = SourceRange(input->callee);
 		if (copy.range.source < mapping.size()) {
@@ -349,6 +361,34 @@ fn LanguageIndex::append(var LanguageIndex& this, const Analysis& analysis, cons
 			@argument = argument + 1;
 		};
 		if (!@this.calls.push_back($copy)) {
+			return false;
+		};
+		@number = number + 1;
+	};
+	@number = 0;
+	while (number < analysis.navigation().receiver_count()) {
+		const NavigationReceiver* input = analysis.navigation().receiver_at(number);
+		NavigationReceiver copy;
+		@copy.scope = input->scope + this.scope_base;
+		if (input->context) {
+			@copy.context = input->context + this.symbol_base;
+		};
+		@copy.range = SourceRange(input->range);
+		@copy.selector = SourceRange(input->selector);
+		if (copy.range.source < mapping.size()) {
+			@copy.range.source = mapping.data()[copy.range.source];
+		};
+		if (copy.selector.source < mapping.size()) {
+			@copy.selector.source = mapping.data()[copy.selector.source];
+		};
+		usize candidate = 0;
+		while (candidate < input->candidates.size()) {
+			if (!@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base)) {
+				return false;
+			};
+			@candidate = candidate + 1;
+		};
+		if (!@this.receivers.push_back($copy)) {
 			return false;
 		};
 		@number = number + 1;

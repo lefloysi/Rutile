@@ -4,9 +4,13 @@ The extension registers `.rt` files and connects Visual Studio's built-in langua
 `kiln.exe language-server --stdio`. Kiln starts in the open folder workspace or solution directory
 supplied by Visual Studio. The client does not parse Rutile.
 
-The Rutile server port is in development. Diagnostics and the compiler navigation model are
-being integrated. Completion, signature help, and semantic-token support remain pending.
-Hover, F12, and references must also pass protocol tests before they are considered available.
+The server provides diagnostics, hover, definitions, declarations, references, completion,
+signature help, and document and workspace symbols. Rename and semantic-token coloring are
+not advertised by the server.
+
+Visual Studio watches `.rt` files and `rutile.yaml` files throughout the active workspace and
+forwards external changes to Kiln. Opening a different folder or solution replaces the owned
+Kiln process. Closing the workspace stops it. These subscriptions are released with the client.
 
 Server errors appear in the **Rutile** Output pane. Closing the language connection releases
 its server process. Cancellation also terminates it; stderr is drained independently of LSP.
@@ -38,9 +42,49 @@ The VSIX includes the extension assembly, `kiln.exe`, `LLVM-C.dll`, and the matc
 Packaging fails if required native inputs are missing.
 Debug packages also include the developer Debug CRT and debug Universal CRT from the installed SDK.
 
+## Install and use
+
+Open `tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix` to start the VSIX installer.
+Select Visual Studio 2022 and restart it if the installer requests it. Open the Rutile folder
+or its solution, then open a `.rt` file. Use F12 on a symbol to navigate to its definition.
+Completion and signature help use Visual Studio's normal editor commands.
+
 ## Verification
+
+Run the process ownership checks without starting Visual Studio:
+
+```powershell
+./tools/Rutile.VisualStudio/tests/Run.ps1
+```
+
+They exercise the extension's actual process and stream implementation with an isolated child:
+working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,
+concurrent cleanup, and unexpected exit reporting.
+
+The opt-in Visual Studio check uses a dedicated `RutileValidation<number>` profile:
+
+```powershell
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass `
+    -File tools/Rutile.VisualStudio/tests/VerifyVisualStudio.ps1 `
+    -Vsix tools/Rutile.VisualStudio/bin/Debug/Rutile.VisualStudio.vsix `
+    -Install -Kiln build/debug/bin/kiln.exe
+```
+
+It verifies matching package versions before installation, starts a hidden test instance,
+and closes that instance afterward. The normal Visual Studio profile is not used.
+Logs and completed checks are saved under `build/vsix-tests/RutileValidation<number>`.
+The default smoke checks activation and solution ownership changes, with an outer process deadline.
+It does not invoke F12 or inspect the Error List. Hidden navigation blocked during verification;
+external-change diagnostics were not observed reliably through hidden Error List automation.
+Check navigation and external source/configuration diagnostics manually in an interactive editor.
 
 Build and inspect the VSIX payload before installing. Protocol tests exercise the server
 separately; a successful extension build does not establish language feature correctness.
 An interactive Visual Studio test should open a `.rt` file and check completion, hover,
 F12, signature help, and diagnostics, including edits and multiple open documents.
+
+Version 0.0.67 was built. Its Release package payload matched the selected binaries.
+The isolated Debug profile loaded the extension and started its packaged IDE-owned Kiln process.
+It also passed solution close, replacement project startup, and replacement owner shutdown.
+Editor navigation and watcher notifications remain interactive verification steps.
+Process ownership checks passed.

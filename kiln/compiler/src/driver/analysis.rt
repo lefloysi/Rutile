@@ -5,6 +5,7 @@ struct Analysis {
 	fn add_source(var Analysis& this, const rt::string_view& path, const rt::string_view& text) -> bool;
 	fn load_source(var Analysis& this, const char* path, FileOpener opener) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
+	fn analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 
 	fn source_count(const Analysis& this) -> usize;
 	fn source_path(const Analysis& this, usize index) -> rt::string_view;
@@ -15,6 +16,8 @@ struct Analysis {
 	fn pointer_bits(const Analysis& this) -> u32;
 
 private:
+	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
+
 	SourceManager sources;
 	TypeStore types;
 	rt::buffer<rt::unique<Syntax>> syntax;

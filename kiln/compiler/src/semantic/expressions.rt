@@ -7,6 +7,33 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	const Type* bool_type = this.types->find_primitive(rt::string_view("bool\0"));
 	syntax_kind kind = syntax.kind();
 
+	if (this.editor && kind == syntax_kind::error_expression) {
+		return @this.node(semantic_kind::noop, void_type, &@syntax);
+	};
+	if (this.editor && kind == syntax_kind::qualified_name && syntax.right()->kind() == syntax_kind::absent) {
+		@this.lookup(@scope, @syntax);
+		return @this.node(semantic_kind::noop, void_type, &@syntax);
+	};
+
+	if (this.editor && this.recovery_operand(syntax)) {
+		usize index = 0;
+		while (index < syntax.size()) {
+			var Syntax* child = syntax.item(index);
+			@index = index + 1;
+			if (kind == syntax_kind::cast && child == syntax.cast_type()) {
+				if (!@this.type(@scope, @*child)) {
+					return rt::unique<SemanticExpression>();
+				};
+				continue;
+			};
+			var known = @this.expression(@scope, @*child, rt::optional_ref<const Type>());
+			if (!known.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+		return @this.node(semantic_kind::noop, void_type, &@syntax);
+	};
+
 	if (kind == syntax_kind::grouping) {
 		return @this.expression(@scope, @*syntax.operand(), expected);
 	};

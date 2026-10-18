@@ -12,6 +12,7 @@ struct ConversionSelection {
 struct Analyzer {
 	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
+	fn set_editor(var Analyzer& this, bool enabled);
 	fn analyze(var Analyzer& this, const rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
 	fn analyze_into(var Analyzer& this, var SemanticUnit& unit, const rt::buffer<rt::unique<Syntax>>& syntax) -> bool;
 	fn error(var Analyzer& this, var Syntax* syntax, const char* message);
@@ -39,7 +40,9 @@ struct Analyzer {
 	fn accessible(const Analyzer& this, const Entity& entity, var Scope& scope) -> bool;
 
 private:
+	bool editor;
 	fn resolve_impl(var Analyzer& this, var Entity* entity) -> bool;
+	fn recovery_operand(const Analyzer& this, const Syntax& syntax) -> bool;
 	fn expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, const rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn names_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool;
 	fn size_query(var Analyzer& this, var Syntax& syntax, const Type& type) -> rt::unique<SemanticExpression>;
@@ -135,6 +138,10 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 		@owner := associated;
 
 		if (!owner) {
+			return nullptr;
+		};
+
+		if (!@this.unit->record_receiver(@scope, @name, @*owner)) {
 			return nullptr;
 		};
 
@@ -838,4 +845,25 @@ fn Analyzer::type_store(const Analyzer& this) -> var TypeStore* {
 
 fn Analyzer::accessible(const Analyzer& this, const Entity& entity, var Scope& scope) -> bool {
 	return entity.accessible_from(@scope);
+};
+
+fn Analyzer::set_editor(var Analyzer& this, bool enabled) {
+	@this.editor = $enabled;
+};
+
+fn Analyzer::recovery_operand(const Analyzer& this, const Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::error_expression) {
+		return true;
+	};
+	if (syntax.kind() != syntax_kind::unary && syntax.kind() != syntax_kind::binary && syntax.kind() != syntax_kind::index && syntax.kind() != syntax_kind::cast && syntax.kind() != syntax_kind::grouping) {
+		return false;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.recovery_operand(*syntax.item(index))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
 };

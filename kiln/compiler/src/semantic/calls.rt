@@ -459,6 +459,10 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 			return rt::unique<SemanticExpression>();
 		};
 
+		if (!@this.unit->record_receiver(@scope, @*source, @*owner->entity())) {
+			return rt::unique<SemanticExpression>();
+		};
+
 		@group = owner->entity()->find_member(source->member_name()->token().text());
 
 		if (group && group->kind() == entity_kind::field) {
@@ -491,6 +495,28 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, cons
 	}
 	else {
 		@group = @this.lookup(@scope, @*source);
+	};
+
+	if (this.editor && group && group->kind() == entity_kind::function) {
+		usize missing = 0;
+		while (missing < arguments->size() && arguments->item(missing)->kind() != syntax_kind::error_expression) {
+			@missing = missing + 1;
+		};
+		if (missing < arguments->size()) {
+			const rt::buffer<var Entity*>& candidates = group->scope()->bindings();
+			usize candidate = 0;
+			while (candidate < candidates.size()) {
+				var Entity* function = candidates.data()[candidate];
+				@candidate = candidate + 1;
+				if (function->kind() == entity_kind::function && function->name() == group->name() && !@this.resolve(function)) {
+					return rt::unique<SemanticExpression>();
+				};
+			};
+			if (!@this.unit->record_incomplete_call(@scope, @syntax, @*group, receiver.get() != nullptr)) {
+				return rt::unique<SemanticExpression>();
+			};
+			return @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+		};
 	};
 
 	rt::buffer<rt::unique<SemanticExpression>> values;

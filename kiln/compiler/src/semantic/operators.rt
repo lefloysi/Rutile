@@ -582,6 +582,14 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (!@this.unit->record_receiver(@scope, @syntax, @*type->entity())) {
+		return rt::unique<SemanticExpression>();
+	};
+
+	if (this.editor && syntax.member_name()->kind() == syntax_kind::absent) {
+		return @this.node(semantic_kind::noop, this.types->find_primitive(rt::string_view("void\0")), &@syntax);
+	};
+
 	var Entity* field = type->entity()->find_member(syntax.member_name()->token().text());
 
 	if (!field || field->kind() != entity_kind::field) {

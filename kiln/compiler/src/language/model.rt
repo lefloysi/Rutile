@@ -66,7 +66,17 @@ struct NavigationCall {
 	u64 context;
 	SourceRange range;
 	SourceRange callee;
+	bool bound_receiver;
+	rt::buffer<u64> candidates;
 	rt::buffer<SourceRange> arguments;
+};
+
+struct NavigationReceiver {
+	u64 scope;
+	u64 context;
+	SourceRange range;
+	SourceRange selector;
+	rt::buffer<u64> candidates;
 };
 
 struct NavigationParameter {
@@ -105,11 +115,15 @@ struct NavigationIndex {
 	fn binding_at(const NavigationIndex& this, usize index) -> const NavigationBinding*;
 	fn parameter_count(const NavigationIndex& this, u64 symbol) -> usize;
 	fn parameter_at(const NavigationIndex& this, u64 symbol, usize index) -> const NavigationParameter*;
+	fn receiver_count(const NavigationIndex& this) -> usize;
+	fn receiver_at(const NavigationIndex& this, usize index) -> const NavigationReceiver*;
 	fn call_count(const NavigationIndex& this) -> usize;
 	fn call_at(const NavigationIndex& this, usize index) -> const NavigationCall*;
 
 private:
 	fn scope_id(var NavigationIndex& this, const Scope& scope) -> u64;
+	fn receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, const Entity& owner, const Entity& visible_owner, const Scope& scope) -> bool;
+	fn build_receivers(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
 	fn build_contexts(var NavigationIndex& this, const SemanticUnit& semantics) -> bool;
 	fn symbol_id(const NavigationIndex& this, const Entity* entity) -> u64;
 	fn declaration_name(const NavigationIndex& this, var Syntax& declaration) -> Token;
@@ -120,6 +134,7 @@ private:
 	rt::buffer<NavigationScope> scope_locations;
 	rt::buffer<NavigationBinding> bindings;
 	rt::buffer<rt::unique<NavigationCall>> calls;
+	rt::buffer<rt::unique<NavigationReceiver>> receivers;
 	rt::unordered_map<const Scope*, u64> scope_ids;
 	rt::buffer<const Scope*> scope_records;
 	rt::unordered_map<const Entity*, u64> ids;

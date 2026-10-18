@@ -15,6 +15,14 @@ fn AnalysisCancellationScope::~AnalysisCancellationScope(var AnalysisCancellatio
 };
 
 fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool {
+	return @this.analyze_impl($pointer_bits, $cancelled, $context, false);
+};
+
+fn Analysis::analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool {
+	return @this.analyze_impl($pointer_bits, $cancelled, $context, true);
+};
+
+fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool {
 	@this.messages.set_cancellation(cancelled, context);
 	var cancellation_scope = AnalysisCancellationScope(@this.messages);
 	@this.target_pointer_bits = pointer_bits;
@@ -42,7 +50,18 @@ fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)*
 		};
 		var parser = Parser(file->tokens());
 		@parser.set_cancellation(cancelled, context);
-		var syntax = @parser.parse();
+		rt::unique<Syntax> syntax;
+		if (editor) {
+			@syntax = @parser.parse_editor();
+			usize issue = 0;
+			while (issue < parser.issues().size()) {
+				@parse_errors.syntax_error(parser.issues().data()[issue].location, parser.issues().data()[issue].message.view());
+				@issue = issue + 1;
+			};
+		}
+		else {
+			@syntax = @parser.parse();
+		};
 		if (!syntax.get()) {
 			if (this.messages.cancelled()) {
 				return false;
@@ -55,6 +74,7 @@ fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)*
 		@index = index + 1;
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
+	@analyzer.set_editor($editor);
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
 		@this.messages.error(location, "internal compiler error: semantic analysis failed without a diagnostic\0");

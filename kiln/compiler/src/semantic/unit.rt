@@ -44,6 +44,14 @@ struct SemanticCallSite {
 	var Scope* scope;
 	var Syntax* syntax;
 	var Entity* selected;
+	var Entity* candidates;
+	bool bound_receiver;
+};
+
+struct SemanticReceiverSite {
+	var Scope* scope;
+	var Syntax* syntax;
+	var Entity* owner;
 };
 
 struct SemanticUnit {
@@ -71,6 +79,9 @@ struct SemanticUnit {
 	fn record_scope(var SemanticUnit& this, var Scope& scope, var Syntax& syntax) -> bool;
 	fn record_call(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, const SemanticExpression& expression) -> bool;
 	fn scope_regions(const SemanticUnit& this) -> const rt::buffer<SemanticScopeRegion>&;
+	fn record_incomplete_call(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& group, bool bound_receiver) -> bool;
+	fn record_receiver(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& owner) -> bool;
+	fn receiver_sites(const SemanticUnit& this) -> const rt::buffer<SemanticReceiverSite>&;
 	fn call_sites(const SemanticUnit& this) -> const rt::buffer<SemanticCallSite>&;
 	fn references(const SemanticUnit& this) -> const rt::buffer<ResolvedReference>&;
 
@@ -87,6 +98,7 @@ private:
 	rt::buffer<rt::unique<TemplateInstantiation>> template_instantiations;
 	rt::buffer<SemanticScopeRegion> regions;
 	rt::buffer<SemanticCallSite> calls;
+	rt::buffer<SemanticReceiverSite> receivers;
 	var Scope* global_scope;
 	rt::buffer<rt::unique<Scope>> scopes;
 	rt::buffer<rt::unique<Entity>> declarations;
@@ -269,5 +281,29 @@ fn SemanticUnit::record_call(var SemanticUnit& this, var Scope& scope, var Synta
 	@site.scope = &@scope;
 	@site.syntax = &@syntax;
 	@site.selected = call->entity()->canonical();
+	@site.bound_receiver = syntax.callable()->kind() == syntax_kind::member && call->size() > 1 && call->item(1)->size() == syntax.arguments()->size() + 1;
+	return @this.calls.push_back($site);
+};
+
+fn SemanticUnit::record_receiver(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& owner) -> bool {
+	SemanticReceiverSite site;
+	@site.scope = &@scope;
+	@site.syntax = &@syntax;
+	@site.owner = &@owner;
+
+	return @this.receivers.push_back($site);
+};
+
+fn SemanticUnit::receiver_sites(const SemanticUnit& this) -> const rt::buffer<SemanticReceiverSite>& {
+	return this.receivers;
+};
+
+fn SemanticUnit::record_incomplete_call(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& group, bool bound_receiver) -> bool {
+	SemanticCallSite site;
+	@site.scope = &@scope;
+	@site.syntax = &@syntax;
+	@site.candidates = &@group;
+	@site.bound_receiver = $bound_receiver;
+
 	return @this.calls.push_back($site);
 };

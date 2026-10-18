@@ -9,6 +9,7 @@
     <FileVersion>$(RutileVersion).0</FileVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <GeneratedRutileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\source.extension.vsixmanifest</GeneratedRutileManifest>
+    <IntermediateVsixManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\extension.vsixmanifest</IntermediateVsixManifest>
     <GeneratePkgDefFile>false</GeneratePkgDefFile>
     <IncludePkgdefInVSIXContainer>false</IncludePkgdefInVSIXContainer>
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
@@ -29,11 +30,14 @@
     <TargetVsixContainer>$(MSBuildProjectDirectory)\bin\$(Configuration)\Rutile.VisualStudio.vsix</TargetVsixContainer>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.0.32112.339" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Client" Version="17.0.5158" />
     <PackageReference Include="Microsoft.VisualStudio.Utilities" Version="17.0.32112.339" />
     <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.13.2" />
     <PackageReference Include="Microsoft.VisualStudio.ComponentModelHost" Version="17.0.491" />
+    <PackageReference Include="System.Collections.Immutable" Version="8.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" PrivateAssets="all" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="Microsoft.VisualStudio.Workspace">
       <HintPath>$(MSBuildToolsPath)\..\..\..\Common7\IDE\CommonExtensions\Microsoft\OpenFolder\Microsoft.VisualStudio.Workspace.dll</HintPath>
@@ -57,6 +61,9 @@
     </Content>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets')" />
+  <PropertyGroup>
+    <CreateVsixContainerDependsOn>$(CreateVsixContainerDependsOn);DetokenizeVsixManifestFile</CreateVsixContainerDependsOn>
+  </PropertyGroup>
   <Target Name="GenerateRutileManifest" BeforeTargets="FindSourceVsixManifest;DetokenizeVsixManifestFile;ValidateVsixManifest">
     <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(RutileVersion)', '^0\.0\.[1-9][0-9]*$'))" Text="version/release.txt has an invalid Rutile release version." />
     <MakeDir Directories="$(MSBuildProjectDirectory)\obj\$(Configuration)" />

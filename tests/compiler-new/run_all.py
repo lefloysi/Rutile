@@ -40,6 +40,8 @@ run_case("frontend-lexer", [*frontend, "tests/compiler-new/frontend/lexer.rt"],
 	entry="rutile_frontend_tests", expected=0)
 run_case("frontend-parser", [*frontend, "kiln/compiler/src/syntax/tree.rt",
 	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt"], entry="parser_tests")
+run_case("frontend-editor-recovery", [*frontend, "kiln/compiler/src/syntax/tree.rt",
+	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/editor-recovery.rt"], entry="editor_recovery_tests")
 run_case("frontend-typed-callee", [*frontend, "kiln/compiler/src/syntax/tree.rt",
 	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt",
 	"tests/compiler-new/frontend/typed-callee.rt"], entry="typed_callee_tests")

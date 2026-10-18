@@ -57,7 +57,10 @@ fn shared_analysis_tests() -> i32 {
 	if (target_diagnostic_tests() != 42) {
 		return 55;
 	};
-	return completion_metadata_tests();
+	if (completion_metadata_tests() != 42) {
+		return 63;
+	};
+	return receiver_metadata_tests();
 };
 
 fn target_analysis_tests() -> i32 {
@@ -250,6 +253,78 @@ fn completion_metadata_tests() -> i32 {
 		if (!found) {
 			return 62;
 		};
+	};
+	return 42;
+};
+
+fn receiver_has(const NavigationIndex& index, const NavigationReceiver& receiver, const rt::string_view& name) -> bool {
+	usize candidate = 0;
+	while (candidate < receiver.candidates.size()) {
+		const NavigationSymbol* symbol = index.symbol_at(static_cast<usize>(receiver.candidates.data()[candidate] - 1));
+		if (symbol && symbol->name == name) {
+			return true;
+		};
+		@candidate = candidate + 1;
+	};
+	return false;
+};
+
+fn receiver_metadata_tests() -> i32 {
+	var analysis = Analysis();
+	var source = rt::string_view("struct Base { i32 inherited; }; struct Item : [Base] { i32 own; private: i32 hidden; }; fn outside(Item& item) { item.; };\0");
+	if (!@analysis.add_source("receiver.rt\0", source) || !@analysis.analyze_editor(64, nullptr, nullptr)) {
+		return 70;
+	};
+	const NavigationIndex& navigation = analysis.navigation();
+	if (!navigation.receiver_count()) {
+		return 71;
+	};
+	const NavigationReceiver* receiver = navigation.receiver_at(navigation.receiver_count() - 1);
+	if (!receiver_has(navigation, *receiver, "own\0") || !receiver_has(navigation, *receiver, "inherited\0") || receiver_has(navigation, *receiver, "hidden\0")) {
+		return 72;
+	};
+	if (!receiver->scope || receiver->range.begin >= receiver->range.end || receiver->selector.begin < receiver->range.end) {
+		return 73;
+	};
+
+	var qualified = Analysis();
+	if (!@qualified.add_source("qualified.rt\0", "namespace Names { i32 value; }; fn outside() { Names::; };\0") || !@qualified.analyze_editor(64, nullptr, nullptr) || !qualified.navigation().receiver_count()) {
+		return 74;
+	};
+	const NavigationReceiver* namespace_site = qualified.navigation().receiver_at(0);
+	if (!receiver_has(qualified.navigation(), *namespace_site, "value\0")) {
+		return 75;
+	};
+
+	var calls = Analysis();
+	if (!@calls.add_source("call.rt\0", "fn choose(i32 first) -> i32; fn choose(i32 first, i32 second) -> i32; fn outside() { choose(1, ); };\0") || !@calls.analyze_editor(64, nullptr, nullptr) || !calls.navigation().call_count()) {
+		return 76;
+	};
+	const NavigationCall* call = calls.navigation().call_at(0);
+	if (call->symbol || call->candidates.size() != 2 || call->bound_receiver) {
+		return 77;
+	};
+
+	var method = Analysis();
+	if (!@method.add_source("bound.rt\0", "struct Item { fn read(Item& this) -> i32; }; fn outside(Item& item) -> i32 { return item.read(); };\0") || !@method.analyze(64, nullptr, nullptr) || method.diagnostics().failed() || method.navigation().call_count() != 1 || !method.navigation().call_at(0)->bound_receiver) {
+		return 80;
+	};
+
+	var broken = Analysis();
+	if (!@broken.add_source("poison.rt\0", "fn retained(i32 value) -> i32 { +; return value; };\0") || !@broken.analyze_editor(64, nullptr, nullptr)) {
+		return 78;
+	};
+	bool retained = false;
+	usize reference = 0;
+	while (reference < broken.navigation().occurrence_count()) {
+		const NavigationOccurrence* occurrence = broken.navigation().occurrence_at(reference);
+		if (occurrence->roles == 4 && occurrence->range.begin > 30) {
+			@retained = true;
+		};
+		@reference = reference + 1;
+	};
+	if (!retained) {
+		return 79;
 	};
 	return 42;
 };

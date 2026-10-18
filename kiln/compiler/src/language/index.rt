@@ -230,7 +230,7 @@ fn NavigationIndex::build(var NavigationIndex& this, const SemanticUnit& semanti
 		};
 		@index = index + 1;
 	};
-	return @this.build_contexts(semantics);
+	return @this.build_contexts(semantics) && @this.build_receivers(semantics);
 };
 
 fn NavigationIndex::register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool {
@@ -408,6 +408,22 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, const SemanticUnit
 			return false;
 		};
 		@call.get()->symbol = this.symbol_id(source.selected);
+		@call.get()->bound_receiver = source.bound_receiver;
+		if (source.candidates && source.candidates->scope()) {
+			const rt::buffer<var Entity*>& candidates = source.candidates->scope()->bindings();
+			usize candidate = 0;
+			while (candidate < candidates.size()) {
+				const Entity& function = *candidates.data()[candidate];
+				@candidate = candidate + 1;
+				if (function.kind() != entity_kind::function || function.name() != source.candidates->name() || !function.accessible_from(*source.scope)) {
+					continue;
+				};
+				u64 symbol = this.symbol_id(&@function);
+				if (symbol && !@call.get()->candidates.push_back($symbol)) {
+					return false;
+				};
+			};
+		};
 		@call.get()->scope = @this.scope_id(*source.scope);
 		@call.get()->context = this.symbol_id(semantics.reference_context(@*source.scope));
 		@call.get()->range = this.syntax_range(*source.syntax);
@@ -486,4 +502,73 @@ fn NavigationIndex::accessible(const NavigationIndex& this, u64 symbol, u64 scop
 		return false;
 	};
 	return this.symbols.data()[symbol - 1].get()->entity->accessible_from(*this.scope_records.data()[scope - 1]);
+};
+
+fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, const Entity& owner, const Entity& visible_owner, const Scope& scope) -> bool {
+	if (!owner.members()) {
+		return true;
+	};
+
+	const rt::buffer<var Entity*>& members = owner.members()->bindings();
+	usize index = 0;
+	while (index < members.size()) {
+		const Entity& member = *members.data()[index];
+		@index = index + 1;
+		var Entity* visible = visible_owner.find_member(member.name());
+		if (!visible || visible->scope() != member.scope() || !member.accessible_from(scope)) {
+			continue;
+		};
+		u64 symbol = this.symbol_id(&@member);
+		if (!symbol) {
+			continue;
+		};
+		usize previous = 0;
+		while (previous < site.candidates.size() && site.candidates.data()[previous] != symbol) {
+			@previous = previous + 1;
+		};
+		if (previous == site.candidates.size() && !@site.candidates.push_back($symbol)) {
+			return false;
+		};
+	};
+
+	if (owner.bases().size() == 1) {
+		return @this.receiver_candidates(@site, *owner.bases().data()[0]->entity(), visible_owner, scope);
+	};
+	return true;
+};
+
+fn NavigationIndex::build_receivers(var NavigationIndex& this, const SemanticUnit& semantics) -> bool {
+	const rt::buffer<SemanticReceiverSite>& sites = semantics.receiver_sites();
+	usize index = 0;
+	while (index < sites.size()) {
+		const SemanticReceiverSite& source = sites.data()[index];
+		@index = index + 1;
+		var receiver = rt::unique<NavigationReceiver>::make();
+		if (!receiver.get()) {
+			return false;
+		};
+		@receiver.get()->scope = @this.scope_id(*source.scope);
+		@receiver.get()->context = this.symbol_id(semantics.reference_context(@*source.scope));
+		@receiver.get()->range = this.syntax_range(*source.syntax->left());
+		@receiver.get()->selector = this.range(source.syntax->token());
+		SourceRange member = this.syntax_range(*source.syntax->right());
+		if (member.source == receiver.get()->selector.source && member.end > receiver.get()->selector.end) {
+			@receiver.get()->selector.end = member.end;
+		};
+		if (!@this.receiver_candidates(@*receiver.get(), *source.owner, *source.owner, *source.scope) || !@this.receivers.push_back($receiver)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn NavigationIndex::receiver_count(const NavigationIndex& this) -> usize {
+	return this.receivers.size();
+};
+
+fn NavigationIndex::receiver_at(const NavigationIndex& this, usize index) -> const NavigationReceiver* {
+	if (index >= this.receivers.size()) {
+		return nullptr;
+	};
+	return this.receivers.data()[index].get();
 };

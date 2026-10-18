@@ -4,13 +4,13 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.LanguageServer.Client;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Rutile.VisualStudio {
 	internal sealed class ServerProcess : IDisposable {
 		private readonly Process process;
-		private readonly Func<Task> onExited;
+		private readonly Func<ServerProcess, Task> onExited;
+		private readonly Action<string> log;
+		private readonly object processGate = new object();
 		private CancellationTokenRegistration cancellation;
 		private int disposed;
 		private Stream? input;
@@ -19,12 +19,13 @@ namespace Rutile.VisualStudio {
 
 		public Connection Connection { get; }
 
-		public ServerProcess(string executable, string folder, CancellationToken token, Func<Task> onExited) {
+		public ServerProcess(string executable, string folder, CancellationToken token, Func<ServerProcess, Task> onExited, Action<string> log) {
 			if (!File.Exists(executable)) {
 				throw new FileNotFoundException("The Rutile language server is missing from the extension.", executable);
 			}
 
 			this.onExited = onExited;
+			this.log = log;
 			process = new Process {
 				StartInfo = new ProcessStartInfo(executable) {
 					UseShellExecute = false,
@@ -50,6 +51,9 @@ namespace Rutile.VisualStudio {
 				Connection = new Connection(new ConnectionStream(output, this), new ConnectionStream(input, this));
 				_ = ReadErrorsAsync();
 				cancellation = token.Register(Dispose);
+				if (Volatile.Read(ref disposed) != 0) {
+					cancellation.Dispose();
+				}
 			}
 			catch {
 				Dispose();
@@ -66,32 +70,36 @@ namespace Rutile.VisualStudio {
 
 				string? line;
 				while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null) {
-					ServerOutput.Write(line);
+					log(line);
 				}
 			}
 			catch (ObjectDisposedException) {
 			}
 			catch (IOException error) {
 				if (Volatile.Read(ref disposed) == 0) {
-					ServerOutput.Write(error.Message);
+					log(error.Message);
 				}
 			}
 		}
 
 		private void OnExited(object sender, EventArgs arguments) {
-			if (Volatile.Read(ref disposed) != 0) {
-				return;
+			lock (processGate) {
+				if (Volatile.Read(ref disposed) != 0) {
+					return;
+				}
+				log("Rutile language server exited with code " + process.ExitCode + ".");
 			}
 
-			ServerOutput.Write("Rutile language server exited with code " + process.ExitCode + ".");
-			_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
-				try {
-					await onExited().ConfigureAwait(false);
-				}
-				catch (Exception error) {
-					ServerOutput.Write(error.Message);
-				}
-			});
+			_ = NotifyExitedAsync();
+		}
+
+		private async Task NotifyExitedAsync() {
+			try {
+				await onExited(this).ConfigureAwait(false);
+			}
+			catch (Exception error) {
+				log(error.ToString());
+			}
 		}
 
 		public void Dispose() {
@@ -100,22 +108,24 @@ namespace Rutile.VisualStudio {
 			}
 
 			cancellation.Dispose();
-			process.Exited -= OnExited;
-			try {
-				if (!process.HasExited) {
-					process.Kill();
+			lock (processGate) {
+				process.Exited -= OnExited;
+				try {
+					if (!process.HasExited) {
+						process.Kill();
+					}
 				}
-			}
-			catch (InvalidOperationException) {
-			}
-			catch (System.ComponentModel.Win32Exception error) {
-				ServerOutput.Write(error.Message);
-			}
-			finally {
-				input?.Dispose();
-				output?.Dispose();
-				errors?.Dispose();
-				process.Dispose();
+				catch (InvalidOperationException) {
+				}
+				catch (System.ComponentModel.Win32Exception error) {
+					log(error.Message);
+				}
+				finally {
+					input?.Dispose();
+					output?.Dispose();
+					errors?.Dispose();
+					process.Dispose();
+				}
 			}
 		}
 	}
@@ -178,21 +188,4 @@ namespace Rutile.VisualStudio {
 		}
 	}
 
-	internal static class ServerOutput {
-		private static readonly Guid PaneId = new Guid("5c691b46-1bc0-4397-969e-61c8fe8c6c16");
-		private static IVsOutputWindowPane? pane;
-
-		public static void Write(string message) {
-			Trace.WriteLine(message, "Rutile");
-			_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
-				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-				if (pane == null && Package.GetGlobalService(typeof(SVsOutputWindow)) is IVsOutputWindow output) {
-					var id = PaneId;
-					output.CreatePane(ref id, "Rutile", 1, 0);
-					output.GetPane(ref id, out pane);
-				}
-				pane?.OutputStringThreadSafe(message + Environment.NewLine);
-			});
-		}
-	}
 }

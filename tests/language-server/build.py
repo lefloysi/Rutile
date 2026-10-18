@@ -55,6 +55,17 @@ profiles:
 			assert result.returncode == 1
 			assert "no applicable function for call to 'take'" in result.stderr, result.stderr
 			assert "note: candidate 'take'" in result.stderr, result.stderr
+
+			# Recovery retains the valid return expression, but the missing brace
+			# must still block cached native emission and execution of an older binary.
+			replace_document(client, uri, "fn main() -> i32 { return 42;", 3)
+			client.ready({uri: 3})
+			result = subprocess.run([str(command), "run", "app"], cwd=root,
+				capture_output=True, text=True, timeout=15)
+			assert result.returncode == 1, result.stdout + result.stderr
+			assert "error: expected closing delimiter" in result.stderr, result.stderr
+			assert "main.rt:1:" in result.stderr, result.stderr
+			assert "return 41" in source.read_text(), "Malformed overlays must leave valid disk input untouched."
 			client.close()
 		finally:
 			if client.process.poll() is None:

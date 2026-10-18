@@ -1,3 +1,13 @@
+enum parse_mode : [u08] {
+	strict;
+	editor;
+};
+
+struct ParseIssue {
+	Token location;
+	rt::string message;
+};
+
 enum name_role : [u08] {
 	designator;
 	value;
@@ -15,6 +25,8 @@ struct Parser {
 	fn Parser(var Parser& this, const rt::buffer<Token>& tokens);
 
 	fn parse(var Parser& this) -> rt::unique<Syntax>;
+	fn parse_editor(var Parser& this) -> rt::unique<Syntax>;
+	fn issues(const Parser& this) -> const rt::buffer<ParseIssue>&;
 	fn set_cancellation(var Parser& this, ((var void*) -> i32)* callback, var void* context);
 
 	fn error(const Parser& this) -> rt::string_view;
@@ -23,12 +35,18 @@ struct Parser {
 private:
 	const rt::buffer<Token>* tokens;
 	usize offset;
+	parse_mode mode;
+	rt::buffer<ParseIssue> recovery_issues;
 	usize pending_greater;
 	const ParseChoices* selections;
 	var rt::buffer<usize>* discoveries;
 	((var void*) -> i32)* cancellation;
 	var void* cancellation_context;
 	fn cancelled(var Parser& this) -> bool;
+	fn parse_impl(var Parser& this) -> rt::unique<Syntax>;
+	fn recovery_boundary(const Parser& this) -> bool;
+	fn synchronize(var Parser& this, usize start);
+	fn collect_issues(var Parser& this, const Syntax& syntax) -> bool;
 	const char* failure;
 	Token failure_location;
 
@@ -150,6 +168,9 @@ fn Parser::require(var Parser& this, const token_kind& kind, const char* message
 		return true;
 	};
 
+	if (this.mode == parse_mode::editor && kind == token_kind::punct_semicolon && (this.peek().kind == token_kind::eof || this.peek().kind == token_kind::punct_right_brace)) {
+		return true;
+	};
 	@this.fail($message);
 	return false;
 };
@@ -226,10 +247,128 @@ fn Parser::precedence(const token_kind& kind) -> i32 {
 	};
 };
 
+fn Parser::issues(const Parser& this) -> const rt::buffer<ParseIssue>& {
+	return this.recovery_issues;
+};
+
+fn Parser::parse_editor(var Parser& this) -> rt::unique<Syntax> {
+	var strict = @this.parse();
+
+	if (strict.get() || @this.cancelled() || !this.error().compare(rt::string_view("syntax allocation failed\0")) || !this.error().compare(rt::string_view("parse alternatives storage is unavailable\0"))) {
+		return $strict;
+	};
+
+	ParseIssue first_issue;
+	@first_issue.location := this.failure_location;
+	@first_issue.message = rt::string(this.error());
+
+	if (!@this.recovery_issues.push_back($first_issue)) {
+		return rt::unique<Syntax>();
+	};
+	@this.offset = 0;
+	@this.pending_greater = 0;
+	@this.failure = nullptr;
+	@this.mode = parse_mode::editor;
+	var result = @this.parse_impl();
+
+	if (result.get() && !@this.collect_issues(*result.get())) {
+		return rt::unique<Syntax>();
+	};
+
+	return $result;
+};
+
+fn Parser::recovery_boundary(const Parser& this) -> bool {
+	token_kind kind = this.peek().kind;
+	return kind == token_kind::punct_semicolon || kind == token_kind::punct_right_brace || kind == token_kind::punct_right_paren || kind == token_kind::punct_right_bracket || kind == token_kind::punct_comma || kind == token_kind::eof;
+};
+
+fn Parser::synchronize(var Parser& this, usize start) {
+	@this.offset = start;
+	@this.pending_greater = 0;
+	usize braces = 0;
+
+	while (this.peek().kind != token_kind::eof) {
+		if (@this.cancelled()) {
+			return;
+		};
+		token_kind kind = this.peek().kind;
+
+		if (!braces && kind == token_kind::punct_right_brace) {
+			break;
+		};
+		if (!braces && this.offset > start && (kind == token_kind::kw_fn || kind == token_kind::kw_struct || kind == token_kind::kw_class || kind == token_kind::kw_namespace || kind == token_kind::kw_template)) {
+			break;
+		};
+
+		@this.take();
+
+		if (kind == token_kind::punct_left_brace) {
+			@braces = braces + 1;
+		}
+		else if (kind == token_kind::punct_right_brace && braces) {
+			@braces = braces - 1;
+		}
+		else if (kind == token_kind::punct_semicolon && !braces) {
+			break;
+		};
+	};
+};
+
+fn Parser::collect_issues(var Parser& this, const Syntax& syntax) -> bool {
+	if (@this.cancelled()) {
+		return false;
+	};
+	const char* message = nullptr;
+
+	if (syntax.kind() == syntax_kind::error_expression) {
+		@message = "incomplete expression or declaration\0";
+	}
+	else if ((syntax.kind() == syntax_kind::member || syntax.kind() == syntax_kind::qualified_name) && syntax.item(1)->kind() == syntax_kind::absent) {
+		@message = "expected a member name after the access operator\0";
+	};
+
+	if (message) {
+		Token token = syntax.token();
+		usize index = 0;
+
+		while (index < this.recovery_issues.size() && (this.recovery_issues.data()[index].location.source != token.source || this.recovery_issues.data()[index].location.begin != token.begin)) {
+			@index = index + 1;
+		};
+		if (index == this.recovery_issues.size()) {
+			ParseIssue issue;
+			@issue.location := token;
+			@issue.message = rt::string(rt::string_view(message));
+
+			if (!@this.recovery_issues.push_back($issue)) {
+				return false;
+			};
+		};
+	};
+
+	usize index = 0;
+
+	while (index < syntax.size()) {
+		if (!@this.collect_issues(*syntax.item(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
 fn Parser::parse(var Parser& this) -> rt::unique<Syntax> {
+	@this.mode = parse_mode::strict;
+	return @this.parse_impl();
+};
+
+fn Parser::parse_impl(var Parser& this) -> rt::unique<Syntax> {
 	var result = @this.node(syntax_kind::unit, this.peek());
 
 	while (this.peek().kind != token_kind::eof && !this.failure) {
+		if (@this.cancelled()) {
+			return rt::unique<Syntax>();
+		};
 		usize before = this.offset;
 
 		if (!@this.add(@*result.get(), @this.statement())) {
@@ -237,6 +376,10 @@ fn Parser::parse(var Parser& this) -> rt::unique<Syntax> {
 		};
 
 		if (this.offset == before) {
+			if (this.mode == parse_mode::editor && this.peek().kind != token_kind::eof) {
+				@this.take();
+				continue;
+			};
 			@this.fail("parser did not consume a declaration\0");
 		};
 	};
@@ -256,9 +399,27 @@ fn Parser::sequence(var Parser& this, const Token& opening, token_kind close, sy
 	var result = @this.node($kind, opening);
 
 	while (this.peek().kind != close && this.peek().kind != token_kind::eof && !this.failure) {
+		if (@this.cancelled()) {
+			return rt::unique<Syntax>();
+		};
+		usize before = this.offset;
+
 		if (!@this.add(@*result.get(), @this.statement())) {
 			return rt::unique<Syntax>();
 		};
+		if (this.offset == before) {
+			if (this.mode == parse_mode::editor) {
+				@this.take();
+			}
+			else {
+				@this.fail("parser did not consume a statement\0");
+			};
+		};
+	};
+
+	if (this.mode == parse_mode::editor && this.peek().kind == token_kind::eof) {
+		@this.add(@*result.get(), @this.node(syntax_kind::error_expression, this.peek()));
+		return $result;
 	};
 
 	if (!@this.require($close, "expected closing delimiter\0")) {
@@ -276,11 +437,24 @@ fn Parser::arguments(var Parser& this, token_kind close) -> rt::unique<Syntax> {
 	};
 
 	while (!this.failure) {
-		if (!@this.add(@*result.get(), @this.expression(1))) {
+		var argument = rt::unique<Syntax>();
+
+		if (this.mode == parse_mode::editor && @this.recovery_boundary()) {
+			@argument = @this.node(syntax_kind::error_expression, this.peek());
+		}
+		else {
+			@argument = @this.expression(1);
+		};
+		if (!@this.add(@*result.get(), $argument)) {
 			return rt::unique<Syntax>();
 		};
 
 		if (@this.accept(close)) {
+			return $result;
+		};
+
+		if (this.mode == parse_mode::editor && @this.recovery_boundary() && this.peek().kind != token_kind::punct_comma) {
+			@this.add(@*result.get(), @this.node(syntax_kind::error_expression, this.peek()));
 			return $result;
 		};
 
@@ -350,6 +524,7 @@ fn Parser::name_part(var Parser& this, const name_role& role) -> rt::unique<Synt
 		else if (operation.kind == token_kind::identifier || operation.kind == token_kind::kw_var || operation.kind == token_kind::kw_const) {
 			var conversion = Parser(*this.tokens);
 		@conversion.set_cancellation(this.cancellation, this.cancellation_context);
+	@conversion.mode = this.mode;
 			@conversion.offset = beginning;
 			var target = @conversion.type();
 
@@ -391,6 +566,7 @@ fn Parser::name_part(var Parser& this, const name_role& role) -> rt::unique<Synt
 
 	var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+	@candidate.mode = this.mode;
 	@candidate.offset = this.offset;
 	@candidate.pending_greater = this.pending_greater;
 	@candidate.selections = this.selections;
@@ -477,10 +653,18 @@ fn Parser::name_in(var Parser& this, const name_role& role) -> rt::unique<Syntax
 	Token first = this.peek();
 	var result = @this.name_part(role);
 
-	while (@this.accept(token_kind::op_scope)) {
+	while (this.peek().kind == token_kind::op_scope) {
+		Token separator = @this.take();
 		var path = @this.node(syntax_kind::qualified_name, first);
-		@this.add(@*path.get(), rt::unique<Syntax>(@result.release()));
-		@this.add(@*path.get(), @this.name_part(role));
+		if (this.mode == parse_mode::editor && this.peek().kind != token_kind::identifier && this.peek().kind != token_kind::kw_new && this.peek().kind != token_kind::kw_delete) {
+			@path = @this.node(syntax_kind::qualified_name, separator);
+			@this.add(@*path.get(), rt::unique<Syntax>(@result.release()));
+			@this.add(@*path.get(), @this.absent());
+		}
+		else {
+			@this.add(@*path.get(), rt::unique<Syntax>(@result.release()));
+			@this.add(@*path.get(), @this.name_part(role));
+		};
 		@result = rt::unique<Syntax>(@path.release());
 	};
 
@@ -513,6 +697,7 @@ fn Parser::type(var Parser& this) -> rt::unique<Syntax> {
 	if (@this.accept(token_kind::punct_left_paren)) {
 		var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+	@candidate.mode = this.mode;
 		@candidate.offset = this.offset;
 		@candidate.pending_greater = this.pending_greater;
 	@candidate.selections = this.selections;
@@ -608,6 +793,9 @@ fn Parser::type(var Parser& this) -> rt::unique<Syntax> {
 };
 
 fn Parser::expression(var Parser& this, i32 minimum) -> rt::unique<Syntax> {
+	if (this.mode == parse_mode::editor && minimum > 1 && this.peek().kind == token_kind::punct_semicolon) {
+		return @this.node(syntax_kind::error_expression, this.peek());
+	};
 	var left = @this.primary();
 
 	if (!left.get()) {
@@ -634,7 +822,16 @@ fn Parser::expression(var Parser& this, i32 minimum) -> rt::unique<Syntax> {
 		var binary = @this.node(syntax_kind::binary, operation);
 		@this.add(@*binary.get(), rt::unique<Syntax>(@left.release()));
 
-		if (!@this.add(@*binary.get(), @this.expression($next))) {
+		var right = rt::unique<Syntax>();
+
+		if (this.mode == parse_mode::editor && @this.recovery_boundary()) {
+			@right = @this.node(syntax_kind::error_expression, this.peek());
+		}
+		else {
+			@right = @this.expression($next);
+		};
+
+		if (!@this.add(@*binary.get(), $right)) {
 			return rt::unique<Syntax>();
 		};
 
@@ -676,6 +873,9 @@ fn Parser::postfix(var Parser& this, rt::unique<Syntax> value) -> rt::unique<Syn
 				@this.add(@*destructor.get(), @this.type());
 				@this.add(@*member.get(), rt::unique<Syntax>(@destructor.release()));
 			}
+			else if (this.mode == parse_mode::editor && this.peek().kind != token_kind::identifier) {
+				@this.add(@*member.get(), @this.absent());
+			}
 			else {
 				@this.add(@*member.get(), @this.name());
 			};
@@ -693,6 +893,10 @@ fn Parser::postfix(var Parser& this, rt::unique<Syntax> value) -> rt::unique<Syn
 fn Parser::primary(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
 
+	if (this.mode == parse_mode::editor && @this.recovery_boundary() && token.kind != token_kind::punct_semicolon) {
+		return @this.node(syntax_kind::error_expression, token);
+	};
+
 	if (token.kind == token_kind::identifier || token.kind == token_kind::kw_var || token.kind == token_kind::kw_const || token.kind == token_kind::kw_struct || token.kind == token_kind::kw_class || token.kind == token_kind::kw_union) {
 		// Type suffixes and value operators share tokens. Enumerate both complete
 		// continuations instead of deciding whether an identifier denotes a type here.
@@ -701,6 +905,7 @@ fn Parser::primary(var Parser& this) -> rt::unique<Syntax> {
 		if (!this.selections || !this.selections->contains(choice)) {
 			var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+	@candidate.mode = this.mode;
 			@candidate.offset = this.offset;
 			@candidate.pending_greater = this.pending_greater;
 			@candidate.selections = this.selections;
@@ -823,6 +1028,7 @@ fn Parser::primary(var Parser& this) -> rt::unique<Syntax> {
 			@this.take();
 			var type_parser = Parser(*this.tokens);
 		@type_parser.set_cancellation(this.cancellation, this.cancellation_context);
+	@type_parser.mode = this.mode;
 			@type_parser.offset = this.offset;
 			@type_parser.pending_greater = this.pending_greater;
 	@type_parser.selections = this.selections;
@@ -925,6 +1131,7 @@ fn Parser::variable(var Parser& this) -> rt::unique<Syntax> {
 	if (start.kind == token_kind::kw_var) {
 		var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+	@candidate.mode = this.mode;
 		@candidate.offset = this.offset;
 		@candidate.pending_greater = this.pending_greater;
 		@candidate.selections = this.selections;
@@ -955,7 +1162,12 @@ fn Parser::variable(var Parser& this) -> rt::unique<Syntax> {
 	if (this.peek().kind == token_kind::op_assign || this.peek().kind == token_kind::op_copy) {
 		Token operation = @this.take();
 		var initialized = @this.node(syntax_kind::unary, operation);
-		@this.add(@*initialized.get(), @this.expression(1));
+		if (this.mode == parse_mode::editor && @this.recovery_boundary()) {
+			@this.add(@*initialized.get(), @this.node(syntax_kind::error_expression, this.peek()));
+		}
+		else {
+			@this.add(@*initialized.get(), @this.expression(1));
+		};
 		@initializer = rt::unique<Syntax>(@initialized.release());
 	}
 	else if (this.peek().kind == token_kind::punct_left_brace) {
@@ -1324,6 +1536,7 @@ fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	// expression that consume the same tokens remain alternatives for name binding.
 	var declaration_parser = Parser(*this.tokens);
 		@declaration_parser.set_cancellation(this.cancellation, this.cancellation_context);
+	@declaration_parser.mode = this.mode;
 	@declaration_parser.offset = this.offset;
 	@declaration_parser.pending_greater = this.pending_greater;
 	@declaration_parser.selections = this.selections;
@@ -1331,6 +1544,7 @@ fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	var declaration = @declaration_parser.variable();
 	var expression_parser = Parser(*this.tokens);
 		@expression_parser.set_cancellation(this.cancellation, this.cancellation_context);
+	@expression_parser.mode = this.mode;
 	@expression_parser.offset = this.offset;
 	@expression_parser.pending_greater = this.pending_greater;
 	@expression_parser.selections = this.selections;
@@ -1409,6 +1623,7 @@ fn Parser::statement(var Parser& this) -> rt::unique<Syntax> {
 		var ParseChoices* choices = work.data()[next].get();
 		var candidate = Parser(*this.tokens);
 		@candidate.set_cancellation(this.cancellation, this.cancellation_context);
+	@candidate.mode = this.mode;
 		@candidate.offset = this.offset;
 		@candidate.pending_greater = this.pending_greater;
 		@candidate.selections = choices;
@@ -1467,6 +1682,15 @@ fn Parser::statement(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	if (!alternatives.size()) {
+		if (this.mode == parse_mode::editor && !@this.cancelled() && rt::string_view(failure).compare(rt::string_view("syntax allocation failed\0")) && rt::string_view(failure).compare(rt::string_view("parse alternatives storage is unavailable\0"))) {
+			usize start = this.offset;
+			@this.synchronize(start);
+
+			if (this.failure) {
+				return rt::unique<Syntax>();
+			};
+			return @this.node(syntax_kind::error_expression, failed_token);
+		};
 		@this.offset = failed_at;
 		@this.failure_location := failed_token;
 		@this.failure = $failure;

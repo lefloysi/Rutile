@@ -47,7 +47,49 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, const LanguageInde
 		};
 		@begin = begin - 1;
 	};
-	if (begin && (text.data()[begin - 1] == '.' || text.data()[begin - 1] == ':')) {
+	usize receiver = 0;
+	rt::unordered_map<u64, bool> seen;
+	while (receiver < index.receivers.size()) {
+		const NavigationReceiver& site = index.receivers.data()[receiver];
+		@receiver = receiver + 1;
+		if (
+			site.selector.source != source
+			|| site.selector.begin >= begin
+			|| site.selector.end < offset
+		) {
+			continue;
+		};
+		usize candidate = 0;
+		while (candidate < site.candidates.size()) {
+			u64 identity = site.candidates.data()[candidate];
+			@candidate = candidate + 1;
+			var found = index.symbol_ids.find(identity);
+			if (!found || seen.find(identity)) {
+				continue;
+			};
+			const LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
+			rt::string_view name = symbol.name.view();
+			rt::string_view prefix = rt::string_view(text.data() + begin, offset - begin);
+			if (name.empty() || name.size() < prefix.size() || rt::string_view(name.data(), prefix.size()) != prefix) {
+				continue;
+			};
+			var item = rt::json_value::make_object();
+			if (
+				!@seen.insert($identity, true)
+				|| !item.get()
+				|| !@item.get()->set("label\0", rt::json_value::make_string(name))
+				|| !@item.get()->set("detail\0", rt::json_value::make_string(symbol.detail.view()))
+				|| !@result.get()->append($item)
+			) {
+				return rt::unique<rt::json_value>();
+			};
+		};
+	};
+	usize separator = begin;
+	while (separator && (text.data()[separator - 1] == ' ' || text.data()[separator - 1] == '\t')) {
+		@separator = separator - 1;
+	};
+	if (separator && (text.data()[separator - 1] == '.' || text.data()[separator - 1] == ':' || text.data()[separator - 1] == '>')) {
 		return $result;
 	};
 	var prefix = rt::string_view(text.data() + begin, offset - begin);
@@ -94,46 +136,25 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, const LanguageInde
 	return $result;
 };
 
-fn LanguageWorkspace::signature(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
-	usize source = 0;
-	usize offset = 0;
-	if (!@this.cursor(index, parameters, @source, @offset)) {
-		return rt::json_value::make_null();
-	};
-	const NavigationCall* selected = nullptr;
-	usize number = 0;
-	while (number < index.calls.size()) {
-		const NavigationCall& call = index.calls.data()[number];
-		@number = number + 1;
-		if (call.range.source != source || offset <= call.callee.end || offset >= call.range.end) {
-			continue;
-		};
-		if (!selected || call.range.end - call.range.begin < selected->range.end - selected->range.begin) {
-			@selected = &@call;
-		};
-	};
-	if (!selected) {
-		return rt::json_value::make_null();
-	};
-	var found = index.symbol_ids.find(selected->symbol);
+fn LanguageWorkspace::signature_item(const LanguageIndex& index, const NavigationCall& call, u64 identity, usize offset) -> rt::unique<rt::json_value> {
+	var found = index.symbol_ids.find(identity);
 	if (!found) {
 		return rt::json_value::make_null();
 	};
 	const LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
-	var help = rt::json_value::make_object();
-	var signatures = rt::json_value::make_array();
 	var signature = rt::json_value::make_object();
-	var parameters_json = rt::json_value::make_array();
-	if (!help.get() || !signatures.get() || !signature.get() || !parameters_json.get()) {
+	var parameters = rt::json_value::make_array();
+	if (!signature.get() || !parameters.get()) {
 		return rt::unique<rt::json_value>();
 	};
+
 	rt::string label;
 	if (!@label.append(symbol.name.view()) || !@label.append("(\0")) {
 		return rt::unique<rt::json_value>();
 	};
 	usize displayed = 0;
 	usize parameter = 0;
-	if (symbol.parameters.size() == selected->arguments.size() + 1 && symbol.parameters.data()[0].name.view() == rt::string_view("this\0")) {
+	if (call.bound_receiver && symbol.parameters.size() && symbol.parameters.data()[0].name.view() == rt::string_view("this\0")) {
 		@parameter = 1;
 	};
 	while (parameter < symbol.parameters.size()) {
@@ -146,7 +167,7 @@ fn LanguageWorkspace::signature(var LanguageWorkspace& this, const LanguageIndex
 		};
 		@displayed = displayed + 1;
 		var item = rt::json_value::make_object();
-		if (!item.get() || !@item.get()->set("label\0", rt::json_value::make_string(input.detail.view())) || !@parameters_json.get()->append($item)) {
+		if (!item.get() || !@item.get()->set("label\0", rt::json_value::make_string(input.detail.view())) || !@parameters.get()->append($item)) {
 			return rt::unique<rt::json_value>();
 		};
 		@parameter = parameter + 1;
@@ -155,13 +176,103 @@ fn LanguageWorkspace::signature(var LanguageWorkspace& this, const LanguageIndex
 		return rt::unique<rt::json_value>();
 	};
 	usize active = 0;
-	while (active + 1 < selected->arguments.size() && offset > selected->arguments.data()[active].end) {
+	while (active + 1 < call.arguments.size() && offset > call.arguments.data()[active].end) {
 		@active = active + 1;
 	};
-	if (!@signature.get()->set("label\0", rt::json_value::make_string(label.view())) || !@signature.get()->set("documentation\0", rt::json_value::make_string(symbol.detail.view())) || !@signature.get()->set("parameters\0", $parameters_json) || !@signatures.get()->append($signature) || !@help.get()->set("signatures\0", $signatures) || !@help.get()->set("activeSignature\0", rt::json_value::make_unsigned(0))) {
+	if (displayed && active >= displayed) {
+		@active = displayed - 1;
+	};
+	if (
+		!@signature.get()->set("label\0", rt::json_value::make_string(label.view()))
+		|| !@signature.get()->set("documentation\0", rt::json_value::make_string(symbol.detail.view()))
+		|| !@signature.get()->set("parameters\0", $parameters)
+		|| displayed && !@signature.get()->set("activeParameter\0", rt::json_value::make_unsigned(static_cast<u64>(active)))
+	) {
 		return rt::unique<rt::json_value>();
 	};
-	if (displayed && !@help.get()->set("activeParameter\0", rt::json_value::make_unsigned(static_cast<u64>(active)))) {
+	return $signature;
+};
+
+fn LanguageWorkspace::signature(var LanguageWorkspace& this, const LanguageIndex& index, const rt::json_value& parameters) -> rt::unique<rt::json_value> {
+	usize source = 0;
+	usize offset = 0;
+	if (!@this.cursor(index, parameters, @source, @offset)) {
+		return rt::json_value::make_null();
+	};
+	usize width = usize::max;
+	usize number = 0;
+	while (number < index.calls.size()) {
+		const NavigationCall& call = index.calls.data()[number];
+		@number = number + 1;
+		if (
+			call.range.source == source
+			&& call.callee.end < offset
+			&& offset <= call.range.end
+			&& (offset < call.range.end || !call.symbol)
+			&& call.range.end - call.range.begin < width
+		) {
+			@width = call.range.end - call.range.begin;
+		};
+	};
+	if (width == usize::max) {
+		return rt::json_value::make_null();
+	};
+
+	var help = rt::json_value::make_object();
+	var signatures = rt::json_value::make_array();
+	if (!help.get() || !signatures.get()) {
+		return rt::unique<rt::json_value>();
+	};
+	rt::unordered_map<u64, bool> seen;
+	@number = 0;
+	while (number < index.calls.size()) {
+		const NavigationCall& call = index.calls.data()[number];
+		@number = number + 1;
+		if (
+			call.range.source != source
+			|| offset <= call.callee.end
+			|| offset > call.range.end
+			|| offset == call.range.end && call.symbol
+			|| call.range.end - call.range.begin != width
+		) {
+			continue;
+		};
+		usize candidate = 0;
+		usize count = call.candidates.size();
+		if (call.symbol) {
+			@count = 1;
+		};
+		while (candidate < count) {
+			u64 identity = u64(call.symbol);
+			if (!identity) {
+				@identity = call.candidates.data()[candidate];
+			};
+			@candidate = candidate + 1;
+			if (seen.find(identity)) {
+				continue;
+			};
+			var signature = LanguageWorkspace::signature_item(index, call, u64(identity), usize(offset));
+			if (!signature.get() || !@seen.insert($identity, true)) {
+				return rt::unique<rt::json_value>();
+			};
+			if (signature.get()->kind() != rt::json_kind::null_value && !@signatures.get()->append($signature)) {
+				return rt::unique<rt::json_value>();
+			};
+		};
+	};
+	if (!signatures.get()->size()) {
+		return rt::json_value::make_null();
+	};
+	if (signatures.get()->size() == 1) {
+		const rt::json_value* active = signatures.get()->item(0)->member("activeParameter\0");
+		if (
+			!@help.get()->set("activeSignature\0", rt::json_value::make_unsigned(0))
+			|| active && !@help.get()->set("activeParameter\0", rt::json_value::make_unsigned(static_cast<u64>(LanguageJson::integer(*signatures.get()->item(0), "activeParameter\0", 0))))
+		) {
+			return rt::unique<rt::json_value>();
+		};
+	};
+	if (!@help.get()->set("signatures\0", $signatures)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $help;

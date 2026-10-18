@@ -74,4 +74,55 @@ $vsix = Join-Path $PSScriptRoot "bin/$Configuration/Rutile.VisualStudio.vsix"
 if (!(Test-Path -LiteralPath $vsix)) {
 	throw "The Visual Studio SDK did not produce $vsix."
 }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead($vsix)
+try {
+	$manifestEntry = $archive.GetEntry('extension.vsixmanifest')
+	if (!$manifestEntry) {
+		throw 'The VSIX is missing its manifest.'
+	}
+	$reader = [IO.StreamReader]::new($manifestEntry.Open())
+	try {
+		[xml]$manifest = $reader.ReadToEnd()
+	}
+	finally {
+		$reader.Dispose()
+	}
+	if ($manifest.PackageManifest.Metadata.Identity.Version -ne $expectedVersion) {
+		throw "Packaged manifest version does not match release '$expectedVersion'."
+	}
+	$payload = @('kiln.exe', 'LLVM-C.dll', $yaml)
+	foreach ($name in $payload) {
+		$entry = $archive.GetEntry($name)
+		if (!$entry) {
+			throw "The VSIX is missing $name."
+		}
+		$stream = $entry.Open()
+		$hash = [Security.Cryptography.SHA256]::Create()
+		try {
+			$packagedHash = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '')
+			$sourceHash = (Get-FileHash -LiteralPath (Join-Path $RutileServerDirectory $name) -Algorithm SHA256).Hash
+			if ($packagedHash -ne $sourceHash) {
+				throw "The packaged $name does not match the selected server payload."
+			}
+		}
+		finally {
+			$hash.Dispose()
+			$stream.Dispose()
+		}
+	}
+	$required = @('Rutile.VisualStudio.dll', 'vcruntime140.dll', 'msvcp140.dll')
+	if ($Configuration -eq 'Debug') {
+		$required += @('vcruntime140d.dll', 'msvcp140d.dll', 'ucrtbased.dll')
+	}
+	foreach ($name in $required) {
+		if (!$archive.GetEntry($name)) {
+			throw "The VSIX is missing $name."
+		}
+	}
+}
+finally {
+	$archive.Dispose()
+}
 Write-Output $vsix
