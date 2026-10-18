@@ -62,10 +62,12 @@ Select Visual Studio 2022 and restart it if the installer requests it. Open the 
 or its solution, then open a `.rt` file. Use F12 on a symbol to navigate to its definition.
 Completion and signature help use Visual Studio's normal editor commands.
 
-Place the caret inside a template to show an argument field above its declaration. Type the
-arguments, then press Enter or **Apply**. The compiler resolves those arguments even when the
-program has no existing instantiation. **Generic** restores the unselected context. Argument
-errors appear beside the field and do not change build diagnostics. Generic hover stays concise.
+Place the caret inside a template to show a compact context dropdown and pencil beside its
+template declaration. The pencil opens sample argument fields, one for each parameter. Leave
+trailing defaulted parameters empty to use their defaults, then select **Apply**. The compiler
+resolves new samples even when the program has no existing instantiation. The dropdown can add
+existing instantiations or clear its samples. Argument errors stay in the popup and do not change
+build diagnostics. Generic hover stays concise.
 
 ## Verification
 
@@ -91,8 +93,11 @@ Check late document attachment and the editable template control after building 
 ./tools/Rutile.VisualStudio/tests/RunTemplateArguments.ps1
 ```
 
-These check function classification and its yellow default format, measured WPF layout,
-pending responses, and stale snapshots. They do not inspect the installed editor's rendering.
+These check the public server-ready lifecycle over framed JSON-RPC through the actual classifier,
+including both callback orders and late document attachment. Semantic setup explicitly obtains
+Kiln's canonical legend; it does not depend on initialization middleware. The custom client opts
+out of the competing native semantic tagger. Control tests cover defaults, stored samples, WPF
+rendering, pending responses, and stale snapshots. They do not inspect the installed editor.
 
 The process checks exercise the actual stream implementation with an isolated child:
 working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,

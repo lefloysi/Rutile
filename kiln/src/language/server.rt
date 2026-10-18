@@ -15,6 +15,7 @@ private:
 	fn send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool;
 	fn error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view& text) -> bool;
 	fn initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool;
+	fn description() -> rt::json_document;
 
 	var LanguageProtocol* protocol;
 	var LanguageWorkspace* workspace;
@@ -35,6 +36,10 @@ fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code,
 	return @this.send(LanguageJson::failure(id, $code, text));
 };
 
+fn LanguageServer::description() -> rt::json_document {
+	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}\0");
+};
+
 fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool {
 	if (this.state != language_server_state::uninitialized) {
 		return @this.error(id, -32600, rt::string_view("language server is already initialized", 38));
@@ -43,12 +48,37 @@ fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::
 		return @this.error(id, -32602, rt::string_view("initialize requires a valid project file URI", 44));
 	};
 
-	var description = rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}\0");
+	var description = LanguageServer::description();
 	if (!description.value()) {
 		return false;
 	};
+	var result = @description.release();
+	rt::json_value* options = parameters.member("initializationOptions\0");
+	rt::json_value* custom_colors = nullptr;
+	if (options) {
+		@custom_colors = options->member("rutileSemanticColors\0");
+	};
+	if (custom_colors && custom_colors->boolean()) {
+		var filtered = rt::json_value::make_object();
+		if (!filtered.get()) {
+			return false;
+		};
+
+		rt::json_value* capabilities = result.get()->member("capabilities\0");
+		usize index = 0;
+		while (index < capabilities->size()) {
+			var key = capabilities->key(index);
+			if (key != rt::string_view("semanticTokensProvider", 22) && !@filtered.get()->set(key, capabilities->member(key)->clone())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		if (!@result.get()->set(rt::string_view("capabilities", 12), $filtered)) {
+			return false;
+		};
+	};
 	@this.state = language_server_state::running;
-	return @this.send(LanguageJson::response(id, @description.release()));
+	return @this.send(LanguageJson::response(id, $result));
 };
 
 fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -> bool {
@@ -122,6 +152,14 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -
 	};
 	if (method == rt::string_view("textDocument/didSave", 20) || method == rt::string_view("workspace/didChangeWatchedFiles", 31)) {
 		return @this.workspace->refresh();
+	};
+	if (method == rt::string_view("rutile/semanticTokensLegend", 27)) {
+		var description = LanguageServer::description();
+		if (!description.value()) {
+			return false;
+		};
+		rt::json_value* legend = description.value()->member("capabilities\0")->member("semanticTokensProvider\0")->member("legend\0");
+		return @this.send(LanguageJson::response(*id, legend->clone()));
 	};
 	if (method == rt::string_view("rutile/indexStatus", 18)) {
 		return @this.send(LanguageJson::response(*id, @this.workspace->status()));

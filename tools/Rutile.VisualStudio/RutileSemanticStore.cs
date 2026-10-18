@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
-using Microsoft.VisualStudio.Threading;
 using Newtonsoft.Json.Linq;
 
 namespace Rutile.VisualStudio {
@@ -29,12 +28,30 @@ namespace Rutile.VisualStudio {
 			return state;
 		}
 
-		public void Configure(string[] names) {
-			lock (gate) {
-				legend = names;
-				connection = RutileEditorConnection.Instance.Rpc;
-				documents.Clear();
+		internal async Task InitializeAsync() {
+			var rpc = RutileEditorConnection.Instance.Rpc;
+			if (rpc == null) {
+				return;
 			}
+
+			var response = await rpc.InvokeWithParameterObjectAsync<JToken>("rutile/semanticTokensLegend", new JObject()).ConfigureAwait(false);
+			if (!(response?["tokenTypes"] is JArray types)) {
+				throw new InvalidOperationException("Kiln did not provide its semantic token legend.");
+			}
+
+			var names = new string[types.Count];
+			for (var index = 0; index < types.Count; ++index) {
+				names[index] = (string?)types[index] ?? string.Empty;
+			}
+
+			lock (gate) {
+				if (!ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc)) {
+					return;
+				}
+				connection = rpc;
+				legend = names;
+			}
+			Refresh(null);
 		}
 
 		public void DocumentChanged(string method, JToken parameters) {
@@ -123,6 +140,7 @@ namespace Rutile.VisualStudio {
 
 	internal sealed class SemanticBufferColors {
 		private readonly ITextBuffer buffer;
+		private readonly SynchronizationContext? notifications;
 		private readonly object gate = new object();
 		private IReadOnlyList<ColoredSnapshotSpan> spans = Array.Empty<ColoredSnapshotSpan>();
 		private CancellationTokenSource? request;
@@ -131,6 +149,7 @@ namespace Rutile.VisualStudio {
 
 		internal SemanticBufferColors(ITextBuffer buffer, string uri) {
 			this.buffer = buffer;
+			notifications = SynchronizationContext.Current;
 			Uri = uri;
 		}
 
@@ -176,9 +195,8 @@ namespace Rutile.VisualStudio {
 				next = new CancellationTokenSource();
 				request = next;
 			}
-			_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
+			_ = Task.Run(async () => {
 				try {
-					await TaskScheduler.Default;
 					var parameters = new JObject { ["textDocument"] = new JObject { ["uri"] = Uri } };
 					var response = await rpc.InvokeWithParameterObjectAsync<JToken?>("textDocument/semanticTokens/full", parameters, next.Token).ConfigureAwait(false);
 					if (!(response is JObject result) || !(result["data"] is JArray data)) {
@@ -198,8 +216,13 @@ namespace Rutile.VisualStudio {
 						}
 						spans = Translate(prepared, buffer.CurrentSnapshot);
 					}
-					await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(next.Token);
-					Changed?.Invoke(this, EventArgs.Empty);
+					if (notifications == null) {
+						await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(next.Token);
+						Changed?.Invoke(this, EventArgs.Empty);
+					}
+					else {
+						notifications.Post(_ => Changed?.Invoke(this, EventArgs.Empty), null);
+					}
 				}
 				catch (OperationCanceledException) {
 				}

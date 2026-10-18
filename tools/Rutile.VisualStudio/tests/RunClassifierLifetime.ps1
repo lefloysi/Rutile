@@ -5,7 +5,7 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VSSDK -property installationPath
 $msbuild = Join-Path $installation 'MSBuild/Current/Bin/MSBuild.exe'
-& $msbuild (Join-Path $PSScriptRoot '../Rutile.VisualStudio.csproj') /t:Build /p:Configuration=Release /p:CreateVsixContainer=false /p:DeployExtension=false /nologo /v:minimal *> (Join-Path $output 'build.log')
+& $msbuild (Join-Path $PSScriptRoot '../Rutile.VisualStudio.csproj') /t:Build /p:Configuration=Release /p:CreateVsixContainer=false /p:DeployExtension=false /p:NuGetAudit=false /nologo /v:minimal *> (Join-Path $output 'build.log')
 if ($LASTEXITCODE) {
 	throw ('Extension SDK compilation failed: ' + (Join-Path $output 'build.log'))
 }
@@ -14,6 +14,7 @@ $compiler = Join-Path $installation 'MSBuild/Current/Bin/Roslyn/csc.exe'
 
 $assembly = Join-Path $PSScriptRoot '../bin/Release/net472'
 $references = Get-ChildItem $assembly -Filter '*.dll' | ForEach-Object { '/reference:' + $_.FullName }
+$references += '/reference:C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.7.2/Facades/netstandard.dll'
 $exe = Join-Path $output 'ClassifierLifetimeTests.exe'
 & $compiler /nologo /langversion:latest /target:exe "/out:$exe" @references (Join-Path $PSScriptRoot 'ClassifierLifetimeTests.cs')
 if ($LASTEXITCODE) {
@@ -40,7 +41,9 @@ Get-ChildItem $assembly -Filter '*.dll' | ForEach-Object {
 }
 
 $configuration.Save($exe + '.config')
-& $exe (Join-Path $output 'Rutile.VisualStudio.dll')
-if ($LASTEXITCODE) {
-	throw 'Classifier lifetime regression failed'
+foreach ($order in @('attached-first', 'initialized-first')) {
+	& $exe (Join-Path $output 'Rutile.VisualStudio.dll') $order
+	if ($LASTEXITCODE) {
+		throw ('Classifier RPC regression failed: ' + $order)
+	}
 }

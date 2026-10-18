@@ -1,7 +1,12 @@
 using System;
-using System.Collections;
 using System.Linq;
 using System.Reflection;
+using System.IO;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.VisualStudio.LanguageServer.Client;
+using StreamJsonRpc;
 using System.Runtime.Remoting.Messaging;
 using System.Runtime.Remoting.Proxies;
 using Microsoft.VisualStudio.Text;
@@ -36,6 +41,7 @@ sealed class InterfaceStub<T> : RealProxy {
 
 static class ClassifierLifetimeTests {
 	static int Main(string[] args) {
+		SynchronizationContext.SetSynchronizationContext(new SynchronizationContext());
 		var properties = new PropertyCollection();
 		const string source = "fn f();";
 		ITextSnapshot snapshot = null;
@@ -128,15 +134,48 @@ static class ClassifierLifetimeTests {
 			throw new Exception("Repeated document notification replaced the semantic color owner");
 		}
 
-		var decoder = assembly.GetType("Rutile.VisualStudio.RutileSemanticDecoder", true);
-		var decoded = (IEnumerable)decoder.GetMethod("Decode", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new object[] { source, new JArray(0, 3, 1, 0, 0), new[] { "function" } });
-		var token = decoded.Cast<object>().Single();
-		var classification = (string)token.GetType().GetField("Classification", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(token);
-		var coloredType = assembly.GetType("Rutile.VisualStudio.ColoredSnapshotSpan", true);
-		var span = Activator.CreateInstance(coloredType, BindingFlags.NonPublic | BindingFlags.Instance, null, new object[] { new SnapshotSpan(snapshot, 3, 1), classification }, null);
-		var spans = Array.CreateInstance(coloredType, 1);
-		spans.SetValue(span, 0);
-		retained.GetType().GetField("spans", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(retained, spans);
+		using (var remote = new RpcStream())
+		using (var socket = new RpcStream()) {
+			remote.Peer = socket;
+			socket.Peer = remote;
+			using (var serverRpc = new JsonRpc(remote))
+			using (var clientRpc = new JsonRpc(socket)) {
+				var target = new SemanticServer();
+				serverRpc.AddLocalRpcTarget(target);
+				serverRpc.StartListening();
+				clientRpc.StartListening();
+				var languageClient = (ILanguageClient)Activator.CreateInstance(assembly.GetType("Rutile.VisualStudio.RutileLanguageClient", true), true);
+				if (!((JObject)languageClient.InitializationOptions).Value<bool>("rutileSemanticColors")) {
+					throw new Exception("Custom classifier did not opt out of native semantic tagger");
+				}
+				var initializedFirst = args.Length > 1 && args[1] == "initialized-first";
+				if (initializedFirst) {
+					languageClient.OnServerInitializedAsync().GetAwaiter().GetResult();
+				}
+				((ILanguageClientCustomMessage2)languageClient).AttachForCustomMessageAsync(clientRpc).GetAwaiter().GetResult();
+				var middleLayer = (ILanguageClientMiddleLayer)((ILanguageClientCustomMessage2)languageClient).MiddleLayer;
+				if (middleLayer.CanHandle("initialize")) {
+					throw new Exception("Legend bootstrap still depends on unsupported initialize middleware");
+				}
+				var opened = new JObject { ["textDocument"] = new JObject { ["uri"] = uri, ["text"] = source } };
+				middleLayer.HandleNotificationAsync("textDocument/didOpen", opened, parameters => clientRpc.NotifyWithParameterObjectAsync("textDocument/didOpen", parameters)).GetAwaiter().GetResult();
+				if (!initializedFirst) {
+					languageClient.OnServerInitializedAsync().GetAwaiter().GetResult();
+				}
+				var deadline = DateTime.UtcNow.AddSeconds(5);
+				while (!((IClassifier)classifier).GetClassificationSpans(new SnapshotSpan(snapshot, 0, source.Length)).Any(item => item.Span.Start.Position == 3 && item.ClassificationType.Classification == "rutile.function")) {
+					if (DateTime.UtcNow >= deadline) {
+						throw new Exception("Actual semantic RPC did not deliver function classification; requests=" + target.Requests);
+					}
+					Thread.Sleep(10);
+				}
+				if (!target.Opened || target.Legends != 1 || target.Requests == 0) {
+					throw new Exception("Public client lifecycle did not synchronize document, fetch legend and request tokens");
+				}
+			}
+
+		}
+
 		var actual = ((IClassifier)classifier).GetClassificationSpans(new SnapshotSpan(snapshot, 0, source.Length));
 		if (!actual.Any(item => item.Span.Start.Position == 3 && item.ClassificationType.Classification == "rutile.function")) {
 			throw new Exception("Late-attached compiler function binding was not returned as a function classification");
@@ -148,7 +187,85 @@ static class ClassifierLifetimeTests {
 			throw new Exception("Function format is not yellow: " + color);
 		}
 
-		Console.WriteLine("Classifier created before document: semantic colors attach after document creation PASS");
+		Console.WriteLine("Public Attach/OnServerInitialized + didOpen + real JSON-RPC tokens + late document function classification PASS");
 		return 0;
+	}
+}
+
+sealed class SemanticServer {
+	internal bool Opened;
+	internal int Legends;
+	internal int Requests;
+
+	[JsonRpcMethod("textDocument/didOpen", UseSingleObjectParameterDeserialization = true)]
+	public void Open(JToken parameters) {
+		Opened = (string)parameters["textDocument"]["text"] == "fn f();";
+	}
+
+	[JsonRpcMethod("rutile/semanticTokensLegend", UseSingleObjectParameterDeserialization = true)]
+	public JObject Legend(JToken parameters) {
+		Interlocked.Increment(ref Legends);
+		return new JObject { ["tokenTypes"] = new JArray("function"), ["tokenModifiers"] = new JArray() };
+	}
+
+	[JsonRpcMethod("textDocument/semanticTokens/full", UseSingleObjectParameterDeserialization = true)]
+	public JObject Tokens(JToken parameters) {
+		Interlocked.Increment(ref Requests);
+		return new JObject { ["data"] = new JArray(0, 3, 1, 0, 0) };
+	}
+}
+
+sealed class RpcStream : Stream {
+	internal RpcStream Peer;
+	private readonly BlockingCollection<byte[]> incoming = new BlockingCollection<byte[]>();
+	private byte[] current = Array.Empty<byte>();
+	private int offset;
+
+	public override bool CanRead => true;
+	public override bool CanWrite => true;
+	public override bool CanSeek => false;
+	public override long Length => throw new NotSupportedException();
+	public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+	public override int Read(byte[] buffer, int begin, int count) {
+		if (offset == current.Length) {
+			try {
+				current = incoming.Take();
+				offset = 0;
+			}
+			catch (InvalidOperationException) {
+				return 0;
+			}
+		}
+		var copied = Math.Min(count, current.Length - offset);
+		Array.Copy(current, offset, buffer, begin, copied);
+		offset += copied;
+		return copied;
+	}
+
+	public override Task<int> ReadAsync(byte[] buffer, int begin, int count, CancellationToken token) {
+		return Task.Run(() => Read(buffer, begin, count), token);
+	}
+
+	public override void Write(byte[] buffer, int begin, int count) {
+		var copy = new byte[count];
+		Array.Copy(buffer, begin, copy, 0, count);
+		Peer.incoming.Add(copy);
+	}
+
+	public override void Flush() {
+	}
+
+	public override long Seek(long offset, SeekOrigin origin) {
+		throw new NotSupportedException();
+	}
+
+	public override void SetLength(long length) {
+		throw new NotSupportedException();
+	}
+
+	protected override void Dispose(bool disposing) {
+		incoming.CompleteAdding();
+		base.Dispose(disposing);
 	}
 }

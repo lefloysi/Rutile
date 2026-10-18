@@ -34,11 +34,9 @@ namespace Rutile.VisualStudio {
 		private readonly IWpfTextView view;
 		private readonly ITextDocumentFactoryService documents;
 		private readonly DispatcherTimer timer;
-		private readonly Canvas adornment;
-		private readonly StackPanel row;
-		private readonly TextBlock title;
-		private readonly TextBox arguments;
-		private readonly TextBlock status;
+		private readonly TemplateArgumentWidget widget;
+		private TextBox arguments => widget.Arguments;
+		private TextBlock status => widget.Status;
 		private CancellationTokenSource? pending;
 		private ITrackingPoint? anchor;
 		private JObject? templatePosition;
@@ -47,36 +45,17 @@ namespace Rutile.VisualStudio {
 		internal RutileTemplateContextTagger(IWpfTextView view, ITextDocumentFactoryService documents) {
 			this.view = view;
 			this.documents = documents;
-			row = TemplateArgumentControls.CreateRow();
-			row.SetResourceReference(Panel.BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
-			title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-			title.SetResourceReference(TextBlock.ForegroundProperty, EnvironmentColors.ToolWindowTextBrushKey);
-			row.Children.Add(title);
-			arguments = TemplateArgumentControls.CreateInput();
-			arguments.KeyDown += OnArgumentKey;
-			row.Children.Add(arguments);
-			var close = new TextBlock { Text = ">", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
-			close.SetResourceReference(TextBlock.ForegroundProperty, EnvironmentColors.ToolWindowTextBrushKey);
-			row.Children.Add(close);
-			var apply = new Button { Content = "Apply", Margin = new Thickness(4, 0, 0, 0), Padding = new Thickness(6, 0, 6, 0) };
-			apply.Click += (_, __) => Submit(false);
-			row.Children.Add(apply);
-			var reset = new Button { Content = "Generic", Margin = new Thickness(4, 0, 0, 0), Padding = new Thickness(6, 0, 6, 0) };
-			reset.Click += (_, __) => Submit(true);
-			row.Children.Add(reset);
-			status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 400, TextTrimming = TextTrimming.CharacterEllipsis };
-			status.SetResourceReference(TextBlock.ForegroundProperty, EnvironmentColors.ToolWindowTextBrushKey);
-			row.Children.Add(status);
-			// Negotiate a separate row above the declaration; consume no source width.
-			adornment = new Canvas { Width = 0, Height = 0, ClipToBounds = false };
-			Canvas.SetTop(row, 0);
-			adornment.Children.Add(row);
+			widget = new TemplateArgumentWidget();
+			widget.SetResourceReference(Control.BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
+			widget.SetResourceReference(Control.ForegroundProperty, EnvironmentColors.ToolWindowTextBrushKey);
+			widget.Apply += () => Submit(false);
+			widget.Clear += () => Submit(true);
+			widget.Select += context => SelectExisting(context);
 			timer = new DispatcherTimer(TimeSpan.FromMilliseconds(175), DispatcherPriority.Background, OnTimer, view.VisualElement.Dispatcher);
 			timer.Stop();
 			view.Caret.PositionChanged += OnCaret;
 			view.TextBuffer.Changed += OnText;
 			view.Closed += OnClosed;
-			view.LayoutChanged += OnLayout;
 			RutileEditorConnection.Instance.Changed += OnIndex;
 			Schedule();
 		}
@@ -90,41 +69,8 @@ namespace Rutile.VisualStudio {
 			var point = anchor.GetPoint(spans[0].Snapshot);
 			var span = new SnapshotSpan(point, 0);
 			if (spans.IntersectsWith(span)) {
-				row.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-				var geometry = new TemplateAdornmentGeometry(row.DesiredSize.Height, TextBaseline(point));
-				Canvas.SetTop(row, geometry.CanvasTop);
-				yield return new TagSpan<IntraTextAdornmentTag>(span, new IntraTextAdornmentTag(adornment, null, geometry.TopSpace, 0, 0, 0, PositionAffinity.Predecessor));
-			}
-		}
-
-		private double TextBaseline(SnapshotPoint point) {
-			if (view.TextViewLines.IsValid && view.TextViewLines.ContainsBufferPosition(point)) {
-				var line = view.TextViewLines.GetTextViewLineContainingBufferPosition(point);
-				return Math.Max(0, line.Baseline);
-			}
-			return 0;
-		}
-
-		private void OnLayout(object sender, TextViewLayoutChangedEventArgs args) {
-			if (disposed || anchor == null || !view.TextViewLines.IsValid) {
-				return;
-			}
-			var point = anchor.GetPoint(view.TextSnapshot);
-			if (!view.TextViewLines.ContainsBufferPosition(point)) {
-				return;
-			}
-			var line = view.TextViewLines.GetTextViewLineContainingBufferPosition(point);
-			try {
-				// Measure the actual placed adornment, accounting for editor font and DPI.
-				var placed = row.TransformToAncestor(view.VisualElement).Transform(new Point(0, 0));
-				var desired = line.TextTop - view.ViewportTop - row.ActualHeight - 4;
-				var difference = desired - placed.Y;
-				if (Math.Abs(difference) > 0.25) {
-					Canvas.SetTop(row, Canvas.GetTop(row) + difference);
-				}
-			}
-			catch (InvalidOperationException) {
-				// The editor may not have attached this adornment during the current layout.
+				widget.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+				yield return new TagSpan<IntraTextAdornmentTag>(span, new IntraTextAdornmentTag(widget, null, 0, widget.DesiredSize.Height * .75, widget.DesiredSize.Height, 0, PositionAffinity.Predecessor));
 			}
 		}
 
@@ -205,9 +151,9 @@ namespace Rutile.VisualStudio {
 					return;
 				}
 				var line = snapshot.GetLineFromLineNumber(lineNumber);
-				anchor = snapshot.CreateTrackingPoint(line.Start, PointTrackingMode.Positive);
+				anchor = snapshot.CreateTrackingPoint(line.End, PointTrackingMode.Positive);
 				templatePosition = parameters;
-				title.Text = ((string?)declaration["name"] ?? "Template") + " <";
+				widget.Update(declaration, result, (string?)parameters["textDocument"]?["uri"] + ":" + line.Start.Position);
 				arguments.ToolTip = "Type template arguments: " + string.Join(", ", declaration["parameters"]?.ToObject<string[]>() ?? Array.Empty<string>());
 				if (!arguments.IsKeyboardFocusWithin) {
 					arguments.Text = (string?)result?["arguments"] ?? "";
@@ -222,11 +168,17 @@ namespace Rutile.VisualStudio {
 			}
 		}
 
-		private void OnArgumentKey(object sender, KeyEventArgs args) {
-			if (args.Key == Key.Enter) {
-				args.Handled = true;
-				Submit(false);
-			}
+		private void SelectExisting(string context) {
+			ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
+				var rpc = RutileEditorConnection.Instance.Rpc;
+				if (rpc == null || templatePosition == null) {
+					return;
+				}
+				var parameters = (JObject)templatePosition.DeepClone();
+				parameters["context"] = context;
+				await rpc.InvokeWithParameterObjectAsync<JToken?>("rutile/selectTemplateContext", parameters);
+				Schedule();
+			}).FileAndForget("Rutile/TemplateArgumentsSelect");
 		}
 
 		private void Submit(bool generic) {
@@ -262,9 +214,7 @@ namespace Rutile.VisualStudio {
 			view.Caret.PositionChanged -= OnCaret;
 			view.TextBuffer.Changed -= OnText;
 			view.Closed -= OnClosed;
-			view.LayoutChanged -= OnLayout;
 			RutileEditorConnection.Instance.Changed -= OnIndex;
-			arguments.KeyDown -= OnArgumentKey;
 		}
 	}
 }

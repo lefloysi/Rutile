@@ -41,12 +41,9 @@ internal static class HighlightingTests {
 	}
 
 	private sealed class Sink : ISemanticColorSink {
-		internal string[] Legend = Array.Empty<string>();
+		internal string[] Legend = new[] { "namespace", "type", "struct", "enum", "function", "method", "enumMember", "keyword", "variable" };
 		internal int Notifications;
 
-		public void Configure(string[] legend) {
-			Legend = legend;
-		}
 
 		public void DocumentChanged(string method, JToken parameters) {
 			++Notifications;
@@ -56,7 +53,7 @@ internal static class HighlightingTests {
 	private static async Task Semantic() {
 		var sink = new Sink();
 		var layer = new RutileSemanticColors(sink);
-		Require(layer.CanHandle("initialize") && layer.CanHandle("textDocument/didChange") && !layer.CanHandle("textDocument/hover"), "color lifecycle interception only");
+		Require(!layer.CanHandle("initialize") && layer.CanHandle("textDocument/didChange") && !layer.CanHandle("textDocument/hover"), "color lifecycle interception only");
 		var response = JObject.Parse("{ 'capabilities': { 'hoverProvider':true, 'semanticTokensProvider': { 'legend': { 'tokenTypes': ['namespace','type','struct','enum','function','method','enumMember','keyword','variable'], 'tokenModifiers':['declaration','readonly'] }, 'full': true } } }");
 		var parameters = new JObject();
 		var calls = 0;
@@ -66,8 +63,7 @@ internal static class HighlightingTests {
 			return Task.FromResult<JToken?>(response);
 		});
 		Require(calls == 1 && ReferenceEquals(result, response), "response forwarding");
-		Require(sink.Legend.Length == 9 && sink.Legend[0] == "namespace" && sink.Legend[6] == "enumMember", "compiler legend is preserved");
-		Require(result!["capabilities"]!["semanticTokensProvider"] == null && (bool)result["capabilities"]!["hoverProvider"]!, "only competing native semantic tagger is disabled");
+		Require(result!["capabilities"]!["semanticTokensProvider"] != null, "middleware does not pretend to intercept SDK initialization");
 		await layer.HandleNotificationAsync("textDocument/didChange", parameters, _ => {
 			Require(sink.Notifications == 0, "notify server before requesting new colors");
 			return Task.CompletedTask;
@@ -89,7 +85,7 @@ internal static class HighlightingTests {
 		var edit = JArray.Parse("[{ 'range': {'start':{'line':0,'character':0},'end':{'line':0,'character':2}}, 'text':'x' }]");
 		Require(RutileDocumentText.Apply(unicode, edit) == "x\r\nItem", "document synchronization uses UTF16");
 		Require(RutileDocumentText.Apply(unicode, JArray.Parse("[{ 'text':'new' }]")) == "new", "full text synchronization");
-		Console.WriteLine("explicit semantic classes, native tagger isolation and document synchronization: PASS");
+		Console.WriteLine("explicit semantic classes, request forwarding and document synchronization: PASS");
 	}
 
 	private static int Main() {

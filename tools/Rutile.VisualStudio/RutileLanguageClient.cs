@@ -8,6 +8,7 @@ using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudio.Utilities;
+using Newtonsoft.Json.Linq;
 using StreamJsonRpc;
 
 namespace Rutile.VisualStudio {
@@ -17,10 +18,11 @@ namespace Rutile.VisualStudio {
 		private WorkspaceRootMonitor? roots;
 		private string? serverRoot;
 		private int disposed;
+		private int initialized;
 
 		public string Name => "Rutile";
 		public IEnumerable<string> ConfigurationSections => Array.Empty<string>();
-		public object InitializationOptions => null!;
+		public object InitializationOptions => new JObject { ["rutileSemanticColors"] = true };
 		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/rutile.yaml", "**/*.list" };
 		public bool ShowNotificationOnInitializeFailed => true;
 		public object MiddleLayer { get; } = new RutileSemanticColors(RutileSemanticStore.Instance);
@@ -28,7 +30,7 @@ namespace Rutile.VisualStudio {
 
 		public Task AttachForCustomMessageAsync(JsonRpc rpc) {
 			RutileEditorConnection.Instance.Attach(rpc);
-			return Task.CompletedTask;
+			return Volatile.Read(ref initialized) != 0 ? RutileSemanticStore.Instance.InitializeAsync() : Task.CompletedTask;
 		}
 
 		public event AsyncEventHandler<EventArgs>? StartAsync;
@@ -36,6 +38,7 @@ namespace Rutile.VisualStudio {
 
 		public async Task<Connection?> ActivateAsync(CancellationToken token) {
 			token.ThrowIfCancellationRequested();
+			Volatile.Write(ref initialized, 0);
 			var directory = Path.GetDirectoryName(typeof(RutileLanguageClient).Assembly.Location)!;
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(token);
 			if (Volatile.Read(ref disposed) != 0) {
@@ -69,7 +72,8 @@ namespace Rutile.VisualStudio {
 		}
 
 		public Task OnServerInitializedAsync() {
-			return Task.CompletedTask;
+			Volatile.Write(ref initialized, 1);
+			return RutileSemanticStore.Instance.InitializeAsync();
 		}
 
 		public Task<InitializationFailureContext?> OnServerInitializeFailedAsync(ILanguageClientInitializationInfo information) {

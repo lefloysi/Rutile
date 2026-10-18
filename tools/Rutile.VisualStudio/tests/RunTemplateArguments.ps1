@@ -15,3 +15,13 @@ if ($LASTEXITCODE) { throw 'Template argument tests compilation failed' }
 Copy-Item (Join-Path $assembly 'Newtonsoft.Json.dll') $output -Force
 & $exe
 if ($LASTEXITCODE) { throw 'Template argument tests failed' }
+
+$widget_exe = Join-Path $output 'TemplateWidgetTests.exe'
+& $compiler /nologo /langversion:latest /nullable:enable /target:exe "/out:$widget_exe" /reference:System.Xaml.dll @references (Join-Path $PSScriptRoot '../TemplateArgumentWidget.cs') (Join-Path $PSScriptRoot 'TemplateWidgetTests.cs')
+if ($LASTEXITCODE) {
+	throw 'Template widget tests compilation failed'
+}
+& $widget_exe (Join-Path $output 'compact.png')
+if ($LASTEXITCODE) {
+	throw 'Template widget tests failed'
+}
