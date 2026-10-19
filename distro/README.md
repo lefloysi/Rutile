@@ -1,29 +1,23 @@
-# Bootstrap compiler
+# Private bootstrap seed
 
-The Windows x64 compiler in `windows-x64/compiler.exe` is built from the included
-`compiler.rt` snapshot of the compiler source inputs. `CMakeLists.txt` lists the standard
-library inputs; `kiln/compiler/sources.list` orders the implementation files by subsystem.
-Its runtime DLLs are included beside it.
-`version.txt` identifies the release; `source.sha256` identifies the included source.
+`windows-x64/compiler.exe` is the private Windows x64 bootstrap seed. Kiln embeds
+its Rutile compiler; users build and run projects through `kiln.exe`.
 
-CMake uses this compiler by default. The compiler implementation is written entirely in Rutile.
-The existing LLVM SDK, C++ toolchain, and vcpkg dependencies are still required.
-The C++ driver in `kiln/compiler/src/main.cpp` supplies the command-line entry point.
-Directory inputs concatenate every regular file recursively in sorted relative-path order,
-preserving the bytes exactly without adding separators.
+`compiler.rt` is the seed's complete compiler source snapshot. It contains the
+standard library prelude followed by every Rutile source file under
+`kiln/compiler/src`, recursively sorted by path. There are no source manifests.
+The snapshot uses UTF-8 without a byte order mark and LF line endings.
 
-After a verified compiler change, refresh the distribution and release archive with:
+`version.txt` records the release, and `source.sha256` identifies the snapshot.
+Required runtime DLLs are included beside the private executable.
+
+After bootstrapping the updated Kiln host, refresh the seed from the repository root:
 
 ```powershell
-cmake --build --preset release --target rutile-distro
+./tools/bootstrap/refresh-seed.ps1
 ```
 
-This first verifies self-hosting, then replaces the current compiler and source snapshot and writes
-`build/release/distro/rutile-VERSION-windows-x64.zip`.
-Commit the refreshed distribution alongside its source and version change.
-
-For another native host, set `RUTILE_BOOTSTRAP_COMPILER` to a compatible compiler executable.
-
-Add language support using syntax the current Rutile compiler already accepts, then compile that
-compiler before adopting the new features in its source. Use `RUTILE_BOOTSTRAP_COMPILER` to select
-the intermediate executable until the refreshed distribution is ready.
+The refresh compiles current sources with Kiln, links the private driver, and verifies
+that the new seed reproduces identical objects from both the original sources and
+the combined snapshot. It publishes the seed and metadata only after both checks pass.
+The native C++ toolchain and the dependencies in `vcpkg.json` are required.

@@ -2,351 +2,58 @@
 
 #include "project.hpp"
 
-#include <yaml-cpp/yaml.h>
-
-#include <charconv>
 #include <fstream>
-#include <initializer_list>
-#include <set>
 #include <string_view>
-#include <system_error>
-#include <utility>
-
-bool configuration_failure(const std::filesystem::path& path, const YAML::Node& node, std::string_view message, std::string& diagnostics) {
-	diagnostics = project_path_utf8(path);
-	if (node.IsDefined() && !node.Mark().is_null()) {
-		diagnostics += ":" + std::to_string(node.Mark().line + 1) + ":" + std::to_string(node.Mark().column + 1);
-	}
-	diagnostics += ": " + std::string(message) + '\n';
-	return false;
-}
-
-std::filesystem::path project_configuration_path(const std::filesystem::path& root) {
-	std::error_code error;
-	auto path = root / "kiln.yaml";
-	if (std::filesystem::exists(path, error) || error) {
-		return path;
-	}
-	auto legacy = root / "rutile.yaml";
-	if (std::filesystem::exists(legacy, error) || error) {
-		return legacy;
-	}
-	return path;
-}
-
-bool project_configuration_initialize(const std::filesystem::path& root, std::string& diagnostics) {
-	auto path = project_configuration_path(root);
-	diagnostics.clear();
-	std::error_code error;
-	if (std::filesystem::exists(path, error) && !error) {
-		return true;
-	}
-	if (error) {
-		diagnostics = project_path_utf8(path) + ": could not inspect project configuration.\n";
-		return false;
-	}
-	std::ofstream file(path, std::ios::out | std::ios::noreplace);
-	if (!file) {
-		diagnostics = project_path_utf8(path) + ": could not create project configuration.\n";
-		return false;
-	}
-	file << "targets:\n  app:\n    compiler: rutile\n    source: .\n    entry: main\nprofiles:\n  debug:\n    optimization: 0\n  release:\n    optimization: 2\n";
-	file.close();
-	if (!file) {
-		diagnostics = project_path_utf8(path) + ": could not write project configuration.\n";
-		return false;
-	}
-	return true;
-}
 
 bool configuration_name(std::string_view name, bool target) {
 	if (name.empty()) {
 		return false;
 	}
-	for (std::size_t i = 0; i < name.size(); ++i) {
-		char value = name[i];
+	for (std::size_t index = 0; index < name.size(); ++index) {
+		char value = name[index];
 		bool letter = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
 		bool digit = value >= '0' && value <= '9';
-		if (!letter && value != '_' && !(digit && (target || i)) && !(target && value == '-')) {
+		if (!letter && value != '_' && !(digit && (target || index)) && !(target && value == '-')) {
 			return false;
 		}
 	}
 	return true;
 }
 
-bool configuration_mapping(const std::filesystem::path& path, const YAML::Node& node, std::initializer_list<std::string_view> fields, bool unrestricted, std::string& diagnostics) {
-	if (!node.IsMap()) {
-		return configuration_failure(path, node, "expected a mapping", diagnostics);
-	}
-	std::set<std::string> keys;
-	for (const auto& field : node) {
-		if (!field.first.IsScalar()) {
-			return configuration_failure(path, field.first, "mapping keys must be strings", diagnostics);
-		}
-		auto key = field.first.Scalar();
-		if (!keys.insert(key).second) {
-			return configuration_failure(path, field.first, "duplicate field '" + key + "'", diagnostics);
-		}
-		bool known = unrestricted;
-		for (auto allowed : fields) {
-			if (key == allowed) {
-				known = true;
-				break;
-			}
-		}
-		if (!known) {
-			return configuration_failure(path, field.first, "unknown field '" + key + "'", diagnostics);
-		}
-	}
-	return true;
+std::filesystem::path project_configuration_path(const std::filesystem::path& root) {
+	return root / "kiln.rt";
 }
 
-bool configuration_string(const std::filesystem::path& path, const YAML::Node& node, std::string_view field, std::string& value, std::string& diagnostics) {
-	if (!node || !node.IsScalar() || node.Scalar().empty()) {
-		return configuration_failure(path, node, "'" + std::string(field) + "' must be a nonempty string", diagnostics);
-	}
-	value = node.Scalar();
-	if (value.find('\0') != std::string::npos) {
-		return configuration_failure(path, node, "'" + std::string(field) + "' must not contain a null byte", diagnostics);
-	}
-	return true;
-}
-
-bool project_configuration_read(const std::filesystem::path& root, struct ProjectConfiguration& configuration, std::string& diagnostics) {
+bool project_configuration_read(const std::filesystem::path& root, ProjectConfiguration& configuration, std::string& diagnostics) {
+	std::error_code error;
 	auto path = project_configuration_path(root);
-	diagnostics.clear();
-	std::ifstream file(path);
-	if (!file) {
-		diagnostics = project_path_utf8(path) + ": could not read project configuration.\n";
+	if (!std::filesystem::is_regular_file(path, error) || error) {
+		diagnostics = "Project configuration is unavailable: " + project_path_utf8(path) + "\n";
 		return false;
 	}
-	try {
-		auto document = YAML::Load(file);
-		if (!configuration_mapping(path, document, { "targets", "profiles", "analysis", "projects" }, false, diagnostics)) {
-			return false;
-		}
-		struct ProjectConfiguration parsed{};
-		auto projects = document["projects"];
-		if (projects) {
-			if (!configuration_mapping(path, projects, {}, true, diagnostics)) {
-				return false;
-			}
-			for (const auto& item : projects) {
-				ProjectProgram program{ item.first.Scalar(), root / "kiln.rt" };
-				if (!configuration_name(program.function, false)) {
-					return configuration_failure(path, item.first, "project names must be function identifiers", diagnostics);
-				}
-				if (!item.second.IsNull()) {
-					std::string text;
-					if (!configuration_string(path, item.second, "project source", text, diagnostics)) {
-						return false;
-					}
-					program.source = (root / std::filesystem::u8path(text)).lexically_normal();
-				}
-				std::error_code error;
-				if (!std::filesystem::is_regular_file(program.source, error) || error) {
-					return configuration_failure(path, item.second, "project configuration program is unavailable: " + project_path_utf8(program.source), diagnostics);
-				}
-				parsed.projects.push_back(std::move(program));
-			}
-		}
-		auto targets = document["targets"];
-		if (!targets && !parsed.projects.empty()) {
-			targets = YAML::Node(YAML::NodeType::Map);
-		}
-		if (!targets || !configuration_mapping(path, targets, {}, true, diagnostics)) {
-			if (diagnostics.empty()) {
-				configuration_failure(path, document, "missing 'targets' mapping", diagnostics);
-			}
-			return false;
-		}
-		if (!targets.size() && parsed.projects.empty()) {
-			return configuration_failure(path, targets, "'targets' must contain at least one target", diagnostics);
-		}
-		for (const auto& item : targets) {
-			struct ProjectTarget target{};
-			target.name = item.first.Scalar();
-			if (!configuration_name(target.name, true)) {
-				return configuration_failure(path, item.first, "target names may contain only ASCII letters, digits, '_' and '-'", diagnostics);
-			}
-			if (!configuration_mapping(path, item.second, { "source", "entry", "compiler", "options", "type", "output" }, false, diagnostics)) {
-				return false;
-			}
-			std::string source;
-			if (!configuration_string(path, item.second["source"], "source", source, diagnostics)) {
-				return false;
-			}
-			if (item.second["entry"] && !configuration_string(path, item.second["entry"], "entry", target.entry, diagnostics)) {
-				return false;
-			}
-			if (item.second["compiler"] && !configuration_string(path, item.second["compiler"], "compiler", target.compiler, diagnostics)) {
-				return false;
-			}
-			if (!configuration_name(target.compiler, true)) {
-				return configuration_failure(path, item.second["compiler"], "invalid compiler name", diagnostics);
-			}
-			auto type = item.second["type"];
-			if (type) {
-				std::string text;
-				if (!configuration_string(path, type, "type", text, diagnostics)) {
-					return false;
-				}
-				if (text == "executable") {
-					target.type = target_type::executable;
-				}
-				else if (text == "shared_lib") {
-					target.type = target_type::shared_lib;
-				}
-				else if (text == "static_lib") {
-					target.type = target_type::static_lib;
-				}
-				else {
-					return configuration_failure(path, type, "unknown target type '" + text + "'", diagnostics);
-				}
-			}
-			if (item.second["output"]) {
-				std::string text;
-				if (!configuration_string(path, item.second["output"], "output", text, diagnostics)) {
-					return false;
-				}
-				target.output = std::filesystem::u8path(text);
-				if (target.output != target.output.filename() || target.output == "." || target.output == "..") {
-					return configuration_failure(path, item.second["output"], "output must be a filename without directories", diagnostics);
-				}
-			}
-			auto options = item.second["options"];
-			if (options) {
-				if (!configuration_mapping(path, options, {}, true, diagnostics)) {
-					return false;
-				}
-				for (const auto& option : options) {
-					if (!option.second.IsScalar() || option.second.Scalar().find('\0') != std::string::npos) {
-						return configuration_failure(path, option.second, "compiler options must be scalar values without null bytes", diagnostics);
-					}
-					target.options.emplace(option.first.Scalar(), option.second.Scalar());
-				}
-			}
-			target.source = (root / std::filesystem::u8path(source)).lexically_normal();
-			std::error_code error;
-			if (!std::filesystem::is_directory(target.source, error) || error) {
-				return configuration_failure(path, item.second["source"], "source folder is unavailable: " + source, diagnostics);
-			}
-			parsed.targets.push_back(std::move(target));
-		}
-		auto analysis = document["analysis"];
-		if (analysis) {
-			if (!configuration_mapping(path, analysis, {}, true, diagnostics)) {
-				return false;
-			}
-			for (const auto& item : analysis) {
-				ProjectAnalysisSource source{};
-				source.name = item.first.Scalar();
-				if (!configuration_name(source.name, true)) {
-					return configuration_failure(path, item.first, "analysis group names may contain only ASCII letters, digits, '_' and '-'", diagnostics);
-				}
-				if (!configuration_mapping(path, item.second, { "source", "sources", "compiler" }, false, diagnostics)) {
-					return false;
-				}
-				if (item.second["compiler"] && !configuration_string(path, item.second["compiler"], "compiler", source.compiler, diagnostics)) {
-					return false;
-				}
-				if (!configuration_name(source.compiler, true)) {
-					return configuration_failure(path, item.second["compiler"], "invalid compiler name", diagnostics);
-				}
-				auto folder = item.second["source"];
-				auto inputs = item.second["sources"];
-				if (folder && inputs) {
-					return configuration_failure(path, item.second, "analysis groups require either 'source' or 'sources', not both", diagnostics);
-				}
-				if (folder) {
-					std::string text;
-					if (!configuration_string(path, folder, "source", text, diagnostics)) {
-						return false;
-					}
-					auto directory = (root / std::filesystem::u8path(text)).lexically_normal();
-					std::error_code error;
-					if (!std::filesystem::is_directory(directory, error) || error) {
-						return configuration_failure(path, folder, "analysis source folder is unavailable: " + text, diagnostics);
-					}
-					source.sources.push_back(ProjectSourcePath{ std::move(directory) });
-				}
-				else {
-					if (!inputs || !inputs.IsSequence() || !inputs.size()) {
-						return configuration_failure(path, item.second, "analysis groups require a 'source' folder or a nonempty ordered 'sources' sequence", diagnostics);
-					}
-					for (const auto& input : inputs) {
-						if (input.IsScalar()) {
-							std::string text;
-							if (!configuration_string(path, input, "sources entry", text, diagnostics)) {
-								return false;
-							}
-							auto resolved = (root / std::filesystem::u8path(text)).lexically_normal();
-							std::error_code error;
-							if ((!std::filesystem::is_regular_file(resolved, error) && !std::filesystem::is_directory(resolved, error)) || error) {
-								return configuration_failure(path, input, "analysis source path is unavailable: " + text, diagnostics);
-							}
-							source.sources.push_back(ProjectSourcePath{ std::move(resolved) });
-							continue;
-						}
-						if (!configuration_mapping(path, input, { "manifest", "root" }, false, diagnostics)) {
-							return false;
-						}
-						std::string manifest;
-						std::string directory;
-						if (!configuration_string(path, input["manifest"], "manifest", manifest, diagnostics) || !configuration_string(path, input["root"], "root", directory, diagnostics)) {
-							return false;
-						}
-						ProjectSourceManifest entry{ (root / std::filesystem::u8path(manifest)).lexically_normal(), (root / std::filesystem::u8path(directory)).lexically_normal() };
-						std::error_code error;
-						if (!std::filesystem::is_regular_file(entry.path, error) || error) {
-							return configuration_failure(path, input["manifest"], "analysis source manifest is unavailable: " + manifest, diagnostics);
-						}
-						if (!std::filesystem::is_directory(entry.root, error) || error) {
-							return configuration_failure(path, input["root"], "analysis manifest root is unavailable: " + directory, diagnostics);
-						}
-						source.sources.push_back(std::move(entry));
-					}
-				}
-				parsed.analysis.push_back(std::move(source));
-			}
-		}
-		parsed.profiles = { { "debug", 0 }, { "release", 2 } };
-		auto profiles = document["profiles"];
-		if (profiles) {
-			if (!configuration_mapping(path, profiles, { "debug", "release" }, false, diagnostics)) {
-				return false;
-			}
-			for (auto& profile : parsed.profiles) {
-				auto settings = profiles[profile.name];
-				if (!settings) {
-					continue;
-				}
-				if (!configuration_mapping(path, settings, { "optimization" }, false, diagnostics)) {
-					return false;
-				}
-				auto optimization = settings["optimization"];
-				if (!optimization) {
-					continue;
-				}
-				if (!optimization.IsScalar() || optimization.Tag() == "!" || optimization.Tag() == "tag:yaml.org,2002:str") {
-					return configuration_failure(path, optimization, "optimization must be an integer from 0 through 3", diagnostics);
-				}
-				auto text = optimization.Scalar();
-				auto result = std::from_chars(text.data(), text.data() + text.size(), profile.optimization);
-				if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || profile.optimization < 0 || profile.optimization > 3) {
-					return configuration_failure(path, optimization, "optimization must be an integer from 0 through 3", diagnostics);
-				}
-			}
-		}
-		configuration = std::move(parsed);
+	configuration = {};
+	configuration.projects.push_back({ "main", path });
+	configuration.profiles = { { "debug", 0 }, { "release", 2 } };
+	diagnostics.clear();
+	return true;
+}
+
+bool project_configuration_initialize(const std::filesystem::path& root, std::string& diagnostics) {
+	auto path = project_configuration_path(root);
+	std::error_code error;
+	if (std::filesystem::exists(path, error) && !error) {
 		return true;
 	}
-	catch (const YAML::Exception& error) {
-		diagnostics = project_path_utf8(path);
-		if (!error.mark.is_null()) {
-			diagnostics += ":" + std::to_string(error.mark.line + 1) + ":" + std::to_string(error.mark.column + 1);
-		}
-		diagnostics += ": " + error.msg + '\n';
+	if (error) {
+		diagnostics = "Could not inspect project configuration: " + error.message() + "\n";
 		return false;
 	}
+	std::ofstream file(path, std::ios::out | std::ios::noreplace);
+	file << "fn main(kiln::Options& options) {\n\tkiln::profile(\"debug\", 0);\n\tkiln::profile(\"release\", 2);\n\tvar app = kiln::add_target(\"app.exe\", kiln::TargetType::executable);\n\t@app.sources.add(\".\");\n};\n";
+	file.close();
+	if (!file) {
+		diagnostics = "Could not create project configuration.\n";
+		return false;
+	}
+	return true;
 }

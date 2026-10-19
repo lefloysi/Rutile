@@ -19,12 +19,12 @@ void project_record_compilation(const std::filesystem::path& source, const std::
 			return;
 		}
 	}
-	std::filesystem::create_directory(project.root / ".rt", error);
+	std::filesystem::create_directory(project.root / ".kiln", error);
 	if (error) {
-		std::cerr << "Could not save compilation statistics: .rt directory unavailable.\n";
+		std::cerr << "Could not save compilation statistics: .kiln directory unavailable.\n";
 		return;
 	}
-	auto lock_path = project_path_utf8(project.root / ".rt" / "init.lock");
+	auto lock_path = project_path_utf8(project.root / ".kiln" / "init.lock");
 	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> lock{ nullptr, platform_lock_release };
 	auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (true) {

@@ -15,6 +15,7 @@
 #include <thread>
 #include <memory>
 #include <new>
+#include <chrono>
 
 enum class kiln_owner {
 	standalone,
@@ -75,6 +76,14 @@ bool kiln_handle_request(struct PlatformServer* server, CompilerRegistry& compil
 		auto response = kiln_list();
 		platform_server_write(server, response.c_str());
 	}
+	else if (command.starts_with("describe ")) {
+		auto response = kiln_describe(compilers, command.substr(9));
+		platform_server_write(server, response.c_str());
+	}
+	else if (command.starts_with("clean ")) {
+		auto response = kiln_clean(compilers, command.substr(6));
+		platform_server_write(server, response.c_str());
+	}
 	else if (command.starts_with("build ")) {
 		auto response = kiln_build(compilers, command.substr(6), owner == kiln_owner::ide ? build_input::editor : build_input::disk);
 		platform_server_write(server, response.c_str());
@@ -99,7 +108,7 @@ int kiln_serve(CompilerRegistry& compilers, const char* endpoint) {
 		std::fputs("The connection does not belong to this project.\n", stderr);
 		return 1;
 	}
-	struct PlatformLock* lock = platform_lock_acquire(".rt/process.lock");
+	struct PlatformLock* lock = platform_lock_acquire(".kiln/process.lock");
 	if (!lock) {
 		std::fputs("Project is already initialized, or its lock is unavailable.\n", stderr);
 		return 1;
@@ -111,8 +120,17 @@ int kiln_serve(CompilerRegistry& compilers, const char* endpoint) {
 		return 1;
 	}
 
+	auto next_poll = std::chrono::steady_clock::now();
 	while (true) {
-		if (!platform_server_accept(server)) {
+		if (std::chrono::steady_clock::now() >= next_poll) {
+			kiln_poll(compilers);
+			next_poll = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		}
+		auto accepted = platform_server_accept_for(server, 100);
+		if (accepted == platform_accept::timeout) {
+			continue;
+		}
+		if (accepted == platform_accept::error) {
 			platform_server_close(server);
 			platform_lock_release(lock);
 			return 1;
@@ -151,7 +169,12 @@ EditorSession::~EditorSession() {
 }
 
 void EditorSession::run() {
+	auto next_poll = std::chrono::steady_clock::now();
 	while (!stopping.load()) {
+		if (std::chrono::steady_clock::now() >= next_poll) {
+			kiln_poll(*compilers, build_input::editor);
+			next_poll = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		}
 		const auto accepted = platform_server_accept_for(server, 100);
 		if (accepted == platform_accept::timeout) {
 			continue;
@@ -177,12 +200,12 @@ EditorSession* kiln_editor_start(CompilerRegistry& compilers, const char* direct
 		std::fputs("The IDE project directory does not match Kiln's working directory.\n", stderr);
 		return nullptr;
 	}
-	std::filesystem::create_directories(root / ".rt", error);
+	std::filesystem::create_directories(root / ".kiln", error);
 	if (error) {
-		std::fputs("Could not create the IDE project's .rt directory.\n", stderr);
+		std::fputs("Could not create the IDE project's .kiln directory.\n", stderr);
 		return nullptr;
 	}
-	auto path = root / ".rt" / "init.lock";
+	auto path = root / ".kiln" / "init.lock";
 	auto path_bytes = path.generic_u8string();
 	std::unique_ptr<PlatformLock, decltype(&platform_lock_release)> initialization(platform_lock_acquire(reinterpret_cast<const char*>(path_bytes.c_str())), platform_lock_release);
 	if (!initialization) {
@@ -194,7 +217,7 @@ EditorSession* kiln_editor_start(CompilerRegistry& compilers, const char* direct
 		std::fputs("Could not allocate the IDE project owner.\n", stderr);
 		return nullptr;
 	}
-	path = root / ".rt" / "process.lock";
+	path = root / ".kiln" / "process.lock";
 	path_bytes = path.generic_u8string();
 	session->lock = platform_lock_acquire(reinterpret_cast<const char*>(path_bytes.c_str()));
 	if (!session->lock) {
@@ -219,7 +242,7 @@ EditorSession* kiln_editor_start(CompilerRegistry& compilers, const char* direct
 		std::fputs("Could not start the IDE project's connection worker.\n", stderr);
 		return nullptr;
 	}
-	path = root / ".rt" / "connection";
+	path = root / ".kiln" / "connection";
 	path_bytes = path.generic_u8string();
 	if (!platform_write_file(reinterpret_cast<const char*>(path_bytes.c_str()), endpoint.data())) {
 		std::fputs("Could not publish the IDE project's connection.\n", stderr);

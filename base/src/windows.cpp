@@ -203,7 +203,7 @@ bool platform_endpoint(const char* root, char* endpoint, std::size_t capacity) {
 	if (!success) {
 		return false;
 	}
-	int written = std::snprintf(endpoint, capacity, "\\\\.\\pipe\\rutile-%08lx-%08lx%08lx", identity.dwVolumeSerialNumber, identity.nFileIndexHigh, identity.nFileIndexLow);
+	int written = std::snprintf(endpoint, capacity, "\\\\.\\pipe\\kiln-%08lx-%08lx%08lx", identity.dwVolumeSerialNumber, identity.nFileIndexHigh, identity.nFileIndexLow);
 	return written >= 0 && static_cast<std::size_t>(written) < capacity;
 }
 
@@ -423,7 +423,7 @@ bool platform_request(const char* endpoint, const char* command, char* response,
 		return false;
 	}
 	HANDLE pipe = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-	if (pipe == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(wide.c_str(), 1000)) {
+	if (pipe == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(wide.c_str(), timeout_ms)) {
 		pipe = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
 	}
 	if (pipe == INVALID_HANDLE_VALUE) {

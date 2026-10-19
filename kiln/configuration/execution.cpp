@@ -2,6 +2,8 @@
 
 #include "platform.hpp"
 #include "../project/project.hpp"
+#include "../src/compiler.hpp"
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +20,8 @@ struct KilnConfigurationContext {
 	std::filesystem::path root;
 	ProjectConfiguration configuration;
 	std::string diagnostics;
+	std::filesystem::path directory;
+	std::string profile;
 };
 
 struct KilnConfigurationApi {
@@ -32,14 +36,34 @@ struct KilnConfigurationApi {
 	View root;
 	View os;
 	View profile;
+	int (*add_profile)(void*, const char*, std::size_t, int);
 };
+
+bool kiln_configuration_program(const std::filesystem::path& root, const ProjectProgram& program, ProjectConfiguration& configuration, std::string& diagnostics, std::string_view profile);
+
+int kiln_configuration_profile(void* opaque, const char* name_data, std::size_t name_size, int optimization) {
+	auto& context = *static_cast<KilnConfigurationContext*>(opaque);
+	std::string name(name_data, name_size);
+	if (!configuration_name(name, true) || optimization < 0 || optimization > 3) {
+		context.diagnostics += "Build profiles need an identifier and optimization between 0 and 3.\n";
+		return 0;
+	}
+	auto profile = std::find_if(context.configuration.profiles.begin(), context.configuration.profiles.end(), [&](const ProjectProfile& item) { return item.name == name; });
+	if (profile == context.configuration.profiles.end()) {
+		context.configuration.profiles.push_back({ std::move(name), optimization });
+	}
+	else {
+		profile->optimization = optimization;
+	}
+	return 1;
+}
 
 std::size_t kiln_configuration_target(void* opaque, const char* name_data, std::size_t name_size, const char* compiler_data, std::size_t compiler_size, const char* source_data, std::size_t source_size, int kind) {
 	auto& context = *static_cast<KilnConfigurationContext*>(opaque);
 	std::string name(name_data, name_size);
 	std::string compiler(compiler_data, compiler_size);
 	std::string source(source_data, source_size);
-	if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\:\0", 0, 4) != std::string::npos || !configuration_name(compiler, false) || kind < 0 || kind > 2 || source.find('\0') != std::string::npos) {
+	if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\:\0", 0, 4) != std::string::npos || !configuration_name(compiler, false) || kind < 0 || kind > 3 || source.find('\0') != std::string::npos) {
 		context.diagnostics += "Configuration declared an invalid target name, compiler, or source folder.\n";
 		return 0;
 	}
@@ -47,7 +71,7 @@ std::size_t kiln_configuration_target(void* opaque, const char* name_data, std::
 		context.diagnostics += "Configuration declared duplicate target '" + name + "'.\n";
 		return 0;
 	}
-	auto path = (context.root / std::filesystem::u8path(source)).lexically_normal();
+	auto path = (context.directory / std::filesystem::u8path(source)).lexically_normal();
 	std::error_code error;
 	if (!source.empty() && (!std::filesystem::is_directory(path, error) || error)) {
 		context.diagnostics += "Target '" + name + "' source folder does not exist.\n";
@@ -57,7 +81,7 @@ std::size_t kiln_configuration_target(void* opaque, const char* name_data, std::
 	target.name = std::move(name);
 	target.compiler = std::move(compiler);
 	target.output = std::filesystem::u8path(target.name);
-	target.type = kind == 1 ? target_type::shared_lib : kind == 2 ? target_type::static_lib : target_type::executable;
+	target.type = kind == 1 ? target_type::shared_lib : kind == 2 ? target_type::static_lib : kind == 3 ? target_type::object_lib : target_type::executable;
 	if (!source.empty()) {
 		target.source = path;
 		target.source_folders.push_back(std::move(path));
@@ -71,6 +95,26 @@ int kiln_configuration_option(void* opaque, std::size_t target_id, const char* k
 	auto& context = *static_cast<KilnConfigurationContext*>(opaque);
 	std::string key(key_data, key_size);
 	std::string value(value_data, value_size);
+	if (!target_id && key == "subdirectory") {
+		std::error_code error;
+		auto path = std::filesystem::weakly_canonical(context.directory / std::filesystem::u8path(value) / "kiln.rt", error);
+		if (value.empty() || value.find('\0') != std::string::npos || error || !std::filesystem::is_regular_file(path, error) || error) {
+			context.diagnostics += "Subdirectory configuration is unavailable: " + project_path_utf8(path) + "\n";
+			return 0;
+		}
+		if (std::any_of(context.configuration.projects.begin(), context.configuration.projects.end(), [&](const ProjectProgram& program) { return program.source.lexically_normal() == path; })) {
+			context.diagnostics += "Duplicate subdirectory configuration was already included (or forms a cycle): " + project_path_utf8(path) + "\n";
+			return 0;
+		}
+		ProjectProgram program{ "main", path };
+		context.configuration.projects.push_back(program);
+		std::string diagnostics;
+		bool succeeded = kiln_configuration_program(context.root, program, context.configuration, diagnostics, context.profile);
+		if (!succeeded) {
+			context.diagnostics += diagnostics;
+		}
+		return succeeded ? 1 : 0;
+	}
 	auto target = target_id && target_id <= context.configuration.targets.size() ? context.configuration.targets.begin() + target_id - 1 : context.configuration.targets.end();
 	if (target == context.configuration.targets.end() || key.empty() || key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
 		context.diagnostics += "Configuration option requires an existing target and a valid key and value.\n";
@@ -84,6 +128,28 @@ int kiln_configuration_option(void* opaque, std::size_t target_id, const char* k
 		target->compiler = std::move(value);
 		return 1;
 	}
+	if (key == "dependency") {
+		if (value.empty()) {
+			context.diagnostics += "Target dependency requires a name.\n";
+			return 0;
+		}
+		target->dependencies.push_back(std::move(value));
+		return 1;
+	}
+	if (key == "includes" || key == "forced_includes" || key == "objects" || key == "library_paths" || key == "runtime_files" || key == "excludes" || key == "libraries") {
+		auto values = kiln_option_values(value);
+		if (value.starts_with("[") && values.empty() && value != "[]") {
+			context.diagnostics += "Invalid path option list.\n";
+			return 0;
+		}
+		for (auto& item : values) {
+			auto path = std::filesystem::u8path(item);
+			if (key != "libraries" || path.has_parent_path()) {
+				item = project_path_utf8((context.directory / path).lexically_normal());
+			}
+		}
+		value = nlohmann::json(values).dump();
+	}
 	target->options[std::move(key)] = std::move(value);
 	return 1;
 }
@@ -93,7 +159,7 @@ int kiln_configuration_source(void* opaque, std::size_t target_id, const char* f
 	std::string folder(folder_data, folder_size);
 	auto target = target_id && target_id <= context.configuration.targets.size() ? context.configuration.targets.begin() + target_id - 1 : context.configuration.targets.end();
 	std::error_code error;
-	auto path = (context.root / std::filesystem::u8path(folder)).lexically_normal();
+	auto path = (context.directory / std::filesystem::u8path(folder)).lexically_normal();
 	if (target == context.configuration.targets.end() || folder.empty() || folder.find('\0') != std::string::npos || !std::filesystem::is_directory(path, error) || error) {
 		context.diagnostics += "Target sources must name an existing source folder: '" + folder + "' (resolved to '" + project_path_utf8(path) + "').\n";
 		return 0;
@@ -132,7 +198,7 @@ void kiln_configuration_cleanup(const std::filesystem::path& base) {
 
 bool kiln_configuration_program(const std::filesystem::path& root, const ProjectProgram& program, ProjectConfiguration& configuration, std::string& diagnostics, std::string_view profile) {
 	std::error_code error;
-	auto cache = root / ".rt" / "configure";
+	auto cache = root / ".kiln" / "configure";
 	std::filesystem::create_directories(cache, error);
 	if (error) {
 		diagnostics = "Could not create configuration output folder.\n";
@@ -154,10 +220,14 @@ bool kiln_configuration_program(const std::filesystem::path& root, const Project
 	std::filesystem::path api_source = std::filesystem::u8path(KILN_CONFIGURATION_API);
 	char executable_path[32768];
 	if (platform_executable_path(executable_path, sizeof(executable_path))) {
-		auto resources = std::filesystem::u8path(executable_path).parent_path().parent_path() / "share" / "kiln";
-		if (std::filesystem::is_regular_file(resources / "api.rt", error) && !error) {
-			standard_library = resources / "std";
-			api_source = resources / "api.rt";
+		auto location = std::filesystem::u8path(executable_path).parent_path();
+		for (const auto& base : { location, location.parent_path() }) {
+			auto resources = base / "share" / "kiln";
+			if (std::filesystem::is_regular_file(resources / "api.rt", error) && !error) {
+				standard_library = resources / "std";
+				api_source = resources / "api.rt";
+				break;
+			}
 		}
 	}
 	std::vector<std::string> paths;
@@ -215,8 +285,8 @@ bool kiln_configuration_program(const std::filesystem::path& root, const Project
 		return false;
 	}
 	auto configure = reinterpret_cast<int (*)(KilnConfigurationApi*)>(platform_library_symbol(handle, "kiln_configure"));
-	KilnConfigurationContext context{ root, configuration, {} };
-	std::string root_text = project_path_utf8(root);
+	KilnConfigurationContext context{ root, configuration, {}, program.source.parent_path(), std::string(profile) };
+	std::string root_text = project_path_utf8(program.source.parent_path());
 #if defined(_WIN32)
 	std::string os = "windows";
 #elif defined(__APPLE__)
@@ -224,7 +294,7 @@ bool kiln_configuration_program(const std::filesystem::path& root, const Project
 #else
 	std::string os = "linux";
 #endif
-	KilnConfigurationApi api{ &context, kiln_configuration_target, kiln_configuration_option, kiln_configuration_source, { root_text.data(), root_text.size() }, { os.data(), os.size() }, { profile.data(), profile.size() } };
+	KilnConfigurationApi api{ &context, kiln_configuration_target, kiln_configuration_option, kiln_configuration_source, { root_text.data(), root_text.size() }, { os.data(), os.size() }, { profile.data(), profile.size() }, kiln_configuration_profile };
 	result = configure ? configure(&api) : 1;
 	platform_library_close(handle);
 	kiln_configuration_cleanup(base);
@@ -232,12 +302,6 @@ bool kiln_configuration_program(const std::filesystem::path& root, const Project
 	if (result || !context.diagnostics.empty()) {
 		diagnostics += configure ? "Rutile project configuration failed.\n" : "Configuration program must define kiln_configure.\n";
 		return false;
-	}
-	for (const auto& target : context.configuration.targets) {
-		if (target.source.empty() && target.source_folders.empty()) {
-			diagnostics += "Target '" + target.name + "' requires at least one source folder.\n";
-			return false;
-		}
 	}
 	configuration = std::move(context.configuration);
 	return true;
@@ -249,6 +313,12 @@ bool kiln_configure_project(const std::filesystem::path& root, ProjectConfigurat
 	ProjectConfiguration pending = configuration;
 	for (const auto& program : configuration.projects) {
 		if (!kiln_configuration_program(root, program, pending, diagnostics, profile)) {
+			return false;
+		}
+	}
+	for (const auto& target : pending.targets) {
+		if (target.source.empty() && target.source_folders.empty()) {
+			diagnostics += "Target '" + target.name + "' requires at least one source folder.\n";
 			return false;
 		}
 	}

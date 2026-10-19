@@ -10,6 +10,7 @@ enum class target_type {
 	executable,
 	shared_lib,
 	static_lib,
+	object_lib,
 };
 
 struct ProjectProgram {
@@ -26,6 +27,7 @@ struct ProjectTarget {
 	target_type type = target_type::executable;
 	std::filesystem::path output;
 	std::vector<std::filesystem::path> source_folders;
+	std::vector<std::string> dependencies;
 };
 
 struct ProjectSourcePath {

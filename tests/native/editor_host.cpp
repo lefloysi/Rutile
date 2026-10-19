@@ -64,7 +64,7 @@ int main() {
 	if (std::chrono::steady_clock::now() - begin > std::chrono::seconds(2)) {
 		return 9;
 	}
-	auto* lock = platform_lock_acquire(".rt/process.lock");
+	auto* lock = platform_lock_acquire(".kiln/process.lock");
 	if (!lock) {
 		return 10;
 	}

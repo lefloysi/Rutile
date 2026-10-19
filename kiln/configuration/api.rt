@@ -3,11 +3,13 @@ namespace kiln {
 		executable;
 		shared_lib;
 		static_lib;
+		object_lib;
 	};
 
 	using TargetCallback = ((var void*, const char*, usize, const char*, usize, const char*, usize, i32) -> usize)*;
 	using OptionCallback = ((var void*, usize, const char*, usize, const char*, usize) -> i32)*;
 	using SourceCallback = ((var void*, usize, const char*, usize) -> i32)*;
+	using ProfileCallback = ((var void*, const char*, usize, i32) -> i32)*;
 
 	struct Options {
 		var void* context;
@@ -17,6 +19,7 @@ namespace kiln {
 		rt::string_view root_path;
 		rt::string_view host_os;
 		rt::string_view build_profile;
+		ProfileCallback profile_callback;
 
 		fn path(Options& this) -> rt::string_view;
 		fn os(Options& this) -> rt::string_view;
@@ -35,6 +38,7 @@ namespace kiln {
 		Sources sources;
 		fn option(var Target& this, rt::string_view key, rt::string_view value) -> bool;
 		fn compiler(var Target& this, rt::string_view name) -> bool;
+		fn depends_on(var Target& this, rt::string_view name) -> bool;
 	};
 
 	fn begin(var Options& options) {
@@ -44,6 +48,22 @@ namespace kiln {
 
 	fn finish() -> i32 {
 		return failure;
+	};
+
+	fn profile(rt::string_view name, i32 optimization) -> bool {
+		if (!current || !current->profile_callback(current->context, name.data(), name.size(), optimization)) {
+			@failure = 1;
+			return false;
+		};
+		return true;
+	};
+
+	fn add_subdirectory(rt::string_view folder) -> bool {
+		if (!current || !current->option_callback(current->context, 0, "subdirectory".data(), 12, folder.data(), folder.size())) {
+			@failure = 1;
+			return false;
+		};
+		return true;
 	};
 
 	fn Options::path(Options& this) -> rt::string_view {
@@ -67,6 +87,9 @@ namespace kiln {
 		};
 		if (kind == TargetType::static_lib) {
 			@target_kind = 2;
+		};
+		if (kind == TargetType::object_lib) {
+			@target_kind = 3;
 		};
 		if (current) {
 			@target.sources.target_id = current->target_callback(current->context, name.data(), name.size(), "rutile".data(), 6, "".data(), 0, target_kind);
@@ -95,5 +118,9 @@ namespace kiln {
 
 	fn Target::compiler(var Target& this, rt::string_view name) -> bool {
 		return @this.option("compiler", name);
+	};
+
+	fn Target::depends_on(var Target& this, rt::string_view name) -> bool {
+		return @this.option("dependency", name);
 	};
 };

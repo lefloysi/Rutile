@@ -9,6 +9,17 @@ struct ConversionSelection {
 	fn unique(ConversionSelection& this) -> var Entity*;
 };
 
+enum declaration_collection {
+	owners;
+	complete;
+};
+
+struct PendingDeclaration {
+	var Scope* scope;
+	var Syntax* syntax;
+	access_kind access;
+};
+
 struct Analyzer {
 	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
@@ -42,6 +53,8 @@ struct Analyzer {
 
 private:
 	bool editor;
+	declaration_collection collection;
+	rt::buffer<PendingDeclaration> pending_declarations;
 	fn resolve_impl(var Analyzer& this, var Entity* entity) -> bool;
 	fn recovery_operand(Analyzer& this, Syntax& syntax) -> bool;
 	fn expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
@@ -609,6 +622,22 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		};
 
 		return @this.collect(@*scope_cursor, @*declaration);
+	};
+
+	var Syntax* candidate = &@syntax;
+	if (kind == syntax_kind::template_declaration) {
+		@candidate = syntax.template_declaration();
+	};
+	if (this.collection == declaration_collection::owners && candidate->kind() == syntax_kind::function && candidate->function_name()->kind() == syntax_kind::qualified_name) {
+		PendingDeclaration pending;
+		@pending.scope = scope_cursor;
+		@pending.syntax = &@syntax;
+		@pending.access = scope_cursor->access();
+		if (!@this.pending_declarations.push_back($pending)) {
+			@this.error(&@syntax, "out of memory storing deferred declaration");
+			return false;
+		};
+		return true;
 	};
 
 	if (kind == syntax_kind::template_declaration) {

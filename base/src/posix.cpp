@@ -175,7 +175,7 @@ bool platform_endpoint(const char* root, char* endpoint, std::size_t capacity) {
 	for (const unsigned char* cursor = reinterpret_cast<const unsigned char*>(root); *cursor; ++cursor) {
 		hash = (hash ^ *cursor) * UINT64_C(1099511628211);
 	}
-	int length = snprintf(endpoint, capacity, "/tmp/rutile-%lu-%016llx.sock", static_cast<unsigned long>(getuid()), static_cast<unsigned long long>(hash));
+	int length = snprintf(endpoint, capacity, "/tmp/kiln-%lu-%016llx.sock", static_cast<unsigned long>(getuid()), static_cast<unsigned long long>(hash));
 	return length > 0 && static_cast<std::size_t>(length) < capacity && static_cast<std::size_t>(length) < sizeof(sockaddr_un::sun_path);
 }
 

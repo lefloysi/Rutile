@@ -11,7 +11,7 @@
 #include <iostream>
 
 std::optional<struct ProjectStatus> project_status_read(const std::filesystem::path& root) {
-	std::ifstream file(root / ".rt" / "status.json");
+	std::ifstream file(root / ".kiln" / "status.json");
 	if (!file) {
 		return std::nullopt;
 	}
@@ -60,7 +60,7 @@ bool project_status_write(const std::filesystem::path& root, const struct Projec
 		};
 	}
 	auto text = saved.dump(2) + '\n';
-	auto path = project_path_utf8(root / ".rt" / "status.json");
+	auto path = project_path_utf8(root / ".kiln" / "status.json");
 	return platform_write_file(path.c_str(), text.c_str());
 }
 
@@ -70,7 +70,7 @@ std::string project_status_timestamp() {
 }
 
 void project_status_print(const std::filesystem::path& root, const std::optional<struct ProjectStatus>& status, bool online) {
-	std::cout << (online ? "Rutile online\n" : "Rutile offline\n");
+	std::cout << (online ? "Kiln online\n" : "Kiln offline\n");
 	std::cout << "Project: " << project_path_utf8(root) << '\n';
 	if (!status) {
 		std::cout << "No saved project statistics.\n";

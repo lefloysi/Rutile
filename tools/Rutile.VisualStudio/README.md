@@ -1,4 +1,37 @@
-# Rutile for Visual Studio 2022
+# Kiln and Rutile for Visual Studio 2022
+
+The same extension supplies Kiln project support and Rutile language support. Open a folder
+containing `kiln.rt`. The extension loads Kiln project support without requiring a source file
+to be open. Select a profile and target in the standard Visual Studio toolbar or in
+**Tools > Kiln**. Both selectors stay synchronized. The selection is saved in
+`.vs/kiln/selection.json` for that workspace.
+
+**Build**, **Run**, and **Debug** build the selected target through the persistent project
+session. The normal Visual Studio Build command, F5, and Ctrl+F5 use the selected Kiln target.
+F5 continues to behave normally once a debugging session has started. Program arguments can
+be entered in the Kiln window. Library targets can be built but cannot be launched.
+MSVC and Clang build diagnostics appear in the Error List with source navigation.
+Debug uses Visual Studio's native debugger; source stepping requires debug information from
+the selected compiler integration.
+
+The extension generates Visual Studio's folder build tasks, startup configurations, and C++
+IntelliSense configuration from Kiln's target descriptions. Includes, defines, forced includes,
+and the C++ standard come from the target's compiler options. Entries named `Kiln: ...` are
+owned by the extension and refreshed when the profile or configuration changes. Other entries
+are preserved. Invalid existing JSON is reported and left intact.
+
+These generated files are `.vs/tasks.vs.json`, `.vs/launch.vs.json`, and `CppProperties.json`.
+They follow Visual Studio's documented Open Folder configuration:
+<https://learn.microsoft.com/visualstudio/ide/customize-build-and-debug-tasks-in-visual-studio>
+The session keeps running between requests and after the Kiln window is hidden. Opening another
+folder changes the extension's project selection. Closing the IDE releases its UI subscriptions;
+the generic project session can continue serving other clients.
+The Kiln window refreshes cached build state every two seconds. Background rebuild failures
+update its status and the Error List without another explicit Build command.
+
+Changes to the root `kiln.rt` refresh the target list. Kiln configuration is Rutile code, including
+project declarations, profiles, and subdirectories. Actual compiler invocation and source watching
+belong to Kiln, rather than the extension.
 
 The extension registers `.rt` files and connects Visual Studio's built-in language client to
 `kiln.exe language-server --stdio`. Kiln starts in the open folder workspace or solution directory
@@ -21,7 +54,7 @@ C++ classifications. Bound spans remain visible and move with unchanged text whi
 being analyzed. The compiler's completed-index notification refreshes their semantic
 classifications.
 
-Visual Studio watches `.rt`, `rutile.yaml`, and `.list` files throughout the active workspace and
+Visual Studio watches `.rt` and `.list` files throughout the active workspace and
 forwards external changes to Kiln. Opening a different folder or solution replaces the owned
 Kiln process. Closing the workspace stops it. These subscriptions are released with the client.
 
@@ -33,10 +66,10 @@ its server process. Cancellation also terminates it; stderr is drained independe
 Install the Visual Studio 2022 extension development workload. The project targets .NET
 Framework 4.7.2 and the cached Visual Studio 17 SDK packages.
 
-Build the CMake `kiln` target first, then package from the repository root:
+Build the `kiln` target first, then package from the repository root:
 
 ```powershell
-cmake --build build/release --target kiln
+kiln build kiln --profile release
 ./tools/Rutile.VisualStudio/Package.ps1 -Configuration Release
 ```
 
@@ -47,12 +80,13 @@ Its manifest and assembly versions come from `version/release.txt`.
 The source manifest is a template. Packaging rejects a Kiln binary with a different version.
 
 For other build directories, pass `-RutileServerDirectory <absolute-path>`. The matching
-MSBuild property has the same name. Debug defaults to `build/debug/bin`; Release defaults
-to `build/release/bin`. `RutileCrtDirectory` can select an explicit x64 CRT payload directory.
+MSBuild property has the same name. The default is `build/bootstrap/bin`.
+`RutileCrtDirectory` can select an explicit x64 CRT payload directory.
 
-The VSIX includes the extension assembly, `kiln.exe`, `LLVM-C.dll`, and the matching
-`yaml-cpp.dll` or `yaml-cppd.dll`, plus the x64 MSVC runtime libraries.
+The VSIX includes the extension assembly and package registration, `kiln.exe`, `LLVM-C.dll`,
+plus the x64 MSVC runtime libraries.
 Packaging fails if required native inputs are missing.
+The standard Rutile sources and Kiln configuration API are included under `share/kiln`.
 Debug packages also include the developer Debug CRT and debug Universal CRT from the installed SDK.
 
 ## Install and use
@@ -70,6 +104,30 @@ existing instantiations or clear its samples. Argument errors stay in the popup 
 build diagnostics. Generic hover stays concise.
 
 ## Verification
+
+Check generated build tasks, debugger configurations, C++ settings, profile replacement, user
+settings preservation, malformed JSON preservation, and Windows argument quoting:
+
+```powershell
+./tools/Rutile.VisualStudio/tests/RunKilnWorkspace.ps1
+```
+
+These checks compile and execute C# with managed exception logging. SDK compilation verifies
+package registration and command interfaces; an interactive host check is still required to
+verify menu loading, native Build/F5 routing, Error List navigation, and actual breakpoints.
+
+The dedicated workspace host check opens a mixed C++/Rutile folder, invokes Visual Studio's
+Build command, opens a Rutile document after the project session has started, and checks a
+native F5 breakpoint:
+
+```powershell
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass `
+    -File tools/Rutile.VisualStudio/tests/VerifyKilnWorkspace.ps1 `
+    -Vsix tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix -Install
+```
+
+It uses a separate `RutileValidation<number>` profile and leaves the normal IDE profile alone.
+Results and activity logs are written under `build/vsix-tests`.
 
 Run the process ownership checks without starting Visual Studio:
 

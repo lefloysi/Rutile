@@ -730,6 +730,8 @@ fn Analyzer::analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax)
 
 fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer<rt::unique<Syntax>>& syntax) -> bool {
 	@this.templates.clear();
+	@this.pending_declarations.clear();
+	@this.collection = declaration_collection::owners;
 	@this.unit = &@unit;
 	var Scope* root = @this.unit->create_scope(nullptr, nullptr);
 
@@ -745,6 +747,28 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 
 		@index = index + 1;
 	};
+
+	@this.collection = declaration_collection::complete;
+	usize pass = 0;
+	while (pass < 2) {
+		@index = 0;
+		while (index < this.pending_declarations.size() && !this.diagnostics->failed()) {
+			PendingDeclaration pending := this.pending_declarations.data()[index];
+			bool explicit_template = pending.syntax->kind() == syntax_kind::template_declaration;
+			if ((pass == 0 && explicit_template) || (pass == 1 && !explicit_template)) {
+				access_kind previous = pending.scope->access();
+				@pending.scope->set_access(access_kind(pending.access));
+				bool collected = @this.collect(@*pending.scope, @*pending.syntax);
+				@pending.scope->set_access(access_kind(previous));
+				if (!collected) {
+					return false;
+				};
+			};
+			@index = index + 1;
+		};
+		@pass = pass + 1;
+	};
+	@this.pending_declarations.clear();
 
 	@index = 0;
 	var validator = TemplateDeclarationValidator();

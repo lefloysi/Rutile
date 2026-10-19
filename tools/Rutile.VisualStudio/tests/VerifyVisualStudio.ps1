@@ -21,7 +21,7 @@ if ($RootSuffix -notmatch '^RutileValidation[0-9]+$') {
 }
 $Vsix = [IO.Path]::GetFullPath($Vsix)
 if (!$Kiln) {
-    $Kiln = Join-Path $root 'build/release/bin/kiln.exe'
+    $Kiln = Join-Path $root 'build/bootstrap/bin/kiln.exe'
 }
 $Kiln = [IO.Path]::GetFullPath($Kiln)
 if ((& $Kiln --version | Out-String).Trim() -ne $version) {
@@ -108,7 +108,7 @@ fn value()->i32 { Item thing; mode chosen=mode::executable; return thing.read();
 fn main()->i32 { return sample::value(); };
 "@)
     }
-    [IO.File]::WriteAllText((Join-Path $directory 'rutile.yaml'), "targets:`n  app:`n    source: app`n    entry: main`n")
+    [IO.File]::WriteAllText((Join-Path $directory 'kiln.rt'), 'fn main(kiln::Options& options) { var target = kiln::add_target("app.exe", kiln::TargetType::executable); @target.sources.add("app"); };')
     [IO.File]::WriteAllText((Join-Path $directory 'Rutile.sln'), @'
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
@@ -116,7 +116,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Sources", "Sources", "{7EFD
     ProjectSection(SolutionItems) = preProject
         app\main.rt = app\main.rt
         app\library.rt = app\library.rt
-        rutile.yaml = rutile.yaml
+        kiln.rt = kiln.rt
     EndProjectSection
 EndProject
 Global
@@ -139,6 +139,7 @@ function Managed([string]$Directory) {
 $interop = Join-Path $installation.installationPath 'Common7/IDE/PublicAssemblies/Microsoft.VisualStudio.Interop.dll'
 [Reflection.Assembly]::LoadFrom($interop) | Out-Null
 Add-Type -Path (Join-Path $PSScriptRoot 'VisualStudioAutomation.cs') -ReferencedAssemblies $interop
+[VisualStudioAutomation]::SuppressCrashDialogs()
 $filter = [VisualStudioMessageFilter]::new()
 $first = New-Project 'first'
 $second = New-Project 'second'

@@ -33,10 +33,14 @@ bool project_find(struct Project& project) {
 	if (!project_current_root(project)) {
 		return false;
 	}
+	std::filesystem::path configured;
 	while (true) {
 		std::error_code error;
-		if (std::filesystem::is_directory(project.root / ".rt", error)) {
+		if (std::filesystem::is_directory(project.root / ".kiln", error)) {
 			return true;
+		}
+		if (std::filesystem::is_regular_file(project.root / "kiln.rt", error)) {
+			configured = project.root;
 		}
 		if (error && error != std::errc::no_such_file_or_directory) {
 			return false;
@@ -46,6 +50,10 @@ bool project_find(struct Project& project) {
 			break;
 		}
 		project.root = std::move(parent);
+	}
+	if (!configured.empty()) {
+		project.root = std::move(configured);
+		return true;
 	}
 	return false;
 }
@@ -60,9 +68,9 @@ bool project_kiln_path(std::filesystem::path& path) {
 	return true;
 }
 
-std::optional<struct PeerVersion> project_peer(const struct Project& project, std::string* reply = nullptr) {
+std::optional<struct PeerVersion> project_peer(const struct Project& project, std::string* reply = nullptr, unsigned int timeout_ms = 1000) {
 	std::array<char, 256> response{};
-	if (!platform_request(project.endpoint.c_str(), "hello", response.data(), response.size())) {
+	if (!platform_request(project.endpoint.c_str(), "hello", response.data(), response.size(), timeout_ms)) {
 		return std::nullopt;
 	}
 	if (reply) {
@@ -77,7 +85,7 @@ std::optional<struct PeerVersion> project_wait(const struct Project& project, bo
 		std::string reply;
 		if (auto peer = project_peer(project, &reply)) {
 			if (!allow_legacy) {
-				auto path = project_path_utf8(project.root / ".rt" / "process.lock");
+				auto path = project_path_utf8(project.root / ".kiln" / "process.lock");
 				if (auto* lock = platform_lock_acquire(path.c_str())) {
 					platform_lock_release(lock);
 					return std::nullopt;
@@ -90,7 +98,7 @@ std::optional<struct PeerVersion> project_wait(const struct Project& project, bo
 			if (reply == "Unknown command." && platform_request(project.endpoint.c_str(), "ping", response.data(), response.size()) && std::string_view(response.data()) == "ready") {
 				return PeerVersion{ 0, "unversioned" };
 			}
-			auto path = project_path_utf8(project.root / ".rt" / "process.lock");
+			auto path = project_path_utf8(project.root / ".kiln" / "process.lock");
 			if (auto* lock = platform_lock_acquire(path.c_str())) {
 				platform_lock_release(lock);
 				return PeerVersion{ 0, "" };
@@ -130,7 +138,7 @@ bool project_stop(const struct Project& project) {
 		std::cerr << "Project shutdown was rejected: " << acknowledgment << " No replacement was started.\n";
 		return false;
 	}
-	auto* lock = project_wait_for_lock(project.root / ".rt" / "process.lock");
+	auto* lock = project_wait_for_lock(project.root / ".kiln" / "process.lock");
 	if (!lock) {
 		std::cerr << "Project shutdown did not finish; no replacement was started.\n";
 		return false;
@@ -141,7 +149,7 @@ bool project_stop(const struct Project& project) {
 
 bool project_read_connection(struct Project& project) {
 	std::array<char, 256> endpoint{};
-	if (!platform_read_file(project_path_utf8(project.root / ".rt" / "connection").c_str(), endpoint.data(), endpoint.size())) {
+	if (!platform_read_file(project_path_utf8(project.root / ".kiln" / "connection").c_str(), endpoint.data(), endpoint.size())) {
 		return false;
 	}
 	project.endpoint = endpoint.data();
@@ -165,7 +173,7 @@ int project_report(struct Project& project) {
 		project_status_print(project.root, saved, false);
 		return 0;
 	}
-	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".rt" / "init.lock"), platform_lock_release };
+	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".kiln" / "init.lock"), platform_lock_release };
 	if (!initialization_lock) {
 		project_status_print(project.root, saved, false);
 		return 0;
@@ -194,16 +202,16 @@ int project_report(struct Project& project) {
 	return 0;
 }
 
-int project_initialize() {
+int project_initialize(bool restart, bool quiet) {
 	struct Project project{};
 	if (!project_current_root(project)) {
 		std::cerr << "Could not determine the project directory.\n";
 		return 1;
 	}
 	std::error_code error;
-	std::filesystem::create_directory(project.root / ".rt", error);
+	std::filesystem::create_directory(project.root / ".kiln", error);
 	if (error) {
-		std::cerr << "Could not create the .rt directory.\n";
+		std::cerr << "Could not create the .kiln directory.\n";
 		return 1;
 	}
 	std::array<char, 256> endpoint{};
@@ -217,7 +225,7 @@ int project_initialize() {
 		std::cerr << "Could not locate the installed kiln executable; the existing project was left intact.\n";
 		return 1;
 	}
-	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".rt" / "init.lock"), platform_lock_release };
+	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".kiln" / "init.lock"), platform_lock_release };
 	if (!initialization_lock) {
 		std::cerr << "Another initialization is in progress, or the initialization lock is unavailable.\n";
 		return 1;
@@ -229,7 +237,7 @@ int project_initialize() {
 		return 1;
 	}
 	std::optional<struct PeerVersion> previous;
-	auto lock_path = project_path_utf8(project.root / ".rt" / "process.lock");
+	auto lock_path = project_path_utf8(project.root / ".kiln" / "process.lock");
 	if (auto* lock = platform_lock_acquire(lock_path.c_str())) {
 		platform_lock_release(lock);
 	}
@@ -241,6 +249,9 @@ int project_initialize() {
 		}
 		if (previous->release.empty()) {
 			previous.reset();
+		}
+		else if (!restart && version_compatible(*previous) && previous->release == software_version) {
+			return platform_write_file(project_path_utf8(project.root / ".kiln" / "connection").c_str(), project.endpoint.c_str()) ? 0 : 1;
 		}
 		else if (!project_stop(project)) {
 			return 1;
@@ -259,8 +270,8 @@ int project_initialize() {
 		std::cerr << "Installed kiln uses protocol " << current->protocol << "; this client requires " << protocol_version << ". Update both executables together.\n";
 		return 1;
 	}
-	if (!platform_write_file(project_path_utf8(project.root / ".rt" / "connection").c_str(), project.endpoint.c_str())) {
-		std::cerr << "Could not write .rt/connection.\n";
+	if (!platform_write_file(project_path_utf8(project.root / ".kiln" / "connection").c_str(), project.endpoint.c_str())) {
+		std::cerr << "Could not write .kiln/connection.\n";
 		return 1;
 	}
 	std::array<char, 256> report{};
@@ -268,6 +279,9 @@ int project_initialize() {
 	if (!platform_request(project.endpoint.c_str(), request.c_str(), report.data(), report.size()) || !project_save_report(project, report.data(), true)) {
 		std::cerr << "Project started, but its report could not be saved.\n";
 		return 1;
+	}
+	if (quiet) {
+		return 0;
 	}
 	std::cout << (previous ? "Project restarted: " : "Project initialized: ") << project_path_utf8(project.root) << '\n';
 	if (previous && previous->release != current->release) {
@@ -284,18 +298,30 @@ int project_initialize() {
 
 bool project_exchange(std::string_view command, std::string& response) {
 	struct Project project{};
-	if (!project_find(project) || !project_read_connection(project)) {
-		std::cerr << "Project is not initialized. Run kiln init.\n";
+	if (!project_find(project)) {
+		std::cerr << "No Kiln project found. Add kiln.rt or run kiln init.\n";
 		return false;
 	}
-	auto peer = project_peer(project);
+	auto peer = project_read_connection(project) ? project_peer(project, nullptr, 600000) : std::nullopt;
 	if (!peer || !version_compatible(*peer)) {
-		std::cerr << "Project is unavailable. Run kiln init.\n";
-		return false;
+		std::error_code error;
+		auto previous = std::filesystem::current_path(error);
+		if (error) {
+			return false;
+		}
+		std::filesystem::current_path(project.root, error);
+		if (error) {
+			return false;
+		}
+		int started = project_initialize(false, true);
+		std::filesystem::current_path(previous, error);
+		if (started || error || !project_read_connection(project)) {
+			return false;
+		}
 	}
 	std::vector<char> buffer(1024 * 1024);
 	std::string request = "request " + std::to_string(protocol_version) + " " + std::string(command);
-	if (!platform_request(project.endpoint.c_str(), request.c_str(), buffer.data(), buffer.size(), 60000)) {
+	if (!platform_request(project.endpoint.c_str(), request.c_str(), buffer.data(), buffer.size(), 600000)) {
 		std::cerr << "Project request did not finish.\n";
 		return false;
 	}
@@ -320,12 +346,12 @@ int project_request(std::string_view command) {
 		std::cerr << "Project is not initialized. Run kiln init.\n";
 		return 1;
 	}
-	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".rt" / "init.lock"), platform_lock_release };
+	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".kiln" / "init.lock"), platform_lock_release };
 	if (!initialization_lock) {
 		std::cerr << "Project initialization is in progress, or its lock is unavailable.\n";
 		return 1;
 	}
-	auto peer = project_peer(project);
+	auto peer = project_peer(project, nullptr, 600000);
 	if (!peer) {
 		std::cerr << "The project has no valid version handshake. Run kiln init to restart it.\n";
 		return 1;
@@ -336,7 +362,7 @@ int project_request(std::string_view command) {
 	}
 	std::array<char, 256> response{};
 	std::string request = "request " + std::to_string(protocol_version) + " " + std::string(command);
-	if (!platform_request(project.endpoint.c_str(), request.c_str(), response.data(), response.size())) {
+	if (!platform_request(project.endpoint.c_str(), request.c_str(), response.data(), response.size(), 600000)) {
 		std::cerr << "Project is unavailable. Run kiln init.\n";
 		return 1;
 	}
@@ -352,4 +378,3 @@ int project_request(std::string_view command) {
 	std::cout << response.data() << '\n';
 	return 0;
 }
-

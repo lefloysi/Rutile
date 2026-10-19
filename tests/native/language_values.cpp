@@ -31,13 +31,16 @@ namespace language_tests {
 
 	void check_fixture(std::string_view fixture, std::string_view rejection = {}) {
 		auto source = configured_path("RUTILE_SOURCE_ROOT", RUTILE_SOURCE_ROOT);
-		auto compiler = configured_path("RUTILE_TEST_COMPILER", source / "distro/windows-x64/compiler.exe");
+		auto compiler = configured_path("RUTILE_TEST_COMPILER", KILN_TEST_EXECUTABLE);
 		auto directory = configured_path("RUTILE_TEST_ROOT", source / "build/native-tests/language-values") / std::filesystem::u8path(fixture).stem();
 		std::filesystem::create_directories(directory);
 		auto object = directory / "case.obj";
 		auto executable = directory / "case.exe";
 		auto diagnostics = directory / "compile.log";
 		std::vector<std::string> arguments;
+		if (compiler.stem() == "kiln") {
+			arguments.push_back("compile");
+		}
 		for (const auto* name : { "unique", "optional", "buffer", "string_view", "string", "hash", "equal", "unordered_map" }) {
 			arguments.push_back(path_text(source / "kiln/compiler/std" / (std::string(name) + ".rt")));
 		}
@@ -84,6 +87,10 @@ TEST_CASE("Primitive values copy through readonly references", "[language][value
 
 TEST_CASE("Pointer overloads prefer void pointers over bool", "[language][values]") {
 	language_tests::check_fixture("tests/compiler-new/backend/cases/pointer-overload-ranking.rt");
+}
+
+TEST_CASE("Module declarations do not depend on source discovery order", "[language][values]") {
+	language_tests::check_fixture("tests/compiler-new/backend/cases/declaration-order.rt");
 }
 
 TEST_CASE("Default hashes preserve primitive and view representations", "[language][hash]") {

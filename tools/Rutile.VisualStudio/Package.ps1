@@ -14,7 +14,7 @@ if (!$installation) {
 }
 
 if (!$RutileServerDirectory) {
-	$RutileServerDirectory = Join-Path $PSScriptRoot ("../../build/" + $Configuration.ToLowerInvariant() + '/bin')
+	$RutileServerDirectory = Join-Path $PSScriptRoot '../../build/bootstrap/bin'
 }
 $RutileServerDirectory = [IO.Path]::GetFullPath($RutileServerDirectory)
 $kiln = Join-Path $RutileServerDirectory 'kiln.exe'
@@ -27,8 +27,7 @@ if ($LASTEXITCODE -or $nativeVersion -cne $expectedVersion) {
 	throw "Kiln version '$nativeVersion' does not match release '$expectedVersion'. Rebuild kiln before packaging."
 }
 
-$yaml = if ($Configuration -eq 'Debug') { 'yaml-cppd.dll' } else { 'yaml-cpp.dll' }
-foreach ($name in @('kiln.exe', 'LLVM-C.dll', $yaml)) {
+foreach ($name in @('kiln.exe', 'LLVM-C.dll')) {
 	if (!(Test-Path -LiteralPath (Join-Path $RutileServerDirectory $name))) {
 		throw "Build kiln and its runtime first: $RutileServerDirectory/$name is missing."
 	}
@@ -92,8 +91,13 @@ try {
 	if ($manifest.PackageManifest.Metadata.Identity.Version -ne $expectedVersion) {
 		throw "Packaged manifest version does not match release '$expectedVersion'."
 	}
-	$payload = @('kiln.exe', 'LLVM-C.dll', $yaml)
-	foreach ($name in $payload) {
+	$payload = @{
+		'kiln.exe' = Join-Path $RutileServerDirectory 'kiln.exe'
+		'LLVM-C.dll' = Join-Path $RutileServerDirectory 'LLVM-C.dll'
+		'Rutile.VisualStudio.dll' = Join-Path $PSScriptRoot "bin/$Configuration/net472/Rutile.VisualStudio.dll"
+		'Rutile.VisualStudio.pkgdef' = Join-Path $PSScriptRoot "obj/$Configuration/net472/Rutile.VisualStudio.pkgdef"
+	}
+	foreach ($name in $payload.Keys) {
 		$entry = $archive.GetEntry($name)
 		if (!$entry) {
 			throw "The VSIX is missing $name."
@@ -102,7 +106,7 @@ try {
 		$hash = [Security.Cryptography.SHA256]::Create()
 		try {
 			$packagedHash = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '')
-			$sourceHash = (Get-FileHash -LiteralPath (Join-Path $RutileServerDirectory $name) -Algorithm SHA256).Hash
+			$sourceHash = (Get-FileHash -LiteralPath $payload[$name] -Algorithm SHA256).Hash
 			if ($packagedHash -ne $sourceHash) {
 				throw "The packaged $name does not match the selected server payload."
 			}
@@ -112,7 +116,7 @@ try {
 			$stream.Dispose()
 		}
 	}
-	$required = @('Rutile.VisualStudio.dll', 'vcruntime140.dll', 'msvcp140.dll')
+	$required = @('Rutile.VisualStudio.dll', 'Rutile.VisualStudio.pkgdef', 'vcruntime140.dll', 'msvcp140.dll', 'share/kiln/api.rt', 'share/kiln/std/string_view.rt')
 	if ($Configuration -eq 'Debug') {
 		$required += @('vcruntime140d.dll', 'msvcp140d.dll', 'ucrtbased.dll')
 	}
@@ -120,6 +124,9 @@ try {
 		if (!$archive.GetEntry($name)) {
 			throw "The VSIX is missing $name."
 		}
+	}
+	if ($archive.GetEntry('rutile.exe')) {
+		throw 'The extension must ship Kiln as its compiler host, without a separate Rutile executable.'
 	}
 }
 finally {
