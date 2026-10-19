@@ -90,6 +90,11 @@ for name in ["static-array-overflow", "nested-array-overflow"]:
 		reject="array storage size exceeds target address space")
 check("generated-copy-assignment-deleted", sources + "generated-copy-assignment-deleted.rt",
 	reject="deleted")
+check("generated-place-move-reject", sources + "generated-place-move-reject.rt",
+	reject="no applicable operator '='")
+check("generated-string-copy", sources + "generated-string-copy.rt",
+	dependencies=["kiln/compiler/std/unique.rt", "kiln/compiler/std/buffer.rt",
+		"kiln/compiler/std/string_view.rt", "kiln/compiler/std/string.rt"])
 for name in ["null-constant-missing", "void-constant-missing"]:
 	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt",
 		reject="unknown identifier")

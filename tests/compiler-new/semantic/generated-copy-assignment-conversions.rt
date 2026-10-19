@@ -21,7 +21,7 @@ struct Member {
 
 	fn Member(var Member& this) : [default];
 	fn Member(var Member& this, const Member& other) : [implicit];
-	fn operator=(var Member& this, const Member& other) -> Result;
+	fn operator:=(var Member& this, const Member& other) -> Result;
 	fn assign_value(var Member& this, Member other) -> Result;
 	fn ~Member(var Member& this);
 };
@@ -32,7 +32,7 @@ fn Member::Member(var Member& this, const Member& other) : [implicit] {
 	@this.counts->copies = this.counts->copies + 1;
 };
 
-fn Member::operator=(var Member& this, const Member& other) -> Result {
+fn Member::operator:=(var Member& this, const Member& other) -> Result {
 	return @this.assign_value(other);
 };
 
@@ -55,7 +55,7 @@ fn Member::~Member(var Member& this) {
 struct Holder {
 	Member member;
 
-	fn operator=(var Holder& this, const Holder& other) -> var Holder& : [default];
+	fn operator:=(var Holder& this, const Holder& other) -> var Holder& : [default];
 };
 
 fn main() -> i32 {
@@ -66,7 +66,7 @@ fn main() -> i32 {
 		@source.member.value = 42;
 		Holder target;
 
-		@target = source;
+		@target := source;
 
 		if (counts.copies != 1 || counts.assigned != 1 || counts.destroyed != 1 || counts.results != 1) {
 			return 1;

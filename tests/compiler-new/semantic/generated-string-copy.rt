@@ -1,0 +1,22 @@
+struct StringHolder {
+	rt::string text;
+};
+
+fn main() -> i32 {
+	StringHolder source;
+	@source.text.append(rt::string_view("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789--", 64));
+	StringHolder target;
+	@target := source;
+	if (target.text.data() == source.text.data() || target.text.size() != 64) {
+		return 1;
+	};
+	@(@source.text).data()[0] = 'Z';
+	if (target.text.data()[0] != 'a') {
+		return 2;
+	};
+	@source.text.clear();
+	if (target.text.size() != 64) {
+		return 3;
+	};
+	return 42;
+};

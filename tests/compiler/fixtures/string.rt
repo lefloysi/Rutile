@@ -1,0 +1,87 @@
+fn is_abc(const rt::string_view& value) -> bool {
+	return value == rt::string_view("abc\0");
+};
+
+fn matches(const rt::string& value, const char* expected) -> bool {
+	return value.data() && !value.data()[value.size] && (rt::string_view(value) == rt::string_view(const char*(expected)));
+};
+
+fn main() -> i32 {
+	if (!(rt::string_view("abc\0") == rt::string("abc\0")) || !is_abc(rt::string("abc\0")) || is_abc(rt::string("abd\0")) || is_abc(rt::string("ab\0"))) {
+		return 18;
+	};
+	rt::string empty;
+	rt::string_view empty_view;
+	if (empty.data() || empty.size || !(empty_view == rt::string_view(empty))) {
+		return 1;
+	};
+	if (!@empty.append(empty_view) || !empty.data() || empty.data()[0] || empty.size) {
+		return 2;
+	};
+	@empty.reset();
+	@empty.reset();
+	if (empty.data() || empty.size) {
+		return 3;
+	};
+
+	var text = rt::string("abc\0");
+	rt::string copied := text;
+	if (!matches(text, "abc\0") || !matches(copied, "abc\0") || text.data() == copied.data()) {
+		return 4;
+	};
+	if (!@text.append(text) || !matches(text, "abcabc\0") || !matches(copied, "abc\0")) {
+		return 5;
+	};
+	const char* previous = text.data();
+	if (!@text.append(rt::string_view(text.data() + 1, 1)) || !matches(text, "abcabcb\0") || text.data() != previous) {
+		return 6;
+	};
+	if (!@text.append(rt::string_view(text.data() + 2, 3)) || !matches(text, "abcabcbcab\0")) {
+		return 7;
+	};
+	var substring = rt::string(rt::string_view(text.data() + 2, 3));
+	if (!matches(substring, "cab\0")) {
+		return 8;
+	};
+
+	var target = rt::string("discarded destination\0");
+	@target := copied;
+	@copied := copied;
+	if (!matches(target, "abc\0") || !matches(copied, "abc\0") || target.data() == copied.data()) {
+		return 9;
+	};
+	const char* transferred = copied.data();
+	var moved = $copied;
+	if (moved.data() != transferred || !matches(moved, "abc\0")) {
+		return 10;
+	};
+	@target = $moved;
+	if (target.data() != transferred || !matches(target, "abc\0")) {
+		return 11;
+	};
+	if (@text.append(rt::string_view("x\0", ~usize(0))) || !matches(text, "abcabcbcab\0")) {
+		return 13;
+	};
+	char[3] binary;
+	@binary[0] = 'a';
+	@binary[1] = '\0';
+	@binary[2] = 'b';
+	var binary_text = rt::string(rt::string_view(&binary[0], 3));
+	if (binary_text.size != 3 || binary_text.data()[3] || !(rt::string_view(binary_text) == rt::string_view(&binary[0], 3)) || (rt::string_view(binary_text) == rt::string_view("a\0"))) {
+		return 14;
+	};
+	char* released = @binary_text.release();
+	if (binary_text.data() || binary_text.size || released[0] != 'a' || released[1] || released[2] != 'b' || released[3]) {
+		return 15;
+	};
+	delete released;
+	if (!@binary_text.append(rt::string_view("reused\0")) || !matches(binary_text, "reused\0")) {
+		return 16;
+	};
+	@binary_text.reset();
+	if (binary_text.data() || binary_text.size) {
+		return 17;
+	};
+	return 42;
+};
+

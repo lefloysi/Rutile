@@ -22,7 +22,7 @@ standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kil
 frontend = [*standard, "kiln/compiler/src/frontend/token.rt", "kiln/compiler/src/frontend/source.rt",
 	"kiln/compiler/src/frontend/lexer.rt"]
 
-for name in ["buffer", "buffer-lifetime", "buffer-clear-order", "buffer-copy", "buffer-alias", "buffer-owners", "unique", "text",
+for name in ["buffer", "buffer-lifetime", "buffer-clear-order", "buffer-copy", "buffer-alias", "buffer-owners", "unique", "text", "string-sso",
 	"optional", "optional-ref", "optional-lifetime", "unique-policy", "hash", "unordered-map",
 	"unordered-map-collisions", "unordered-map-default-hash", "unordered-map-function-hash"]:
 	run_case("std-" + name, [*standard, "tests/compiler-new/std/" + name + ".rt"])

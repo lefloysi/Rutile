@@ -1,0 +1,28 @@
+i32 constructed;
+i32 destroyed;
+
+struct Item {
+	i32 value;
+	fn Item(Item& this) {
+		@constructed = constructed + 1;
+		@this.value = 7;
+	};
+	fn ~Item(Item& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn main() -> i32 {
+	{
+		i32[3] numbers {};
+		Item[2] objects {};
+		Item[2][2] nested {};
+		if (numbers[0] || numbers[1] || numbers[2] || constructed != 6 || objects[1].value != 7 || nested[1][1].value != 7) {
+			return 1;
+		};
+	};
+	if (destroyed != 6) {
+		return 2;
+	};
+	return 42;
+};

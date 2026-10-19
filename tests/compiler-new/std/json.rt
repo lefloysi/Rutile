@@ -1,0 +1,61 @@
+fn rejects(const rt::string_view& text) -> bool {
+	var document = rt::json_parse(text);
+	return !document.value() && document.error().size() != 0;
+};
+
+fn main() -> i32 {
+	var document = rt::json_parse(" {\"method\":\"hello\",\"items\":[null,true,false,-42,1.5e+2],\"unicode\":\"\\uD83D\\uDE00\\u0000\"} \0");
+	if (!document.value() || document.error().size()) {
+		return 1;
+	};
+	const rt::json_value* root = document.value();
+	if (root->kind() != rt::json_kind::object || root->size() != 3 || root->member("method\0")->text() != rt::string_view("hello\0")) {
+		return 2;
+	};
+	const rt::json_value* items = root->member("items\0");
+	i64 number = 0;
+	if (!items || items->size() != 5 || !items->item(1)->boolean() || items->item(2)->boolean() || !items->item(3)->integer(@number) || number != -42 || items->item(4)->integer(@number)) {
+		return 3;
+	};
+	var unicode = root->member("unicode\0")->text();
+	if (unicode.size() != 5 || static_cast<u08>(unicode.data()[0]) != 240 || unicode.data()[4] != '\0') {
+		return 4;
+	};
+	rt::string encoded;
+	if (!rt::json_write(*root, @encoded)) {
+		return 5;
+	};
+	var again = rt::json_parse(encoded.view());
+	if (!again.value() || again.value()->member("unicode\0")->text() != unicode || again.value()->member("items\0")->item(4)->text() != rt::string_view("1.5e+2\0")) {
+		return 6;
+	};
+	var minimum = rt::json_parse("-9223372036854775808\0");
+	var maximum = rt::json_parse("9223372036854775807\0");
+	var overflow = rt::json_parse("9223372036854775808\0");
+	if (!minimum.value()->integer(@number) || number != (-9223372036854775807 - 1) || !maximum.value()->integer(@number) || number != i64::max || overflow.value()->integer(@number)) {
+		return 7;
+	};
+	if (!rejects("01\0") || !rejects("1.\0") || !rejects("1e\0") || !rejects("+1\0") || !rejects("NaN\0") || !rejects("[1,]\0") || !rejects("{\"a\":1,}\0") || !rejects("true false\0")) {
+		return 8;
+	};
+	if (!rejects("\"\\uD800\"\0") || !rejects("\"\\uDC00\"\0") || !rejects("\"\\uD800\\u0041\"\0") || !rejects("\"\\q\"\0") || !rejects("\"a\nb\"\0")) {
+		return 9;
+	};
+	var built = rt::json_value::make_object();
+	var array = rt::json_value::make_array();
+	if (!@array.get()->append(rt::json_value::make_boolean(true)) || !@built.get()->set("array\0", $array) || !@built.get()->set("number\0", rt::json_value::make_number("42\0"))) {
+		return 10;
+	};
+	if (!@built.get()->set("number\0", rt::json_value::make_number("43\0")) || built.get()->size() != 2 || !built.get()->member("number\0")->integer(@number) || number != 43) {
+		return 11;
+	};
+	rt::string output;
+	if (!rt::json_write(*built.get(), @output)) {
+		return 12;
+	};
+	var roundtrip = rt::json_parse(output.view());
+	if (!roundtrip.value() || !roundtrip.value()->member("array\0")->item(0)->boolean()) {
+		return 13;
+	};
+	return 42;
+};

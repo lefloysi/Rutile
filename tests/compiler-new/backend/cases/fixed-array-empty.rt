@@ -1,0 +1,30 @@
+i32 constructed;
+i32 destroyed;
+
+struct Element {
+	i32 index;
+	fn Element(Element& this) {
+		@constructed = constructed + 1;
+		@this.index = constructed;
+	};
+	fn ~Element(Element& this) {
+		@destroyed = destroyed * 10 + this.index;
+	};
+};
+
+fn main() -> i32 {
+	char[4096] chunk {};
+	if (chunk[0] || chunk[4095]) {
+		return 1;
+	};
+	{
+		Element[2] values {};
+		if (constructed != 2 || values[0].index != 1 || values[1].index != 2) {
+			return 2;
+		};
+	};
+	if (destroyed != 21) {
+		return 3;
+	};
+	return 42;
+};

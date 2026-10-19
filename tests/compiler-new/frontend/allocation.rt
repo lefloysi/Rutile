@@ -1,0 +1,29 @@
+fn allocation_parses(const rt::string_view& text, bool expected) -> bool {
+	SourceFile source;
+	if (!@source.assign("allocation.rt\0", text)) {
+		return false;
+	};
+	var lexer = Lexer(@source);
+	if (!@lexer.scan()) {
+		return false;
+	};
+	var parser = Parser(source.tokens());
+	var tree = @parser.parse();
+	if (expected) {
+		return tree.get() != nullptr;
+	};
+	return !tree.get() && parser.error() == rt::string_view("array allocation requires a construction argument list; use 'new T[count]()' for default construction\0");
+};
+
+fn main() -> i32 {
+	if (!allocation_parses("fn f() { new char[42](); };\0", true)) {
+		return 1;
+	};
+	if (!allocation_parses("fn f() { new char[42]; };\0", false)) {
+		return 2;
+	};
+	if (!allocation_parses("fn f() { new i32[4][8](0); };\0", true)) {
+		return 3;
+	};
+	return 42;
+};
