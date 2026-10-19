@@ -6,7 +6,7 @@ import statistics
 import subprocess
 import tempfile
 import time
-from protocol import Client, open_document, position
+from protocol import Client, open_document, position, write_project
 from semantic_tokens import decode
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,25 +35,24 @@ def main(server, source_ref=None, timeout=45):
 	with tempfile.TemporaryDirectory(prefix="editing compiler ", dir=output) as temporary:
 		root = Path(temporary)
 		if source_ref:
-			names = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", source_ref, "kiln"], cwd=ROOT, text=True).splitlines()
+			names = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", source_ref, "compiler", "language"], cwd=ROOT, text=True).splitlines()
 			for name in names:
-				if not name.endswith(".rt") and name not in ["kiln/compiler/sources.list", "kiln/sources.list"]:
+				if not name.endswith(".rt"):
 					continue
 				target = root / name
 				target.parent.mkdir(parents=True, exist_ok=True)
 				target.write_bytes(subprocess.check_output(["git", "show", source_ref + ":" + name], cwd=ROOT))
 		else:
-			for source in (ROOT / "kiln").rglob("*.rt"):
+			for source in [*(ROOT / "compiler").rglob("*.rt"), *(ROOT / "language").rglob("*.rt")]:
 				target = root / source.relative_to(ROOT)
 				target.parent.mkdir(parents=True, exist_ok=True)
 				shutil.copyfile(source, target)
-			for name in ["kiln/compiler/sources.list", "kiln/sources.list"]:
-				shutil.copyfile(ROOT / name, root / name)
-		configuration = "targets:\n  example:\n    source: example\n    entry: main\nanalysis:\n  compiler:\n    sources:\n" + "".join("      - kiln/compiler/std/" + name + ".rt\n" for name in ["unique", "optional", "buffer", "string_view", "string", "hash", "equal", "unordered_map", "json"]) + "      - manifest: kiln/compiler/sources.list\n        root: kiln/compiler/src\n      - manifest: kiln/sources.list\n        root: kiln/src\n"
+
 		(root / "example").mkdir()
 		(root / "example/main.rt").write_text("fn main()->i32 { return 42; };\n", encoding="utf-8")
-		(root / "rutile.yaml").write_text(configuration, encoding="utf-8")
-		file = root / "kiln/compiler/src/driver/analysis.rt"
+		write_project(root, [("example", "executable", ["example"]),
+			("compiler", "object_lib", ["compiler/std", "compiler/src", "language"])])
+		file = root / "compiler/src/driver/analysis.rt"
 		source = file.read_text(encoding="utf-8")
 		uri = file.as_uri()
 		client = Client(server, root)
@@ -93,7 +92,7 @@ def main(server, source_ref=None, timeout=45):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--server", type=Path, default=Path("build/debug/bin/kiln.exe"))
+	parser.add_argument("--server", type=Path, default=Path("../Kiln/build/bootstrap/bin/kiln.exe"))
 	parser.add_argument("--source-ref")
 	parser.add_argument("--timeout", type=float, default=45)
 	options = parser.parse_args()

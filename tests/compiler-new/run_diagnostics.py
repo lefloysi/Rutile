@@ -107,7 +107,7 @@ CASES = [
 
 def main():
 	arguments = argparse.ArgumentParser(description=__doc__)
-	arguments.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
+	arguments.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
 	options = arguments.parse_args()
 	directory = ROOT / "build" / "compiler-new" / "diagnostics"
 	directory.mkdir(parents=True, exist_ok=True)

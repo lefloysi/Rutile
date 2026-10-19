@@ -1166,19 +1166,19 @@ and returns the executed program's exit code.
 
 The following source files establish the implementation behavior described in this appendix:
 
-- Project configuration: `kiln/project/configuration.cpp`.
-- Source collection: `kiln/project/sources.cpp`.
-- Project discovery and ownership: `kiln/project/session.cpp` and `kiln/src/server.cpp`.
-- Build and run orchestration: `kiln/src/compiler.cpp`, `kiln/src/linker.cpp`, and
-  `kiln/project/execution.cpp`.
-- Analysis ownership and publication: `kiln/compiler/src/driver/compiler.rt`.
-- Source analysis: `kiln/compiler/src/driver/analysis.rt` and
-  `kiln/compiler/src/language/analysis.rt`.
+- Project configuration: `../Kiln/project/configuration.cpp`.
+- Source collection: `../Kiln/project/sources.cpp`.
+- Project discovery and ownership: `../Kiln/project/session.cpp` and `../Kiln/src/server.cpp`.
+- Build and run orchestration: `../Kiln/src/compiler.cpp`, `../Kiln/src/linker.cpp`, and
+  `../Kiln/project/execution.cpp`.
+- Analysis ownership and publication: `compiler/src/driver/compiler.rt`.
+- Source analysis: `compiler/src/driver/analysis.rt` and
+  `compiler/src/language/analysis.rt`.
 
 The language rules added for size queries, loops, and switches are supported by
-`kiln/compiler/src/frontend/parser.rt`, `kiln/compiler/src/semantic/size_query.rt`,
-`kiln/compiler/src/semantic/expressions.rt`, `kiln/compiler/src/semantic/switch.rt`,
-`kiln/compiler/src/backend/control_flow.rt`, and `kiln/compiler/src/backend/switch.rt`.
+`compiler/src/frontend/parser.rt`, `compiler/src/semantic/size_query.rt`,
+`compiler/src/semantic/expressions.rt`, `compiler/src/semantic/switch.rt`,
+`compiler/src/backend/control_flow.rt`, and `compiler/src/backend/switch.rt`.
 
 <a id="lib.containers"></a>
 

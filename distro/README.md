@@ -5,7 +5,7 @@ its Rutile compiler; users build and run projects through `kiln.exe`.
 
 `compiler.rt` is the seed's complete compiler source snapshot. It contains the
 standard library prelude followed by every Rutile source file under
-`kiln/compiler/src`, recursively sorted by path. There are no source manifests.
+`compiler/src`, recursively sorted by path. There are no source manifests.
 The snapshot uses UTF-8 without a byte order mark and LF line endings.
 
 `version.txt` records the release, and `source.sha256` identifies the snapshot.

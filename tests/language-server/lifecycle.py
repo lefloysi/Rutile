@@ -52,5 +52,5 @@ def main(executable):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--server", type=Path, default=Path("build/debug/bin/kiln.exe"))
+	parser.add_argument("--server", type=Path, default=Path("../Kiln/build/bootstrap/bin/kiln.exe"))
 	main(parser.parse_args().server.resolve())

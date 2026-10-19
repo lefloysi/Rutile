@@ -117,13 +117,13 @@ fn main() -> i32 {
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
-	parser.add_argument("--build", default="build/release", type=Path)
-	parser.add_argument("--standard-directory", default="kiln/compiler/std", type=Path)
+	parser.add_argument("--compiler", type=Path)
+	parser.add_argument("--build", default=".kiln/build/release", type=Path)
+	parser.add_argument("--standard-directory", default="compiler/std", type=Path)
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	cache = (build / "CMakeCache.txt").read_text()
-	runtime = "/MDd" if "CMAKE_BUILD_TYPE:STRING=Debug" in cache else "/MD"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	runtime = "/MD"
 	directory = build / "tests/mutability"
 	directory.mkdir(parents=True, exist_ok=True)
 	toolchain = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/VsDevCmd.bat")
@@ -137,7 +137,7 @@ def main():
 		dependencies = []
 		if name.startswith("buffer-"):
 			dependencies = [str((ROOT / options.standard_directory / (item + ".rt")).resolve()) for item in ["unique", "buffer"]]
-		compiled = subprocess.run([str((ROOT / options.compiler).resolve()), *dependencies, str(path),
+		compiled = subprocess.run([str(compiler), *dependencies, str(path),
 			"--output", str(output)], cwd=directory, capture_output=True, text=True, timeout=60)
 		try:
 			message = compiled.stdout + compiled.stderr

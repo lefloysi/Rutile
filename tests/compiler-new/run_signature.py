@@ -9,7 +9,7 @@ from run import run_case as component_case
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
+parser.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
 args = parser.parse_args()
 failures = []
 
@@ -53,7 +53,7 @@ run_case("signature-construction-ranking", ["tests/compiler-new/semantic/constru
 	compiler=args.compiler)
 
 run_case("signature-string-view-construction-ranking",
-	["kiln/compiler/std/unique.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt", "kiln/compiler/std/string.rt",
+	["compiler/std/unique.rt", "compiler/std/buffer.rt", "compiler/std/string_view.rt", "compiler/std/string.rt",
 		"tests/compiler-new/semantic/string-view-construction-ranking.rt"], compiler=args.compiler)
 run_case("signature-mixed-auto", ["tests/compiler-new/backend/cases/mixed-auto-qualification.rt"],
 	compiler=args.compiler)

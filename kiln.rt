@@ -2,35 +2,24 @@ fn configure_native(var kiln::Target& target) {
 	@target.compiler("cpp");
 	@target.sources.add("base/src");
 	@target.sources.add("version");
-	@target.sources.add("kiln/src");
-	@target.sources.add("kiln/project");
-	@target.sources.add("kiln/integrations");
-	@target.sources.add("kiln/configuration");
-	@target.depends_on("kiln-language.obj");
+	@target.sources.add("compiler/src");
+	@target.depends_on("rutile-language.obj");
 	@target.option("standard", "c++latest");
-	@target.option("includes", "base/include;version;kiln/project;kiln/src;build/bootstrap/include");
-	@target.option("forced_includes", "build/bootstrap/config.hpp");
-	@target.option("library_paths", "build/bootstrap/lib");
+	@target.option("includes", "base/include;version;../Kiln/build/bootstrap/include");
+	@target.option("forced_includes", "../Kiln/build/bootstrap/config.hpp");
+	@target.option("library_paths", "../Kiln/build/bootstrap/lib");
 	@target.option("libraries", "LLVM-C.lib;CLI11.lib;legacy_stdio_definitions.lib;kernel32.lib;user32.lib;shell32.lib;advapi32.lib");
 	@target.option("excludes", "base/src/posix.cpp");
-	@target.option("runtime_files", "build/bootstrap/bin/LLVM-C.dll");
+	@target.option("runtime_files", "distro/windows-x64/LLVM-C.dll");
 };
 
 fn main(kiln::Options& options) {
 	kiln::profile("debug", 0);
 	kiln::profile("release", 2);
-	var language = kiln::add_target("kiln-language.obj", kiln::TargetType::object_lib);
-	@language.sources.add("kiln/compiler/src");
-	@language.sources.add("kiln/src");
+	var language = kiln::add_target("rutile-language.obj", kiln::TargetType::object_lib);
+	@language.sources.add("compiler/std");
+	@language.sources.add("compiler/src");
 
-	var application = kiln::add_target("kiln.exe", kiln::TargetType::executable);
-	configure_native(@application);
-
-	var tests = kiln::add_target("kiln-tests.exe", kiln::TargetType::executable);
-	configure_native(@tests);
-	@tests.sources.add("tests/native");
-	@tests.option("link_options", "/subsystem:console");
-	@tests.sources.add("tests/kiln");
-	@tests.option("excludes", "base/src/posix.cpp;kiln/src/main.cpp;tests/native/compiler_integrations.cpp;tests/native/editor_host.cpp;tests/native/project_analysis.cpp");
-	@tests.option("libraries", "LLVM-C.lib;CLI11.lib;Catch2.lib;Catch2Main.lib;legacy_stdio_definitions.lib;kernel32.lib;user32.lib;shell32.lib;advapi32.lib");
+	var compiler = kiln::add_target("compiler.exe", kiln::TargetType::executable);
+	configure_native(@compiler);
 };

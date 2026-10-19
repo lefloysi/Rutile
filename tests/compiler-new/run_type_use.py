@@ -10,7 +10,7 @@ from run import run_case
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
+	parser.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
 	args = parser.parse_args()
 	cases = [("type-use-" + name, "tests/compiler-new/backend/cases/" + name + ".rt")
 		for name in ["template-callable-labels", "template-nested-callable-labels",

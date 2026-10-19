@@ -37,10 +37,10 @@ def zero_stores(body):
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--compiler", type=Path)
-	parser.add_argument("--build", type=Path, default=Path("build/release"))
+	parser.add_argument("--build", type=Path, default=Path(".kiln/build/release"))
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "bin/rutile-selfhost.exe"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
 	output = build / "tests/complete-initialization"
 	output.mkdir(parents=True, exist_ok=True)
 	toolchain = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/VsDevCmd.bat")

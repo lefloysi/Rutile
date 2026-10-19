@@ -21,6 +21,17 @@ std::string kiln_list() {
 	return "[]";
 }
 
+std::string kiln_describe(CompilerRegistry&, std::string_view) {
+	return "{}";
+}
+
+std::string kiln_clean(CompilerRegistry&, std::string_view) {
+	return "{}";
+}
+
+void kiln_poll(CompilerRegistry&, build_input) {
+}
+
 std::string kiln_build(CompilerRegistry& compilers, std::string_view request, build_input input) {
 	return &compilers == expected_registry && request == "same-owner" && input == build_input::editor ? "same registry" : "wrong registry";
 }

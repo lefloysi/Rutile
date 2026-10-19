@@ -1,5 +1,5 @@
 #include "compiler.hpp"
-#include "../../kiln/configuration/execution.hpp"
+#include "../../../Kiln/configuration/execution.hpp"
 #include "project.hpp"
 #include "status.hpp"
 
@@ -18,9 +18,18 @@ std::string project_path_utf8(const std::filesystem::path& path) {
 void project_record_compilation(const std::filesystem::path&, const std::filesystem::path&, std::size_t, std::int64_t, bool) {
 }
 
-bool kiln_configure_project(const std::filesystem::path&, ProjectConfiguration&, std::string&, std::string_view profile) {
+bool kiln_configure_project(const std::filesystem::path& root, ProjectConfiguration& configuration, std::string&, std::string_view profile) {
 	if (!profile.empty() && profile != "debug") {
 		throw std::runtime_error("incorrect configuration profile");
+	}
+	for (const auto& name : { "app", "native", "library", "unknown" }) {
+		ProjectTarget target;
+		target.name = name;
+		target.source = root / "sources";
+		target.compiler = target.name == "app" ? "rutile" : target.name == "unknown" ? "absent" : "cpp";
+		target.options["mode"] = target.name;
+		target.type = target.name == "library" ? target_type::shared_lib : target_type::executable;
+		configuration.targets.push_back(std::move(target));
 	}
 	return true;
 }
@@ -117,7 +126,7 @@ int main(int count, char** arguments) {
 	for (const auto& name : { "main.rt", "main.cpp", "nested/helper.rt", "nested/helper.cpp" }) {
 		std::ofstream(root / "sources" / name) << "fake source";
 	}
-	std::ofstream(root / "kiln.yaml") << "targets:\n  app:\n    compiler: rutile\n    source: sources\n    options: {mode: app}\n  native:\n    compiler: cpp\n    source: sources\n    options: {mode: native}\n  library:\n    compiler: cpp\n    source: sources\n    type: shared_lib\n    options: {mode: library}\n  unknown:\n    compiler: absent\n    source: sources\n";
+	std::ofstream(root / "kiln.rt") << "fn main(kiln::Options& options) {};";
 	CompilerRegistry registry;
 	auto rutile = std::make_unique<FakeCompiler>("rutile", ".rt");
 	auto cpp = std::make_unique<FakeCompiler>("cpp", ".cpp");
@@ -134,7 +143,7 @@ int main(int count, char** arguments) {
 		return 4;
 	}
 	auto output = std::filesystem::u8path(first.at("executable").get<std::string>());
-	if (read_output(output) != "rutile:1" || rutile_state->staged.filename().string().find(".pending") == std::string::npos) {
+	if (read_output(output) != "rutile:1" || rutile_state->staged.parent_path().filename() != ".pending") {
 		return 5;
 	}
 	auto native = build_target(registry, "native", build_input::editor);
@@ -142,6 +151,7 @@ int main(int count, char** arguments) {
 		return 6;
 	}
 	rutile_state->behavior = FakeBehavior::fail;
+	std::ofstream(root / "sources/main.rt") << "changed fake source";
 	auto failed = build_target(registry, "app");
 	if (failed.at("succeeded").get<bool>() || failed.at("diagnostics") != "fake compilation failed" || read_output(output) != "rutile:1" || std::filesystem::exists(rutile_state->staged)) {
 		return 7;

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string]$Vsix,
     [switch]$Install,
+    [string]$KilnVsix,
     [switch]$Palette,
     [switch]$FullShell,
     [string]$RootSuffix,
@@ -21,7 +22,7 @@ if ($RootSuffix -notmatch '^RutileValidation[0-9]+$') {
 }
 $Vsix = [IO.Path]::GetFullPath($Vsix)
 if (!$Kiln) {
-    $Kiln = Join-Path $root 'build/bootstrap/bin/kiln.exe'
+    $Kiln = Join-Path $root '../Kiln/build/bootstrap/bin/kiln.exe'
 }
 $Kiln = [IO.Path]::GetFullPath($Kiln)
 if ((& $Kiln --version | Out-String).Trim() -ne $version) {
@@ -57,7 +58,10 @@ if (!$installation) {
 }
 $output = Join-Path $root ('build/vsix-tests/' + $RootSuffix)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-$packages = @($Vsix)
+if (!$KilnVsix) {
+    $KilnVsix = Join-Path $PSScriptRoot '../../../../Kiln/tools/Kiln.VisualStudio/bin/Release/Kiln.VisualStudio.vsix'
+}
+$packages = @([IO.Path]::GetFullPath($KilnVsix), $Vsix)
 if ($Palette) {
     $probe = & (Join-Path $PSScriptRoot 'BuildPaletteProbe.ps1') -OutputDirectory (Join-Path $output 'probe')
     $packages += $probe
@@ -66,10 +70,13 @@ if ($Install) {
     foreach ($package in $packages) {
         $installer = [Diagnostics.ProcessStartInfo]::new((Join-Path $installation.installationPath 'Common7/IDE/VSIXInstaller.exe'))
         $installer.UseShellExecute = $false
+        $installer.WorkingDirectory = $output
         $installer.CreateNoWindow = $true
         $installer.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
         $installer.Arguments = '/quiet /rootSuffix:' + $RootSuffix + ' /instanceids:' + $installation.instanceId + ' "' + $package + '"'
         $deployment = [Diagnostics.Process]::Start($installer)
+        @{ pid = $deployment.Id; profile = $RootSuffix; executable = $installer.FileName; arguments = $installer.Arguments } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output ("installer-" + $deployment.Id + ".json"))
         if (!$deployment.WaitForExit(120000) -or $deployment.ExitCode) {
             throw 'Installing the VSIX into the dedicated profile failed.'
         }
@@ -129,7 +136,7 @@ function Managed([string]$Directory) {
     Push-Location $Directory
     try {
         $status = (& $Kiln status 2>&1 | Out-String)
-        return $status -match '(?m)^Rutile online\s*$' -and $status -match 'managed by the IDE'
+        return $status -match '(?m)^Kiln online\s*$' -and $status -match 'managed by the IDE'
     }
     finally {
         Pop-Location
@@ -167,6 +174,8 @@ try {
         $launch.EnvironmentVariables['RUTILE_PALETTE_SOURCE'] = Join-Path $first 'app/main.rt'
     }
     $process = [Diagnostics.Process]::Start($launch)
+    @{ pid = $process.Id; profile = $RootSuffix; executable = $launch.FileName; arguments = $launch.Arguments } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'owned-process.json')
     $watchdog = [OwnedProcessTimeout]::new($process, 180000)
     Wait-For { $script:dte = [VisualStudioAutomation]::Find($process.Id); $script:dte -ne $null } 'dedicated Visual Studio automation'
     Write-Output 'Dedicated automation object: attached'

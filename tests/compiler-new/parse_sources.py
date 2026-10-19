@@ -5,11 +5,11 @@ import sys
 sys.dont_write_bytecode = True
 from run import ROOT, run_case
 
-standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt",
-	"kiln/compiler/std/string.rt", "kiln/compiler/std/hash.rt", "kiln/compiler/std/equal.rt", "kiln/compiler/std/unordered_map.rt"]
-frontend = ["kiln/compiler/src/frontend/token.rt", "kiln/compiler/src/frontend/source.rt", "kiln/compiler/src/frontend/lexer.rt", "kiln/compiler/src/syntax/tree.rt", "kiln/compiler/src/frontend/parser.rt"]
-driver = ["kiln/compiler/src/driver/file.rt", "kiln/compiler/src/driver/diagnostics.rt", "kiln/compiler/src/driver/source_reader.rt"]
-paths = sorted([*ROOT.joinpath("kiln/compiler/std").rglob("*.rt"), *ROOT.joinpath("kiln/compiler/src").rglob("*.rt")])
+standard = ["compiler/std/unique.rt", "compiler/std/optional.rt", "compiler/std/buffer.rt", "compiler/std/string_view.rt",
+	"compiler/std/string.rt", "compiler/std/hash.rt", "compiler/std/equal.rt", "compiler/std/unordered_map.rt"]
+frontend = ["compiler/src/frontend/token.rt", "compiler/src/frontend/source.rt", "compiler/src/frontend/lexer.rt", "compiler/src/syntax/tree.rt", "compiler/src/frontend/parser.rt"]
+driver = ["compiler/src/driver/file.rt", "compiler/src/driver/diagnostics.rt", "compiler/src/driver/source_reader.rt"]
+paths = sorted([*ROOT.joinpath("compiler/std").rglob("*.rt"), *ROOT.joinpath("compiler/src").rglob("*.rt")])
 fixture = ROOT / "build/compiler-new/parser-own-sources/sources.rt"
 fixture.parent.mkdir(parents=True, exist_ok=True)
 lines = ["fn main() -> i32 {", "i32 result = 0;"]

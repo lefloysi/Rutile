@@ -9,7 +9,7 @@ from run import ROOT, run_case as component_case
 
 
 arguments = argparse.ArgumentParser(description=__doc__)
-arguments.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
+arguments.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
 configuration = arguments.parse_args()
 
 
@@ -17,10 +17,10 @@ def run_case(name, sources, **options):
 	return component_case(name, sources, compiler=configuration.compiler, **options)
 
 
-standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kiln/compiler/std/buffer.rt",
-	"kiln/compiler/std/string_view.rt", "kiln/compiler/std/string.rt", "kiln/compiler/std/hash.rt", "kiln/compiler/std/equal.rt", "kiln/compiler/std/unordered_map.rt"]
-frontend = [*standard, "kiln/compiler/src/frontend/token.rt", "kiln/compiler/src/frontend/source.rt",
-	"kiln/compiler/src/frontend/lexer.rt"]
+standard = ["compiler/std/unique.rt", "compiler/std/optional.rt", "compiler/std/buffer.rt",
+	"compiler/std/string_view.rt", "compiler/std/string.rt", "compiler/std/hash.rt", "compiler/std/equal.rt", "compiler/std/unordered_map.rt"]
+frontend = [*standard, "compiler/src/frontend/token.rt", "compiler/src/frontend/source.rt",
+	"compiler/src/frontend/lexer.rt"]
 
 for name in ["buffer", "buffer-lifetime", "buffer-clear-order", "buffer-copy", "buffer-alias", "buffer-owners", "unique", "text", "string-sso",
 	"optional", "optional-ref", "optional-lifetime", "unique-policy", "hash", "unordered-map",
@@ -38,36 +38,36 @@ run_case("std-optional-copy", [*standard, "tests/compiler-new/std/optional-copy.
 
 run_case("frontend-lexer", [*frontend, "tests/compiler-new/frontend/lexer.rt"],
 	entry="rutile_frontend_tests", expected=0)
-run_case("frontend-parser", [*frontend, "kiln/compiler/src/syntax/tree.rt",
-	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt"], entry="parser_tests")
-run_case("frontend-editor-recovery", [*frontend, "kiln/compiler/src/syntax/tree.rt",
-	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/editor-recovery.rt"], entry="editor_recovery_tests")
-run_case("frontend-typed-callee", [*frontend, "kiln/compiler/src/syntax/tree.rt",
-	"kiln/compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt",
+run_case("frontend-parser", [*frontend, "compiler/src/syntax/tree.rt",
+	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt"], entry="parser_tests")
+run_case("frontend-editor-recovery", [*frontend, "compiler/src/syntax/tree.rt",
+	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/editor-recovery.rt"], entry="editor_recovery_tests")
+run_case("frontend-typed-callee", [*frontend, "compiler/src/syntax/tree.rt",
+	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt",
 	"tests/compiler-new/frontend/typed-callee.rt"], entry="typed_callee_tests")
-run_case("semantic-types", [*standard, "kiln/compiler/src/semantic/type.rt",
-	"kiln/compiler/src/semantic/type_store.rt", "kiln/compiler/src/semantic/primitives.rt",
+run_case("semantic-types", [*standard, "compiler/src/semantic/type.rt",
+	"compiler/src/semantic/type_store.rt", "compiler/src/semantic/primitives.rt",
 	"tests/compiler-new/semantic/types.rt"])
-run_case("primitive-registry", [*standard, "kiln/compiler/src/semantic/type.rt",
-	"kiln/compiler/src/semantic/type_store.rt", "kiln/compiler/src/semantic/primitives.rt",
+run_case("primitive-registry", [*standard, "compiler/src/semantic/type.rt",
+	"compiler/src/semantic/type_store.rt", "compiler/src/semantic/primitives.rt",
 	"tests/compiler-new/semantic/primitive-registry.rt"])
-run_case("constant-queries", [*frontend, "kiln/compiler/src/syntax/tree.rt",
-	"kiln/compiler/src/semantic/type.rt", "kiln/compiler/src/semantic/type_store.rt",
-	"kiln/compiler/src/semantic/primitives.rt",
-	"kiln/compiler/src/semantic/type_use.rt",
-	"kiln/compiler/src/semantic/entity.rt", "kiln/compiler/src/semantic/scope.rt",
-	"kiln/compiler/src/semantic/expression.rt", "kiln/compiler/src/semantic/type_queries.rt",
-	"kiln/compiler/src/semantic/copy_assignment.rt",
-	"kiln/compiler/src/semantic/constant_queries.rt", "kiln/compiler/src/semantic/real_queries.rt",
+run_case("constant-queries", [*frontend, "compiler/src/syntax/tree.rt",
+	"compiler/src/semantic/type.rt", "compiler/src/semantic/type_store.rt",
+	"compiler/src/semantic/primitives.rt",
+	"compiler/src/semantic/type_use.rt",
+	"compiler/src/semantic/entity.rt", "compiler/src/semantic/scope.rt",
+	"compiler/src/semantic/expression.rt", "compiler/src/semantic/type_queries.rt",
+	"compiler/src/semantic/copy_assignment.rt",
+	"compiler/src/semantic/constant_queries.rt", "compiler/src/semantic/real_queries.rt",
 	"tests/compiler-new/semantic/constant-queries.rt"])
-run_case("source-reader", [*frontend, "kiln/compiler/src/driver/file.rt",
-	"kiln/compiler/src/driver/diagnostics.rt", "kiln/compiler/src/driver/source_reader.rt",
+run_case("source-reader", [*frontend, "compiler/src/driver/file.rt",
+	"compiler/src/driver/diagnostics.rt", "compiler/src/driver/source_reader.rt",
 	"tests/compiler-new/driver/source_reader.rt"])
 
-semantic = ["kiln/compiler/src/" + path for path in (ROOT / "kiln/compiler/sources.list").read_text().splitlines()
-	if path.startswith("semantic/")]
-model = [*frontend, "kiln/compiler/src/syntax/tree.rt", "kiln/compiler/src/frontend/parser.rt",
-	"kiln/compiler/src/driver/file.rt", "kiln/compiler/src/driver/diagnostics.rt", *semantic,
+semantic = [path.relative_to(ROOT).as_posix()
+	for path in sorted((ROOT / "compiler/src/semantic").rglob("*.rt"))]
+model = [*frontend, "compiler/src/syntax/tree.rt", "compiler/src/frontend/parser.rt",
+	"compiler/src/driver/file.rt", "compiler/src/driver/diagnostics.rt", *semantic,
 	"tests/compiler-new/semantic/templates.rt"]
 run_case("primitive-scopes", [*model, "tests/compiler-new/semantic/primitive-scopes.rt"],
 	entry="primitive_scope_tests")

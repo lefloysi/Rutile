@@ -21,27 +21,27 @@ def checked(command, directory, environment=None, expected=0):
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--object", required=True, type=Path)
-	parser.add_argument("--build", required=True, type=Path)
+	parser.add_argument("--object", type=Path)
+	parser.add_argument("--build", default=Path(".kiln/build/release"), type=Path)
 	parser.add_argument("--compiler", type=Path)
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	core = (ROOT / options.object).resolve()
-	cache = (build / "CMakeCache.txt").read_text()
-	runtime = "/MDd" if "CMAKE_BUILD_TYPE:STRING=Debug" in cache else "/MD"
+	core = (ROOT / options.object).resolve() if options.object else build / "target-727574696c652d6c616e67756167652e6f626a/rutile-language.obj"
+	runtime = "/MD"
 	directory = build / "tests/emission-diagnostics"
 	directory.mkdir(parents=True, exist_ok=True)
-	llvm = Path(os.environ.get("LLVM_ROOT", "C:/Program Files/LLVM"))
+	native = ROOT.parent / "Kiln/build/bootstrap"
 	toolchain = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/VsDevCmd.bat")
 	executable = directory / "entry_diagnostics.exe"
 	command = ["cl", "/nologo", "/EHsc", runtime, "/std:c++20",
 		str(ROOT / "tests/compiler-new/backend/entry_diagnostics.cpp"), str(core),
-		str(build / "base/base.lib"), str(llvm / "lib/LLVM-C.lib"),
+		str(ROOT / "base/src/windows.cpp"), str(ROOT / "base/src/runtime.cpp"),
+		"/I" + str(ROOT / "base/include"), str(native / "lib/LLVM-C.lib"),
 		"/Fe:" + str(executable), "/link", "legacy_stdio_definitions.lib",
 		"kernel32.lib", "user32.lib", "shell32.lib", "advapi32.lib"]
 	checked(f'cmd /d /s /c ""{toolchain}" -no_logo -arch=x64 && {subprocess.list2cmdline(command)}"', directory)
 	environment = dict(os.environ)
-	environment["PATH"] = str(build / "bin") + os.pathsep + str(llvm / "bin") + os.pathsep + environment.get("PATH", "")
+	environment["PATH"] = str(native / "bin") + os.pathsep + environment.get("PATH", "")
 
 	cases = [
 		("missing", "fn helper() -> i32 { return 42; };", "absent_entry", ["absent_entry", "not declared|unknown"]),

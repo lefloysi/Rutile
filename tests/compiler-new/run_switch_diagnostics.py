@@ -31,7 +31,7 @@ CASES = [
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
+	parser.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
 	options = parser.parse_args()
 	output = ROOT / "build/compiler-new/switch-diagnostics"
 	output.mkdir(parents=True, exist_ok=True)

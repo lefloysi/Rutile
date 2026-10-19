@@ -42,7 +42,7 @@ namespace language_tests {
 			arguments.push_back("compile");
 		}
 		for (const auto* name : { "unique", "optional", "buffer", "string_view", "string", "hash", "equal", "unordered_map" }) {
-			arguments.push_back(path_text(source / "kiln/compiler/std" / (std::string(name) + ".rt")));
+			arguments.push_back(path_text(source / "compiler/std" / (std::string(name) + ".rt")));
 		}
 		arguments.push_back(path_text(source / std::filesystem::u8path(fixture)));
 		arguments.insert(arguments.end(), { "--output", path_text(object), "--optimization", "2" });

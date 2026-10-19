@@ -7,7 +7,7 @@ sys.dont_write_bytecode = True
 from run import run_case
 
 
-compiler = "build/release/bin/rutile-selfhost.exe"
+compiler = ".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe"
 sources = "tests/compiler-new/semantic/"
 failures = []
 
@@ -93,8 +93,8 @@ check("generated-copy-assignment-deleted", sources + "generated-copy-assignment-
 check("generated-place-move-reject", sources + "generated-place-move-reject.rt",
 	reject="no applicable operator '='")
 check("generated-string-copy", sources + "generated-string-copy.rt",
-	dependencies=["kiln/compiler/std/unique.rt", "kiln/compiler/std/buffer.rt",
-		"kiln/compiler/std/string_view.rt", "kiln/compiler/std/string.rt"])
+	dependencies=["compiler/std/unique.rt", "compiler/std/buffer.rt",
+		"compiler/std/string_view.rt", "compiler/std/string.rt"])
 for name in ["null-constant-missing", "void-constant-missing"]:
 	check("backend-" + name, "tests/compiler-new/backend/cases/" + name + ".rt",
 		reject="unknown identifier")
@@ -106,20 +106,20 @@ check("variadic-aggregate", "tests/compiler-new/backend/cases/variadic-aggregate
 
 for name in ["optional", "optional-ref", "optional-lifetime"]:
 	check("native-" + name, "tests/compiler-new/std/" + name + ".rt",
-		dependencies=["kiln/compiler/std/optional.rt"])
+		dependencies=["compiler/std/optional.rt"])
 check("native-optional-copy", "tests/compiler-new/std/optional-copy.rt", reject="deleted",
-	dependencies=["kiln/compiler/std/optional.rt"])
+	dependencies=["compiler/std/optional.rt"])
 check("native-unique-policy", "tests/compiler-new/std/unique-policy.rt",
-	dependencies=["kiln/compiler/std/unique.rt"])
-standard = ["kiln/compiler/std/unique.rt", "kiln/compiler/std/optional.rt", "kiln/compiler/std/buffer.rt", "kiln/compiler/std/string_view.rt",
-	"kiln/compiler/std/string.rt", "kiln/compiler/std/hash.rt", "kiln/compiler/std/equal.rt", "kiln/compiler/std/unordered_map.rt"]
+	dependencies=["compiler/std/unique.rt"])
+standard = ["compiler/std/unique.rt", "compiler/std/optional.rt", "compiler/std/buffer.rt", "compiler/std/string_view.rt",
+	"compiler/std/string.rt", "compiler/std/hash.rt", "compiler/std/equal.rt", "compiler/std/unordered_map.rt"]
 for name in ["buffer", "buffer-copy", "buffer-lifetime", "buffer-clear-order", "buffer-alias", "buffer-owners", "unique", "text",
 	"hash", "unordered-map", "unordered-map-collisions", "unordered-map-default-hash",
 	"unordered-map-function-hash"]:
 	check("native-" + name, "tests/compiler-new/std/" + name + ".rt", dependencies=standard)
 check("native-primitive-registry", sources + "primitive-registry.rt",
-	dependencies=[*standard, "kiln/compiler/src/semantic/type.rt", "kiln/compiler/src/semantic/type_store.rt",
-		"kiln/compiler/src/semantic/primitives.rt"])
+	dependencies=[*standard, "compiler/src/semantic/type.rt", "compiler/src/semantic/type_store.rt",
+		"compiler/src/semantic/primitives.rt"])
 check("function-parameter-labels", "tests/compiler/cases/type-equivalence-function-names/main.rt")
 check("pointer-difference-type", "tests/compiler/cases/ptrdiff/main.rt")
 check("implicit-builtin-copies", "tests/compiler/cases/implicit-same-type-builtins/main.rt")

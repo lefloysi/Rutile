@@ -1,5 +1,5 @@
 param(
-	[string]$Compiler = "$PSScriptRoot/../../../build/bootstrap/compiler.exe",
+	[string]$Compiler = "$PSScriptRoot/../../../.kiln/build/release/target-636f6d70696c65722e657865/compiler.exe",
 	[string]$DeveloperCommand = '',
 	[string]$Output = "$PSScriptRoot/../../../build/tests/compiler-new/std"
 )
@@ -18,10 +18,10 @@ if (!$DeveloperCommand) {
 }
 $DeveloperCommand = (Resolve-Path -LiteralPath $DeveloperCommand).Path
 $libraries = @(
-	"$root/kiln/compiler/std/unique.rt",
-	"$root/kiln/compiler/std/buffer.rt",
-	"$root/kiln/compiler/std/string_view.rt",
-	"$root/kiln/compiler/std/string.rt"
+	"$root/compiler/std/unique.rt",
+	"$root/compiler/std/buffer.rt",
+	"$root/compiler/std/string_view.rt",
+	"$root/compiler/std/string.rt"
 )
 $checks = @(
 	@{ name = 'buffer'; fixture = 'buffer.rt' },
@@ -46,7 +46,7 @@ foreach ($check in $checks) {
 		if ($status -ne 1 -or !$diagnostics.Contains($check.diagnostic)) {
 			throw "$($check.name): expected '$($check.diagnostic)', exit=$status output=$diagnostics"
 		}
-		Write-Output "kiln/compiler/std/$($check.name): PASS"
+		Write-Output "compiler/std/$($check.name): PASS"
 		continue
 	}
 	if ($status) {
@@ -61,5 +61,5 @@ foreach ($check in $checks) {
 	if ($LASTEXITCODE -ne 42) {
 		throw "$($check.name): expected exit 42, got $LASTEXITCODE"
 	}
-	Write-Output "kiln/compiler/std/$($check.name): PASS"
+	Write-Output "compiler/std/$($check.name): PASS"
 }

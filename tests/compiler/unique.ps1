@@ -2,7 +2,7 @@ param([string]$Rutile = "$PSScriptRoot/../../build/debug/bin/rutile.exe", [strin
 
 $ErrorActionPreference = 'Stop'
 $Rutile = (Resolve-Path -LiteralPath $Rutile).Path
-$library = Get-Content -LiteralPath "$PSScriptRoot/../../kiln/compiler/std/unique.rt" -Raw
+$library = Get-Content -LiteralPath "$PSScriptRoot/../../compiler/std/unique.rt" -Raw
 $workspace = [IO.Path]::GetFullPath("$PSScriptRoot/../../build/$Profile/tests/unique")
 $runtime = @'
 struct Tracker {

@@ -6,7 +6,7 @@ import statistics
 import tempfile
 import time
 
-from protocol import Client, at, open_document, position
+from protocol import Client, at, open_document, position, write_project
 
 
 def main(server):
@@ -15,7 +15,7 @@ def main(server):
 	with tempfile.TemporaryDirectory(prefix="navigation ", dir=output) as directory:
 		root = Path(directory)
 		(root / "src").mkdir()
-		(root / "rutile.yaml").write_text("targets:\n  app:\n    source: src\n    entry: main\n")
+		write_project(root, [("app", "executable", ["src"])])
 		for file in range(100):
 			(root / "src" / f"library_{file:03}.rt").write_text("".join(
 				f"fn item_{file}_{number}()->i32 {{return {number};}};\n" for number in range(100)))
@@ -59,8 +59,8 @@ def main(server):
 
 			(root / "other").mkdir()
 			(root / "other/main.rt").write_text("fn main()->i32 {return 0;};\n")
-			(root / "rutile.yaml").write_text("targets:\n  app:\n    source: other\n    entry: main\n")
-			client.send("workspace/didChangeWatchedFiles", {"changes": [{"uri": (root / "rutile.yaml").as_uri(), "type": 2}]})
+			write_project(root, [("app", "executable", ["other"])])
+			client.send("workspace/didChangeWatchedFiles", {"changes": [{"uri": (root / "kiln.rt").as_uri(), "type": 2}]})
 			client.ready({uri: 1}, timeout=60)
 			assert not client.request("textDocument/definition", query)
 			print("watched project configuration changes rebuild target boundaries: PASS", flush=True)
@@ -73,5 +73,5 @@ def main(server):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--server", type=Path, default=Path("build/release/bin/kiln.exe"))
+	parser.add_argument("--server", type=Path, default=Path("../Kiln/build/bootstrap/bin/kiln.exe"))
 	main(parser.parse_args().server.resolve())

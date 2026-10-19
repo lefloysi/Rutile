@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
-	[string]$Kiln = "$PSScriptRoot/../../build/bootstrap/bin/kiln.exe",
+	[string]$Kiln = "$PSScriptRoot/../../../Kiln/build/bootstrap/bin/kiln.exe",
 	[string]$Dependencies
 )
 $ErrorActionPreference = 'Stop'
 $project_root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$kiln_build = [IO.Path]::GetFullPath((Join-Path $project_root '../Kiln/build/bootstrap'))
 $destination = Join-Path $project_root 'build/seed-refresh'
 New-Item -ItemType Directory -Force "$destination/bin" | Out-Null
 & "$PSScriptRoot/bootstrap.ps1" -PrepareOnly -Dependencies $Dependencies
@@ -18,27 +19,27 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
 }
 
 $sources = @('unique', 'optional', 'buffer', 'string_view', 'string', 'hash', 'equal', 'unordered_map') | ForEach-Object {
-	Join-Path $project_root "kiln/compiler/std/$_.rt"
+	Join-Path $project_root "compiler/std/$_.rt"
 }
-$sources += Get-ChildItem -LiteralPath "$project_root/kiln/compiler/src" -Recurse -Filter '*.rt' |
+$sources += Get-ChildItem -LiteralPath "$project_root/compiler/src" -Recurse -Filter '*.rt' |
 	Sort-Object FullName | Select-Object -ExpandProperty FullName
 $compiler_object = "$destination/compiler.obj"
 Invoke-Checked $Kiln (@('compile') + $sources + @('--output', $compiler_object, '--optimization', '2'))
 
 $objects = @($compiler_object)
 $index = 0
-foreach ($source in @('kiln/compiler/src/main.cpp', 'base/src/windows.cpp', 'base/src/runtime.cpp', 'version/runtime.cpp')) {
+foreach ($source in @('compiler/src/main.cpp', 'base/src/windows.cpp', 'base/src/runtime.cpp', 'version/runtime.cpp')) {
 	$object = "$destination/seed-native-$index.obj"
-	Invoke-Checked (Get-Command cl.exe).Source @('/nologo', '/std:c++latest', '/EHsc', '/MD', "/I$project_root/base/include", "/I$project_root/version", "/I$project_root/build/bootstrap/include", "/FI$project_root/build/bootstrap/config.hpp", '/c', "$project_root/$source", "/Fo$object")
+	Invoke-Checked (Get-Command cl.exe).Source @('/nologo', '/std:c++latest', '/EHsc', '/MD', "/I$project_root/base/include", "/I$project_root/version", "/I$kiln_build/include", "/FI$kiln_build/config.hpp", '/c', "$project_root/$source", "/Fo$object")
 	$objects += $object
 	$index++
 }
 $seed = "$destination/bin/compiler.exe"
 Invoke-Checked (Get-Command link.exe).Source (@('/nologo', '/incremental:no', "/out:$seed") + $objects + @(
-	"$project_root/build/bootstrap/lib/LLVM-C.lib", "$project_root/build/bootstrap/lib/CLI11.lib",
+	"$kiln_build/lib/LLVM-C.lib", "$kiln_build/lib/CLI11.lib",
 	'legacy_stdio_definitions.lib', 'kernel32.lib', 'user32.lib', 'shell32.lib', 'advapi32.lib'
 ))
-Copy-Item -LiteralPath "$project_root/distro/windows-x64/LLVM-C.dll" -Destination "$destination/bin/LLVM-C.dll" -Force
+Copy-Item -LiteralPath "$kiln_build/bin/LLVM-C.dll" -Destination "$destination/bin/LLVM-C.dll" -Force
 
 $parts = foreach ($source in $sources) {
 	[IO.File]::ReadAllText($source).Replace("`r`n", "`n").TrimEnd("`n")

@@ -19,35 +19,34 @@ def checked(command, *, cwd=ROOT, environment=None, expected=0):
 
 def main():
 	arguments = argparse.ArgumentParser(description=__doc__)
-	arguments.add_argument("--compiler", default="build/release/bin/rutile-selfhost.exe")
-	arguments.add_argument("--build", default="build/release")
+	arguments.add_argument("--compiler", type=Path)
+	arguments.add_argument("--build", default=".kiln/build/release")
 	arguments.add_argument("--source-root", type=Path, default=ROOT)
 	options = arguments.parse_args()
 	build = ROOT / options.build
-	cache = (build / "CMakeCache.txt").read_text()
-	runtime = "/MDd" if "CMAKE_BUILD_TYPE:STRING=Debug" in cache else "/MD"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	runtime = "/MD"
 	source_root = options.source_root.resolve()
 	directory = ROOT / "build/compiler-new/language-shared"
 	directory.mkdir(parents=True, exist_ok=True)
-	standard = [source_root / "kiln/compiler/std" / (name + ".rt") for name in
+	standard = [source_root / "compiler/std" / (name + ".rt") for name in
 		["unique", "optional", "buffer", "string_view", "string", "hash", "equal", "unordered_map"]]
-	modules = [source_root / "kiln/compiler/src" / name for name in
-		(source_root / "kiln/compiler/sources.list").read_text().splitlines() if name and not name.startswith("#")]
+	modules = sorted((source_root / "compiler/src").rglob("*.rt"))
 	output = directory / "case.obj"
-	checked([str(ROOT / options.compiler), *map(str, standard + modules),
+	checked([str(compiler), *map(str, standard + modules),
 		str(ROOT / "tests/compiler-new/language/shared.rt"), "--output", str(output), "--optimization", "0"])
 	print("language-shared: compiler source and fixture compile PASS", flush=True)
 
-	llvm = Path(os.environ.get("LLVM_ROOT", "C:/Program Files/LLVM"))
+	native = ROOT.parent / "Kiln/build/bootstrap"
 	toolchain = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/VsDevCmd.bat")
 	executable = directory / "case.exe"
-	command = ["cl", "/nologo", "/EHsc", runtime, "/std:c++20", "/I" + str(ROOT / "kiln/compiler/include"),
-		str(ROOT / "tests/compiler-new/language/main.cpp"), str(output), str(build / "base/base.lib"),
-		str(llvm / "lib/LLVM-C.lib"), "/Fe:" + str(executable), "/link", "legacy_stdio_definitions.lib",
+	command = ["cl", "/nologo", "/EHsc", runtime, "/std:c++20", "/I" + str(ROOT / "compiler/include"),
+		str(ROOT / "tests/compiler-new/language/main.cpp"), str(output), str(ROOT / "base/src/windows.cpp"), str(ROOT / "base/src/runtime.cpp"),
+		"/I" + str(ROOT / "base/include"), str(native / "lib/LLVM-C.lib"), "/Fe:" + str(executable), "/link", "legacy_stdio_definitions.lib",
 		"kernel32.lib", "user32.lib", "shell32.lib", "advapi32.lib"]
 	checked(f'cmd /d /s /c ""{toolchain}" -no_logo -arch=x64 && {subprocess.list2cmdline(command)}"', cwd=directory)
 	environment = dict(os.environ)
-	environment["PATH"] = str(llvm / "bin") + os.pathsep + str(build / "bin") + os.pathsep + environment.get("PATH", "")
+	environment["PATH"] = str(native / "bin") + os.pathsep + environment.get("PATH", "")
 	checked([str(executable)], cwd=directory, environment=environment, expected=42)
 	replayed = (directory / "shared-target-diagnostic.txt").read_text()
 	if "unsaved-error.rt:" not in replayed or "error:" not in replayed or "note:" not in replayed or "pick" not in replayed:

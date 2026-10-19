@@ -144,7 +144,7 @@ static class ClassifierLifetimeTests {
 				serverRpc.AddLocalRpcTarget(target);
 				serverRpc.StartListening();
 				clientRpc.StartListening();
-				var languageClient = (ILanguageClient)Activator.CreateInstance(assembly.GetType("Rutile.VisualStudio.RutileLanguageClient", true), true);
+				var languageClient = (ILanguageClient)Activator.CreateInstance(assembly.GetType("Rutile.VisualStudio.RutileLanguageClient", true), new object[] { new InterfaceStub<Kiln.VisualStudio.IKilnWorkspace>((method, values) => null).Value });
 				if (!((JObject)languageClient.InitializationOptions).Value<bool>("rutileSemanticColors")) {
 					throw new Exception("Custom classifier did not opt out of native semantic tagger");
 				}

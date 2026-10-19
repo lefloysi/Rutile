@@ -1,198 +1,66 @@
-# Kiln and Rutile for Visual Studio 2022
+# Rutile for Visual Studio 2022
 
-The same extension supplies Kiln project support and Rutile language support. Open a folder
-containing `kiln.rt`. The extension loads Kiln project support without requiring a source file
-to be open. Select a profile and target in the standard Visual Studio toolbar or in
-**Tools > Kiln**. Both selectors stay synchronized. The selection is saved in
-`.vs/kiln/selection.json` for that workspace.
+Rutile language support installs separately from the generic Kiln extension. Install
+`Kiln.VisualStudio.vsix` first, then `Rutile.VisualStudio.vsix`.
 
-**Build**, **Run**, and **Debug** build the selected target through the persistent project
-session. The normal Visual Studio Build command, F5, and Ctrl+F5 use the selected Kiln target.
-F5 continues to behave normally once a debugging session has started. Program arguments can
-be entered in the Kiln window. Library targets can be built but cannot be launched.
-MSVC and Clang build diagnostics appear in the Error List with source navigation.
-Debug uses Visual Studio's native debugger; source stepping requires debug information from
-the selected compiler integration.
+The Rutile extension imports Kiln's workspace service through MEF. Kiln supplies the active
+folder or solution, workspace change notifications, and the installed host executable. Rutile
+owns its language-server connection and editor subscriptions. Changing the workspace restarts
+that connection; closing it releases its process. The native language server currently runs
+through `kiln.exe language-server --stdio` supplied by the Kiln extension.
 
-The extension generates Visual Studio's folder build tasks, startup configurations, and C++
-IntelliSense configuration from Kiln's target descriptions. Includes, defines, forced includes,
-and the C++ standard come from the target's compiler options. Entries named `Kiln: ...` are
-owned by the extension and refreshed when the profile or configuration changes. Other entries
-are preserved. Invalid existing JSON is reported and left intact.
+Kiln owns build, run, debug, profile and target selection, and C++ workspace configuration.
+The Rutile package supplies `.rt` content types, diagnostics, completion, hover, navigation,
+signature help, semantic colors, and editable template argument contexts. Grammar and binding
+remain in the compiler. Rename is not advertised by the server.
 
-These generated files are `.vs/tasks.vs.json`, `.vs/launch.vs.json`, and `CppProperties.json`.
-They follow Visual Studio's documented Open Folder configuration:
-<https://learn.microsoft.com/visualstudio/ide/customize-build-and-debug-tasks-in-visual-studio>
-The session keeps running between requests and after the Kiln window is hidden. Opening another
-folder changes the extension's project selection. Closing the IDE releases its UI subscriptions;
-the generic project session can continue serving other clients.
-The Kiln window refreshes cached build state every two seconds. Background rebuild failures
-update its status and the Error List without another explicit Build command.
+Comments, strings and numbers receive immediate lexical colors. Compiler classifications supply
+user types, aliases, functions and contextual syntax. Cached semantic spans move with unchanged
+text during analysis. Customize the Rutile classifications in Fonts and Colors. Language-server
+errors appear in the Rutile Output pane.
 
-Changes to the root `kiln.rt` refresh the target list. Kiln configuration is Rutile code, including
-project declarations, profiles, and subdirectories. Actual compiler invocation and source watching
-belong to Kiln, rather than the extension.
+## Build and install
 
-The extension registers `.rt` files and connects Visual Studio's built-in language client to
-`kiln.exe language-server --stdio`. Kiln starts in the open folder workspace or solution directory
-supplied by Visual Studio. Grammar and name binding remain in the compiler.
-
-The server provides diagnostics, hover, definitions, declarations, references, completion,
-signature help, document and workspace symbols, and compiler-backed semantic tokens.
-Rename is not advertised by the server.
-
-Highlighting uses Rutile-specific editor styles. Functions, methods, and enum values default to
-pale yellow; namespaces to light gray; user types to green; ordinary keywords and primitive types
-to blue; and control-flow words to purple. The **Rutile** entries in Visual Studio's Fonts and
-Colors
-settings can customize these defaults without changing C++ or other languages.
-Comments, strings, and numbers are colored immediately. User types and aliases come from compiler
-bindings, and contextual words such as access labels and casts come from compiler syntax.
-
-Compiler tokens are rendered by Rutile's classifier rather than relying on Visual Studio's optional
-C++ classifications. Bound spans remain visible and move with unchanged text while an edit is
-being analyzed. The compiler's completed-index notification refreshes their semantic
-classifications.
-
-Visual Studio watches `.rt` and `.list` files throughout the active workspace and
-forwards external changes to Kiln. Opening a different folder or solution replaces the owned
-Kiln process. Closing the workspace stops it. These subscriptions are released with the client.
-
-Server errors appear in the **Rutile** Output pane. Closing the language connection releases
-its server process. Cancellation also terminates it; stderr is drained independently of LSP.
-
-## Build
-
-Install the Visual Studio 2022 extension development workload. The project targets .NET
-Framework 4.7.2 and the cached Visual Studio 17 SDK packages.
-
-Build the `kiln` target first, then package from the repository root:
+Install Visual Studio 2022 with the extension development workload, then build each package:
 
 ```powershell
-kiln build kiln --profile release
+../Kiln/tools/Kiln.VisualStudio/Package.ps1 -Configuration Release
 ./tools/Rutile.VisualStudio/Package.ps1 -Configuration Release
 ```
 
-The package script locates the installed Visual Studio SDK and x64 MSVC redistributables.
-It uses the SDK's VSIX packaging target and does not install or launch the extension.
-The result is `tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix`.
-Its manifest and assembly versions come from `version/release.txt`.
-The source manifest is a template. Packaging rejects a Kiln binary with a different version.
+The first script requires the bootstrapped Kiln executable and native runtime. The Rutile script
+builds the managed language extension and verifies its separate manifest, dependency and payload.
+It does not bundle Kiln or duplicate its native runtime. Rutile's package and assembly versions
+come from `version/release.txt`.
 
-For other build directories, pass `-RutileServerDirectory <absolute-path>`. The matching
-MSBuild property has the same name. The default is `build/bootstrap/bin`.
-`RutileCrtDirectory` can select an explicit x64 CRT payload directory.
-
-The VSIX includes the extension assembly and package registration, `kiln.exe`, `LLVM-C.dll`,
-plus the x64 MSVC runtime libraries.
-Packaging fails if required native inputs are missing.
-The standard Rutile sources and Kiln configuration API are included under `share/kiln`.
-Debug packages also include the developer Debug CRT and debug Universal CRT from the installed SDK.
-
-## Install and use
-
-Open `tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix` to start the VSIX installer.
-Select Visual Studio 2022 and restart it if the installer requests it. Open the Rutile folder
-or its solution, then open a `.rt` file. Use F12 on a symbol to navigate to its definition.
-Completion and signature help use Visual Studio's normal editor commands.
-
-Place the caret inside a template to show a compact context dropdown and pencil beside its
-template declaration. The pencil opens sample argument fields, one for each parameter. Leave
-trailing defaulted parameters empty to use their defaults, then select **Apply**. The compiler
-resolves new samples even when the program has no existing instantiation. The dropdown can add
-existing instantiations or clear its samples. Argument errors stay in the popup and do not change
-build diagnostics. Generic hover stays concise.
+Release packaging copies each verified VSIX into its project's `distro/windows-x64` folder.
+Install Kiln's `Kiln.VisualStudio.vsix`, then Rutile's `Rutile.VisualStudio.vsix`. Open a folder or
+solution, then a `.rt` document. Build and F5 continue to use the Kiln extension's selection.
+Use the template context pencil to enter sample arguments; trailing defaulted arguments may
+remain empty. Apply resolves the samples through the compiler without changing build diagnostics.
 
 ## Verification
 
-Check generated build tasks, debugger configurations, C++ settings, profile replacement, user
-settings preservation, malformed JSON preservation, and Windows argument quoting:
-
-```powershell
-./tools/Rutile.VisualStudio/tests/RunKilnWorkspace.ps1
-```
-
-These checks compile and execute C# with managed exception logging. SDK compilation verifies
-package registration and command interfaces; an interactive host check is still required to
-verify menu loading, native Build/F5 routing, Error List navigation, and actual breakpoints.
-
-The dedicated workspace host check opens a mixed C++/Rutile folder, invokes Visual Studio's
-Build command, opens a Rutile document after the project session has started, and checks a
-native F5 breakpoint:
-
-```powershell
-powershell.exe -NoProfile -STA -ExecutionPolicy Bypass `
-    -File tools/Rutile.VisualStudio/tests/VerifyKilnWorkspace.ps1 `
-    -Vsix tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix -Install
-```
-
-It uses a separate `RutileValidation<number>` profile and leaves the normal IDE profile alone.
-Results and activity logs are written under `build/vsix-tests`.
-
-Run the process ownership checks without starting Visual Studio:
-
 ```powershell
 ./tools/Rutile.VisualStudio/tests/Run.ps1
-```
-
-Run lexical and semantic-color mapping checks without starting Visual Studio:
-
-```powershell
 ./tools/Rutile.VisualStudio/tests/RunHighlighting.ps1
-```
-
-These compile against the installed SDK and check keyword categories, comments, literals,
-UTF-16 spans, document synchronization, and explicit semantic classification delivery.
-
-Check late document attachment and the editable template control after building the extension:
-
-```powershell
 ./tools/Rutile.VisualStudio/tests/RunClassifierLifetime.ps1
 ./tools/Rutile.VisualStudio/tests/RunTemplateArguments.ps1
 ```
 
-These check the public server-ready lifecycle over framed JSON-RPC through the actual classifier,
-including both callback orders and late document attachment. Semantic setup explicitly obtains
-Kiln's canonical legend; it does not depend on initialization middleware. The custom client opts
-out of the competing native semantic tagger. Control tests cover defaults, stored samples, WPF
-rendering, pending responses, and stale snapshots. They do not inspect the installed editor.
+These checks cover process ownership, lexical and semantic classifications, late document
+attachment, server-ready callback ordering, and editable template controls. Build and workspace
+checks live with `Kiln/tools/Kiln.VisualStudio/tests`.
 
-The process checks exercise the actual stream implementation with an isolated child:
-working directory, stderr drainage beyond pipe capacity, connection disposal, cancellation,
-concurrent cleanup, and unexpected exit reporting.
-
-The opt-in Visual Studio check uses a dedicated `RutileValidation<number>` profile:
+The opt-in Visual Studio host check accepts both separately built packages:
 
 ```powershell
 powershell.exe -NoProfile -STA -ExecutionPolicy Bypass `
     -File tools/Rutile.VisualStudio/tests/VerifyVisualStudio.ps1 `
-    -Vsix tools/Rutile.VisualStudio/bin/Debug/Rutile.VisualStudio.vsix `
-    -Install -Kiln build/debug/bin/kiln.exe
+    -Vsix tools/Rutile.VisualStudio/bin/Release/Rutile.VisualStudio.vsix `
+    -KilnVsix ../Kiln/tools/Kiln.VisualStudio/bin/Release/Kiln.VisualStudio.vsix -Install
 ```
 
-It verifies matching package versions before installation, starts a hidden test instance,
-and closes that instance afterward. The normal Visual Studio profile is not used.
-Logs and completed checks are saved under `build/vsix-tests/RutileValidation<number>`.
-The default smoke checks activation and solution ownership changes, with an outer process deadline.
-It does not invoke F12 or inspect the Error List. Hidden navigation blocked during verification;
-external-change diagnostics were not observed reliably through hidden Error List automation.
-Check navigation and external source/configuration diagnostics manually in an interactive editor.
-
-Add `-Palette` to install a separate test-only MEF client into that isolated profile. It checks
-aggregate editor classifications and effective foreground brushes, then inserts a newline to check
-that cached semantic spans move immediately. The probe is excluded from the shipping VSIX.
-
-Build and inspect the VSIX payload before installing. Protocol tests exercise the server
-separately; a successful extension build does not establish language feature correctness.
-An interactive Visual Studio test should open a `.rt` file and check completion, hover,
-F12, signature help, and diagnostics, including edits and multiple open documents.
-
-Version 0.0.67 was built. Its Release package payload matched the selected binaries.
-The isolated Debug profile loaded the extension and started its packaged IDE-owned Kiln process.
-It also passed solution close, replacement project startup, and replacement owner shutdown.
-Editor navigation and watcher notifications remain interactive verification steps.
-Process ownership checks passed.
-
-The 0.0.70 palette probe could not complete in the hidden isolated host: solution automation
-was rejected with `RPC_E_CALL_REJECTED`. Effective host brush and visual palette checks remain
-unverified. The extension SDK build and lexical/semantic classifier tests passed.
+It uses an isolated `RutileValidation<number>` profile. Logs are written under `build/vsix-tests`.
+SDK builds and standalone tests do not establish interactive editor behavior; verify completion,
+hover, F12, diagnostics and template controls in the installed editor as well.

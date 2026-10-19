@@ -11,6 +11,16 @@ import threading
 import time
 
 
+def write_project(root, targets):
+	lines = ["fn main(kiln::Options& options) {"]
+	for index, (name, kind, folders) in enumerate(targets):
+		lines.append(f'	var target_{index} = kiln::add_target("{name}", kiln::TargetType::{kind});')
+		for folder in folders:
+			lines.append(f'	@target_{index}.sources.add("{folder}");')
+	lines.append("};")
+	(root / "kiln.rt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 class Client:
 	def __init__(self, executable, directory):
 		self.process = subprocess.Popen([str(executable), "language-server", "--stdio"], stdin=subprocess.PIPE,
@@ -194,7 +204,7 @@ def independent_targets(executable, output):
 		second = root / "second"
 		first.mkdir()
 		second.mkdir()
-		(root / "rutile.yaml").write_text("targets:\n  first:\n    source: first\n    entry: main\n  second:\n    source: second\n    entry: main\n", encoding="utf-8")
+		write_project(root, [("first", "executable", ["first"]), ("second", "executable", ["second"])])
 		first_source = "fn compute()->i32 {return 20;};\nfn main()->i32 {return compute();};\n"
 		second_source = "fn compute()->i32 {return 22;};\nfn main()->i32 {return compute();};\n"
 		(first / "main.rt").write_text(first_source, encoding="utf-8")
@@ -287,7 +297,7 @@ def main(executable):
 			assert next(document for document in status["documents"] if document["uri"] == second)["version"] == 3
 
 			# UTF-16 positions include supplementary characters before the queried name.
-			unicode_source = 'fn main()->i32 {const char* text="😀";i32 result=42;return result;};\n'
+			unicode_source = 'fn main()->i32 {/*😀*/i32 result=42;return result;};\n'
 			replace_document(client, second, unicode_source, 4)
 			client.ready({first: 2, second: 4})
 			binding = client.request("textDocument/definition", at(second, unicode_source, "result", True))
@@ -317,5 +327,5 @@ def main(executable):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--server", type=Path, default=Path("build/release/bin/kiln.exe"))
+	parser.add_argument("--server", type=Path, default=Path("../Kiln/build/bootstrap/bin/kiln.exe"))
 	main(parser.parse_args().server.resolve())
