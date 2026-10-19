@@ -60,17 +60,17 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 
 			if (element_size && source->count() > maximum / element_size) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("array storage size exceeds target address space for type '", 58));
+				@message.text("array storage size exceeds target address space for type '");
 				diagnostic_type(@message, *source);
-				@message.text(rt::string_view("': ", 3));
+				@message.text("': ");
 				@message.number(source->count());
-				@message.text(rt::string_view(" elements of ", 13));
+				@message.text(" elements of ");
 				@message.number(element_size);
-				@message.text(rt::string_view(" bytes exceed the ", 18));
+				@message.text(" bytes exceed the ");
 				@message.number(u64(this.pointer_bits()));
-				@message.text(rt::string_view("-bit target limit of ", 21));
+				@message.text("-bit target limit of ");
 				@message.number(maximum);
-				@message.text(rt::string_view(" bytes", 6));
+				@message.text(" bytes");
 				@this.error(origin, message.view());
 				return nullptr;
 			};
@@ -92,7 +92,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 				};
 				if (!@parameters.push_back(parameter)) {
 					Token location;
-					@this.error(location, rt::string_view("cannot allocate native signature", 32));
+					@this.error(location, "cannot allocate native signature");
 					return nullptr;
 				};
 
@@ -119,14 +119,14 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 
 			if (!record || record->kind() != entity_kind::record) {
 				Token location;
-				@this.error(location, rt::string_view("native named type requires a resolved record", 44));
+				@this.error(location, "native named type requires a resolved record");
 				return nullptr;
 			};
 
 			rt::string name;
 
 			if (!@name.append(record->name())) {
-				@this.error(record->token(), rt::string_view("cannot allocate native type name", 32));
+				@this.error(record->token(), "cannot allocate native type name");
 				return nullptr;
 			};
 
@@ -136,7 +136,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 			@native.value := result;
 
 			if (!@this.types.push_back($native)) {
-				@this.error(record->token(), rt::string_view("cannot retain native type identity", 34));
+				@this.error(record->token(), "cannot retain native type identity");
 				return nullptr;
 			};
 
@@ -150,7 +150,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 					return nullptr;
 				};
 				if (!@fields.push_back(base)) {
-					@this.error(record->token(), rt::string_view("cannot allocate native base layout", 34));
+					@this.error(record->token(), "cannot allocate native base layout");
 					return nullptr;
 				};
 
@@ -158,7 +158,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 			};
 
 			if (record->owns_dispatch() && !@fields.push_back(LLVMPointerTypeInContext(this.context(), 0))) {
-				@this.error(record->token(), rt::string_view("cannot allocate native dispatch layout", 38));
+				@this.error(record->token(), "cannot allocate native dispatch layout");
 				return nullptr;
 			};
 
@@ -171,7 +171,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 					return nullptr;
 				};
 				if (!@fields.push_back(field)) {
-					@this.error(record->token(), rt::string_view("cannot allocate native record layout", 36));
+					@this.error(record->token(), "cannot allocate native record layout");
 					return nullptr;
 				};
 
@@ -205,7 +205,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 				@fields.clear();
 
 				if (!@fields.push_back(aligned)) {
-					@this.error(record->token(), rt::string_view("cannot allocate native union layout", 35));
+					@this.error(record->token(), "cannot allocate native union layout");
 					return nullptr;
 				};
 
@@ -215,7 +215,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 					var LLVMOpaqueType* padding = LLVMArrayType2(LLVMIntTypeInContext(this.context(), 8), maximum - occupied);
 
 					if (!@fields.push_back(padding)) {
-						@this.error(record->token(), rt::string_view("cannot allocate native union padding", 36));
+						@this.error(record->token(), "cannot allocate native union padding");
 						return nullptr;
 					};
 				};
@@ -228,7 +228,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 
 		default: {
 			Token location;
-			@this.error(location, rt::string_view("type has no native representation", 33));
+			@this.error(location, "type has no native representation");
 			return nullptr;
 		};
 	};
@@ -239,7 +239,7 @@ fn Backend::type(var Backend& this, Type* source, Token& origin) -> var LLVMOpaq
 
 	if (!@this.types.push_back($native)) {
 		Token location;
-		@this.error(location, rt::string_view("cannot retain native type identity", 34));
+		@this.error(location, "cannot retain native type identity");
 		return nullptr;
 	};
 
@@ -267,7 +267,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	};
 
 	if (!entity->type()) {
-		return @this.error(entity->token(), rt::string_view("native declaration has no resolved type", 39));
+		return @this.error(entity->token(), "native declaration has no resolved type");
 	};
 
 	if (entity->kind() == entity_kind::function && entity->definition() == function_definition::declaration && !@this.external_signature(entity)) {
@@ -277,16 +277,16 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	rt::string name;
 	var spelling = entity->name();
 
-	if (this.selected_entry && spelling == rt::string_view("main", 4)) {
-		@spelling = rt::string_view("rt.user.main", 12);
+	if (this.selected_entry && spelling == "main") {
+		@spelling = "rt.user.main";
 
 		if (entity == this.selected_entry) {
-			@spelling = rt::string_view("rt.entry", 8);
+			@spelling = "rt.entry";
 		};
 	};
 
 	if (!@name.append(spelling)) {
-		return @this.error(entity->token(), rt::string_view("cannot allocate native symbol name", 34));
+		return @this.error(entity->token(), "cannot allocate native symbol name");
 	};
 
 	if (entity->kind() == entity_kind::function) {
@@ -323,8 +323,8 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	if (entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary) {
 		rt::string wrapper;
 
-		if (!@wrapper.append(rt::string_view("rt.dispatch.", 12)) || !@wrapper.append(name.view())) {
-			return @this.error(entity->token(), rt::string_view("cannot allocate dispatch symbol name", 36));
+		if (!@wrapper.append("rt.dispatch.") || !@wrapper.append(name.view())) {
+			return @this.error(entity->token(), "cannot allocate dispatch symbol name");
 		};
 
 		@native.value = LLVMAddFunction(this.module(), wrapper.c_str(), type);
@@ -333,7 +333,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	if (!@this.entities.push_back($native)) {
 		Token location;
 
-		return @this.error(location, rt::string_view("cannot retain native symbol identity", 36));
+		return @this.error(location, "cannot retain native symbol identity");
 	};
 
 	return true;

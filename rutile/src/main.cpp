@@ -21,8 +21,8 @@ int main(int argc, char* argv[]) {
 	std::string target;
 	std::string profile = "debug";
 	auto* run = app.add_subcommand("run", "Build and run a configured project target.");
-	run->add_option("target", target, "Target from rutile.yaml; optional when only one target exists.");
-	run->add_option("--profile", profile, "Build profile from rutile.yaml.")->default_val("debug");
+	run->add_option("target", target, "Target from the project configuration; optional when only one target exists.");
+	run->add_option("--profile", profile, "Build profile from the project configuration.")->default_val("debug");
 	run->prefix_command();
 	run->callback([&]() {
 		exit_code = project_run(target, profile, run->remaining());

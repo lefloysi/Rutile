@@ -10,19 +10,19 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 
 	if (construction->item(0)->size()) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("array constructor argument evaluation is not specified for element type '", 73));
+		@message.text("array constructor argument evaluation is not specified for element type '");
 		diagnostic_type(@message, *expression->type()->element());
-		@message.text(rt::string_view("' with arguments ", 17));
-		@message.text(rt::string_view("(", 1));
+		@message.text("' with arguments ");
+		@message.text("(");
 		usize argument = 0;
 		while (argument < construction->item(0)->size()) {
 			if (argument) {
-				@message.text(rt::string_view(", ", 2));
+				@message.text(", ");
 			};
 			diagnostic_type(@message, *construction->item(0)->item(argument)->type());
 			@argument = argument + 1;
 		};
-		@message.text(rt::string_view(")", 1));
+		@message.text(")");
 		@this.backend->error(expression->token(), message.view());
 		return nullptr;
 	};
@@ -45,7 +45,7 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	};
 
 	bool signed_count = length->type()->representation()->kind() == type_kind::signed_integer;
-	var LLVMOpaqueValue* count = LLVMBuildIntCast2(this.backend->builder(), original, integer, static_cast<i32>(signed_count), "array.count\0");
+	var LLVMOpaqueValue* count = LLVMBuildIntCast2(this.backend->builder(), original, integer, static_cast<i32>(signed_count), "array.count\0".data());
 	u64 prefix = @this.allocation_prefix(element);
 	u64 size = LLVMABISizeOfType(this.backend->layout(), native);
 	u64 maximum = (u64::max) >> (64 - static_cast<u64>(bits));
@@ -68,44 +68,44 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 		@checked_type = LLVMTypeOf(original);
 	};
 
-	var LLVMOpaqueValue* invalid = LLVMBuildICmp(this.backend->builder(), 34, checked, LLVMConstInt(checked_type, maximum_count, 0), "array.overflow\0");
+	var LLVMOpaqueValue* invalid = LLVMBuildICmp(this.backend->builder(), 34, checked, LLVMConstInt(checked_type, maximum_count, 0), "array.overflow\0".data());
 
 	if (signed_count) {
-		var LLVMOpaqueValue* negative = LLVMBuildICmp(this.backend->builder(), 40, original, LLVMConstNull(LLVMTypeOf(original)), "array.negative\0");
-		@invalid = LLVMBuildOr(this.backend->builder(), invalid, negative, "array.invalid\0");
+		var LLVMOpaqueValue* negative = LLVMBuildICmp(this.backend->builder(), 40, original, LLVMConstNull(LLVMTypeOf(original)), "array.negative\0".data());
+		@invalid = LLVMBuildOr(this.backend->builder(), invalid, negative, "array.invalid\0".data());
 	};
 
-	var LLVMOpaqueBasicBlock* allocate = @this.block(rt::string_view("array.allocate", 14));
-	var LLVMOpaqueBasicBlock* initialize = @this.block(rt::string_view("array.initialize", 16));
-	var LLVMOpaqueBasicBlock* failure = @this.block(rt::string_view("array.failure", 13));
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("array.after", 11));
+	var LLVMOpaqueBasicBlock* allocate = @this.block("array.allocate");
+	var LLVMOpaqueBasicBlock* initialize = @this.block("array.initialize");
+	var LLVMOpaqueBasicBlock* failure = @this.block("array.failure");
+	var LLVMOpaqueBasicBlock* after = @this.block("array.after");
 	LLVMBuildCondBr(this.backend->builder(), invalid, failure, allocate);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), allocate);
-	var LLVMOpaqueValue* bytes = LLVMBuildMul(this.backend->builder(), count, LLVMConstInt(integer, size, 0), "array.bytes\0");
-	@bytes = LLVMBuildAdd(this.backend->builder(), bytes, LLVMConstInt(integer, prefix, 0), "array.storage.bytes\0");
-	var LLVMOpaqueValue* memory = LLVMBuildArrayMalloc(this.backend->builder(), character, bytes, "array.storage\0");
-	var LLVMOpaqueValue* exists = LLVMBuildICmp(this.backend->builder(), 33, memory, LLVMConstNull(LLVMTypeOf(memory)), "array.exists\0");
+	var LLVMOpaqueValue* bytes = LLVMBuildMul(this.backend->builder(), count, LLVMConstInt(integer, size, 0), "array.bytes\0".data());
+	@bytes = LLVMBuildAdd(this.backend->builder(), bytes, LLVMConstInt(integer, prefix, 0), "array.storage.bytes\0".data());
+	var LLVMOpaqueValue* memory = LLVMBuildArrayMalloc(this.backend->builder(), character, bytes, "array.storage\0".data());
+	var LLVMOpaqueValue* exists = LLVMBuildICmp(this.backend->builder(), 33, memory, LLVMConstNull(LLVMTypeOf(memory)), "array.exists\0".data());
 	LLVMBuildCondBr(this.backend->builder(), exists, initialize, failure);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
 	LLVMBuildStore(this.backend->builder(), count, memory);
 	var LLVMOpaqueValue* offset = LLVMConstInt(integer, prefix, 0);
-	var LLVMOpaqueValue* data = LLVMBuildGEP2(this.backend->builder(), character, memory, &@offset, 1, "array.data\0");
+	var LLVMOpaqueValue* data = LLVMBuildGEP2(this.backend->builder(), character, memory, &@offset, 1, "array.data\0".data());
 	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	var LLVMOpaqueBasicBlock* test = @this.block(rt::string_view("array.construct.test", 20));
-	var LLVMOpaqueBasicBlock* body = @this.block(rt::string_view("array.construct.element", 23));
-	var LLVMOpaqueBasicBlock* done = @this.block(rt::string_view("array.construct.done", 20));
+	var LLVMOpaqueBasicBlock* test = @this.block("array.construct.test");
+	var LLVMOpaqueBasicBlock* body = @this.block("array.construct.element");
+	var LLVMOpaqueBasicBlock* done = @this.block("array.construct.done");
 	LLVMBuildBr(this.backend->builder(), test);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), test);
-	var LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "array.index\0");
-	LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 36, index, count, "array.within\0"), body, done);
+	var LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "array.index\0".data());
+	LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 36, index, count, "array.within\0".data()), body, done);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
-	var LLVMOpaqueValue* address = LLVMBuildGEP2(this.backend->builder(), native, data, &@index, 1, "array.element\0");
+	var LLVMOpaqueValue* address = LLVMBuildGEP2(this.backend->builder(), native, data, &@index, 1, "array.element\0".data());
 
 	if (!@this.construct_into(construction, address)) {
 		return nullptr;
 	};
 
-	var LLVMOpaqueValue* next = LLVMBuildAdd(this.backend->builder(), index, LLVMConstInt(integer, 1, 0), "array.next\0");
+	var LLVMOpaqueValue* next = LLVMBuildAdd(this.backend->builder(), index, LLVMConstInt(integer, 1, 0), "array.next\0".data());
 	var LLVMOpaqueBasicBlock* tail = LLVMGetInsertBlock(this.backend->builder());
 	LLVMBuildBr(this.backend->builder(), test);
 	var LLVMOpaqueValue*[2] values {};
@@ -120,7 +120,7 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	LLVMPositionBuilderAtEnd(this.backend->builder(), failure);
 	LLVMBuildBr(this.backend->builder(), after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
-	var LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), "array.result\0");
+	var LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), "array.result\0".data());
 	@values[0] = data;
 	@values[1] = LLVMConstNull(@this.backend->type(expression->type(), expression->token()));
 	@blocks[0] = done;
@@ -136,9 +136,9 @@ fn FunctionEmitter::deallocate_array(var FunctionEmitter& this, var SemanticExpr
 
 	if (element->kind() == type_kind::void_type || element->kind() == type_kind::null_type || element->kind() == type_kind::function) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("array deallocation requires a supported object layout for element type '", 72));
+		@message.text("array deallocation requires a supported object layout for element type '");
 		diagnostic_type(@message, *element);
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.backend->error(expression->token(), message.view());
 		return nullptr;
 	};
@@ -150,13 +150,13 @@ fn FunctionEmitter::deallocate_array(var FunctionEmitter& this, var SemanticExpr
 	};
 
 	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
-	var LLVMOpaqueBasicBlock* dispose = @this.block(rt::string_view("array.delete", 12));
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("array.delete.after", 18));
+	var LLVMOpaqueBasicBlock* dispose = @this.block("array.delete");
+	var LLVMOpaqueBasicBlock* after = @this.block("array.delete.after");
 	LLVMBuildCondBr(this.backend->builder(), @this.truth(data, operand->type()), dispose, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), dispose);
 	var LLVMOpaqueValue* offset = LLVMConstInt(integer, 0 - @this.allocation_prefix(element), 1);
-	var LLVMOpaqueValue* memory = LLVMBuildGEP2(this.backend->builder(), LLVMIntTypeInContext(this.backend->context(), 8), data, &@offset, 1, "array.base\0");
-	var LLVMOpaqueValue* count = LLVMBuildLoad2(this.backend->builder(), integer, memory, "array.count\0");
+	var LLVMOpaqueValue* memory = LLVMBuildGEP2(this.backend->builder(), LLVMIntTypeInContext(this.backend->context(), 8), data, &@offset, 1, "array.base\0".data());
+	var LLVMOpaqueValue* count = LLVMBuildLoad2(this.backend->builder(), integer, memory, "array.count\0".data());
 
 	if (!@this.destroy_range(element, data, count)) {
 		return nullptr;
@@ -176,16 +176,16 @@ fn FunctionEmitter::destroy_range(var FunctionEmitter& this, Type* type, var LLV
 
 	var LLVMOpaqueType* integer = LLVMTypeOf(count);
 	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
-	var LLVMOpaqueBasicBlock* test = @this.block(rt::string_view("array.destroy.test", 18));
-	var LLVMOpaqueBasicBlock* body = @this.block(rt::string_view("array.destroy.element", 21));
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("array.destroy.after", 19));
+	var LLVMOpaqueBasicBlock* test = @this.block("array.destroy.test");
+	var LLVMOpaqueBasicBlock* body = @this.block("array.destroy.element");
+	var LLVMOpaqueBasicBlock* after = @this.block("array.destroy.after");
 	LLVMBuildBr(this.backend->builder(), test);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), test);
-	var LLVMOpaqueValue* remaining = LLVMBuildPhi(this.backend->builder(), integer, "array.remaining\0");
-	LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 33, remaining, LLVMConstNull(integer), "array.remaining.truth\0"), body, after);
+	var LLVMOpaqueValue* remaining = LLVMBuildPhi(this.backend->builder(), integer, "array.remaining\0".data());
+	LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 33, remaining, LLVMConstNull(integer), "array.remaining.truth\0".data()), body, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
-	var LLVMOpaqueValue* previous = LLVMBuildSub(this.backend->builder(), remaining, LLVMConstInt(integer, 1, 0), "array.previous\0");
-	var LLVMOpaqueValue* element = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), memory, &@previous, 1, "array.destroy.address\0");
+	var LLVMOpaqueValue* previous = LLVMBuildSub(this.backend->builder(), remaining, LLVMConstInt(integer, 1, 0), "array.previous\0".data());
+	var LLVMOpaqueValue* element = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), memory, &@previous, 1, "array.destroy.address\0".data());
 
 	if (!@this.destroy(type, element)) {
 		return false;

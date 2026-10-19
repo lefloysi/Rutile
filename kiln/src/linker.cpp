@@ -13,6 +13,7 @@ int kiln_link(const std::filesystem::path& object, const std::filesystem::path& 
 		"/subsystem:console",
 		"/entry:mainCRTStartup",
 		"/machine:x64",
+		"/libpath:" + project_path_utf8(std::filesystem::u8path(RUTILE_RUNTIME_KERNEL32).parent_path()),
 		project_path_utf8(object),
 		RUTILE_RUNTIME_LIBCMT,
 		RUTILE_RUNTIME_LIBVCRUNTIME,

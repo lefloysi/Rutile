@@ -7,13 +7,13 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 			while (index < declaration->function_attributes()->size()) {
 				Token token = declaration->function_attributes()->item(index)->token();
 
-				if (token.is(rt::string_view("virtual", 7)) || token.is(rt::string_view("override", 8)) || token.is(rt::string_view("final", 5))) {
+				if (token.is("virtual") || token.is("override") || token.is("final")) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("attribute ", 10));
+					@message.text("attribute ");
 					@message.quoted(token.text());
-					@message.text(rt::string_view(" on function template '", 23));
+					@message.text(" on function template '");
 					diagnostic_name(@message, *declaration->function_name());
-					@message.text(rt::string_view("' requires virtual function templates, which are not implemented", 64));
+					@message.text("' requires virtual function templates, which are not implemented");
 					@this.report(token, message.view());
 					return false;
 				};
@@ -55,7 +55,7 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 	while (index < syntax.function_attributes()->size()) {
 		Token token = syntax.function_attributes()->item(index)->token();
 
-		if (token.is(rt::string_view("virtual", 7)) || token.is(rt::string_view("override", 8)) || token.is(rt::string_view("final", 5))) {
+		if (token.is("virtual") || token.is("override") || token.is("final")) {
 			@virtual_operation = true;
 		};
 
@@ -68,22 +68,22 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 
 	var Syntax* parameters = syntax.function_parameters();
 
-	if ((!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) || !parameters->size() || !parameters->item(0)->parameter_name()->token().is(rt::string_view("this", 4)) || parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
+	if ((!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) || !parameters->size() || !parameters->item(0)->parameter_name()->token().is("this") || parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("virtual operation '", 19));
+		@message.text("virtual operation '");
 		diagnostic_name(@message, *syntax.function_name());
-		@message.text(rt::string_view("' requires an explicit class receiver of reference type named 'this'", 68));
+		@message.text("' requires an explicit class receiver of reference type named 'this'");
 		if (!class_scope && syntax.function_name()->kind() != syntax_kind::qualified_name) {
-			@message.text(rt::string_view("; the function is not declared in class scope", 45));
+			@message.text("; the function is not declared in class scope");
 		}
 		else if (!parameters->size()) {
-			@message.text(rt::string_view("; the function has no receiver parameter", 40));
+			@message.text("; the function has no receiver parameter");
 		}
 		else {
-			@message.text(rt::string_view("; first parameter is named ", 27));
+			@message.text("; first parameter is named ");
 			@message.quoted(parameters->item(0)->parameter_name()->token().text());
 			if (parameters->item(0)->parameter_type()->kind() != syntax_kind::type_reference) {
-				@message.text(rt::string_view(" and does not have reference type", 33));
+				@message.text(" and does not have reference type");
 			};
 		};
 		@this.report(syntax.token(), message.view());
@@ -92,9 +92,9 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 
 	if (this.templates.qualifier_dependent(@syntax)) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("virtual operation '", 19));
+		@message.text("virtual operation '");
 		diagnostic_name(@message, *syntax.function_name());
-		@message.text(rt::string_view("' cannot have dependent receiver qualification", 46));
+		@message.text("' cannot have dependent receiver qualification");
 		@this.report(syntax.token(), message.view());
 		return false;
 	};
@@ -154,7 +154,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 		while (inherited < base.size()) {
 			if (!@entity->add_virtual(base.data()[inherited])) {
-				@this.error(entity->declaration(), rt::string_view("inherited virtual operation storage is unavailable", 50));
+				@this.error(entity->declaration(), "inherited virtual operation storage is unavailable");
 				return false;
 			};
 
@@ -188,7 +188,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 		};
 
 		if (!@seen.push_back((var Entity*(function)))) {
-			@this.error(function->declaration(), rt::string_view("virtual operation analysis storage is unavailable", 49));
+			@this.error(function->declaration(), "virtual operation analysis storage is unavailable");
 			return false;
 		};
 
@@ -203,11 +203,11 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (previous->is_final()) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("final virtual operation cannot be overridden; function '", 56));
+				@message.text("final virtual operation cannot be overridden; function '");
 				diagnostic_entity(@message, *function);
-				@message.text(rt::string_view("' has type '", 12));
+				@message.text("' has type '");
 				diagnostic_type(@message, *function->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
@@ -215,11 +215,11 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (!function->requires_override() && !function->is_final()) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("override of an inherited virtual operation requires override or final; function '", 81));
+				@message.text("override of an inherited virtual operation requires override or final; function '");
 				diagnostic_entity(@message, *function);
-				@message.text(rt::string_view("' has type '", 12));
+				@message.text("' has type '");
 				diagnostic_type(@message, *function->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
@@ -227,16 +227,16 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (!dispatch_result(*function->type()->signature().result(), *previous->type()->signature().result())) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("virtual override has an incompatible result type; function '", 60));
+				@message.text("virtual override has an incompatible result type; function '");
 				diagnostic_entity(@message, *function);
-				@message.text(rt::string_view("' has type '", 12));
+				@message.text("' has type '");
 				diagnostic_type(@message, *function->type());
-				@message.text(rt::string_view("'", 1));
-				@message.text(rt::string_view(" with result '", 14));
+				@message.text("'");
+				@message.text(" with result '");
 				diagnostic_type(@message, *function->type()->signature().result());
-				@message.text(rt::string_view("'; inherited result is '", 24));
+				@message.text("'; inherited result is '");
 				diagnostic_type(@message, *previous->type()->signature().result());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
 				return false;
@@ -248,16 +248,16 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 		else if (function->requires_override() || function->is_final() && !function->declares_virtual()) {
 			var message = DiagnosticMessage();
 			if (function->requires_override()) {
-				@message.text(rt::string_view("override", 8));
+				@message.text("override");
 			}
 			else {
-				@message.text(rt::string_view("final without virtual", 21));
+				@message.text("final without virtual");
 			};
-			@message.text(rt::string_view(" on function '", 14));
+			@message.text(" on function '");
 			diagnostic_entity(@message, *function);
-			@message.text(rt::string_view("' of type '", 11));
+			@message.text("' of type '");
 			diagnostic_type(@message, *function->type());
-			@message.text(rt::string_view("' requires a matching inherited virtual operation", 49));
+			@message.text("' requires a matching inherited virtual operation");
 			@this.report(function->token(), message.view());
 			usize inherited_index = 0;
 			while (inherited_index < inherited) {
@@ -270,7 +270,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 			@function->set_virtual_slot(entity->virtual_functions().size());
 
 			if (!@entity->add_virtual((var Entity*(function)))) {
-				@this.error(function->declaration(), rt::string_view("virtual operation storage is unavailable", 40));
+				@this.error(function->declaration(), "virtual operation storage is unavailable");
 				return false;
 			};
 		};
@@ -278,9 +278,9 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (entity->layout() == record_layout::overlapping && entity->virtual_functions().size()) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("union '", 7));
+		@message.text("union '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' cannot contain virtual operations", 35));
+		@message.text("' cannot contain virtual operations");
 		@this.report(entity->token(), message.view());
 		return false;
 	};

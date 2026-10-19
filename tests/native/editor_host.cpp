@@ -9,11 +9,7 @@
 #include <filesystem>
 #include <string>
 
-struct Compiler {
-	int marker;
-};
-
-Compiler* expected_compiler = nullptr;
+CompilerRegistry* expected_registry = nullptr;
 const std::string_view software_version = "test";
 const std::uint32_t protocol_version = 1;
 
@@ -25,13 +21,8 @@ std::string kiln_list() {
 	return "[]";
 }
 
-std::string kiln_build(Compiler* compiler, std::string_view request, build_input input) {
-	return compiler == expected_compiler && request == "same-owner" && input == build_input::editor ? "same compiler" : "wrong compiler";
-}
-
-extern "C" int rutile_compiler_session(int (*callback)(Compiler*, void*), void* context) {
-	Compiler compiler{ 7 };
-	return callback(&compiler, context);
+std::string kiln_build(CompilerRegistry& compilers, std::string_view request, build_input input) {
+	return &compilers == expected_registry && request == "same-owner" && input == build_input::editor ? "same registry" : "wrong registry";
 }
 
 int main() {
@@ -41,9 +32,9 @@ int main() {
 	if (!platform_endpoint(directory, endpoint.data(), endpoint.size())) {
 		return 1;
 	}
-	Compiler compiler{ 42 };
-	expected_compiler = &compiler;
-	EditorSession* session = kiln_editor_start(&compiler, directory);
+	CompilerRegistry registry;
+	expected_registry = &registry;
+	EditorSession* session = kiln_editor_start(registry, directory);
 	if (!session) {
 		return 2;
 	}
@@ -54,10 +45,10 @@ int main() {
 	if (!platform_request(endpoint.data(), "request 1 status", reply.data(), reply.size()) || std::string_view(reply.data()).find("managed by the IDE") == std::string_view::npos) {
 		return 4;
 	}
-	if (!platform_request(endpoint.data(), "request 1 build same-owner", reply.data(), reply.size()) || std::string_view(reply.data()) != "same compiler") {
+	if (!platform_request(endpoint.data(), "request 1 build same-owner", reply.data(), reply.size()) || std::string_view(reply.data()) != "same registry") {
 		return 5;
 	}
-	if (kiln_editor_start(&compiler, directory)) {
+	if (kiln_editor_start(registry, directory)) {
 		return 6;
 	}
 	for (const char* command : { "exit", "request 1 exit" }) {
@@ -78,7 +69,7 @@ int main() {
 		return 10;
 	}
 	platform_lock_release(lock);
-	session = kiln_editor_start(&compiler, directory);
+	session = kiln_editor_start(registry, directory);
 	if (!session) {
 		return 11;
 	}

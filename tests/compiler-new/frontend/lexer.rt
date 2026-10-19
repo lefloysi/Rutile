@@ -8,7 +8,7 @@ fn frontend_expect(const SourceFile& source, usize index, token_kind kind, rt::s
 
 fn frontend_rejects(rt::string_view text, rt::string_view message) -> bool {
 	SourceFile source;
-	if (!@source.assign(rt::string_view("invalid.rt\0"), text)) {
+	if (!@source.assign("invalid.rt", text)) {
 		return false;
 	};
 	var lexer = Lexer(@source);
@@ -17,40 +17,40 @@ fn frontend_rejects(rt::string_view text, rt::string_view message) -> bool {
 
 fn rutile_frontend_tests() -> i32 {
 	SourceFile source;
-	if (!@source.assign(rt::string_view("sample.rt\0"), rt::string_view("// header\r\nfn main() -> i32 { return 42; }\n\0"))) {
+	if (!@source.assign("sample.rt", "// header\r\nfn main() -> i32 { return 42; }\n")) {
 		return 1;
 	};
 	var lexer = Lexer(@source);
 	if (!@lexer.scan() || source.token_count() != 12) {
 		return 2;
 	};
-	if (!frontend_expect(source, 0, token_kind::kw_fn, rt::string_view("fn\0"), 2, 1)
-		|| !frontend_expect(source, 1, token_kind::identifier, rt::string_view("main\0"), 2, 4)
-		|| !frontend_expect(source, 4, token_kind::op_arrow, rt::string_view("->\0"), 2, 11)
-		|| !frontend_expect(source, 8, token_kind::literal_number, rt::string_view("42\0"), 2, 27)
-		|| !frontend_expect(source, 11, token_kind::eof, rt::string_view("\0"), 3, 1)) {
+	if (!frontend_expect(source, 0, token_kind::kw_fn, "fn", 2, 1)
+		|| !frontend_expect(source, 1, token_kind::identifier, "main", 2, 4)
+		|| !frontend_expect(source, 4, token_kind::op_arrow, "->", 2, 11)
+		|| !frontend_expect(source, 8, token_kind::literal_number, "42", 2, 27)
+		|| !frontend_expect(source, 11, token_kind::eof, "", 3, 1)) {
 		return 3;
 	};
-	if (source.line(1) != rt::string_view("// header\0") || source.line(2) != rt::string_view("fn main() -> i32 { return 42; }\0") || !source.line(3).empty()) {
+	if (source.line(1) != "// header" || source.line(2) != "fn main() -> i32 { return 42; }" || !source.line(3).empty()) {
 		return 4;
 	};
 	if (!@lexer.scan() || source.token_count() != 12) {
 		return 5;
 	};
 
-	if (!frontend_rejects(rt::string_view("/* missing\0"), rt::string_view("unterminated comment\0"))
-		|| !frontend_rejects(rt::string_view("12e+\0"), rt::string_view("expected exponent digits\0"))
-		|| !frontend_rejects(rt::string_view("?\0"), rt::string_view("unknown source character\0"))
-		|| !frontend_rejects(rt::string_view("a\0b\0", 3), rt::string_view("NUL byte in source\0"))
-		|| !frontend_rejects(rt::string_view("\"missing\0"), rt::string_view("unterminated string literal\0"))
-		|| !frontend_rejects(rt::string_view("\"line\n\"\0"), rt::string_view("newline in string literal\0"))
-		|| !frontend_rejects(rt::string_view("''\0"), rt::string_view("expected one character in literal\0"))
-		|| !frontend_rejects(rt::string_view("'xy'\0"), rt::string_view("expected closing quote after character\0"))) {
+	if (!frontend_rejects("/* missing", "unterminated comment")
+		|| !frontend_rejects("12e+", "expected exponent digits")
+		|| !frontend_rejects("?", "unknown source character")
+		|| !frontend_rejects("a\0b", "NUL byte in source")
+		|| !frontend_rejects("\"missing", "unterminated string literal")
+		|| !frontend_rejects("\"line\n\"", "newline in string literal")
+		|| !frontend_rejects("''", "expected one character in literal")
+		|| !frontend_rejects("'xy'", "expected closing quote after character")) {
 		return 6;
 	};
 
 	SourceManager sources;
-	var first = @sources.add(rt::string_view("first.rt\0"), rt::string_view("var first = 1;\0"));
+	var first = @sources.add("first.rt", "var first = 1;");
 	if (!first) {
 		return 7;
 	};
@@ -60,12 +60,12 @@ fn rutile_frontend_tests() -> i32 {
 	};
 	usize index = 0;
 	while (index < 128) {
-		if (!@sources.add(rt::string_view("next.rt\0"), rt::string_view("var next = 2;\0"))) {
+		if (!@sources.add("next.rt", "var next = 2;")) {
 			return 9;
 		};
 		@index = index + 1;
 	};
-	if (sources.count() != 129 || @sources.at(0) != first || first->path() != rt::string_view("first.rt\0") || first->tokens().data()[1].text() != rt::string_view("first\0")) {
+	if (sources.count() != 129 || @sources.at(0) != first || first->path() != "first.rt" || first->tokens().data()[1].text() != "first") {
 		return 10;
 	};
 	@sources.clear();
@@ -73,7 +73,7 @@ fn rutile_frontend_tests() -> i32 {
 		return 11;
 	};
 
-	if (!@source.assign(rt::string_view("keywords.rt\0"), rt::string_view("fn using const discard delete new implicit nullptr template typename class var struct union enum namespace virtual override final return if else while for switch case default break continue sizeof\0")) || !@lexer.scan() || source.token_count() != 31) {
+	if (!@source.assign("keywords.rt", "fn using const discard delete new implicit nullptr template typename class var struct union enum namespace virtual override final return if else while for switch case default break continue sizeof") || !@lexer.scan() || source.token_count() != 31) {
 		return 12;
 	};
 	if (source.tokens().data()[0].kind != token_kind::kw_fn) {
@@ -167,7 +167,7 @@ fn rutile_frontend_tests() -> i32 {
 		return 13;
 	};
 
-	if (!@source.assign(rt::string_view("operators.rt\0"), rt::string_view("... -> := == != <= >= && || << >> ( ) [ ] { } ; , :: . = + - * / % & | ^ ! ~ < > : @ $\0")) || !@lexer.scan() || source.token_count() != 38) {
+	if (!@source.assign("operators.rt", "... -> := == != <= >= && || << >> ( ) [ ] { } ; , :: . = + - * / % & | ^ ! ~ < > : @ $") || !@lexer.scan() || source.token_count() != 38) {
 		return 14;
 	};
 	if (source.tokens().data()[0].kind != token_kind::punct_ellipsis) {
@@ -282,7 +282,7 @@ fn rutile_frontend_tests() -> i32 {
 		return 15;
 	};
 
-	if (!@source.assign(rt::string_view("numbers.rt\0"), rt::string_view("12 3.5 6e+2 'x' '\\n' \"a\\\"b\"\0")) || !@lexer.scan() || source.token_count() != 7) {
+	if (!@source.assign("numbers.rt", "12 3.5 6e+2 'x' '\\n' \"a\\\"b\"") || !@lexer.scan() || source.token_count() != 7) {
 		return 16;
 	};
 	if (source.tokens().data()[0].kind != token_kind::literal_number || source.tokens().data()[5].kind != token_kind::literal_string) {

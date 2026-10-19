@@ -3,19 +3,19 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 
 	if (signature.parameters().size() || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("executable entry '", 18));
+		@message.text("executable entry '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' requires no parameters and an integer or void result; declared signature is '", 79));
+		@message.text("' requires no parameters and an integer or void result; declared signature is '");
 		diagnostic_type(@message, *entity->type());
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		return @this.error(entity->token(), message.view());
 	};
 
 	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.context(), 32);
 	var LLVMOpaqueType* type = LLVMFunctionType((var LLVMOpaqueType*(integer)), nullptr, 0, 0);
-	var LLVMOpaqueValue* main = LLVMAddFunction(this.module(), "main\0", type);
-	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), main, "entry\0"));
-	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), this.symbol(entity), nullptr, 0, "\0");
+	var LLVMOpaqueValue* main = LLVMAddFunction(this.module(), "main\0".data(), type);
+	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), main, "entry\0".data()));
+	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), this.symbol(entity), nullptr, 0, "\0".data());
 
 	if (signature.result()->kind() == type_kind::void_type) {
 		@result = LLVMConstInt(integer, 0, 0);
@@ -32,13 +32,13 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 		};
 
 		if (bits > 32) {
-			@result = LLVMBuildTrunc(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0");
+			@result = LLVMBuildTrunc(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0".data());
 		}
 		else if (signature.result()->kind() == type_kind::unsigned_integer || signature.result()->kind() == type_kind::boolean) {
-			@result = LLVMBuildZExt(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0");
+			@result = LLVMBuildZExt(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0".data());
 		}
 		else {
-			@result = LLVMBuildSExt(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0");
+			@result = LLVMBuildSExt(this.builder(), (var LLVMOpaqueValue*(result)), integer, "entry.result\0".data());
 		};
 	};
 
@@ -54,23 +54,23 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		if (!selected || selected->kind() != entity_kind::function || !selected->body() || selected->body()->kind() == semantic_kind::noop) {
 			Token location;
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("executable entry ", 17));
+			@message.text("executable entry ");
 			@message.quoted(entry);
-			@message.text(rt::string_view(" requires a defined function; ", 30));
+			@message.text(" requires a defined function; ");
 			if (!selected) {
-				@message.text(rt::string_view("the requested name is not declared", 34));
+				@message.text("the requested name is not declared");
 			}
 			else {
 				@location = selected->token();
-				@message.text(rt::string_view("selected declaration is ", 24));
+				@message.text("selected declaration is ");
 				diagnostic_entity_kind(@message, selected->kind());
-				@message.text(rt::string_view(" '", 2));
+				@message.text(" '");
 				diagnostic_entity(@message, *selected);
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				if (selected->kind() == entity_kind::function) {
-					@message.text(rt::string_view(" of type '", 10));
+					@message.text(" of type '");
 					diagnostic_type(@message, *selected->type());
-					@message.text(rt::string_view("' without a definition", 22));
+					@message.text("' without a definition");
 				};
 			};
 			return @this.error(location, message.view());
@@ -125,9 +125,9 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 		if (entity->canonical() == entity && entity->kind() == entity_kind::global) {
 			if (!initialize) {
-				@initialize = LLVMAddFunction(this.module(), "rt.initialize\0", LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
+				@initialize = LLVMAddFunction(this.module(), "rt.initialize\0".data(), LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
 				LLVMSetLinkage((var LLVMOpaqueValue*(initialize)), 9);
-				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), (var LLVMOpaqueValue*(initialize)), "entry\0"));
+				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), (var LLVMOpaqueValue*(initialize)), "entry\0".data()));
 			};
 
 			var emitter = FunctionEmitter(@this, (var LLVMOpaqueValue*(initialize)), nullptr);
@@ -142,7 +142,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 	if (initialize) {
 		LLVMBuildRetVoid(this.builder());
-		@this.register_lifecycle(initialize, rt::string_view("llvm.global_ctors", 17));
+		@this.register_lifecycle(initialize, "llvm.global_ctors");
 	};
 
 	var LLVMOpaqueValue* finalize;
@@ -154,9 +154,9 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 		if (entity->canonical() == entity && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
 			if (!finalize) {
-				@finalize = LLVMAddFunction(this.module(), "rt.finalize\0", LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
+				@finalize = LLVMAddFunction(this.module(), "rt.finalize\0".data(), LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
 				LLVMSetLinkage(finalize, 9);
-				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), finalize, "entry\0"));
+				LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), finalize, "entry\0".data()));
 			};
 
 			var emitter = FunctionEmitter(@this, finalize, nullptr);
@@ -169,7 +169,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 	if (finalize) {
 		LLVMBuildRetVoid(this.builder());
-		@this.register_lifecycle(finalize, rt::string_view("llvm.global_dtors", 17));
+		@this.register_lifecycle(finalize, "llvm.global_dtors");
 	};
 
 	if (output == output_kind::executable) {

@@ -74,21 +74,21 @@ fn LanguageWorkspace::location(var LanguageWorkspace& this, LanguageIndex& index
 	};
 
 	var result = rt::json_value::make_object();
-	if (!result.get() || !@result.get()->set(rt::string_view("uri", 3), rt::json_value::make_string(source.uri.view())) || !@result.get()->set(rt::string_view("range", 5), LanguageJson::range(*text, usize(current.begin), usize(current.end)))) {
+	if (!result.get() || !@result.get()->set("uri", rt::json_value::make_string(source.uri.view())) || !@result.get()->set("range", LanguageJson::range(*text, usize(current.begin), usize(current.end)))) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
 };
 
 fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result, bool follow_receiver) -> bool {
-	rt::json_value* document = parameters.member("textDocument\0");
-	rt::json_value* position = parameters.member("position\0");
+	rt::json_value* document = parameters.member("textDocument");
+	rt::json_value* position = parameters.member("position");
 	if (!document || !position) {
 		return false;
 	};
 	rt::string path;
 	rt::string key;
-	if (!LanguageUri::decode(LanguageJson::text(*document, rt::string_view("uri", 3)), @path) || !LanguageUri::key(path.view(), @key)) {
+	if (!LanguageUri::decode(LanguageJson::text(*document, "uri"), @path) || !LanguageUri::key(path.view(), @key)) {
 		return false;
 	};
 	var found = index.source_ids.find(key.view());
@@ -101,8 +101,8 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 	if (open) {
 		@text = &@open->text;
 	};
-	i64 line = LanguageJson::integer(*position, "line\0", -1);
-	i64 character = LanguageJson::integer(*position, "character\0", -1);
+	i64 line = LanguageJson::integer(*position, "line", -1);
+	i64 character = LanguageJson::integer(*position, "character", -1);
 	if (line < 0 || character < 0) {
 		return false;
 	};
@@ -217,31 +217,31 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 	u64 started = runtime_clock_nanoseconds();
 	@this.receive();
 	var LanguageIndex* index = this.published.get();
-	if (index && (method == rt::string_view("textDocument/semanticTokens/full", 32) || method == rt::string_view("textDocument/semanticTokens/range", 33))) {
-		return @this.measured(@this.tokens(*index, parameters, method == rt::string_view("textDocument/semanticTokens/range", 33)), $started);
+	if (index && (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range")) {
+		return @this.measured(@this.tokens(*index, parameters, method == "textDocument/semanticTokens/range"), $started);
 	};
 	if (!index || index->generation < this.minimum_semantic_generation) {
-		if (method == rt::string_view("textDocument/semanticTokens/full", 32) || method == rt::string_view("textDocument/semanticTokens/range", 33)) {
-			var empty = rt::json_parse("{\"data\":[]}\0");
+		if (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range") {
+			var empty = rt::json_parse("{\"data\":[]}");
 			return @this.measured(@empty.release(), $started);
 		};
-		if (method == rt::string_view("textDocument/hover", 18) || method == rt::string_view("textDocument/signatureHelp", 26)) {
+		if (method == "textDocument/hover" || method == "textDocument/signatureHelp") {
 			return @this.measured(rt::json_value::make_null(), $started);
 		};
 		return @this.measured(rt::json_value::make_array(), $started);
 	};
-	if (method == rt::string_view("textDocument/semanticTokens/full", 32) || method == rt::string_view("textDocument/semanticTokens/range", 33)) {
-		return @this.measured(@this.tokens(*index, parameters, method == rt::string_view("textDocument/semanticTokens/range", 33)), $started);
+	if (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range") {
+		return @this.measured(@this.tokens(*index, parameters, method == "textDocument/semanticTokens/range"), $started);
 	};
 
-	if (method == rt::string_view("rutile/templateContexts", 23) || method == rt::string_view("rutile/selectTemplateContext", 28)) {
-		return @this.measured(@this.template_contexts(*index, parameters, method == rt::string_view("rutile/selectTemplateContext", 28)), $started);
+	if (method == "rutile/templateContexts" || method == "rutile/selectTemplateContext") {
+		return @this.measured(@this.template_contexts(*index, parameters, method == "rutile/selectTemplateContext"), $started);
 	};
 
-	if (method == rt::string_view("textDocument/completion", 23)) {
+	if (method == "textDocument/completion") {
 		return @this.measured(@this.completion(*index, parameters), $started);
 	};
-	if (method == rt::string_view("textDocument/signatureHelp", 26)) {
+	if (method == "textDocument/signatureHelp") {
 		return @this.measured(@this.signature(*index, parameters), $started);
 	};
 
@@ -249,13 +249,13 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 	if (!result.get()) {
 		return rt::unique<rt::json_value>();
 	};
-	if (method == rt::string_view("workspace/symbol", 16) || method == rt::string_view("textDocument/documentSymbol", 27)) {
+	if (method == "workspace/symbol" || method == "textDocument/documentSymbol") {
 		usize source = usize::max;
-		if (method == rt::string_view("textDocument/documentSymbol", 27)) {
-			rt::json_value* identity = parameters.member("textDocument\0");
+		if (method == "textDocument/documentSymbol") {
+			rt::json_value* identity = parameters.member("textDocument");
 			rt::string path;
 			rt::string key;
-			if (!identity || !LanguageUri::decode(LanguageJson::text(*identity, rt::string_view("uri", 3)), @path) || !LanguageUri::key(path.view(), @key)) {
+			if (!identity || !LanguageUri::decode(LanguageJson::text(*identity, "uri"), @path) || !LanguageUri::key(path.view(), @key)) {
 				return rt::unique<rt::json_value>();
 			};
 			var found = index->source_ids.find(key.view());
@@ -264,7 +264,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 			};
 			@source = *found;
 		};
-		var filter = LanguageJson::text(parameters, rt::string_view("query", 5));
+		var filter = LanguageJson::text(parameters, "query");
 		usize number = 0;
 		while (number < index->symbols.size()) {
 			LanguageIndexedSymbol& symbol = index->symbols.data()[number];
@@ -277,7 +277,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 				continue;
 			};
 			var information = rt::json_value::make_object();
-			if (!information.get() || !@information.get()->set(rt::string_view("name", 4), rt::json_value::make_string(symbol.name.view())) || !@information.get()->set(rt::string_view("kind", 4), rt::json_value::make_unsigned(static_cast<u64>(symbol.value.kind))) || !@information.get()->set(rt::string_view("location", 8), $location) || !@result.get()->append($information)) {
+			if (!information.get() || !@information.get()->set("name", rt::json_value::make_string(symbol.name.view())) || !@information.get()->set("kind", rt::json_value::make_unsigned(static_cast<u64>(symbol.value.kind))) || !@information.get()->set("location", $location) || !@result.get()->append($information)) {
 				return rt::unique<rt::json_value>();
 			};
 		};
@@ -285,10 +285,10 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 	};
 
 	rt::buffer<u64> bindings;
-	if (!@this.bindings(*index, parameters, @bindings, method == rt::string_view("textDocument/definition", 23))) {
+	if (!@this.bindings(*index, parameters, @bindings, method == "textDocument/definition")) {
 		return rt::unique<rt::json_value>();
 	};
-	if (method == rt::string_view("textDocument/hover", 18)) {
+	if (method == "textDocument/hover") {
 		return @this.measured(@this.hover(*index, parameters, bindings), $started);
 	};
 
@@ -302,15 +302,15 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 		if (!found) {
 			continue;
 		};
-		if (method == rt::string_view("textDocument/references", 23)) {
+		if (method == "textDocument/references") {
 			var references = index->references.find(id);
 			if (!references) {
 				continue;
 			};
-			rt::json_value* context = parameters.member("context\0");
+			rt::json_value* context = parameters.member("context");
 			rt::json_value* include = nullptr;
 			if (context) {
-				@include = context->member("includeDeclaration\0");
+				@include = context->member("includeDeclaration");
 			};
 			usize occurrence = 0;
 			while (occurrence < references->size()) {
@@ -326,7 +326,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 			};
 		}
 		else {
-			if (method == rt::string_view("textDocument/typeDefinition", 27)) {
+			if (method == "textDocument/typeDefinition") {
 				u64 target = index->identity(index->symbols.data()[*found].type_symbol);
 				var type = index->symbol_ids.find(target);
 				if (!type) {
@@ -336,7 +336,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 			};
 			NavigationSymbol& symbol = index->symbols.data()[*found].value;
 			u32 semantic_type = index->symbols.data()[*found].semantic_type;
-			if (method == rt::string_view("textDocument/definition", 23) && (semantic_type == 7 || semantic_type == 8 || semantic_type == 9)) {
+			if (method == "textDocument/definition" && (semantic_type == 7 || semantic_type == 8 || semantic_type == 9)) {
 				usize source = 0;
 				usize offset = 0;
 				if (@this.cursor(*index, parameters, @source, @offset) && source == symbol.declaration.source && symbol.declaration.begin <= offset && offset <= symbol.declaration.end) {
@@ -349,7 +349,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 			NavigationSymbol& destination = index->symbols.data()[*found].value;
 			SourceRange range := destination.declaration;
 			if (
-				(method == rt::string_view("textDocument/definition", 23) || method == rt::string_view("textDocument/typeDefinition", 27))
+				(method == "textDocument/definition" || method == "textDocument/typeDefinition")
 				&& (destination.flags & 1)
 			) {
 				usize source = 0;
@@ -383,7 +383,7 @@ fn LanguageWorkspace::status(var LanguageWorkspace& this) -> rt::unique<rt::json
 	while (index < this.documents.size()) {
 		LanguageDocument& document = *this.documents.data()[index].get();
 		var information = rt::json_value::make_object();
-		if (!information.get() || !@information.get()->set(rt::string_view("uri", 3), rt::json_value::make_string(document.uri.view())) || !@information.get()->set(rt::string_view("version", 7), rt::json_value::make_integer(i64(document.version)))) {
+		if (!information.get() || !@information.get()->set("uri", rt::json_value::make_string(document.uri.view())) || !@information.get()->set("version", rt::json_value::make_integer(i64(document.version)))) {
 			return rt::unique<rt::json_value>();
 		};
 		var version = rt::json_value::make_null();
@@ -393,7 +393,7 @@ fn LanguageWorkspace::status(var LanguageWorkspace& this) -> rt::unique<rt::json
 				@version = rt::json_value::make_integer(i64(this.published.get()->sources.data()[*found].version.value()));
 			};
 		};
-		if (!@information.get()->set(rt::string_view("indexedVersion", 14), $version) || !@documents.get()->append($information)) {
+		if (!@information.get()->set("indexedVersion", $version) || !@documents.get()->append($information)) {
 			return rt::unique<rt::json_value>();
 		};
 		@index = index + 1;
@@ -405,23 +405,23 @@ fn LanguageWorkspace::status(var LanguageWorkspace& this) -> rt::unique<rt::json
 		@build = this.published.get()->build_nanoseconds;
 	};
 	u64 phase = runtime_atomic_load(this.analysis_phase);
-	rt::string_view phase_name = rt::string_view("idle", 4);
+	rt::string_view phase_name = "idle";
 	switch (phase) {
-		case 1: @phase_name = rt::string_view("loadingSources", 14); break;
-		case 2: @phase_name = rt::string_view("compilerAnalysis", 16); break;
-		case 3: @phase_name = rt::string_view("copyingIndex", 12); break;
-		case 4: @phase_name = rt::string_view("sortingIndex", 12); break;
-		case 5: @phase_name = rt::string_view("failed", 6); break;
+		case 1: @phase_name = "loadingSources"; break;
+		case 2: @phase_name = "compilerAnalysis"; break;
+		case 3: @phase_name = "copyingIndex"; break;
+		case 4: @phase_name = "sortingIndex"; break;
+		case 5: @phase_name = "failed"; break;
 	};
 	u64 elapsed = 0;
 	u64 began = runtime_atomic_load(this.phase_started);
 	if (phase && began) {
 		@elapsed = runtime_clock_nanoseconds() - began;
 	};
-	if (!@result.get()->set(rt::string_view("analysisPhase", 13), rt::json_value::make_string(phase_name)) || !@result.get()->set(rt::string_view("phaseNanoseconds", 16), rt::json_value::make_unsigned($elapsed))) {
+	if (!@result.get()->set("analysisPhase", rt::json_value::make_string(phase_name)) || !@result.get()->set("phaseNanoseconds", rt::json_value::make_unsigned($elapsed))) {
 		return rt::unique<rt::json_value>();
 	};
-	if (!@result.get()->set(rt::string_view("generation", 10), rt::json_value::make_unsigned(runtime_atomic_load(this.generation))) || !@result.get()->set(rt::string_view("indexedGeneration", 17), rt::json_value::make_unsigned(u64(generation))) || !@result.get()->set(rt::string_view("indexBuildNanoseconds", 21), rt::json_value::make_unsigned($build)) || !@result.get()->set(rt::string_view("queries", 7), rt::json_value::make_unsigned(u64(this.queries))) || !@result.get()->set(rt::string_view("lookupNanoseconds", 17), rt::json_value::make_unsigned(u64(this.query_nanoseconds))) || !@result.get()->set(rt::string_view("bindingsCurrent", 15), rt::json_value::make_boolean(this.published.get() && generation >= this.minimum_semantic_generation)) || !@result.get()->set(rt::string_view("documents", 9), $documents)) {
+	if (!@result.get()->set("generation", rt::json_value::make_unsigned(runtime_atomic_load(this.generation))) || !@result.get()->set("indexedGeneration", rt::json_value::make_unsigned(u64(generation))) || !@result.get()->set("indexBuildNanoseconds", rt::json_value::make_unsigned($build)) || !@result.get()->set("queries", rt::json_value::make_unsigned(u64(this.queries))) || !@result.get()->set("lookupNanoseconds", rt::json_value::make_unsigned(u64(this.query_nanoseconds))) || !@result.get()->set("bindingsCurrent", rt::json_value::make_boolean(this.published.get() && generation >= this.minimum_semantic_generation)) || !@result.get()->set("documents", $documents)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;

@@ -101,17 +101,17 @@ fn LifetimeAnalyzer::binding_error(var LifetimeAnalyzer& this, var SemanticExpre
 	};
 	var message = DiagnosticMessage();
 	@message.text(reason);
-	@message.text(rt::string_view("; object '", 10));
+	@message.text("; object '");
 	diagnostic_entity(@message, entity);
-	@message.text(rt::string_view("' has type '", 12));
+	@message.text("' has type '");
 	diagnostic_type(@message, *entity.type());
-	@message.text(rt::string_view("'", 1));
+	@message.text("'");
 	Token location = entity.token();
 	if (expression) {
 		@location = expression->token();
 	};
 	@this.diagnostics->error(location, message.view());
-	@this.diagnostics->note(entity.token(), rt::string_view("object is declared here", 23));
+	@this.diagnostics->note(entity.token(), "object is declared here");
 	return false;
 };
 
@@ -135,7 +135,7 @@ fn LifetimeAnalyzer::merge(var LifetimeAnalyzer& this, var FlowState& destinatio
 		var LiveBinding* b = @second.find(binding->entity);
 
 		if (!a || !b) {
-			return @this.binding_error(expression, "inconsistent object lifetimes at reachable control-flow merge\0", *binding->entity);
+			return @this.binding_error(expression, "inconsistent object lifetimes at reachable control-flow merge", *binding->entity);
 		};
 
 		if (a->lifetime == object_lifetime::indeterminate || b->lifetime == object_lifetime::indeterminate || (a->lifetime == object_lifetime::live) != (b->lifetime == object_lifetime::live)) {
@@ -165,7 +165,7 @@ fn LifetimeAnalyzer::validate_backedge(var LifetimeAnalyzer& this, var FlowState
 		var LiveBinding* repeated = @incoming.find(binding->entity);
 
 		if (!repeated || (binding->lifetime == object_lifetime::indeterminate) != (repeated->lifetime == object_lifetime::indeterminate) || (binding->lifetime == object_lifetime::live) != (repeated->lifetime == object_lifetime::live)) {
-			return @this.binding_error(expression, "inconsistent object lifetimes at reachable loop backedge\0", *binding->entity);
+			return @this.binding_error(expression, "inconsistent object lifetimes at reachable loop backedge", *binding->entity);
 		};
 
 		@index = index + 1;
@@ -193,7 +193,7 @@ fn LifetimeAnalyzer::conditional(var LifetimeAnalyzer& this, var SemanticExpress
 	FlowState second;
 
 	if (!@first.copy_from(state) || !@second.copy_from(state)) {
-		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+		return @this.error($expression, "lifetime state storage is unavailable");
 	};
 
 	if (!@this.walk(expression->item(1), @first) || !@this.walk(expression->item(2), @second)) {
@@ -211,7 +211,7 @@ fn LifetimeAnalyzer::storage(var LifetimeAnalyzer& this, var SemanticExpression*
 	};
 
 	if (!@state.find(owner)) {
-		return @this.binding_error(expression, "object storage does not reach this construction\0", *owner);
+		return @this.binding_error(expression, "object storage does not reach this construction", *owner);
 	};
 
 	return true;
@@ -221,14 +221,14 @@ fn LifetimeAnalyzer::save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<
 	var snapshot = rt::unique<FlowState>::make();
 
 	if (!snapshot.get() || !@snapshot.get()->copy_from(state)) {
-		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+		return @this.error($expression, "lifetime state storage is unavailable");
 	};
 
 	@snapshot.get()->truncate($boundary);
 	@snapshot.get()->resume();
 
 	if (!@exits.push_back($snapshot)) {
-		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+		return @this.error($expression, "lifetime state storage is unavailable");
 	};
 
 	return true;
@@ -245,7 +245,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	FlowState entry;
 
 	if (!@entry.copy_from(state)) {
-		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+		return @this.error($expression, "lifetime state storage is unavailable");
 	};
 
 	usize condition = 0;
@@ -278,7 +278,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	FlowState repeated;
 
 	if (!@repeated.copy_from(state)) {
-		return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+		return @this.error($expression, "lifetime state storage is unavailable");
 	};
 
 	LoopFlow loop;
@@ -330,7 +330,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 
 		if (!has_exit) {
 			if (!@state.copy_from(leaving)) {
-				return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+				return @this.error($expression, "lifetime state storage is unavailable");
 			};
 
 			@has_exit = true;
@@ -379,7 +379,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				FlowState evaluated;
 
 				if (!@skipped.copy_from(state) || !@evaluated.copy_from(state)) {
-					return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+					return @this.error($expression, "lifetime state storage is unavailable");
 				};
 
 				if (!@this.walk(expression->item(1), @evaluated)) {
@@ -414,21 +414,21 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			};
 
 			if (!binding) {
-				return @this.binding_error(expression, "object construction does not reach this use\0", *expression->entity());
+				return @this.binding_error(expression, "object construction does not reach this use", *expression->entity());
 			};
 
 			if (binding->lifetime == object_lifetime::destroyed) {
-				return @this.binding_error(expression, "object has been destroyed\0", *binding->entity);
+				return @this.binding_error(expression, "object has been destroyed", *binding->entity);
 			};
 
 			if (binding->lifetime != object_lifetime::live) {
 				if (binding->lifetime == object_lifetime::relocated) {
-					return @this.binding_error(expression, "object has been relocated\0", *binding->entity);
+					return @this.binding_error(expression, "object has been relocated", *binding->entity);
 				};
 				if (binding->lifetime == object_lifetime::discarded) {
-					return @this.binding_error(expression, "object has been discarded\0", *binding->entity);
+					return @this.binding_error(expression, "object has been discarded", *binding->entity);
 				};
-				return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths\0", *binding->entity);
+				return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths", *binding->entity);
 			};
 
 			return true;
@@ -441,7 +441,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			var owner = this.storage_owner(*expression->item(0), @state);
 
 			if (!@state.declare(expression->entity())) {
-				return @this.error($expression, rt::string_view("lifetime state storage is unavailable", 37));
+				return @this.error($expression, "lifetime state storage is unavailable");
 			};
 
 			if (expression->entity()->type()->kind() == type_kind::reference && owner.has_value()) {
@@ -522,7 +522,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			return true;
 		case semantic_kind::break_loop:
 			if (!this.active_loop) {
-				return @this.error(expression, rt::string_view("break requires an enclosing loop or switch", 42));
+				return @this.error(expression, "break requires an enclosing loop or switch");
 			};
 			if (!@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)) {
 				return false;
@@ -539,7 +539,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			};
 
 			if (!loop) {
-				return @this.error(expression, rt::string_view("continue requires an enclosing loop", 35));
+				return @this.error(expression, "continue requires an enclosing loop");
 			};
 			if (!@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)) {
 				return false;
@@ -585,7 +585,7 @@ fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, SemanticUnit& unit) ->
 
 		while (parameter < function->parameters().size()) {
 			if (!@state.declare(function->parameters().data()[parameter])) {
-				return @this.error(nullptr, rt::string_view("lifetime state storage is unavailable", 37));
+				return @this.error(nullptr, "lifetime state storage is unavailable");
 			};
 
 			@parameter = parameter + 1;

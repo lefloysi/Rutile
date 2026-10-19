@@ -12,9 +12,9 @@ fn FunctionEmitter::conditional(var FunctionEmitter& this, var SemanticExpressio
 	};
 
 	@this.forget_temporaries(temporary_boundary);
-	var LLVMOpaqueBasicBlock* yes = @this.block(rt::string_view("if.yes", 6));
-	var LLVMOpaqueBasicBlock* no = @this.block(rt::string_view("if.no", 5));
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("if.after", 8));
+	var LLVMOpaqueBasicBlock* yes = @this.block("if.yes");
+	var LLVMOpaqueBasicBlock* no = @this.block("if.no");
+	var LLVMOpaqueBasicBlock* after = @this.block("if.after");
 	LLVMBuildCondBr(this.backend->builder(), truth, (var LLVMOpaqueBasicBlock*(yes)), (var LLVMOpaqueBasicBlock*(no)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), yes);
 
@@ -63,15 +63,15 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 		@body_index = 3;
 	};
 
-	var LLVMOpaqueBasicBlock* test = @this.block(rt::string_view("loop.condition", 14));
-	var LLVMOpaqueBasicBlock* body = @this.block(rt::string_view("loop.body", 9));
+	var LLVMOpaqueBasicBlock* test = @this.block("loop.condition");
+	var LLVMOpaqueBasicBlock* body = @this.block("loop.body");
 	var LLVMOpaqueBasicBlock* step = test;
 
 	if (expression->kind() == semantic_kind::for_loop) {
-		@step = @this.block(rt::string_view("loop.step", 9));
+		@step = @this.block("loop.step");
 	};
 
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("loop.after", 10));
+	var LLVMOpaqueBasicBlock* after = @this.block("loop.after");
 	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
 	var SemanticExpression* condition = expression->item(condition_index);
@@ -261,7 +261,7 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			};
 
 			if (!target) {
-				return @this.backend->error(expression->token(), rt::string_view("control transfer has no enclosing native destination", 52));
+				return @this.backend->error(expression->token(), "control transfer has no enclosing native destination");
 			};
 
 			if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(target->binding_boundary)) {

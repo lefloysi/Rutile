@@ -1,8 +1,8 @@
 fn shared_analysis_tests() -> i32 {
 	var compiler = Compiler();
 	var analysis = rt::unique<Analysis>::make();
-	rt::string path = rt::string("shared.rt\0");
-	rt::string text = rt::string("fn answer() -> i32 { return 42; };\0");
+	rt::string path = rt::string("shared.rt");
+	rt::string text = rt::string("fn answer() -> i32 { return 42; };");
 	if (!analysis.get() || !@analysis.get()->add_source(path, text) || !@analysis.get()->analyze(64, nullptr, nullptr)) {
 		return 1;
 	};
@@ -14,28 +14,28 @@ fn shared_analysis_tests() -> i32 {
 	if (!lease.get() || lease.value().semantics() != unit || !lease.value().navigation().symbol_count()) {
 		return 3;
 	};
-	if (@compiler.emit_current(rt::string_view("shared-analysis.obj", 19), rt::string_view(), 0, nullptr, output_kind::library)) {
+	if (@compiler.emit_current("shared-analysis.obj", rt::string_view(), 0, nullptr, output_kind::library)) {
 		return 4;
 	};
 	if (lease.value().semantics() != unit) {
 		return 5;
 	};
 
-	var source = rt::string_view("fn answer() -> i32 { return missing; };\0");
+	var source = "fn answer() -> i32 { return missing; };";
 	var editor = rt::unique<Analysis>::make();
-	if (!editor.get() || !@editor.get()->add_source("shared-diagnostic.rt\0", source) || !@editor.get()->analyze(64, nullptr, nullptr)) {
+	if (!editor.get() || !@editor.get()->add_source("shared-diagnostic.rt", source) || !@editor.get()->analyze(64, nullptr, nullptr)) {
 		return 6;
 	};
 	if (!editor.get()->diagnostics().failed() || !editor.get()->diagnostics().records().size()) {
 		return 7;
 	};
-	var file = File(fopen("shared-diagnostic.rt\0", "wb\0"));
+	var file = File(fopen("shared-diagnostic.rt\0".data(), "wb\0".data()));
 	if (!file.is_open() || !@file.write(source) || !@file.close()) {
 		return 8;
 	};
 	rt::buffer<rt::string_view> paths;
-	@paths.push_back(rt::string_view("shared-diagnostic.rt", 20));
-	if (@compiler.compile(paths, rt::string_view("shared-diagnostic.obj", 21), &fopen, rt::string_view(), 0, nullptr, output_kind::library) != 1) {
+	@paths.push_back("shared-diagnostic.rt");
+	if (@compiler.compile(paths, "shared-diagnostic.obj", &fopen, rt::string_view(), 0, nullptr, output_kind::library) != 1) {
 		return 9;
 	};
 	var failed = @compiler.acquire_analysis();
@@ -47,7 +47,7 @@ fn shared_analysis_tests() -> i32 {
 	if (native_error.message.view() != editor_error.message.view() || native_error.location.begin != editor_error.location.begin) {
 		return 11;
 	};
-	if (lease.value().semantics() != unit || lease.value().source_text(0) != rt::string_view("fn answer() -> i32 { return 42; };\0")) {
+	if (lease.value().semantics() != unit || lease.value().source_text(0) != "fn answer() -> i32 { return 42; };") {
 		return 12;
 	};
 	if (target_analysis_tests() != 42) {
@@ -73,8 +73,8 @@ fn shared_analysis_tests() -> i32 {
 
 fn target_analysis_tests() -> i32 {
 	var compiler = Compiler();
-	var first_key = rt::string_view("first\0");
-	var second_key = rt::string_view("second\0");
+	var first_key = "first";
+	var second_key = "second";
 	if (!@compiler.expect_target(first_key, 5) || !@compiler.expect_target(second_key, 2) || @compiler.expect_target(first_key, 4)) {
 		return 20;
 	};
@@ -83,7 +83,7 @@ fn target_analysis_tests() -> i32 {
 	if (!first.get() || !second.get()) {
 		return 21;
 	};
-	if (!@first.get()->add_source("first.rt\0", "fn answer() -> i32 { return 42; };\0") || !@second.get()->add_source("second.rt\0", "fn answer() -> i32 { return 17; };\0")) {
+	if (!@first.get()->add_source("first.rt", "fn answer() -> i32 { return 42; };") || !@second.get()->add_source("second.rt", "fn answer() -> i32 { return 17; };")) {
 		return 22;
 	};
 	if (!@first.get()->analyze(64, nullptr, nullptr) || !@second.get()->analyze(64, nullptr, nullptr)) {
@@ -99,14 +99,14 @@ fn target_analysis_tests() -> i32 {
 	if (!first_lease.get() || !second_lease.get() || first_lease.revision() != 5 || second_lease.revision() != 2 || first_lease.value().semantics() != first_unit || second_lease.value().semantics() != second_unit || first_unit == second_unit) {
 		return 25;
 	};
-	if (@compiler.emit_target(first_key, rt::string_view("shared-target-first.obj", 23), rt::string_view(), 0, nullptr, output_kind::library)) {
+	if (@compiler.emit_target(first_key, "shared-target-first.obj", rt::string_view(), 0, nullptr, output_kind::library)) {
 		return 26;
 	};
 	if (!@compiler.expect_target(first_key, 6)) {
 		return 27;
 	};
 	var pending = @compiler.acquire_current_target(first_key);
-	if (pending.get() || @compiler.emit_target(first_key, rt::string_view("shared-pending.obj", 18), rt::string_view(), 0, nullptr, output_kind::library) != 1) {
+	if (pending.get() || @compiler.emit_target(first_key, "shared-pending.obj", rt::string_view(), 0, nullptr, output_kind::library) != 1) {
 		return 32;
 	};
 	var obsolete = rt::unique<Analysis>::make();
@@ -114,7 +114,7 @@ fn target_analysis_tests() -> i32 {
 		return 28;
 	};
 	var replacement = rt::unique<Analysis>::make();
-	if (!@replacement.get()->add_source("replacement.rt\0", "fn replacement() -> i32 { return 9; };\0") || !@replacement.get()->analyze(64, nullptr, nullptr)) {
+	if (!@replacement.get()->add_source("replacement.rt", "fn replacement() -> i32 { return 9; };") || !@replacement.get()->analyze(64, nullptr, nullptr)) {
 		return 29;
 	};
 	if (@compiler.publish_target(first_key, 6, $replacement) != analysis_publication::published) {
@@ -122,7 +122,7 @@ fn target_analysis_tests() -> i32 {
 	};
 	var current = @compiler.acquire_target(first_key);
 	var untouched = @compiler.acquire_target(second_key);
-	if (!current.get() || current.revision() != 6 || current.value().semantics() == first_unit || untouched.value().semantics() != second_unit || first_lease.value().semantics() != first_unit || first_lease.value().source_path(0) != rt::string_view("first.rt\0")) {
+	if (!current.get() || current.revision() != 6 || current.value().semantics() == first_unit || untouched.value().semantics() != second_unit || first_lease.value().semantics() != first_unit || first_lease.value().source_path(0) != "first.rt") {
 		return 31;
 	};
 	return 42;
@@ -130,8 +130,8 @@ fn target_analysis_tests() -> i32 {
 
 fn language_metadata_tests() -> i32 {
 	var analysis = Analysis();
-	var source = rt::string_view("struct Payload { i32 field; }; template<typename T, i32 N> struct Box { T value; }; fn pick(i32 input) -> i32 { return input; }; fn pick(Payload input) -> i32 { return input.field; }; fn answer() -> i32 { Box<Payload, 3> box; i32 outer = 42; { Payload outer; pick($outer); }; return pick(outer); };\0");
-	if (!@analysis.add_source("metadata.rt\0", source) || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+	var source = "struct Payload { i32 field; }; template<typename T, i32 N> struct Box { T value; }; fn pick(i32 input) -> i32 { return input; }; fn pick(Payload input) -> i32 { return input.field; }; fn answer() -> i32 { Box<Payload, 3> box; i32 outer = 42; { Payload outer; pick($outer); }; return pick(outer); };";
+	if (!@analysis.add_source("metadata.rt", source) || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
 		return 40;
 	};
 	const SemanticUnit& semantics = *analysis.semantics();
@@ -142,8 +142,8 @@ fn language_metadata_tests() -> i32 {
 		var Entity* entity = entities.data()[index].get();
 		@index = index + 1;
 		const TemplateInstantiation* metadata = entity->template_arguments();
-		if (entity->name() == rt::string_view("Box\0") && metadata && metadata->arguments.size() == 2) {
-			@retained = metadata->arguments.data()[0].kind == template_argument_kind::type && metadata->arguments.data()[0].type->entity()->name() == rt::string_view("Payload\0") && metadata->arguments.data()[1].kind == template_argument_kind::value && metadata->arguments.data()[1].value == 3;
+		if (entity->name() == "Box" && metadata && metadata->arguments.size() == 2) {
+			@retained = metadata->arguments.data()[0].kind == template_argument_kind::type && metadata->arguments.data()[0].type->entity()->name() == "Payload" && metadata->arguments.data()[1].kind == template_argument_kind::value && metadata->arguments.data()[1].value == 3;
 		};
 	};
 	if (!retained) {
@@ -155,7 +155,7 @@ fn language_metadata_tests() -> i32 {
 	while (index < navigation.symbol_count()) {
 		const NavigationSymbol* symbol = navigation.symbol_at(index);
 		@index = index + 1;
-		if (symbol->detail == rt::string_view("Box<Payload, 3>: Box<Payload, 3>\0")) {
+		if (symbol->detail == "Box<Payload, 3>: Box<Payload, 3>") {
 			@readable = true;
 		};
 	};
@@ -164,11 +164,11 @@ fn language_metadata_tests() -> i32 {
 	};
 	const NavigationCall* first = navigation.call_at(0);
 	const NavigationCall* second = navigation.call_at(1);
-	if (first->symbol == second->symbol || first->scope == second->scope || first->arguments.size() != 1 || second->arguments.size() != 1 || navigation.parameter_count(first->symbol) != 1 || navigation.parameter_at(first->symbol, 0)->name != rt::string_view("input\0")) {
+	if (first->symbol == second->symbol || first->scope == second->scope || first->arguments.size() != 1 || second->arguments.size() != 1 || navigation.parameter_count(first->symbol) != 1 || navigation.parameter_at(first->symbol, 0)->name != "input") {
 		return 44;
 	};
 	var first_range = first->arguments.data()[0];
-	if (source.slice(first_range.begin, first_range.end - first_range.begin) != rt::string_view("$outer\0")) {
+	if (source.slice(first_range.begin, first_range.end - first_range.begin) != "$outer") {
 		return 45;
 	};
 	return 42;
@@ -176,9 +176,9 @@ fn language_metadata_tests() -> i32 {
 
 fn target_diagnostic_tests() -> i32 {
 	var compiler = Compiler();
-	var key = rt::string_view("unsaved-target\0");
+	var key = "unsaved-target";
 	var analysis = rt::unique<Analysis>::make();
-	if (!@analysis.get()->add_source("unsaved-error.rt\0", "fn pick(i32 input) -> i32 { return input; }; fn answer() -> i32 { return pick(nullptr); };\0") || !@analysis.get()->analyze(64, nullptr, nullptr)) {
+	if (!@analysis.get()->add_source("unsaved-error.rt", "fn pick(i32 input) -> i32 { return input; }; fn answer() -> i32 { return pick(nullptr); };") || !@analysis.get()->analyze(64, nullptr, nullptr)) {
 		return 50;
 	};
 	if (!analysis.get()->diagnostics().failed() || !analysis.get()->diagnostics().records().size() || !analysis.get()->diagnostics().records().data()[0].notes.size()) {
@@ -187,11 +187,11 @@ fn target_diagnostic_tests() -> i32 {
 	if (!@compiler.expect_target(key, 1) || @compiler.publish_target(key, 1, $analysis) != analysis_publication::published) {
 		return 52;
 	};
-	var NativeFile* output = fopen("shared-target-diagnostic.txt\0", "wb\0");
+	var NativeFile* output = fopen("shared-target-diagnostic.txt\0".data(), "wb\0".data());
 	if (!output) {
 		return 53;
 	};
-	i32 result = @compiler.emit_target(key, rt::string_view("shared-invalid.obj", 18), rt::string_view(), 0, output, output_kind::library);
+	i32 result = @compiler.emit_target(key, "shared-invalid.obj", rt::string_view(), 0, output, output_kind::library);
 	fclose(output);
 	if (result != 1) {
 		return 54;
@@ -201,8 +201,8 @@ fn target_diagnostic_tests() -> i32 {
 
 fn completion_metadata_tests() -> i32 {
 	var analysis = Analysis();
-	var source = rt::string_view("struct Item { i32 public_value; fn read(const Item& this) -> i32; private: i32 private_value; }; fn Item::read(const Item& this) -> i32 { return this.private_value; }; fn outside(var Item& item) -> i32 { return item.public_value; };\0");
-	if (!@analysis.add_source("completion.rt\0", source) || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+	var source = "struct Item { i32 public_value; fn read(const Item& this) -> i32; private: i32 private_value; }; fn Item::read(const Item& this) -> i32 { return this.private_value; }; fn outside(var Item& item) -> i32 { return item.public_value; };";
+	if (!@analysis.add_source("completion.rt", source) || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
 		return 60;
 	};
 	const NavigationIndex& navigation = analysis.navigation();
@@ -214,16 +214,16 @@ fn completion_metadata_tests() -> i32 {
 	while (index < navigation.symbol_count()) {
 		const NavigationSymbol* symbol = navigation.symbol_at(index);
 		@index = index + 1;
-		if (symbol->name == rt::string_view("item\0")) {
+		if (symbol->name == "item") {
 			@parameter = symbol->id;
 		};
-		if (symbol->name == rt::string_view("this\0")) {
+		if (symbol->name == "this") {
 			@receiver = symbol->id;
 		};
-		if (symbol->name == rt::string_view("private_value\0")) {
+		if (symbol->name == "private_value") {
 			@private_field = symbol->id;
 		};
-		if (symbol->name == rt::string_view("public_value\0")) {
+		if (symbol->name == "public_value") {
 			@public_field = symbol->id;
 		};
 	};
@@ -279,8 +279,8 @@ fn receiver_has(const NavigationIndex& index, const NavigationReceiver& receiver
 
 fn receiver_metadata_tests() -> i32 {
 	var analysis = Analysis();
-	var source = rt::string_view("struct Base { i32 inherited; }; struct Item : [Base] { i32 own; private: i32 hidden; }; fn outside(Item& item) { item.; };\0");
-	if (!@analysis.add_source("receiver.rt\0", source) || !@analysis.analyze_editor(64, nullptr, nullptr)) {
+	var source = "struct Base { i32 inherited; }; struct Item : [Base] { i32 own; private: i32 hidden; }; fn outside(Item& item) { item.; };";
+	if (!@analysis.add_source("receiver.rt", source) || !@analysis.analyze_editor(64, nullptr, nullptr)) {
 		return 70;
 	};
 	const NavigationIndex& navigation = analysis.navigation();
@@ -288,7 +288,7 @@ fn receiver_metadata_tests() -> i32 {
 		return 71;
 	};
 	const NavigationReceiver* receiver = navigation.receiver_at(navigation.receiver_count() - 1);
-	if (!receiver_has(navigation, *receiver, "own\0") || !receiver_has(navigation, *receiver, "inherited\0") || receiver_has(navigation, *receiver, "hidden\0")) {
+	if (!receiver_has(navigation, *receiver, "own") || !receiver_has(navigation, *receiver, "inherited") || receiver_has(navigation, *receiver, "hidden")) {
 		return 72;
 	};
 	if (!receiver->scope || receiver->range.begin >= receiver->range.end || receiver->selector.begin < receiver->range.end) {
@@ -296,16 +296,16 @@ fn receiver_metadata_tests() -> i32 {
 	};
 
 	var qualified = Analysis();
-	if (!@qualified.add_source("qualified.rt\0", "namespace Names { i32 value; }; fn outside() { Names::; };\0") || !@qualified.analyze_editor(64, nullptr, nullptr) || !qualified.navigation().receiver_count()) {
+	if (!@qualified.add_source("qualified.rt", "namespace Names { i32 value; }; fn outside() { Names::; };") || !@qualified.analyze_editor(64, nullptr, nullptr) || !qualified.navigation().receiver_count()) {
 		return 74;
 	};
 	const NavigationReceiver* namespace_site = qualified.navigation().receiver_at(0);
-	if (!receiver_has(qualified.navigation(), *namespace_site, "value\0")) {
+	if (!receiver_has(qualified.navigation(), *namespace_site, "value")) {
 		return 75;
 	};
 
 	var calls = Analysis();
-	if (!@calls.add_source("call.rt\0", "fn choose(i32 first) -> i32; fn choose(i32 first, i32 second) -> i32; fn outside() { choose(1, ); };\0") || !@calls.analyze_editor(64, nullptr, nullptr) || !calls.navigation().call_count()) {
+	if (!@calls.add_source("call.rt", "fn choose(i32 first) -> i32; fn choose(i32 first, i32 second) -> i32; fn outside() { choose(1, ); };") || !@calls.analyze_editor(64, nullptr, nullptr) || !calls.navigation().call_count()) {
 		return 76;
 	};
 	const NavigationCall* call = calls.navigation().call_at(0);
@@ -314,12 +314,12 @@ fn receiver_metadata_tests() -> i32 {
 	};
 
 	var method = Analysis();
-	if (!@method.add_source("bound.rt\0", "struct Item { fn read(Item& this) -> i32; }; fn outside(Item& item) -> i32 { return item.read(); };\0") || !@method.analyze(64, nullptr, nullptr) || method.diagnostics().failed() || method.navigation().call_count() != 1 || !method.navigation().call_at(0)->bound_receiver) {
+	if (!@method.add_source("bound.rt", "struct Item { fn read(Item& this) -> i32; }; fn outside(Item& item) -> i32 { return item.read(); };") || !@method.analyze(64, nullptr, nullptr) || method.diagnostics().failed() || method.navigation().call_count() != 1 || !method.navigation().call_at(0)->bound_receiver) {
 		return 80;
 	};
 
 	var broken = Analysis();
-	if (!@broken.add_source("poison.rt\0", "fn retained(i32 value) -> i32 { +; return value; };\0") || !@broken.analyze_editor(64, nullptr, nullptr)) {
+	if (!@broken.add_source("poison.rt", "fn retained(i32 value) -> i32 { +; return value; };") || !@broken.analyze_editor(64, nullptr, nullptr)) {
 		return 78;
 	};
 	bool retained = false;
@@ -339,7 +339,7 @@ fn receiver_metadata_tests() -> i32 {
 
 fn generated_navigation_tests() -> i32 {
 	var analysis = Analysis();
-	if (!@analysis.add_source("generated.rt\0", "struct Foo { i32 field; }; fn sample() -> i32 { Foo first; Foo second; @first := second; return first.field; };\0") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+	if (!@analysis.add_source("generated.rt", "struct Foo { i32 field; }; fn sample() -> i32 { Foo first; Foo second; @first := second; return first.field; };") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
 		return 82;
 	};
 	usize index = 0;
@@ -347,10 +347,10 @@ fn generated_navigation_tests() -> i32 {
 	while (index < analysis.navigation().symbol_count()) {
 		const NavigationSymbol* symbol = analysis.navigation().symbol_at(index);
 		@index = index + 1;
-		if (symbol->name == rt::string_view("this\0") || symbol->name == rt::string_view("other\0") || symbol->name == rt::string_view("destination\0") || symbol->name == rt::string_view("source\0")) {
+		if (symbol->name == "this" || symbol->name == "other" || symbol->name == "destination" || symbol->name == "source") {
 			return 83;
 		};
-		if (symbol->name == rt::string_view("Foo\0")) {
+		if (symbol->name == "Foo") {
 			@record = symbol->id;
 		};
 	};
@@ -370,7 +370,7 @@ fn generated_navigation_tests() -> i32 {
 
 fn template_classification_tests() -> i32 {
 	var analysis = Analysis();
-	if (!@analysis.add_source("unused.rt\0", "template<typename T> struct Box { T item; }; template<typename U> struct Shadow { i32 U; };\0") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
+	if (!@analysis.add_source("unused.rt", "template<typename T> struct Box { T item; }; template<typename U> struct Shadow { i32 U; };") || !@analysis.analyze(64, nullptr, nullptr) || analysis.diagnostics().failed()) {
 		return 87;
 	};
 	usize index = 0;

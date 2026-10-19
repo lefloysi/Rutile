@@ -1,9 +1,10 @@
 #pragma once
 
-int kiln_serve(const char* endpoint);
+struct CompilerRegistry;
 
-struct Compiler;
+int kiln_serve(CompilerRegistry& compilers, const char* endpoint);
+
 struct EditorSession;
 
-EditorSession* kiln_editor_start(Compiler* compiler, const char* root);
+EditorSession* kiln_editor_start(CompilerRegistry& compilers, const char* root);
 void kiln_editor_stop(EditorSession* session);

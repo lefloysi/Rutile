@@ -13,7 +13,7 @@ private:
 fn SourceReader::error(var SourceReader& this, rt::string_view path, rt::string_view operation) {
 	var message = DiagnosticMessage();
 	@message.text(operation);
-	@message.text(rt::string_view(" source file ", 13));
+	@message.text(" source file ");
 	@message.quoted(path);
 	Token location;
 	@this.diagnostics->error(location, message.view());
@@ -27,10 +27,10 @@ fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var Sou
 
 fn SourceReader::load(var SourceReader& this, rt::string_view path) -> var SourceFile* {
 	var native_path = rt::string(path);
-	var file = File(this.opener(native_path.c_str(), "rb\0"));
+	var file = File(this.opener(native_path.c_str(), "rb\0".data()));
 
 	if (!file.is_open()) {
-		@this.error(path, rt::string_view("cannot open", 11));
+		@this.error(path, "cannot open");
 		return nullptr;
 	};
 
@@ -45,25 +45,25 @@ fn SourceReader::load(var SourceReader& this, rt::string_view path) -> var Sourc
 		};
 
 		if (!@contents.append(rt::string_view(&@chunk[0], $count))) {
-			@this.error(path, rt::string_view("cannot buffer", 13));
+			@this.error(path, "cannot buffer");
 			return nullptr;
 		};
 	};
 
 	if (file.failed()) {
-		@this.error(path, rt::string_view("cannot read", 11));
+		@this.error(path, "cannot read");
 		return nullptr;
 	};
 
 	if (!@file.close()) {
-		@this.error(path, rt::string_view("cannot close", 12));
+		@this.error(path, "cannot close");
 		return nullptr;
 	};
 
 	var SourceFile* source = @this.sources->add(path, contents.view());
 
 	if (!source) {
-		@this.error(path, rt::string_view("cannot retain", 13));
+		@this.error(path, "cannot retain");
 	};
 
 	return $source;

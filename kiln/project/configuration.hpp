@@ -4,11 +4,28 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <map>
+
+enum class target_type {
+	executable,
+	shared_lib,
+	static_lib,
+};
+
+struct ProjectProgram {
+	std::string function;
+	std::filesystem::path source;
+};
 
 struct ProjectTarget {
 	std::string name;
 	std::filesystem::path source;
 	std::string entry;
+	std::string compiler = "rutile";
+	std::map<std::string, std::string> options;
+	target_type type = target_type::executable;
+	std::filesystem::path output;
+	std::vector<std::filesystem::path> source_folders;
 };
 
 struct ProjectSourcePath {
@@ -25,6 +42,7 @@ using ProjectSourceInput = std::variant<ProjectSourcePath, ProjectSourceManifest
 struct ProjectAnalysisSource {
 	std::string name;
 	std::vector<ProjectSourceInput> sources;
+	std::string compiler = "rutile";
 };
 
 struct ProjectProfile {
@@ -33,10 +51,13 @@ struct ProjectProfile {
 };
 
 struct ProjectConfiguration {
+	std::vector<ProjectProgram> projects;
 	std::vector<struct ProjectTarget> targets;
 	std::vector<struct ProjectAnalysisSource> analysis;
 	std::vector<struct ProjectProfile> profiles;
 };
+
+std::filesystem::path project_configuration_path(const std::filesystem::path& root);
 
 bool project_configuration_read(const std::filesystem::path& root, struct ProjectConfiguration& configuration, std::string& diagnostics);
 bool project_configuration_initialize(const std::filesystem::path& root, std::string& diagnostics);

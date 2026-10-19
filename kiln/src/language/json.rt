@@ -32,7 +32,7 @@ fn LanguageJson::integer(rt::json_value& object, rt::string_view key, i64 fallba
 
 fn LanguageJson::position(LanguagePosition& position) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_object();
-	if (!result.get() || !@result.get()->set(rt::string_view("line", 4), rt::json_value::make_unsigned(static_cast<u64>(position.line))) || !@result.get()->set(rt::string_view("character", 9), rt::json_value::make_unsigned(static_cast<u64>(position.character)))) {
+	if (!result.get() || !@result.get()->set("line", rt::json_value::make_unsigned(static_cast<u64>(position.line))) || !@result.get()->set("character", rt::json_value::make_unsigned(static_cast<u64>(position.character)))) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
@@ -40,7 +40,7 @@ fn LanguageJson::position(LanguagePosition& position) -> rt::unique<rt::json_val
 
 fn LanguageJson::range(LanguageText& text, usize begin, usize end) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_object();
-	if (!result.get() || !@result.get()->set(rt::string_view("start", 5), LanguageJson::position(text.position($begin))) || !@result.get()->set(rt::string_view("end", 3), LanguageJson::position(text.position($end)))) {
+	if (!result.get() || !@result.get()->set("start", LanguageJson::position(text.position($begin))) || !@result.get()->set("end", LanguageJson::position(text.position($end)))) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
@@ -48,10 +48,10 @@ fn LanguageJson::range(LanguageText& text, usize begin, usize end) -> rt::unique
 
 fn LanguageJson::notification(rt::string_view method, rt::unique<rt::json_value> parameters) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_object();
-	if (!result.get() || !@result.get()->set(rt::string_view("jsonrpc", 7), rt::json_value::make_string(rt::string_view("2.0", 3))) || !@result.get()->set(rt::string_view("method", 6), rt::json_value::make_string(method))) {
+	if (!result.get() || !@result.get()->set("jsonrpc", rt::json_value::make_string("2.0")) || !@result.get()->set("method", rt::json_value::make_string(method))) {
 		return rt::unique<rt::json_value>();
 	};
-	if (!@result.get()->set(rt::string_view("params", 6), $parameters)) {
+	if (!@result.get()->set("params", $parameters)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
@@ -59,10 +59,10 @@ fn LanguageJson::notification(rt::string_view method, rt::unique<rt::json_value>
 
 fn LanguageJson::response(rt::json_value& id, rt::unique<rt::json_value> value) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_object();
-	if (!result.get() || !@result.get()->set(rt::string_view("jsonrpc", 7), rt::json_value::make_string(rt::string_view("2.0", 3))) || !@result.get()->set(rt::string_view("id", 2), id.clone())) {
+	if (!result.get() || !@result.get()->set("jsonrpc", rt::json_value::make_string("2.0")) || !@result.get()->set("id", id.clone())) {
 		return rt::unique<rt::json_value>();
 	};
-	if (!@result.get()->set(rt::string_view("result", 6), $value)) {
+	if (!@result.get()->set("result", $value)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
@@ -71,13 +71,13 @@ fn LanguageJson::response(rt::json_value& id, rt::unique<rt::json_value> value) 
 fn LanguageJson::failure(rt::json_value& id, i64 code, rt::string_view text) -> rt::unique<rt::json_value> {
 	var result = rt::json_value::make_object();
 	var error = rt::json_value::make_object();
-	if (!result.get() || !error.get() || !@error.get()->set(rt::string_view("code", 4), rt::json_value::make_integer($code)) || !@error.get()->set(rt::string_view("message", 7), rt::json_value::make_string(text))) {
+	if (!result.get() || !error.get() || !@error.get()->set("code", rt::json_value::make_integer($code)) || !@error.get()->set("message", rt::json_value::make_string(text))) {
 		return rt::unique<rt::json_value>();
 	};
-	if (!@result.get()->set(rt::string_view("jsonrpc", 7), rt::json_value::make_string(rt::string_view("2.0", 3))) || !@result.get()->set(rt::string_view("id", 2), id.clone())) {
+	if (!@result.get()->set("jsonrpc", rt::json_value::make_string("2.0")) || !@result.get()->set("id", id.clone())) {
 		return rt::unique<rt::json_value>();
 	};
-	if (!@result.get()->set(rt::string_view("error", 5), $error)) {
+	if (!@result.get()->set("error", $error)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;

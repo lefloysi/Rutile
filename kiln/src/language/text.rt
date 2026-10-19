@@ -155,16 +155,16 @@ fn LanguageUri::hexadecimal(char value) -> i32 {
 };
 
 fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> bool {
-	if (uri.size() < 7 || rt::string_view(uri.data(), 7) != rt::string_view("file://", 7)) {
+	if (uri.size() < 7 || rt::string_view(uri.data(), 7) != "file://") {
 		return false;
 	};
 
 	rt::string result;
 	usize cursor = 7;
-	if (uri.size() >= 17 && rt::string_view(uri.data() + 7, 10) == rt::string_view("localhost/", 10)) {
+	if (uri.size() >= 17 && rt::string_view(uri.data() + 7, 10) == "localhost/") {
 		@cursor = 16;
 	};
-	if (cursor < uri.size() && uri.data()[cursor] != '/' && !@result.append(rt::string_view("//", 2))) {
+	if (cursor < uri.size() && uri.data()[cursor] != '/' && !@result.append("//")) {
 		return false;
 	};
 	if (cursor + 2 < uri.size() && uri.data()[cursor] == '/' && uri.data()[cursor + 2] == ':') {
@@ -196,18 +196,18 @@ fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> bool {
 
 fn LanguageUri::encode(rt::string_view path, var rt::string& uri) -> bool {
 	rt::string result;
-	var prefix = rt::string_view("file:///", 8);
+	var prefix = "file:///";
 	if (path.size() >= 2 && (path.data()[0] == '/' || path.data()[0] == '\\') && (path.data()[1] == '/' || path.data()[1] == '\\')) {
-		@prefix = rt::string_view("file:", 5);
+		@prefix = "file:";
 	}
 	else if (path.size() && path.data()[0] == '/') {
-		@prefix = rt::string_view("file://", 7);
+		@prefix = "file://";
 	};
 	if (!@result.append(prefix)) {
 		return false;
 	};
 
-	var digits = rt::string_view("0123456789ABCDEF", 16);
+	var digits = "0123456789ABCDEF";
 	usize cursor = 0;
 	while (cursor < path.size()) {
 		char byte = path.data()[cursor];

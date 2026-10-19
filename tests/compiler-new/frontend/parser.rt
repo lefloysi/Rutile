@@ -4,11 +4,11 @@ struct ParseFixture {
 	SourceFile source;
 	rt::unique<Syntax> tree;
 
-	fn build(var ParseFixture& this, const char* text) -> bool;
+	fn build(var ParseFixture& this, rt::string_view text) -> bool;
 };
 
-fn ParseFixture::build(var ParseFixture& this, const char* text) -> bool {
-	if (!@this.source.assign(rt::string_view("parser.rt\0"), rt::string_view(text))) {
+fn ParseFixture::build(var ParseFixture& this, rt::string_view text) -> bool {
+	if (!@this.source.assign("parser.rt", rt::string_view(text))) {
 		return false;
 	};
 	var lexer = Lexer(@this.source);
@@ -27,7 +27,7 @@ fn ParseFixture::build(var ParseFixture& this, const char* text) -> bool {
 
 fn parser_tests() -> i32 {
 	var expression = ParseFixture();
-	if (!@expression.build("fn main() -> i32 { return 1 + 2 * 3; };\0")) {
+	if (!@expression.build("fn main() -> i32 { return 1 + 2 * 3; };")) {
 		return 1;
 	};
 	var Syntax* function = expression.tree.get()->item(0);
@@ -40,7 +40,7 @@ fn parser_tests() -> i32 {
 	};
 
 	var empty = ParseFixture();
-	if (!@empty.build("fn declared(); fn defined() {}; ;;\0")) {
+	if (!@empty.build("fn declared(); fn defined() {}; ;;")) {
 		return 4;
 	};
 	if (empty.tree.get()->size() != 4 || empty.tree.get()->item(0)->function_body()->kind() != syntax_kind::noop || empty.tree.get()->item(1)->function_body()->kind() != syntax_kind::brace || empty.tree.get()->item(2)->kind() != syntax_kind::noop || empty.tree.get()->item(3)->kind() != syntax_kind::noop) {
@@ -48,7 +48,7 @@ fn parser_tests() -> i32 {
 	};
 
 	var variables = ParseFixture();
-	if (!@variables.build("var inferred = 42; var explicit : i32; i32 typed = 1; a * b;\0")) {
+	if (!@variables.build("var inferred = 42; var explicit : i32; i32 typed = 1; a * b;")) {
 		return 6;
 	};
 	if (variables.tree.get()->size() != 4 || variables.tree.get()->item(0)->variable_type()->kind() != syntax_kind::absent || variables.tree.get()->item(1)->variable_initializer()->kind() != syntax_kind::absent || variables.tree.get()->item(3)->kind() != syntax_kind::ambiguity || variables.tree.get()->item(3)->size() != 2) {
@@ -56,7 +56,7 @@ fn parser_tests() -> i32 {
 	};
 
 	var control = ParseFixture();
-	if (!@control.build("fn choose(i32 value) -> i32 { if (value) return 42; else return 0; };\0")) {
+	if (!@control.build("fn choose(i32 value) -> i32 { if (value) return 42; else return 0; };")) {
 		return 8;
 	};
 	var Syntax* condition = control.tree.get()->item(0)->function_body()->item(0);
@@ -65,14 +65,14 @@ fn parser_tests() -> i32 {
 	};
 
 	var types = ParseFixture();
-	if (!@types.build("var pointer : const Thing*; var array : i32[4]; var casted = static_cast<i32>(42);\0")) {
+	if (!@types.build("var pointer : const Thing*; var array : i32[4]; var casted = static_cast<i32>(42);")) {
 		return 10;
 	};
 	if (types.tree.get()->item(0)->variable_type()->kind() != syntax_kind::type_pointer || types.tree.get()->item(0)->variable_type()->designated_type()->kind() != syntax_kind::type_const || types.tree.get()->item(1)->variable_type()->array_extent()->kind() != syntax_kind::number || types.tree.get()->item(2)->variable_initializer()->operand()->kind() != syntax_kind::cast) {
 		return 11;
 	};
 	var declarations = ParseFixture();
-	if (!@declarations.build("template<typename T, typename D = Owner<T>> struct Box { private: var T* data; fn Box(var Box& this); fn operator=(var Box& this, Box other) -> var Box& : [default]; }; var callback : ((i32 value) -> i32)*; struct { i32 field; }* object;\0")) {
+	if (!@declarations.build("template<typename T, typename D = Owner<T>> struct Box { private: var T* data; fn Box(var Box& this); fn operator=(var Box& this, Box other) -> var Box& : [default]; }; var callback : ((i32 value) -> i32)*; struct { i32 field; }* object;")) {
 		return 12;
 	};
 	if (declarations.tree.get()->size() != 3 || declarations.tree.get()->item(0)->kind() != syntax_kind::template_declaration || declarations.tree.get()->item(1)->variable_type()->designated_type()->kind() != syntax_kind::type_function) {
@@ -80,28 +80,28 @@ fn parser_tests() -> i32 {
 	};
 
 	var branches = ParseFixture();
-	if (!@branches.build("enum Mode : [i32] { first; fn test(const Mode& this) -> i32 { return 42; }; }; fn f(i32 value) { switch (value) { case 1: delete[] values; break; default: return; }; };\0")) {
+	if (!@branches.build("enum Mode : [i32] { first; fn test(const Mode& this) -> i32 { return 42; }; }; fn f(i32 value) { switch (value) { case 1: delete[] values; break; default: return; }; };")) {
 		return 14;
 	};
 	if (branches.tree.get()->item(0)->enum_members()->size() != 2 || branches.tree.get()->item(1)->function_body()->item(0)->kind() != syntax_kind::switch_expression) {
 		return 15;
 	};
 	var mixed = ParseFixture();
-	if (!@mixed.build("var value = f<T>() + a < b > c; a < b > c;\0")) {
+	if (!@mixed.build("var value = f<T>() + a < b > c; a < b > c;")) {
 		return 16;
 	};
 	if (mixed.tree.get()->size() != 2 || mixed.tree.get()->item(0)->kind() != syntax_kind::variable || mixed.tree.get()->item(0)->variable_initializer()->operand()->token().kind != token_kind::op_greater || mixed.tree.get()->item(1)->kind() != syntax_kind::ambiguity || mixed.tree.get()->item(1)->size() != 2) {
 		return 17;
 	};
 	var groups = ParseFixture();
-	if (!@groups.build("(callable)(42); (i32)(42); template<i32 N = 4> struct Fixed {}; discard $owned;\0")) {
+	if (!@groups.build("(callable)(42); (i32)(42); template<i32 N = 4> struct Fixed {}; discard $owned;")) {
 		return 18;
 	};
 	if (groups.tree.get()->item(0)->callable()->kind() != syntax_kind::grouping || groups.tree.get()->item(1)->callable()->kind() != syntax_kind::grouping || groups.tree.get()->item(2)->template_parameters()->item(0)->template_parameter_default()->kind() != syntax_kind::number || groups.tree.get()->item(3)->kind() != syntax_kind::discard_value) {
 		return 19;
 	};
 	var nested = ParseFixture();
-	if (!@nested.build("struct Manager { rt::buffer<rt::unique<SourceFile>> files; };\0")) {
+	if (!@nested.build("struct Manager { rt::buffer<rt::unique<SourceFile>> files; };")) {
 		return 20;
 	};
 	var Syntax* choices = nested.tree.get()->item(0)->record_members()->item(0);

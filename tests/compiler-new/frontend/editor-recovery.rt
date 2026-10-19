@@ -1,6 +1,6 @@
-fn editor_recovery_case(const char* text, syntax_kind expected, usize statements) -> bool {
+fn editor_recovery_case(rt::string_view text, syntax_kind expected, usize statements) -> bool {
 	SourceFile source;
-	if (!@source.assign(rt::string_view("recovery.rt\0"), rt::string_view(text))) {
+	if (!@source.assign("recovery.rt", rt::string_view(text))) {
 		return false;
 	};
 	var lexer = Lexer(@source);
@@ -22,26 +22,26 @@ fn editor_recovery_case(const char* text, syntax_kind expected, usize statements
 };
 
 fn editor_recovery_tests() -> i32 {
-	if (!editor_recovery_case("fn edit(){ object.; i32 retained; }; fn after(){};\0", syntax_kind::member, 2)) {
+	if (!editor_recovery_case("fn edit(){ object.; i32 retained; }; fn after(){};", syntax_kind::member, 2)) {
 		return 1;
 	};
-	if (!editor_recovery_case("fn edit(){ Space::; i32 retained; }; fn after(){};\0", syntax_kind::qualified_name, 2)) {
+	if (!editor_recovery_case("fn edit(){ Space::; i32 retained; }; fn after(){};", syntax_kind::qualified_name, 2)) {
 		return 2;
 	};
-	if (!editor_recovery_case("fn edit(){ call(1, ); i32 retained; }; fn after(){};\0", syntax_kind::call, 2)) {
+	if (!editor_recovery_case("fn edit(){ call(1, ); i32 retained; }; fn after(){};", syntax_kind::call, 2)) {
 		return 3;
 	};
-	if (!editor_recovery_case("fn edit(){ call(1, ; i32 retained; }; fn after(){};\0", syntax_kind::call, 2)) {
+	if (!editor_recovery_case("fn edit(){ call(1, ; i32 retained; }; fn after(){};", syntax_kind::call, 2)) {
 		return 4;
 	};
-	if (!editor_recovery_case("fn edit(){ return 1 + ; i32 retained; }; fn after(){};\0", syntax_kind::return_value, 2)) {
+	if (!editor_recovery_case("fn edit(){ return 1 + ; i32 retained; }; fn after(){};", syntax_kind::return_value, 2)) {
 		return 5;
 	};
-	if (!editor_recovery_case("fn edit(){ using = ; i32 retained; }; fn after(){};\0", syntax_kind::error_expression, 2)) {
+	if (!editor_recovery_case("fn edit(){ using = ; i32 retained; }; fn after(){};", syntax_kind::error_expression, 2)) {
 		return 6;
 	};
 	SourceFile source;
-	@source.assign(rt::string_view("valid.rt\0"), rt::string_view("fn valid(){};\0"));
+	@source.assign("valid.rt", "fn valid(){};");
 	var lexer = Lexer(@source);
 	@lexer.scan();
 	var parser = Parser(source.tokens());
@@ -50,7 +50,7 @@ fn editor_recovery_tests() -> i32 {
 		return 7;
 	};
 	SourceFile malformed;
-	@malformed.assign(rt::string_view("record.rt\0"), rt::string_view("struct Base { i32 inherited; }; struct Item : Base { i32 own; private: i32 hidden; }; fn outside(Item& item) { item.; };\0"));
+	@malformed.assign("record.rt", "struct Base { i32 inherited; }; struct Item : Base { i32 own; private: i32 hidden; }; fn outside(Item& item) { item.; };");
 	var malformed_lexer = Lexer(@malformed);
 	if (!@malformed_lexer.scan()) {
 		return 8;
@@ -60,7 +60,7 @@ fn editor_recovery_tests() -> i32 {
 	if (!recovered.get() || !malformed_parser.issues().size()) {
 		return 9;
 	};
-	if (!editor_recovery_case("fn edit(){ ) ; i32 retained; }; fn after(){};\0", syntax_kind::error_expression, 2)) {
+	if (!editor_recovery_case("fn edit(){ ) ; i32 retained; }; fn after(){};", syntax_kind::error_expression, 2)) {
 		return 10;
 	};
 	return 42;

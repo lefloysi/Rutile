@@ -65,11 +65,11 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 				return true;
 			};
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("duplicate declaration of '", 26));
+			@message.text("duplicate declaration of '");
 			diagnostic_name(@message, name);
-			@message.text(rt::string_view("' in template member scope", 26));
+			@message.text("' in template member scope");
 			@analyzer.report(name.token(), message.view());
-			@analyzer.note(previous.name, rt::string_view("previous declaration is here", 28));
+			@analyzer.note(previous.name, "previous declaration is here");
 			return false;
 		};
 		@index = index + 1;
@@ -78,7 +78,7 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 	@symbol.name = name.token();
 	@symbol.role = $role;
 	if (!@this.symbols.push_back($symbol)) {
-		@analyzer.error(&@name, rt::string_view("out of memory storing template declaration names", 48));
+		@analyzer.error(&@name, "out of memory storing template declaration names");
 		return false;
 	};
 	return true;
@@ -134,18 +134,18 @@ fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& th
 		TemplateValidationSymbol* symbol = this.lookup(name->token());
 		if (symbol && symbol->role == template_validation_role::value) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			diagnostic_name(@message, *name);
-			@message.text(rt::string_view("' names a value; a type is required here", 40));
+			@message.text("' names a value; a type is required here");
 			@analyzer.report(name->token(), message.view());
 			return false;
 		};
 		var Entity* entity = @analyzer.lookup(@scope, @*name);
 		if (!entity || !entity->denotes_type()) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			diagnostic_name(@message, *name);
-			@message.text(rt::string_view("' does not name a type entity", 29));
+			@message.text("' does not name a type entity");
 			@analyzer.report(name->token(), message.view());
 			return false;
 		};
@@ -201,13 +201,13 @@ fn TemplateDeclarationValidator::members(var TemplateDeclarationValidator& this,
 		if (member->kind() == syntax_kind::function && owner.kind() == syntax_kind::record) {
 			var Syntax* name = member->function_name();
 			bool special = name->kind() == syntax_kind::unary || name->kind() == syntax_kind::operator_name && name->operator_token().kind == token_kind::op_assign || name->kind() == syntax_kind::conversion_name || name->kind() == syntax_kind::name && name->token().same(owner.record_name()->token());
-			if (special && (!member->function_parameters()->size() || !member->function_parameters()->item(0)->parameter_name()->token().is(rt::string_view("this", 4)))) {
+			if (special && (!member->function_parameters()->size() || !member->function_parameters()->item(0)->parameter_name()->token().is("this"))) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("instance function '", 19));
+				@message.text("instance function '");
 				diagnostic_name(@message, *owner.record_name());
-				@message.text(rt::string_view("::", 2));
+				@message.text("::");
 				diagnostic_name(@message, *name);
-				@message.text(rt::string_view("' requires an explicit first reference parameter named 'this'", 61));
+				@message.text("' requires an explicit first reference parameter named 'this'");
 				@analyzer.report(name->token(), message.view());
 				return false;
 			};
@@ -237,12 +237,12 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 			while (prior < index) {
 				if (parameters->item(prior)->template_parameter_name()->token().same(parameter->template_parameter_name()->token())) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("duplicate template parameter '", 30));
+					@message.text("duplicate template parameter '");
 					diagnostic_name(@message, *parameter->template_parameter_name());
-					@message.text(rt::string_view("' at position ", 14));
+					@message.text("' at position ");
 					@message.number(index + 1);
 					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
-					@analyzer.note(parameters->item(prior)->template_parameter_name()->token(), rt::string_view("previous template parameter is declared here", 44));
+					@analyzer.note(parameters->item(prior)->template_parameter_name()->token(), "previous template parameter is declared here");
 					return false;
 				};
 				@prior = prior + 1;
@@ -254,13 +254,13 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 				};
 				if (!resolved->kind().is_integer()) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("non-type template parameter '", 29));
+					@message.text("non-type template parameter '");
 					diagnostic_name(@message, *parameter->template_parameter_name());
-					@message.text(rt::string_view("' at position ", 14));
+					@message.text("' at position ");
 					@message.number(index + 1);
-					@message.text(rt::string_view(" requires an integral type; received '", 38));
+					@message.text(" requires an integral type; received '");
 					diagnostic_type(@message, *resolved);
-					@message.text(rt::string_view("'", 1));
+					@message.text("'");
 					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
 					return false;
 				};

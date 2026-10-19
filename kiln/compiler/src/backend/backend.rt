@@ -115,7 +115,7 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	Token location;
 
 	if (optimization < 0 || optimization > 3) {
-		return @this.error(location, rt::string_view("optimization level must be between 0 and 3", 42));
+		return @this.error(location, "optimization level must be between 0 and 3");
 	};
 
 	@this.optimization = $optimization;
@@ -125,7 +125,7 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	LLVMGetVersion(&@major, &@minor, &@patch);
 
 	if (major != 21 || minor != 1 || patch != 0) {
-		return @this.error(location, rt::string_view("LLVM runtime version must be 21.1.0", 35));
+		return @this.error(location, "LLVM runtime version must be 21.1.0");
 	};
 
 	LLVMInitializeX86TargetInfo();
@@ -135,20 +135,20 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	@this.native_context.reset(LLVMContextCreate());
 
 	if (!this.context()) {
-		return @this.error(location, rt::string_view("cannot create LLVM context", 26));
+		return @this.error(location, "cannot create LLVM context");
 	};
 
-	@this.native_module.reset(LLVMModuleCreateWithNameInContext("rutile\0", this.context()));
+	@this.native_module.reset(LLVMModuleCreateWithNameInContext("rutile\0".data(), this.context()));
 	@this.native_builder.reset(LLVMCreateBuilderInContext(this.context()));
 
 	if (!this.module() || !this.builder()) {
-		return @this.error(location, rt::string_view("cannot create LLVM module or builder", 36));
+		return @this.error(location, "cannot create LLVM module or builder");
 	};
 
 	var triple = rt::unique<char, MessageDisposer>(LLVMGetDefaultTargetTriple());
 
 	if (!triple.get()) {
-		return @this.error(location, rt::string_view("cannot obtain target triple", 27));
+		return @this.error(location, "cannot obtain target triple");
 	};
 
 	var LLVMTarget* target;
@@ -157,25 +157,25 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	if (LLVMGetTargetFromTriple(triple.get(), &@target, &@failure)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
-		return @this.error(location, rt::string_view(message.get()));
+		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
-	@this.native_machine.reset(LLVMCreateTargetMachine(target, triple.get(), "generic\0", "\0", i32(this.optimization), 2, 0));
+	@this.native_machine.reset(LLVMCreateTargetMachine(target, triple.get(), "generic\0".data(), "\0".data(), i32(this.optimization), 2, 0));
 
 	if (!this.native_machine.get()) {
-		return @this.error(location, rt::string_view("cannot create target machine", 28));
+		return @this.error(location, "cannot create target machine");
 	};
 
 	@this.native_layout.reset(LLVMCreateTargetDataLayout(this.native_machine.get()));
 
 	if (!this.layout()) {
-		return @this.error(location, rt::string_view("cannot create target layout", 27));
+		return @this.error(location, "cannot create target layout");
 	};
 
 	var layout = rt::unique<char, MessageDisposer>(LLVMCopyStringRepOfTargetData(this.layout()));
 
 	if (!layout.get()) {
-		return @this.error(location, rt::string_view("cannot describe target layout", 29));
+		return @this.error(location, "cannot describe target layout");
 	};
 
 	LLVMSetTarget(this.module(), triple.get());
@@ -196,7 +196,7 @@ fn Backend::verify(var Backend& this) -> bool {
 	var message = rt::unique<char, MessageDisposer>(failure);
 	Token location;
 
-	return @this.error(location, rt::string_view(message.get()));
+	return @this.error(location, rt::from_c_string(message.get()));
 };
 
 fn Backend::optimize(var Backend& this) -> bool {
@@ -208,21 +208,21 @@ fn Backend::optimize(var Backend& this) -> bool {
 	Token location;
 
 	if (!options.get()) {
-		return @this.error(location, rt::string_view("cannot create optimization options", 34));
+		return @this.error(location, "cannot create optimization options");
 	};
 
 	LLVMPassBuilderOptionsSetVerifyEach(options.get(), 1);
-	rt::string_view pipeline = rt::string_view("default<O0>", 11);
+	rt::string_view pipeline = "default<O0>";
 
 	switch (this.optimization) {
 		case 1:
-			@pipeline = rt::string_view("default<O1>", 11);
+			@pipeline = "default<O1>";
 			break;
 		case 2:
-			@pipeline = rt::string_view("default<O2>", 11);
+			@pipeline = "default<O2>";
 			break;
 		case 3:
-			@pipeline = rt::string_view("default<O3>", 11);
+			@pipeline = "default<O3>";
 			break;
 	};
 
@@ -232,7 +232,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 	if (error) {
 		var message = rt::unique<char, ErrorMessageDisposer>(LLVMGetErrorMessage(error));
 
-		return @this.error(location, rt::string_view(message.get()));
+		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
 	return @this.verify();
@@ -250,13 +250,13 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &@failure, &@bytes)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
-		return @this.error(location, rt::string_view(message.get()));
+		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
 	var buffer = rt::unique<LLVMOpaqueMemoryBuffer, BufferDisposer>(bytes);
 
 	if (!@output.write(rt::string_view(LLVMGetBufferStart(buffer.get()), LLVMGetBufferSize(buffer.get())))) {
-		return @this.error(location, rt::string_view("cannot write native object output", 33));
+		return @this.error(location, "cannot write native object output");
 	};
 
 	return true;

@@ -322,7 +322,7 @@ fn LanguageWorkspace::run(var LanguageWorkspace& this) -> i32 {
 		if (index.get()->diagnostics.get()) {
 			usize item = 0;
 			while (item < index.get()->diagnostics.get()->size() && !runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
-				@this.notify(rt::string_view("textDocument/publishDiagnostics", 31), index.get()->diagnostics.get()->item(item)->clone());
+				@this.notify("textDocument/publishDiagnostics", index.get()->diagnostics.get()->item(item)->clone());
 				@item = item + 1;
 			};
 		};
@@ -335,8 +335,8 @@ fn LanguageWorkspace::run(var LanguageWorkspace& this) -> i32 {
 		runtime_mutex_unlock(this.publication_mutex);
 		if (!runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
 			var parameters = rt::json_value::make_object();
-			if (parameters.get() && @parameters.get()->set(rt::string_view("generation", 10), rt::json_value::make_unsigned(u64(job.get()->generation)))) {
-				@this.notify(rt::string_view("rutile/semanticTokensChanged", 28), $parameters);
+			if (parameters.get() && @parameters.get()->set("generation", rt::json_value::make_unsigned(u64(job.get()->generation)))) {
+				@this.notify("rutile/semanticTokensChanged", $parameters);
 			};
 		};
 	};
@@ -466,7 +466,7 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 };
 
 fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
-	var uri = LanguageJson::text(parameters, rt::string_view("rootUri", 7));
+	var uri = LanguageJson::text(parameters, "rootUri");
 	if (!uri.empty()) {
 		rt::string path;
 		if (!LanguageUri::decode(uri, @path)) {
@@ -497,16 +497,16 @@ fn LanguageWorkspace::document(var LanguageWorkspace& this, rt::string_view uri)
 };
 
 fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
-	rt::json_value* identity = parameters.member("textDocument\0");
+	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
 		return false;
 	};
-	var uri = LanguageJson::text(*identity, rt::string_view("uri", 3));
+	var uri = LanguageJson::text(*identity, "uri");
 	var document = rt::unique<LanguageDocument>::make();
-	if (!document.get() || !@document.get()->uri.append(uri) || !LanguageUri::decode(uri, @document.get()->path) || !LanguageUri::key(document.get()->path.view(), @document.get()->key) || !@document.get()->text.assign(LanguageJson::text(*identity, rt::string_view("text", 4)))) {
+	if (!document.get() || !@document.get()->uri.append(uri) || !LanguageUri::decode(uri, @document.get()->path) || !LanguageUri::key(document.get()->path.view(), @document.get()->key) || !@document.get()->text.assign(LanguageJson::text(*identity, "text"))) {
 		return false;
 	};
-	@document.get()->version = LanguageJson::integer(*identity, "version\0", 0);
+	@document.get()->version = LanguageJson::integer(*identity, "version", 0);
 	@this.revision = this.revision + 1;
 	@document.get()->revision = this.revision;
 	@document.get()->opened_revision = this.revision;
@@ -537,13 +537,13 @@ fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& paramete
 };
 
 fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
-	rt::json_value* identity = parameters.member("textDocument\0");
-	rt::json_value* changes = parameters.member("contentChanges\0");
+	rt::json_value* identity = parameters.member("textDocument");
+	rt::json_value* changes = parameters.member("contentChanges");
 	if (!identity || !changes || changes->kind() != rt::json_kind::array) {
 		return false;
 	};
-	var LanguageDocument* document = @this.document(LanguageJson::text(*identity, rt::string_view("uri", 3)));
-	i64 version = LanguageJson::integer(*identity, "version\0", -1);
+	var LanguageDocument* document = @this.document(LanguageJson::text(*identity, "uri"));
+	i64 version = LanguageJson::integer(*identity, "version", -1);
 	if (!document) {
 		return false;
 	};
@@ -554,23 +554,23 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 	usize index = 0;
 	while (index < changes->size()) {
 		rt::json_value* change = changes->item(index);
-		rt::json_value* range = change->member("range\0");
+		rt::json_value* range = change->member("range");
 		usize begin = 0;
 		usize end = document->text.view().size();
 		if (range) {
-			rt::json_value* start = range->member("start\0");
-			rt::json_value* finish = range->member("end\0");
+			rt::json_value* start = range->member("start");
+			rt::json_value* finish = range->member("end");
 			if (!start || !finish) {
 				return false;
 			};
-			@begin = document->text.offset(static_cast<usize>(LanguageJson::integer(*start, "line\0", 0)), static_cast<usize>(LanguageJson::integer(*start, "character\0", 0)));
-			@end = document->text.offset(static_cast<usize>(LanguageJson::integer(*finish, "line\0", 0)), static_cast<usize>(LanguageJson::integer(*finish, "character\0", 0)));
+			@begin = document->text.offset(static_cast<usize>(LanguageJson::integer(*start, "line", 0)), static_cast<usize>(LanguageJson::integer(*start, "character", 0)));
+			@end = document->text.offset(static_cast<usize>(LanguageJson::integer(*finish, "line", 0)), static_cast<usize>(LanguageJson::integer(*finish, "character", 0)));
 		};
 		if (end < begin) {
 			return false;
 		};
 
-		var inserted = LanguageJson::text(*change, rt::string_view("text", 4));
+		var inserted = LanguageJson::text(*change, "text");
 		var original = document->text.view();
 		usize prefix = 0;
 		while (prefix < end && (original.data()[prefix] == ' ' || original.data()[prefix] == '\r' || original.data()[prefix] == '\n' || original.data()[prefix] == '\t')) {
@@ -615,11 +615,11 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 };
 
 fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
-	rt::json_value* identity = parameters.member("textDocument\0");
+	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
 		return false;
 	};
-	var uri = LanguageJson::text(*identity, rt::string_view("uri", 3));
+	var uri = LanguageJson::text(*identity, "uri");
 	var LanguageDocument* document = @this.document(uri);
 	usize index = 0;
 	while (index < this.documents.size()) {
@@ -637,9 +637,9 @@ fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& paramet
 
 	var notification = rt::json_value::make_object();
 	if (notification.get()) {
-		@notification.get()->set(rt::string_view("uri", 3), rt::json_value::make_string(uri));
-		@notification.get()->set(rt::string_view("diagnostics", 11), rt::json_value::make_array());
-		@this.notify(rt::string_view("textDocument/publishDiagnostics", 31), $notification);
+		@notification.get()->set("uri", rt::json_value::make_string(uri));
+		@notification.get()->set("diagnostics", rt::json_value::make_array());
+		@this.notify("textDocument/publishDiagnostics", $notification);
 	};
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	return @this.schedule();

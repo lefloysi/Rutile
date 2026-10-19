@@ -13,11 +13,11 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		};
 
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("cyclic entity definition for ", 29));
+		@message.text("cyclic entity definition for ");
 		diagnostic_entity_kind(@message, entity->kind());
-		@message.text(rt::string_view(" '", 2));
+		@message.text(" '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.report(entity->token(), message.view());
 		return false;
 	};
@@ -56,17 +56,17 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		Type* underlying = @this.type(@*scope, @*source->enum_underlying());
 
 		if (!underlying) {
-			@underlying = this.types->find_primitive(rt::string_view("i32", 3));
+			@underlying = this.types->find_primitive("i32");
 		};
 
 		if (!underlying->kind().is_integer()) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("declaration '", 13));
+			@message.text("declaration '");
 			diagnostic_entity(@message, *entity);
-			@message.text(rt::string_view("': enum underlying type shall be an integer type", 48));
-			@message.text(rt::string_view("; received '", 12));
+			@message.text("': enum underlying type shall be an integer type");
+			@message.text("; received '");
 			diagnostic_type(@message, *underlying);
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.report(source->token(), message.view());
 			return false;
 		};
@@ -117,13 +117,13 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 					return false;
 				};
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("enumerator '", 12));
+				@message.text("enumerator '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("' requires an integer constant of underlying type '", 51));
+				@message.text("' requires an integer constant of underlying type '");
 				diagnostic_type(@message, *owner->underlying());
-				@message.text(rt::string_view("'; initializer has type '", 25));
+				@message.text("'; initializer has type '");
 				diagnostic_type(@message, *initializer.get()->type());
-				@message.text(rt::string_view("' and is not constant", 21));
+				@message.text("' and is not constant");
 				@this.report(source->item(1)->token(), message.view());
 				return false;
 			};
@@ -135,7 +135,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		var Scope* local = @this.unit->create_scope(scope, (var Entity*(entity)));
 
 		if (!local) {
-			@this.error(source, rt::string_view("out of memory storing function scope", 36));
+			@this.error(source, "out of memory storing function scope");
 			return false;
 		};
 
@@ -143,7 +143,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		var Scope* signature = @this.unit->create_scope(scope, (var Entity*(entity)));
 
 		if (!signature) {
-			@this.error(source, rt::string_view("out of memory storing function signature scope", 46));
+			@this.error(source, "out of memory storing function signature scope");
 
 			return false;
 		};
@@ -165,17 +165,17 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (!resolved || resolved->kind() == type_kind::void_type || resolved->kind() == type_kind::null_type) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("parameter ", 10));
+				@message.text("parameter ");
 				@message.number(index + 1);
-				@message.text(rt::string_view(" '", 2));
+				@message.text(" '");
 				diagnostic_name(@message, *parameter->parameter_name());
-				@message.text(rt::string_view("' of function '", 15));
+				@message.text("' of function '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("' requires an object or reference type", 38));
+				@message.text("' requires an object or reference type");
 				if (resolved) {
-					@message.text(rt::string_view("; received '", 12));
+					@message.text("; received '");
 					diagnostic_type(@message, *resolved);
-					@message.text(rt::string_view("'", 1));
+					@message.text("'");
 				};
 				@this.report(parameter->token(), message.view());
 				return false;
@@ -189,13 +189,13 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 				if (local->local(token.text())) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("duplicate parameter '", 21));
+					@message.text("duplicate parameter '");
 					@message.text(token.text());
-					@message.text(rt::string_view("' in function '", 15));
+					@message.text("' in function '");
 					diagnostic_entity(@message, *entity);
-					@message.text(rt::string_view("'", 1));
+					@message.text("'");
 					@this.report(token, message.view());
-					@this.diagnostics->note(local->local(token.text())->token(), rt::string_view("previous parameter is declared here", 35));
+					@this.diagnostics->note(local->local(token.text())->token(), "previous parameter is declared here");
 					return false;
 				};
 			};
@@ -235,16 +235,16 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (result && result != target) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': conversion function result does not match its named target", 61));
-				@message.text(rt::string_view("; result is '", 13));
+				@message.text("': conversion function result does not match its named target");
+				@message.text("; result is '");
 				diagnostic_type(@message, *result);
-				@message.text(rt::string_view("', target is '", 14));
+				@message.text("', target is '");
 				if (target) {
 					diagnostic_type(@message, *target);
 				};
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -261,7 +261,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		};
 
 		if (!result) {
-			@result = this.types->find_primitive(rt::string_view("void", 4));
+			@result = this.types->find_primitive("void");
 		};
 
 		@entity->set_type(@this.types->function(result, $signature_parameters, parameter_arity(arity)));
@@ -279,12 +279,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		if (destructor || constructor) {
 			if (!owner || !entity->parameters().size() || result->kind() != type_kind::void_type || source->function_result()->kind() != syntax_kind::absent) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': constructor or destructor requires an explicit owning-type receiver and no result annotation", 95));
-				@message.text(rt::string_view("; declared signature is '", 25));
+				@message.text("': constructor or destructor requires an explicit owning-type receiver and no result annotation");
+				@message.text("; declared signature is '");
 				diagnostic_type(@message, *entity->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -307,20 +307,20 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 			Type* receiver = entity->parameters().data()[0]->type();
 
-			if (receiver->kind() != type_kind::reference || receiver->element()->kind() != type_kind::named || receiver->element()->entity() != owner || receiver->element()->qualifier() != type_qualifier::mutable || !entity->parameters().data()[0]->token().is(rt::string_view("this", 4)) || destructor && entity->parameters().size() != 1) {
+			if (receiver->kind() != type_kind::reference || receiver->element()->kind() != type_kind::named || receiver->element()->entity() != owner || receiver->element()->qualifier() != type_qualifier::mutable || !entity->parameters().data()[0]->token().is("this") || destructor && entity->parameters().size() != 1) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': constructor or destructor has an invalid owning-type receiver", 64));
-				@message.text(rt::string_view("; expected first parameter '", 28));
+				@message.text("': constructor or destructor has an invalid owning-type receiver");
+				@message.text("; expected first parameter '");
 				diagnostic_type(@message, *owner->type());
-				@message.text(rt::string_view("& this', received '", 19));
+				@message.text("& this', received '");
 				diagnostic_type(@message, *receiver);
-				@message.text(rt::string_view(" ", 1));
+				@message.text(" ");
 				@message.text(entity->parameters().data()[0]->name());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				if (destructor) {
-					@message.text(rt::string_view("; destructors require exactly one parameter", 43));
+					@message.text("; destructors require exactly one parameter");
 				};
 				@this.report(source->token(), message.view());
 				return false;
@@ -336,52 +336,52 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		while (attribute < source->function_attributes()->size()) {
 			Token token = source->function_attributes()->item(attribute)->token();
 
-			if (token.is(rt::string_view("default", 7)) || token.is(rt::string_view("delete", 6))) {
+			if (token.is("default") || token.is("delete")) {
 				if (entity->definition() != function_definition::declaration) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("declaration '", 13));
+					@message.text("declaration '");
 					diagnostic_entity(@message, *entity);
-					@message.text(rt::string_view("': function has conflicting definitions", 39));
+					@message.text("': function has conflicting definitions");
 					@this.report(source->token(), message.view());
 					return false;
 				};
 
-				if (token.is(rt::string_view("default", 7))) {
+				if (token.is("default")) {
 					@entity->set_definition(function_definition::defaulted);
 				}
 				else {
 					@entity->set_definition(function_definition::deleted);
 				};
 			}
-			else if (token.is(rt::string_view("implicit", 8))) {
+			else if (token.is("implicit")) {
 				if (!constructor && entity->role() != function_role::conversion) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("declaration '", 13));
+					@message.text("declaration '");
 					diagnostic_entity(@message, *entity);
-					@message.text(rt::string_view("': implicit requires a constructor or conversion function", 57));
+					@message.text("': implicit requires a constructor or conversion function");
 					@this.report(source->token(), message.view());
 					return false;
 				};
 
 				@entity->set_conversion(conversion_mode::implicit_allowed);
 			}
-			else if (token.is(rt::string_view("virtual", 7))) {
+			else if (token.is("virtual")) {
 				@entity->set_dispatch(function_dispatch::virtual_function);
 			}
-			else if (token.is(rt::string_view("override", 8))) {
+			else if (token.is("override")) {
 				@entity->set_dispatch(function_dispatch::override_function);
 			}
-			else if (token.is(rt::string_view("final", 5))) {
+			else if (token.is("final")) {
 				@entity->set_dispatch(function_dispatch::final_function);
 			}
 			else {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': unknown function attribute", 29));
-				@message.text(rt::string_view(" '", 2));
+				@message.text("': unknown function attribute");
+				@message.text(" '");
 				@message.text(token.text());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -392,11 +392,11 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		if (entity->role() == function_role::conversion) {
 			if (entity->parameters().size() != 1 || arity != parameter_arity::fixed || result->kind() == type_kind::reference) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("conversion '", 12));
+				@message.text("conversion '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("' requires one reference parameter and a result matching its target; declared signature is '", 92));
+				@message.text("' requires one reference parameter and a result matching its target; declared signature is '");
 				diagnostic_type(@message, *entity->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(entity->token(), message.view());
 				return false;
 			};
@@ -404,58 +404,58 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 			var Entity* receiver = entity->parameters().data()[0];
 			if (receiver->type()->kind() != type_kind::reference) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("conversion '", 12));
+				@message.text("conversion '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("' requires one reference parameter and a result matching its target; declared signature is '", 92));
+				@message.text("' requires one reference parameter and a result matching its target; declared signature is '");
 				diagnostic_type(@message, *entity->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(entity->token(), message.view());
 				return false;
 			};
 
 			if (entity->conversion() == conversion_mode::implicit_allowed && receiver->type()->element()->same_shape(*result) && receiver->type()->element()->qualifier() != type_qualifier::immutable) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': self conversion requires a const reference receiver", 54));
-				@message.text(rt::string_view("; received '", 12));
+				@message.text("': self conversion requires a const reference receiver");
+				@message.text("; received '");
 				diagnostic_type(@message, *receiver->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(source->token(), message.view());
 				return false;
 			};
 		};
 
 		if (entity->dispatch() != function_dispatch::ordinary) {
-			if (!owner || owner->kind() != entity_kind::record || entity->role() != function_role::ordinary || !entity->parameters().size() || !entity->parameters().data()[0]->token().is(rt::string_view("this", 4)) || entity->parameters().data()[0]->type()->kind() != type_kind::reference || !entity->parameters().data()[0]->type()->element()->same_shape(*owner->type())) {
+			if (!owner || owner->kind() != entity_kind::record || entity->role() != function_role::ordinary || !entity->parameters().size() || !entity->parameters().data()[0]->token().is("this") || entity->parameters().data()[0]->type()->kind() != type_kind::reference || !entity->parameters().data()[0]->type()->element()->same_shape(*owner->type())) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': virtual operation requires an explicit ordinary class receiver named this", 76));
-				@message.text(rt::string_view("; declared signature is '", 25));
+				@message.text("': virtual operation requires an explicit ordinary class receiver named this");
+				@message.text("; declared signature is '");
 				diagnostic_type(@message, *entity->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				if (entity->parameters().size()) {
 					Entity& receiver = *entity->parameters().data()[0];
-					@message.text(rt::string_view("; first parameter is '", 22));
+					@message.text("; first parameter is '");
 					diagnostic_type(@message, *receiver.type());
-					@message.text(rt::string_view(" ", 1));
+					@message.text(" ");
 					@message.text(receiver.name());
-					@message.text(rt::string_view("'", 1));
+					@message.text("'");
 				}
 				else {
-					@message.text(rt::string_view("; no receiver parameter was declared", 36));
+					@message.text("; no receiver parameter was declared");
 				};
 				if (!owner || owner->kind() != entity_kind::record) {
-					@message.text(rt::string_view("; enclosing scope is ", 21));
+					@message.text("; enclosing scope is ");
 					if (owner) {
 						diagnostic_entity_kind(@message, owner->kind());
-						@message.text(rt::string_view(" '", 2));
+						@message.text(" '");
 						diagnostic_entity(@message, *owner);
-						@message.text(rt::string_view("'", 1));
+						@message.text("'");
 					}
 					else {
-						@message.text(rt::string_view("module scope", 12));
+						@message.text("module scope");
 					};
 				};
 				@this.report(source->token(), message.view());
@@ -464,12 +464,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 			if (arity == parameter_arity::variadic) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': variadic virtual operations are not implemented", 50));
-				@message.text(rt::string_view("; declared signature is '", 25));
+				@message.text("': variadic virtual operations are not implemented");
+				@message.text("; declared signature is '");
 				diagnostic_type(@message, *entity->type());
-				@message.text(rt::string_view("'", 1));
+				@message.text("'");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -477,9 +477,9 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 		if (entity->definition() == function_definition::defaulted && entity->role() != function_role::constructor && entity->role() != function_role::destructor && entity->role() != function_role::assignment) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("declaration '", 13));
+			@message.text("declaration '");
 			diagnostic_entity(@message, *entity);
-			@message.text(rt::string_view("': this function has no compiler-generated implementation", 57));
+			@message.text("': this function has no compiler-generated implementation");
 			@this.report(source->token(), message.view());
 			return false;
 		};
@@ -496,13 +496,13 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 				if (defined && previous->declaration()->function_body()->kind() != syntax_kind::noop) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("duplicate function definition for '", 35));
+					@message.text("duplicate function definition for '");
 					diagnostic_entity(@message, *entity);
-					@message.text(rt::string_view("' of type '", 11));
+					@message.text("' of type '");
 					diagnostic_type(@message, *entity->type());
-					@message.text(rt::string_view("'", 1));
+					@message.text("'");
 					@this.report(entity->token(), message.view());
-					@this.diagnostics->note(previous->token(), rt::string_view("previous definition is here", 27));
+					@this.diagnostics->note(previous->token(), "previous definition is here");
 					return false;
 				};
 
@@ -545,9 +545,9 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 		if (!resolved || resolved->kind() == type_kind::void_type || resolved->kind() == type_kind::null_type || resolved->kind() == type_kind::function) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("declaration '", 13));
+			@message.text("declaration '");
 			diagnostic_entity(@message, *entity);
-			@message.text(rt::string_view("': variable requires object storage or a reference", 50));
+			@message.text("': variable requires object storage or a reference");
 			@this.report(source->token(), message.view());
 			return false;
 		};
@@ -562,9 +562,9 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		if (element->kind() == type_kind::named && element->entity()->kind() == entity_kind::record) {
 			if (element->entity()->state() == entity_state::resolving || element->entity()->declaration()->record_members()->kind() == syntax_kind::noop) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("declaration '", 13));
+				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
-				@message.text(rt::string_view("': object requires a complete nonrecursive storage type", 55));
+				@message.text("': object requires a complete nonrecursive storage type");
 				@this.report(source->token(), message.view());
 				return false;
 			};
@@ -573,9 +573,9 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (!entity->type()) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("declaration '", 13));
+		@message.text("declaration '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("': type could not be resolved", 29));
+		@message.text("': type could not be resolved");
 		@this.report(source->token(), message.view());
 		return false;
 	};

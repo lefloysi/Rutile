@@ -1,0 +1,34 @@
+template<typename T>
+fn primitive_value(T value) -> T {
+	return value;
+};
+
+template<typename T>
+fn primitive_return(const T& value) -> T {
+	return value;
+};
+
+template<typename T>
+fn primitive_copy(const T& source) -> bool {
+	T initialized = source;
+	T constructed = T(source);
+	T argument = primitive_value(source);
+	T returned = primitive_return(source);
+	return initialized == source && constructed == source && argument == source && returned == source && primitive_value(source) == source;
+};
+
+fn main() -> i32 {
+	if (!primitive_copy(true) || !primitive_copy('x')) {
+		return 1;
+	};
+	if (!primitive_copy(i08(42)) || !primitive_copy(i16(42)) || !primitive_copy(i32(42)) || !primitive_copy(i64(42))) {
+		return 2;
+	};
+	if (!primitive_copy(u08(42)) || !primitive_copy(u16(42)) || !primitive_copy(u32(42)) || !primitive_copy(u64(42))) {
+		return 3;
+	};
+	if (!primitive_copy(f32(42)) || !primitive_copy(f64(42)) || !primitive_copy(ptrdiff(42)) || !primitive_copy(usize(42))) {
+		return 4;
+	};
+	return 42;
+};

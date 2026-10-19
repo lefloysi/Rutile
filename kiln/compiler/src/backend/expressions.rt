@@ -24,7 +24,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			Type* queried = expression->item(0)->type();
 
 			if (queried->kind() == type_kind::void_type || queried->kind() == type_kind::null_type || queried->kind() == type_kind::function) {
-				@this.backend->error(expression->token(), rt::string_view("size query requires an object type", 34));
+				@this.backend->error(expression->token(), "size query requires an object type");
 				return nullptr;
 			};
 
@@ -44,12 +44,21 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		case semantic_kind::literal_text: {
 			var text = expression->text();
 			var LLVMOpaqueValue* bytes = LLVMConstStringInContext2(this.backend->context(), text.data(), text.size(), 1);
-			var LLVMOpaqueValue* global = LLVMAddGlobal(this.backend->module(), LLVMTypeOf((var LLVMOpaqueValue*(bytes))), "literal\0");
+			var LLVMOpaqueValue* global = LLVMAddGlobal(this.backend->module(), LLVMTypeOf((var LLVMOpaqueValue*(bytes))), "literal\0".data());
 			LLVMSetInitializer((var LLVMOpaqueValue*(global)), bytes);
 			LLVMSetGlobalConstant((var LLVMOpaqueValue*(global)), 1);
 			LLVMSetLinkage((var LLVMOpaqueValue*(global)), 9);
 
-			return global;
+			var LLVMOpaqueType* length_type = @this.backend->type(expression->type()->entity()->fields().data()[1]->type(), expression->token());
+			if (!length_type) {
+				return nullptr;
+			};
+			rt::buffer<var LLVMOpaqueValue*> fields;
+			if (!@fields.push_back(global) || !@fields.push_back(LLVMConstInt(length_type, text.size(), 0))) {
+				@this.backend->error(expression->token(), "cannot allocate string literal value");
+				return nullptr;
+			};
+			return LLVMConstNamedStruct(type, (@fields).data(), 2);
 		};
 
 		case semantic_kind::name: {
@@ -69,7 +78,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
-			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0");
+			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0".data());
 		};
 
 		case semantic_kind::access:
@@ -82,7 +91,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
-			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0");
+			return LLVMBuildLoad2(this.backend->builder(), type, storage, "read\0".data());
 		};
 
 		case semantic_kind::address:
@@ -94,7 +103,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
-			var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, storage, "relocated\0");
+			var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, storage, "relocated\0".data());
 			@this.set_live(expression->item(0), false);
 
 			return value;
@@ -114,7 +123,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			};
 
 			if (signature->signature().result()->kind() == type_kind::reference) {
-				return LLVMBuildLoad2(this.backend->builder(), type, value, "call.reference\0");
+				return LLVMBuildLoad2(this.backend->builder(), type, value, "call.reference\0".data());
 			};
 
 			return value;
@@ -135,14 +144,14 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 					return value;
 				case token_kind::op_minus:
 					if (expression->type()->kind() == type_kind::floating_point) {
-						return LLVMBuildFNeg(this.backend->builder(), value, "negate\0");
+						return LLVMBuildFNeg(this.backend->builder(), value, "negate\0".data());
 					};
 
-					return LLVMBuildNeg(this.backend->builder(), value, "negate\0");
+					return LLVMBuildNeg(this.backend->builder(), value, "negate\0".data());
 				case token_kind::op_tilde:
-					return LLVMBuildNot(this.backend->builder(), value, "complement\0");
+					return LLVMBuildNot(this.backend->builder(), value, "complement\0".data());
 				case token_kind::op_bang:
-					return LLVMBuildNot(this.backend->builder(), @this.truth(value, operand->type()), "not\0");
+					return LLVMBuildNot(this.backend->builder(), @this.truth(value, operand->type()), "not\0".data());
 			};
 
 			break;
@@ -156,7 +165,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 					return nullptr;
 				};
 
-				return LLVMBuildLoad2(this.backend->builder(), type, storage, "cast.reference\0");
+				return LLVMBuildLoad2(this.backend->builder(), type, storage, "cast.reference\0".data());
 			};
 
 			return @this.convert(@this.take(expression->item(0)), expression->item(0)->type(), expression->type());
@@ -174,8 +183,8 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			Type* element = expression->item(0)->type()->element();
 
 			if (FunctionEmitter::needs_destruction(element)) {
-				var LLVMOpaqueBasicBlock* destroy = @this.block(rt::string_view("delete.destroy", 14));
-				var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("delete.after", 12));
+				var LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy");
+				var LLVMOpaqueBasicBlock* after = @this.block("delete.after");
 				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 
@@ -201,6 +210,6 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			return LLVMConstNull(type);
 	};
 
-	@this.backend->error(expression->token(), rt::string_view("expression has no implemented native lowering", 45));
+	@this.backend->error(expression->token(), "expression has no implemented native lowering");
 	return nullptr;
 };

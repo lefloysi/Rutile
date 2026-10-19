@@ -62,15 +62,15 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 			if (FunctionEmitter::needs_destruction(record->fields().data()[index]->type())) {
 				var Entity* member = record->fields().data()[index];
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("union '", 7));
+				@message.text("union '");
 				diagnostic_entity(@message, *record);
-				@message.text(rt::string_view("' requires an explicit destructor because member '", 50));
+				@message.text("' requires an explicit destructor because member '");
 				diagnostic_entity(@message, *member);
-				@message.text(rt::string_view("' of type '", 11));
+				@message.text("' of type '");
 				diagnostic_type(@message, *member->type());
-				@message.text(rt::string_view("' requires destruction", 22));
+				@message.text("' requires destruction");
 				@this.backend->error(record->token(), message.view());
-				@this.backend->note(member->token(), rt::string_view("member requiring destruction is declared here", 45));
+				@this.backend->note(member->token(), "member requiring destruction is declared here");
 				return false;
 			};
 
@@ -81,21 +81,21 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 	if (destructor) {
 		if (destructor->definition() == function_definition::deleted) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("destruction of '", 16));
+			@message.text("destruction of '");
 			diagnostic_type(@message, *type);
-			@message.text(rt::string_view("' selects deleted destructor '", 30));
+			@message.text("' selects deleted destructor '");
 			diagnostic_entity(@message, *destructor);
-			@message.text(rt::string_view("' of type '", 11));
+			@message.text("' of type '");
 			diagnostic_type(@message, *destructor->type());
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.backend->error(destructor->token(), message.view());
-			@this.backend->note(destructor->token(), rt::string_view("destructor is declared deleted here", 35));
+			@this.backend->note(destructor->token(), "destructor is declared deleted here");
 			return false;
 		};
 
 		var LLVMOpaqueValue*[1] arguments {};
 		@arguments[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1, "\0");
+		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1, "\0".data());
 	};
 
 	if (record->layout() == record_layout::overlapping) {
@@ -109,7 +109,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 		var Entity* field = record->fields().data()[index];
 
 		if (FunctionEmitter::needs_destruction(field->type())) {
-			var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0");
+			var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0".data());
 
 			if (!@this.destroy(field->type(), member)) {
 				return false;
@@ -121,7 +121,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 
 	while (index) {
 		@index = index - 1;
-		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0");
+		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0".data());
 
 		if (!@this.destroy(record->bases().data()[index], base)) {
 			return false;
@@ -153,7 +153,7 @@ fn FunctionEmitter::live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue*
 
 	if (!builder.get()) {
 		Token location;
-		@this.backend->error(location, rt::string_view("cannot create lifetime builder", 30));
+		@this.backend->error(location, "cannot create lifetime builder");
 		return nullptr;
 	};
 
@@ -201,7 +201,7 @@ fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* 
 	};
 
 	if (!@this.temporaries.push_back($temporary)) {
-		return @this.backend->error(expression->token(), rt::string_view("cannot retain a consumable lifetime", 35));
+		return @this.backend->error(expression->token(), "cannot retain a consumable lifetime");
 	};
 
 	return true;
@@ -275,10 +275,10 @@ fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, Type* type, var L
 		return true;
 	};
 
-	var LLVMOpaqueBasicBlock* destroy = @this.block(rt::string_view("cleanup.destroy", 15));
-	var LLVMOpaqueBasicBlock* after = @this.block(rt::string_view("cleanup.after", 13));
+	var LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy");
+	var LLVMOpaqueBasicBlock* after = @this.block("cleanup.after");
 	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
-	LLVMBuildCondBr(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), boolean, live, "live\0"), destroy, after);
+	LLVMBuildCondBr(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), boolean, live, "live\0".data()), destroy, after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 	LLVMBuildStore(this.backend->builder(), LLVMConstNull(boolean), live);
 

@@ -1,0 +1,45 @@
+fn pointer_choice(void* value) -> i32 {
+	return 42;
+};
+
+fn pointer_choice(bool value) -> i32 {
+	return 1;
+};
+
+fn pointer_boolean(bool value) -> bool {
+	return value;
+};
+
+fn exact_pointer_choice(i32* value) -> i32 {
+	return 42;
+};
+
+fn exact_pointer_choice(void* value) -> i32 {
+	return 1;
+};
+
+fn exact_pointer_choice(bool value) -> i32 {
+	return 2;
+};
+
+fn borrowed_pointer_choice(i32*& value) -> i32 {
+	return pointer_choice(value);
+};
+
+fn main() -> i32 {
+	i32 value = 7;
+	i32* pointer = &value;
+	if (pointer_choice(pointer) != 42 || borrowed_pointer_choice(pointer) != 42 || pointer_choice(nullptr) != 42) {
+		return 1;
+	};
+	if (!pointer_boolean(pointer) || pointer_boolean(nullptr)) {
+		return 2;
+	};
+	if (pointer_choice(true) != 1) {
+		return 3;
+	};
+	if (exact_pointer_choice(pointer) != 42) {
+		return 4;
+	};
+	return 42;
+};

@@ -1,16 +1,16 @@
 fn Analyzer::size_query(var Analyzer& this, var Syntax& syntax, Type& type) -> rt::unique<SemanticExpression> {
 	if (!type.has_layout()) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("sizeof requires a complete object storage type; received '", 58));
+		@message.text("sizeof requires a complete object storage type; received '");
 		diagnostic_type(@message, type);
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.report(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
 	};
 
 	var operand = @this.node(semantic_kind::noop, &@type, &@syntax);
-	var result = @this.node(semantic_kind::sizeof_type, this.types->find_primitive(rt::string_view("usize", 5)), &@syntax);
+	var result = @this.node(semantic_kind::sizeof_type, this.types->find_primitive("usize"), &@syntax);
 
 	if (!operand.get() || !result.get()) {
 		return rt::unique<SemanticExpression>();

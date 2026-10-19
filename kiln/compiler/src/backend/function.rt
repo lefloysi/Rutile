@@ -150,7 +150,7 @@ fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVM
 	if (!@this.bindings.push_back($binding)) {
 		Token location;
 
-		return @this.backend->error(location, rt::string_view("cannot retain native local storage", 34));
+		return @this.backend->error(location, "cannot retain native local storage");
 	};
 
 	return true;
@@ -171,7 +171,7 @@ fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LL
 };
 
 fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> bool {
-	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block(rt::string_view("entry", 5)));
+	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("entry"));
 	usize index = 0;
 
 	while (index < function->parameters().size()) {
@@ -228,11 +228,11 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> boo
 	};
 
 	var message = DiagnosticMessage();
-	@message.text(rt::string_view("non-void function reaches the end without a result: '", 53));
+	@message.text("non-void function reaches the end without a result: '");
 	diagnostic_entity(@message, *function);
-	@message.text(rt::string_view("' has result type '", 19));
+	@message.text("' has result type '");
 	diagnostic_type(@message, *this.result);
-	@message.text(rt::string_view("'", 1));
+	@message.text("'");
 	return @this.backend->error(function->token(), message.view());
 };
 
@@ -247,12 +247,12 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			var LLVMOpaqueValue* address = this.storage((var Entity*(entity)));
 
 			if (!address) {
-				@this.backend->error(expression->token(), rt::string_view("entity has no native storage", 28));
+				@this.backend->error(expression->token(), "entity has no native storage");
 				return nullptr;
 			};
 
 			if (entity->type()->kind() == type_kind::reference) {
-				return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(entity->type()), address, "reference\0");
+				return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(entity->type()), address, "reference\0".data());
 			};
 
 			return address;
@@ -300,11 +300,11 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 				if (!native) {
 					return nullptr;
 				};
-				@field = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(owner->entity(), expression->entity()->index()), "field\0");
+				@field = LLVMBuildStructGEP2(this.backend->builder(), native, address, this.backend->field_index(owner->entity(), expression->entity()->index()), "field\0".data());
 			};
 
 			if (expression->entity()->type()->kind() == type_kind::reference) {
-				return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->entity()->type()), field, "field.reference\0");
+				return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->entity()->type()), field, "field.reference\0".data());
 			};
 
 			return field;
@@ -320,7 +320,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 
 			Type* offset_type = expression->item(1)->type()->representation();
 			bool signed_offset = offset_type->kind() != type_kind::unsigned_integer && offset_type->kind() != type_kind::boolean;
-			@index = LLVMBuildIntCast2(this.backend->builder(), index, LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits()), static_cast<i32>($signed_offset), "element.offset\0");
+			@index = LLVMBuildIntCast2(this.backend->builder(), index, LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits()), static_cast<i32>($signed_offset), "element.offset\0".data());
 
 			rt::buffer<var LLVMOpaqueValue*> indices;
 			var LLVMOpaqueValue* base;
@@ -330,7 +330,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 				@base = @this.address(object);
 
 				if (!@indices.push_back(LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), 0, 0))) {
-					@this.backend->error(expression->token(), rt::string_view("cannot allocate native array indices", 36));
+					@this.backend->error(expression->token(), "cannot allocate native array indices");
 					return nullptr;
 				};
 			}
@@ -344,7 +344,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			};
 
 			if (!@indices.push_back(index)) {
-				@this.backend->error(expression->token(), rt::string_view("cannot allocate native array indices", 36));
+				@this.backend->error(expression->token(), "cannot allocate native array indices");
 				return nullptr;
 			};
 
@@ -352,7 +352,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			if (!native) {
 				return nullptr;
 			};
-			return LLVMBuildGEP2(this.backend->builder(), native, base, (@indices).data(), static_cast<u32>(indices.size()), "element\0");
+			return LLVMBuildGEP2(this.backend->builder(), native, base, (@indices).data(), static_cast<u32>(indices.size()), "element\0".data());
 		};
 
 		case semantic_kind::cast:
@@ -419,7 +419,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 		return storage;
 	};
 
-	@this.backend->error(expression->token(), rt::string_view("expression does not designate native storage", 44));
+	@this.backend->error(expression->token(), "expression does not designate native storage");
 	return nullptr;
 };
 
@@ -432,7 +432,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 	};
 
 	if (type->kind() != type_kind::function) {
-		@this.backend->error(expression->token(), rt::string_view("call target has no native function signature", 44));
+		@this.backend->error(expression->token(), "call target has no native function signature");
 		return nullptr;
 	};
 
@@ -452,18 +452,18 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 
 		if (index >= signature.parameters().size() && signature.arity() == parameter_arity::variadic && !source->type()->representation()->kind().is_scalar()) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("aggregate variadic argument ", 28));
+			@message.text("aggregate variadic argument ");
 			@message.number(u64(index + 1));
-			@message.text(rt::string_view(" of type '", 10));
+			@message.text(" of type '");
 			diagnostic_type(@message, *source->type());
-			@message.text(rt::string_view("' requires unsupported C ABI lowering for callable '", 52));
+			@message.text("' requires unsupported C ABI lowering for callable '");
 			if (callable->entity()) {
 				diagnostic_entity(@message, *callable->entity());
 			}
 			else {
 				diagnostic_type(@message, *type);
 			};
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.backend->error(source->token(), message.view());
 			return nullptr;
 		};
@@ -480,11 +480,11 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 				Type* type = FunctionEmitter::representation(source->type());
 
 				if (type->kind() == type_kind::floating_point && type->bits() == 32) {
-					@argument = LLVMBuildFPExt(this.backend->builder(), argument, LLVMDoubleTypeInContext(this.backend->context()), "vararg.float\0");
+					@argument = LLVMBuildFPExt(this.backend->builder(), argument, LLVMDoubleTypeInContext(this.backend->context()), "vararg.float\0".data());
 				}
 				else if (type->kind() == type_kind::boolean || type->kind() == type_kind::character || (type->kind().is_integer() && type->bits() < 32)) {
 					bool signed_value = type->kind() != type_kind::unsigned_integer && type->kind() != type_kind::boolean;
-					@argument = LLVMBuildIntCast2(this.backend->builder(), argument, LLVMIntTypeInContext(this.backend->context(), 32), static_cast<i32>($signed_value), "vararg.integer\0");
+					@argument = LLVMBuildIntCast2(this.backend->builder(), argument, LLVMIntTypeInContext(this.backend->context(), 32), static_cast<i32>($signed_value), "vararg.integer\0".data());
 				};
 			};
 		};
@@ -494,7 +494,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 		};
 
 		if (!@arguments.push_back(argument)) {
-			@this.backend->error(expression->token(), rt::string_view("cannot allocate native call arguments", 37));
+			@this.backend->error(expression->token(), "cannot allocate native call arguments");
 			return nullptr;
 		};
 
@@ -505,7 +505,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 	if (!native) {
 		return nullptr;
 	};
-	return LLVMBuildCall2(this.backend->builder(), native, function, (@arguments).data(), static_cast<u32>(arguments.size()), "\0");
+	return LLVMBuildCall2(this.backend->builder(), native, function, (@arguments).data(), static_cast<u32>(arguments.size()), "\0".data());
 };
 
 fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* native) -> var LLVMOpaqueValue* {
@@ -513,7 +513,7 @@ fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* n
 
 	if (!builder.get()) {
 		Token location;
-		@this.backend->error(location, rt::string_view("cannot create storage builder", 29));
+		@this.backend->error(location, "cannot create storage builder");
 		return nullptr;
 	};
 
@@ -527,5 +527,5 @@ fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* n
 		LLVMPositionBuilderAtEnd(builder.get(), entry);
 	};
 
-	return LLVMBuildAlloca(builder.get(), native, "storage\0");
+	return LLVMBuildAlloca(builder.get(), native, "storage\0".data());
 };

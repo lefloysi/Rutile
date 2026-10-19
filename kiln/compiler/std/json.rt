@@ -266,7 +266,7 @@ namespace rt {
 		};
 		var magnitude = make_unsigned(static_cast<u64>(-(value + 1)) + 1);
 		string text;
-		if (!magnitude.get() || !@text.append(string_view("-", 1)) || !@text.append(magnitude.get()->text())) {
+		if (!magnitude.get() || !@text.append("-") || !@text.append(magnitude.get()->text())) {
 			return unique<json_value>();
 		};
 		return make_number(text.view());
@@ -505,7 +505,7 @@ namespace rt {
 		usize index = 0;
 		while (index < 4) {
 			if (this.cursor >= this.input.size()) {
-				return @this.fail(string_view("incomplete Unicode escape", 25));
+				return @this.fail("incomplete Unicode escape");
 			};
 			char byte = this.input.data()[this.cursor];
 			u32 digit = 0;
@@ -519,7 +519,7 @@ namespace rt {
 				@digit = static_cast<u32>(byte - 'A' + 10);
 			}
 			else {
-				return @this.fail(string_view("invalid Unicode escape", 22));
+				return @this.fail("invalid Unicode escape");
 			};
 			@value = (value << 4) | digit;
 			@this.cursor = this.cursor + 1;
@@ -558,7 +558,7 @@ namespace rt {
 
 	fn json_parser::string_value(var json_parser& this, var string& result) -> bool {
 		if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != '"') {
-			return @this.fail(string_view("expected a JSON string", 22));
+			return @this.fail("expected a JSON string");
 		};
 		@this.cursor = this.cursor + 1;
 		while (this.cursor < this.input.size()) {
@@ -569,7 +569,7 @@ namespace rt {
 			};
 			if (byte == '\\') {
 				if (this.cursor >= this.input.size()) {
-					return @this.fail(string_view("incomplete string escape", 24));
+					return @this.fail("incomplete string escape");
 				};
 				@byte := this.input.data()[this.cursor];
 				@this.cursor = this.cursor + 1;
@@ -580,7 +580,7 @@ namespace rt {
 					};
 					if (code >= 55296 && code <= 56319) {
 						if (this.input.size() - this.cursor < 2 || this.input.data()[this.cursor] != '\\' || this.input.data()[this.cursor + 1] != 'u') {
-							return @this.fail(string_view("high surrogate requires a low surrogate", 39));
+							return @this.fail("high surrogate requires a low surrogate");
 						};
 						@this.cursor = this.cursor + 2;
 						u32 low = 0;
@@ -588,15 +588,15 @@ namespace rt {
 							return false;
 						};
 						if (low < 56320 || low > 57343) {
-							return @this.fail(string_view("invalid low surrogate", 21));
+							return @this.fail("invalid low surrogate");
 						};
 						@code = 65536 + ((code - 55296) << 10) + (low - 56320);
 					}
 					else if (code >= 56320 && code <= 57343) {
-						return @this.fail(string_view("unpaired low surrogate", 22));
+						return @this.fail("unpaired low surrogate");
 					};
 					if (!json_append_codepoint(@result, $code)) {
-						return @this.fail(string_view("cannot allocate JSON string", 27));
+						return @this.fail("cannot allocate JSON string");
 					};
 					continue;
 				};
@@ -616,37 +616,37 @@ namespace rt {
 					@byte = '\t';
 				}
 				else if (byte != '"' && byte != '\\' && byte != '/') {
-					return @this.fail(string_view("invalid string escape", 21));
+					return @this.fail("invalid string escape");
 				};
 			}
 			else {
 				if (static_cast<u08>(byte) < 32) {
-					return @this.fail(string_view("unescaped control character", 27));
+					return @this.fail("unescaped control character");
 				};
 				if (static_cast<u08>(byte) >= 128) {
 					usize begin = this.cursor - 1;
 					usize width = json_utf8_width(this.input, begin);
 					if (!width) {
-						return @this.fail(string_view("invalid UTF-8 in JSON string", 28));
+						return @this.fail("invalid UTF-8 in JSON string");
 					};
 					if (!@result.append(this.input.slice(begin, width))) {
-						return @this.fail(string_view("cannot allocate JSON string", 27));
+						return @this.fail("cannot allocate JSON string");
 					};
 					@this.cursor = begin + width;
 					continue;
 				};
 			};
 			if (!@result.append(string_view(&@byte, 1))) {
-				return @this.fail(string_view("cannot allocate JSON string", 27));
+				return @this.fail("cannot allocate JSON string");
 			};
 		};
-		return @this.fail(string_view("unterminated JSON string", 24));
+		return @this.fail("unterminated JSON string");
 	};
 
 	fn json_parser::value(var json_parser& this, usize depth) -> unique<json_value> {
 		@this.whitespace();
 		if (depth > 128 || this.cursor >= this.input.size()) {
-			@this.fail(string_view("expected JSON value within nesting limit", 40));
+			@this.fail("expected JSON value within nesting limit");
 			return unique<json_value>();
 		};
 		char byte = this.input.data()[this.cursor];
@@ -680,7 +680,7 @@ namespace rt {
 					};
 					@this.whitespace();
 					if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != ':') {
-						@this.fail(string_view("expected ':' after object key", 29));
+						@this.fail("expected ':' after object key");
 						return unique<json_value>();
 					};
 					@this.cursor = this.cursor + 1;
@@ -697,12 +697,12 @@ namespace rt {
 					@stored = @result.get()->append(unique<json_value>(@child.release()));
 				};
 				if (!stored) {
-					@this.fail(string_view("cannot allocate JSON container", 30));
+					@this.fail("cannot allocate JSON container");
 					return unique<json_value>();
 				};
 				@this.whitespace();
 				if (this.cursor >= this.input.size()) {
-					@this.fail(string_view("unterminated JSON container", 27));
+					@this.fail("unterminated JSON container");
 					return unique<json_value>();
 				};
 				@byte := this.input.data()[this.cursor];
@@ -711,7 +711,7 @@ namespace rt {
 					return $result;
 				};
 				if (byte != ',') {
-					@this.fail(string_view("expected ',' between JSON elements", 34));
+					@this.fail("expected ',' between JSON elements");
 					return unique<json_value>();
 				};
 			};
@@ -719,7 +719,7 @@ namespace rt {
 		if (byte == '-' || (byte >= '0' && byte <= '9')) {
 			usize end = json_number_end(this.input, this.cursor);
 			if (end == this.cursor) {
-				@this.fail(string_view("invalid JSON number", 19));
+				@this.fail("invalid JSON number");
 				return unique<json_value>();
 			};
 			var result = json_value::make_number(this.input.slice(this.cursor, end - this.cursor));
@@ -727,19 +727,19 @@ namespace rt {
 			return $result;
 		};
 		var remaining = this.input.slice(this.cursor, this.input.size() - this.cursor);
-		if (remaining.size() >= 4 && remaining.slice(0, 4) == string_view("null", 4)) {
+		if (remaining.size() >= 4 && remaining.slice(0, 4) == "null") {
 			@this.cursor = this.cursor + 4;
 			return json_value::make_null();
 		};
-		if (remaining.size() >= 4 && remaining.slice(0, 4) == string_view("true", 4)) {
+		if (remaining.size() >= 4 && remaining.slice(0, 4) == "true") {
 			@this.cursor = this.cursor + 4;
 			return json_value::make_boolean(true);
 		};
-		if (remaining.size() >= 5 && remaining.slice(0, 5) == string_view("false", 5)) {
+		if (remaining.size() >= 5 && remaining.slice(0, 5) == "false") {
 			@this.cursor = this.cursor + 5;
 			return json_value::make_boolean(false);
 		};
-		@this.fail(string_view("expected a JSON value", 21));
+		@this.fail("expected a JSON value");
 		return unique<json_value>();
 	};
 
@@ -747,11 +747,11 @@ namespace rt {
 		var root = @this.value(0);
 		@this.whitespace();
 		if (root.get() && this.cursor != this.input.size()) {
-			@this.fail(string_view("unexpected text after JSON value", 32));
+			@this.fail("unexpected text after JSON value");
 			@root.reset(nullptr);
 		};
 		if (!root.get() && !this.failure.size()) {
-			@this.fail(string_view("cannot allocate JSON value", 26));
+			@this.fail("cannot allocate JSON value");
 		};
 		return json_document($root, usize(this.failure_offset), string(this.failure.view()));
 	};
@@ -763,15 +763,15 @@ namespace rt {
 	};
 
 	fn json_write_string(string_view value, var string& output) -> bool {
-		if (!@output.append(string_view("\"", 1))) {
+		if (!@output.append("\"")) {
 			return false;
 		};
 		usize index = 0;
-		var digits = string_view("0123456789abcdef", 16);
+		var digits = "0123456789abcdef";
 		while (index < value.size()) {
 			u08 byte = static_cast<u08>(value.data()[index]);
 			if (byte == 34 || byte == 92) {
-				if (!@output.append(string_view("\\", 1)) || !@output.append(value.slice(index, 1))) {
+				if (!@output.append("\\") || !@output.append(value.slice(index, 1))) {
 					return false;
 				};
 			}
@@ -779,7 +779,7 @@ namespace rt {
 				char[2] hex;
 				@hex[0] := digits.data()[byte >> 4];
 				@hex[1] := digits.data()[byte & 15];
-				if (!@output.append(string_view("\\u00", 4)) || !@output.append(string_view(&@hex[0], 2))) {
+				if (!@output.append("\\u00") || !@output.append(string_view(&@hex[0], 2))) {
 					return false;
 				};
 			}
@@ -788,7 +788,7 @@ namespace rt {
 			};
 			@index = index + 1;
 		};
-		return @output.append(string_view("\"", 1));
+		return @output.append("\"");
 	};
 
 	fn json_write_value(json_value& value, var string& output, usize depth) -> bool {
@@ -796,31 +796,31 @@ namespace rt {
 			return false;
 		};
 		switch (value.kind()) {
-			case json_kind::null_value: return @output.append(string_view("null", 4));
+			case json_kind::null_value: return @output.append("null");
 			case json_kind::boolean: {
 				if (value.boolean()) {
-					return @output.append(string_view("true", 4));
+					return @output.append("true");
 				};
-				return @output.append(string_view("false", 5));
+				return @output.append("false");
 			};
 			case json_kind::number: return @output.append(value.text());
 			case json_kind::string: return json_write_string(value.text(), @output);
 		};
 		bool object = value.kind() == json_kind::object;
 		if (object) {
-			if (!@output.append(string_view("{", 1))) {
+			if (!@output.append("{")) {
 				return false;
 			};
 		}
-		else if (!@output.append(string_view("[", 1))) {
+		else if (!@output.append("[")) {
 			return false;
 		};
 		usize index = 0;
 		while (index < value.size()) {
-			if (index && !@output.append(string_view(",", 1))) {
+			if (index && !@output.append(",")) {
 				return false;
 			};
-			if (object && (!json_write_string(value.key(index), @output) || !@output.append(string_view(":", 1)))) {
+			if (object && (!json_write_string(value.key(index), @output) || !@output.append(":"))) {
 				return false;
 			};
 			if (!json_write_value(*value.item(index), @output, depth + 1)) {
@@ -829,9 +829,9 @@ namespace rt {
 			@index = index + 1;
 		};
 		if (object) {
-			return @output.append(string_view("}", 1));
+			return @output.append("}");
 		};
-		return @output.append(string_view("]", 1));
+		return @output.append("]");
 	};
 
 	fn json_write(json_value& value, var string& output) -> bool {

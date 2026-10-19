@@ -115,7 +115,7 @@ fn Analyzer::node(var Analyzer& this, semantic_kind kind, Type* type, var Syntax
 	var result = rt::unique<SemanticExpression>(new var SemanticExpression($kind, type, location));
 
 	if (!result.get()) {
-		@this.error(syntax, rt::string_view("out of memory during semantic analysis", 38));
+		@this.error(syntax, "out of memory during semantic analysis");
 	};
 
 	return $result;
@@ -249,7 +249,7 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 			if (this.failed()) {
 				return nullptr;
 			};
-			@this.error(&@syntax, rt::string_view("automatic qualification requires a deduced parameter binding", 60));
+			@this.error(&@syntax, "automatic qualification requires a deduced parameter binding");
 
 			return nullptr;
 		};
@@ -278,16 +278,16 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 		if (!entity || !entity->denotes_type()) {
 			var message = DiagnosticMessage();
 			if (!entity) {
-				@message.text(rt::string_view("unknown type name '", 19));
+				@message.text("unknown type name '");
 			}
 			else {
-				@message.text(rt::string_view("name does not denote a type: '", 30));
+				@message.text("name does not denote a type: '");
 			};
 			diagnostic_name(@message, syntax);
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.report(syntax.token(), message.view());
 			if (entity) {
-				@this.note(entity->token(), rt::string_view("referenced declaration is here", 30));
+				@this.note(entity->token(), "referenced declaration is here");
 			};
 
 			return nullptr;
@@ -295,11 +295,11 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 
 		if (!this.accessible(*entity, @scope)) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("type '", 6));
+			@message.text("type '");
 			diagnostic_entity(@message, *entity);
-			@message.text(rt::string_view("' is not accessible from this scope", 35));
+			@message.text("' is not accessible from this scope");
 			@this.report(syntax.token(), message.view());
-			@this.note(entity->token(), rt::string_view("type is declared here", 21));
+			@this.note(entity->token(), "type is declared here");
 
 			return nullptr;
 		};
@@ -309,7 +309,7 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 		};
 
 		if (!@this.unit->record_name(@this, @scope, @syntax, @*entity, 2)) {
-			@this.error(&@syntax, rt::string_view("navigation index storage is unavailable", 39));
+			@this.error(&@syntax, "navigation index storage is unavailable");
 			return nullptr;
 		};
 		return entity->type();
@@ -349,7 +349,7 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 		Type* result = @this.type(@scope, @*syntax.function_type_result());
 
 		if (!result) {
-			@result = this.types->find_primitive(rt::string_view("void", 4));
+			@result = this.types->find_primitive("void");
 		};
 
 		return @this.types->function($result, $parameters, parameter_arity(arity));
@@ -398,9 +398,9 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 						return nullptr;
 					};
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("conditional qualification requires a named parameter; '", 55));
+					@message.text("conditional qualification requires a named parameter; '");
 					diagnostic_name(@message, *condition);
-					@message.text(rt::string_view("' does not provide a parameter type", 35));
+					@message.text("' does not provide a parameter type");
 					@this.report(condition->token(), message.view());
 
 					return nullptr;
@@ -438,15 +438,15 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 
 		if (element->kind() == type_kind::void_type || element->kind() == type_kind::null_type || element->kind() == type_kind::reference) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("cannot form ", 12));
+			@message.text("cannot form ");
 			if (kind == syntax_kind::type_reference) {
-				@message.text(rt::string_view("a reference to '", 16));
+				@message.text("a reference to '");
 			}
 			else {
-				@message.text(rt::string_view("an array of '", 13));
+				@message.text("an array of '");
 			};
 			diagnostic_type(@message, *element);
-			@message.text(rt::string_view("'; the element type has no object storage", 41));
+			@message.text("'; the element type has no object storage");
 			@this.report(syntax.token(), message.view());
 
 			return nullptr;
@@ -465,9 +465,9 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 
 		if (!extent.get()->type()->kind().is_integer()) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("array extent shall be a positive integer constant; received type '", 66));
+			@message.text("array extent shall be a positive integer constant; received type '");
 			diagnostic_type(@message, *extent.get()->type());
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.report(syntax.array_extent()->token(), message.view());
 			return nullptr;
 		};
@@ -477,24 +477,24 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 				return nullptr;
 			};
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("array extent shall be a positive integer constant; expression beginning with ", 77));
+			@message.text("array extent shall be a positive integer constant; expression beginning with ");
 			@message.quoted(syntax.array_extent()->token().text());
-			@message.text(rt::string_view(" of type '", 10));
+			@message.text(" of type '");
 			diagnostic_type(@message, *extent.get()->type());
-			@message.text(rt::string_view("' is not constant", 17));
+			@message.text("' is not constant");
 			@this.report(syntax.array_extent()->token(), message.view());
 			return nullptr;
 		};
 
 		if (!count) {
-			@this.report(syntax.array_extent()->token(), rt::string_view("array extent shall be a positive integer constant; received 0", 61));
+			@this.report(syntax.array_extent()->token(), "array extent shall be a positive integer constant; received 0");
 
 			return nullptr;
 		};
 
 		if (extent.get()->type()->kind() == type_kind::signed_integer && count & (u64(1) << (static_cast<u64>(extent.get()->type()->bits()) - 1))) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("array extent shall be positive; received -", 42));
+			@message.text("array extent shall be positive; received -");
 			@message.number(u64(0) - u64(extent.get()->type()->signed_value(count)));
 			@this.report(syntax.array_extent()->token(), message.view());
 
@@ -505,7 +505,7 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 	};
 
 	var message = DiagnosticMessage();
-	@message.text(rt::string_view("unsupported type syntax beginning with ", 39));
+	@message.text("unsupported type syntax beginning with ");
 	@message.quoted(syntax.token().text());
 	@this.report(syntax.token(), message.view());
 
@@ -536,16 +536,16 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	if (kind == syntax_kind::access_label) {
 		if (!scope_cursor->owner() || scope_cursor->owner()->kind() != entity_kind::record) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("access label ", 13));
+			@message.text("access label ");
 			@message.quoted(syntax.token().text());
-			@message.text(rt::string_view(" requires class scope; current scope is ", 40));
+			@message.text(" requires class scope; current scope is ");
 			if (scope_cursor->owner()) {
 				diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
-				@message.text(rt::string_view(" ", 1));
+				@message.text(" ");
 				@message.quoted(scope_cursor->owner()->name());
 			}
 			else {
-				@message.text(rt::string_view("module scope", 12));
+				@message.text("module scope");
 			};
 			@this.report(syntax.token(), message.view());
 			return false;
@@ -553,10 +553,10 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 
 		Token token = syntax.token();
 
-		if (token.is(rt::string_view("private", 7))) {
+		if (token.is("private")) {
 			@scope_cursor->set_access(access_kind::private_access);
 		}
-		else if (token.is(rt::string_view("protected", 9))) {
+		else if (token.is("protected")) {
 			@scope_cursor->set_access(access_kind::protected_access);
 		}
 		else {
@@ -576,12 +576,12 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			if (category == syntax_kind::variable || category == syntax_kind::function || category == syntax_kind::record || category == syntax_kind::enumeration || category == syntax_kind::namespace_body || category == syntax_kind::template_declaration || category == syntax_kind::using_alias) {
 				if (declaration) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("declaration has multiple unresolved interpretations; source begins with ", 72));
+					@message.text("declaration has multiple unresolved interpretations; source begins with ");
 					@message.quoted(syntax.token().text());
 					if (scope_cursor->owner()) {
-						@message.text(rt::string_view(" in ", 4));
+						@message.text(" in ");
 						diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
-						@message.text(rt::string_view(" ", 1));
+						@message.text(" ");
 						diagnostic_entity(@message, *scope_cursor->owner());
 					};
 					@this.report(syntax.token(), message.view());
@@ -596,12 +596,12 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 
 		if (!declaration) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("declaration context has no declaration interpretation; source begins with ", 74));
+			@message.text("declaration context has no declaration interpretation; source begins with ");
 			@message.quoted(syntax.token().text());
 			if (scope_cursor->owner()) {
-				@message.text(rt::string_view(" in ", 4));
+				@message.text(" in ");
 				diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
-				@message.text(rt::string_view(" ", 1));
+				@message.text(" ");
 				diagnostic_entity(@message, *scope_cursor->owner());
 			};
 			@this.report(syntax.token(), message.view());
@@ -667,12 +667,12 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	}
 	else {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("declaration required at module or record scope; source begins with ", 67));
+		@message.text("declaration required at module or record scope; source begins with ");
 		@message.quoted(syntax.token().text());
 		if (scope_cursor->owner()) {
-			@message.text(rt::string_view(" in ", 4));
+			@message.text(" in ");
 			diagnostic_entity_kind(@message, scope_cursor->owner()->kind());
-			@message.text(rt::string_view(" ", 1));
+			@message.text(" ");
 			diagnostic_entity(@message, *scope_cursor->owner());
 		};
 		@this.report(syntax.token(), message.view());
@@ -681,9 +681,9 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 
 	if (!name || name->kind() == syntax_kind::absent) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("declaration requires an unqualified name in its owning scope; ", 62));
+		@message.text("declaration requires an unqualified name in its owning scope; ");
 		diagnostic_entity_kind(@message, category);
-		@message.text(rt::string_view(" declaration begins with ", 25));
+		@message.text(" declaration begins with ");
 		@message.quoted(syntax.token().text());
 		@this.report(syntax.token(), message.view());
 		return false;
@@ -697,21 +697,21 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		if (!owner || !owner->members()) {
 			if (!this.failed()) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("cannot declare '", 16));
+				@message.text("cannot declare '");
 				diagnostic_name(@message, *name);
-				@message.text(rt::string_view("': owner '", 10));
+				@message.text("': owner '");
 				diagnostic_name(@message, *name->left());
 				if (owner) {
-					@message.text(rt::string_view("' is a ", 7));
+					@message.text("' is a ");
 					diagnostic_entity_kind(@message, owner->kind());
-					@message.text(rt::string_view(" without a member scope", 23));
+					@message.text(" without a member scope");
 				}
 				else {
-					@message.text(rt::string_view("' is not declared", 17));
+					@message.text("' is not declared");
 				};
 				@this.report(name->token(), message.view());
 				if (owner) {
-					@this.note(owner->token(), rt::string_view("owner is declared here", 22));
+					@this.note(owner->token(), "owner is declared here");
 				};
 			};
 			return false;
@@ -726,14 +726,14 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	if (existing && category != entity_kind::function) {
 		if (existing->kind() != category) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("conflicting declaration kind for ", 33));
+			@message.text("conflicting declaration kind for ");
 			@message.quoted(name->token().text());
-			@message.text(rt::string_view(": declaring ", 12));
+			@message.text(": declaring ");
 			diagnostic_entity_kind(@message, category);
-			@message.text(rt::string_view(" after ", 7));
+			@message.text(" after ");
 			diagnostic_entity_kind(@message, existing->kind());
 			@this.report(name->token(), message.view());
-			@this.note(existing->token(), rt::string_view("previous declaration is here", 28));
+			@this.note(existing->token(), "previous declaration is here");
 			return false;
 		};
 
@@ -741,13 +741,13 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			if (members->kind() != syntax_kind::noop) {
 				if (existing->declaration()->record_members()->kind() != syntax_kind::noop) {
 					var message = DiagnosticMessage();
-					@message.text(rt::string_view("duplicate record definition for ", 32));
+					@message.text("duplicate record definition for ");
 					@message.quoted(name->token().text());
-					@message.text(rt::string_view(" (", 2));
+					@message.text(" (");
 					diagnostic_entity_kind(@message, category);
-					@message.text(rt::string_view(")", 1));
+					@message.text(")");
 					@this.report(name->token(), message.view());
-					@this.note(existing->token(), rt::string_view("previous record definition is here", 34));
+					@this.note(existing->token(), "previous record definition is here");
 					return false;
 				};
 
@@ -756,13 +756,13 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		}
 		else if (category != entity_kind::namespace_body) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("duplicate declaration of ", 25));
+			@message.text("duplicate declaration of ");
 			@message.quoted(name->token().text());
-			@message.text(rt::string_view(" (", 2));
+			@message.text(" (");
 			diagnostic_entity_kind(@message, category);
-			@message.text(rt::string_view(")", 1));
+			@message.text(")");
 			@this.report(name->token(), message.view());
-			@this.note(existing->token(), rt::string_view("previous declaration is here", 28));
+			@this.note(existing->token(), "previous declaration is here");
 			return false;
 		};
 	};
@@ -778,7 +778,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	};
 
 	if (!entity) {
-		@this.error(&@syntax, rt::string_view("out of memory storing declaration", 33));
+		@this.error(&@syntax, "out of memory storing declaration");
 		return false;
 	};
 
@@ -804,16 +804,16 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	if (entity->kind() == entity_kind::function && name->kind() == syntax_kind::unary && name->token().kind == token_kind::op_tilde) {
 		if (!scope_cursor->owner() || scope_cursor->owner()->kind() != entity_kind::record || !name->operand()->token().same(scope_cursor->owner()->token())) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("destructor '", 12));
-			@message.text(rt::string_view("~", 1));
+			@message.text("destructor '");
+			@message.text("~");
 			diagnostic_name(@message, *name->operand());
-			@message.text(rt::string_view("' shall name its owning class", 29));
+			@message.text("' shall name its owning class");
 			if (scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record) {
-				@message.text(rt::string_view(" ", 1));
+				@message.text(" ");
 				@message.quoted(scope_cursor->owner()->name());
 			}
 			else {
-				@message.text(rt::string_view("; declaration is outside class scope", 36));
+				@message.text("; declaration is outside class scope");
 			};
 			@this.report(name->token(), message.view());
 			return false;
@@ -832,7 +832,7 @@ fn Analyzer::Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics&
 
 	if (!@types.initialize_primitives(this.pointer_bits)) {
 		Token location;
-		@diagnostics.error(location, rt::string_view("cannot initialize primitive types", 33));
+		@diagnostics.error(location, "cannot initialize primitive types");
 	};
 };
 

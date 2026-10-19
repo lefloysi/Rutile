@@ -80,22 +80,22 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 
 	Token location = entity->token();
 	var name = entity->name();
-	Type* result = this.types->find_primitive(rt::string_view("void", 4));
+	Type* result = this.types->find_primitive("void");
 
 	if (role == function_role::assignment) {
 		@location.kind = token_kind(operation);
-		@name = rt::string_view("operator=", 9);
+		@name = "operator=";
 		@result := receiver;
 
 		if (operation == token_kind::op_copy) {
-			@name = rt::string_view("operator:=", 10);
+			@name = "operator:=";
 		};
 	};
 
 	var Entity* function = @this.unit->create_entity(entity_kind::function, location, nullptr, entity->members());
 
 	if (!function || !@function->set_name(name)) {
-		@this.error(entity->declaration(), rt::string_view("cannot declare compiler-supplied special function", 49));
+		@this.error(entity->declaration(), "cannot declare compiler-supplied special function");
 		return nullptr;
 	};
 
@@ -116,11 +116,11 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 
 	while (index < parameter_count) {
 		Type* type = source;
-		var parameter_name = rt::string_view("other", 5);
+		var parameter_name = "other";
 
 		if (!index) {
 			@type = receiver;
-			@parameter_name = rt::string_view("this", 4);
+			@parameter_name = "this";
 		};
 
 		var Entity* parameter = @this.unit->create_entity(entity_kind::parameter, location, nullptr, parameters);

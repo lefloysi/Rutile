@@ -1,13 +1,13 @@
 fn main() -> i32 {
-	rt::integer_hash<i32> signed_hash;
-	rt::integer_hash<u64> unsigned_hash;
+	rt::default_hash<i32> signed_hash;
+	rt::default_hash<u64> unsigned_hash;
 	i32 negative = -1;
 	u64 positive = 42;
 	if (signed_hash.hash(negative) != 13029008266876403067 || unsigned_hash.hash(positive) != 12058926934050108962) {
 		return 1;
 	};
-	rt::f32_hash single;
-	rt::f64_hash wide;
+	rt::default_hash<f32> single;
+	rt::default_hash<f64> wide;
 	f32 plus = 0.0;
 	f32 minus = -0.0;
 	f64 plus_wide = 0.0;
@@ -20,7 +20,7 @@ fn main() -> i32 {
 	if (single.hash(one) != 3052579836232902212 || wide.hash(one_wide) != 3035652100526550566) {
 		return 5;
 	};
-	rt::pointer_hash<i32> pointer;
+	rt::default_hash<i32*> pointer;
 	if (pointer.hash(&@negative) != rt::mix_hash(static_cast<u64>(reinterpret_cast<usize>(&@negative)))) {
 		return 3;
 	};
@@ -35,9 +35,14 @@ fn main() -> i32 {
 	var first_view = rt::string_view(&@first[0], 3);
 	var second_view = rt::string_view(&@second[0], 3);
 	var short_view = rt::string_view(&@first[0], 1);
-	rt::string_view_hash text;
+	rt::default_hash<rt::string_view> text;
 	if (first_view != second_view || text.hash(first_view) != 16560467112517592754 || text.hash(second_view) != 16560467112517592754 || first_view == short_view) {
 		return 4;
+	};
+	const i32& borrowed = negative;
+	const rt::string_view& borrowed_text = first_view;
+	if (signed_hash.hash(borrowed) != signed_hash.hash(i32(-1)) || text.hash(borrowed_text) != text.hash("a\0b")) {
+		return 6;
 	};
 	return 42;
 };

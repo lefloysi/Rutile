@@ -63,24 +63,24 @@ fn DiagnosticMessage::text(var DiagnosticMessage& this, rt::string_view value) {
 };
 
 fn DiagnosticMessage::quoted(var DiagnosticMessage& this, rt::string_view value) {
-	@this.text(rt::string_view("'", 1));
+	@this.text("'");
 	usize index = 0;
 	while (index < value.size()) {
 		char byte = value.data()[index];
 		if (byte == '\n') {
-			@this.text(rt::string_view("\\n", 2));
+			@this.text("\\n");
 		}
 		else if (byte == '\r') {
-			@this.text(rt::string_view("\\r", 2));
+			@this.text("\\r");
 		}
 		else if (byte == '\t') {
-			@this.text(rt::string_view("\\t", 2));
+			@this.text("\\t");
 		}
 		else if (byte == '\0') {
-			@this.text(rt::string_view("\\0", 2));
+			@this.text("\\0");
 		}
 		else if (byte == '\\' || byte == '\'') {
-			@this.text(rt::string_view("\\", 1));
+			@this.text("\\");
 			@this.text(rt::string_view(&@byte, 1));
 		}
 		else {
@@ -88,7 +88,7 @@ fn DiagnosticMessage::quoted(var DiagnosticMessage& this, rt::string_view value)
 		};
 		@index = index + 1;
 	};
-	@this.text(rt::string_view("'", 1));
+	@this.text("'");
 };
 
 fn DiagnosticMessage::number(var DiagnosticMessage& this, u64 value) {
@@ -107,7 +107,7 @@ fn DiagnosticMessage::number(var DiagnosticMessage& this, u64 value) {
 
 fn DiagnosticMessage::view(DiagnosticMessage& this) -> rt::string_view {
 	if (this.state == diagnostic_message_state::unavailable) {
-		return rt::string_view("cannot format diagnostic: insufficient memory", 45);
+		return "cannot format diagnostic: insufficient memory";
 	};
 	return this.contents.view();
 };
@@ -126,7 +126,7 @@ fn Diagnostics::error(var Diagnostics& this, Token& location, rt::string_view me
 	@record.location := location;
 	@record.message.append(message);
 	@this.messages.push_back($record);
-	this.write(this.output, location, "error\0", message);
+	this.write(this.output, location, "error", message);
 };
 
 fn Diagnostics::note(var Diagnostics& this, Token& location, rt::string_view message) {
@@ -139,7 +139,7 @@ fn Diagnostics::note(var Diagnostics& this, Token& location, rt::string_view mes
 	var DiagnosticRecord* records = @this.messages.data();
 	var DiagnosticRecord& record = @records[this.messages.size() - 1];
 	@record.notes.push_back($note);
-	this.write(this.output, location, "note\0", message);
+	this.write(this.output, location, "note", message);
 };
 
 fn Diagnostics::records(Diagnostics& this) -> rt::buffer<DiagnosticRecord>& {
@@ -161,7 +161,7 @@ fn Diagnostics::write(Diagnostics& this, var NativeFile* output, Token& location
 		return;
 	};
 
-	var path = rt::string_view("<compiler>", 10);
+	var path = "<compiler>";
 
 	if (location.source) {
 		@path = location.source->path();
@@ -178,18 +178,18 @@ fn Diagnostics::write(Diagnostics& this, var NativeFile* output, Token& location
 		@message_size = static_cast<usize>(i32::max);
 	};
 
-	fprintf(output, "%.*s:%llu:%llu: %.*s: %.*s\n\0", static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>(severity.size()), severity.data(), static_cast<i32>($message_size), message.data());
+	fprintf(output, "%.*s:%llu:%llu: %.*s: %.*s\n\0".data(), static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>(severity.size()), severity.data(), static_cast<i32>($message_size), message.data());
 };
 
 fn Diagnostics::replay(Diagnostics& this, var NativeFile* output) {
 	usize index = 0;
 	while (index < this.messages.size()) {
 		DiagnosticRecord& record = this.messages.data()[index];
-		this.write(output, record.location, "error\0", record.message.view());
+		this.write(output, record.location, "error", record.message.view());
 		usize note = 0;
 		while (note < record.notes.size()) {
 			DiagnosticNote& related = record.notes.data()[note];
-			this.write(output, related.location, "note\0", related.message.view());
+			this.write(output, related.location, "note", related.message.view());
 			@note = note + 1;
 		};
 		@index = index + 1;
@@ -201,10 +201,10 @@ fn Diagnostics::syntax_error(var Diagnostics& this, Token& location, rt::string_
 	@rendered.text(message);
 	if (location.source) {
 		if (location.kind == token_kind::eof) {
-			@rendered.text(rt::string_view("; found end of file", 19));
+			@rendered.text("; found end of file");
 		}
 		else if (location.length) {
-			@rendered.text(rt::string_view("; found ", 8));
+			@rendered.text("; found ");
 			@rendered.quoted(location.text());
 		};
 	};

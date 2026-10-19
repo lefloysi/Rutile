@@ -106,6 +106,10 @@ fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expec
 		return $materialization;
 	};
 
+	if (value.type()->kind() == type_kind::pointer && expected.kind() == type_kind::boolean) {
+		return materialization + 2;
+	};
+
 	if (this.compatible(value.type(), &@expected)) {
 		return materialization + 1;
 	};
@@ -148,17 +152,17 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 		};
 
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("cannot initialize '", 19));
+		@message.text("cannot initialize '");
 		diagnostic_type(@message, expected.value());
-		@message.text(rt::string_view("' from ", 7));
+		@message.text("' from ");
 		if (value.get()->category() == value_category::place) {
-			@message.text(rt::string_view("a place of type '", 17));
+			@message.text("a place of type '");
 		}
 		else {
-			@message.text(rt::string_view("a consumable of type '", 22));
+			@message.text("a consumable of type '");
 		};
 		diagnostic_type(@message, *value.get()->type());
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.diagnostics->error(syntax.token(), message.view());
 
 		return rt::unique<SemanticExpression>();
@@ -201,11 +205,11 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 
 		if (!selected) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("no applicable implicit conversion from '", 40));
+			@message.text("no applicable implicit conversion from '");
 			diagnostic_type(@message, *value.get()->type());
-			@message.text(rt::string_view("' to '", 6));
+			@message.text("' to '");
 			diagnostic_type(@message, expected.value());
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			@this.report(syntax.token(), message.view());
 
 			return rt::unique<SemanticExpression>();
@@ -223,7 +227,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 			return rt::unique<SemanticExpression>();
 		};
 
-		var arguments = @this.node(semantic_kind::brace, this.types->find_primitive(rt::string_view("void", 4)), &@syntax);
+		var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 
 		if (!arguments.get()) {
 			return rt::unique<SemanticExpression>();

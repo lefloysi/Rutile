@@ -286,7 +286,7 @@ fn Compilation::failure(var Compilation& this, rt::string_view message) -> i32 {
 fn Compilation::output_failure(var Compilation& this, rt::string_view operation, rt::string_view path) -> i32 {
 	var message = DiagnosticMessage();
 	@message.text(operation);
-	@message.text(rt::string_view(" native object output ", 22));
+	@message.text(" native object output ");
 	@message.quoted(path);
 	Token location;
 
@@ -306,38 +306,38 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 	};
 
 	if (output_path.empty()) {
-		return @this.failure(rt::string_view("native object output path is required", 37));
+		return @this.failure("native object output path is required");
 	};
 
 	if (optimization < 0 || optimization > 3) {
-		return @this.failure(rt::string_view("optimization level must be between 0 and 3", 42));
+		return @this.failure("optimization level must be between 0 and 3");
 	};
 	@this.backend = rt::unique<Backend>(new var Backend(@this.diagnostics));
 
 	if (!this.backend.get() || !@this.backend.get()->initialize($optimization)) {
-		return @this.failure(rt::string_view("internal compiler error: target initialization failed without a diagnostic", 74));
+		return @this.failure("internal compiler error: target initialization failed without a diagnostic");
 	};
 
 	if (this.backend.get()->pointer_bits() != this.analysis->pointer_bits()) {
-		return @this.failure(rt::string_view("analysis target pointer width does not match the native output target", 69));
+		return @this.failure("analysis target pointer width does not match the native output target");
 	};
 
 	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)) {
-		return @this.failure(rt::string_view("internal compiler error: native emission failed without a diagnostic", 68));
+		return @this.failure("internal compiler error: native emission failed without a diagnostic");
 	};
 
 	var native_output_path = rt::string(output_path);
-	var output = File(this.opener(native_output_path.c_str(), "wb\0"));
+	var output = File(this.opener(native_output_path.c_str(), "wb\0".data()));
 	if (!output.is_open()) {
-		return @this.output_failure(rt::string_view("cannot open", 11), output_path);
+		return @this.output_failure("cannot open", output_path);
 	};
 
 	if (!@this.backend.get()->write(@output)) {
-		return @this.output_failure(rt::string_view("cannot write", 12), output_path);
+		return @this.output_failure("cannot write", output_path);
 	};
 
 	if (!@output.close()) {
-		return @this.output_failure(rt::string_view("cannot close", 12), output_path);
+		return @this.output_failure("cannot close", output_path);
 	};
 
 	return 0;
@@ -348,7 +348,7 @@ fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_vie
 	if (!lease.get()) {
 		var errors = Diagnostics($diagnostics);
 		Token location;
-		@errors.error(location, rt::string_view("no current target analysis is available for native emission", 59));
+		@errors.error(location, "no current target analysis is available for native emission");
 		return 1;
 	};
 
@@ -370,18 +370,18 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 	Token location;
 
 	if (!paths.size()) {
-		@errors.error(location, rt::string_view("no source files", 15));
+		@errors.error(location, "no source files");
 		return 1;
 	};
 
 	if (output_path.empty()) {
-		@errors.error(location, rt::string_view("native object output path is required", 37));
+		@errors.error(location, "native object output path is required");
 		return 1;
 	};
 
 	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
 	if (!analysis.get()) {
-		@errors.error(location, rt::string_view("analysis storage is unavailable", 31));
+		@errors.error(location, "analysis storage is unavailable");
 		return 1;
 	};
 
@@ -390,7 +390,7 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 		rt::string_view path := paths.data()[index];
 
 		if (path.empty() || path == output_path) {
-			@errors.error(location, rt::string_view("output cannot overwrite a source file", 37));
+			@errors.error(location, "output cannot overwrite a source file");
 			return 1;
 		};
 		if (!@analysis.get()->load_source(path, opener)) {
@@ -400,7 +400,7 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 	};
 
 	if (!@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)) {
-		@errors.error(location, rt::string_view("internal compiler error: analysis could not complete", 52));
+		@errors.error(location, "internal compiler error: analysis could not complete");
 		return 1;
 	};
 
@@ -408,7 +408,7 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 	i32 result = @compilation.run(output_path, entry, $optimization, $kind);
 
 	if (!@this.publish($analysis)) {
-		@errors.error(location, rt::string_view("could not publish the completed analysis", 40));
+		@errors.error(location, "could not publish the completed analysis");
 		return 1;
 	};
 

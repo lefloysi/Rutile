@@ -7,11 +7,11 @@ struct TemplateFixture {
 	rt::buffer<rt::unique<Syntax>> syntax;
 	rt::unique<SemanticUnit> unit;
 
-	fn build(var TemplateFixture& this, const char* text) -> bool;
+	fn build(var TemplateFixture& this, rt::string_view text) -> bool;
 };
 
-fn TemplateFixture::build(var TemplateFixture& this, const char* text) -> bool {
-	if (!@this.source.assign(rt::string_view("templates.rt\0"), rt::string_view(text))) {
+fn TemplateFixture::build(var TemplateFixture& this, rt::string_view text) -> bool {
+	if (!@this.source.assign("templates.rt", rt::string_view(text))) {
 		return false;
 	};
 	var lexer = Lexer(@this.source);
@@ -28,7 +28,7 @@ fn TemplateFixture::build(var TemplateFixture& this, const char* text) -> bool {
 	if (!@this.syntax.push_back($syntax)) {
 		return false;
 	};
-	var NativeFile* output = fopen("template-diagnostics.log\0", "wb\0");
+	var NativeFile* output = fopen("template-diagnostics.log\0".data(), "wb\0".data());
 	var diagnostics = Diagnostics(output);
 	var analyzer = Analyzer(@this.types, @diagnostics, 64);
 	@this.unit = @analyzer.analyze(this.syntax);
@@ -38,11 +38,11 @@ fn TemplateFixture::build(var TemplateFixture& this, const char* text) -> bool {
 
 fn template_tests() -> i32 {
 	var records = TemplateFixture();
-	if (!@records.build("template<typename T> struct Box { T value; }; template<typename T, typename D = Box<T>> struct Pair { T first; D second; }; var left : Pair<i32>; var right : Pair<i32, Box<i32>>;\0")) {
+	if (!@records.build("template<typename T> struct Box { T value; }; template<typename T, typename D = Box<T>> struct Pair { T first; D second; }; var left : Pair<i32>; var right : Pair<i32, Box<i32>>;")) {
 		return 1;
 	};
-	var Entity* left = records.unit.get()->root_scope()->local(rt::string_view("left\0"));
-	var Entity* right = records.unit.get()->root_scope()->local(rt::string_view("right\0"));
+	var Entity* left = records.unit.get()->root_scope()->local("left");
+	var Entity* right = records.unit.get()->root_scope()->local("right");
 	if (!left || !right || left->type() != right->type() || left->type()->entity()->fields().size() != 2) {
 		return 2;
 	};
@@ -53,42 +53,42 @@ fn template_tests() -> i32 {
 	};
 
 	var recursive = TemplateFixture();
-	if (!@recursive.build("template<typename T> struct Node { var Node<T>* next; T value; }; var node : Node<i32>;\0")) {
+	if (!@recursive.build("template<typename T> struct Node { var Node<T>* next; T value; }; var node : Node<i32>;")) {
 		return 4;
 	};
-	const Type* node = recursive.unit.get()->root_scope()->local(rt::string_view("node\0"))->type();
+	const Type* node = recursive.unit.get()->root_scope()->local("node")->type();
 	if (node->entity()->fields().data()[0]->type()->element() != node) {
 		return 5;
 	};
 
 	var namespaces = TemplateFixture();
-	if (!@namespaces.build("template<typename T> namespace Values { fn identity(T value) -> T { return $value; }; }; fn use() -> i32 { return Values<i32>::identity(42); };\0")) {
+	if (!@namespaces.build("template<typename T> namespace Values { fn identity(T value) -> T { return $value; }; }; fn use() -> i32 { return Values<i32>::identity(42); };")) {
 		return 6;
 	};
 
 	var calls = TemplateFixture();
-	if (!@calls.build("template<typename T> fn identity(T value) -> T { return $value; }; fn use() -> i32 { var one = identity<i32>(42); return identity(one); };\0")) {
+	if (!@calls.build("template<typename T> fn identity(T value) -> T { return $value; }; fn use() -> i32 { var one = identity<i32>(42); return identity(one); };")) {
 		return 7;
 	};
 
 	var members = TemplateFixture();
-	if (!@members.build("template<typename T> struct Box { fn number(const Box& this) -> T; T value; }; template<typename U> fn Box<U>::number(const Box& this) -> U { return this.value; }; fn use() -> i32 { var box : Box<i32>; return box.number(); };\0")) {
+	if (!@members.build("template<typename T> struct Box { fn number(const Box& this) -> T; T value; }; template<typename U> fn Box<U>::number(const Box& this) -> U { return this.value; }; fn use() -> i32 { var box : Box<i32>; return box.number(); };")) {
 		return 8;
 	};
 	var policies = TemplateFixture();
-	if (!@policies.build("namespace library { template<typename T> struct Policy { fn read() -> i32 { return 42; }; }; template<typename T, typename D = Policy<T>> struct Owner { fn read() -> i32 { return D::read(); }; }; }; fn use() -> i32 { return library::Owner<i32>::read(); };\0")) {
+	if (!@policies.build("namespace library { template<typename T> struct Policy { fn read() -> i32 { return 42; }; }; template<typename T, typename D = Policy<T>> struct Owner { fn read() -> i32 { return D::read(); }; }; }; fn use() -> i32 { return library::Owner<i32>::read(); };")) {
 		return 9;
 	};
 	var extension = TemplateFixture();
-	if (!@extension.build("template<typename T> struct Box { private: T value; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };\0")) {
+	if (!@extension.build("template<typename T> struct Box { private: T value; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };")) {
 		return 10;
 	};
 	var hidden = TemplateFixture();
-	if (@hidden.build("template<typename T> struct Box { private: fn answer() -> i32; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };\0")) {
+	if (@hidden.build("template<typename T> struct Box { private: fn answer() -> i32; }; template<typename U> fn Box<U>::answer() -> i32 { return 42; }; fn use() -> i32 { return Box<i32>::answer(); };")) {
 		return 11;
 	};
 	var private_generic = TemplateFixture();
-	if (@private_generic.build("struct Owner { private: template<typename T> fn hidden(T value) -> i32 { return 42; }; }; fn use() -> i32 { return Owner::hidden<i32>(0); };\0")) {
+	if (@private_generic.build("struct Owner { private: template<typename T> fn hidden(T value) -> i32 { return 42; }; }; fn use() -> i32 { return Owner::hidden<i32>(0); };")) {
 		return 12;
 	};
 	return 42;

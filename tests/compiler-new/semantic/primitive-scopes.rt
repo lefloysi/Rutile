@@ -1,6 +1,6 @@
 fn primitive_target(u32 bits, u64 expected) -> bool {
 	TemplateFixture fixture;
-	if (!@fixture.source.assign(rt::string_view("primitive-target.rt\0"), rt::string_view("using Word=usize; using Signed=i64; enum Limits:[u64] { word=Word::max; signed_max=Signed::max; }; fn answer()->i32 { i32[u08::max] values; return 42; };\0"))) {
+	if (!@fixture.source.assign("primitive-target.rt", "using Word=usize; using Signed=i64; enum Limits:[u64] { word=Word::max; signed_max=Signed::max; }; fn answer()->i32 { i32[u08::max] values; return 42; };")) {
 		return false;
 	};
 	var lexer = Lexer(@fixture.source);
@@ -15,7 +15,7 @@ fn primitive_target(u32 bits, u64 expected) -> bool {
 	if (!@fixture.syntax.push_back($syntax)) {
 		return false;
 	};
-	var NativeFile* output = fopen("primitive-target-diagnostics.log\0", "wb\0");
+	var NativeFile* output = fopen("primitive-target-diagnostics.log\0".data(), "wb\0".data());
 	var diagnostics = Diagnostics(output);
 	var analyzer = Analyzer(@fixture.types, @diagnostics, $bits);
 	@fixture.unit = @analyzer.analyze(fixture.syntax);
@@ -23,11 +23,11 @@ fn primitive_target(u32 bits, u64 expected) -> bool {
 	if (!fixture.unit.get()) {
 		return false;
 	};
-	var Entity* limits = fixture.unit.get()->root_scope()->local(rt::string_view("Limits\0"));
-	var Entity* word = limits->find_member(rt::string_view("word\0"));
-	var Entity* signed_max = limits->find_member(rt::string_view("signed_max\0"));
-	var Entity* associated = fixture.unit.get()->associated_owner(*fixture.types.find_primitive(rt::string_view("usize\0")));
-	if (!word || word->integer() != expected || !signed_max || signed_max->integer() != 9223372036854775807 || !associated || associated->find_member(rt::string_view("max\0"))->kind() != entity_kind::constant) {
+	var Entity* limits = fixture.unit.get()->root_scope()->local("Limits");
+	var Entity* word = limits->find_member("word");
+	var Entity* signed_max = limits->find_member("signed_max");
+	var Entity* associated = fixture.unit.get()->associated_owner(*fixture.types.find_primitive("usize"));
+	if (!word || word->integer() != expected || !signed_max || signed_max->integer() != 9223372036854775807 || !associated || associated->find_member("max")->kind() != entity_kind::constant) {
 		return false;
 	};
 	return true;
@@ -37,7 +37,7 @@ fn primitive_scope_tests() -> i32 {
 		return 1;
 	};
 	TemplateFixture missing;
-	if (@missing.build("fn answer()->i32 { return static_cast<i32>(void::max); };\0")) {
+	if (@missing.build("fn answer()->i32 { return static_cast<i32>(void::max); };")) {
 		return 2;
 	};
 	return 42;

@@ -8,20 +8,20 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (entity->layout() == record_layout::overlapping) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("union '", 7));
+		@message.text("union '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' cannot contain a base subobject", 33));
+		@message.text("' cannot contain a base subobject");
 		@this.report(entity->token(), message.view());
 		return false;
 	};
 
 	if (bases->size() != 1) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("record '", 8));
+		@message.text("record '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' declares ", 11));
+		@message.text("' declares ");
 		@message.number(u64(bases->size()));
-		@message.text(rt::string_view(" base types; multiple base analysis is not implemented", 54));
+		@message.text(" base types; multiple base analysis is not implemented");
 		@this.report(entity->token(), message.view());
 		return false;
 	};
@@ -33,19 +33,19 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 	};
 	if (base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record || base->qualifier() != type_qualifier::mutable || base->entity()->layout() != record_layout::sequential) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("invalid base type '", 19));
+		@message.text("invalid base type '");
 		diagnostic_type(@message, *base);
-		@message.text(rt::string_view("' for record '", 14));
+		@message.text("' for record '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("': ", 3));
+		@message.text("': ");
 		if (base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record) {
-			@message.text(rt::string_view("base requires a record type", 27));
+			@message.text("base requires a record type");
 		}
 		else if (base->qualifier() != type_qualifier::mutable) {
-			@message.text(rt::string_view("base type shall be unqualified", 30));
+			@message.text("base type shall be unqualified");
 		}
 		else {
-			@message.text(rt::string_view("base type shall not be a union", 30));
+			@message.text("base type shall not be a union");
 		};
 		@this.report(bases->item(0)->token(), message.view());
 		return false;
@@ -55,13 +55,13 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (owner->state() == entity_state::resolving) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("base relation contains a cycle; record '", 40));
+		@message.text("base relation contains a cycle; record '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' names base '", 14));
+		@message.text("' names base '");
 		diagnostic_type(@message, *base);
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.report(bases->item(0)->token(), message.view());
-		@this.note(owner->token(), rt::string_view("base record is declared here", 28));
+		@this.note(owner->token(), "base record is declared here");
 		return false;
 	};
 
@@ -71,18 +71,18 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (owner->declaration()->record_members()->kind() == syntax_kind::noop) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("base requires a complete record definition; record '", 52));
+		@message.text("base requires a complete record definition; record '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' names base '", 14));
+		@message.text("' names base '");
 		diagnostic_type(@message, *base);
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.report(bases->item(0)->token(), message.view());
-		@this.note(owner->token(), rt::string_view("base record is declared here", 28));
+		@this.note(owner->token(), "base record is declared here");
 		return false;
 	};
 
 	if (!@entity->add_base(base)) {
-		@this.error(declaration, rt::string_view("base subobject metadata storage is unavailable", 46));
+		@this.error(declaration, "base subobject metadata storage is unavailable");
 		return false;
 	};
 

@@ -21,8 +21,21 @@ bool configuration_failure(const std::filesystem::path& path, const YAML::Node& 
 	return false;
 }
 
+std::filesystem::path project_configuration_path(const std::filesystem::path& root) {
+	std::error_code error;
+	auto path = root / "kiln.yaml";
+	if (std::filesystem::exists(path, error) || error) {
+		return path;
+	}
+	auto legacy = root / "rutile.yaml";
+	if (std::filesystem::exists(legacy, error) || error) {
+		return legacy;
+	}
+	return path;
+}
+
 bool project_configuration_initialize(const std::filesystem::path& root, std::string& diagnostics) {
-	auto path = root / "rutile.yaml";
+	auto path = project_configuration_path(root);
 	diagnostics.clear();
 	std::error_code error;
 	if (std::filesystem::exists(path, error) && !error) {
@@ -37,7 +50,7 @@ bool project_configuration_initialize(const std::filesystem::path& root, std::st
 		diagnostics = project_path_utf8(path) + ": could not create project configuration.\n";
 		return false;
 	}
-	file << "targets:\n  app:\n    source: .\n    entry: main\nprofiles:\n  debug:\n    optimization: 0\n  release:\n    optimization: 2\n";
+	file << "targets:\n  app:\n    compiler: rutile\n    source: .\n    entry: main\nprofiles:\n  debug:\n    optimization: 0\n  release:\n    optimization: 2\n";
 	file.close();
 	if (!file) {
 		diagnostics = project_path_utf8(path) + ": could not write project configuration.\n";
@@ -59,19 +72,6 @@ bool configuration_name(std::string_view name, bool target) {
 		}
 	}
 	return true;
-}
-
-bool configuration_entry(std::string_view name) {
-	while (true) {
-		auto separator = name.find("::");
-		if (!configuration_name(name.substr(0, separator), false)) {
-			return false;
-		}
-		if (separator == std::string_view::npos) {
-			return true;
-		}
-		name.remove_prefix(separator + 2);
-	}
 }
 
 bool configuration_mapping(const std::filesystem::path& path, const YAML::Node& node, std::initializer_list<std::string_view> fields, bool unrestricted, std::string& diagnostics) {
@@ -113,7 +113,7 @@ bool configuration_string(const std::filesystem::path& path, const YAML::Node& n
 }
 
 bool project_configuration_read(const std::filesystem::path& root, struct ProjectConfiguration& configuration, std::string& diagnostics) {
-	auto path = root / "rutile.yaml";
+	auto path = project_configuration_path(root);
 	diagnostics.clear();
 	std::ifstream file(path);
 	if (!file) {
@@ -122,35 +122,109 @@ bool project_configuration_read(const std::filesystem::path& root, struct Projec
 	}
 	try {
 		auto document = YAML::Load(file);
-		if (!configuration_mapping(path, document, { "targets", "profiles", "analysis" }, false, diagnostics)) {
+		if (!configuration_mapping(path, document, { "targets", "profiles", "analysis", "projects" }, false, diagnostics)) {
 			return false;
 		}
+		struct ProjectConfiguration parsed{};
+		auto projects = document["projects"];
+		if (projects) {
+			if (!configuration_mapping(path, projects, {}, true, diagnostics)) {
+				return false;
+			}
+			for (const auto& item : projects) {
+				ProjectProgram program{ item.first.Scalar(), root / "kiln.rt" };
+				if (!configuration_name(program.function, false)) {
+					return configuration_failure(path, item.first, "project names must be function identifiers", diagnostics);
+				}
+				if (!item.second.IsNull()) {
+					std::string text;
+					if (!configuration_string(path, item.second, "project source", text, diagnostics)) {
+						return false;
+					}
+					program.source = (root / std::filesystem::u8path(text)).lexically_normal();
+				}
+				std::error_code error;
+				if (!std::filesystem::is_regular_file(program.source, error) || error) {
+					return configuration_failure(path, item.second, "project configuration program is unavailable: " + project_path_utf8(program.source), diagnostics);
+				}
+				parsed.projects.push_back(std::move(program));
+			}
+		}
 		auto targets = document["targets"];
+		if (!targets && !parsed.projects.empty()) {
+			targets = YAML::Node(YAML::NodeType::Map);
+		}
 		if (!targets || !configuration_mapping(path, targets, {}, true, diagnostics)) {
 			if (diagnostics.empty()) {
 				configuration_failure(path, document, "missing 'targets' mapping", diagnostics);
 			}
 			return false;
 		}
-		if (!targets.size()) {
+		if (!targets.size() && parsed.projects.empty()) {
 			return configuration_failure(path, targets, "'targets' must contain at least one target", diagnostics);
 		}
-		struct ProjectConfiguration parsed{};
 		for (const auto& item : targets) {
 			struct ProjectTarget target{};
 			target.name = item.first.Scalar();
 			if (!configuration_name(target.name, true)) {
 				return configuration_failure(path, item.first, "target names may contain only ASCII letters, digits, '_' and '-'", diagnostics);
 			}
-			if (!configuration_mapping(path, item.second, { "source", "entry" }, false, diagnostics)) {
+			if (!configuration_mapping(path, item.second, { "source", "entry", "compiler", "options", "type", "output" }, false, diagnostics)) {
 				return false;
 			}
 			std::string source;
-			if (!configuration_string(path, item.second["source"], "source", source, diagnostics) || !configuration_string(path, item.second["entry"], "entry", target.entry, diagnostics)) {
+			if (!configuration_string(path, item.second["source"], "source", source, diagnostics)) {
 				return false;
 			}
-			if (!configuration_entry(target.entry)) {
-				return configuration_failure(path, item.second["entry"], "entry must be a Rutile identifier or a namespace-qualified identifier", diagnostics);
+			if (item.second["entry"] && !configuration_string(path, item.second["entry"], "entry", target.entry, diagnostics)) {
+				return false;
+			}
+			if (item.second["compiler"] && !configuration_string(path, item.second["compiler"], "compiler", target.compiler, diagnostics)) {
+				return false;
+			}
+			if (!configuration_name(target.compiler, true)) {
+				return configuration_failure(path, item.second["compiler"], "invalid compiler name", diagnostics);
+			}
+			auto type = item.second["type"];
+			if (type) {
+				std::string text;
+				if (!configuration_string(path, type, "type", text, diagnostics)) {
+					return false;
+				}
+				if (text == "executable") {
+					target.type = target_type::executable;
+				}
+				else if (text == "shared_lib") {
+					target.type = target_type::shared_lib;
+				}
+				else if (text == "static_lib") {
+					target.type = target_type::static_lib;
+				}
+				else {
+					return configuration_failure(path, type, "unknown target type '" + text + "'", diagnostics);
+				}
+			}
+			if (item.second["output"]) {
+				std::string text;
+				if (!configuration_string(path, item.second["output"], "output", text, diagnostics)) {
+					return false;
+				}
+				target.output = std::filesystem::u8path(text);
+				if (target.output != target.output.filename() || target.output == "." || target.output == "..") {
+					return configuration_failure(path, item.second["output"], "output must be a filename without directories", diagnostics);
+				}
+			}
+			auto options = item.second["options"];
+			if (options) {
+				if (!configuration_mapping(path, options, {}, true, diagnostics)) {
+					return false;
+				}
+				for (const auto& option : options) {
+					if (!option.second.IsScalar() || option.second.Scalar().find('\0') != std::string::npos) {
+						return configuration_failure(path, option.second, "compiler options must be scalar values without null bytes", diagnostics);
+					}
+					target.options.emplace(option.first.Scalar(), option.second.Scalar());
+				}
 			}
 			target.source = (root / std::filesystem::u8path(source)).lexically_normal();
 			std::error_code error;
@@ -170,8 +244,14 @@ bool project_configuration_read(const std::filesystem::path& root, struct Projec
 				if (!configuration_name(source.name, true)) {
 					return configuration_failure(path, item.first, "analysis group names may contain only ASCII letters, digits, '_' and '-'", diagnostics);
 				}
-				if (!configuration_mapping(path, item.second, { "source", "sources" }, false, diagnostics)) {
+				if (!configuration_mapping(path, item.second, { "source", "sources", "compiler" }, false, diagnostics)) {
 					return false;
+				}
+				if (item.second["compiler"] && !configuration_string(path, item.second["compiler"], "compiler", source.compiler, diagnostics)) {
+					return false;
+				}
+				if (!configuration_name(source.compiler, true)) {
+					return configuration_failure(path, item.second["compiler"], "invalid compiler name", diagnostics);
 				}
 				auto folder = item.second["source"];
 				auto inputs = item.second["sources"];

@@ -370,7 +370,7 @@ fn Analyzer::resolve(var Analyzer& this, var Entity* entity) -> bool {
 
 fn Analyzer::expression(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (!@this.unit->record_scope(@scope, @syntax)) {
-		@this.error(&@syntax, rt::string_view("semantic scope metadata storage is unavailable", 46));
+		@this.error(&@syntax, "semantic scope metadata storage is unavailable");
 		return rt::unique<SemanticExpression>();
 	};
 	var result = @this.expression_impl(@scope, @syntax, expected);
@@ -380,7 +380,7 @@ fn Analyzer::expression(var Analyzer& this, var Scope& scope, var Syntax& syntax
 	};
 
 	if (!@this.unit->record_call(@scope, @syntax, *result.get()) || !@this.unit->describe_expression(@this, @scope, syntax, @*result.get())) {
-		@this.error(&@syntax, rt::string_view("could not describe the expression's type use", 44));
+		@this.error(&@syntax, "could not describe the expression's type use");
 
 		return rt::unique<SemanticExpression>();
 	};

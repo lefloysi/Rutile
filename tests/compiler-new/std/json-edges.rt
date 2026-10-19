@@ -4,7 +4,7 @@ fn invalid(rt::string_view input) -> bool {
 };
 
 fn main() -> i32 {
-	var escaped = rt::json_parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0041\"\0");
+	var escaped = rt::json_parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0041\"");
 	if (!escaped.value() || escaped.value()->text().size() != 9) {
 		return 1;
 	};
@@ -28,7 +28,7 @@ fn main() -> i32 {
 	rt::string deep;
 	usize index = 0;
 	while (index < 130) {
-		@deep.append("[\0");
+		@deep.append(".data()[\0");
 		@index = index + 1;
 	};
 	@deep.append("0\0");
@@ -40,20 +40,20 @@ fn main() -> i32 {
 	if (!invalid(deep.view())) {
 		return 5;
 	};
-	var duplicate = rt::json_parse("{\"a\":1,\"a\":42}\0");
+	var duplicate = rt::json_parse("{\"a\":1,\"a\":42}");
 	i64 integer = 0;
-	if (!duplicate.value() || duplicate.value()->size() != 1 || !duplicate.value()->member("a\0")->integer(@integer) || integer != 42) {
+	if (!duplicate.value() || duplicate.value()->size() != 1 || !duplicate.value()->member("a")->integer(@integer) || integer != 42) {
 		return 6;
 	};
 	var copy = duplicate.value()->clone();
 	var root = @duplicate.release();
 	@root.reset(nullptr);
-	if (!copy.get() || !copy.get()->member("a\0")->integer(@integer) || integer != 42) {
+	if (!copy.get() || !copy.get()->member("a")->integer(@integer) || integer != 42) {
 		return 7;
 	};
 	var minimum = rt::json_value::make_integer(-9223372036854775808);
 	var maximum = rt::json_value::make_unsigned(18446744073709551615);
-	if (!minimum.get() || minimum.get()->text() != rt::string_view("-9223372036854775808\0") || !maximum.get() || maximum.get()->text() != rt::string_view("18446744073709551615\0")) {
+	if (!minimum.get() || minimum.get()->text() != "-9223372036854775808" || !maximum.get() || maximum.get()->text() != "18446744073709551615") {
 		return 8;
 	};
 	rt::string written;
@@ -61,7 +61,7 @@ fn main() -> i32 {
 		return 9;
 	};
 	var decoded = rt::json_parse(written.view());
-	if (!decoded.value() || decoded.value()->text() != characters || rt::json_value::make_number("01\0").get()) {
+	if (!decoded.value() || decoded.value()->text() != characters || rt::json_value::make_number("01").get()) {
 		return 10;
 	};
 	return 42;

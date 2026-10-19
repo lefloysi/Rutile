@@ -101,9 +101,9 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 		if (!constructor) {
 			if (!this.failed()) {
 				var message = DiagnosticMessage();
-				@message.text(rt::string_view("default initialization of '", 27));
+				@message.text("default initialization of '");
 				diagnostic_type(@message, *type);
-				@message.text(rt::string_view("' has no applicable constructor for an empty argument list", 58));
+				@message.text("' has no applicable constructor for an empty argument list");
 				@this.report(owner->token(), message.view());
 				diagnostic_candidates(@*this.diagnostics, *group);
 			};
@@ -166,9 +166,9 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 	if (selected && selected->kind() == entity_kind::function && !@this.function_body((var Entity*(selected)))) {
 		if (this.failed() && (selected->instantiated() || selected->scope() && this.unit->reference_context(@*selected->scope()))) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("while instantiating function '", 30));
+			@message.text("while instantiating function '");
 			diagnostic_entity(@message, *selected);
-			@message.text(rt::string_view("' requested here", 16));
+			@message.text("' requested here");
 			@this.note(expression->token(), message.view());
 		};
 		return false;
@@ -230,11 +230,11 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool 
 
 	if (entity.body_state() == entity_state::resolving) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("global initializer for '", 24));
+		@message.text("global initializer for '");
 		diagnostic_entity(@message, entity);
-		@message.text(rt::string_view("' of type '", 11));
+		@message.text("' of type '");
 		diagnostic_type(@message, *entity.type());
-		@message.text(rt::string_view("' has a circular dependency", 27));
+		@message.text("' has a circular dependency");
 		@this.report(entity.token(), message.view());
 		return false;
 	};
@@ -284,11 +284,11 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (entity->body_state() == entity_state::resolving) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("member initializer for '", 24));
+		@message.text("member initializer for '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' of type '", 11));
+		@message.text("' of type '");
 		diagnostic_type(@message, *entity->type());
-		@message.text(rt::string_view("' has a circular dependency", 27));
+		@message.text("' has a circular dependency");
 		@this.report(entity->token(), message.view());
 		return false;
 	};
@@ -303,13 +303,13 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (entity->scope()->owner()->layout() == record_layout::overlapping) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("default initializer for union member '", 38));
+		@message.text("default initializer for union member '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' of type '", 11));
+		@message.text("' of type '");
 		diagnostic_type(@message, *entity->type());
-		@message.text(rt::string_view("' is not implemented", 20));
+		@message.text("' is not implemented");
 		@this.report(initializer->token(), message.view());
-		@this.note(entity->token(), rt::string_view("union member is declared here", 29));
+		@this.note(entity->token(), "union member is declared here");
 		return false;
 	};
 
@@ -334,15 +334,15 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 
 	if (entity->type()->kind() == type_kind::reference && value.get()->category() == value_category::consumable) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("initializer for reference member '", 34));
+		@message.text("initializer for reference member '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' of type '", 11));
+		@message.text("' of type '");
 		diagnostic_type(@message, *entity->type());
-		@message.text(rt::string_view("' requires a live place; received a consumable of type '", 56));
+		@message.text("' requires a live place; received a consumable of type '");
 		diagnostic_type(@message, *value.get()->type());
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		@this.report(initializer->token(), message.view());
-		@this.note(entity->token(), rt::string_view("reference member is declared here", 33));
+		@this.note(entity->token(), "reference member is declared here");
 		return false;
 	};
 
@@ -430,20 +430,20 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> bool {
 fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	if (type->qualifier() == type_qualifier::immutable || type->kind() == type_kind::reference) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("generated assignment cannot replace component of type '", 55));
+		@message.text("generated assignment cannot replace component of type '");
 		diagnostic_type(@message, *type);
 		if (type->kind() == type_kind::reference) {
-			@message.text(rt::string_view("' because it is a reference", 27));
+			@message.text("' because it is a reference");
 		}
 		else {
-			@message.text(rt::string_view("' because it is const-qualified", 31));
+			@message.text("' because it is const-qualified");
 		};
 		Token location;
 		if (this.function) {
 			@location = this.function->token();
-			@message.text(rt::string_view(" in function '", 14));
+			@message.text(" in function '");
 			diagnostic_entity(@message, *this.function);
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 		};
 		@this.report(location, message.view());
 
@@ -493,7 +493,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 		return false;
 	};
 
-	if (!@destination_binding->set_name(rt::string_view("destination", 11)) || !@source_binding->set_name(rt::string_view("source", 6))) {
+	if (!@destination_binding->set_name("destination") || !@source_binding->set_name("source")) {
 		return false;
 	};
 
@@ -528,9 +528,9 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	if (!selected) {
 		if (!this.failed()) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("generated member assignment for '", 33));
+			@message.text("generated member assignment for '");
 			diagnostic_type(@message, *type);
-			@message.text(rt::string_view("' has no applicable assignment function with arguments ", 55));
+			@message.text("' has no applicable assignment function with arguments ");
 			diagnostic_arguments(@message, arguments);
 			@this.report(owner->token(), message.view());
 			usize candidate_index = 0;

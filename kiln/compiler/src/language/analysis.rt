@@ -32,7 +32,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	};
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
-		@this.messages.error(location, rt::string_view("language analysis requires a 32-bit or 64-bit target", 52));
+		@this.messages.error(location, "language analysis requires a 32-bit or 64-bit target");
 		return true;
 	};
 	Diagnostics parse_errors;
@@ -77,14 +77,14 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	@analyzer.set_editor($editor);
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
-		@this.messages.error(location, rt::string_view("internal compiler error: semantic analysis failed without a diagnostic", 70));
+		@this.messages.error(location, "internal compiler error: semantic analysis failed without a diagnostic");
 	};
 	if (analyzed && this.template_selection.get()) {
 		var EditorTemplateSelection& selection = @*this.template_selection.get();
 		rt::string input;
-		@input.append(rt::string_view("using __context = __arguments<", 30));
+		@input.append("using __context = __arguments<");
 		@input.append(selection.arguments.view());
-		@input.append(rt::string_view(">;", 2));
+		@input.append(">;");
 		@selection.input.assign(selection.path.view(), input.view());
 		var lexer = Lexer(@selection.input);
 		if (!@lexer.scan()) {
@@ -100,7 +100,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 				@analyzed = false;
 			}
 			else if (selection.syntax.get()->size() != 1 || selection.syntax.get()->item(0)->kind() != syntax_kind::using_alias) {
-				@this.messages.error(location, rt::string_view("enter only template arguments, without declarations or statements", 65));
+				@this.messages.error(location, "enter only template arguments, without declarations or statements");
 				@analyzed = false;
 			}
 			else {
@@ -113,7 +113,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 					@applied = applied->designated_type();
 				};
 				if (source == this.sources.count() || applied->kind() != syntax_kind::template_apply) {
-					@this.messages.error(location, rt::string_view("cannot read the template argument list", 38));
+					@this.messages.error(location, "cannot read the template argument list");
 					@analyzed = false;
 				}
 				else {
@@ -125,7 +125,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	if (analyzed) {
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
-			@this.messages.error(location, rt::string_view("internal compiler error: lifetime analysis failed without a diagnostic", 70));
+			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic");
 		};
 	};
 	if (this.messages.cancelled()) {

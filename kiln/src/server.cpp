@@ -21,7 +21,7 @@ enum class kiln_owner {
 	ide,
 };
 
-bool kiln_handle_request(struct PlatformServer* server, struct Compiler* compiler, kiln_owner owner) {
+bool kiln_handle_request(struct PlatformServer* server, CompilerRegistry& compilers, kiln_owner owner) {
 	std::array<char, 4096> buffer{};
 	if (!platform_server_read(server, buffer.data(), buffer.size())) {
 		return true;
@@ -76,7 +76,7 @@ bool kiln_handle_request(struct PlatformServer* server, struct Compiler* compile
 		platform_server_write(server, response.c_str());
 	}
 	else if (command.starts_with("build ")) {
-		auto response = kiln_build(compiler, command.substr(6), owner == kiln_owner::ide ? build_input::editor : build_input::disk);
+		auto response = kiln_build(compilers, command.substr(6), owner == kiln_owner::ide ? build_input::editor : build_input::disk);
 		platform_server_write(server, response.c_str());
 	}
 	else {
@@ -85,8 +85,7 @@ bool kiln_handle_request(struct PlatformServer* server, struct Compiler* compile
 	return true;
 }
 
-extern "C" int kiln_serve_session(struct Compiler* compiler, void* data) {
-	const char* endpoint = *static_cast<const char* const*>(data);
+int kiln_serve(CompilerRegistry& compilers, const char* endpoint) {
 	std::error_code error;
 	auto root = std::filesystem::current_path(error);
 	if (error) {
@@ -118,7 +117,7 @@ extern "C" int kiln_serve_session(struct Compiler* compiler, void* data) {
 			platform_lock_release(lock);
 			return 1;
 		}
-		if (!kiln_handle_request(server, compiler, kiln_owner::standalone)) {
+		if (!kiln_handle_request(server, compilers, kiln_owner::standalone)) {
 			platform_server_disconnect(server);
 			break;
 		}
@@ -129,16 +128,11 @@ extern "C" int kiln_serve_session(struct Compiler* compiler, void* data) {
 	return 0;
 }
 
-int kiln_serve(const char* endpoint) {
-	return rutile_compiler_session(kiln_serve_session, &endpoint);
-}
-
-
 struct EditorSession {
 	~EditorSession();
 	void run();
 
-	Compiler* compiler = nullptr;
+	CompilerRegistry* compilers = nullptr;
 	PlatformLock* lock = nullptr;
 	PlatformServer* server = nullptr;
 	std::atomic<bool> stopping = false;
@@ -166,14 +160,14 @@ void EditorSession::run() {
 			std::fputs("The IDE project connection failed.\n", stderr);
 			return;
 		}
-		kiln_handle_request(server, compiler, kiln_owner::ide);
+		kiln_handle_request(server, *compilers, kiln_owner::ide);
 		platform_server_disconnect(server);
 	}
 }
 
-EditorSession* kiln_editor_start(Compiler* compiler, const char* directory) {
-	if (!compiler || !directory) {
-		std::fputs("The IDE project owner requires a compiler and project directory.\n", stderr);
+EditorSession* kiln_editor_start(CompilerRegistry& compilers, const char* directory) {
+	if (!directory) {
+		std::fputs("The IDE project owner requires a project directory.\n", stderr);
 		return nullptr;
 	}
 	const auto root = std::filesystem::u8path(directory);
@@ -217,7 +211,7 @@ EditorSession* kiln_editor_start(Compiler* compiler, const char* directory) {
 		std::fputs("Could not open the IDE project's connection.\n", stderr);
 		return nullptr;
 	}
-	session->compiler = compiler;
+	session->compilers = &compilers;
 	try {
 		session->worker = std::thread(&EditorSession::run, session.get());
 	}

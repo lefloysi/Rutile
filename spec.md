@@ -37,6 +37,7 @@
   - [7.9 Array expressions](#expr.array)
   - [7.10 Explicit casts](#expr.cast)
   - [7.11 No-op expressions](#expr.noop)
+  - [7.12 String literals](#expr.string)
 - [8 Statements](#stmt)
   - [8.1 Conditional statements](#stmt.if)
   - [8.2 While statements](#stmt.while)
@@ -382,6 +383,7 @@ return-value transfer; and argument evaluation order.
 <p><i>expression:</i><br>
 &emsp;<i>identifier-expression</i><br>
 &emsp;<i>null-pointer-literal</i><br>
+&emsp;<i>string-literal</i><br>
 &emsp;<i>discard-expression</i><br>
 &emsp;<i>relocation-expression</i><br>
 &emsp;<i>access-expression</i><br>
@@ -644,6 +646,31 @@ is absent.
 **To define:** result type and category; and how the semicolon of a no-op-expression interacts
 with declaration and statement termination.
 
+<a id="expr.string"></a>
+
+## 7.12 String literals [expr.string]
+
+<sup>1</sup> A string literal produces a consumable of type `rt::string_view`. Its value
+contains a pointer to immutable literal storage and the decoded byte length. The standard
+library declaration of `rt::string_view` shall be available to the compilation.
+
+<sup>2</sup> The length includes embedded zero bytes and excludes any implicit terminator;
+no terminator is added. An empty literal has length zero. Forming the view does not scan
+the literal storage.
+
+<sup>3</sup> String literals do not implicitly convert to character pointers. A program can
+obtain the byte pointer through `data()`. A call requiring a zero-terminated C string shall
+provide a terminator explicitly or use an owning string's `c_str()`.
+
+> *Example:*
+>
+> ```rutile
+> var text = "a\0b"; // rt::string_view with size 3
+> var empty = "";    // rt::string_view with size 0
+> ```
+
+**To define:** complete escape grammar; literal storage identity; and encoding guarantees.
+
 <a id="stmt"></a>
 
 # 8 Statements [stmt]
@@ -863,6 +890,15 @@ conversion operator is considered only when no applicable destination constructo
 <sup>4</sup> An explicit user-defined conversion selects a conversion operator of the source
 type rather than using destination construction. Constructor invocation and explicit casting are
 distinct operations even when both produce a value of the same destination type.
+
+<sup>5</sup> When overloads accept a pointer as either `void*` or `bool`, the applicable
+conversion to `void*` ranks ahead of conversion to `bool`. Pointer-to-boolean conversion
+remains implicit when no better candidate is available. This ordering also applies to `nullptr`.
+
+<sup>6</sup> Primitive values support implicit copying from read-only references of the same
+type. The copy produces a consumable value and preserves the source. This applies to value
+initialization, by-value arguments, and return values; explicit primitive construction also
+accepts the read-only source.
 
 **To define:** complete declaration syntax, including constructor return spelling; eligible
 conversion contexts; candidate selection and ranking; permitted conversion chains; and the

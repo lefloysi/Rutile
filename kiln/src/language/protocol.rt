@@ -124,12 +124,12 @@ fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> l
 				if (!header_bytes && !ferror(this.input)) {
 					return language_frame_status::end_of_stream;
 				};
-				return @this.fail(rt::string_view("unexpected end of protocol header", 33));
+				return @this.fail("unexpected end of protocol header");
 			};
 
 			@header_bytes = header_bytes + 1;
 			if (header_bytes > 8192) {
-				return @this.fail(rt::string_view("protocol headers exceed 8192 bytes", 34));
+				return @this.fail("protocol headers exceed 8192 bytes");
 			};
 
 			if (value == 10) {
@@ -137,7 +137,7 @@ fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> l
 			};
 			char byte = static_cast<char>(value);
 			if (!@header.append(rt::string_view(&@byte, 1))) {
-				return @this.fail(rt::string_view("out of memory reading protocol header", 37));
+				return @this.fail("out of memory reading protocol header");
 			};
 		};
 
@@ -154,15 +154,15 @@ fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> l
 			@separator = separator + 1;
 		};
 		if (separator == size) {
-			return @this.fail(rt::string_view("protocol header requires a colon", 32));
+			return @this.fail("protocol header requires a colon");
 		};
 
 		var name = rt::string_view(header.data(), usize(separator));
-		if (!LanguageProtocol::header_name(name, rt::string_view("content-length", 14))) {
+		if (!LanguageProtocol::header_name(name, "content-length")) {
 			continue;
 		};
 		if (content_length.has_value()) {
-			return @this.fail(rt::string_view("duplicate protocol Content-Length header", 40));
+			return @this.fail("duplicate protocol Content-Length header");
 		};
 
 		@separator = separator + 1;
@@ -171,13 +171,13 @@ fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> l
 		};
 		usize parsed = 0;
 		if (!LanguageProtocol::length(rt::string_view(header.data() + separator, size - separator), @parsed) || parsed > 67108864) {
-			return @this.fail(rt::string_view("invalid protocol Content-Length; expected a decimal byte count up to 67108864", 77));
+			return @this.fail("invalid protocol Content-Length; expected a decimal byte count up to 67108864");
 		};
 		@content_length.emplace($parsed);
 	};
 
 	if (!content_length.has_value()) {
-		return @this.fail(rt::string_view("protocol message is missing Content-Length", 42));
+		return @this.fail("protocol message is missing Content-Length");
 	};
 
 	usize remaining = content_length.value();
@@ -190,10 +190,10 @@ fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> l
 
 		usize count = fread(&@chunk[0], 1, $request, this.input);
 		if (!count) {
-			return @this.fail(rt::string_view("unexpected end of protocol message body", 39));
+			return @this.fail("unexpected end of protocol message body");
 		};
 		if (!@body.append(rt::string_view(&@chunk[0], usize(count)))) {
-			return @this.fail(rt::string_view("out of memory reading protocol body", 35));
+			return @this.fail("out of memory reading protocol body");
 		};
 		@remaining = remaining - count;
 	};
@@ -240,7 +240,7 @@ fn LanguageProtocol::send(var LanguageProtocol& this, rt::string_view body) -> b
 	};
 
 	rt::string header;
-	if (!@header.append(rt::string_view("Content-Length: ", 16)) || !LanguageProtocol::decimal(@header, static_cast<u64>(body.size())) || !@header.append(rt::string_view("\r\n\r\n", 4))) {
+	if (!@header.append("Content-Length: ") || !LanguageProtocol::decimal(@header, static_cast<u64>(body.size())) || !@header.append("\r\n\r\n")) {
 		return false;
 	};
 

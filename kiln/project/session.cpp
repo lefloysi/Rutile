@@ -256,7 +256,7 @@ int project_initialize() {
 		return 1;
 	}
 	if (!version_compatible(*current)) {
-		std::cerr << "Installed kiln uses protocol " << current->protocol << "; rutile requires " << protocol_version << ". Update both executables together.\n";
+		std::cerr << "Installed kiln uses protocol " << current->protocol << "; this client requires " << protocol_version << ". Update both executables together.\n";
 		return 1;
 	}
 	if (!platform_write_file(project_path_utf8(project.root / ".rt" / "connection").c_str(), project.endpoint.c_str())) {
@@ -285,12 +285,12 @@ int project_initialize() {
 bool project_exchange(std::string_view command, std::string& response) {
 	struct Project project{};
 	if (!project_find(project) || !project_read_connection(project)) {
-		std::cerr << "Project is not initialized. Run rutile init.\n";
+		std::cerr << "Project is not initialized. Run kiln init.\n";
 		return false;
 	}
 	auto peer = project_peer(project);
 	if (!peer || !version_compatible(*peer)) {
-		std::cerr << "Project is unavailable. Run rutile init.\n";
+		std::cerr << "Project is unavailable. Run kiln init.\n";
 		return false;
 	}
 	std::vector<char> buffer(1024 * 1024);
@@ -310,14 +310,14 @@ int project_request(std::string_view command) {
 			project_status_print(project.root, std::nullopt, false);
 			return 0;
 		}
-		std::cerr << "Project is not initialized. Run rutile init.\n";
+		std::cerr << "Project is not initialized. Run kiln init.\n";
 		return 1;
 	}
 	if (command == "status") {
 		return project_report(project);
 	}
 	if (!project_read_connection(project)) {
-		std::cerr << "Project is not initialized. Run rutile init.\n";
+		std::cerr << "Project is not initialized. Run kiln init.\n";
 		return 1;
 	}
 	std::unique_ptr<struct PlatformLock, decltype(&platform_lock_release)> initialization_lock{ project_wait_for_lock(project.root / ".rt" / "init.lock"), platform_lock_release };
@@ -327,21 +327,21 @@ int project_request(std::string_view command) {
 	}
 	auto peer = project_peer(project);
 	if (!peer) {
-		std::cerr << "The project has no valid version handshake. Run rutile init to restart it.\n";
+		std::cerr << "The project has no valid version handshake. Run kiln init to restart it.\n";
 		return 1;
 	}
 	if (!version_compatible(*peer)) {
-		std::cerr << "Project protocol " << peer->protocol << " is incompatible with rutile protocol " << protocol_version << ". Run rutile init to restart it.\n";
+		std::cerr << "Project protocol " << peer->protocol << " is incompatible with client protocol " << protocol_version << ". Run kiln init to restart it.\n";
 		return 1;
 	}
 	std::array<char, 256> response{};
 	std::string request = "request " + std::to_string(protocol_version) + " " + std::string(command);
 	if (!platform_request(project.endpoint.c_str(), request.c_str(), response.data(), response.size())) {
-		std::cerr << "Project is unavailable. Run rutile init.\n";
+		std::cerr << "Project is unavailable. Run kiln init.\n";
 		return 1;
 	}
 	if (std::string_view(response.data()) == "Incompatible protocol.") {
-		std::cerr << "The project rejected the request's protocol. Run rutile init to restart it.\n";
+		std::cerr << "The project rejected the request's protocol. Run kiln init to restart it.\n";
 		return 1;
 	}
 	const std::string_view acknowledgment{ response.data() };

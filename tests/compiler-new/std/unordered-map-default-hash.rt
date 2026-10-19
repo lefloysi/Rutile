@@ -3,9 +3,8 @@ fn check(K key) -> bool {
 	rt::unordered_map<K, i32> values;
 
 	rt::default_hash<K> default_policy;
-	rt::integer_hash<K> integer_policy;
 
-	if (default_policy.hash(key) != integer_policy.hash(key) || !@values.insert(K(key), 42)) {
+	if (default_policy.hash(key) != rt::mix_hash(static_cast<u64>(key)) || !@values.insert(K(key), 42)) {
 		return false;
 	};
 
@@ -17,7 +16,7 @@ fn main() -> i32 {
 		return 1;
 	};
 
-	if (!check(u08(1)) || !check(u16(2)) || !check(u32(3)) || !check(u64(4)) || !check(usize(5)) || !check(isize(-6))) {
+	if (!check(u08(1)) || !check(u16(2)) || !check(u32(3)) || !check(u64(4)) || !check(usize(5)) || !check(ptrdiff(-6))) {
 		return 2;
 	};
 

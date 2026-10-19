@@ -2,6 +2,15 @@ fn fopen(char* path, char* mode) -> var NativeFile*;
 
 fn platform_standard_error() -> var NativeFile*;
 
+fn rutile_compiler_create() -> var Compiler* {
+	var compiler = rt::unique<Compiler>::make();
+	return @compiler.release();
+};
+
+fn rutile_compiler_destroy(var Compiler* compiler) {
+	delete compiler;
+};
+
 fn rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var void* data) -> i32 {
 	var compiler = rt::unique<Compiler>::make();
 
@@ -29,19 +38,19 @@ fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var
 	usize index = 0;
 
 	while (paths && index < count) {
-		if (!@source_paths.push_back(rt::string_view(paths[index]))) {
+		if (!@source_paths.push_back(rt::from_c_string(paths[index]))) {
 			return 1;
 		};
 		@index = index + 1;
 	};
 
-	rt::string_view entry_name = rt::string_view("main", 4);
+	rt::string_view entry_name = "main";
 
 	if (entry) {
-		@entry_name = rt::string_view(entry);
+		@entry_name = rt::from_c_string(entry);
 	};
 
-	return @compiler->compile(source_paths, rt::string_view(output_path), $opener, entry_name, $optimization, $diagnostics, output_kind::executable);
+	return @compiler->compile(source_paths, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, output_kind::executable);
 };
 
 fn rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
@@ -59,11 +68,11 @@ fn rutile_compile_library(var char var** paths, usize count, var char* output_pa
 	usize index = 0;
 
 	while (paths && index < count) {
-		if (!@source_paths.push_back(rt::string_view(paths[index]))) {
+		if (!@source_paths.push_back(rt::from_c_string(paths[index]))) {
 			return 1;
 		};
 		@index = index + 1;
 	};
 
-	return @compiler.compile(source_paths, rt::string_view(output_path), $opener, rt::string_view("main", 4), $optimization, $diagnostics, output_kind::library);
+	return @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, $diagnostics, output_kind::library);
 };

@@ -1,5 +1,6 @@
 #include "platform.hpp"
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -606,4 +607,16 @@ void platform_server_close(struct PlatformServer* server) {
 		}
 		delete server;
 	}
+}
+
+void* platform_library_open(const std::filesystem::path& path) {
+	return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+}
+
+void* platform_library_symbol(void* library, const char* name) {
+	return dlsym(library, name);
+}
+
+void platform_library_close(void* library) {
+	dlclose(library);
 }

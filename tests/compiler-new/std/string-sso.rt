@@ -15,7 +15,7 @@ fn main() -> i32 {
 		return 1;
 	};
 
-	if (!@short_text.append(rt::string_view("123456789abcdef\0")) || short_text.size() != 15 || !inline_text(short_text) || short_text.c_str()[15]) {
+	if (!@short_text.append("123456789abcdef") || short_text.size() != 15 || !inline_text(short_text) || short_text.c_str()[15]) {
 		return 2;
 	};
 
@@ -25,12 +25,12 @@ fn main() -> i32 {
 		return 3;
 	};
 
-	if (!@short_text.append(short_text.view()) || !text_equals(short_text, rt::string_view("123456789abcdef123456789abcdef\0")) || inline_text(short_text)) {
+	if (!@short_text.append(short_text.view()) || !text_equals(short_text, "123456789abcdef123456789abcdef") || inline_text(short_text)) {
 		return 4;
 	};
 
-	rt::string boundary = rt::string("123456789abcdef\0");
-	if (!@boundary.append(rt::string_view("g\0")) || !text_equals(boundary, rt::string_view("123456789abcdefg\0")) || inline_text(boundary) || boundary.capacity() != 22) {
+	rt::string boundary = rt::string("123456789abcdef");
+	if (!@boundary.append("g") || !text_equals(boundary, "123456789abcdefg") || inline_text(boundary) || boundary.capacity() != 22) {
 		return 5;
 	};
 
@@ -44,7 +44,7 @@ fn main() -> i32 {
 		return 6;
 	};
 
-	rt::string grown = rt::string("abcdefghijklmnop\0");
+	rt::string grown = rt::string("abcdefghijklmnop");
 	usize repetitions = 0;
 	while (repetitions < 7) {
 		if (!@grown.append(grown.view())) {
@@ -57,7 +57,7 @@ fn main() -> i32 {
 	};
 	usize index = 0;
 	while (index < grown.size()) {
-		if (grown.data()[index] != "abcdefghijklmnop\0"[index % 16]) {
+		if (grown.data()[index] != "abcdefghijklmnop".data()[index % 16]) {
 			return 9;
 		};
 		@index = index + 1;
@@ -87,9 +87,9 @@ fn main() -> i32 {
 	if (inline_text(short_moved) || short_moved.size() != 2048 || short_moved.data()[0] != 'Z') {
 		return 14;
 	};
-	rt::string tiny = rt::string("tiny\0");
+	rt::string tiny = rt::string("tiny");
 	@short_moved = $tiny;
-	if (!inline_text(short_moved) || !text_equals(short_moved, rt::string_view("tiny\0"))) {
+	if (!inline_text(short_moved) || !text_equals(short_moved, "tiny")) {
 		return 15;
 	};
 
@@ -97,26 +97,26 @@ fn main() -> i32 {
 	if (!@strings.reserve(1) || !@strings.push_back($short_moved) || !@strings.push_back($grown) || !@strings.reserve(64)) {
 		return 16;
 	};
-	if (!inline_text(strings.data()[0]) || !text_equals(strings.data()[0], rt::string_view("tiny\0")) || strings.data()[1].size() != 2048 || strings.data()[1].data()[0] != 'Z' || strings.data()[1].data()[1] != 'Y' || strings.data()[1].c_str()[2048]) {
+	if (!inline_text(strings.data()[0]) || !text_equals(strings.data()[0], "tiny") || strings.data()[1].size() != 2048 || strings.data()[1].data()[0] != 'Z' || strings.data()[1].data()[1] != 'Y' || strings.data()[1].c_str()[2048]) {
 		return 17;
 	};
 
 	usize retained_capacity = boundary.capacity();
 	@boundary.clear();
-	if (!boundary.empty() || boundary.c_str()[0] || boundary.capacity() != retained_capacity || !@boundary.append(rt::string_view("reuse\0")) || !text_equals(boundary, rt::string_view("reuse\0"))) {
+	if (!boundary.empty() || boundary.c_str()[0] || boundary.capacity() != retained_capacity || !@boundary.append("reuse") || !text_equals(boundary, "reuse")) {
 		return 18;
 	};
-	if (@boundary.append(rt::string_view("x\0", usize::max)) || !text_equals(boundary, rt::string_view("reuse\0"))) {
+	if (@boundary.append(rt::string_view("x".data(), usize::max)) || !text_equals(boundary, "reuse")) {
 		return 19;
 	};
 
-	rt::string reserved = rt::string("reserve\0");
-	if (!@reserved.reserve(15) || !inline_text(reserved) || !@reserved.reserve(128) || inline_text(reserved) || reserved.capacity() < 128 || !text_equals(reserved, rt::string_view("reserve\0"))) {
+	rt::string reserved = rt::string("reserve");
+	if (!@reserved.reserve(15) || !inline_text(reserved) || !@reserved.reserve(128) || inline_text(reserved) || reserved.capacity() < 128 || !text_equals(reserved, "reserve")) {
 		return 20;
 	};
 	usize capacity = reserved.capacity();
 	char* address = reserved.data();
-	if (@reserved.reserve(usize::max) || reserved.capacity() != capacity || reserved.data() != address || !text_equals(reserved, rt::string_view("reserve\0"))) {
+	if (@reserved.reserve(usize::max) || reserved.capacity() != capacity || reserved.data() != address || !text_equals(reserved, "reserve")) {
 		return 21;
 	};
 
@@ -128,7 +128,7 @@ fn main() -> i32 {
 		return 22;
 	};
 
-	rt::string terminator = rt::string("123456789abcdef\0");
+	rt::string terminator = rt::string("123456789abcdef");
 	rt::string_view own_zero = rt::string_view(terminator.data() + terminator.size(), 1);
 	if (!@terminator.append(own_zero) || terminator.size() != 16 || inline_text(terminator) || terminator.data()[14] != 'f' || terminator.data()[15] || terminator.c_str()[16]) {
 		return 23;

@@ -4,7 +4,6 @@ namespace rt {
 		fn string_view(var string_view& this, string_view& other) : [implicit, default];
 		fn string_view(var string_view& this, string& text) : [implicit];
 		fn string_view(var string_view& this, char* data, usize size);
-		fn string_view(var string_view& this, char* text) : [implicit];
 
 		fn data(string_view& this) -> char*;
 		fn size(string_view& this) -> usize;
@@ -46,11 +45,12 @@ namespace rt {
 		@this.length = $size;
 	};
 
-	fn string_view::string_view(var string_view& this, char* text) : [implicit] {
-		@this.bytes = $text;
-		while (this.bytes && this.bytes[this.length]) {
-			@this.length = this.length + 1;
+	fn from_c_string(char* text) -> string_view {
+		usize length = 0;
+		while (text && text[length]) {
+			@length = length + 1;
 		};
+		return string_view(text, length);
 	};
 
 	fn string_view::data(string_view& this) -> char* {

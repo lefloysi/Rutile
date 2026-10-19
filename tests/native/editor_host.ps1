@@ -8,7 +8,7 @@ if (!$installation) {
 	throw 'Visual Studio C++ tools are required.'
 }
 $dev = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
-$command = '"' + $dev + '" -no_logo -arch=x64 && cl /nologo /std:c++latest /EHsc /MD /I"' + $root + '/base/include" /I"' + $root + '/kiln/src" /I"' + $root + '/version" "' + $root + '/tests/native/editor_host.cpp" "' + $root + '/kiln/src/server.cpp" "' + $root + '/base/src/windows.cpp" /Fe:editor-host.exe'
+$command = '"' + $dev + '" -no_logo -arch=x64 && cl /nologo /std:c++latest /EHsc /MD /I"' + $root + '/base/include" /I"' + $root + '/kiln/src" /I"' + $root + '/kiln/project" /I"' + $root + '/version" "' + $root + '/tests/native/editor_host.cpp" "' + $root + '/kiln/src/server.cpp" "' + $root + '/base/src/windows.cpp" /Fe:editor-host.exe'
 Push-Location $output
 try {
 	& cmd /d /s /c $command

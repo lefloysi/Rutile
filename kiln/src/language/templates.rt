@@ -116,7 +116,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		};
 		@descriptor = descriptor + 1;
 	};
-	if (select && parameters.member(rt::string_view("arguments", 9)) && declaration) {
+	if (select && parameters.member("arguments") && declaration) {
 		usize other = 0;
 		while (other < this.documents.size()) {
 			var LanguageDocument& previous = @*(@this.documents).data()[other].get();
@@ -125,7 +125,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 			@other = other + 1;
 		};
 		@document->template_anchor = rt::optional<usize>(usize(declaration->anchor.begin));
-		@document->template_arguments = rt::string(LanguageJson::text(parameters, rt::string_view("arguments", 9)));
+		@document->template_arguments = rt::string(LanguageJson::text(parameters, "arguments"));
 		@document->template_context.clear();
 		if (!@this.schedule()) {
 			return rt::unique<rt::json_value>();
@@ -139,23 +139,23 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 			@names.get()->append(rt::json_value::make_string(declaration->parameters.data()[parameter].view()));
 			@parameter = parameter + 1;
 		};
-		@description.get()->set(rt::string_view("name", 4), rt::json_value::make_string(declaration->name.view()));
-		@description.get()->set(rt::string_view("parameters", 10), $names);
-		@description.get()->set(rt::string_view("range", 5), LanguageJson::range(index.sources.data()[source].text, usize(declaration->range.begin), usize(declaration->range.end)));
-		@result.get()->set(rt::string_view("template", 8), $description);
+		@description.get()->set("name", rt::json_value::make_string(declaration->name.view()));
+		@description.get()->set("parameters", $names);
+		@description.get()->set("range", LanguageJson::range(index.sources.data()[source].text, usize(declaration->range.begin), usize(declaration->range.end)));
+		@result.get()->set("template", $description);
 	};
 	bool selected_declaration = declaration && document->template_anchor.has_value() && declaration->anchor.begin == document->template_anchor.value();
 	rt::string_view selected_arguments;
 	if (selected_declaration) {
 		@selected_arguments = document->template_arguments.view();
 	};
-	@result.get()->set(rt::string_view("arguments", 9), rt::json_value::make_string(selected_arguments));
+	@result.get()->set("arguments", rt::json_value::make_string(selected_arguments));
 	usize status = 0;
 	while (status < index.template_results.size()) {
 		LanguageTemplateResult& context = index.template_results.data()[status];
 		if (selected_declaration && context.key.view() == document->key.view() && context.arguments.view() == document->template_arguments.view() && context.anchor == document->template_anchor.value()) {
-			@result.get()->set(rt::string_view("error", 5), rt::json_value::make_string(context.error.view()));
-			@result.get()->set(rt::string_view("label", 5), rt::json_value::make_string(context.label.view()));
+			@result.get()->set("error", rt::json_value::make_string(context.error.view()));
+			@result.get()->set("label", rt::json_value::make_string(context.label.view()));
 			break;
 		};
 		@status = status + 1;
@@ -170,7 +170,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		};
 	};
 	rt::unordered_map<u64, bool> seen;
-	var requested = LanguageJson::text(parameters, rt::string_view("context", 7));
+	var requested = LanguageJson::text(parameters, "context");
 	bool accepted = requested.empty();
 	@region = 0;
 	while (region < index.scopes.size()) {
@@ -186,14 +186,14 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		};
 		LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
 		var item = rt::json_value::make_object();
-		if (!@seen.insert(u64(context), true) || !item.get() || !@item.get()->set(rt::string_view("key", 3), rt::json_value::make_string(symbol.detail.view())) || !@item.get()->set(rt::string_view("label", 5), rt::json_value::make_string(symbol.detail.view())) || !@items.get()->append($item)) {
+		if (!@seen.insert(u64(context), true) || !item.get() || !@item.get()->set("key", rt::json_value::make_string(symbol.detail.view())) || !@item.get()->set("label", rt::json_value::make_string(symbol.detail.view())) || !@items.get()->append($item)) {
 			return rt::unique<rt::json_value>();
 		};
 		if (symbol.detail.view() == requested) {
 			@accepted = true;
 		};
 	};
-	if (select && accepted && !parameters.member(rt::string_view("arguments", 9))) {
+	if (select && accepted && !parameters.member("arguments")) {
 		bool typed_context = document->template_anchor.has_value();
 		@document->template_anchor.reset();
 		@document->template_arguments.clear();
@@ -202,7 +202,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 			return rt::unique<rt::json_value>();
 		};
 	};
-	if (!@result.get()->set(rt::string_view("items", 5), $items) || !@result.get()->set(rt::string_view("selected", 8), rt::json_value::make_string(document->template_context.view()))) {
+	if (!@result.get()->set("items", $items) || !@result.get()->set("selected", rt::json_value::make_string(document->template_context.view()))) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;
@@ -233,8 +233,8 @@ fn LanguageWorkspace::hover(var LanguageWorkspace& this, LanguageIndex& index, r
 		};
 		@text.append(rt::string_view(source.data() + begin, end - begin));
 		var contexts = @this.template_contexts(index, parameters, false);
-		if (contexts.get() && contexts.get()->member("items\0") && contexts.get()->member("items\0")->size()) {
-			@text.append(rt::string_view("\nSelect a template context above the editor.", 44));
+		if (contexts.get() && contexts.get()->member("items") && contexts.get()->member("items")->size()) {
+			@text.append("\nSelect a template context above the editor.");
 		};
 	}
 	else if (!symbol.detail.empty()) {
@@ -246,7 +246,7 @@ fn LanguageWorkspace::hover(var LanguageWorkspace& this, LanguageIndex& index, r
 
 	var content = rt::json_value::make_object();
 	var result = rt::json_value::make_object();
-	if (!content.get() || !result.get() || !@content.get()->set(rt::string_view("kind", 4), rt::json_value::make_string(rt::string_view("plaintext", 9))) || !@content.get()->set(rt::string_view("value", 5), rt::json_value::make_string(text.view())) || !@result.get()->set(rt::string_view("contents", 8), $content)) {
+	if (!content.get() || !result.get() || !@content.get()->set("kind", rt::json_value::make_string("plaintext")) || !@content.get()->set("value", rt::json_value::make_string(text.view())) || !@result.get()->set("contents", $content)) {
 		return rt::unique<rt::json_value>();
 	};
 	return $result;

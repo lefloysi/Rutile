@@ -37,15 +37,15 @@ fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code,
 };
 
 fn LanguageServer::description() -> rt::json_document {
-	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}\0");
+	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
 };
 
 fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool {
 	if (this.state != language_server_state::uninitialized) {
-		return @this.error(id, -32600, rt::string_view("language server is already initialized", 38));
+		return @this.error(id, -32600, "language server is already initialized");
 	};
 	if (!@this.workspace->configure(parameters)) {
-		return @this.error(id, -32602, rt::string_view("initialize requires a valid project file URI", 44));
+		return @this.error(id, -32602, "initialize requires a valid project file URI");
 	};
 
 	var description = LanguageServer::description();
@@ -53,10 +53,10 @@ fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::
 		return false;
 	};
 	var result = @description.release();
-	rt::json_value* options = parameters.member("initializationOptions\0");
+	rt::json_value* options = parameters.member("initializationOptions");
 	rt::json_value* custom_colors = nullptr;
 	if (options) {
-		@custom_colors = options->member("rutileSemanticColors\0");
+		@custom_colors = options->member("rutileSemanticColors");
 	};
 	if (custom_colors && custom_colors->boolean()) {
 		var filtered = rt::json_value::make_object();
@@ -64,16 +64,16 @@ fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::
 			return false;
 		};
 
-		rt::json_value* capabilities = result.get()->member("capabilities\0");
+		rt::json_value* capabilities = result.get()->member("capabilities");
 		usize index = 0;
 		while (index < capabilities->size()) {
 			var key = capabilities->key(index);
-			if (key != rt::string_view("semanticTokensProvider", 22) && !@filtered.get()->set(key, capabilities->member(key)->clone())) {
+			if (key != "semanticTokensProvider" && !@filtered.get()->set(key, capabilities->member(key)->clone())) {
 				return false;
 			};
 			@index = index + 1;
 		};
-		if (!@result.get()->set(rt::string_view("capabilities", 12), $filtered)) {
+		if (!@result.get()->set("capabilities", $filtered)) {
 			return false;
 		};
 	};
@@ -86,17 +86,17 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -
 	if (!absent.get()) {
 		return false;
 	};
-	rt::json_value* supplied_id = message.member("id\0");
+	rt::json_value* supplied_id = message.member("id");
 	rt::json_value* id = supplied_id;
 	if (!id) {
 		@id = absent.get();
 	};
-	var method = LanguageJson::text(message, rt::string_view("method", 6));
-	if (message.kind() != rt::json_kind::object || LanguageJson::text(message, rt::string_view("jsonrpc", 7)) != rt::string_view("2.0", 3) || method.empty() || id->kind() != rt::json_kind::number && id->kind() != rt::json_kind::string && id->kind() != rt::json_kind::null_value) {
-		return @this.error(*absent.get(), -32600, rt::string_view("invalid JSON-RPC request", 24));
+	var method = LanguageJson::text(message, "method");
+	if (message.kind() != rt::json_kind::object || LanguageJson::text(message, "jsonrpc") != "2.0" || method.empty() || id->kind() != rt::json_kind::number && id->kind() != rt::json_kind::string && id->kind() != rt::json_kind::null_value) {
+		return @this.error(*absent.get(), -32600, "invalid JSON-RPC request");
 	};
 	var empty = rt::json_value::make_object();
-	rt::json_value* parameters = message.member("params\0");
+	rt::json_value* parameters = message.member("params");
 	if (!parameters) {
 		@parameters = empty.get();
 	};
@@ -104,7 +104,7 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -
 		return false;
 	};
 
-	if (method == rt::string_view("exit", 4)) {
+	if (method == "exit") {
 		if (this.state == language_server_state::shutdown) {
 			@this.state = language_server_state::exited_clean;
 		}
@@ -114,75 +114,75 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -
 		@this.workspace->cancel();
 		return true;
 	};
-	if (method == rt::string_view("$/cancelRequest", 15)) {
+	if (method == "$/cancelRequest") {
 		// Indexed requests finish on this dispatch thread; obsolete analysis is
 		// cancelled separately through its generation callback.
 		return true;
 	};
 	if (this.state == language_server_state::shutdown) {
-		return !supplied_id || @this.error(*id, -32600, rt::string_view("language server has shut down", 29));
+		return !supplied_id || @this.error(*id, -32600, "language server has shut down");
 	};
-	if (method == rt::string_view("initialize", 10)) {
+	if (method == "initialize") {
 		return @this.initialize(*id, *parameters);
 	};
 	if (this.state == language_server_state::uninitialized) {
-		return !supplied_id || @this.error(*id, -32002, rt::string_view("language server is not initialized", 34));
+		return !supplied_id || @this.error(*id, -32002, "language server is not initialized");
 	};
-	if (method == rt::string_view("shutdown", 8)) {
+	if (method == "shutdown") {
 		@this.state = language_server_state::shutdown;
 		@this.workspace->cancel();
 		return @this.send(LanguageJson::response(*id, rt::json_value::make_null()));
 	};
 
-	if (method == rt::string_view("textDocument/didOpen", 20) || method == rt::string_view("textDocument/didChange", 22) || method == rt::string_view("textDocument/didClose", 21)) {
+	if (method == "textDocument/didOpen" || method == "textDocument/didChange" || method == "textDocument/didClose") {
 		bool accepted = false;
-		if (method == rt::string_view("textDocument/didOpen", 20)) {
+		if (method == "textDocument/didOpen") {
 			@accepted = @this.workspace->open(*parameters);
 		}
-		else if (method == rt::string_view("textDocument/didChange", 22)) {
+		else if (method == "textDocument/didChange") {
 			@accepted = @this.workspace->change(*parameters);
 		}
 		else {
 			@accepted = @this.workspace->close(*parameters);
 		};
 		if (!accepted && supplied_id) {
-			return @this.error(*id, -32602, rt::string_view("invalid document update parameters or unavailable workspace storage", 67));
+			return @this.error(*id, -32602, "invalid document update parameters or unavailable workspace storage");
 		};
 		return true;
 	};
-	if (method == rt::string_view("textDocument/didSave", 20) || method == rt::string_view("workspace/didChangeWatchedFiles", 31)) {
+	if (method == "textDocument/didSave" || method == "workspace/didChangeWatchedFiles") {
 		return @this.workspace->refresh();
 	};
-	if (method == rt::string_view("rutile/semanticTokensLegend", 27)) {
+	if (method == "rutile/semanticTokensLegend") {
 		var description = LanguageServer::description();
 		if (!description.value()) {
 			return false;
 		};
-		rt::json_value* legend = description.value()->member("capabilities\0")->member("semanticTokensProvider\0")->member("legend\0");
+		rt::json_value* legend = description.value()->member("capabilities")->member("semanticTokensProvider")->member("legend");
 		return @this.send(LanguageJson::response(*id, legend->clone()));
 	};
-	if (method == rt::string_view("rutile/indexStatus", 18)) {
+	if (method == "rutile/indexStatus") {
 		return @this.send(LanguageJson::response(*id, @this.workspace->status()));
 	};
-	if (method == rt::string_view("rutile/templateContexts", 23) || method == rt::string_view("rutile/selectTemplateContext", 28) || method == rt::string_view("textDocument/semanticTokens/full", 32) || method == rt::string_view("textDocument/semanticTokens/range", 33) || method == rt::string_view("textDocument/typeDefinition", 27) || method == rt::string_view("textDocument/completion", 23) || method == rt::string_view("textDocument/signatureHelp", 26) || method == rt::string_view("textDocument/definition", 23) || method == rt::string_view("textDocument/declaration", 24) || method == rt::string_view("textDocument/references", 23) || method == rt::string_view("textDocument/hover", 18) || method == rt::string_view("textDocument/documentSymbol", 27) || method == rt::string_view("workspace/symbol", 16)) {
+	if (method == "rutile/templateContexts" || method == "rutile/selectTemplateContext" || method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range" || method == "textDocument/typeDefinition" || method == "textDocument/completion" || method == "textDocument/signatureHelp" || method == "textDocument/definition" || method == "textDocument/declaration" || method == "textDocument/references" || method == "textDocument/hover" || method == "textDocument/documentSymbol" || method == "workspace/symbol") {
 		var result = @this.workspace->query(method, *parameters);
 		if (!result.get()) {
-			return @this.error(*id, -32602, rt::string_view("navigation requires a valid document URI and position", 53));
+			return @this.error(*id, -32602, "navigation requires a valid document URI and position");
 		};
 		if (!@this.send(LanguageJson::response(*id, $result))) {
 			return false;
 		};
 		var status = @this.workspace->status();
 		if (status.get()) {
-			rt::json_value* current = status.get()->member("generation\0");
-			rt::json_value* indexed = status.get()->member("indexedGeneration\0");
+			rt::json_value* current = status.get()->member("generation");
+			rt::json_value* indexed = status.get()->member("indexedGeneration");
 			if (current && indexed && current->text() != indexed->text()) {
-				return @this.send(LanguageJson::notification("rutile/indexStatus\0", $status));
+				return @this.send(LanguageJson::notification("rutile/indexStatus", $status));
 			};
 		};
 		return true;
 	};
-	return !supplied_id || @this.error(*id, -32601, rt::string_view("method is not implemented", 25));
+	return !supplied_id || @this.error(*id, -32601, "method is not implemented");
 };
 
 fn LanguageServer::run(var LanguageServer& this) -> i32 {
@@ -227,7 +227,7 @@ fn kiln_language_server(var Compiler* compiler, var NativeFile* input, var Nativ
 	if (!protocol.get() || !protocol.get()->ready()) {
 		return 1;
 	};
-	var workspace = rt::unique<LanguageWorkspace>(new var LanguageWorkspace(@*compiler, @*protocol.get(), rt::string_view(root)));
+	var workspace = rt::unique<LanguageWorkspace>(new var LanguageWorkspace(@*compiler, @*protocol.get(), rt::from_c_string(root)));
 	if (!workspace.get() || !workspace.get()->ready()) {
 		return 1;
 	};
@@ -242,12 +242,12 @@ fn kiln_emit_target(var Compiler* compiler, char* root, char* name, var char* ou
 	LanguageGroup group;
 	@group.kind = language_group_kind::target;
 	rt::string key;
-	if (!@group.name.append(rt::string_view(name)) || !LanguageWorkspace::target_key(rt::string_view(root), group, @key)) {
+	if (!@group.name.append(rt::from_c_string(name)) || !LanguageWorkspace::target_key(rt::from_c_string(root), group, @key)) {
 		return 1;
 	};
-	rt::string_view entry_name = rt::string_view("main", 4);
+	rt::string_view entry_name = "main";
 	if (entry) {
-		@entry_name = rt::string_view(entry);
+		@entry_name = rt::from_c_string(entry);
 	};
-	return @compiler->emit_target(key.view(), rt::string_view(output), entry_name, $optimization, $diagnostics, output_kind::executable);
+	return @compiler->emit_target(key.view(), rt::from_c_string(output), entry_name, $optimization, $diagnostics, output_kind::executable);
 };

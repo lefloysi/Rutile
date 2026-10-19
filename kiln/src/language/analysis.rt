@@ -5,22 +5,22 @@ fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32
 	if (kind == 1) {
 		@category = language_group_kind::analysis;
 	};
-	while (index < workspace.groups.size() && (workspace.groups.data()[index].kind != category || workspace.groups.data()[index].name.view() != rt::string_view(name))) {
+	while (index < workspace.groups.size() && (workspace.groups.data()[index].kind != category || workspace.groups.data()[index].name.view() != rt::from_c_string(name))) {
 		@index = index + 1;
 	};
 	if (index == workspace.groups.size()) {
 		LanguageGroup group;
 		@group.kind = $category;
-		if (!@group.name.append(rt::string_view(name)) || !@workspace.groups.push_back($group)) {
+		if (!@group.name.append(rt::from_c_string(name)) || !@workspace.groups.push_back($group)) {
 			return 0;
 		};
 	};
-	return static_cast<i32>(@(@workspace.groups).data()[index].paths.push_back(rt::string(path)));
+	return static_cast<i32>(@(@workspace.groups).data()[index].paths.push_back(rt::string(rt::from_c_string(path))));
 };
 
 fn LanguageWorkspace::project_error(var void* context, char* text) {
 	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
-	@workspace.discovery_error = rt::string(text);
+	@workspace.discovery_error = rt::string(rt::from_c_string(text));
 };
 
 fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex> {
@@ -31,9 +31,9 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 		if (!kiln_project_sources(job.root.c_str(), &LanguageWorkspace::add_project, &@this, &LanguageWorkspace::project_error)) {
 			var parameters = rt::json_value::make_object();
 			if (parameters.get()) {
-				@parameters.get()->set(rt::string_view("type", 4), rt::json_value::make_unsigned(1));
-				@parameters.get()->set(rt::string_view("message", 7), rt::json_value::make_string(this.discovery_error.view()));
-				@this.notify(rt::string_view("window/logMessage", 17), $parameters);
+				@parameters.get()->set("type", rt::json_value::make_unsigned(1));
+				@parameters.get()->set("message", rt::json_value::make_string(this.discovery_error.view()));
+				@this.notify("window/logMessage", $parameters);
 			};
 			return rt::unique<LanguageIndex>();
 		};
@@ -130,7 +130,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 				return false;
 			};
 		}
-		else if (!@analysis.get()->load_source(path.c_str(), &platform_open_utf8_file)) {
+		else if (!@analysis.get()->load_source(path.view(), &platform_open_utf8_file)) {
 			usize diagnostic = 0;
 			while (diagnostic < analysis.get()->diagnostics().records().size()) {
 				if (LanguageWorkspace::cancelled(&@cancellation)) {
@@ -138,7 +138,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 				};
 				DiagnosticRecord& record = analysis.get()->diagnostics().records().data()[diagnostic];
 				var parameters = rt::json_value::make_object();
-				if (!parameters.get() || !@parameters.get()->set(rt::string_view("type", 4), rt::json_value::make_unsigned(1)) || !@parameters.get()->set(rt::string_view("message", 7), rt::json_value::make_string(record.message.view())) || !@this.notify(rt::string_view("window/logMessage", 17), $parameters)) {
+				if (!parameters.get() || !@parameters.get()->set("type", rt::json_value::make_unsigned(1)) || !@parameters.get()->set("message", rt::json_value::make_string(record.message.view())) || !@this.notify("window/logMessage", $parameters)) {
 					return false;
 				};
 				@diagnostic = diagnostic + 1;
@@ -197,7 +197,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 			usize error = 0;
 			while (error < errors.size()) {
 				if (error) {
-					@context_result.error.append(rt::string_view("\n", 1));
+					@context_result.error.append("\n");
 				};
 				@context_result.error.append(errors.data()[error].message.view());
 				@error = error + 1;
@@ -237,11 +237,11 @@ fn LanguageWorkspace::target_key(rt::string_view root, LanguageGroup& group, var
 		return false;
 	};
 	if (group.kind == language_group_kind::loose) {
-		if (!@result.append(rt::string_view("::editor::loose", 15))) {
+		if (!@result.append("::editor::loose")) {
 			return false;
 		};
 	}
-	else if (!@result.append(rt::string_view("::target::", 10)) || !@result.append(group.name.view())) {
+	else if (!@result.append("::target::") || !@result.append(group.name.view())) {
 		return false;
 	};
 	@key = $result;
@@ -507,7 +507,7 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		if (range.source < mapping.size()) {
 			var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
 			var diagnostic = rt::json_value::make_object();
-			if (!diagnostic.get() || !@diagnostic.get()->set(rt::string_view("range", 5), LanguageJson::range(source.text, usize(range.begin), usize(range.end))) || !@diagnostic.get()->set(rt::string_view("severity", 8), rt::json_value::make_unsigned(1)) || !@diagnostic.get()->set(rt::string_view("source", 6), rt::json_value::make_string(rt::string_view("rutile", 6))) || !@diagnostic.get()->set(rt::string_view("message", 7), rt::json_value::make_string(record.message.view()))) {
+			if (!diagnostic.get() || !@diagnostic.get()->set("range", LanguageJson::range(source.text, usize(range.begin), usize(range.end))) || !@diagnostic.get()->set("severity", rt::json_value::make_unsigned(1)) || !@diagnostic.get()->set("source", rt::json_value::make_string("rutile")) || !@diagnostic.get()->set("message", rt::json_value::make_string(record.message.view()))) {
 				return false;
 			};
 			var related = rt::json_value::make_array();
@@ -518,16 +518,16 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 					LanguageIndexedSource& target = this.sources.data()[mapping.data()[note_range.source]];
 					var location = rt::json_value::make_object();
 					var information = rt::json_value::make_object();
-					if (!location.get() || !information.get() || !@location.get()->set(rt::string_view("uri", 3), rt::json_value::make_string(target.uri.view())) || !@location.get()->set(rt::string_view("range", 5), LanguageJson::range(target.text, usize(note_range.begin), usize(note_range.end)))) {
+					if (!location.get() || !information.get() || !@location.get()->set("uri", rt::json_value::make_string(target.uri.view())) || !@location.get()->set("range", LanguageJson::range(target.text, usize(note_range.begin), usize(note_range.end)))) {
 						return false;
 					};
-					if (!@information.get()->set(rt::string_view("location", 8), $location) || !@information.get()->set(rt::string_view("message", 7), rt::json_value::make_string(record.notes.data()[note].message.view())) || !@related.get()->append($information)) {
+					if (!@information.get()->set("location", $location) || !@information.get()->set("message", rt::json_value::make_string(record.notes.data()[note].message.view())) || !@related.get()->append($information)) {
 						return false;
 					};
 				};
 				@note = note + 1;
 			};
-			if (!related.get() || !@diagnostic.get()->set(rt::string_view("relatedInformation", 18), $related) || !@source.diagnostics.get()->append($diagnostic)) {
+			if (!related.get() || !@diagnostic.get()->set("relatedInformation", $related) || !@source.diagnostics.get()->append($diagnostic)) {
 				return false;
 			};
 		};
@@ -617,10 +617,10 @@ fn LanguageIndex::finish(var LanguageIndex& this) -> bool {
 	while (this.diagnostics.get() && index < this.sources.size()) {
 		LanguageIndexedSource& source = this.sources.data()[index];
 		var parameters = rt::json_value::make_object();
-		if (!parameters.get() || !@parameters.get()->set(rt::string_view("uri", 3), rt::json_value::make_string(source.uri.view())) || !@parameters.get()->set(rt::string_view("diagnostics", 11), source.diagnostics.get()->clone())) {
+		if (!parameters.get() || !@parameters.get()->set("uri", rt::json_value::make_string(source.uri.view())) || !@parameters.get()->set("diagnostics", source.diagnostics.get()->clone())) {
 			return false;
 		};
-		if (source.version.has_value() && !@parameters.get()->set(rt::string_view("version", 7), rt::json_value::make_integer(i64(source.version.value())))) {
+		if (source.version.has_value() && !@parameters.get()->set("version", rt::json_value::make_integer(i64(source.version.value())))) {
 			return false;
 		};
 		if (!@this.diagnostics.get()->append($parameters)) {

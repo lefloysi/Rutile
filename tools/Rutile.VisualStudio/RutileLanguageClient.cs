@@ -23,7 +23,7 @@ namespace Rutile.VisualStudio {
 		public string Name => "Rutile";
 		public IEnumerable<string> ConfigurationSections => Array.Empty<string>();
 		public object InitializationOptions => new JObject { ["rutileSemanticColors"] = true };
-		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/rutile.yaml", "**/*.list" };
+		public IEnumerable<string> FilesToWatch => new[] { "**/*.rt", "**/kiln.yaml", "**/rutile.yaml", "**/*.list" };
 		public bool ShowNotificationOnInitializeFailed => true;
 		public object MiddleLayer { get; } = new RutileSemanticColors(RutileSemanticStore.Instance);
 		public object CustomMessageTarget => RutileEditorConnection.Instance;

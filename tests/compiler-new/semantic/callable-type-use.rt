@@ -1,31 +1,31 @@
 fn callable_type_use_tests() -> i32 {
 	TemplateFixture deduced;
-	if (!@deduced.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(T callback)->i32 {return callback({@value=42;});}; fn answer()->i32 {return call(&identity);};\0")) {
+	if (!@deduced.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(T callback)->i32 {return callback({@value=42;});}; fn answer()->i32 {return call(&identity);};")) {
 		return 1;
 	};
 
 	TemplateFixture explicit;
-	if (!@explicit.build("fn identity(i32 original)->i32 {return $original;}; using Callback=((i32 declared)->i32)*; template<typename T> fn call(T callback)->i32 {return callback({@declared=42;});}; fn answer()->i32 {return call<Callback>(&identity);};\0")) {
+	if (!@explicit.build("fn identity(i32 original)->i32 {return $original;}; using Callback=((i32 declared)->i32)*; template<typename T> fn call(T callback)->i32 {return callback({@declared=42;});}; fn answer()->i32 {return call<Callback>(&identity);};")) {
 		return 2;
 	};
 
 	TemplateFixture nested;
-	if (!@nested.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(var T* slot)->i32 {return (*slot)({@value=42;});}; fn answer()->i32 {var callback=&identity;return call(&@callback);};\0")) {
+	if (!@nested.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn call(var T* slot)->i32 {return (*slot)({@value=42;});}; fn answer()->i32 {var callback=&identity;return call(&@callback);};")) {
 		return 3;
 	};
 
 	TemplateFixture forwarded;
-	if (!@forwarded.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn forward(T callback)->T {return $callback;}; fn answer()->i32 {var callback=forward(&identity);return callback({@value=42;});};\0")) {
+	if (!@forwarded.build("fn identity(i32 value)->i32 {return $value;}; template<typename T> fn forward(T callback)->T {return $callback;}; fn answer()->i32 {var callback=forward(&identity);return callback({@value=42;});};")) {
 		return 4;
 	};
 
 	TemplateFixture allocated;
-	if (!@allocated.build("fn identity(i32 original)->i32 {return $original;}; fn answer()->i32 {var box=new (var ((i32 allocated)->i32)*)(&identity);i32 result=(*box)({@allocated=42;});delete box;return result;};\0")) {
+	if (!@allocated.build("fn identity(i32 original)->i32 {return $original;}; fn answer()->i32 {var box=new (var ((i32 allocated)->i32)*)(&identity);i32 result=(*box)({@allocated=42;});delete box;return result;};")) {
 		return 5;
 	};
 
 	TemplateFixture constructed;
-	if (!@constructed.build("fn identity(i32 original)->i32 {return $original;}; using Callback=((i32 constructed)->i32)*; fn answer()->i32 {var callback=Callback(&identity);return callback({@constructed=42;});};\0")) {
+	if (!@constructed.build("fn identity(i32 original)->i32 {return $original;}; using Callback=((i32 constructed)->i32)*; fn answer()->i32 {var callback=Callback(&identity);return callback({@constructed=42;});};")) {
 		return 6;
 	};
 

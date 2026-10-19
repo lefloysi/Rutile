@@ -1,0 +1,46 @@
+fn literal_size(rt::string_view text) -> usize {
+	return text.size();
+};
+
+fn literal_from_const_string(const rt::string& text) -> usize {
+	return literal_size(text);
+};
+
+fn main() -> i32 {
+	var text = "hello";
+	var adjacent = "world-after-hello";
+	if (text.size() != 5 || text.data()[0] != 'h' || text.data()[4] != 'o' || adjacent.size() != 17) {
+		return 1;
+	};
+	if (literal_size("hi") != 2) {
+		return 2;
+	};
+
+	var empty = "";
+	if (!empty.empty() || empty.size()) {
+		return 3;
+	};
+	var embedded = "a\0b";
+	if (embedded.size() != 3 || embedded.data()[0] != 'a' || embedded.data()[1] || embedded.data()[2] != 'b') {
+		return 4;
+	};
+
+	var escaped = "a\n\r\t\\\"b";
+	if (escaped.size() != 7 || escaped.data()[1] != '\n' || escaped.data()[2] != '\r' || escaped.data()[3] != '\t' || escaped.data()[4] != '\\' || escaped.data()[5] != '"') {
+		return 5;
+	};
+	var unicode = "éλ";
+	if (unicode.size() != 4 || u08(unicode.data()[0]) != 195 || u08(unicode.data()[1]) != 169 || u08(unicode.data()[2]) != 206 || u08(unicode.data()[3]) != 187) {
+		return 6;
+	};
+
+	var owned = rt::string("owned");
+	if (literal_from_const_string(owned) != 5) {
+		return 7;
+	};
+	var binary = rt::string(embedded);
+	if (literal_from_const_string(binary) != 3 || binary.data()[2] != 'b') {
+		return 8;
+	};
+	return 42;
+};

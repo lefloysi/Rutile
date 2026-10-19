@@ -517,3 +517,15 @@ void platform_server_close(struct PlatformServer* server) {
 		delete server;
 	}
 }
+
+void* platform_library_open(const std::filesystem::path& path) {
+	return LoadLibraryW(path.c_str());
+}
+
+void* platform_library_symbol(void* library, const char* name) {
+	return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(library), name));
+}
+
+void platform_library_close(void* library) {
+	FreeLibrary(static_cast<HMODULE>(library));
+}

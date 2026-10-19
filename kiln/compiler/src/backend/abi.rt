@@ -4,13 +4,13 @@ fn Backend::external_signature(var Backend& this, var Entity* entity) -> bool {
 
 	if (result->kind() == type_kind::array || result->kind() == type_kind::named) {
 		var message = DiagnosticMessage();
-		@message.text(rt::string_view("external aggregate return requires unsupported C ABI lowering for function '", 76));
+		@message.text("external aggregate return requires unsupported C ABI lowering for function '");
 		diagnostic_entity(@message, *entity);
-		@message.text(rt::string_view("' of type '", 11));
+		@message.text("' of type '");
 		diagnostic_type(@message, *entity->type());
-		@message.text(rt::string_view("'; result type is '", 19));
+		@message.text("'; result type is '");
 		diagnostic_type(@message, *signature.result());
-		@message.text(rt::string_view("'", 1));
+		@message.text("'");
 		return @this.error(entity->token(), message.view());
 	};
 
@@ -21,15 +21,15 @@ fn Backend::external_signature(var Backend& this, var Entity* entity) -> bool {
 
 		if (parameter->kind() == type_kind::array || parameter->kind() == type_kind::named) {
 			var message = DiagnosticMessage();
-			@message.text(rt::string_view("external aggregate parameter requires unsupported C ABI lowering for parameter ", 79));
+			@message.text("external aggregate parameter requires unsupported C ABI lowering for parameter ");
 			@message.number(index + 1);
-			@message.text(rt::string_view(" of function '", 14));
+			@message.text(" of function '");
 			diagnostic_entity(@message, *entity);
-			@message.text(rt::string_view("' of type '", 11));
+			@message.text("' of type '");
 			diagnostic_type(@message, *entity->type());
-			@message.text(rt::string_view("'; parameter type is '", 22));
+			@message.text("'; parameter type is '");
 			diagnostic_type(@message, *signature.parameters().data()[index]);
-			@message.text(rt::string_view("'", 1));
+			@message.text("'");
 			return @this.error(entity->parameters().data()[index]->token(), message.view());
 		};
 

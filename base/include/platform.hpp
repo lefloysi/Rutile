@@ -49,3 +49,7 @@ void platform_server_close(struct PlatformServer* server);
 
 
 
+
+void* platform_library_open(const std::filesystem::path& path);
+void* platform_library_symbol(void* library, const char* name);
+void platform_library_close(void* library);

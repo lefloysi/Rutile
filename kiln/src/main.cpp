@@ -1,6 +1,7 @@
 #include "server.hpp"
 
 #include "compiler.hpp"
+#include "../integrations/rutile.hpp"
 #include "platform.hpp"
 #include "project.hpp"
 #include "version.hpp"
@@ -11,19 +12,8 @@
 #include <memory>
 #include <string>
 
-extern "C" int kiln_language_server(Compiler* compiler, std::FILE* input, std::FILE* output, const char* root);
-
-int kiln_language_session(Compiler* compiler, void* context) {
-	const auto* root = static_cast<const char*>(context);
-	std::unique_ptr<EditorSession, decltype(&kiln_editor_stop)> session{ kiln_editor_start(compiler, root), kiln_editor_stop };
-	if (!session) {
-		return 1;
-	}
-	return kiln_language_server(compiler, platform_standard_input(), platform_standard_output(), root);
-}
-
 int main(int argc, char* argv[]) {
-	CLI::App app{ "Manage the current Rutile project.", "kiln" };
+	CLI::App app{ "Manage project builds across compiler integrations.", "kiln" };
 	argv = app.ensure_utf8(argv);
 	app.set_help_flag();
 	app.failure_message([](const CLI::App* command, const CLI::Error& error) {
@@ -50,11 +40,32 @@ int main(int argc, char* argv[]) {
 		throw CLI::CallForHelp();
 	});
 
+	std::string target;
+	std::string profile = "debug";
+	auto* build = app.add_subcommand("build", "Build a configured target using its compiler integration.");
+	build->add_option("target", target, "Target name; optional when only one target exists.");
+	build->add_option("--profile", profile, "Build profile.")->default_val("debug");
+	build->callback([&]() {
+		exit_code = project_build(target, profile);
+	});
+	auto* run = app.add_subcommand("run", "Build and run a configured executable target.");
+	run->add_option("target", target, "Target name; optional when only one target exists.");
+	run->add_option("--profile", profile, "Build profile.")->default_val("debug");
+	run->prefix_command();
+	run->callback([&]() {
+		exit_code = project_run(target, profile, run->remaining());
+	});
+	app.add_subcommand("list", "List configured targets.")->callback([&exit_code]() {
+		exit_code = project_list();
+	});
+
 	std::string endpoint;
 	auto* serve = app.add_subcommand("serve", "Serve a project session.")->group("");
 	serve->add_option("endpoint", endpoint)->required();
 	serve->callback([&exit_code, &endpoint]() {
-		exit_code = kiln_serve(endpoint.c_str());
+		CompilerRegistry compilers;
+		compilers.add(kiln_rutile_integration());
+		exit_code = kiln_serve(compilers, endpoint.c_str());
 	});
 
 	auto* language = app.add_subcommand("language-server", "Serve the current project's IDE connection.");
@@ -74,7 +85,7 @@ int main(int argc, char* argv[]) {
 			return;
 		}
 		auto root = project_path_utf8(directory);
-		exit_code = rutile_compiler_session(kiln_language_session, root.data());
+		exit_code = kiln_rutile_language_server(root.c_str());
 	});
 
 	CLI11_PARSE(app, argc, argv);
