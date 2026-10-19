@@ -28,7 +28,7 @@ Invoke-Checked $Kiln (@('compile') + $sources + @('--output', $compiler_object, 
 
 $objects = @($compiler_object)
 $index = 0
-foreach ($source in @('compiler/src/main.cpp', 'base/src/windows.cpp', 'base/src/runtime.cpp', 'version/runtime.cpp')) {
+foreach ($source in @('compiler/src/main.cpp', 'compiler/src/service.cpp', 'base/src/windows.cpp', 'base/src/runtime.cpp', 'version/runtime.cpp')) {
 	$object = "$destination/seed-native-$index.obj"
 	Invoke-Checked (Get-Command cl.exe).Source @('/nologo', '/std:c++latest', '/EHsc', '/MD', "/I$project_root/base/include", "/I$project_root/version", "/I$kiln_build/include", "/FI$kiln_build/config.hpp", '/c', "$project_root/$source", "/Fo$object")
 	$objects += $object

@@ -1332,6 +1332,7 @@ struct Backend {
 
 	fn ~Backend(var Backend& this);
 
+	fn set_progress(var Backend& this, CompilerProgress progress);
 	fn initialize(var Backend& this, i32 optimization) -> bool;
 	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> bool;
 	fn write(var Backend& this, var File& output) -> bool;
@@ -1368,6 +1369,7 @@ private:
 
 	var Diagnostics* diagnostics;
 	var Entity* selected_entry;
+	CompilerProgress progress;
 	i32 optimization;
 	rt::unique<LLVMOpaqueContext, ContextDisposer> native_context;
 	rt::unique<LLVMOpaqueTargetMachine, MachineDisposer> native_machine;
@@ -1540,6 +1542,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 	};
 
 	var native_pipeline = rt::string(pipeline);
+	this.progress.report("optimizing", 0, 1, pipeline);
 	var LLVMOpaqueError* error = LLVMRunPasses(this.module(), native_pipeline.c_str(), this.native_machine.get(), options.get());
 
 	if (error) {
@@ -1548,6 +1551,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
+	this.progress.report("optimizing", 1, 1, pipeline);
 	return @this.verify();
 };
 
@@ -1560,23 +1564,32 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	var char* failure;
 	Token location;
 
+	this.progress.report("object", 0, 1, "");
 	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &@failure, &@bytes)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
 		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
+	this.progress.report("object", 1, 1, "");
 	var buffer = rt::unique<LLVMOpaqueMemoryBuffer, BufferDisposer>(bytes);
+	usize byte_count = LLVMGetBufferSize(buffer.get());
+	this.progress.report("writing", 0, byte_count, "");
 
 	if (!@output.write(rt::string_view(LLVMGetBufferStart(buffer.get()), LLVMGetBufferSize(buffer.get())))) {
 		return @this.error(location, "cannot write native object output");
 	};
 
+	this.progress.report("writing", byte_count, byte_count, "");
 	return true;
 };
 
 fn Backend::note(var Backend& this, Token& token, rt::string_view message) {
 	@this.diagnostics->note(token, message);
+};
+
+fn Backend::set_progress(var Backend& this, CompilerProgress progress) {
+	@this.progress = $progress;
 };
 
 fn FunctionEmitter::construct(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
@@ -2306,6 +2319,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		@this.selected_entry = selected->canonical();
 	};
 
+	this.progress.report("declaring", 0, unit.entities().size(), "");
 	usize index = 0;
 
 	while (index < unit.entities().size()) {
@@ -2314,8 +2328,10 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("declaring", index, unit.entities().size(), unit.entities().data()[index - 1].get()->name());
 	};
 
+	this.progress.report("emitting", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -2330,8 +2346,10 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("emitting", index, unit.entities().size(), entity->name());
 	};
 
+	this.progress.report("dispatch", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -2342,9 +2360,11 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("dispatch", index, unit.entities().size(), entity->name());
 	};
 
 	var LLVMOpaqueValue* initialize;
+	this.progress.report("initializing", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -2365,6 +2385,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("initializing", index, unit.entities().size(), entity->name());
 	};
 
 	if (initialize) {
@@ -2378,6 +2399,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index) {
 		@index = index - 1;
 		var Entity* entity = unit.entities().data()[index].get();
+		this.progress.report("finalizing", unit.entities().size() - index, unit.entities().size(), entity->name());
 
 		if (entity->canonical() == entity && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
 			if (!finalize) {
@@ -5241,6 +5263,26 @@ fn Backend::required(Backend& this, var Entity* entity) -> bool {
 	return true;
 };
 
+using ProgressCallback = ((var void*, char*, usize, usize, char*) -> void)*;
+
+struct CompilerProgress {
+	fn CompilerProgress(var CompilerProgress& this) : [default];
+	fn CompilerProgress(var CompilerProgress& this, CompilerProgress& other) : [implicit, default];
+	fn report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail);
+
+	ProgressCallback callback;
+	var void* context;
+};
+
+fn CompilerProgress::report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail) {
+	if (!this.callback) {
+		return;
+	};
+	var phase_text = rt::string(phase);
+	var detail_text = rt::string(detail);
+	this.callback(this.context, phase_text.c_str(), $completed, $total, detail_text.c_str());
+};
+
 struct EditorTemplateSelection {
 	rt::string path;
 	usize anchor;
@@ -5254,6 +5296,7 @@ struct Analysis {
 	fn Analysis(var Analysis& this) : [default];
 	fn Analysis(var Analysis& this, var NativeFile* output);
 
+	fn set_progress(var Analysis& this, CompilerProgress progress);
 	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool;
 	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
@@ -5276,6 +5319,7 @@ private:
 	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
 
 	rt::unique<EditorTemplateSelection> template_selection;
+	CompilerProgress progress;
 	SourceManager sources;
 	TypeStore types;
 	rt::buffer<rt::unique<Syntax>> syntax;
@@ -5371,6 +5415,10 @@ fn Analysis::template_context_label(Analysis& this) -> rt::string_view {
 	return this.template_selection.get()->label.view();
 };
 
+fn Analysis::set_progress(var Analysis& this, CompilerProgress progress) {
+	@this.progress = $progress;
+};
+
 struct RuntimeMutex;
 fn runtime_mutex_create() -> var RuntimeMutex*;
 fn runtime_mutex_destroy(var RuntimeMutex* mutex);
@@ -5415,10 +5463,11 @@ private:
 };
 
 struct Compilation {
-	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output);
+	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output, CompilerProgress progress);
 	fn run(var Compilation& this, rt::string_view output_path, rt::string_view entry, i32 optimization, output_kind kind) -> i32;
 
 private:
+	CompilerProgress progress;
 	Analysis* analysis;
 	FileOpener opener;
 	Diagnostics diagnostics;
@@ -5432,6 +5481,7 @@ struct Compiler {
 	fn Compiler(var Compiler& this);
 	fn ~Compiler(var Compiler& this);
 
+	fn set_progress(var Compiler& this, CompilerProgress progress);
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
 	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
 	fn acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
@@ -5442,11 +5492,14 @@ struct Compiler {
 	fn acquire_analysis(var Compiler& this) -> AnalysisLease;
 	fn release_analysis(var Compiler& this, var PublishedAnalysis& entry);
 	fn emit_current(var Compiler& this, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 	fn compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 private:
 	fn collect_retired(var Compiler& this);
+	fn finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
+	CompilerProgress progress;
 	var RuntimeMutex* publication_mutex;
 	rt::unordered_map<rt::string_view, rt::unique<TargetAnalysis>> targets;
 	rt::buffer<rt::unique<PublishedAnalysis>> retired;
@@ -5641,7 +5694,8 @@ fn Compiler::collect_retired(var Compiler& this) {
 	};
 };
 
-fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output) {
+fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output, CompilerProgress progress) {
+	@this.progress = $progress;
 	@this.opener = $opener;
 	@this.analysis = &@analysis;
 	@this.diagnostics = Diagnostics($output);
@@ -5695,6 +5749,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 		return @this.failure("analysis target pointer width does not match the native output target");
 	};
 
+	@this.backend.get()->set_progress(this.progress);
 	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)) {
 		return @this.failure("internal compiler error: native emission failed without a diagnostic");
 	};
@@ -5730,7 +5785,7 @@ fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_vie
 		return 1;
 	};
 
-	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics);
+	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics, this.progress);
 	return @compilation.run(output_path, entry, $optimization, $kind);
 };
 
@@ -5758,6 +5813,8 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 		return 1;
 	};
 
+	@analysis.get()->set_progress(this.progress);
+	this.progress.report("reading", 0, paths.size(), "");
 	usize index = 0;
 	while (index < paths.size()) {
 		rt::string_view path := paths.data()[index];
@@ -5770,14 +5827,21 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 			return 1;
 		};
 		@index = index + 1;
+		this.progress.report("reading", index, paths.size(), path);
 	};
 
+	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
+};
+
+fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+	var errors = Diagnostics(diagnostics);
+	Token location;
 	if (!@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)) {
 		@errors.error(location, "internal compiler error: analysis could not complete");
 		return 1;
 	};
 
-	var compilation = Compilation(*analysis.get(), opener, diagnostics);
+	var compilation = Compilation(*analysis.get(), opener, diagnostics, this.progress);
 	i32 result = @compilation.run(output_path, entry, $optimization, $kind);
 
 	if (!@this.publish($analysis)) {
@@ -5786,6 +5850,45 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 	};
 
 	return $result;
+};
+
+fn Compiler::set_progress(var Compiler& this, CompilerProgress progress) {
+	@this.progress = $progress;
+};
+
+fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+	var errors = Diagnostics(diagnostics);
+	Token location;
+	if (!paths.size() || paths.size() != texts.size()) {
+		@errors.error(location, "source paths and source texts must have matching nonzero counts");
+		return 1;
+	};
+	if (output_path.empty()) {
+		@errors.error(location, "native object output path is required");
+		return 1;
+	};
+	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
+	if (!analysis.get()) {
+		@errors.error(location, "analysis storage is unavailable");
+		return 1;
+	};
+	@analysis.get()->set_progress(this.progress);
+	this.progress.report("reading", 0, paths.size(), "");
+	usize index = 0;
+	while (index < paths.size()) {
+		rt::string_view path := paths.data()[index];
+		if (path.empty() || path == output_path) {
+			@errors.error(location, "output cannot overwrite a source file");
+			return 1;
+		};
+		if (!@analysis.get()->add_source(path, texts.data()[index])) {
+			@errors.error(location, "source storage is unavailable");
+			return 1;
+		};
+		@index = index + 1;
+		this.progress.report("reading", index, paths.size(), path);
+	};
+	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
 };
 
 fn fprintf(var NativeFile* file, char* format, ...) -> i32;
@@ -6125,7 +6228,12 @@ fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var
 };
 
 fn rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
+	return rutile_compile_library_progress($paths, $count, $output_path, $opener, $optimization, $diagnostics, nullptr, nullptr);
+};
+
+fn rutile_compile_library_progress(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics, ProgressCallback callback, var void* context) -> i32 {
 	Compiler compiler;
+	rutile_compiler_set_progress(&@compiler, $callback, $context);
 
 	if (!opener) {
 		@opener = &fopen;
@@ -6146,6 +6254,49 @@ fn rutile_compile_library(var char var** paths, usize count, var char* output_pa
 	};
 
 	return @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, $diagnostics, output_kind::library);
+};
+
+fn rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callback, var void* context) {
+	if (!compiler) {
+		return;
+	};
+	CompilerProgress progress;
+	@progress.callback = $callback;
+	@progress.context = $context;
+	@compiler->set_progress($progress);
+};
+
+fn rutile_compile_sources(var Compiler* compiler, var char var** paths, var char var** texts, usize* lengths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, i32 library) -> i32 {
+	if (!compiler || !paths || !texts || !lengths || !count) {
+		return 1;
+	};
+	if (!opener) {
+		@opener = &fopen;
+	};
+	if (!diagnostics) {
+		@diagnostics = platform_standard_error();
+	};
+	rt::buffer<rt::string_view> source_paths;
+	rt::buffer<rt::string_view> source_texts;
+	usize index = 0;
+	while (index < count) {
+		if (!paths[index] || (!texts[index] && lengths[index])) {
+			return 1;
+		};
+		if (!@source_paths.push_back(rt::from_c_string(paths[index])) || !@source_texts.push_back(rt::string_view(texts[index], lengths[index]))) {
+			return 1;
+		};
+		@index = index + 1;
+	};
+	rt::string_view entry_name = "main";
+	if (entry) {
+		@entry_name = rt::from_c_string(entry);
+	};
+	output_kind kind = output_kind::executable;
+	if (library) {
+		@kind = output_kind::library;
+	};
+	return @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, $kind);
 };
 
 enum output_kind : [u08] {
@@ -9041,6 +9192,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		return true;
 	};
 	Diagnostics parse_errors;
+	this.progress.report("parsing", 0, this.sources.count(), "");
 	usize index = 0;
 	while (index < this.sources.count()) {
 		if (this.messages.cancelled()) {
@@ -9077,8 +9229,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			return false;
 		};
 		@index = index + 1;
+		this.progress.report("parsing", index, this.sources.count(), file->path());
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
+	@analyzer.set_progress(this.progress);
 	@analyzer.set_editor($editor);
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
@@ -9128,10 +9282,12 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 	};
 	if (analyzed) {
+		this.progress.report("lifetimes", 0, 1, "");
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
 			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic");
 		};
+		this.progress.report("lifetimes", 1, 1, "");
 	};
 	if (this.messages.cancelled()) {
 		return false;
@@ -10142,6 +10298,7 @@ struct PendingDeclaration {
 struct Analyzer {
 	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
+	fn set_progress(var Analyzer& this, CompilerProgress progress);
 	fn set_editor(var Analyzer& this, bool enabled);
 	fn analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
 	fn editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool;
@@ -10171,6 +10328,7 @@ struct Analyzer {
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
 
 private:
+	CompilerProgress progress;
 	bool editor;
 	declaration_collection collection;
 	rt::buffer<PendingDeclaration> pending_declarations;
@@ -11015,6 +11173,10 @@ fn Analyzer::recovery_operand(Analyzer& this, Syntax& syntax) -> bool {
 		@index = index + 1;
 	};
 	return false;
+};
+
+fn Analyzer::set_progress(var Analyzer& this, CompilerProgress progress) {
+	@this.progress = $progress;
 };
 
 fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
@@ -19607,6 +19769,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		return false;
 	};
 
+	this.progress.report("collecting", 0, syntax.size(), "");
 	usize index = 0;
 	while (index < syntax.size() && !this.diagnostics->failed()) {
 		if (!@this.unit->record_scope(@*root, @*syntax.data()[index].get()) || !@this.collect(@*root, @*(syntax.data()[index].get()))) {
@@ -19614,9 +19777,11 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("collecting", index, syntax.size(), "");
 	};
 
 	@this.collection = declaration_collection::complete;
+	this.progress.report("declarations", 0, this.pending_declarations.size() * 2, "");
 	usize pass = 0;
 	while (pass < 2) {
 		@index = 0;
@@ -19633,11 +19798,13 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 				};
 			};
 			@index = index + 1;
+			this.progress.report("declarations", pass * this.pending_declarations.size() + index, this.pending_declarations.size() * 2, pending.syntax->token().text());
 		};
 		@pass = pass + 1;
 	};
 	@this.pending_declarations.clear();
 
+	this.progress.report("validating", 0, this.unit->entities().size(), "");
 	@index = 0;
 	var validator = TemplateDeclarationValidator();
 
@@ -19647,8 +19814,10 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 			return false;
 		};
 		@index = index + 1;
+		this.progress.report("validating", index, this.unit->entities().size(), pattern->name());
 	};
 
+	this.progress.report("resolving", 0, this.unit->entities().size(), "");
 	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
@@ -19657,8 +19826,10 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("resolving", index, this.unit->entities().size(), "");
 	};
 
+	this.progress.report("analyzing", 0, this.unit->entities().size(), "");
 	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
@@ -19681,6 +19852,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("analyzing", index, this.unit->entities().size(), entity->name());
 	};
 
 	@this.unit = nullptr;

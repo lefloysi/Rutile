@@ -19,6 +19,7 @@ struct Backend {
 
 	fn ~Backend(var Backend& this);
 
+	fn set_progress(var Backend& this, CompilerProgress progress);
 	fn initialize(var Backend& this, i32 optimization) -> bool;
 	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> bool;
 	fn write(var Backend& this, var File& output) -> bool;
@@ -55,6 +56,7 @@ private:
 
 	var Diagnostics* diagnostics;
 	var Entity* selected_entry;
+	CompilerProgress progress;
 	i32 optimization;
 	rt::unique<LLVMOpaqueContext, ContextDisposer> native_context;
 	rt::unique<LLVMOpaqueTargetMachine, MachineDisposer> native_machine;
@@ -227,6 +229,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 	};
 
 	var native_pipeline = rt::string(pipeline);
+	this.progress.report("optimizing", 0, 1, pipeline);
 	var LLVMOpaqueError* error = LLVMRunPasses(this.module(), native_pipeline.c_str(), this.native_machine.get(), options.get());
 
 	if (error) {
@@ -235,6 +238,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
+	this.progress.report("optimizing", 1, 1, pipeline);
 	return @this.verify();
 };
 
@@ -247,21 +251,30 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	var char* failure;
 	Token location;
 
+	this.progress.report("object", 0, 1, "");
 	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &@failure, &@bytes)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
 		return @this.error(location, rt::from_c_string(message.get()));
 	};
 
+	this.progress.report("object", 1, 1, "");
 	var buffer = rt::unique<LLVMOpaqueMemoryBuffer, BufferDisposer>(bytes);
+	usize byte_count = LLVMGetBufferSize(buffer.get());
+	this.progress.report("writing", 0, byte_count, "");
 
 	if (!@output.write(rt::string_view(LLVMGetBufferStart(buffer.get()), LLVMGetBufferSize(buffer.get())))) {
 		return @this.error(location, "cannot write native object output");
 	};
 
+	this.progress.report("writing", byte_count, byte_count, "");
 	return true;
 };
 
 fn Backend::note(var Backend& this, Token& token, rt::string_view message) {
 	@this.diagnostics->note(token, message);
+};
+
+fn Backend::set_progress(var Backend& this, CompilerProgress progress) {
+	@this.progress = $progress;
 };

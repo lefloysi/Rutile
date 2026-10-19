@@ -27,6 +27,13 @@ Use `--profile release` for an optimized build. Build outputs are under `.kiln/b
 `language` contains the Rutile language service. Kiln's Rutile integration builds and
 connects that service. See [Kiln](../Kiln/README.md) for build operations and extension points.
 
+Kiln starts one persistent Rutile compiler for the project and sends each build to it.
+Build output reports the current compiler phase, source counts, file being processed,
+and elapsed time. The compiler combines each request into a mapped `.sources.rt` file
+next to its object output; the adjacent `.sources.json` maps byte ranges back to the
+original files. After a build, `compiler status` reports the active service, and
+`compiler exit` requests its graceful shutdown.
+
 After changing the compiler, refresh the distributed seed only after staged verification:
 
 ```powershell

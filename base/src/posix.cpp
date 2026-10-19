@@ -620,3 +620,7 @@ void* platform_library_symbol(void* library, const char* name) {
 void platform_library_close(void* library) {
 	dlclose(library);
 }
+
+unsigned long platform_process_id() {
+	return static_cast<unsigned long>(getpid());
+}

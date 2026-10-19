@@ -15,6 +15,7 @@ extern "C" std::FILE* platform_standard_output();
 extern "C" int platform_language_stdio();
 
 bool platform_current_directory(char* path, std::size_t capacity);
+unsigned long platform_process_id();
 bool platform_executable_path(char* path, std::size_t capacity);
 bool platform_directory_exists(const char* path);
 bool platform_file_exists(const char* path);

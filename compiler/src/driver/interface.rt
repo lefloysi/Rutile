@@ -54,7 +54,12 @@ fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var
 };
 
 fn rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
+	return rutile_compile_library_progress($paths, $count, $output_path, $opener, $optimization, $diagnostics, nullptr, nullptr);
+};
+
+fn rutile_compile_library_progress(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics, ProgressCallback callback, var void* context) -> i32 {
 	Compiler compiler;
+	rutile_compiler_set_progress(&@compiler, $callback, $context);
 
 	if (!opener) {
 		@opener = &fopen;
@@ -75,4 +80,47 @@ fn rutile_compile_library(var char var** paths, usize count, var char* output_pa
 	};
 
 	return @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, $diagnostics, output_kind::library);
+};
+
+fn rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callback, var void* context) {
+	if (!compiler) {
+		return;
+	};
+	CompilerProgress progress;
+	@progress.callback = $callback;
+	@progress.context = $context;
+	@compiler->set_progress($progress);
+};
+
+fn rutile_compile_sources(var Compiler* compiler, var char var** paths, var char var** texts, usize* lengths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, i32 library) -> i32 {
+	if (!compiler || !paths || !texts || !lengths || !count) {
+		return 1;
+	};
+	if (!opener) {
+		@opener = &fopen;
+	};
+	if (!diagnostics) {
+		@diagnostics = platform_standard_error();
+	};
+	rt::buffer<rt::string_view> source_paths;
+	rt::buffer<rt::string_view> source_texts;
+	usize index = 0;
+	while (index < count) {
+		if (!paths[index] || (!texts[index] && lengths[index])) {
+			return 1;
+		};
+		if (!@source_paths.push_back(rt::from_c_string(paths[index])) || !@source_texts.push_back(rt::string_view(texts[index], lengths[index]))) {
+			return 1;
+		};
+		@index = index + 1;
+	};
+	rt::string_view entry_name = "main";
+	if (entry) {
+		@entry_name = rt::from_c_string(entry);
+	};
+	output_kind kind = output_kind::executable;
+	if (library) {
+		@kind = output_kind::library;
+	};
+	return @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, $kind);
 };

@@ -23,6 +23,7 @@ struct PendingDeclaration {
 struct Analyzer {
 	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
+	fn set_progress(var Analyzer& this, CompilerProgress progress);
 	fn set_editor(var Analyzer& this, bool enabled);
 	fn analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
 	fn editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool;
@@ -52,6 +53,7 @@ struct Analyzer {
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
 
 private:
+	CompilerProgress progress;
 	bool editor;
 	declaration_collection collection;
 	rt::buffer<PendingDeclaration> pending_declarations;
@@ -896,4 +898,8 @@ fn Analyzer::recovery_operand(Analyzer& this, Syntax& syntax) -> bool {
 		@index = index + 1;
 	};
 	return false;
+};
+
+fn Analyzer::set_progress(var Analyzer& this, CompilerProgress progress) {
+	@this.progress = $progress;
 };

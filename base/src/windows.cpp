@@ -225,7 +225,35 @@ std::wstring windows_quote_argument(const std::wstring& argument) {
 }
 
 bool platform_replace_file(const std::filesystem::path& source, const std::filesystem::path& destination) {
-	return MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+	if (MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+		return true;
+	}
+	DWORD error = GetLastError();
+	if (error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) {
+		return false;
+	}
+	DWORD attributes = GetFileAttributesW(destination.c_str());
+	if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+		return false;
+	}
+	// Windows permits renaming an executing image while its old mapping remains loaded.
+	for (unsigned int attempt = 0; attempt < 16; ++attempt) {
+		auto retired = destination;
+		retired += L".retired-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(attempt);
+		if (!MoveFileExW(destination.c_str(), retired.c_str(), MOVEFILE_WRITE_THROUGH)) {
+			if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_FILE_EXISTS) {
+				continue;
+			}
+			return false;
+		}
+		if (MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH)) {
+			DeleteFileW(retired.c_str());
+			return true;
+		}
+		MoveFileExW(retired.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH);
+		return false;
+	}
+	return false;
 }
 
 bool platform_spawn(const char* executable, const char* root, const char* endpoint) {
@@ -394,26 +422,30 @@ bool windows_write_line(HANDLE pipe, const char* text) {
 }
 
 bool windows_read_line(HANDLE pipe, char* text, std::size_t capacity, unsigned int timeout_ms = 1000) {
-	if (!capacity) {
+	if (capacity < 2) {
 		return false;
 	}
 	ULONGLONG deadline = GetTickCount64() + timeout_ms;
 	std::size_t length = 0;
 	while (true) {
 		ULONGLONG now = GetTickCount64();
-		char value;
 		DWORD received = 0;
-		if (now >= deadline || !windows_pipe_transfer(pipe, false, &value, 1, &received, static_cast<DWORD>(deadline - now)) || received != 1) {
+		std::size_t remaining = capacity - length - 1;
+		DWORD count = static_cast<DWORD>(remaining < 4096 ? remaining : 4096);
+		if (!count || now >= deadline || !windows_pipe_transfer(pipe, false, text + length, count, &received, static_cast<DWORD>(deadline - now)) || !received) {
 			return false;
 		}
-		if (value == '\n') {
-			text[length] = '\0';
-			return true;
+		for (DWORD index = 0; index < received; ++index) {
+			char value = text[length + index];
+			if (value == '\n') {
+				text[length + index] = '\0';
+				return true;
+			}
+			if (!value) {
+				return false;
+			}
 		}
-		if (!value || length == capacity - 1) {
-			return false;
-		}
-		text[length++] = value;
+		length += received;
 	}
 }
 
@@ -422,9 +454,34 @@ bool platform_request(const char* endpoint, const char* command, char* response,
 	if (wide.empty()) {
 		return false;
 	}
-	HANDLE pipe = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-	if (pipe == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(wide.c_str(), timeout_ms)) {
+	ULONGLONG now = GetTickCount64();
+	ULONGLONG deadline = now + timeout_ms;
+	ULONGLONG missing_deadline = now + (timeout_ms < 1000 ? timeout_ms : 1000);
+	HANDLE pipe = INVALID_HANDLE_VALUE;
+	while (true) {
 		pipe = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+		if (pipe != INVALID_HANDLE_VALUE) {
+			break;
+		}
+		DWORD error = GetLastError();
+		now = GetTickCount64();
+		if (now >= deadline) {
+			break;
+		}
+		if (error == ERROR_PIPE_BUSY) {
+			missing_deadline = deadline;
+			if (WaitNamedPipeW(wide.c_str(), static_cast<DWORD>(deadline - now))) {
+				continue;
+			}
+			error = GetLastError();
+		}
+		if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PIPE_BUSY) {
+			break;
+		}
+		if (GetTickCount64() >= missing_deadline) {
+			break;
+		}
+		Sleep(1);
 	}
 	if (pipe == INVALID_HANDLE_VALUE) {
 		return false;
@@ -528,4 +585,8 @@ void* platform_library_symbol(void* library, const char* name) {
 
 void platform_library_close(void* library) {
 	FreeLibrary(static_cast<HMODULE>(library));
+}
+
+unsigned long platform_process_id() {
+	return GetCurrentProcessId();
 }

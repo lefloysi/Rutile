@@ -739,6 +739,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		return false;
 	};
 
+	this.progress.report("collecting", 0, syntax.size(), "");
 	usize index = 0;
 	while (index < syntax.size() && !this.diagnostics->failed()) {
 		if (!@this.unit->record_scope(@*root, @*syntax.data()[index].get()) || !@this.collect(@*root, @*(syntax.data()[index].get()))) {
@@ -746,9 +747,11 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("collecting", index, syntax.size(), "");
 	};
 
 	@this.collection = declaration_collection::complete;
+	this.progress.report("declarations", 0, this.pending_declarations.size() * 2, "");
 	usize pass = 0;
 	while (pass < 2) {
 		@index = 0;
@@ -765,11 +768,13 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 				};
 			};
 			@index = index + 1;
+			this.progress.report("declarations", pass * this.pending_declarations.size() + index, this.pending_declarations.size() * 2, pending.syntax->token().text());
 		};
 		@pass = pass + 1;
 	};
 	@this.pending_declarations.clear();
 
+	this.progress.report("validating", 0, this.unit->entities().size(), "");
 	@index = 0;
 	var validator = TemplateDeclarationValidator();
 
@@ -779,8 +784,10 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 			return false;
 		};
 		@index = index + 1;
+		this.progress.report("validating", index, this.unit->entities().size(), pattern->name());
 	};
 
+	this.progress.report("resolving", 0, this.unit->entities().size(), "");
 	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
@@ -789,8 +796,10 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("resolving", index, this.unit->entities().size(), "");
 	};
 
+	this.progress.report("analyzing", 0, this.unit->entities().size(), "");
 	@index = 0;
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
@@ -813,6 +822,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
+		this.progress.report("analyzing", index, this.unit->entities().size(), entity->name());
 	};
 
 	@this.unit = nullptr;

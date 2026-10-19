@@ -251,3 +251,36 @@ fn kiln_emit_target(var Compiler* compiler, char* root, char* name, var char* ou
 	};
 	return @compiler->emit_target(key.view(), rt::from_c_string(output), entry_name, $optimization, $diagnostics, output_kind::executable);
 };
+
+using TargetSourceCallback = ((var void*, char*, char*, usize) -> void)*;
+
+fn kiln_target_sources(var Compiler* compiler, char* root, char* name, TargetSourceCallback callback, var void* context, var NativeFile* diagnostics) -> i32 {
+	if (!compiler || !root || !name || !callback) {
+		return 1;
+	};
+	LanguageGroup group;
+	@group.kind = language_group_kind::target;
+	rt::string key;
+	if (!@group.name.append(rt::from_c_string(name)) || !LanguageWorkspace::target_key(rt::from_c_string(root), group, @key)) {
+		return 1;
+	};
+	var lease = @compiler->acquire_current_target(key.view());
+	if (!lease.get()) {
+		var errors = Diagnostics(diagnostics);
+		Token location;
+		@errors.error(location, "no current target analysis is available for native emission");
+		return 1;
+	};
+	if (lease.value().diagnostics().failed()) {
+		lease.value().diagnostics().replay(diagnostics);
+		return 1;
+	};
+	usize index = 0;
+	while (index < lease.value().source_count()) {
+		var path = rt::string(lease.value().source_path(index));
+		rt::string_view text = lease.value().source_text(index);
+		callback(context, path.c_str(), text.data(), text.size());
+		@index = index + 1;
+	};
+	return 0;
+};

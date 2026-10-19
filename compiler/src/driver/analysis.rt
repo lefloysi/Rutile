@@ -1,3 +1,23 @@
+using ProgressCallback = ((var void*, char*, usize, usize, char*) -> void)*;
+
+struct CompilerProgress {
+	fn CompilerProgress(var CompilerProgress& this) : [default];
+	fn CompilerProgress(var CompilerProgress& this, CompilerProgress& other) : [implicit, default];
+	fn report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail);
+
+	ProgressCallback callback;
+	var void* context;
+};
+
+fn CompilerProgress::report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail) {
+	if (!this.callback) {
+		return;
+	};
+	var phase_text = rt::string(phase);
+	var detail_text = rt::string(detail);
+	this.callback(this.context, phase_text.c_str(), $completed, $total, detail_text.c_str());
+};
+
 struct EditorTemplateSelection {
 	rt::string path;
 	usize anchor;
@@ -11,6 +31,7 @@ struct Analysis {
 	fn Analysis(var Analysis& this) : [default];
 	fn Analysis(var Analysis& this, var NativeFile* output);
 
+	fn set_progress(var Analysis& this, CompilerProgress progress);
 	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool;
 	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
@@ -33,6 +54,7 @@ private:
 	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
 
 	rt::unique<EditorTemplateSelection> template_selection;
+	CompilerProgress progress;
 	SourceManager sources;
 	TypeStore types;
 	rt::buffer<rt::unique<Syntax>> syntax;
@@ -126,4 +148,8 @@ fn Analysis::template_context_label(Analysis& this) -> rt::string_view {
 		return rt::string_view();
 	};
 	return this.template_selection.get()->label.view();
+};
+
+fn Analysis::set_progress(var Analysis& this, CompilerProgress progress) {
+	@this.progress = $progress;
 };

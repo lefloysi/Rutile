@@ -42,10 +42,11 @@ private:
 };
 
 struct Compilation {
-	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output);
+	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output, CompilerProgress progress);
 	fn run(var Compilation& this, rt::string_view output_path, rt::string_view entry, i32 optimization, output_kind kind) -> i32;
 
 private:
+	CompilerProgress progress;
 	Analysis* analysis;
 	FileOpener opener;
 	Diagnostics diagnostics;
@@ -59,6 +60,7 @@ struct Compiler {
 	fn Compiler(var Compiler& this);
 	fn ~Compiler(var Compiler& this);
 
+	fn set_progress(var Compiler& this, CompilerProgress progress);
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
 	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
 	fn acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
@@ -69,11 +71,14 @@ struct Compiler {
 	fn acquire_analysis(var Compiler& this) -> AnalysisLease;
 	fn release_analysis(var Compiler& this, var PublishedAnalysis& entry);
 	fn emit_current(var Compiler& this, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 	fn compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 private:
 	fn collect_retired(var Compiler& this);
+	fn finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
+	CompilerProgress progress;
 	var RuntimeMutex* publication_mutex;
 	rt::unordered_map<rt::string_view, rt::unique<TargetAnalysis>> targets;
 	rt::buffer<rt::unique<PublishedAnalysis>> retired;
@@ -268,7 +273,8 @@ fn Compiler::collect_retired(var Compiler& this) {
 	};
 };
 
-fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output) {
+fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output, CompilerProgress progress) {
+	@this.progress = $progress;
 	@this.opener = $opener;
 	@this.analysis = &@analysis;
 	@this.diagnostics = Diagnostics($output);
@@ -322,6 +328,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 		return @this.failure("analysis target pointer width does not match the native output target");
 	};
 
+	@this.backend.get()->set_progress(this.progress);
 	if (!@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)) {
 		return @this.failure("internal compiler error: native emission failed without a diagnostic");
 	};
@@ -357,7 +364,7 @@ fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_vie
 		return 1;
 	};
 
-	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics);
+	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics, this.progress);
 	return @compilation.run(output_path, entry, $optimization, $kind);
 };
 
@@ -385,6 +392,8 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 		return 1;
 	};
 
+	@analysis.get()->set_progress(this.progress);
+	this.progress.report("reading", 0, paths.size(), "");
 	usize index = 0;
 	while (index < paths.size()) {
 		rt::string_view path := paths.data()[index];
@@ -397,14 +406,21 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 			return 1;
 		};
 		@index = index + 1;
+		this.progress.report("reading", index, paths.size(), path);
 	};
 
+	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
+};
+
+fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+	var errors = Diagnostics(diagnostics);
+	Token location;
 	if (!@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)) {
 		@errors.error(location, "internal compiler error: analysis could not complete");
 		return 1;
 	};
 
-	var compilation = Compilation(*analysis.get(), opener, diagnostics);
+	var compilation = Compilation(*analysis.get(), opener, diagnostics, this.progress);
 	i32 result = @compilation.run(output_path, entry, $optimization, $kind);
 
 	if (!@this.publish($analysis)) {
@@ -413,4 +429,43 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 	};
 
 	return $result;
+};
+
+fn Compiler::set_progress(var Compiler& this, CompilerProgress progress) {
+	@this.progress = $progress;
+};
+
+fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+	var errors = Diagnostics(diagnostics);
+	Token location;
+	if (!paths.size() || paths.size() != texts.size()) {
+		@errors.error(location, "source paths and source texts must have matching nonzero counts");
+		return 1;
+	};
+	if (output_path.empty()) {
+		@errors.error(location, "native object output path is required");
+		return 1;
+	};
+	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
+	if (!analysis.get()) {
+		@errors.error(location, "analysis storage is unavailable");
+		return 1;
+	};
+	@analysis.get()->set_progress(this.progress);
+	this.progress.report("reading", 0, paths.size(), "");
+	usize index = 0;
+	while (index < paths.size()) {
+		rt::string_view path := paths.data()[index];
+		if (path.empty() || path == output_path) {
+			@errors.error(location, "output cannot overwrite a source file");
+			return 1;
+		};
+		if (!@analysis.get()->add_source(path, texts.data()[index])) {
+			@errors.error(location, "source storage is unavailable");
+			return 1;
+		};
+		@index = index + 1;
+		this.progress.report("reading", index, paths.size(), path);
+	};
+	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
 };

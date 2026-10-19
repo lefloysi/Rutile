@@ -36,6 +36,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		return true;
 	};
 	Diagnostics parse_errors;
+	this.progress.report("parsing", 0, this.sources.count(), "");
 	usize index = 0;
 	while (index < this.sources.count()) {
 		if (this.messages.cancelled()) {
@@ -72,8 +73,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			return false;
 		};
 		@index = index + 1;
+		this.progress.report("parsing", index, this.sources.count(), file->path());
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
+	@analyzer.set_progress(this.progress);
 	@analyzer.set_editor($editor);
 	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
 	if (!analyzed && !this.messages.failed()) {
@@ -123,10 +126,12 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 	};
 	if (analyzed) {
+		this.progress.report("lifetimes", 0, 1, "");
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
 			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic");
 		};
+		this.progress.report("lifetimes", 1, 1, "");
 	};
 	if (this.messages.cancelled()) {
 		return false;

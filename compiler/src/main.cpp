@@ -1,3 +1,5 @@
+#include "service.hpp"
+
 #include "platform.hpp"
 
 #include <CLI/CLI.hpp>
@@ -18,7 +20,14 @@ extern "C" std::FILE* compiler_open_native_file(const char* path, const char* mo
 }
 
 int main(int argc, char** argv) {
+	if (argc == 3 && std::string_view(argv[1]) == "serve") {
+		return rutile_service_serve(argv[2]);
+	}
+	if (argc == 2 && (std::string_view(argv[1]) == "status" || std::string_view(argv[1]) == "exit")) {
+		return rutile_service_control(argv[1]);
+	}
 	CLI::App command{ "Compile Rutile sources into a native object." };
+	command.footer("Service operations: compiler status, compiler exit. Kiln starts the persistent compiler automatically.");
 	command.set_version_flag("--version", std::string(software_version));
 	argv = command.ensure_utf8(argv);
 	std::vector<std::string> inputs;
@@ -44,7 +53,7 @@ int main(int argc, char** argv) {
 		std::vector<std::filesystem::path> members;
 		for (std::filesystem::recursive_directory_iterator cursor{ path, error }, end;
 			!error && cursor != end; cursor.increment(error)) {
-			if (cursor->is_regular_file(error)) {
+			if (cursor->is_regular_file(error) && cursor->path().extension() == ".rt") {
 				members.push_back(cursor->path());
 			}
 		}

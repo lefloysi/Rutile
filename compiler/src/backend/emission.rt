@@ -79,6 +79,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		@this.selected_entry = selected->canonical();
 	};
 
+	this.progress.report("declaring", 0, unit.entities().size(), "");
 	usize index = 0;
 
 	while (index < unit.entities().size()) {
@@ -87,8 +88,10 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("declaring", index, unit.entities().size(), unit.entities().data()[index - 1].get()->name());
 	};
 
+	this.progress.report("emitting", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -103,8 +106,10 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("emitting", index, unit.entities().size(), entity->name());
 	};
 
+	this.progress.report("dispatch", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -115,9 +120,11 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("dispatch", index, unit.entities().size(), entity->name());
 	};
 
 	var LLVMOpaqueValue* initialize;
+	this.progress.report("initializing", 0, unit.entities().size(), "");
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -138,6 +145,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		};
 
 		@index = index + 1;
+		this.progress.report("initializing", index, unit.entities().size(), entity->name());
 	};
 
 	if (initialize) {
@@ -151,6 +159,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index) {
 		@index = index - 1;
 		var Entity* entity = unit.entities().data()[index].get();
+		this.progress.report("finalizing", unit.entities().size() - index, unit.entities().size(), entity->name());
 
 		if (entity->canonical() == entity && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
 			if (!finalize) {
