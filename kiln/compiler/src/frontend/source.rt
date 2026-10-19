@@ -1,7 +1,7 @@
 struct SourceFile {
 	fn SourceFile(var SourceFile& this) : [default];
 
-	fn assign(var SourceFile& this, rt::string_view& path, rt::string_view& text) -> bool;
+	fn assign(var SourceFile& this, rt::string_view path, rt::string_view text) -> bool;
 	fn append_token(var SourceFile& this, Token token) -> bool;
 	fn clear_tokens(var SourceFile& this);
 
@@ -19,7 +19,7 @@ private:
 };
 
 struct SourceManager {
-	fn add(var SourceManager& this, rt::string_view& path, rt::string_view& text) -> var SourceFile*;
+	fn add(var SourceManager& this, rt::string_view path, rt::string_view text) -> var SourceFile*;
 	fn at(auto SourceManager& this, usize index) -> const[this] SourceFile*;
 	fn clear(var SourceManager& this);
 
@@ -29,7 +29,7 @@ private:
 	rt::buffer<rt::unique<SourceFile>> files;
 };
 
-fn SourceFile::assign(var SourceFile& this, rt::string_view& path, rt::string_view& text) -> bool {
+fn SourceFile::assign(var SourceFile& this, rt::string_view path, rt::string_view text) -> bool {
 	rt::string next_path;
 	rt::string next_text;
 	rt::buffer<usize> next_lines;
@@ -99,7 +99,7 @@ fn SourceFile::clear_tokens(var SourceFile& this) {
 	@this.token_buffer.clear();
 };
 
-fn SourceManager::add(var SourceManager& this, rt::string_view& path, rt::string_view& text) -> var SourceFile* {
+fn SourceManager::add(var SourceManager& this, rt::string_view path, rt::string_view text) -> var SourceFile* {
 	var file = rt::unique<SourceFile>::make();
 
 	if (!file.get() || !@file.get()->assign(path, text)) {

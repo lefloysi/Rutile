@@ -13,7 +13,7 @@ struct LanguageServer {
 private:
 	fn dispatch(var LanguageServer& this, rt::json_value& message) -> bool;
 	fn send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool;
-	fn error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view& text) -> bool;
+	fn error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view text) -> bool;
 	fn initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool;
 	fn description() -> rt::json_document;
 
@@ -32,7 +32,7 @@ fn LanguageServer::send(var LanguageServer& this, rt::unique<rt::json_value> mes
 	return message.get() && rt::json_write(*message.get(), @text) && @this.protocol->send(text.view());
 };
 
-fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view& text) -> bool {
+fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view text) -> bool {
 	return @this.send(LanguageJson::failure(id, $code, text));
 };
 

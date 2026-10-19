@@ -53,7 +53,7 @@ struct FunctionEmitter {
 private:
 	fn storage(FunctionEmitter& this, var Entity* entity) -> var LLVMOpaqueValue*;
 	fn terminated(FunctionEmitter& this) -> bool;
-	fn block(var FunctionEmitter& this, rt::string_view& name) -> var LLVMOpaqueBasicBlock*;
+	fn block(var FunctionEmitter& this, rt::string_view name) -> var LLVMOpaqueBasicBlock*;
 
 	fn slot(var FunctionEmitter& this, Type* type) -> var LLVMOpaqueValue*;
 	fn native_slot(var FunctionEmitter& this, var LLVMOpaqueType* type) -> var LLVMOpaqueValue*;
@@ -127,7 +127,7 @@ fn FunctionEmitter::terminated(FunctionEmitter& this) -> bool {
 	return current && LLVMGetBasicBlockTerminator(current) != nullptr;
 };
 
-fn FunctionEmitter::block(var FunctionEmitter& this, rt::string_view& name) -> var LLVMOpaqueBasicBlock* {
+fn FunctionEmitter::block(var FunctionEmitter& this, rt::string_view name) -> var LLVMOpaqueBasicBlock* {
 	var native_name = rt::string(name);
 	return LLVMAppendBasicBlockInContext(this.backend->context(), this.function, native_name.c_str());
 };

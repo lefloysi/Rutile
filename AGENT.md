@@ -140,6 +140,8 @@ Always use goals and subagents when performing work.
   Preserve consistent surrounding usage.
 - Respect the language's move and copy semantics. Copy when the source must remain valid;
   move when its value is consumed, including a parameter's final use.
+- Pass small non-owning views by value for ordinary input parameters. Keep references when
+  receiver identity, copy construction, or mutation of the caller's object requires them.
 - Apply declaration qualifiers when they express an actual contract.
 - Use named casts in C++. Follow the language's own conversion syntax in C source.
 - End Rutile enum entries with a semicolon. Use trailing commas in C and C++ enums.

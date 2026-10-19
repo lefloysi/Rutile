@@ -39,21 +39,21 @@ namespace rt {
 
 		fn make_null() -> unique<json_value>;
 		fn make_boolean(bool value) -> unique<json_value>;
-		fn make_number(string_view& value) -> unique<json_value>;
+		fn make_number(string_view value) -> unique<json_value>;
 		fn make_integer(i64 value) -> unique<json_value>;
 		fn make_unsigned(u64 value) -> unique<json_value>;
 		fn clone(json_value& this) -> unique<json_value>;
-		fn make_string(string_view& value) -> unique<json_value>;
+		fn make_string(string_view value) -> unique<json_value>;
 		fn make_array() -> unique<json_value>;
 		fn make_object() -> unique<json_value>;
 		fn append(var json_value& this, unique<json_value> value) -> bool;
-		fn set(var json_value& this, string_view& key, unique<json_value> value) -> bool;
+		fn set(var json_value& this, string_view key, unique<json_value> value) -> bool;
 
 		fn kind(json_value& this) -> json_kind;
 		fn text(json_value& this) -> string_view;
 		fn boolean(json_value& this) -> bool;
 		fn integer(json_value& this, var i64& result) -> bool;
-		fn member(json_value& this, string_view& key) -> json_value*;
+		fn member(json_value& this, string_view key) -> json_value*;
 		fn item(json_value& this, usize index) -> json_value*;
 		fn key(json_value& this, usize index) -> string_view;
 		fn size(json_value& this) -> usize;
@@ -80,7 +80,7 @@ namespace rt {
 	};
 
 	struct json_parser {
-		fn json_parser(var json_parser& this, string_view& text);
+		fn json_parser(var json_parser& this, string_view text);
 		fn parse(var json_parser& this) -> json_document;
 
 	private:
@@ -90,7 +90,7 @@ namespace rt {
 		string failure;
 
 		fn whitespace(var json_parser& this);
-		fn fail(var json_parser& this, string_view& message) -> bool;
+		fn fail(var json_parser& this, string_view message) -> bool;
 		fn hex_quad(var json_parser& this, var u32& value) -> bool;
 		fn string_value(var json_parser& this, var string& result) -> bool;
 		fn value(var json_parser& this, usize depth) -> unique<json_value>;
@@ -113,7 +113,7 @@ namespace rt {
 		};
 	};
 
-	fn json_number_end(string_view& input, usize begin) -> usize {
+	fn json_number_end(string_view input, usize begin) -> usize {
 		usize cursor = begin;
 		if (cursor < input.size() && input.data()[cursor] == '-') {
 			@cursor = cursor + 1;
@@ -158,7 +158,7 @@ namespace rt {
 		return cursor;
 	};
 
-	fn json_utf8_width(string_view& text, usize offset) -> usize {
+	fn json_utf8_width(string_view text, usize offset) -> usize {
 		if (offset >= text.size()) {
 			return 0;
 		};
@@ -205,7 +205,7 @@ namespace rt {
 		return width;
 	};
 
-	fn json_valid_utf8(string_view& text) -> bool {
+	fn json_valid_utf8(string_view text) -> bool {
 		usize offset = 0;
 		while (offset < text.size()) {
 			usize width = json_utf8_width(text, offset);
@@ -230,7 +230,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_number(string_view& value) -> unique<json_value> {
+	fn json_value::make_number(string_view value) -> unique<json_value> {
 		if (!value.size() || json_number_end(value, 0) != value.size()) {
 			return unique<json_value>();
 		};
@@ -304,7 +304,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_string(string_view& value) -> unique<json_value> {
+	fn json_value::make_string(string_view value) -> unique<json_value> {
 		if (!json_valid_utf8(value)) {
 			return unique<json_value>();
 		};
@@ -345,7 +345,7 @@ namespace rt {
 		return @this.payload.array.push_back($value);
 	};
 
-	fn json_value::set(var json_value& this, string_view& key, unique<json_value> value) -> bool {
+	fn json_value::set(var json_value& this, string_view key, unique<json_value> value) -> bool {
 		if (this.tag != json_kind::object || !value.get() || !json_valid_utf8(key)) {
 			return false;
 		};
@@ -415,7 +415,7 @@ namespace rt {
 		return true;
 	};
 
-	fn json_value::member(json_value& this, string_view& key) -> json_value* {
+	fn json_value::member(json_value& this, string_view key) -> json_value* {
 		if (this.tag != json_kind::object) {
 			return nullptr;
 		};
@@ -478,7 +478,7 @@ namespace rt {
 		return this.offset;
 	};
 
-	fn json_parser::json_parser(var json_parser& this, string_view& text) {
+	fn json_parser::json_parser(var json_parser& this, string_view text) {
 		@this.input := text;
 	};
 
@@ -492,7 +492,7 @@ namespace rt {
 		};
 	};
 
-	fn json_parser::fail(var json_parser& this, string_view& message) -> bool {
+	fn json_parser::fail(var json_parser& this, string_view message) -> bool {
 		if (!this.failure.size()) {
 			@this.failure_offset = this.cursor;
 			@this.failure.append(message);
@@ -757,12 +757,12 @@ namespace rt {
 	};
 
 	// Parsing and writing accept at most 128 nested container levels.
-	fn json_parse(string_view& input) -> json_document {
+	fn json_parse(string_view input) -> json_document {
 		var parser = json_parser(input);
 		return @parser.parse();
 	};
 
-	fn json_write_string(string_view& value, var string& output) -> bool {
+	fn json_write_string(string_view value, var string& output) -> bool {
 		if (!@output.append(string_view("\"", 1))) {
 			return false;
 		};

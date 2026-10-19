@@ -145,7 +145,7 @@ struct LanguageCancellation {
 };
 
 struct LanguageWorkspace {
-	fn LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, rt::string_view& root);
+	fn LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, rt::string_view root);
 	fn LanguageWorkspace(var LanguageWorkspace& this, LanguageWorkspace& other) : [delete];
 	fn LanguageWorkspace(var LanguageWorkspace& this, LanguageWorkspace other) : [delete];
 	fn ~LanguageWorkspace(var LanguageWorkspace& this);
@@ -156,10 +156,10 @@ struct LanguageWorkspace {
 	fn close(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
 	fn refresh(var LanguageWorkspace& this) -> bool;
 	fn cancel(var LanguageWorkspace& this);
-	fn query(var LanguageWorkspace& this, rt::string_view& method, rt::json_value& parameters) -> rt::unique<rt::json_value>;
+	fn query(var LanguageWorkspace& this, rt::string_view method, rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn status(var LanguageWorkspace& this) -> rt::unique<rt::json_value>;
 
-	fn target_key(rt::string_view& root, LanguageGroup& group, var rt::string& key) -> bool;
+	fn target_key(rt::string_view root, LanguageGroup& group, var rt::string& key) -> bool;
 
 private:
 	fn schedule(var LanguageWorkspace& this) -> bool;
@@ -169,8 +169,8 @@ private:
 	fn receive(var LanguageWorkspace& this);
 	fn retire(var LanguageWorkspace& this, rt::unique<LanguageIndex> index);
 	fn collect_retired(var LanguageWorkspace& this);
-	fn document(var LanguageWorkspace& this, rt::string_view& uri) -> var LanguageDocument*;
-	fn document_key(var LanguageWorkspace& this, rt::string_view& key) -> var LanguageDocument*;
+	fn document(var LanguageWorkspace& this, rt::string_view uri) -> var LanguageDocument*;
+	fn document_key(var LanguageWorkspace& this, rt::string_view key) -> var LanguageDocument*;
 	fn cursor(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var usize& source, var usize& offset) -> bool;
 	fn completion(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn tokens(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool ranged) -> rt::unique<rt::json_value>;
@@ -183,9 +183,9 @@ private:
 	fn template_contexts(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool select) -> rt::unique<rt::json_value>;
 	fn template_context(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> u64;
 	fn hover(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, rt::buffer<u64>& bindings) -> rt::unique<rt::json_value>;
-	fn notify(var LanguageWorkspace& this, rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool;
+	fn notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) -> bool;
 	fn measured(var LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value>;
-	fn contains(rt::string_view& text, rt::string_view& part) -> bool;
+	fn contains(rt::string_view text, rt::string_view part) -> bool;
 	fn append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string_view, bool>& seen, var rt::buffer<rt::string>& keys) -> bool;
 	fn add_project(var void* context, char* group, char* path, i32 kind) -> i32;
 	fn project_error(var void* context, char* text);
@@ -221,7 +221,7 @@ private:
 	rt::unique<LanguageIndex> retired;
 };
 
-fn LanguageWorkspace::LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, rt::string_view& root) {
+fn LanguageWorkspace::LanguageWorkspace(var LanguageWorkspace& this, var Compiler& compiler, var LanguageProtocol& protocol, rt::string_view root) {
 	@this.compiler = &@compiler;
 	@this.protocol = &@protocol;
 	@this.root = rt::string(root);
@@ -479,7 +479,7 @@ fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& par
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view& key) -> var LanguageDocument* {
+fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view key) -> var LanguageDocument* {
 	var found = this.document_names.find(key);
 	if (found) {
 		return *found;
@@ -487,7 +487,7 @@ fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view&
 	return nullptr;
 };
 
-fn LanguageWorkspace::document(var LanguageWorkspace& this, rt::string_view& uri) -> var LanguageDocument* {
+fn LanguageWorkspace::document(var LanguageWorkspace& this, rt::string_view uri) -> var LanguageDocument* {
 	rt::string path;
 	rt::string key;
 	if (!LanguageUri::decode(uri, @path) || !LanguageUri::key(path.view(), @key)) {
@@ -651,7 +651,7 @@ fn LanguageWorkspace::refresh(var LanguageWorkspace& this) -> bool {
 	return @this.schedule();
 };
 
-fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view& method, rt::unique<rt::json_value> parameters) -> bool {
+fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) -> bool {
 	var message = LanguageJson::notification(method, $parameters);
 	rt::string output;
 	return message.get() && rt::json_write(*message.get(), @output) && @this.protocol->send(output.view());

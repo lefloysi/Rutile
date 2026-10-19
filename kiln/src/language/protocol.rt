@@ -21,16 +21,16 @@ struct LanguageProtocol {
 	fn ~LanguageProtocol(var LanguageProtocol& this);
 
 	fn read(var LanguageProtocol& this, var rt::string& body) -> language_frame_status;
-	fn send(var LanguageProtocol& this, rt::string_view& body) -> bool;
+	fn send(var LanguageProtocol& this, rt::string_view body) -> bool;
 	fn error(LanguageProtocol& this) -> rt::string_view;
 	fn ready(LanguageProtocol& this) -> bool;
 
 private:
-	fn fail(var LanguageProtocol& this, rt::string_view& message) -> language_frame_status;
-	fn header_name(rt::string_view& name, rt::string_view& expected) -> bool;
-	fn length(rt::string_view& text, var usize& result) -> bool;
+	fn fail(var LanguageProtocol& this, rt::string_view message) -> language_frame_status;
+	fn header_name(rt::string_view name, rt::string_view expected) -> bool;
+	fn length(rt::string_view text, var usize& result) -> bool;
 	fn decimal(var rt::string& output, u64 value) -> bool;
-	fn write(var LanguageProtocol& this, rt::string_view& bytes) -> bool;
+	fn write(var LanguageProtocol& this, rt::string_view bytes) -> bool;
 
 	var NativeFile* input;
 	var NativeFile* output;
@@ -58,12 +58,12 @@ fn LanguageProtocol::error(LanguageProtocol& this) -> rt::string_view {
 	return rt::string_view(this.failure);
 };
 
-fn LanguageProtocol::fail(var LanguageProtocol& this, rt::string_view& message) -> language_frame_status {
+fn LanguageProtocol::fail(var LanguageProtocol& this, rt::string_view message) -> language_frame_status {
 	@this.failure = rt::string_view(message);
 	return language_frame_status::error;
 };
 
-fn LanguageProtocol::header_name(rt::string_view& name, rt::string_view& expected) -> bool {
+fn LanguageProtocol::header_name(rt::string_view name, rt::string_view expected) -> bool {
 	if (name.size() != expected.size()) {
 		return false;
 	};
@@ -84,7 +84,7 @@ fn LanguageProtocol::header_name(rt::string_view& name, rt::string_view& expecte
 	return true;
 };
 
-fn LanguageProtocol::length(rt::string_view& text, var usize& result) -> bool {
+fn LanguageProtocol::length(rt::string_view text, var usize& result) -> bool {
 	if (text.empty()) {
 		return false;
 	};
@@ -222,7 +222,7 @@ fn LanguageProtocol::decimal(var rt::string& output, u64 value) -> bool {
 	return true;
 };
 
-fn LanguageProtocol::write(var LanguageProtocol& this, rt::string_view& bytes) -> bool {
+fn LanguageProtocol::write(var LanguageProtocol& this, rt::string_view bytes) -> bool {
 	usize offset = 0;
 	while (offset < bytes.size()) {
 		usize written = fwrite(bytes.data() + offset, 1, bytes.size() - offset, this.output);
@@ -234,7 +234,7 @@ fn LanguageProtocol::write(var LanguageProtocol& this, rt::string_view& bytes) -
 	return true;
 };
 
-fn LanguageProtocol::send(var LanguageProtocol& this, rt::string_view& body) -> bool {
+fn LanguageProtocol::send(var LanguageProtocol& this, rt::string_view body) -> bool {
 	if (!this.ready()) {
 		return false;
 	};

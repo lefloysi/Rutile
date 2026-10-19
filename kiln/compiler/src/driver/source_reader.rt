@@ -1,16 +1,16 @@
 struct SourceReader {
 	fn SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics);
 
-	fn load(var SourceReader& this, rt::string_view& path) -> var SourceFile*;
+	fn load(var SourceReader& this, rt::string_view path) -> var SourceFile*;
 
 private:
-	fn error(var SourceReader& this, rt::string_view& path, rt::string_view& operation);
+	fn error(var SourceReader& this, rt::string_view path, rt::string_view operation);
 	FileOpener opener;
 	var SourceManager* sources;
 	var Diagnostics* diagnostics;
 };
 
-fn SourceReader::error(var SourceReader& this, rt::string_view& path, rt::string_view& operation) {
+fn SourceReader::error(var SourceReader& this, rt::string_view path, rt::string_view operation) {
 	var message = DiagnosticMessage();
 	@message.text(operation);
 	@message.text(rt::string_view(" source file ", 13));
@@ -25,7 +25,7 @@ fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var Sou
 	@this.diagnostics = &@diagnostics;
 };
 
-fn SourceReader::load(var SourceReader& this, rt::string_view& path) -> var SourceFile* {
+fn SourceReader::load(var SourceReader& this, rt::string_view path) -> var SourceFile* {
 	var native_path = rt::string(path);
 	var file = File(this.opener(native_path.c_str(), "rb\0"));
 

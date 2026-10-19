@@ -43,7 +43,7 @@ private:
 
 struct Compilation {
 	fn Compilation(var Compilation& this, Analysis& analysis, FileOpener opener, var NativeFile* output);
-	fn run(var Compilation& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, output_kind kind) -> i32;
+	fn run(var Compilation& this, rt::string_view output_path, rt::string_view entry, i32 optimization, output_kind kind) -> i32;
 
 private:
 	Analysis* analysis;
@@ -51,25 +51,25 @@ private:
 	Diagnostics diagnostics;
 	rt::unique<Backend> backend;
 
-	fn failure(var Compilation& this, rt::string_view& message) -> i32;
-	fn output_failure(var Compilation& this, rt::string_view& operation, rt::string_view& path) -> i32;
+	fn failure(var Compilation& this, rt::string_view message) -> i32;
+	fn output_failure(var Compilation& this, rt::string_view operation, rt::string_view path) -> i32;
 };
 
 struct Compiler {
 	fn Compiler(var Compiler& this);
 	fn ~Compiler(var Compiler& this);
 
-	fn expect_target(var Compiler& this, rt::string_view& key, u64 revision) -> bool;
-	fn publish_target(var Compiler& this, rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
-	fn acquire_target(var Compiler& this, rt::string_view& key) -> AnalysisLease;
-	fn acquire_current_target(var Compiler& this, rt::string_view& key) -> AnalysisLease;
-	fn emit_target(var Compiler& this, rt::string_view& key, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
+	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
+	fn acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
+	fn acquire_current_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
+	fn emit_target(var Compiler& this, rt::string_view key, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 	fn publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool;
 	fn acquire_analysis(var Compiler& this) -> AnalysisLease;
 	fn release_analysis(var Compiler& this, var PublishedAnalysis& entry);
-	fn emit_current(var Compiler& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
-	fn compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view& output_path, FileOpener opener, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn emit_current(var Compiler& this, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
+	fn compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 private:
 	fn collect_retired(var Compiler& this);
@@ -118,7 +118,7 @@ fn AnalysisLease::revision(AnalysisLease& this) -> u64 {
 	return this.entry->revision;
 };
 
-fn Compiler::expect_target(var Compiler& this, rt::string_view& key, u64 revision) -> bool {
+fn Compiler::expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool {
 	if (!this.publication_mutex) {
 		return false;
 	};
@@ -147,7 +147,7 @@ fn Compiler::expect_target(var Compiler& this, rt::string_view& key, u64 revisio
 	return $inserted;
 };
 
-fn Compiler::publish_target(var Compiler& this, rt::string_view& key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
+fn Compiler::publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
 	if (!this.publication_mutex || !analysis.get()) {
 		return analysis_publication::unavailable;
 	};
@@ -201,7 +201,7 @@ fn Compiler::publish(var Compiler& this, rt::unique<Analysis> analysis) -> bool 
 	return @this.publish_target(key, 0, $analysis) == analysis_publication::published;
 };
 
-fn Compiler::acquire_target(var Compiler& this, rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
@@ -219,7 +219,7 @@ fn Compiler::acquire_target(var Compiler& this, rt::string_view& key) -> Analysi
 	return AnalysisLease(@this, $entry);
 };
 
-fn Compiler::acquire_current_target(var Compiler& this, rt::string_view& key) -> AnalysisLease {
+fn Compiler::acquire_current_target(var Compiler& this, rt::string_view key) -> AnalysisLease {
 	if (!this.publication_mutex) {
 		return AnalysisLease();
 	};
@@ -274,7 +274,7 @@ fn Compilation::Compilation(var Compilation& this, Analysis& analysis, FileOpene
 	@this.diagnostics = Diagnostics($output);
 };
 
-fn Compilation::failure(var Compilation& this, rt::string_view& message) -> i32 {
+fn Compilation::failure(var Compilation& this, rt::string_view message) -> i32 {
 	if (!this.diagnostics.failed()) {
 		Token location;
 		@this.diagnostics.error(location, message);
@@ -283,7 +283,7 @@ fn Compilation::failure(var Compilation& this, rt::string_view& message) -> i32 
 	return 1;
 };
 
-fn Compilation::output_failure(var Compilation& this, rt::string_view& operation, rt::string_view& path) -> i32 {
+fn Compilation::output_failure(var Compilation& this, rt::string_view operation, rt::string_view path) -> i32 {
 	var message = DiagnosticMessage();
 	@message.text(operation);
 	@message.text(rt::string_view(" native object output ", 22));
@@ -300,7 +300,7 @@ fn Compilation::output_failure(var Compilation& this, rt::string_view& operation
 	return 1;
 };
 
-fn Compilation::run(var Compilation& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, output_kind kind) -> i32 {
+fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::string_view entry, i32 optimization, output_kind kind) -> i32 {
 	if (this.analysis->diagnostics().failed() || !this.analysis->semantics()) {
 		return 1;
 	};
@@ -343,7 +343,7 @@ fn Compilation::run(var Compilation& this, rt::string_view& output_path, rt::str
 	return 0;
 };
 
-fn Compiler::emit_target(var Compiler& this, rt::string_view& key, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var lease = @this.acquire_current_target(key);
 	if (!lease.get()) {
 		var errors = Diagnostics($diagnostics);
@@ -361,11 +361,11 @@ fn Compiler::emit_target(var Compiler& this, rt::string_view& key, rt::string_vi
 	return @compilation.run(output_path, entry, $optimization, $kind);
 };
 
-fn Compiler::emit_current(var Compiler& this, rt::string_view& output_path, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::emit_current(var Compiler& this, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	return @this.emit_target(rt::string_view(), output_path, entry, $optimization, $diagnostics, $kind);
 };
 
-fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view& output_path, FileOpener opener, rt::string_view& entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
+fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var errors = Diagnostics(diagnostics);
 	Token location;
 

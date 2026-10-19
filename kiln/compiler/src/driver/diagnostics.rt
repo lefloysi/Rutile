@@ -11,8 +11,8 @@ enum diagnostic_message_state : [u08] {
 };
 
 struct DiagnosticMessage {
-	fn text(var DiagnosticMessage& this, rt::string_view& value);
-	fn quoted(var DiagnosticMessage& this, rt::string_view& value);
+	fn text(var DiagnosticMessage& this, rt::string_view value);
+	fn quoted(var DiagnosticMessage& this, rt::string_view value);
 	fn number(var DiagnosticMessage& this, u64 value);
 	fn view(DiagnosticMessage& this) -> rt::string_view;
 
@@ -36,9 +36,9 @@ struct Diagnostics {
 	fn Diagnostics(var Diagnostics& this) : [default];
 	fn Diagnostics(var Diagnostics& this, var NativeFile* output);
 
-	fn error(var Diagnostics& this, Token& location, rt::string_view& message);
-	fn syntax_error(var Diagnostics& this, Token& location, rt::string_view& message);
-	fn note(var Diagnostics& this, Token& location, rt::string_view& message);
+	fn error(var Diagnostics& this, Token& location, rt::string_view message);
+	fn syntax_error(var Diagnostics& this, Token& location, rt::string_view message);
+	fn note(var Diagnostics& this, Token& location, rt::string_view message);
 	fn replay(Diagnostics& this, var NativeFile* output);
 	fn records(Diagnostics& this) -> rt::buffer<DiagnosticRecord>&;
 	fn set_cancellation(var Diagnostics& this, ((var void*) -> i32)* callback, var void* context);
@@ -53,16 +53,16 @@ private:
 	((var void*) -> i32)* cancellation;
 	var void* cancellation_context;
 
-	fn write(Diagnostics& this, var NativeFile* output, Token& location, rt::string_view& severity, rt::string_view& message);
+	fn write(Diagnostics& this, var NativeFile* output, Token& location, rt::string_view severity, rt::string_view message);
 };
 
-fn DiagnosticMessage::text(var DiagnosticMessage& this, rt::string_view& value) {
+fn DiagnosticMessage::text(var DiagnosticMessage& this, rt::string_view value) {
 	if (this.state == diagnostic_message_state::complete && !@this.contents.append(value)) {
 		@this.state = diagnostic_message_state::unavailable;
 	};
 };
 
-fn DiagnosticMessage::quoted(var DiagnosticMessage& this, rt::string_view& value) {
+fn DiagnosticMessage::quoted(var DiagnosticMessage& this, rt::string_view value) {
 	@this.text(rt::string_view("'", 1));
 	usize index = 0;
 	while (index < value.size()) {
@@ -120,7 +120,7 @@ fn Diagnostics::failed(Diagnostics& this) -> bool {
 	return this.state == diagnostic_state::failed || this.cancelled();
 };
 
-fn Diagnostics::error(var Diagnostics& this, Token& location, rt::string_view& message) {
+fn Diagnostics::error(var Diagnostics& this, Token& location, rt::string_view message) {
 	@this.state = diagnostic_state::failed;
 	DiagnosticRecord record;
 	@record.location := location;
@@ -129,7 +129,7 @@ fn Diagnostics::error(var Diagnostics& this, Token& location, rt::string_view& m
 	this.write(this.output, location, "error\0", message);
 };
 
-fn Diagnostics::note(var Diagnostics& this, Token& location, rt::string_view& message) {
+fn Diagnostics::note(var Diagnostics& this, Token& location, rt::string_view message) {
 	if (!this.messages.size()) {
 		return;
 	};
@@ -155,7 +155,7 @@ fn Diagnostics::cancelled(Diagnostics& this) -> bool {
 	return this.cancellation && this.cancellation(this.cancellation_context) != 0;
 };
 
-fn Diagnostics::write(Diagnostics& this, var NativeFile* output, Token& location, rt::string_view& severity, rt::string_view& message) {
+fn Diagnostics::write(Diagnostics& this, var NativeFile* output, Token& location, rt::string_view severity, rt::string_view message) {
 
 	if (!output) {
 		return;
@@ -196,7 +196,7 @@ fn Diagnostics::replay(Diagnostics& this, var NativeFile* output) {
 	};
 };
 
-fn Diagnostics::syntax_error(var Diagnostics& this, Token& location, rt::string_view& message) {
+fn Diagnostics::syntax_error(var Diagnostics& this, Token& location, rt::string_view message) {
 	var rendered = DiagnosticMessage();
 	@rendered.text(message);
 	if (location.source) {

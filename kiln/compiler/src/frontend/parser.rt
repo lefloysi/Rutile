@@ -53,8 +53,8 @@ private:
 	fn peek(Parser& this) -> Token;
 	fn take(var Parser& this) -> Token;
 	fn accept(var Parser& this, token_kind& kind) -> bool;
-	fn require(var Parser& this, token_kind& kind, rt::string_view& message) -> bool;
-	fn fail(var Parser& this, rt::string_view& message);
+	fn require(var Parser& this, token_kind& kind, rt::string_view message) -> bool;
+	fn fail(var Parser& this, rt::string_view message);
 
 	fn node(var Parser& this, syntax_kind kind, Token& token) -> rt::unique<Syntax>;
 	fn absent(var Parser& this) -> rt::unique<Syntax>;
@@ -163,7 +163,7 @@ fn Parser::accept(var Parser& this, token_kind& kind) -> bool {
 	return true;
 };
 
-fn Parser::require(var Parser& this, token_kind& kind, rt::string_view& message) -> bool {
+fn Parser::require(var Parser& this, token_kind& kind, rt::string_view message) -> bool {
 	if (@this.accept(kind)) {
 		return true;
 	};
@@ -175,7 +175,7 @@ fn Parser::require(var Parser& this, token_kind& kind, rt::string_view& message)
 	return false;
 };
 
-fn Parser::fail(var Parser& this, rt::string_view& message) {
+fn Parser::fail(var Parser& this, rt::string_view message) {
 	if (this.failure.empty()) {
 		@this.failure := message;
 		@this.failure_location = this.peek();

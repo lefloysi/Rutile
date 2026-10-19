@@ -1,7 +1,9 @@
 fn shared_analysis_tests() -> i32 {
 	var compiler = Compiler();
 	var analysis = rt::unique<Analysis>::make();
-	if (!analysis.get() || !@analysis.get()->add_source("shared.rt\0", "fn answer() -> i32 { return 42; };\0") || !@analysis.get()->analyze(64, nullptr, nullptr)) {
+	rt::string path = rt::string("shared.rt\0");
+	rt::string text = rt::string("fn answer() -> i32 { return 42; };\0");
+	if (!analysis.get() || !@analysis.get()->add_source(path, text) || !@analysis.get()->analyze(64, nullptr, nullptr)) {
 		return 1;
 	};
 	const SemanticUnit* unit = analysis.get()->semantics();
@@ -263,7 +265,7 @@ fn completion_metadata_tests() -> i32 {
 	return 42;
 };
 
-fn receiver_has(const NavigationIndex& index, const NavigationReceiver& receiver, const rt::string_view& name) -> bool {
+fn receiver_has(const NavigationIndex& index, const NavigationReceiver& receiver, rt::string_view name) -> bool {
 	usize candidate = 0;
 	while (candidate < receiver.candidates.size()) {
 		const NavigationSymbol* symbol = index.symbol_at(static_cast<usize>(receiver.candidates.data()[candidate] - 1));

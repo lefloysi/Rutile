@@ -20,7 +20,7 @@ struct Backend {
 	fn ~Backend(var Backend& this);
 
 	fn initialize(var Backend& this, i32 optimization) -> bool;
-	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view& entry, output_kind output) -> bool;
+	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> bool;
 	fn write(var Backend& this, var File& output) -> bool;
 
 	fn pointer_bits(Backend& this) -> u32;
@@ -36,8 +36,8 @@ struct Backend {
 	fn builder(Backend& this) -> var LLVMOpaqueBuilder*;
 	fn layout(Backend& this) -> var LLVMOpaqueTargetData*;
 
-	fn error(var Backend& this, Token& token, rt::string_view& message) -> bool;
-	fn note(var Backend& this, Token& token, rt::string_view& message);
+	fn error(var Backend& this, Token& token, rt::string_view message) -> bool;
+	fn note(var Backend& this, Token& token, rt::string_view message);
 	fn failed(Backend& this) -> bool;
 
 private:
@@ -51,7 +51,7 @@ private:
 	fn emit_dispatch(var Backend& this, var Entity* entity) -> bool;
 	fn dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqueValue* receiver) -> var LLVMOpaqueValue*;
 	fn entry(var Backend& this, var Entity* entity) -> bool;
-	fn register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, rt::string_view& name);
+	fn register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, rt::string_view name);
 
 	var Diagnostics* diagnostics;
 	var Entity* selected_entry;
@@ -98,7 +98,7 @@ fn Backend::failed(Backend& this) -> bool {
 	return this.diagnostics->failed();
 };
 
-fn Backend::error(var Backend& this, Token& token, rt::string_view& message) -> bool {
+fn Backend::error(var Backend& this, Token& token, rt::string_view message) -> bool {
 	@this.diagnostics->error(token, message);
 	return false;
 };
@@ -262,6 +262,6 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	return true;
 };
 
-fn Backend::note(var Backend& this, Token& token, rt::string_view& message) {
+fn Backend::note(var Backend& this, Token& token, rt::string_view message) {
 	@this.diagnostics->note(token, message);
 };

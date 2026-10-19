@@ -15,12 +15,12 @@ private:
 	Token failure_token;
 
 	fn advance(var Lexer& this) -> char;
-	fn fail(var Lexer& this, Token& token, rt::string_view& message) -> bool;
+	fn fail(var Lexer& this, Token& token, rt::string_view message) -> bool;
 	fn trivia(var Lexer& this) -> bool;
 	fn number(var Lexer& this, Token& token) -> bool;
 	fn quoted(var Lexer& this, Token& token, char quote) -> bool;
 	fn symbol(var Lexer& this, var Token& token) -> bool;
-	fn identifier_kind(rt::string_view& spelling) -> token_kind;
+	fn identifier_kind(rt::string_view spelling) -> token_kind;
 	fn identifier_start(char value) -> bool;
 	fn digit(char value) -> bool;
 
@@ -74,7 +74,7 @@ fn Lexer::location(Lexer& this) -> Token {
 	return $token;
 };
 
-fn Lexer::fail(var Lexer& this, Token& token, rt::string_view& message) -> bool {
+fn Lexer::fail(var Lexer& this, Token& token, rt::string_view message) -> bool {
 	@this.failure = rt::string_view(message);
 	@this.failure_token = Token(token);
 	usize size = this.source->text().size();
@@ -116,7 +116,7 @@ fn Lexer::digit(char value) -> bool {
 	return value >= '0' && value <= '9';
 };
 
-fn Lexer::identifier_kind(rt::string_view& spelling) -> token_kind {
+fn Lexer::identifier_kind(rt::string_view spelling) -> token_kind {
 	if (spelling == rt::string_view("fn", 2)) {
 		return token_kind::kw_fn;
 	};

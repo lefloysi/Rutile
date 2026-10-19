@@ -87,7 +87,7 @@ struct Entity {
 	fn canonical(Entity& this) -> var Entity*;
 	fn token(Entity& this) -> Token;
 	fn name(Entity& this) -> rt::string_view;
-	fn set_name(var Entity& this, rt::string_view& name) -> bool;
+	fn set_name(var Entity& this, rt::string_view name) -> bool;
 	fn origin(Entity& this) -> declaration_origin;
 	fn set_origin(var Entity& this, declaration_origin origin);
 	fn merge_into(var Entity& this, var Entity* canonical);
@@ -113,7 +113,7 @@ struct Entity {
 	fn set_resolution_scope(var Entity& this, var Scope* scope);
 	fn members(Entity& this) -> var Scope*;
 	fn set_members(var Entity& this, var Scope* scope);
-	fn find_member(Entity& this, rt::string_view& name) -> var Entity*;
+	fn find_member(Entity& this, rt::string_view name) -> var Entity*;
 
 	fn parameters(Entity& this) -> rt::buffer<var Entity*>&;
 	fn add_parameter(var Entity& this, var Entity* parameter) -> bool;
@@ -220,7 +220,7 @@ private:
 	rt::unique<SemanticExpression> implementation;
 };
 
-fn Entity::find_member(Entity& this, rt::string_view& name) -> var Entity* {
+fn Entity::find_member(Entity& this, rt::string_view name) -> var Entity* {
 	if (!this.members()) {
 		return nullptr;
 	};
@@ -435,7 +435,7 @@ fn Entity::name(Entity& this) -> rt::string_view {
 	return this.location.text();
 };
 
-fn Entity::set_name(var Entity& this, rt::string_view& name) -> bool {
+fn Entity::set_name(var Entity& this, rt::string_view name) -> bool {
 	return @this.generated_name.append(name);
 };
 
