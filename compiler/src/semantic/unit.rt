@@ -76,6 +76,12 @@ struct SemanticClassification {
 	u32 modifiers;
 };
 
+struct InlineRecord {
+	var Syntax* syntax;
+	var Scope* scope;
+	var Entity* entity;
+};
+
 struct SemanticUnit {
 	fn create_pack(var SemanticUnit& this) -> var TemplatePack*;
 	fn associate(var SemanticUnit& this, Type& type, var Entity& owner) -> bool;
@@ -89,6 +95,8 @@ struct SemanticUnit {
 	fn function_use(var SemanticUnit& this, Type& type, rt::buffer<ParameterUse> parameters, TypeUse& result) -> TypeUse*;
 	fn create_scope(var SemanticUnit& this, var Scope* parent, var Entity* owner) -> var Scope*;
 	fn create_entity(var SemanticUnit& this, entity_kind kind, Token& token, var Syntax* syntax, var Scope* scope) -> var Entity*;
+	fn inline_record(SemanticUnit& this, Syntax& syntax, Scope& scope) -> var Entity*;
+	fn retain_inline_record(var SemanticUnit& this, var Syntax& syntax, var Scope& scope, var Entity& entity) -> bool;
 
 	fn associated_owner(SemanticUnit& this, Type& type) -> var Entity*;
 	fn entities(SemanticUnit& this) -> rt::buffer<rt::unique<Entity>>&;
@@ -126,6 +134,7 @@ private:
 	rt::buffer<SemanticScopeRegion> regions;
 	rt::buffer<SemanticCallSite> calls;
 	rt::buffer<SemanticReceiverSite> receivers;
+	rt::buffer<InlineRecord> inline_records;
 	var Scope* global_scope;
 	rt::buffer<rt::unique<Scope>> scopes;
 	rt::buffer<rt::unique<Entity>> declarations;

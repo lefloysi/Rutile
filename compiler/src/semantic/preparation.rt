@@ -177,6 +177,9 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name) && selected && !@this.prepare_lifetime(selected->type())) {
 		return false;
 	};
+	if (expression->kind() == semantic_kind::variable && selected && expression->size() && expression->item(0)->kind() == semantic_kind::noop && !@this.prepare_default(selected->type())) {
+		return false;
+	};
 
 	if (expression->kind() == semantic_kind::construction) {
 		if (!@this.prepare_lifetime(expression->type())) {
@@ -242,6 +245,9 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool 
 	var Syntax* initializer = entity.declaration()->variable_initializer();
 
 	if (initializer->kind() == syntax_kind::absent) {
+		if (!@this.prepare_default(entity.type())) {
+			return false;
+		};
 		@entity.set_body_state(entity_state::ready);
 		return true;
 	};

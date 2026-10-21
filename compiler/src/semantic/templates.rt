@@ -428,7 +428,7 @@ fn TemplateEngine::argument_syntax(TemplateEngine& this, var Syntax& source, tem
 	usize index = 0;
 	while (index < source.size()) {
 		var Syntax* candidate = source.item(index);
-		bool type = candidate->kind() == syntax_kind::type_tuple || candidate->kind() == syntax_kind::type_variant || candidate->kind() == syntax_kind::type_grouping || candidate->kind() == syntax_kind::type_name || candidate->kind() == syntax_kind::type_pointer || candidate->kind() == syntax_kind::type_reference || candidate->kind() == syntax_kind::type_array || (candidate->kind() == syntax_kind::type_const || candidate->kind() == syntax_kind::type_mutable) || candidate->kind() == syntax_kind::type_function;
+		bool type = candidate->kind() == syntax_kind::record || candidate->kind() == syntax_kind::type_tuple || candidate->kind() == syntax_kind::type_variant || candidate->kind() == syntax_kind::type_grouping || candidate->kind() == syntax_kind::type_name || candidate->kind() == syntax_kind::type_pointer || candidate->kind() == syntax_kind::type_reference || candidate->kind() == syntax_kind::type_array || (candidate->kind() == syntax_kind::type_const || candidate->kind() == syntax_kind::type_mutable) || candidate->kind() == syntax_kind::type_function;
 
 		if ((kind == template_argument_kind::type) == type) {
 			return $candidate;
@@ -491,7 +491,7 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 	@source = this.argument_syntax(@*source, template_argument_kind::value);
 	Type* expected = @analyzer.type(@scope, @*parameter.template_parameter_type());
 
-	if (!source || source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
+	if (!source || source->kind() == syntax_kind::record || source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		var message = DiagnosticMessage();
 		@message.text("template argument for value parameter ");
 		@message.quoted(this.parameter_name(@parameter)->token().text());
@@ -1768,7 +1768,7 @@ fn TemplateEngine::pack_element(var TemplateEngine& this, var Analyzer& analyzer
 	if (!source) {
 		return false;
 	};
-	if (source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable || source->kind() == syntax_kind::type_function) {
+	if (source->kind() == syntax_kind::record || source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable || source->kind() == syntax_kind::type_function) {
 		@result.kind = template_argument_kind::type;
 		@result.type = @analyzer.type(@scope, @*source);
 		return result.type != nullptr;

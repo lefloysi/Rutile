@@ -1662,7 +1662,11 @@ fn Parser::record(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	@this.add(@*result.get(), rt::unique<Syntax>(@bases.release()));
-	@this.add(@*result.get(), @this.expression(1));
+	if (this.peek().kind != token_kind::punct_left_brace && this.peek().kind != token_kind::punct_semicolon) {
+		@this.fail("expected record body or ';'");
+		return rt::unique<Syntax>();
+	};
+	@this.add(@*result.get(), @this.primary());
 
 	return $result;
 };

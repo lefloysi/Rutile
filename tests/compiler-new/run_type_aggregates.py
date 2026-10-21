@@ -16,6 +16,154 @@ struct Baz {};
 
 
 CASES = [
+
+	("inline-record-local-global", """
+struct { i32 value; } global_value;
+fn main() -> i32 {
+	var struct { i32 value; } local_value;
+	@local_value.value = 42;
+	if (sizeof(local_value) != 4 || global_value.value) { return 1; };
+	return local_value.value;
+};
+""", None),
+	("inline-union-member-layout", """
+struct Holder {
+	u08 before;
+	union { i32 small; i64 large; } storage;
+	u08 after;
+};
+fn main() -> i32 {
+	var Holder holder;
+	@holder.storage.large = i64(42);
+	if (sizeof(Holder) != 24) { return 1; };
+	return i32(holder.storage.large);
+};
+""", None),
+	("inline-record-nested", """
+fn main() -> i32 {
+	var struct { struct { i32 value; } inner; } outer;
+	@outer.inner.value = 42;
+	return outer.inner.value;
+};
+""", None),
+	("inline-record-postfix-types", """
+fn main() -> i32 {
+	const struct { i32 value; }* pointer = nullptr;
+	var struct { i32 value; }[2] entries;
+	@entries[1].value = 42;
+	if (pointer != nullptr || sizeof(entries) != 8) { return 1; };
+	return entries[1].value;
+};
+""", None),
+	("inline-union-generic-member-pack", """
+template<typename...Ts>
+struct Box {
+	union { Ts... values; } storage;
+};
+fn answer(void* value) -> i32 { if (value == nullptr) { return 42; }; return 1; };
+fn main() -> i32 {
+	Box<null> box;
+	if (sizeof(Box<i32, i64>) != 8) { return 1; };
+	return answer(box.storage.values...);
+};
+""", None),
+
+	("inline-record-generic-type-contexts", """
+using Value = struct { i32 value; };
+template Types = <typename...>;
+Types types = <struct { i32 value; }, union { i64 value; }>;
+template<typename T>
+fn width() -> usize { return sizeof(T); };
+template<typename T, typename U>
+fn answer() -> i32 {
+	if (sizeof(T) != 4 || sizeof(U) != 8) { return 1; };
+	return 42;
+};
+fn main() -> i32 {
+	var value = Value(42);
+	if (value.value != 42 || width<struct { i64 value; }>() != 8) { return 1; };
+	return answer<types...>();
+};
+""", None),
+
+	("inline-record-template-identity", """
+template<typename T>
+struct Box {
+	struct { T value; } inner;
+	struct Inner { T value; } first;
+	Inner second;
+};
+fn main() -> i32 {
+	var Box<i32> small;
+	Box<i64> large;
+	@small.inner.value = 42;
+	@small.first.value = 21;
+	@small.second := small.first;
+	var copied = small.inner;
+	@small.inner := copied;
+	if (sizeof(small) != 12 || sizeof(large) != 24 || small.second.value != 21) { return 1; };
+	return copied.value;
+};
+""", None),
+
+	("inline-record-template-exception-identity", """
+template<typename T>
+struct Box { using Error = struct { T value; }; };
+template<typename T>
+fn raise() {
+	var error = Box<T>::Error(T(42));
+	throw $error;
+};
+fn main() -> i32 {
+	try { raise<i32>(); }
+	catch (Box<i64>::Error& wrong) { return 1; }
+	catch (Box<i32>::Error& error) { return error.value; };
+	return 2;
+};
+""", None),
+
+	("inline-record-distinct-identity", """
+fn main() -> i32 {
+	var struct { i32 value; } first;
+	struct { i32 value; } second;
+	@first := second;
+	return 42;
+};
+""", r"(?i)(no applicable|cannot|convert|different|mismatch)"),
+	("inline-record-lifetime", """
+i32 constructed;
+i32 copies;
+i32 destroyed;
+struct Tracked {
+	fn Tracked(var Tracked& this) { @constructed = constructed + 1; };
+	fn Tracked(var Tracked& this, Tracked& other) { @copies = copies + 1; };
+	fn Tracked(var Tracked& this, Tracked other) : [default];
+	fn ~Tracked(var Tracked& this) { @destroyed = destroyed + 1; };
+};
+fn main() -> i32 {
+	{
+		struct { Tracked value; } first;
+		var copied = first;
+		var moved = $copied;
+		if (constructed != 1 || copies != 1 || destroyed) { return 1; };
+	};
+	if (destroyed != 2) { return 2; };
+	return 42;
+};
+""", None),
+	("inline-class-private-access", """
+fn main() -> i32 {
+	class { private: i32 value; }* object = nullptr;
+	return object->value;
+};
+""", r"not accessible from this scope"),
+	("inline-class-public-access", """
+fn main() -> i32 {
+	var class { public: i32 value; } object;
+	@object.value = 42;
+	return object.value;
+};
+""", None),
 	("tuple-declaration", """
 struct Holder { Foo & Bar value; };
 fn accept(rt::tuple<Foo, Bar>* value) -> i32 { return 42; };
