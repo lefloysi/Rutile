@@ -40,10 +40,24 @@ sealed class InterfaceStub<T> : RealProxy {
 }
 
 static class ClassifierLifetimeTests {
+	private static System.Collections.Generic.IList<ClassificationSpan> Colors(object classifier, ITextSnapshot snapshot, int length) {
+		return ((IClassifier)classifier).GetClassificationSpans(new SnapshotSpan(snapshot, 0, length));
+	}
+
+	private static void WaitUntil(Func<bool> condition, string message) {
+		var deadline = DateTime.UtcNow.AddSeconds(5);
+		while (!condition()) {
+			if (DateTime.UtcNow >= deadline) {
+				throw new Exception(message);
+			}
+			Thread.Sleep(10);
+		}
+	}
+
 	static int Main(string[] args) {
 		SynchronizationContext.SetSynchronizationContext(new SynchronizationContext());
 		var properties = new PropertyCollection();
-		const string source = "fn f();";
+		var source = "fn f();";
 		ITextSnapshot snapshot = null;
 		ITextBuffer buffer = null;
 		buffer = new InterfaceStub<ITextBuffer>((method, values) => method.Name == "get_Properties" ? (object)properties : method.Name == "get_CurrentSnapshot" ? snapshot : null).Value;
@@ -172,12 +186,59 @@ static class ClassifierLifetimeTests {
 				if (!target.Opened || target.Legends != 1 || target.Requests == 0) {
 					throw new Exception("Public client lifecycle did not synchronize document, fetch legend and request tokens");
 				}
+				target.Delay = new TaskCompletionSource<bool>();
+				target.Data = new JArray(0, 0, 2, 0, 0);
+				middleLayer.HandleNotificationAsync("textDocument/didSave", opened, _ => Task.CompletedTask).GetAwaiter().GetResult();
+				WaitUntil(() => target.Waiting, "Old server did not receive delayed color request");
+				using (var newRemote = new RpcStream())
+				using (var newSocket = new RpcStream()) {
+					newRemote.Peer = newSocket;
+					newSocket.Peer = newRemote;
+					using (var newServer = new JsonRpc(newRemote))
+					using (var newClient = new JsonRpc(newSocket)) {
+						var replacement = new SemanticServer { Types = new JArray("keyword", "function"), Data = new JArray(0, 0, 2, 0, 0, 0, 3, 1, 1, 0) };
+						newServer.AddLocalRpcTarget(replacement);
+						newServer.StartListening();
+						newClient.StartListening();
+						((ILanguageClientCustomMessage2)languageClient).AttachForCustomMessageAsync(newClient).GetAwaiter().GetResult();
+						WaitUntil(() => Colors(classifier, snapshot, source.Length).Any(item => item.Span.Start.Position == 0 && item.ClassificationType.Classification == "rutile.keyword"), "Replacement legend did not repaint existing buffer");
+						if (replacement.Legends != 1 || replacement.Requests == 0 || !Colors(classifier, snapshot, source.Length).Any(item => item.Span.Start.Position == 3 && item.ClassificationType.Classification == "rutile.function")) {
+							throw new Exception("Reconnect did not use replacement's reordered legend");
+						}
+						target.Delay.SetResult(true);
+						WaitUntil(() => target.Completed, "Old delayed response never completed");
+						Thread.Sleep(100);
+						if (Colors(classifier, snapshot, source.Length).Any(item => item.Span.Start.Position == 0 && item.ClassificationType.Classification == "rutile.function")) {
+							throw new Exception("Late old server response replaced new session colors");
+						}
+						var oldDisconnected = new TaskCompletionSource<bool>();
+						clientRpc.Disconnected += (_, __) => oldDisconnected.TrySetResult(true);
+						clientRpc.Dispose();
+						WaitUntil(() => oldDisconnected.Task.IsCompleted, "Old RPC disconnect notification did not complete");
+						var editorType = assembly.GetType("Rutile.VisualStudio.RutileEditorConnection", true);
+						var editor = editorType.GetProperty("Instance", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+						var activeRpc = editorType.GetProperty("Rpc", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(editor);
+						if (!ReferenceEquals(activeRpc, newClient)) {
+							throw new Exception("Old RPC disconnect cleared the replacement connection");
+						}
+						source = "\"f\"    ";
+						classifier.GetType().GetField("cache", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(classifier, null);
+						replacement.Data = new JArray(0, 1, 1, 1, 0);
+						var edit = new JObject { ["textDocument"] = new JObject { ["uri"] = uri }, ["contentChanges"] = new JArray(new JObject { ["text"] = source }) };
+						middleLayer.HandleNotificationAsync("textDocument/didChange", edit, _ => Task.CompletedTask).GetAwaiter().GetResult();
+						WaitUntil(() => Colors(classifier, snapshot, source.Length).Any(item => item.Span.Start.Position == 1 && item.ClassificationType.Classification == "rutile.function"), "Local string lexer masked authoritative server token");
+						if (Colors(classifier, snapshot, source.Length).Any(item => item.ClassificationType.Classification == "string")) {
+							throw new Exception("Local string classification overrode connected server result");
+						}
+					}
+				}
+
 			}
 
 		}
 
-		var actual = ((IClassifier)classifier).GetClassificationSpans(new SnapshotSpan(snapshot, 0, source.Length));
-		if (!actual.Any(item => item.Span.Start.Position == 3 && item.ClassificationType.Classification == "rutile.function")) {
+		var actual = Colors(classifier, snapshot, source.Length);
+		if (!actual.Any(item => item.Span.Start.Position == 1 && item.ClassificationType.Classification == "rutile.function") || actual.Any(item => item.ClassificationType.Classification == "string")) {
 			throw new Exception("Late-attached compiler function binding was not returned as a function classification");
 		}
 
@@ -187,7 +248,7 @@ static class ClassifierLifetimeTests {
 			throw new Exception("Function format is not yellow: " + color);
 		}
 
-		Console.WriteLine("Public Attach/OnServerInitialized + didOpen + real JSON-RPC tokens + late document function classification PASS");
+		Console.WriteLine("Client init orders, server-owned colors, reordered reconnect legend and stale reply rejection PASS");
 		return 0;
 	}
 }
@@ -196,6 +257,11 @@ sealed class SemanticServer {
 	internal bool Opened;
 	internal int Legends;
 	internal int Requests;
+	internal JArray Types = new JArray("function");
+	internal JArray Data = new JArray(0, 3, 1, 0, 0);
+	internal TaskCompletionSource<bool> Delay;
+	internal volatile bool Waiting;
+	internal volatile bool Completed;
 
 	[JsonRpcMethod("textDocument/didOpen", UseSingleObjectParameterDeserialization = true)]
 	public void Open(JToken parameters) {
@@ -205,13 +271,20 @@ sealed class SemanticServer {
 	[JsonRpcMethod("rutile/semanticTokensLegend", UseSingleObjectParameterDeserialization = true)]
 	public JObject Legend(JToken parameters) {
 		Interlocked.Increment(ref Legends);
-		return new JObject { ["tokenTypes"] = new JArray("function"), ["tokenModifiers"] = new JArray() };
+		return new JObject { ["tokenTypes"] = Types, ["tokenModifiers"] = new JArray() };
 	}
 
 	[JsonRpcMethod("textDocument/semanticTokens/full", UseSingleObjectParameterDeserialization = true)]
-	public JObject Tokens(JToken parameters) {
+	public async Task<JObject> Tokens(JToken parameters) {
 		Interlocked.Increment(ref Requests);
-		return new JObject { ["data"] = new JArray(0, 3, 1, 0, 0) };
+		var data = Data;
+		var delay = Delay;
+		if (delay != null) {
+			Waiting = true;
+			await delay.Task.ConfigureAwait(false);
+			Completed = true;
+		}
+		return new JObject { ["data"] = data.DeepClone() };
 	}
 }
 

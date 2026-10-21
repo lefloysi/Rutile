@@ -1,18 +1,19 @@
 using System;
+using System.Threading;
 using Newtonsoft.Json.Linq;
 using StreamJsonRpc;
 
 namespace Rutile.VisualStudio {
 	internal sealed class RutileEditorConnection {
 		internal static RutileEditorConnection Instance { get; } = new RutileEditorConnection();
-		internal JsonRpc? Rpc { get; private set; }
+		private JsonRpc? connection;
+		internal JsonRpc? Rpc => Volatile.Read(ref connection);
 		internal event EventHandler? Changed;
 
 		internal void Attach(JsonRpc rpc) {
-			Rpc = rpc;
+			Interlocked.Exchange(ref connection, rpc);
 			rpc.Disconnected += (_, __) => {
-				if (ReferenceEquals(Rpc, rpc)) {
-					Rpc = null;
+				if (ReferenceEquals(Interlocked.CompareExchange(ref connection, null, rpc), rpc)) {
 					Changed?.Invoke(this, EventArgs.Empty);
 				}
 			};

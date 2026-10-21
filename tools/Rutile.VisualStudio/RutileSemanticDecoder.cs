@@ -76,6 +76,13 @@ namespace Rutile.VisualStudio {
 					return RutileClassification.Function;
 				case "keyword":
 					return RutileClassification.Keyword;
+				case "controlKeyword":
+					return RutileClassification.Control;
+				case "comment":
+				case "string":
+				case "number":
+				case "operator":
+					return token;
 				default:
 					return null;
 			}

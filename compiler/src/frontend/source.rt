@@ -3,12 +3,14 @@ struct SourceFile {
 
 	fn assign(var SourceFile& this, rt::string_view path, rt::string_view text) -> bool;
 	fn append_token(var SourceFile& this, Token token) -> bool;
+	fn append_comment(var SourceFile& this, Token comment) -> bool;
 	fn clear_tokens(var SourceFile& this);
 
 	fn path(SourceFile& this) -> rt::string_view;
 	fn text(SourceFile& this) -> rt::string_view;
 	fn line(SourceFile& this, usize number) -> rt::string_view;
 	fn tokens(SourceFile& this) -> rt::buffer<Token>&;
+	fn comments(SourceFile& this) -> rt::buffer<Token>&;
 	fn token_count(SourceFile& this) -> usize;
 
 private:
@@ -16,6 +18,7 @@ private:
 	rt::string contents;
 	rt::buffer<usize> line_offsets;
 	rt::buffer<Token> token_buffer;
+	rt::buffer<Token> comment_buffer;
 };
 
 struct SourceManager {
@@ -49,6 +52,7 @@ fn SourceFile::assign(var SourceFile& this, rt::string_view path, rt::string_vie
 	};
 
 	@this.token_buffer.clear();
+	@this.comment_buffer.clear();
 	@this.file_path = $next_path;
 	@this.contents = $next_text;
 	@this.line_offsets = $next_lines;
@@ -87,6 +91,10 @@ fn SourceFile::tokens(SourceFile& this) -> rt::buffer<Token>& {
 	return this.token_buffer;
 };
 
+fn SourceFile::comments(SourceFile& this) -> rt::buffer<Token>& {
+	return this.comment_buffer;
+};
+
 fn SourceFile::token_count(SourceFile& this) -> usize {
 	return this.token_buffer.size();
 };
@@ -95,8 +103,13 @@ fn SourceFile::append_token(var SourceFile& this, Token token) -> bool {
 	return @this.token_buffer.push_back($token);
 };
 
+fn SourceFile::append_comment(var SourceFile& this, Token comment) -> bool {
+	return @this.comment_buffer.push_back($comment);
+};
+
 fn SourceFile::clear_tokens(var SourceFile& this) {
 	@this.token_buffer.clear();
+	@this.comment_buffer.clear();
 };
 
 fn SourceManager::add(var SourceManager& this, rt::string_view path, rt::string_view text) -> var SourceFile* {

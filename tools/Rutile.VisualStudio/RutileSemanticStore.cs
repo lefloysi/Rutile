@@ -106,22 +106,22 @@ namespace Rutile.VisualStudio {
 
 		private void Refresh(string? uri) {
 			string[] names;
+			StreamJsonRpc.JsonRpc? rpc;
+			StreamJsonRpc.JsonRpc? previous;
+			bool changed;
 			lock (gate) {
+				rpc = RutileEditorConnection.Instance.Rpc;
+				previous = connection;
+				changed = !ReferenceEquals(previous, rpc);
+				if (changed) {
+					connection = rpc;
+					legend = Array.Empty<string>();
+				}
 				names = legend;
 			}
-			var rpc = RutileEditorConnection.Instance.Rpc;
-			lock (gate) {
-				if (!ReferenceEquals(connection, rpc)) {
-					if (connection == null && rpc != null && legend.Length != 0) {
-						connection = rpc;
-					}
-					else {
-						legend = Array.Empty<string>();
-						// Document synchronization can precede custom RPC attachment.
-						// Keep open text until didClose so initialization can request colors.
-						connection = rpc;
-						return;
-					}
+			if (changed) {
+				foreach (var buffer in Current(null)) {
+					buffer.CancelConnection(previous);
 				}
 			}
 			if (rpc == null || names.Length == 0) {
@@ -137,6 +137,7 @@ namespace Rutile.VisualStudio {
 				}
 			}
 		}
+
 	}
 
 	internal sealed class SemanticBufferColors {
@@ -145,6 +146,9 @@ namespace Rutile.VisualStudio {
 		private readonly object gate = new object();
 		private IReadOnlyList<ColoredSnapshotSpan> spans = Array.Empty<ColoredSnapshotSpan>();
 		private CancellationTokenSource? request;
+		private StreamJsonRpc.JsonRpc? requestConnection;
+		private StreamJsonRpc.JsonRpc? publishedConnection;
+		private bool published;
 		internal string Uri { get; }
 		internal event EventHandler? Changed;
 
@@ -160,14 +164,32 @@ namespace Rutile.VisualStudio {
 			}
 		}
 
+		internal void CancelConnection(StreamJsonRpc.JsonRpc? previous) {
+			lock (gate) {
+				if (ReferenceEquals(requestConnection, previous)) {
+					request?.Cancel();
+				}
+			}
+			if (notifications != null) {
+				notifications.Post(_ => Changed?.Invoke(this, EventArgs.Empty), null);
+			}
+			else {
+				_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
+					await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+					Changed?.Invoke(this, EventArgs.Empty);
+				});
+			}
+		}
+
 		internal void Translate(TextContentChangedEventArgs args) {
 			lock (gate) {
 				spans = Translate(spans, args.After);
 			}
 		}
 
-		internal IReadOnlyList<ColoredSnapshotSpan> Current(ITextSnapshot snapshot) {
+		internal IReadOnlyList<ColoredSnapshotSpan> Current(ITextSnapshot snapshot, out bool authoritative) {
 			lock (gate) {
+				authoritative = published && publishedConnection != null && ReferenceEquals(publishedConnection, RutileEditorConnection.Instance.Rpc);
 				return Translate(spans, snapshot);
 			}
 		}
@@ -187,14 +209,18 @@ namespace Rutile.VisualStudio {
 
 		internal void Refresh(StreamJsonRpc.JsonRpc rpc, string[] legend, string text) {
 			var snapshot = buffer.CurrentSnapshot;
-			if (snapshot.GetText() != text) {
+			if (!ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc) || snapshot.GetText() != text) {
 				return;
 			}
 			CancellationTokenSource next;
 			lock (gate) {
+				if (!ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc)) {
+					return;
+				}
 				request?.Cancel();
 				next = new CancellationTokenSource();
 				request = next;
+				requestConnection = rpc;
 			}
 			_ = Task.Run(async () => {
 				try {
@@ -203,19 +229,18 @@ namespace Rutile.VisualStudio {
 					if (!(response is JObject result) || !(result["data"] is JArray data)) {
 						return;
 					}
-					if (data.Count == 0) {
-						return;
-					}
 					var decoded = RutileSemanticDecoder.Decode(snapshot.GetText(), data, legend);
 					var prepared = new List<ColoredSnapshotSpan>(decoded.Count);
 					foreach (var item in decoded) {
 						prepared.Add(new ColoredSnapshotSpan(new SnapshotSpan(snapshot, item.Start, item.Length), item.Classification));
 					}
 					lock (gate) {
-						if (next.IsCancellationRequested || !ReferenceEquals(request, next)) {
+						if (next.IsCancellationRequested || !ReferenceEquals(request, next) || !ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc) || buffer.CurrentSnapshot.GetText() != snapshot.GetText()) {
 							return;
 						}
 						spans = Translate(prepared, buffer.CurrentSnapshot);
+						publishedConnection = rpc;
+						published = true;
 					}
 					if (notifications == null) {
 						await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(next.Token);

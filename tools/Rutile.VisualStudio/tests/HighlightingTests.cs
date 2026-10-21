@@ -12,14 +12,10 @@ internal static class HighlightingTests {
 	}
 
 	private static void Lexical() {
-		var text = "fn var struct namespace if return for while break continue switch case default else";
+		var text = "fn var struct namespace if return for while break continue switch case default else true false future_keyword";
 		var tokens = RutileLexicalScanner.Scan(text);
-		Require(tokens.Count == 14, "keyword count");
-		Require(tokens.Take(4).All(value => value.Kind == LexicalKind.Keyword), "ordinary keyword classification");
-		Require(tokens.Skip(4).All(value => value.Kind == LexicalKind.ControlKeyword), "control keywords must remain distinct");
+		Require(tokens.Count == 0, "keyword spellings are owned entirely by the server");
 		Require(RutileLexicalScanner.Scan("ifx Return SomeType i32 variable").Count == 0, "identifiers and type spellings require semantic bindings");
-		var booleanLiterals = RutileLexicalScanner.Scan("true false");
-		Require(booleanLiterals.Count == 2 && booleanLiterals.All(value => value.Kind == LexicalKind.Keyword), "boolean literals are immediately blue");
 
 		text = "// return if\n/* fn \n for */ \"" + "return" + "\" 42.5e-2 'x'";
 		tokens = RutileLexicalScanner.Scan(text);
@@ -28,15 +24,12 @@ internal static class HighlightingTests {
 		Require(tokens[2].Kind == LexicalKind.String && tokens[3].Kind == LexicalKind.Number && tokens[4].Kind == LexicalKind.String, "literals");
 		Require(text.Substring(tokens[3].Start, tokens[3].Length) == "42.5e-2", "exponent span");
 		Require(RutileLexicalScanner.Scan("/* if return")[0].Length == 12, "unterminated comment spans to end");
-		Require(RutileLexicalScanner.MasksSemantic(RutileLexicalScanner.Scan("/* function()"), 3, 8), "new comment masks cached binding");
-		Require(RutileLexicalScanner.MasksSemantic(RutileLexicalScanner.Scan("\"function()"), 1, 8), "new string masks cached binding");
-		Require(!RutileLexicalScanner.MasksSemantic(RutileLexicalScanner.Scan("/* x */ function()"), 8, 8), "binding after comment remains colored");
 		text = "\"emoji \U0001F600\" return";
 		tokens = RutileLexicalScanner.Scan(text);
-		Require(text.Substring(tokens[1].Start, tokens[1].Length) == "return", "UTF16 editor offsets");
+		Require(tokens.Count == 1 && tokens[0].Length == 10, "fallback string spans use UTF16 offsets");
 		text = "\"escaped \\\" if\" return";
 		tokens = RutileLexicalScanner.Scan(text);
-		Require(tokens.Count == 2 && tokens[0].Kind == LexicalKind.String && tokens[1].Kind == LexicalKind.ControlKeyword, "escaped quotes isolate keywords");
+		Require(tokens.Count == 1 && tokens[0].Kind == LexicalKind.String, "escaped quotes stay within fallback literal");
 		Console.WriteLine("lexical classes, trivia recovery and UTF16 spans: PASS");
 	}
 
@@ -80,6 +73,12 @@ internal static class HighlightingTests {
 		Require(text.Substring(decoded[3].Start, decoded[3].Length) == "value", "semantic offsets");
 		Require(RutileSemanticDecoder.Decode("a", new JArray(0,0,99,0,0), sink.Legend).Count == 0, "invalid spans rejected");
 		Require(RutileSemanticDecoder.Decode("a", new JArray(0,0), sink.Legend).Count == 0, "malformed tuple rejected");
+		var roles = new[] { "controlKeyword", "comment", "string", "number", "operator", "keyword" };
+		var roleTokens = new JArray(0,0,1,0,0, 0,2,1,1,0, 0,2,1,2,0, 0,2,1,3,0, 0,2,1,4,0, 0,2,1,5,0);
+		var roleSpans = RutileSemanticDecoder.Decode("a b c d e f", roleTokens, roles);
+		Require(roleSpans.Select(span => span.Classification).SequenceEqual(new[] { RutileClassification.Control, "comment", "string", "number", "operator", RutileClassification.Keyword }), "server roles map to stable editor palette");
+		var reordered = RutileSemanticDecoder.Decode("future", new JArray(0,0,6,1,0), new[] { "function", "controlKeyword" });
+		Require(reordered.Single().Classification == RutileClassification.Control, "legend names determine classification independently of token indexes or keyword spelling");
 		var unicode = "\U0001F600\r\nItem";
 		Require(RutileSemanticDecoder.Decode(unicode, new JArray(1,0,4,1,0), sink.Legend)[0].Start == 4, "CRLF UTF16 offsets");
 		var edit = JArray.Parse("[{ 'range': {'start':{'line':0,'character':0},'end':{'line':0,'character':2}}, 'text':'x' }]");

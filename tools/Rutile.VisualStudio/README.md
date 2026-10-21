@@ -14,10 +14,17 @@ The Rutile package supplies `.rt` content types, diagnostics, completion, hover,
 signature help, semantic colors, and editable template argument contexts. Grammar and binding
 remain in the compiler. Rename is not advertised by the server.
 
-Comments, strings and numbers receive immediate lexical colors. Compiler classifications supply
-user types, aliases, functions and contextual syntax. Cached semantic spans move with unchanged
-text during analysis. Customize the Rutile classifications in Fonts and Colors. Language-server
-errors appear in the Rutile Output pane.
+Rutilec owns highlighting rules, including keywords, comments, strings, numbers, and operators.
+The connected extension renders the server token legend; it does not classify language syntax.
+Basic lexical colors remain available while disconnected.
+
+## Compiler and LSP updates
+
+Install the stable client once. Routine syntax and highlighting changes then require updating
+Rutilec and restarting its service, without reinstalling the extension. Reconnects refresh the
+legend and open buffers, and late responses from the previous server are ignored.
+Compiler and extension versions do not need to match. VSIX updates are for editor integration
+changes.
 
 ## Build and install
 

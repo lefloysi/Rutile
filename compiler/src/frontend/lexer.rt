@@ -254,8 +254,13 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 		};
 
 		if (this.peek(1) == '/') {
+			var start = this.location();
 			while (this.peek(0) && this.peek(0) != '\n') {
 				@this.advance();
+			};
+			@start.length = this.offset - start.begin;
+			if (!@this.source->append_comment(Token(start))) {
+				return @this.fail(start, "comment storage allocation failed");
 			};
 
 			continue;
@@ -271,6 +276,10 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 
 		while (true) {
 			if (!this.peek(0)) {
+				@start.length = this.offset - start.begin;
+				if (!@this.source->append_comment(Token(start))) {
+					return @this.fail(start, "comment storage allocation failed");
+				};
 				return @this.fail(start, "unterminated comment");
 			};
 
@@ -281,6 +290,10 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 			};
 
 			@this.advance();
+		};
+		@start.length = this.offset - start.begin;
+		if (!@this.source->append_comment(Token(start))) {
+			return @this.fail(start, "comment storage allocation failed");
 		};
 	};
 
@@ -574,6 +587,10 @@ fn Lexer::scan(var Lexer& this) -> bool {
 			};
 
 			if (!@this.quoted(token, value)) {
+				@token.length = this.offset - token.begin;
+				if (token.length && !@this.source->append_token(Token(token))) {
+					return @this.fail(token, "token storage allocation failed");
+				};
 				return false;
 			};
 		}

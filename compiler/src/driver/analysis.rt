@@ -43,6 +43,7 @@ struct Analysis {
 	fn source_path(Analysis& this, usize index) -> rt::string_view;
 	fn syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>&;
 	fn source_tokens(Analysis& this, usize index) -> rt::buffer<Token>*;
+	fn source_comments(Analysis& this, usize index) -> rt::buffer<Token>*;
 	fn primitive_name(Analysis& this, rt::string_view name) -> bool;
 	fn source_text(Analysis& this, usize index) -> rt::string_view;
 	fn semantics(Analysis& this) -> SemanticUnit*;
@@ -121,6 +122,14 @@ fn Analysis::source_tokens(Analysis& this, usize index) -> rt::buffer<Token>* {
 		return nullptr;
 	};
 	return &@source->tokens();
+};
+
+fn Analysis::source_comments(Analysis& this, usize index) -> rt::buffer<Token>* {
+	SourceFile* source = this.sources.at($index);
+	if (!source) {
+		return nullptr;
+	};
+	return &@source->comments();
 };
 
 fn Analysis::primitive_name(Analysis& this, rt::string_view name) -> bool {

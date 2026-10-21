@@ -3,8 +3,6 @@ using System.Collections.Generic;
 
 namespace Rutile.VisualStudio {
 	internal enum LexicalKind {
-		Keyword,
-		ControlKeyword,
 		Comment,
 		String,
 		Number,
@@ -24,27 +22,6 @@ namespace Rutile.VisualStudio {
 	}
 
 	internal static class RutileLexicalScanner {
-		private static readonly HashSet<string> Keywords = new HashSet<string>(StringComparer.Ordinal) {
-			"fn", "using", "const", "discard", "delete", "new", "implicit", "nullptr",
-			"template", "typename", "class", "var", "struct", "union", "enum", "namespace",
-			"virtual", "override", "final", "sizeof", "true", "false"
-		};
-		private static readonly HashSet<string> ControlKeywords = new HashSet<string>(StringComparer.Ordinal) {
-			"return", "if", "else", "while", "for", "switch", "case", "default", "break", "continue"
-		};
-
-		internal static bool MasksSemantic(IReadOnlyList<LexicalSpan> spans, int start, int length) {
-			foreach (var span in spans) {
-				if (span.Start >= start + length) {
-					break;
-				}
-				if ((span.Kind == LexicalKind.Comment || span.Kind == LexicalKind.String) && span.Start + span.Length > start) {
-					return true;
-				}
-			}
-			return false;
-		}
-
 		internal static IReadOnlyList<LexicalSpan> Scan(string text) {
 			var result = new List<LexicalSpan>();
 			var offset = 0;
@@ -86,13 +63,6 @@ namespace Rutile.VisualStudio {
 				if (IdentifierStart(current)) {
 					while (offset < text.Length && (IdentifierStart(text[offset]) || Digit(text[offset]))) {
 						++offset;
-					}
-					var word = text.Substring(start, offset - start);
-					if (ControlKeywords.Contains(word)) {
-						result.Add(new LexicalSpan(start, offset - start, LexicalKind.ControlKeyword));
-					}
-					else if (Keywords.Contains(word)) {
-						result.Add(new LexicalSpan(start, offset - start, LexicalKind.Keyword));
 					}
 					continue;
 				}

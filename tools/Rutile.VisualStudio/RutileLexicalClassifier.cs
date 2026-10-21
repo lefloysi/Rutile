@@ -92,15 +92,33 @@ namespace Rutile.VisualStudio {
 		}
 
 		public IList<ClassificationSpan> GetClassificationSpans(SnapshotSpan requested) {
-			var current = Volatile.Read(ref cache);
-			if (current?.Snapshot != requested.Snapshot) {
-				current = new CachedSpans(requested.Snapshot);
-				Interlocked.Exchange(ref cache, current);
-			}
 			var result = new List<ClassificationSpan>();
-			foreach (var item in current.Spans) {
+			var authoritative = false;
+			var semanticSpans = semantic?.Current(requested.Snapshot, out authoritative);
+			IReadOnlyList<LexicalSpan> fallback = Array.Empty<LexicalSpan>();
+			if (!authoritative) {
+				var current = Volatile.Read(ref cache);
+				if (current?.Snapshot != requested.Snapshot) {
+					current = new CachedSpans(requested.Snapshot);
+					Interlocked.Exchange(ref cache, current);
+				}
+				fallback = current.Spans;
+			}
+			foreach (var item in fallback) {
 				var span = new SnapshotSpan(requested.Snapshot, item.Start, item.Length);
 				if (!span.IntersectsWith(requested)) {
+					continue;
+				}
+				var overlapsPublished = false;
+				if (semanticSpans != null) {
+					foreach (var published in semanticSpans) {
+						if (published.Span.IntersectsWith(span)) {
+							overlapsPublished = true;
+							break;
+						}
+					}
+				}
+				if (overlapsPublished) {
 					continue;
 				}
 				var type = Classification(item.Kind);
@@ -108,9 +126,9 @@ namespace Rutile.VisualStudio {
 					result.Add(new ClassificationSpan(span, type));
 				}
 			}
-			if (semantic != null) {
-				foreach (var item in semantic.Current(requested.Snapshot)) {
-					if (item.Span.IntersectsWith(requested) && !RutileLexicalScanner.MasksSemantic(current.Spans, item.Span.Start.Position, item.Span.Length)) {
+			if (semanticSpans != null) {
+				foreach (var item in semanticSpans) {
+					if (item.Span.IntersectsWith(requested)) {
 						var type = types.GetClassificationType(item.Classification);
 						if (type != null) {
 							result.Add(new ClassificationSpan(item.Span, type));
@@ -123,10 +141,6 @@ namespace Rutile.VisualStudio {
 
 		private IClassificationType? Classification(LexicalKind kind) {
 			switch (kind) {
-				case LexicalKind.Keyword:
-					return types.GetClassificationType(RutileClassification.Keyword);
-				case LexicalKind.ControlKeyword:
-					return types.GetClassificationType(RutileClassification.Control);
 				case LexicalKind.Comment:
 					return types.GetClassificationType("comment");
 				case LexicalKind.String:
