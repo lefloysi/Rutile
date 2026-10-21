@@ -2,6 +2,7 @@ enum template_validation_role : [u08] {
 	dependent_type;
 	template_type;
 	dependent_value;
+	pack_signature;
 	value;
 };
 
@@ -247,12 +248,17 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 				};
 				@prior = prior + 1;
 			};
-			if (type->kind() != syntax_kind::absent && !this.dependent(*type)) {
+			if (parameter->kind() == syntax_kind::template_variadic_parameter && index + 1 != parameters->size()) {
+				@analyzer.error(parameter, "variadic template parameter must be last");
+				return false;
+			};
+			var Syntax* pack_signature = @analyzer.template_engine()->signature(@analyzer, @scope, @*type);
+			if (!pack_signature && type->kind() != syntax_kind::absent && !this.dependent(*type)) {
 				Type* resolved = @analyzer.type(@scope, @*type);
 				if (!resolved) {
 					return false;
 				};
-				if (!resolved->kind().is_integer()) {
+				if (!resolved->kind().is_numeric()) {
 					var message = DiagnosticMessage();
 					@message.text("non-type template parameter '");
 					diagnostic_name(@message, *parameter->template_parameter_name());
@@ -295,7 +301,20 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 	if (syntax.kind() == syntax_kind::namespace_body) {
 		return @this.members(@analyzer, @scope, @syntax, @*syntax.namespace_members());
 	};
+	if (syntax.kind() == syntax_kind::pack_signature_declaration) {
+		return @this.remember(@analyzer, @*syntax.item(0), template_validation_role::pack_signature);
+	};
 	if (syntax.kind() == syntax_kind::variable) {
+		var Syntax* specifier = syntax.variable_type();
+		if (specifier->kind() == syntax_kind::type_name && specifier->designated_type()->kind() == syntax_kind::name) {
+			TemplateValidationSymbol* symbol = this.lookup(specifier->designated_type()->token());
+			if (symbol && symbol->role == template_validation_role::pack_signature) {
+				return true;
+			};
+		};
+		if (@analyzer.template_engine()->signature(@analyzer, @scope, @*syntax.variable_type())) {
+			return true;
+		};
 		return @this.type_names(@analyzer, @scope, @*syntax.variable_type());
 	};
 	if (syntax.kind() == syntax_kind::using_alias) {

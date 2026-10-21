@@ -1,4 +1,5 @@
 struct TemplateInstantiation;
+struct TemplatePack;
 
 enum entity_kind : [u08] {
 	function;
@@ -15,6 +16,8 @@ enum entity_kind : [u08] {
 	template_pattern;
 	primitive_type;
 	constant;
+	pack_binding;
+	pack_signature;
 };
 
 enum entity_state : [u08] {
@@ -81,6 +84,8 @@ struct Scope;
 struct CopyAssignmentPlan;
 
 struct Entity {
+	fn pack(Entity& this) -> var TemplatePack*;
+	fn set_pack(var Entity& this, var TemplatePack* pack);
 	fn Entity(var Entity& this, entity_kind kind, Token& token, var Syntax* source, var Scope* scope);
 
 	fn kind(Entity& this) -> entity_kind;
@@ -213,6 +218,7 @@ private:
 	Type* underlying_type;
 	usize position;
 	u64 constant_value;
+	var TemplatePack* bound_pack;
 	rt::buffer<var Entity*> arguments;
 	rt::buffer<var Entity*> member_fields;
 	rt::buffer<Type*> base_types;
@@ -691,4 +697,12 @@ fn Entity::accessible_from(Entity& this, Scope& scope) -> bool {
 	};
 
 	return false;
+};
+
+fn Entity::pack(Entity& this) -> var TemplatePack* {
+	return this.bound_pack;
+};
+
+fn Entity::set_pack(var Entity& this, var TemplatePack* pack) {
+	@this.bound_pack = $pack;
 };

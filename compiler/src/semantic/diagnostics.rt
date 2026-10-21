@@ -52,11 +52,55 @@ fn diagnostic_entity_kind(var DiagnosticMessage& message, entity_kind kind) {
 			@message.text("primitive type");
 			break;
 		};
+		case entity_kind::pack_binding: {
+			@message.text("pack binding");
+			break;
+		};
+		case entity_kind::pack_signature: {
+			@message.text("pack signature");
+			break;
+		};
 		case entity_kind::constant: {
 			@message.text("constant");
 			break;
 		};
 	};
+};
+
+fn snprintf(var char* buffer, usize capacity, char* format, ...) -> i32;
+
+fn diagnostic_template_argument(var DiagnosticMessage& message, TemplateArgument& argument) {
+	if (argument.kind == template_argument_kind::pack) {
+		@message.text("<");
+		usize index = 0;
+		while (argument.pack && index < argument.pack->elements.size()) {
+			if (index) {
+				@message.text(", ");
+			};
+			diagnostic_template_argument(@message, argument.pack->elements.data()[index]);
+			@index = index + 1;
+		};
+		@message.text(">");
+		return;
+	};
+	if (argument.kind == template_argument_kind::type) {
+		diagnostic_type(@message, *argument.type);
+		return;
+	};
+	if (argument.type && argument.type->kind() == type_kind::floating_point) {
+		char[64] buffer {};
+		i32 size = snprintf(&@buffer[0], sizeof(buffer), "%.17g\0".data(), argument.real_value);
+		if (size > 0 && static_cast<usize>(size) < sizeof(buffer)) {
+			@message.text(rt::string_view(&@buffer[0], static_cast<usize>(size)));
+		};
+		return;
+	};
+	if (argument.type && argument.type->kind() == type_kind::signed_integer && argument.type->signed_value(argument.value) < 0) {
+		@message.text("-");
+		@message.number(u64(0) - u64(argument.type->signed_value(argument.value)));
+		return;
+	};
+	@message.number(argument.value);
 };
 
 fn diagnostic_entity(var DiagnosticMessage& message, Entity& entity) {
@@ -75,18 +119,7 @@ fn diagnostic_entity(var DiagnosticMessage& message, Entity& entity) {
 				@message.text(", ");
 			};
 			TemplateArgument& argument = instance->arguments.data()[index];
-			if (argument.kind == template_argument_kind::type) {
-				diagnostic_type(@message, *argument.type);
-			}
-			else {
-				if (argument.type && argument.type->kind() == type_kind::signed_integer && argument.type->signed_value(argument.value) < 0) {
-					@message.text("-");
-					@message.number(u64(0) - u64(argument.type->signed_value(argument.value)));
-				}
-				else {
-					@message.number(argument.value);
-				};
-			};
+			diagnostic_template_argument(@message, argument);
 			@index = index + 1;
 		};
 		@message.text(">");

@@ -1,0 +1,152 @@
+fn Analyzer::template_engine(var Analyzer& this) -> var TemplateEngine* {
+	return &@this.templates;
+};
+
+fn Analyzer::pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> bool {
+	var Syntax* signature = @this.templates.signature(@this, @scope, @*syntax.variable_type());
+	var Syntax* initializer = syntax.variable_initializer();
+	if (!signature || initializer->kind() != syntax_kind::unary || initializer->token().kind != token_kind::op_assign) {
+		@this.error(&@syntax, "a compile-time pack binding requires a signature and '= <arguments>' initializer");
+		return false;
+	};
+	@pack = @this.templates.pack(@this, @scope, @*initializer->operand());
+	return pack && @this.templates.validate_pack(@this, @scope, @*signature, @*pack);
+};
+
+fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> bool {
+	if (syntax.kind() == syntax_kind::pack_fold) {
+		return true;
+	};
+	if (syntax.kind() == syntax_kind::name || syntax.kind() == syntax_kind::qualified_name) {
+		var Entity* entity = @this.lookup(@scope, @syntax);
+		if (entity && entity->kind() == entity_kind::pack_binding) {
+			if (binding && binding != entity) {
+				@this.error(&@syntax, "a fold pattern must reference one pack");
+				return false;
+			};
+			if (!@this.resolve(entity)) {
+				return false;
+			};
+			@binding = entity;
+			return true;
+		};
+	};
+	usize child = 0;
+	while (child < syntax.size()) {
+		if (!@this.fold_binding(@scope, @*syntax.item(child), @binding)) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	return true;
+};
+
+fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	var Entity* binding = nullptr;
+	var Syntax* pattern = syntax.pack_operand();
+	while (pattern->kind() == syntax_kind::grouping) {
+		@pattern = pattern->operand();
+	};
+	var TemplatePack* pack = nullptr;
+	if (pattern->kind() == syntax_kind::pack_literal) {
+		@pack = @this.templates.pack(@this, @scope, @*pattern);
+	}
+	else if (@this.fold_binding(@scope, @*pattern, @binding) && binding) {
+		@pack = binding->pack();
+	};
+	if (!pack) {
+		@this.error(&@syntax, "fold expression requires a pack in its pattern");
+		return rt::unique<SemanticExpression>();
+	};
+	token_kind operation = syntax.token().kind;
+	if (!pack->elements.size()) {
+		if (operation == token_kind::punct_comma) {
+			return @this.convert(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax), expected, @syntax);
+		};
+		if (operation != token_kind::op_and && operation != token_kind::op_or) {
+			@this.error(&@syntax, "empty pack has no identity for this fold operator");
+			return rt::unique<SemanticExpression>();
+		};
+		var identity = @this.node(semantic_kind::literal_integer, this.types->find_primitive("bool"), &@syntax);
+		if (identity.get()) {
+			@identity.get()->set_integer(static_cast<u64>(operation == token_kind::op_and));
+		};
+		return @this.convert($identity, expected, @syntax);
+	};
+	rt::buffer<rt::unique<SemanticExpression>> values;
+	usize index = 0;
+	while (index < pack->elements.size()) {
+		if (!binding) {
+			var value = @this.templates.pack_value(@this, pack->elements.data()[index], @syntax);
+			if (!value.get() || !@values.push_back($value)) {
+				return rt::unique<SemanticExpression>();
+			};
+			@index = index + 1;
+			continue;
+		};
+		var Scope* iteration = @this.unit->create_scope(&@scope, nullptr);
+		if (!iteration) {
+			return rt::unique<SemanticExpression>();
+		};
+		TemplateArgument& argument = pack->elements.data()[index];
+		entity_kind kind = entity_kind::constant;
+		if (argument.kind == template_argument_kind::type) {
+			@kind = entity_kind::type_parameter;
+		};
+		var Entity* element = @this.unit->create_entity($kind, binding->token(), &@syntax, iteration);
+		if (!element) {
+			return rt::unique<SemanticExpression>();
+		};
+		@element->set_type(argument.type);
+		if (argument.type_use.has_value()) {
+			@element->set_type_use(argument.type_use.value());
+		};
+		if (argument.kind == template_argument_kind::value) {
+			var value = @this.templates.pack_value(@this, argument, @syntax);
+			if (!value.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+			@element->set_body($value);
+		};
+		@element->set_state(entity_state::ready);
+		var Entity* previous_pack = this.folded_pack;
+		var Entity* previous_argument = this.folded_argument;
+		@this.folded_pack = binding;
+		@this.folded_argument = element;
+		var value = @this.expression(@*iteration, @*pattern, rt::optional_ref<const Type>());
+		@this.folded_pack = $previous_pack;
+		@this.folded_argument = $previous_argument;
+		if (!value.get() || !@values.push_back($value)) {
+			return rt::unique<SemanticExpression>();
+		};
+		@index = index + 1;
+	};
+	if (operation == token_kind::punct_comma) {
+		var SemanticExpression* last = values.data()[values.size() - 1].get();
+		var sequence = @this.node(semantic_kind::sequence, last->type(), &@syntax);
+		if (!sequence.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@sequence.get()->set_category(last->category());
+		@sequence.get()->set_mutable_access(last->mutable_access());
+		@index = 0;
+		while (index < values.size()) {
+			if (!@sequence.get()->append(rt::unique<SemanticExpression>(@(@values).data()[index].release()))) {
+				return rt::unique<SemanticExpression>();
+			};
+			@index = index + 1;
+		};
+		return @this.convert($sequence, expected, @syntax);
+	};
+	@index = values.size() - 1;
+	var result = rt::unique<SemanticExpression>(@(@values).data()[index].release());
+	while (index) {
+		@index = index - 1;
+		var left = rt::unique<SemanticExpression>(@(@values).data()[index].release());
+		@result = @this.binary_values(@scope, @syntax, $left, rt::unique<SemanticExpression>(@result.release()), rt::optional_ref<const Type>());
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
+	return @this.convert($result, expected, @syntax);
+};

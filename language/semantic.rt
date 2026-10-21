@@ -180,6 +180,16 @@ fn LanguageIndex::classify_syntax(var LanguageIndex& this, Analysis& analysis, r
 	if (syntax.kind() == syntax_kind::ambiguity) {
 		return true;
 	};
+	if (syntax.kind() == syntax_kind::pack_signature_declaration) {
+		SourceRange range = analysis.navigation().range(syntax.pack_signature_name()->token());
+		if (range.source < mapping.size()) {
+			var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+			var present = source.token_offsets.find(range.begin);
+			if (present) {
+				@(@source.tokens).data()[*present].type = 6;
+			};
+		};
+	};
 	bool contextual = syntax.kind() == syntax_kind::type_auto || syntax.kind() == syntax_kind::access_label || syntax.kind() == syntax_kind::cast || syntax.kind() == syntax_kind::operator_name || syntax.kind() == syntax_kind::conversion_name || syntax.kind() == syntax_kind::null_pointer || syntax.kind() == syntax_kind::name && (syntax.token().is("true") || syntax.token().is("false"));
 	if (contextual) {
 		SourceRange range = analysis.navigation().range(syntax.token());

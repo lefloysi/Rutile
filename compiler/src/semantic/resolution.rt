@@ -26,6 +26,15 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 	var Syntax* source = entity->declaration();
 	var Scope* scope = entity->resolution_scope();
 	entity_kind kind = entity->kind();
+	if (kind == entity_kind::pack_binding) {
+		var TemplatePack* pack = nullptr;
+		if (!@this.pack_declaration(@*scope, @*source, @pack)) {
+			return false;
+		};
+		@entity->set_pack($pack);
+		@entity->set_state(entity_state::ready);
+		return true;
+	};
 
 	if (kind == entity_kind::record) {
 		@entity->set_type(@this.types->named(type_kind::named, (var Entity*(entity))));

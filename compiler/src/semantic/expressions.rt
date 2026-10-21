@@ -37,6 +37,19 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	if (kind == syntax_kind::grouping) {
 		return @this.expression(@scope, @*syntax.operand(), expected);
 	};
+	if (kind == syntax_kind::pack_fold) {
+		return @this.pack_fold(@scope, @syntax, expected);
+	};
+	if (kind == syntax_kind::pack_signature_declaration) {
+		if (!@this.templates.collect_signature(@this, @scope, @syntax)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.node(semantic_kind::noop, void_type, &@syntax);
+	};
+	if (kind == syntax_kind::pack_literal || kind == syntax_kind::pack_expansion) {
+		@this.error(&@syntax, "a compile-time pack requires a pack binding, template argument, expansion list, or fold");
+		return rt::unique<SemanticExpression>();
+	};
 
 	if (kind == syntax_kind::switch_expression) {
 		return @this.selection(@scope, @syntax);
@@ -77,7 +90,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 				@type = candidate->callable();
 			};
 
-			if (type && @this.names_type(@scope, @*type)) {
+			if (type && (candidate->kind() == syntax_kind::variable && @this.templates.signature(@this, @scope, @*type) || @this.names_type(@scope, @*type))) {
 				return @this.expression(@scope, @*candidate, expected);
 			};
 
@@ -499,6 +512,13 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return rt::unique<SemanticExpression>();
 		};
 
+		if (@this.templates.signature(@this, @scope, @*syntax.variable_type())) {
+			var TemplatePack* pack = nullptr;
+			if (!@this.pack_declaration(@scope, @syntax, @pack) || !@this.templates.bind_pack(@this, @scope, @*syntax.variable_name(), @syntax, pack)) {
+				return rt::unique<SemanticExpression>();
+			};
+			return @this.node(semantic_kind::noop, void_type, &@syntax);
+		};
 		Type* type = @this.type(@scope, @*syntax.variable_type());
 		var Syntax* initializer = syntax.variable_initializer();
 

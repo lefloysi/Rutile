@@ -530,6 +530,22 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 	usize index = 0;
 	while (index < arguments->size()) {
 		rt::unique<SemanticExpression> value;
+		if (arguments->item(index)->kind() == syntax_kind::pack_expansion) {
+			var TemplatePack* pack = @this.templates.pack(@this, @scope, @*arguments->item(index)->pack_operand());
+			if (!pack) {
+				return rt::unique<SemanticExpression>();
+			};
+			usize element = 0;
+			while (element < pack->elements.size()) {
+				var expanded = @this.templates.pack_value(@this, pack->elements.data()[element], @*arguments->item(index));
+				if (!expanded.get() || !@values.push_back($expanded)) {
+					return rt::unique<SemanticExpression>();
+				};
+				@element = element + 1;
+			};
+			@index = index + 1;
+			continue;
+		};
 
 		if (arguments->item(index)->kind() == syntax_kind::brace) {
 			@value = @this.node(semantic_kind::deferred_argument, this.types->find_primitive("void"), arguments->item(index));

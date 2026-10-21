@@ -245,6 +245,28 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 		return rt::unique<SemanticExpression>();
 	};
 
+	return @this.binary_values(@scope, @syntax, $left, $right, expected);
+};
+
+fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> left, rt::unique<SemanticExpression> right, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	Token operation = syntax.token();
+	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
+	bool logical = operation.kind == token_kind::op_and || operation.kind == token_kind::op_or;
+	bool comparison = operation.kind == token_kind::op_equal || operation.kind == token_kind::op_not_equal || operation.kind == token_kind::op_less || operation.kind == token_kind::op_greater || operation.kind == token_kind::op_less_equal || operation.kind == token_kind::op_greater_equal;
+	Type* type = left.get()->type();
+	if (assignment && (left.get()->category() != value_category::place || !left.get()->mutable_access())) {
+		diagnostic_unary_operand(@*this.diagnostics, @syntax, "assignment requires explicit mutable access to a place", *left.get());
+		return rt::unique<SemanticExpression>();
+	};
+	if (logical && type->representation()->kind().is_scalar()) {
+		var context = rt::optional_ref<const Type>(*this.types->find_primitive("bool"));
+		@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), context, @syntax);
+		@right = @this.convert(rt::unique<SemanticExpression>(@right.release()), context, @syntax);
+		if (!left.get() || !right.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@type = left.get()->type();
+	};
 	Type* other = right.get()->type();
 
 	if (comparison && (type->kind() == type_kind::pointer || other->kind() == type_kind::pointer)) {

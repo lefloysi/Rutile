@@ -49,10 +49,15 @@ struct Analyzer {
 	fn validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bool class_scope) -> bool;
 
 	fn semantic_unit(Analyzer& this) -> var SemanticUnit*;
+	fn template_engine(var Analyzer& this) -> var TemplateEngine*;
 	fn type_store(Analyzer& this) -> var TypeStore*;
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
 
 private:
+	fn pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> bool;
+	fn pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> bool;
+	fn binary_values(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> left, rt::unique<SemanticExpression> right, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	CompilerProgress progress;
 	bool editor;
 	declaration_collection collection;
@@ -108,6 +113,8 @@ private:
 	usize loop_depth;
 	var SwitchAnalysis* active_switch;
 	TemplateEngine templates;
+	var Entity* folded_pack;
+	var Entity* folded_argument;
 };
 
 fn Analyzer::error(var Analyzer& this, var Syntax* syntax, rt::string_view message) {
@@ -171,7 +178,11 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 			return @this.templates.apply(@this, @*owner->members(), @scope, @*member);
 		};
 
-		return owner->find_member(member->token().text());
+		var Entity* result = owner->find_member(member->token().text());
+		if (result && result == this.folded_pack) {
+			return this.folded_argument;
+		};
+		return $result;
 	};
 
 	if (name.kind() == syntax_kind::template_apply) {
@@ -547,6 +558,9 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	if (kind == syntax_kind::noop || kind == syntax_kind::absent) {
 		return true;
 	};
+	if (kind == syntax_kind::pack_signature_declaration) {
+		return @this.templates.collect_signature(@this, @*scope_cursor, @syntax);
+	};
 
 	if (kind == syntax_kind::access_label) {
 		if (!scope_cursor->owner() || scope_cursor->owner()->kind() != entity_kind::record) {
@@ -669,7 +683,10 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 	else if (kind == syntax_kind::variable) {
 		@name = syntax.variable_name();
 
-		if (scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record) {
+		if (@this.templates.signature(@this, @*scope_cursor, @*syntax.variable_type())) {
+			@category = entity_kind::pack_binding;
+		}
+		else if (scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record) {
 			@category = entity_kind::field;
 		};
 	}

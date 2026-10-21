@@ -1,6 +1,10 @@
+struct TemplatePack;
+
 enum template_argument_kind : [u08] {
+	unbound;
 	type;
 	value;
+	pack;
 };
 
 struct TemplateArgument {
@@ -8,8 +12,20 @@ struct TemplateArgument {
 	Type* type;
 	rt::optional_ref<const TypeUse> type_use;
 	u64 value;
+	f64 real_value;
+	var TemplatePack* pack;
 
 	fn same(TemplateArgument& this, TemplateArgument& other) -> bool;
+};
+
+struct PackElementSignature {
+	template_argument_kind kind;
+	Type* value_type;
+};
+
+struct TemplatePack {
+	rt::buffer<PackElementSignature> signature;
+	rt::buffer<TemplateArgument> elements;
 };
 
 struct TemplateInstantiation {
@@ -61,6 +77,7 @@ struct SemanticClassification {
 };
 
 struct SemanticUnit {
+	fn create_pack(var SemanticUnit& this) -> var TemplatePack*;
 	fn associate(var SemanticUnit& this, Type& type, var Entity& owner) -> bool;
 	fn canonical_use(var SemanticUnit& this, Type& type) -> TypeUse*;
 	fn retype_use(var SemanticUnit& this, TypeUse& source, Type& type) -> TypeUse*;
@@ -98,6 +115,7 @@ private:
 
 	fn available_use(SemanticUnit& this, SemanticExpression& expression) -> TypeUse*;
 
+	rt::buffer<rt::unique<TemplatePack>> packs;
 	rt::buffer<AssociatedScope> associated_scopes;
 	rt::buffer<rt::unique<TypeUse>> type_uses;
 	rt::buffer<rt::unique<FunctionUse>> function_uses;
@@ -192,6 +210,8 @@ fn SemanticUnit::record_origin(var SemanticUnit& this, var Entity& instance, var
 		@argument.type = source.type;
 		@argument.type_use = source.type_use;
 		@argument.value = source.value;
+		@argument.real_value = source.real_value;
+		@argument.pack = source.pack;
 		if (!@metadata.get()->arguments.push_back($argument)) {
 			return false;
 		};
@@ -328,4 +348,13 @@ fn SemanticUnit::record_classification(var SemanticUnit& this, Token& location, 
 
 fn SemanticUnit::classifications(SemanticUnit& this) -> rt::buffer<SemanticClassification>& {
 	return this.token_classifications;
+};
+
+fn SemanticUnit::create_pack(var SemanticUnit& this) -> var TemplatePack* {
+	var owned = rt::unique<TemplatePack>::make();
+	var TemplatePack* result = owned.get();
+	if (!result || !@this.packs.push_back($owned)) {
+		return nullptr;
+	};
+	return $result;
 };

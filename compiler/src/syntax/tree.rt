@@ -38,6 +38,14 @@ enum syntax_kind : [i32] {
 	namespace_body;
 	template_declaration;
 	template_parameter;
+	template_variadic_parameter;
+	pack_literal;
+	pack_signature;
+	pack_signature_element;
+	pack_signature_variadic_element;
+	pack_signature_declaration;
+	pack_expansion;
+	pack_fold;
 	using_alias;
 	list;
 	attributes;
@@ -403,6 +411,10 @@ fn Syntax::fixed_arity(Syntax& this) -> usize {
 		case syntax_kind::access_label:
 		case syntax_kind::operator_array:
 			return 0;
+		case syntax_kind::pack_signature_element:
+		case syntax_kind::pack_signature_variadic_element:
+		case syntax_kind::pack_expansion:
+		case syntax_kind::pack_fold:
 		case syntax_kind::unary:
 		case syntax_kind::grouping:
 		case syntax_kind::return_value:
@@ -417,6 +429,7 @@ fn Syntax::fixed_arity(Syntax& this) -> usize {
 		case syntax_kind::type_auto:
 		case syntax_kind::array:
 			return 1;
+		case syntax_kind::pack_signature_declaration:
 		case syntax_kind::binary:
 		case syntax_kind::call:
 		case syntax_kind::member:
@@ -442,6 +455,7 @@ fn Syntax::fixed_arity(Syntax& this) -> usize {
 		case syntax_kind::parameter:
 		case syntax_kind::record:
 		case syntax_kind::enumeration:
+		case syntax_kind::template_variadic_parameter:
 		case syntax_kind::template_parameter:
 			return 3;
 		case syntax_kind::for_loop:
@@ -513,4 +527,16 @@ fn Syntax::operator_token(Syntax& this) -> Token {
 
 fn Syntax::operator_suffix(Syntax& this) -> var Syntax* {
 	return this.item(1);
+};
+
+fn Syntax::pack_signature_name(Syntax& this) -> var Syntax* {
+	return this.item(0);
+};
+
+fn Syntax::pack_signature_body(Syntax& this) -> var Syntax* {
+	return this.item(1);
+};
+
+fn Syntax::pack_operand(Syntax& this) -> var Syntax* {
+	return this.item(0);
 };

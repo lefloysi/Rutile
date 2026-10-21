@@ -64,6 +64,7 @@ private:
 // mutable global storage is never admitted into an evaluation frame.
 struct ConstantEvaluator {
 	fn integer(var ConstantEvaluator& this, var Analyzer& analyzer, SemanticExpression& expression, var u64& result) -> bool;
+	fn real(var ConstantEvaluator& this, var Analyzer& analyzer, SemanticExpression& expression, var f64& result) -> bool;
 
 private:
 	fn tick(var ConstantEvaluator& this) -> bool;
@@ -186,6 +187,16 @@ fn ConstantEvaluator::integer(var ConstantEvaluator& this, var Analyzer& analyze
 	var value = @this.value(@analyzer, @frame, expression);
 
 	return value.get() && value.get()->constant_integer(@result);
+};
+
+fn ConstantEvaluator::real(var ConstantEvaluator& this, var Analyzer& analyzer, SemanticExpression& expression, var f64& result) -> bool {
+	@this.steps = 0;
+	@this.depth = 0;
+	@this.constants = ConstantFrame();
+	ConstantFrame frame;
+	var value = @this.value(@analyzer, @frame, expression);
+
+	return value.get() && value.get()->constant_real(@result);
 };
 
 fn ConstantEvaluator::global_cell(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, var Entity& entity) -> var ConstantCell* {
