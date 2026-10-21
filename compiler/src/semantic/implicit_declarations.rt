@@ -37,6 +37,13 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 
 	@entity->set_move_constructor(move_constructor);
 	@entity->set_copy_constructor(copy_constructor);
+	if (variant_instance(*entity) && !entity->destructor()) {
+		var Entity* destructor = @this.supply_special(entity, function_role::destructor, token_kind::op_tilde, nullptr, function_definition::defaulted);
+		if (!destructor) {
+			return false;
+		};
+		@entity->set_destructor(destructor);
+	};
 
 	if (!@this.supply_special(entity, function_role::assignment, token_kind::op_assign, source, function_definition::defaulted)) {
 		return false;
@@ -81,6 +88,13 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 	Token location = entity->token();
 	var name = entity->name();
 	Type* result = this.types->find_primitive("void");
+	DiagnosticMessage destructor_name;
+	if (role == function_role::destructor) {
+		@location.kind = token_kind::op_tilde;
+		@destructor_name.text("~");
+		@destructor_name.text(entity->name());
+		@name = destructor_name.view();
+	};
 
 	if (role == function_role::assignment) {
 		@location.kind = token_kind(operation);

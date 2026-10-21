@@ -2,6 +2,28 @@ fn Analyzer::template_engine(var Analyzer& this) -> var TemplateEngine* {
 	return &@this.templates;
 };
 
+fn Analyzer::null_member_pack(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity* pack, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	if (!receiver.get()) {
+		var Entity* object = scope.lookup("this");
+		if (!object || object->type()->kind() != type_kind::reference || object->type()->element()->kind() != type_kind::named || object->type()->element()->entity() != pack->scope()->owner()) {
+			@this.error(&@syntax, "member pack access requires its instance receiver");
+			return rt::unique<SemanticExpression>();
+		};
+		@receiver = @this.node(semantic_kind::name, object->type()->element(), &@syntax);
+		if (!receiver.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@receiver.get()->bind(object, value_category::place);
+	};
+	Type* marker = pack->pack()->elements.data()[this.folded_field_index].type;
+	Type* null_type = @this.types->pointer(@this.types->qualified(*marker, type_qualifier::immutable));
+	var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
+	if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+		return rt::unique<SemanticExpression>();
+	};
+	return @this.convert($result, expected, @syntax);
+};
+
 fn Analyzer::pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> bool {
 	var Syntax* signature = @this.templates.signature(@this, @scope, @*syntax.variable_type());
 	var Syntax* initializer = syntax.variable_initializer();
@@ -17,9 +39,40 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 	if (syntax.kind() == syntax_kind::pack_fold) {
 		return true;
 	};
+	if (syntax.kind() == syntax_kind::member) {
+		var receiver = @this.expression(@scope, @*syntax.member_object(), rt::optional_ref<const Type>());
+		if (!receiver.get()) {
+			return false;
+		};
+		Type* owner = receiver.get()->type();
+		if (syntax.token().kind == token_kind::op_arrow && owner->kind() == type_kind::pointer) {
+			@owner = owner->element();
+		};
+		if (owner->kind() == type_kind::named) {
+			var Entity* member = owner->entity()->find_member(syntax.member_name()->token().text());
+			if (member && member->kind() == entity_kind::field_pack) {
+				if (!this.accessible(*member, @scope)) {
+					@this.error(&@syntax, "member pack is not accessible from this scope");
+					@this.note(member->token(), "member pack is declared here");
+					return false;
+				};
+				if (binding && binding != member) {
+					@this.error(&@syntax, "a fold pattern must reference one pack");
+					return false;
+				};
+				@binding = member;
+				return true;
+			};
+		};
+	};
 	if (syntax.kind() == syntax_kind::name || syntax.kind() == syntax_kind::qualified_name) {
 		var Entity* entity = @this.lookup(@scope, @syntax);
-		if (entity && entity->kind() == entity_kind::pack_binding) {
+		if (entity && (entity->kind() == entity_kind::pack_binding || entity->kind() == entity_kind::field_pack)) {
+			if (entity->kind() == entity_kind::field_pack && !this.accessible(*entity, @scope)) {
+				@this.error(&@syntax, "member pack is not accessible from this scope");
+				@this.note(entity->token(), "member pack is declared here");
+				return false;
+			};
 			if (binding && binding != entity) {
 				@this.error(&@syntax, "a fold pattern must reference one pack");
 				return false;
@@ -76,6 +129,20 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 	rt::buffer<rt::unique<SemanticExpression>> values;
 	usize index = 0;
 	while (index < pack->elements.size()) {
+		if (binding && binding->kind() == entity_kind::field_pack) {
+			var Entity* previous = this.folded_field_pack;
+			usize previous_index = this.folded_field_index;
+			@this.folded_field_pack = binding;
+			@this.folded_field_index = index;
+			var value = @this.expression(@scope, @*pattern, rt::optional_ref<const Type>());
+			@this.folded_field_pack = previous;
+			@this.folded_field_index = previous_index;
+			if (!value.get() || !@values.push_back($value)) {
+				return rt::unique<SemanticExpression>();
+			};
+			@index = index + 1;
+			continue;
+		};
 		if (!binding) {
 			var value = @this.templates.pack_value(@this, pack->elements.data()[index], @syntax);
 			if (!value.get() || !@values.push_back($value)) {

@@ -54,8 +54,12 @@ struct Analyzer {
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
 
 private:
+	fn collect_member_pack(var Analyzer& this, var Scope& scope, var Syntax& declaration) -> bool;
+	fn resolve_member_pack(var Analyzer& this, var Entity& members) -> bool;
+	fn expand_member_packs(var Analyzer& this, var Entity& record) -> bool;
 	fn prepare_variant_special(var Analyzer& this, var Entity& function) -> bool;
 	fn configure_variant_default(var Analyzer& this, var Entity& record) -> bool;
+	fn null_member_pack(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity* pack, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn construct_variant(var Analyzer& this, var Syntax& syntax, Type* type, var rt::buffer<rt::unique<SemanticExpression>>& raw, var bool& handled) -> rt::unique<SemanticExpression>;
@@ -121,6 +125,8 @@ private:
 	TemplateEngine templates;
 	var Entity* folded_pack;
 	var Entity* folded_argument;
+	var Entity* folded_field_pack;
+	usize folded_field_index;
 };
 
 fn Analyzer::error(var Analyzer& this, var Syntax* syntax, rt::string_view message) {
@@ -685,6 +691,9 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		return @this.templates.collect(@this, @*scope_cursor, @syntax);
 	};
 
+	if (kind == syntax_kind::variable && syntax.variable_type()->kind() == syntax_kind::pack_expansion) {
+		return @this.collect_member_pack(@*scope_cursor, @syntax);
+	};
 	var Syntax* name = nullptr;
 	entity_kind category = entity_kind::global;
 	var Syntax* members = nullptr;

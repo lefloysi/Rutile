@@ -357,6 +357,12 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		};
 
 		@entity = entity->canonical();
+		if (entity->kind() == entity_kind::field_pack && entity == this.folded_field_pack && this.folded_field_index < entity->fields().size()) {
+			if (!entity->fields().data()[this.folded_field_index]) {
+				return @this.null_member_pack(@scope, @syntax, entity, rt::unique<SemanticExpression>(), expected);
+			};
+			@entity = entity->fields().data()[this.folded_field_index];
+		};
 
 		if (entity->kind() != entity_kind::function && !@this.unit->record_name(@this, @scope, @syntax, @*entity, 4)) {
 			@this.error(&@syntax, "navigation index storage is unavailable");

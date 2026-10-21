@@ -1352,6 +1352,11 @@ fn Parser::variable(var Parser& this) -> rt::unique<Syntax> {
 		@candidate.selections = this.selections;
 		@candidate.discoveries = this.discoveries;
 		var typed = @candidate.type();
+		if (typed.get() && @candidate.accept(token_kind::punct_ellipsis)) {
+			var expanded = @candidate.node(syntax_kind::pack_expansion, typed.get()->token());
+			@candidate.add(@*expanded.get(), rt::unique<Syntax>(@typed.release()));
+			@typed = $expanded;
+		};
 		var named = @candidate.name();
 		if (candidate.failure.empty() && typed.get() && named.get()) {
 			@declared_type = rt::unique<Syntax>(@typed.release());
@@ -1370,6 +1375,11 @@ fn Parser::variable(var Parser& this) -> rt::unique<Syntax> {
 	}
 	else {
 		@declared_type = @this.type();
+		if (declared_type.get() && @this.accept(token_kind::punct_ellipsis)) {
+			var expanded = @this.node(syntax_kind::pack_expansion, declared_type.get()->token());
+			@this.add(@*expanded.get(), rt::unique<Syntax>(@declared_type.release()));
+			@declared_type = $expanded;
+		};
 		@declared_name = @this.name();
 	};
 

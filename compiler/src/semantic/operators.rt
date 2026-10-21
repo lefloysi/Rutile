@@ -671,6 +671,12 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 	};
 
 	var Entity* field = type->entity()->find_member(syntax.member_name()->token().text());
+	if (field && field->kind() == entity_kind::field_pack && field == this.folded_field_pack && this.folded_field_index < field->fields().size()) {
+		if (!field->fields().data()[this.folded_field_index]) {
+			return @this.null_member_pack(@scope, @syntax, field, $object, expected);
+		};
+		@field = field->fields().data()[this.folded_field_index];
+	};
 
 	if (!field || field->kind() != entity_kind::field) {
 		var message = DiagnosticMessage();

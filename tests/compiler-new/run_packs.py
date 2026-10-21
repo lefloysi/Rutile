@@ -207,6 +207,170 @@ Integers values = <42>;
 fn target(i32 value) -> i32 { return value; };
 fn main() -> i32 { return target(values); };
 """, r"(?i)(pack.*(runtime|value|ordinary)|does not denote a value|no applicable function)"),
+
+	case("expansion", "member-pack-call", """
+template<typename...Ts>
+struct Fields {
+	Ts... values;
+};
+fn answer(i32 first, i64 second) -> i32 { return first + i32(second); };
+fn main() -> i32 {
+	var fields = Fields<i32, i64>(20, i64(22));
+	return answer(fields.values...);
+};
+"""),
+
+	case("expansion", "member-pack-comma-fold", """
+i32 sequence;
+fn observe(i32 value) { @sequence = sequence * 10 + value; };
+fn observe(i64 value) { @sequence = sequence * 10 + i32(value); };
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn main() -> i32 {
+	var fields = Fields<i32, i64>(4, i64(2));
+	(observe(fields.values), ...);
+	return sequence;
+};
+"""),
+
+
+	case("expansion", "member-pack-private-access", """
+template<typename...Ts>
+struct Fields {
+private:
+	Ts... values;
+};
+fn answer(i32 value) -> i32 { return value; };
+fn main() -> i32 { Fields<i32> fields; return answer(fields.values...); };
+""", r"member pack is not accessible from this scope"),
+
+	case("expansion", "member-pack-private-empty-fold", """
+template<typename...Ts>
+struct Fields {
+private:
+	Ts... values;
+};
+fn main() -> i32 {
+	Fields<> fields;
+	(fields.values, ...);
+	return 42;
+};
+""", r"member pack is not accessible from this scope"),
+	case("expansion", "member-pack-union-null-value", """
+template<typename...Ts>
+union Storage { Ts... values; };
+fn answer(void* value) -> i32 { if (value == nullptr) { return 42; }; return 1; };
+fn main() -> i32 {
+	Storage<null> storage;
+	return answer(storage.values...);
+};
+"""),
+
+	case("expansion", "member-pack-immutable-receiver", """
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn mutate(var i32& value) { @value = 42; };
+fn main() -> i32 {
+	const Fields<i32> fields;
+	mutate(@fields.values...);
+	return 42;
+};
+""", r"(?i)(mutable|const|immutable|modif|qualif)"),
+	case("expansion", "member-pack-unqualified-fold", """
+template<typename...Ts>
+struct Fields {
+	Ts... values;
+	fn answer(Fields& this) -> i32 { return i32((values + ...)); };
+};
+fn main() -> i32 {
+	var fields = Fields<i32, i32>(20, 22);
+	return fields.answer();
+};
+"""),
+
+	case("expansion", "member-pack-layout-and-empty", """
+template<typename...Ts>
+struct Fields {
+	u08 before;
+	Ts... values;
+	u08 after;
+};
+template<typename...Ts>
+union Storage {
+	Ts... values;
+};
+fn main() -> i32 {
+	if (sizeof(Fields<>) != 2 || sizeof(Fields<i32>) != 12) { return 1; };
+	if (sizeof(Fields<i64, i32>) != 24 || sizeof(Storage<i32, i64>) != 8) { return 2; };
+	if (sizeof(Storage<null, i64>) != 8) { return 3; };
+	return 42;
+};
+"""),
+	case("expansion", "member-pack-empty-call", """
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn answer(i32 first, i32 last) -> i32 { return first + last; };
+fn main() -> i32 {
+	Fields<> fields;
+	return answer(20, fields.values..., 22);
+};
+"""),
+
+	case("expansion", "member-pack-forward-type", """
+template Types = <typename...>;
+Types types = <Later>;
+struct Holder {
+	u08 before;
+	types... values;
+	u08 after;
+};
+struct Later { i32 value; };
+fn main() -> i32 { if (sizeof(Holder) != 12) { return 1; }; return 42; };
+"""),
+
+
+	case("expansion", "member-pack-incomplete-type", """
+struct Later;
+template Types = <typename...>;
+Types types = <Later>;
+struct Holder { types... values; };
+fn main() -> i32 { return 42; };
+""", r"member pack element requires a complete nonrecursive storage type"),
+
+	case("expansion", "member-pack-lifetime", """
+i32 constructed;
+i32 destroyed;
+struct Tracked {
+	fn Tracked(var Tracked& this) { @constructed = constructed + 1; };
+	fn ~Tracked(var Tracked& this) { @destroyed = destroyed + 1; };
+};
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn main() -> i32 {
+	{
+		Fields<Tracked, Tracked> fields;
+		if (constructed != 2 || destroyed) { return 1; };
+	};
+	if (destroyed != 2) { return 2; };
+	return 42;
+};
+"""),
+	case("expansion", "member-pack-nonpack", """
+template<typename T>
+struct Fields { T... values; };
+fn main() -> i32 { Fields<i32> fields; return 42; };
+""", r"(?i)(cannot expand|expansion.*pack|expand.*non.pack|expected.*pack)"),
+	case("expansion", "member-pack-void", """
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn main() -> i32 { Fields<void> fields; return 42; };
+""", r"(?i)(void|object.*storage|storage.*object)"),
+	case("expansion", "member-pack-null-struct", """
+template<typename...Ts>
+struct Fields { Ts... values; };
+fn main() -> i32 { Fields<null> fields; return 42; };
+""", r"(?i)(null|object.*storage|storage.*object)"),
+
 	case("expansion", "template-interleaved", """
 template Types = <typename...>;
 Types left = <i32, i64>;

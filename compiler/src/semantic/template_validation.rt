@@ -316,6 +316,9 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 	};
 	if (syntax.kind() == syntax_kind::variable) {
 		var Syntax* specifier = syntax.variable_type();
+		if (specifier->kind() == syntax_kind::pack_expansion) {
+			return @this.type_names(@analyzer, @scope, @*specifier->item(0));
+		};
 		if (specifier->kind() == syntax_kind::type_name && specifier->designated_type()->kind() == syntax_kind::name) {
 			TemplateValidationSymbol* symbol = this.lookup(specifier->designated_type()->token());
 			if (symbol && symbol->role == template_validation_role::pack_signature) {

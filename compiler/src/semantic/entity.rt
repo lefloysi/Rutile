@@ -18,6 +18,7 @@ enum entity_kind : [u08] {
 	constant;
 	pack_binding;
 	pack_signature;
+	field_pack;
 };
 
 enum entity_state : [u08] {
@@ -124,6 +125,7 @@ struct Entity {
 	fn add_parameter(var Entity& this, var Entity* parameter) -> bool;
 	fn fields(Entity& this) -> rt::buffer<var Entity*>&;
 	fn add_field(var Entity& this, var Entity* field) -> bool;
+	fn set_fields(var Entity& this, rt::buffer<var Entity*> fields);
 	fn index(Entity& this) -> usize;
 	fn set_index(var Entity& this, usize index);
 	fn body(Entity& this) -> var SemanticExpression*;
@@ -667,6 +669,10 @@ fn Entity::add_parameter(var Entity& this, var Entity* parameter) -> bool {
 
 fn Entity::add_field(var Entity& this, var Entity* field) -> bool {
 	return @this.member_fields.push_back($field);
+};
+
+fn Entity::set_fields(var Entity& this, rt::buffer<var Entity*> fields) {
+	@this.member_fields = $fields;
 };
 
 fn Entity::template_arguments(Entity& this) -> TemplateInstantiation* {

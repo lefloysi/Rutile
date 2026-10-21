@@ -555,6 +555,29 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 	while (index < arguments->size()) {
 		rt::unique<SemanticExpression> value;
 		if (arguments->item(index)->kind() == syntax_kind::pack_expansion) {
+			var Syntax* pattern = arguments->item(index)->pack_operand();
+			var Entity* binding = nullptr;
+			if (!@this.fold_binding(@scope, @*pattern, @binding)) {
+				return rt::unique<SemanticExpression>();
+			};
+			if (binding && binding->kind() == entity_kind::field_pack) {
+				usize element = 0;
+				while (element < binding->fields().size()) {
+					var Entity* previous = this.folded_field_pack;
+					usize previous_index = this.folded_field_index;
+					@this.folded_field_pack = binding;
+					@this.folded_field_index = element;
+					var expanded = @this.expression(@scope, @*pattern, rt::optional_ref<const Type>());
+					@this.folded_field_pack = previous;
+					@this.folded_field_index = previous_index;
+					if (!expanded.get() || !@values.push_back($expanded)) {
+						return rt::unique<SemanticExpression>();
+					};
+					@element = element + 1;
+				};
+				@index = index + 1;
+				continue;
+			};
 			var TemplatePack* pack = @this.templates.pack(@this, @scope, @*arguments->item(index)->pack_operand());
 			if (!pack) {
 				return rt::unique<SemanticExpression>();

@@ -119,17 +119,10 @@ fn Analyzer::aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& 
 		};
 		@owner = receiver.get()->type();
 	};
-	var name = DiagnosticMessage();
-	@name.text("_element");
-	@name.number(u64(position));
 	var Entity* field = nullptr;
-	@index = 0;
-	while (index < owner->entity()->fields().size()) {
-		if (owner->entity()->fields().data()[index]->name() == name.view()) {
-			@field = owner->entity()->fields().data()[index];
-			break;
-		};
-		@index = index + 1;
+	var Entity* members = owner->entity()->find_member("_elements");
+	if (members && members->kind() == entity_kind::field_pack && position < members->fields().size()) {
+		@field = members->fields().data()[position];
 	};
 	return @this.convert(@aggregate_element(@this, @syntax, $receiver, field), expected, @syntax);
 };
