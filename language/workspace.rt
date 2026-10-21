@@ -413,7 +413,12 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 		return false;
 	};
 
-	@job.get()->generation = runtime_atomic_fetch_add(this.generation, 1) + 1;
+	u64 revision = @this.compiler->next_editor_revision();
+	if (!revision) {
+		return false;
+	};
+	@job.get()->generation = revision;
+	runtime_atomic_store(this.generation, $revision);
 	@job.get()->configuration = this.configuration;
 	usize target = 0;
 	while (target < this.known_targets.size()) {

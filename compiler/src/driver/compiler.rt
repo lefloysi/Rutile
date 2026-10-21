@@ -61,6 +61,7 @@ struct Compiler {
 	fn ~Compiler(var Compiler& this);
 
 	fn set_progress(var Compiler& this, CompilerProgress progress);
+	fn next_editor_revision(var Compiler& this) -> u64;
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
 	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
 	fn acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
@@ -80,6 +81,7 @@ private:
 
 	CompilerProgress progress;
 	var RuntimeMutex* publication_mutex;
+	u64 editor_revision;
 	rt::unordered_map<rt::string_view, rt::unique<TargetAnalysis>> targets;
 	rt::buffer<rt::unique<PublishedAnalysis>> retired;
 };
@@ -109,6 +111,7 @@ fn AnalysisLease::value(AnalysisLease& this) -> Analysis& {
 
 fn Compiler::Compiler(var Compiler& this) {
 	@this.publication_mutex = runtime_mutex_create();
+	@this.editor_revision = 0;
 };
 
 fn Compiler::~Compiler(var Compiler& this) {
@@ -121,6 +124,17 @@ fn AnalysisLease::revision(AnalysisLease& this) -> u64 {
 	};
 
 	return this.entry->revision;
+};
+
+fn Compiler::next_editor_revision(var Compiler& this) -> u64 {
+	if (!this.publication_mutex) {
+		return 0;
+	};
+	runtime_mutex_lock(this.publication_mutex);
+	@this.editor_revision = this.editor_revision + 1;
+	u64 revision = this.editor_revision;
+	runtime_mutex_unlock(this.publication_mutex);
+	return $revision;
 };
 
 fn Compiler::expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool {
