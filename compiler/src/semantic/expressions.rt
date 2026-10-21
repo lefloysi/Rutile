@@ -52,10 +52,14 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	};
 
 	if (kind == syntax_kind::switch_expression) {
-		return @this.selection(@scope, @syntax);
+		@this.variant_facts.clear();
+		var result = @this.selection(@scope, @syntax);
+		@this.variant_facts.clear();
+		return $result;
 	};
 
 	if (kind == syntax_kind::case_label) {
+		@this.variant_facts.clear();
 		return @this.label(@scope, @syntax);
 	};
 
@@ -74,6 +78,29 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	};
 
 	if (kind == syntax_kind::ambiguity) {
+		usize cast_index = 0;
+		while (cast_index < syntax.size()) {
+			var Syntax* candidate = syntax.item(cast_index);
+			if (candidate->kind() == syntax_kind::cast && candidate->token().kind == token_kind::punct_left_paren) {
+				var Syntax* operand = candidate->cast_operand();
+				while (operand->kind() == syntax_kind::grouping) {
+					@operand = operand->operand();
+				};
+				if (operand->kind() == syntax_kind::name || operand->kind() == syntax_kind::qualified_name) {
+					var Entity* binding = @this.lookup(@scope, @*operand);
+					if (binding && !binding->denotes_type() && @this.resolve(binding)) {
+						Type* owner = binding->type();
+						if (owner && owner->kind() == type_kind::reference) {
+							@owner = owner->element();
+						};
+						if (aggregate_access_kind(owner) == 2) {
+							return @this.expression(@scope, @*candidate, expected);
+						};
+					};
+				};
+			};
+			@cast_index = cast_index + 1;
+		};
 		usize index = 0;
 		while (index < syntax.size()) {
 			var Syntax* candidate = syntax.item(index);
@@ -105,7 +132,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			if (candidate->kind() == syntax_kind::call) {
 				syntax_kind callee = candidate->callable()->kind();
 
-				if (callee == syntax_kind::type_name || callee == syntax_kind::type_pointer || callee == syntax_kind::type_reference || callee == syntax_kind::type_array || (callee == syntax_kind::type_const || callee == syntax_kind::type_mutable) || callee == syntax_kind::type_function || callee == syntax_kind::type_auto) {
+				if (callee == syntax_kind::type_name || callee == syntax_kind::type_pointer || callee == syntax_kind::type_reference || callee == syntax_kind::type_array || (callee == syntax_kind::type_const || callee == syntax_kind::type_mutable) || callee == syntax_kind::type_function || callee == syntax_kind::type_auto || callee == syntax_kind::type_tuple || callee == syntax_kind::type_variant || callee == syntax_kind::type_grouping) {
 					@index = index + 1;
 					continue;
 				};
@@ -595,6 +622,10 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return rt::unique<SemanticExpression>();
 		};
 
+		Type* alternative = variant_flow_known(this.variant_facts, *value.get());
+		if (alternative && !@this.variant_facts.establish(@*entity, alternative)) {
+			return rt::unique<SemanticExpression>();
+		};
 		if (!@result.get()->append($value)) {
 			return rt::unique<SemanticExpression>();
 		};
@@ -630,7 +661,48 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		return $result;
 	};
 
+	if (kind == syntax_kind::conditional) {
+		var condition = @this.expression(@scope, @*syntax.condition(), rt::optional_ref<const Type>(*bool_type));
+		if (!condition.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var before = VariantFlowFacts(this.variant_facts);
+		if (!variant_flow_condition(@this.variant_facts, *condition.get(), true)) {
+			return rt::unique<SemanticExpression>();
+		};
+		var body = @this.expression(@scope, @*syntax.body(), rt::optional_ref<const Type>());
+		if (!body.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var after_body = VariantFlowFacts(this.variant_facts);
+		@this.variant_facts := before;
+		if (!variant_flow_condition(@this.variant_facts, *condition.get(), false)) {
+			return rt::unique<SemanticExpression>();
+		};
+		var alternative = @this.expression(@scope, @*syntax.alternative(), rt::optional_ref<const Type>());
+		if (!alternative.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		bool body_exits = variant_flow_terminates(*body.get());
+		bool alternative_exits = variant_flow_terminates(*alternative.get());
+		if (body_exits && alternative_exits) {
+			@this.variant_facts.clear();
+		}
+		else if (alternative_exits) {
+			@this.variant_facts := after_body;
+		}
+		else if (!body_exits) {
+			@this.variant_facts.intersect(after_body);
+		};
+		var result = @this.node(semantic_kind::conditional, void_type, &@syntax);
+		if (!result.get() || !@result.get()->append($condition) || !@result.get()->append($body) || !@result.get()->append($alternative)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return $result;
+	};
+
 	if (kind == syntax_kind::conditional || kind == syntax_kind::while_loop || kind == syntax_kind::for_loop) {
+		@this.variant_facts.clear();
 		semantic_kind category = semantic_kind::conditional;
 		var Scope* local = &@scope;
 
@@ -679,6 +751,7 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		if (kind != syntax_kind::conditional) {
 			@this.loop_depth = this.loop_depth - 1;
 		};
+		@this.variant_facts.clear();
 
 		return $result;
 	};

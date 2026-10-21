@@ -54,10 +54,14 @@ struct Analyzer {
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
 
 private:
+	fn variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn construct_variant(var Analyzer& this, var Syntax& syntax, Type* type, var rt::buffer<rt::unique<SemanticExpression>>& raw, var bool& handled) -> rt::unique<SemanticExpression>;
 	fn pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> bool;
 	fn pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> bool;
 	fn binary_values(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> left, rt::unique<SemanticExpression> right, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	VariantFlowFacts variant_facts;
 	CompilerProgress progress;
 	bool editor;
 	declaration_collection collection;
@@ -266,6 +270,13 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 	};
 
 	syntax_kind kind = syntax.kind();
+
+	if (kind == syntax_kind::type_grouping) {
+		return @this.type(@scope, @*syntax.item(0));
+	};
+	if (kind == syntax_kind::type_tuple || kind == syntax_kind::type_variant) {
+		return @this.templates.aggregate_type(@this, @scope, @syntax);
+	};
 
 	if (kind == syntax_kind::type_auto) {
 		Type* element = @this.type(@scope, @*syntax.designated_type());

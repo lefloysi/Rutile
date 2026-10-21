@@ -1,0 +1,43 @@
+fn FunctionEmitter::construct_variant_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
+	Type* type = expression->type();
+	var Entity* owner = type->entity();
+	var Entity* alternatives_field = owner->find_member("_storage");
+	var Entity* index_field = owner->find_member("_index");
+	usize selected = usize(expression->integer() - 1);
+	if (!alternatives_field || !index_field || alternatives_field->type()->kind() != type_kind::named) {
+		return @this.backend->error(expression->token(), "invalid variant construction storage");
+	};
+	var Entity* alternative_field = nullptr;
+	usize index = 0;
+	while (index < alternatives_field->type()->entity()->fields().size()) {
+		var Entity* field = alternatives_field->type()->entity()->fields().data()[index];
+		if (field->integer() == u64(selected)) {
+			@alternative_field = field;
+			break;
+		};
+		@index = index + 1;
+	};
+	if (!alternative_field && expression->item(0)->size()) {
+		return @this.backend->error(expression->token(), "variant construction alternative storage is unavailable");
+	};
+
+	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
+	if (!native) {
+		return false;
+	};
+	LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), storage);
+	if (alternative_field) {
+		var LLVMOpaqueValue* alternative_address = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(owner, alternatives_field->index()), "variant.storage\0".data());
+		Type* alternative = alternative_field->type();
+		if (!@this.initialize_value(alternative, alternative_address, expression->item(0)->item(0))) {
+			return false;
+		};
+	};
+	var LLVMOpaqueValue* index_address = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(owner, index_field->index()), "variant.index\0".data());
+	var LLVMOpaqueType* index_type = @this.backend->type(index_field->type(), expression->token());
+	if (!index_type) {
+		return false;
+	};
+	LLVMBuildStore(this.backend->builder(), LLVMConstInt(index_type, expression->integer(), 0), index_address);
+	return true;
+};

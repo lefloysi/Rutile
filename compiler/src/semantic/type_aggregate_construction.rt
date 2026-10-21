@@ -1,0 +1,91 @@
+fn variant_instance(Entity& record) -> bool {
+	TemplateInstantiation* arguments = record.template_arguments();
+	if (!arguments || !arguments->pattern || arguments->pattern->name() != "variant") {
+		return false;
+	};
+	var Scope* scope = arguments->pattern->scope();
+	return scope && scope->owner() && scope->owner()->kind() == entity_kind::namespace_body && scope->owner()->name() == "rt";
+};
+
+fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* type, var rt::buffer<rt::unique<SemanticExpression>>& raw, var bool& handled) -> rt::unique<SemanticExpression> {
+	@handled = false;
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record || !variant_instance(*type->entity()) || !raw.size()) {
+		return rt::unique<SemanticExpression>();
+	};
+	if (raw.size() == 1 && raw.data()[0].get()->type()->same_shape(*type)) {
+		return rt::unique<SemanticExpression>();
+	};
+	@handled = true;
+	if (!@this.resolve(type->entity())) {
+		return rt::unique<SemanticExpression>();
+	};
+	if (raw.size() != 1) {
+		@this.error(&@syntax, "variant construction requires exactly one alternative value");
+		return rt::unique<SemanticExpression>();
+	};
+	if (raw.data()[0].get()->kind() == semantic_kind::null_pointer) {
+		TemplateInstantiation* instance = type->entity()->template_arguments();
+		var TemplatePack* elements = instance->arguments.data()[0].pack;
+		usize null_position = elements->elements.size();
+		usize position = 0;
+		while (position < elements->elements.size()) {
+			if (elements->elements.data()[position].type && elements->elements.data()[position].type->kind() == type_kind::null_type) {
+				if (null_position != elements->elements.size()) {
+					@this.error(&@syntax, "variant construction type matches more than one alternative");
+					return rt::unique<SemanticExpression>();
+				};
+				@null_position = position;
+			};
+			@position = position + 1;
+		};
+		if (null_position != elements->elements.size()) {
+			var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
+			var result = @this.node(semantic_kind::construction, type, &@syntax);
+			if (!arguments.get() || !result.get() || !@result.get()->append($arguments)) {
+				return rt::unique<SemanticExpression>();
+			};
+			@result.get()->set_integer(u64(null_position + 1));
+			return $result;
+		};
+	};
+
+	var Entity* storage = type->entity()->find_member("_storage");
+	if (!storage || !@this.resolve(storage) || storage->type()->kind() != type_kind::named || !@this.resolve(storage->type()->entity())) {
+		@this.error(&@syntax, "rt::variant requires its standard alternative storage declaration");
+		return rt::unique<SemanticExpression>();
+	};
+	var Entity* alternatives = storage->type()->entity();
+	usize selected = alternatives->fields().size();
+	usize index = 0;
+	while (index < alternatives->fields().size()) {
+		if (alternatives->fields().data()[index]->type()->same_shape(*raw.data()[0].get()->type())) {
+			if (selected != alternatives->fields().size()) {
+				@this.error(&@syntax, "variant construction type matches more than one alternative");
+				return rt::unique<SemanticExpression>();
+			};
+			@selected = index;
+		};
+		@index = index + 1;
+	};
+	if (selected == alternatives->fields().size()) {
+		@this.error(&@syntax, "variant construction value type is not an alternative");
+		return rt::unique<SemanticExpression>();
+	};
+
+	Type* alternative = alternatives->fields().data()[selected]->type();
+	if (raw.data()[0].get()->category() == value_category::place && !@this.prepare_copy(alternative)) {
+		return rt::unique<SemanticExpression>();
+	};
+	rt::buffer<rt::unique<SemanticExpression>> payload_arguments;
+	if (!@payload_arguments.push_back(rt::unique<SemanticExpression>(@raw.data()[0].release()))) {
+		return rt::unique<SemanticExpression>();
+	};
+	var payload = @this.construct_values(@syntax, alternative, $payload_arguments);
+	var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
+	var result = @this.node(semantic_kind::construction, type, &@syntax);
+	if (!payload.get() || !arguments.get() || !result.get() || !@arguments.get()->append($payload) || !@result.get()->append($arguments)) {
+		return rt::unique<SemanticExpression>();
+	};
+	@result.get()->set_integer(alternatives->fields().data()[selected]->integer() + 1);
+	return $result;
+};

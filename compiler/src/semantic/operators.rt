@@ -67,6 +67,15 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (operation.kind != token_kind::op_access && operation.kind != token_kind::op_relocate && operation.kind != token_kind::op_ampersand && operation.kind != token_kind::kw_sizeof) {
+		Type* known = variant_flow_known(this.variant_facts, *operand.get());
+		if (known) {
+			@operand = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@operand.release()), known);
+			if (!operand.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+	};
 	Type* type = operand.get()->type();
 
 	if (operation.kind == token_kind::kw_sizeof) {
@@ -207,6 +216,15 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (!assignment) {
+		Type* known = variant_flow_known(this.variant_facts, *left.get());
+		if (known) {
+			@left = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@left.release()), known);
+			if (!left.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+	};
 	Type* type = left.get()->type();
 	var right_context = rt::optional_ref<const Type>(*type);
 
@@ -237,8 +255,13 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 		return rt::unique<SemanticExpression>();
 	};
 
+	var logical_before = VariantFlowFacts(this.variant_facts);
 	if (!right.get()) {
 		@right = @this.expression(@scope, @*syntax.right(), right_context);
+	};
+	if (logical) {
+		// The right operand may be skipped at runtime.
+		@this.variant_facts.intersect(logical_before);
 	};
 
 	if (!right.get()) {
@@ -251,6 +274,27 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> left, rt::unique<SemanticExpression> right, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	Token operation = syntax.token();
 	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
+	if (assignment) {
+		Type* alternative = variant_flow_known(this.variant_facts, *right.get());
+		var Entity* binding = variant_flow_binding(*left.get());
+		@this.variant_facts.clear();
+		if (binding && alternative && !@this.variant_facts.establish(@*binding, alternative)) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
+	if (!assignment) {
+		Type* known_left = variant_flow_known(this.variant_facts, *left.get());
+		Type* known_right = variant_flow_known(this.variant_facts, *right.get());
+		if (known_left) {
+			@left = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@left.release()), known_left);
+		};
+		if (known_right) {
+			@right = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@right.release()), known_right);
+		};
+		if (!left.get() || !right.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
 	bool logical = operation.kind == token_kind::op_and || operation.kind == token_kind::op_or;
 	bool comparison = operation.kind == token_kind::op_equal || operation.kind == token_kind::op_not_equal || operation.kind == token_kind::op_less || operation.kind == token_kind::op_greater || operation.kind == token_kind::op_less_equal || operation.kind == token_kind::op_greater_equal;
 	Type* type = left.get()->type();
@@ -385,6 +429,13 @@ fn Analyzer::cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 	};
 
 	Type* source = value.get()->type();
+	if (operation.kind == token_kind::punct_left_paren && aggregate_access_kind(source) == 2) {
+		return @this.variant_cast(@scope, @syntax, target, $value, expected);
+	};
+	if (operation.kind == token_kind::punct_left_paren) {
+		@this.error(&@syntax, "parenthesized access casts require a variant operand");
+		return rt::unique<SemanticExpression>();
+	};
 	Type* destination = target;
 
 	if (destination->kind() == type_kind::reference) {
@@ -521,6 +572,13 @@ fn Analyzer::component(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		return rt::unique<SemanticExpression>();
 	};
 
+	Type* known = variant_flow_known(this.variant_facts, *object.get());
+	if (known) {
+		@object = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@object.release()), known);
+		if (!object.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
 	Type* type = object.get()->type();
 
 	if (syntax.kind() == syntax_kind::index) {

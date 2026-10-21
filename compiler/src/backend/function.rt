@@ -35,6 +35,7 @@ struct FunctionEmitter {
 	fn statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
 	fn value(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
+	fn variant_cast_address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
 	fn bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address) -> bool;
 	fn destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
@@ -42,6 +43,7 @@ struct FunctionEmitter {
 
 	fn take(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
+	fn construct_variant_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
 	fn initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
 	fn initialize_value(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> bool;
 
@@ -109,6 +111,7 @@ private:
 
 	var Backend* backend;
 	var LLVMOpaqueValue* function;
+	var LLVMOpaqueValue* variant_payload_address;
 	Type* result;
 	var NativeControl* active_control;
 	rt::buffer<NativeBinding> bindings;
@@ -242,6 +245,10 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 	};
 
 	switch (expression->kind()) {
+		case semantic_kind::variant_cast:
+			return @this.variant_cast_address(expression);
+		case semantic_kind::variant_payload:
+			return this.variant_payload_address;
 		case semantic_kind::name: {
 			var Entity* entity = expression->entity();
 			var LLVMOpaqueValue* address = this.storage((var Entity*(entity)));

@@ -19,6 +19,10 @@ fn FunctionEmitter::construct(var FunctionEmitter& this, var SemanticExpression*
 };
 
 fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
+	if (expression->integer()) {
+		return @this.construct_variant_body(expression, storage);
+	};
+
 	Type* type = expression->type();
 	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 

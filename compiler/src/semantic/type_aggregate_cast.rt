@@ -1,0 +1,102 @@
+fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	Type* owner = receiver.get()->type();
+	TemplateInstantiation* instance = owner->entity()->template_arguments();
+	var TemplatePack* elements = instance->arguments.data()[0].pack;
+	usize selected = 0;
+	usize count = 0;
+	usize index = 0;
+	while (index < elements->elements.size()) {
+		if (elements->elements.data()[index].type->same_shape(*target)) {
+			@selected = index;
+			@count = count + 1;
+		};
+		@index = index + 1;
+	};
+	if (count != 1) {
+		@this.error(&@syntax, "variant cast requires a unique alternative of the requested type");
+		return rt::unique<SemanticExpression>();
+	};
+	Type* known = variant_flow_known(this.variant_facts, *receiver.get());
+	var Entity* binding = variant_flow_binding(*receiver.get());
+	if (binding && !@this.variant_facts.establish(@*binding, elements->elements.data()[selected].type)) {
+		@this.error(&@syntax, "variant access proof storage is unavailable");
+		return rt::unique<SemanticExpression>();
+	};
+	if (known && known->same_shape(*target) && target->kind() != type_kind::null_type) {
+		return @this.convert(variant_flow_extract(@this, @syntax, $receiver, known), expected, @syntax);
+	};
+	if (known && known->same_shape(*target) && target->kind() == type_kind::null_type) {
+		Type* null_type = @this.types->pointer(@this.types->qualified(*target, type_qualifier::immutable));
+		var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
+		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.convert($result, expected, @syntax);
+	};
+	Type* result_type = elements->elements.data()[selected].type;
+	bool null_result = result_type->kind() == type_kind::null_type;
+	if (null_result) {
+		@result_type = @this.types->pointer(@this.types->qualified(*result_type, type_qualifier::immutable));
+	};
+	if (owner->qualifier() == type_qualifier::immutable) {
+		@result_type = @this.types->qualified(*result_type, type_qualifier::immutable);
+	};
+	bool mutable_access = receiver.get()->mutable_access();
+	var result = @this.node(semantic_kind::variant_cast, result_type, &@syntax);
+	if (!result.get() || !@result.get()->append($receiver)) {
+		return rt::unique<SemanticExpression>();
+	};
+	@result.get()->set_integer(u64(selected + 1));
+	@result.get()->set_mutable_access(mutable_access);
+	if (!null_result) {
+		@result.get()->set_category(value_category::place);
+	};
+	@index = 0;
+	while (index < elements->elements.size()) {
+		if (index == selected) {
+			if (!@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))) {
+				return rt::unique<SemanticExpression>();
+			};
+		}
+		else {
+			Type* alternative = elements->elements.data()[index].type;
+			if (alternative->kind() == type_kind::null_type) {
+				Type* null_type = @this.types->pointer(@this.types->qualified(*alternative, type_qualifier::immutable));
+				var failure = @this.node(semantic_kind::exception_throw, this.types->find_primitive("void"), &@syntax);
+				if (!failure.get() || !@failure.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax)) || !@result.get()->append($failure)) {
+					return rt::unique<SemanticExpression>();
+				};
+				@index = index + 1;
+				continue;
+			};
+			Type* payload_type = alternative;
+			if (owner->qualifier() == type_qualifier::immutable) {
+				@payload_type = @this.types->qualified(*payload_type, type_qualifier::immutable);
+			};
+			if (!@this.prepare_copy(alternative)) {
+				return rt::unique<SemanticExpression>();
+			};
+			if (alternative->kind() == type_kind::named && alternative->entity()->kind() == entity_kind::record && !exception_member_access(@this, alternative->entity()->destructor(), @scope, syntax.token())) {
+				return rt::unique<SemanticExpression>();
+			};
+			var payload = @this.node(semantic_kind::variant_payload, payload_type, &@syntax);
+			if (!payload.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+			@payload.get()->set_category(value_category::place);
+			var value = @this.initialize(@syntax, alternative, $payload);
+			if (!value.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+			if (value.get()->kind() == semantic_kind::construction && !exception_member_access(@this, value.get()->entity(), @scope, syntax.token())) {
+				return rt::unique<SemanticExpression>();
+			};
+			var failure = @this.node(semantic_kind::exception_throw, this.types->find_primitive("void"), &@syntax);
+			if (!failure.get() || !@failure.get()->append($value) || !@result.get()->append($failure)) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
+		@index = index + 1;
+	};
+	return @this.convert($result, expected, @syntax);
+};

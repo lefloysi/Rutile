@@ -1,5 +1,9 @@
 fn Analyzer::names_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> bool {
 	switch (syntax.kind()) {
+		case syntax_kind::type_tuple:
+		case syntax_kind::type_variant:
+			return @this.names_type(@scope, @*syntax.left()) && @this.names_type(@scope, @*syntax.right());
+		case syntax_kind::type_grouping:
 		case syntax_kind::type_pointer:
 		case syntax_kind::type_reference:
 		case syntax_kind::type_array:

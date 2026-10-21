@@ -82,6 +82,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		};
 
 		case semantic_kind::access:
+		case semantic_kind::variant_payload:
 		case semantic_kind::dereference:
 		case semantic_kind::index:
 		case semantic_kind::member: {
@@ -96,6 +97,16 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 
 		case semantic_kind::address:
 			return @this.address(expression->item(0));
+		case semantic_kind::variant_cast: {
+			var LLVMOpaqueValue* address = @this.variant_cast_address(expression);
+			if (!address) {
+				return nullptr;
+			};
+			if (expression->type()->kind() == type_kind::pointer && expression->type()->element()->kind() == type_kind::null_type) {
+				return LLVMConstNull(type);
+			};
+			return LLVMBuildLoad2(this.backend->builder(), type, address, "variant.cast.read\0".data());
+		};
 		case semantic_kind::relocation: {
 			var LLVMOpaqueValue* storage = @this.address(expression->item(0));
 

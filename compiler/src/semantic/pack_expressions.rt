@@ -94,7 +94,7 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			@kind = entity_kind::type_parameter;
 		};
 		var Entity* element = @this.unit->create_entity($kind, binding->token(), &@syntax, iteration);
-		if (!element) {
+		if (!element || !@element->set_name(binding->name())) {
 			return rt::unique<SemanticExpression>();
 		};
 		@element->set_type(argument.type);
@@ -122,21 +122,22 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		@index = index + 1;
 	};
 	if (operation == token_kind::punct_comma) {
-		var SemanticExpression* last = values.data()[values.size() - 1].get();
-		var sequence = @this.node(semantic_kind::sequence, last->type(), &@syntax);
-		if (!sequence.get()) {
-			return rt::unique<SemanticExpression>();
-		};
-		@sequence.get()->set_category(last->category());
-		@sequence.get()->set_mutable_access(last->mutable_access());
-		@index = 0;
-		while (index < values.size()) {
-			if (!@sequence.get()->append(rt::unique<SemanticExpression>(@(@values).data()[index].release()))) {
+		@index = values.size() - 1;
+		var result = rt::unique<SemanticExpression>(@(@values).data()[index].release());
+		while (index) {
+			@index = index - 1;
+			var sequence = @this.node(semantic_kind::sequence, result.get()->type(), &@syntax);
+			if (!sequence.get()) {
 				return rt::unique<SemanticExpression>();
 			};
-			@index = index + 1;
+			@sequence.get()->set_category(result.get()->category());
+			@sequence.get()->set_mutable_access(result.get()->mutable_access());
+			if (!@sequence.get()->append(rt::unique<SemanticExpression>(@(@values).data()[index].release())) || !@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@sequence.get()->append(rt::unique<SemanticExpression>(@result.release()))) {
+				return rt::unique<SemanticExpression>();
+			};
+			@result = $sequence;
 		};
-		return @this.convert($sequence, expected, @syntax);
+		return @this.convert($result, expected, @syntax);
 	};
 	@index = values.size() - 1;
 	var result = rt::unique<SemanticExpression>(@(@values).data()[index].release());

@@ -58,6 +58,26 @@ fn Analyzer::compatible(Analyzer& this, Type* source, Type* target) -> bool {
 };
 
 fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expected) -> i32 {
+	Type* target = &@expected;
+	if (target->kind() == type_kind::reference) {
+		@target = target->element();
+	};
+	Type* known = variant_flow_known(this.variant_facts, value);
+	if (known && !value.type()->same_shape(*target)) {
+		Token token = value.token();
+		Type* representation = known;
+		semantic_kind category = semantic_kind::name;
+		if (known->kind() == type_kind::null_type) {
+			@representation = @this.types->pointer(@this.types->qualified(*known, type_qualifier::immutable));
+			@category = semantic_kind::null_pointer;
+		};
+		var narrowed = SemanticExpression(category, representation, token);
+		if (category == semantic_kind::name) {
+			@narrowed.bind(value.entity(), value.category());
+			@narrowed.set_mutable_access(value.mutable_access());
+		};
+		return this.builtin_rank(narrowed, expected);
+	};
 	if (expected.kind() == type_kind::reference) {
 		if (value.category() != value_category::place && expected.element()->qualifier() == type_qualifier::mutable) {
 			return -1;
@@ -124,6 +144,19 @@ fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expec
 fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, rt::optional_ref<const Type>& expected, var Syntax& syntax) -> rt::unique<SemanticExpression> {
 	if (!value.get() || !expected.has_value()) {
 		return $value;
+	};
+
+	Type* requested = expected.get();
+	if (requested->kind() == type_kind::reference) {
+		@requested = requested->element();
+	};
+	Type* known = variant_flow_known(this.variant_facts, *value.get());
+	if (known && !value.get()->type()->same_shape(*requested)) {
+		@value = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@value.release()), known);
+		if (!value.get()) {
+			@this.error(&@syntax, "proven variant alternative storage is unavailable");
+			return rt::unique<SemanticExpression>();
+		};
 	};
 
 	if (@this.argument_rank(*value.get(), expected.value()) < 0) {

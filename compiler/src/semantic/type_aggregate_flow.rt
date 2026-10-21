@@ -1,0 +1,267 @@
+// Flow facts apply only to directly named bindings. An unknown or escaped binding
+// has no entry, so consumers must retain the checked variant operation.
+struct VariantFlowFact {
+	var Entity* binding;
+	Type* alternative;
+};
+
+struct VariantFlowFacts {
+	fn VariantFlowFacts(var VariantFlowFacts& this) : [default];
+	fn VariantFlowFacts(var VariantFlowFacts& this, VariantFlowFacts& other) : [default];
+	fn VariantFlowFacts(var VariantFlowFacts& this, VariantFlowFacts other) : [default];
+	fn operator=(var VariantFlowFacts& this, VariantFlowFacts other) -> var VariantFlowFacts& : [default];
+	fn operator:=(var VariantFlowFacts& this, VariantFlowFacts& other) -> var VariantFlowFacts& : [default];
+
+	fn known(VariantFlowFacts& this, Entity& binding) -> Type*;
+	fn establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative) -> bool;
+	fn invalidate(var VariantFlowFacts& this, Entity& binding);
+	fn clear(var VariantFlowFacts& this);
+	fn intersect(var VariantFlowFacts& this, VariantFlowFacts& other);
+
+private:
+	rt::buffer<VariantFlowFact> entries;
+};
+
+fn VariantFlowFacts::known(VariantFlowFacts& this, Entity& binding) -> Type* {
+	usize index = 0;
+	while (index < this.entries.size()) {
+		VariantFlowFact& entry = this.entries.data()[index];
+		if (entry.binding == &binding) {
+			return entry.alternative;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn VariantFlowFacts::establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative) -> bool {
+	usize index = 0;
+	while (index < this.entries.size()) {
+		var VariantFlowFact& entry = @((@this.entries).data()[index]);
+		if (entry.binding == &binding) {
+			@entry.alternative = alternative;
+			return true;
+		};
+		@index = index + 1;
+	};
+	if (!alternative) {
+		return true;
+	};
+	var entry = VariantFlowFact();
+	@entry.binding = &@binding;
+	@entry.alternative = alternative;
+	return @this.entries.push_back($entry);
+};
+
+fn VariantFlowFacts::invalidate(var VariantFlowFacts& this, Entity& binding) {
+	usize index = 0;
+	while (index < this.entries.size()) {
+		var VariantFlowFact& entry = @((@this.entries).data()[index]);
+		if (entry.binding == &binding) {
+			@entry.alternative = nullptr;
+			return;
+		};
+		@index = index + 1;
+	};
+};
+
+fn VariantFlowFacts::clear(var VariantFlowFacts& this) {
+	@this.entries.clear();
+};
+
+fn VariantFlowFacts::intersect(var VariantFlowFacts& this, VariantFlowFacts& other) {
+	usize index = 0;
+	while (index < this.entries.size()) {
+		var VariantFlowFact& entry = @((@this.entries).data()[index]);
+		if (entry.alternative && entry.alternative != other.known(*entry.binding)) {
+			@entry.alternative = nullptr;
+		};
+		@index = index + 1;
+	};
+};
+
+struct VariantFlowScope {
+	fn VariantFlowScope(var VariantFlowScope& this, var VariantFlowFacts& current);
+	fn ~VariantFlowScope(var VariantFlowScope& this);
+private:
+	var VariantFlowFacts* current;
+	VariantFlowFacts previous;
+};
+
+fn VariantFlowScope::VariantFlowScope(var VariantFlowScope& this, var VariantFlowFacts& current) {
+	@this.current = &@current;
+	var snapshot = VariantFlowFacts(current);
+	@this.previous = $snapshot;
+	@current.clear();
+};
+
+fn VariantFlowScope::~VariantFlowScope(var VariantFlowScope& this) {
+	@*this.current := this.previous;
+};
+
+fn variant_flow_binding(SemanticExpression& value) -> var Entity* {
+	if ((value.kind() == semantic_kind::access || value.kind() == semantic_kind::cast || value.kind() == semantic_kind::relocation) && value.size() == 1) {
+		return variant_flow_binding(*value.item(0));
+	};
+	if (value.kind() != semantic_kind::name || !value.entity()) {
+		return nullptr;
+	};
+	var Entity* binding = value.entity();
+	if (binding->kind() != entity_kind::local && binding->kind() != entity_kind::parameter) {
+		return nullptr;
+	};
+	return binding;
+};
+
+fn variant_flow_type(Type* variant, usize index) -> Type* {
+	if (aggregate_access_kind(variant) != 2) {
+		return nullptr;
+	};
+	TemplateInstantiation* instance = variant->entity()->template_arguments();
+	if (!instance || instance->arguments.size() != 1 || !instance->arguments.data()[0].pack) {
+		return nullptr;
+	};
+	TemplatePack& alternatives = *instance->arguments.data()[0].pack;
+	if (index >= alternatives.elements.size() || alternatives.elements.data()[index].kind != template_argument_kind::type) {
+		return nullptr;
+	};
+	return alternatives.elements.data()[index].type;
+};
+
+fn variant_flow_known(VariantFlowFacts& facts, SemanticExpression& value) -> Type* {
+	if (aggregate_access_kind(value.type()) != 2) {
+		return nullptr;
+	};
+	if ((value.kind() == semantic_kind::cast || value.kind() == semantic_kind::access || value.kind() == semantic_kind::relocation) && value.size() == 1) {
+		return variant_flow_known(facts, *value.item(0));
+	};
+	if (value.kind() == semantic_kind::construction && !value.integer() && value.size() == 1 && value.item(0)->size() == 1 && value.item(0)->item(0)->type()->same_shape(*value.type())) {
+		return variant_flow_known(facts, *value.item(0)->item(0));
+	};
+	if (value.kind() == semantic_kind::construction && value.integer()) {
+		return variant_flow_type(value.type(), usize(value.integer() - 1));
+	};
+	if (value.kind() == semantic_kind::construction && !value.integer() && value.size() == 1 && !value.item(0)->size()) {
+		usize index = 0;
+		while (true) {
+			Type* alternative = variant_flow_type(value.type(), index);
+			if (!alternative) {
+				break;
+			};
+			if (alternative->kind() == type_kind::null_type) {
+				return alternative;
+			};
+			@index = index + 1;
+		};
+	};
+	var Entity* binding = variant_flow_binding(value);
+	if (binding) {
+		return facts.known(*binding);
+	};
+	return nullptr;
+};
+
+fn variant_flow_condition(var VariantFlowFacts& facts, SemanticExpression& condition, bool truth) -> bool {
+	if (condition.kind() == semantic_kind::cast && condition.size() == 1) {
+		return variant_flow_condition(@facts, *condition.item(0), truth);
+	};
+	if (condition.kind() == semantic_kind::unary && condition.operation() == token_kind::op_bang) {
+		return variant_flow_condition(@facts, *condition.item(0), !truth);
+	};
+	if (condition.kind() != semantic_kind::binary || condition.operation() != token_kind::op_equal || condition.size() != 2) {
+		return true;
+	};
+	var SemanticExpression* tag = condition.item(0);
+	var SemanticExpression* number = condition.item(1);
+	if (tag->kind() != semantic_kind::member || !tag->entity() || tag->entity()->name() != "_index" || tag->size() != 1 || number->kind() != semantic_kind::literal_integer || !number->integer()) {
+		return true;
+	};
+	var SemanticExpression* receiver = tag->item(0);
+	var Entity* binding = variant_flow_binding(*receiver);
+	Type* alternative = variant_flow_type(receiver->type(), usize(number->integer() - 1));
+	if (!binding || !alternative) {
+		return true;
+	};
+	if (!truth) {
+		Type* first = variant_flow_type(receiver->type(), 0);
+		Type* second = variant_flow_type(receiver->type(), 1);
+		if (!first || !second || variant_flow_type(receiver->type(), 2) || first->same_shape(*second) || number->integer() > 2) {
+			return true;
+		};
+		@alternative = first;
+		if (number->integer() == 1) {
+			@alternative = second;
+		};
+	};
+	return @facts.establish(@*binding, alternative);
+};
+
+fn variant_flow_extract(var Analyzer& analyzer, var Syntax& syntax, rt::unique<SemanticExpression> value, Type* known) -> rt::unique<SemanticExpression> {
+	if (known->kind() == type_kind::null_type) {
+		Type* null_type = @analyzer.type_store()->pointer(@analyzer.type_store()->qualified(*known, type_qualifier::immutable));
+		Token location = syntax.token();
+		var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::sequence, null_type, location));
+		var null_value = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::null_pointer, null_type, location));
+		var noop = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::noop, analyzer.type_store()->find_primitive("void"), location));
+		if (!result.get() || !null_value.get() || !noop.get() || !@result.get()->append($value) || !@result.get()->append($noop) || !@result.get()->append($null_value)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return $result;
+	};
+	var Entity* storage = value.get()->type()->entity()->find_member("_storage");
+	if (!storage || !storage->type() || storage->type()->kind() != type_kind::named) {
+		return rt::unique<SemanticExpression>();
+	};
+	var Entity* selected = nullptr;
+	usize index = 0;
+	while (index < storage->type()->entity()->fields().size()) {
+		var Entity* field = storage->type()->entity()->fields().data()[index];
+		if (field->type()->same_shape(*known)) {
+			if (selected) {
+				return rt::unique<SemanticExpression>();
+			};
+			@selected = field;
+		};
+		@index = index + 1;
+	};
+	if (!selected) {
+		return rt::unique<SemanticExpression>();
+	};
+	bool mutable_access = value.get()->mutable_access();
+	var element = aggregate_element(@analyzer, @syntax, $value, storage);
+	if (!element.get()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var result = aggregate_element(@analyzer, @syntax, $element, selected);
+	if (result.get()) {
+		@result.get()->set_mutable_access(mutable_access);
+	};
+	return $result;
+};
+
+// Only structurally guaranteed exits suppress a branch at a flow merge.
+fn variant_flow_terminates(SemanticExpression& expression) -> bool {
+	switch (expression.kind()) {
+		case semantic_kind::return_value:
+		case semantic_kind::exception_throw:
+		case semantic_kind::exception_rethrow:
+		case semantic_kind::break_loop:
+		case semantic_kind::continue_loop:
+			return true;
+		case semantic_kind::conditional:
+			return expression.size() == 3 && variant_flow_terminates(*expression.item(1)) && variant_flow_terminates(*expression.item(2));
+		case semantic_kind::brace:
+		case semantic_kind::statements:
+		case semantic_kind::sequence: {
+			usize index = 0;
+			while (index < expression.size()) {
+				if (variant_flow_terminates(*expression.item(index))) {
+					return true;
+				};
+				@index = index + 1;
+			};
+			return false;
+		};
+	};
+	return false;
+};

@@ -116,6 +116,16 @@ fn TemplateDeclarationValidator::certain(TemplateDeclarationValidator& this, var
 };
 
 fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::type_tuple || syntax.kind() == syntax_kind::type_variant || syntax.kind() == syntax_kind::type_grouping) {
+		usize index = 0;
+		while (index < syntax.size()) {
+			if (!@this.type_names(@analyzer, @scope, @*syntax.item(index))) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
 	if (syntax.kind() == syntax_kind::type_name) {
 		if (this.dependent(syntax)) {
 			var Syntax* name = syntax.designated_type();

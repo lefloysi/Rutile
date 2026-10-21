@@ -42,6 +42,8 @@ struct TemplateMemberDefinition {
 };
 
 struct TemplateEngine {
+	fn argument_syntax(TemplateEngine& this, var Syntax& source, template_argument_kind kind) -> var Syntax*;
+	fn aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> Type*;
 	fn pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var TemplatePack*;
 	fn signature(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var Syntax*;
 	fn validate_pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& signature, TemplatePack& pack) -> bool;
@@ -91,7 +93,6 @@ private:
 	fn parameter_name(TemplateEngine& this, var Syntax& parameter) -> var Syntax*;
 	fn declaration_name(TemplateEngine& this, var Syntax& declaration) -> var Syntax*;
 	fn unqualified(TemplateEngine& this, var Syntax& initial) -> var Syntax*;
-	fn argument_syntax(TemplateEngine& this, var Syntax& source, template_argument_kind kind) -> var Syntax*;
 
 	rt::buffer<rt::unique<TemplateInstance>> instances;
 	rt::buffer<TemplateMemberDefinition> definitions;
@@ -427,7 +428,7 @@ fn TemplateEngine::argument_syntax(TemplateEngine& this, var Syntax& source, tem
 	usize index = 0;
 	while (index < source.size()) {
 		var Syntax* candidate = source.item(index);
-		bool type = candidate->kind() == syntax_kind::type_name || candidate->kind() == syntax_kind::type_pointer || candidate->kind() == syntax_kind::type_reference || candidate->kind() == syntax_kind::type_array || (candidate->kind() == syntax_kind::type_const || candidate->kind() == syntax_kind::type_mutable) || candidate->kind() == syntax_kind::type_function;
+		bool type = candidate->kind() == syntax_kind::type_tuple || candidate->kind() == syntax_kind::type_variant || candidate->kind() == syntax_kind::type_grouping || candidate->kind() == syntax_kind::type_name || candidate->kind() == syntax_kind::type_pointer || candidate->kind() == syntax_kind::type_reference || candidate->kind() == syntax_kind::type_array || (candidate->kind() == syntax_kind::type_const || candidate->kind() == syntax_kind::type_mutable) || candidate->kind() == syntax_kind::type_function;
 
 		if ((kind == template_argument_kind::type) == type) {
 			return $candidate;
@@ -490,7 +491,7 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 	@source = this.argument_syntax(@*source, template_argument_kind::value);
 	Type* expected = @analyzer.type(@scope, @*parameter.template_parameter_type());
 
-	if (!source || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
+	if (!source || source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		var message = DiagnosticMessage();
 		@message.text("template argument for value parameter ");
 		@message.quoted(this.parameter_name(@parameter)->token().text());
@@ -847,6 +848,18 @@ fn TemplateEngine::instantiate(var TemplateEngine& this, var Analyzer& analyzer,
 		};
 	};
 
+	if (entity->kind() == entity_kind::record && pattern.scope()->owner() && pattern.scope()->owner()->kind() == entity_kind::namespace_body && pattern.scope()->owner()->name() == "rt" && published->arguments.size() == 1 && published->arguments.data()[0].kind == template_argument_kind::pack) {
+		if (pattern.name() == "variant") {
+			if (!materialize_variant(@analyzer, @*entity, *published->arguments.data()[0].pack)) {
+				return nullptr;
+			};
+		};
+		if (pattern.name() == "tuple" || pattern.name() == "variant_storage") {
+			if (!materialize_tuple(@analyzer, @*entity, *published->arguments.data()[0].pack)) {
+				return nullptr;
+			};
+		};
+	};
 	if (!@analyzer.resolve((var Entity*(entity)))) {
 		this.instantiation_context(@analyzer, @*entity, input.request);
 		return nullptr;
@@ -1767,7 +1780,7 @@ fn TemplateEngine::pack_element(var TemplateEngine& this, var Analyzer& analyzer
 	if (!source) {
 		return false;
 	};
-	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable || source->kind() == syntax_kind::type_function) {
+	if (source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable || source->kind() == syntax_kind::type_function) {
 		@result.kind = template_argument_kind::type;
 		@result.type = @analyzer.type(@scope, @*source);
 		return result.type != nullptr;

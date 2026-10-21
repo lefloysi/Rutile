@@ -1,0 +1,128 @@
+fn materialize_tuple(var Analyzer& analyzer, var Entity& record, TemplatePack& elements) -> bool {
+	usize index = 0;
+	while (index < elements.elements.size()) {
+		TemplateArgument& element = elements.elements.data()[index];
+		if (element.kind != template_argument_kind::type || !element.type) {
+			@analyzer.error(record.declaration(), "aggregate storage requires type arguments");
+			return false;
+		};
+		if (element.type->kind() == type_kind::null_type && record.layout() == record_layout::overlapping) {
+			@index = index + 1;
+			continue;
+		};
+		if (element.type->kind() == type_kind::void_type || element.type->kind() == type_kind::null_type || element.type->kind() == type_kind::function) {
+			@analyzer.error(record.declaration(), "aggregate element requires object storage or a reference");
+			return false;
+		};
+		Type* storage_type = element.type;
+		while (storage_type->kind() == type_kind::array) {
+			@storage_type = storage_type->element();
+		};
+		if (storage_type->kind() == type_kind::named && storage_type->entity()->kind() == entity_kind::record && (storage_type->entity()->state() == entity_state::resolving || !storage_type->has_layout())) {
+			@analyzer.error(record.declaration(), "aggregate element requires a complete nonrecursive storage type");
+			return false;
+		};
+
+		var name = DiagnosticMessage();
+		@name.text("_element");
+		@name.number(u64(index));
+		Token location = record.token();
+		var Entity* field = @analyzer.semantic_unit()->create_entity(entity_kind::field, location, nullptr, record.members());
+		if (!field || !@field->set_name(name.view())) {
+			@analyzer.error(record.declaration(), "cannot materialize aggregate element storage");
+			return false;
+		};
+
+		@field->set_origin(declaration_origin::compiler_supplied);
+		@field->set_access(access_kind::private_access);
+		@field->set_type(element.type);
+		@field->set_index(record.fields().size());
+		@field->set_integer(u64(index));
+		@field->set_state(entity_state::ready);
+		@field->set_body_state(entity_state::ready);
+		if (!@record.add_field(field)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn materialize_variant_storage(var Analyzer& analyzer, var Entity& record, TemplatePack& elements) -> bool {
+	return materialize_tuple(@analyzer, @record, elements);
+};
+
+fn materialize_variant(var Analyzer& analyzer, var Entity& record, TemplatePack& elements) -> bool {
+	var TemplatePack* stored = @analyzer.semantic_unit()->create_pack();
+	if (!stored) {
+		return false;
+	};
+	usize index = 0;
+	while (index < elements.elements.size()) {
+		TemplateArgument& element = elements.elements.data()[index];
+		if (element.kind == template_argument_kind::type && element.type && element.type->kind() != type_kind::null_type) {
+			TemplateArgument copy;
+			@copy.kind = template_argument_kind::type;
+			@copy.type = element.type;
+			PackElementSignature signature;
+			@signature.kind = template_argument_kind::type;
+			if (!@stored->elements.push_back($copy) || !@stored->signature.push_back($signature)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	Token location = record.token();
+	var Entity* binding = @analyzer.semantic_unit()->create_entity(entity_kind::pack_binding, location, record.declaration(), record.members());
+	if (!binding || !@binding->set_name("_StoredTypes")) {
+		return false;
+	};
+	@binding->set_pack(stored);
+	@binding->set_origin(declaration_origin::compiler_supplied);
+	@binding->set_state(entity_state::ready);
+	return true;
+};
+
+fn configure_variant_default(var Analyzer& analyzer, var Entity& record) -> bool {
+	if (!variant_instance(record)) {
+		return true;
+	};
+	TemplateInstantiation* instance = record.template_arguments();
+	if (instance->arguments.size() != 1 || !instance->arguments.data()[0].pack) {
+		return false;
+	};
+	var TemplatePack* elements = instance->arguments.data()[0].pack;
+	u64 active = 0;
+	usize index = 0;
+	while (index < elements->elements.size()) {
+		if (elements->elements.data()[index].type && elements->elements.data()[index].type->kind() == type_kind::null_type) {
+			@active = u64(index + 1);
+			break;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record.members()->bindings().size()) {
+		var Entity* member = record.members()->bindings().data()[index];
+		if (member->kind() == entity_kind::function && member->role() == function_role::constructor && member->parameters().size() == 1 && !active) {
+			@member->set_definition(function_definition::deleted);
+		};
+		@index = index + 1;
+	};
+	if (!active) {
+		return true;
+	};
+	var Entity* tag = record.find_member("_index");
+	if (!tag || !@analyzer.resolve(tag)) {
+		return false;
+	};
+	Token location = tag->token();
+	var initializer = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, tag->type(), location));
+	if (!initializer.get()) {
+		return false;
+	};
+	@initializer.get()->set_integer(active);
+	@tag->set_body($initializer);
+	@tag->set_body_state(entity_state::ready);
+	return true;
+};

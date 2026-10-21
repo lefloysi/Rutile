@@ -38,6 +38,11 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 };
 
 fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression> {
+	bool handled = false;
+	var variant = @this.construct_variant(@syntax, type, @raw, @handled);
+	if (handled) {
+		return $variant;
+	};
 	var values = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 
 	if (!values.get()) {
@@ -249,7 +254,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 		@supplied.bind(@*application->arguments());
 	};
 
-	if (source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
+	if (source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || (source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable) || source->kind() == syntax_kind::type_function || source->kind() == syntax_kind::type_auto) {
 		Type* target = @this.type(@scope, @*source);
 
 		if (!target) {
@@ -287,6 +292,18 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			return rt::unique<SemanticExpression>();
 		};
 
+		var Syntax* requested_member = source->member_name();
+		bool aggregate_operation = requested_member->kind() == syntax_kind::unary;
+		if (requested_member->kind() == syntax_kind::template_apply) {
+			@aggregate_operation = requested_member->callable()->token().is("get") || requested_member->callable()->token().is("has");
+		};
+		Type* known = variant_flow_known(this.variant_facts, *receiver.get());
+		if (known && !aggregate_operation) {
+			@receiver = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@receiver.release()), known);
+			if (!receiver.get()) {
+				return rt::unique<SemanticExpression>();
+			};
+		};
 		Type* owner = receiver.get()->type();
 
 		if (source->token().kind == token_kind::op_arrow) {
@@ -339,6 +356,13 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			};
 		};
 
+		var Syntax* aggregate_member = source->member_name();
+		if (aggregate_access_kind(owner) && aggregate_member->kind() == syntax_kind::template_apply && (aggregate_member->callable()->token().is("get") || aggregate_member->callable()->token().is("has"))) {
+			if (accessed) {
+				@receiver.get()->set_mutable_access(true);
+			};
+			return @this.aggregate_access(@scope, @syntax, $receiver, expected);
+		};
 		var Syntax* member = source->member_name();
 		bool destructor = member->kind() == syntax_kind::unary && member->token().kind == token_kind::op_tilde;
 		Type* designated = nullptr;
@@ -710,6 +734,9 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 
 		@index = index + 1;
 	};
+
+	// Calls may mutate a previously escaped alias of a tracked binding.
+	@this.variant_facts.clear();
 
 	Type* result_type = signature->signature().result();
 	value_category category = value_category::consumable;

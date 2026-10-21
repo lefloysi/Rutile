@@ -1,0 +1,42 @@
+fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
+	var SemanticExpression* receiver = expression->item(0);
+	Type* owner = receiver->type();
+	var Entity* storage_field = owner->entity()->find_member("_storage");
+	var Entity* index_field = owner->entity()->find_member("_index");
+	var LLVMOpaqueValue* object = @this.address(receiver);
+	var LLVMOpaqueType* native = @this.backend->type(owner, expression->token());
+	if (!object || !native || !storage_field || !index_field) {
+		return nullptr;
+	};
+	var LLVMOpaqueValue* storage = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), storage_field->index()), "variant.payload\0".data());
+	var LLVMOpaqueValue* tag_address = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), index_field->index()), "variant.tag.address\0".data());
+	var LLVMOpaqueType* tag_type = @this.backend->type(index_field->type(), expression->token());
+	if (!storage || !tag_address || !tag_type) {
+		return nullptr;
+	};
+	var LLVMOpaqueValue* tag = LLVMBuildLoad2(this.backend->builder(), tag_type, tag_address, "variant.tag\0".data());
+	var LLVMOpaqueBasicBlock* success = @this.block("variant.cast.success");
+	var LLVMOpaqueBasicBlock* invalid = @this.block("variant.cast.invalid");
+	var LLVMOpaqueValue* dispatch = LLVMBuildSwitch(this.backend->builder(), tag, invalid, static_cast<u32>(expression->size() - 1));
+	LLVMAddCase(dispatch, LLVMConstInt(tag_type, expression->integer(), 0), success);
+	usize index = 1;
+	while (index < expression->size()) {
+		if (u64(index) != expression->integer()) {
+			var LLVMOpaqueBasicBlock* mismatch = @this.block("variant.cast.throw");
+			LLVMAddCase(dispatch, LLVMConstInt(tag_type, u64(index), 0), mismatch);
+			LLVMPositionBuilderAtEnd(this.backend->builder(), mismatch);
+			var LLVMOpaqueValue* previous = this.variant_payload_address;
+			@this.variant_payload_address = storage;
+			bool emitted = @this.exception_throw(expression->item(index));
+			@this.variant_payload_address = previous;
+			if (!emitted) {
+				return nullptr;
+			};
+		};
+		@index = index + 1;
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), invalid);
+	LLVMBuildUnreachable(this.backend->builder());
+	LLVMPositionBuilderAtEnd(this.backend->builder(), success);
+	return storage;
+};

@@ -27,6 +27,8 @@ enum semantic_kind : [u08] {
 	break_loop;
 	continue_loop;
 	cast;
+	variant_cast;
+	variant_payload;
 	relocation;
 	access;
 	dereference;
@@ -117,6 +119,7 @@ fn SemanticExpression::indirect_storage(SemanticExpression& this) -> bool {
 			return this.item(0)->type()->kind() == type_kind::pointer || this.item(0)->indirect_storage();
 		case semantic_kind::access:
 		case semantic_kind::cast:
+		case semantic_kind::variant_cast:
 			return this.category() == value_category::place && this.item(0)->indirect_storage();
 		default:
 			return false;

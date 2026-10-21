@@ -1,0 +1,72 @@
+namespace rt {
+	// Alternatives are materialized as overlapping fields for each instantiation.
+	template<typename... Types>
+	union variant_storage {
+		fn variant_storage(var variant_storage& this);
+		fn ~variant_storage(var variant_storage& this);
+	};
+
+	template<typename... Types>
+	struct variant {
+		fn variant(var variant& this);
+		fn variant(var variant& this, variant& other);
+		fn variant(var variant& this, variant other);
+		fn ~variant(var variant& this);
+
+	private:
+		variant_storage<Types...> _storage;
+		usize _index;
+	};
+
+	template<typename... Types>
+	fn variant_storage<Types...>::variant_storage(var variant_storage& this) {
+	};
+
+	template<typename... Types>
+	fn variant_storage<Types...>::~variant_storage(var variant_storage& this) {
+	};
+
+	template<typename T, typename V>
+	fn variant_destroy(var V& value) {
+		if (value.has<T>()) {
+			@value.get<T>().~T();
+		};
+	};
+
+	template<typename T, typename V, typename U>
+	fn variant_copy(var V& target, U& source) {
+		if (source.has<T>()) {
+			@target.get<T>().T(source.get<T>());
+		};
+	};
+
+	template<typename T, typename V>
+	fn variant_move(var V& target, var V& source) {
+		if (source.has<T>()) {
+			var T* pointer = &@source.get<T>();
+			@target.get<T>().T($(*pointer));
+		};
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::variant(var variant& this) {
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::variant(var variant& this, variant& other) {
+		(variant_copy<_StoredTypes>(@this, other), ...);
+		@this._index := other._index;
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::variant(var variant& this, variant other) {
+		(variant_move<_StoredTypes>(@this, @other), ...);
+		@this._index := other._index;
+		@other._index = 0;
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::~variant(var variant& this) {
+		(variant_destroy<_StoredTypes>(@this), ...);
+	};
+};

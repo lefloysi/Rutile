@@ -1,0 +1,135 @@
+fn aggregate_access_kind(Type* type) -> u32 {
+	if (!type || type->kind() != type_kind::named || !type->entity()->template_arguments()) {
+		return 0;
+	};
+	var Entity* pattern = type->entity()->template_arguments()->pattern;
+	if (!pattern || !pattern->scope() || !pattern->scope()->owner()) {
+		return 0;
+	};
+	var Entity* owner = pattern->scope()->owner();
+	if (owner->kind() != entity_kind::namespace_body || owner->name() != "rt" || !owner->scope() || owner->scope()->owner()) {
+		return 0;
+	};
+	if (pattern->name() == "tuple") {
+		return 1;
+	};
+	if (pattern->name() == "variant") {
+		return 2;
+	};
+	return 0;
+};
+
+fn aggregate_element(var Analyzer& analyzer, var Syntax& syntax, rt::unique<SemanticExpression> object, var Entity* field) -> rt::unique<SemanticExpression> {
+	if (!field) {
+		@analyzer.error(&@syntax, "aggregate element storage is unavailable");
+		return rt::unique<SemanticExpression>();
+	};
+	Type* type = field->type();
+	if (type->kind() == type_kind::reference) {
+		@type = type->element();
+	}
+	else if (object.get()->type()->qualifier() == type_qualifier::immutable) {
+		@type = @analyzer.type_store()->qualified(*type, type_qualifier::immutable);
+	};
+	Token location = syntax.token();
+	bool mutable_access = object.get()->mutable_access();
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::member, type, location));
+	if (!result.get() || !@result.get()->append($object)) {
+		return rt::unique<SemanticExpression>();
+	};
+	@result.get()->bind(field, value_category::place);
+	@result.get()->set_mutable_access(mutable_access);
+	return $result;
+};
+
+fn Analyzer::aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	var Syntax* member = syntax.callable()->member_name();
+	var Syntax* supplied = member->arguments();
+	bool predicate = member->token().text() == "has";
+	Type* owner = receiver.get()->type();
+	u32 kind = aggregate_access_kind(owner);
+	if (!supplied || supplied->size() != 1 || syntax.arguments()->size()) {
+		@this.error(&@syntax, "aggregate access requires one type argument and no value arguments");
+		return rt::unique<SemanticExpression>();
+	};
+	if (predicate && kind != 2) {
+		@this.error(&@syntax, "has<T>() requires a variant receiver");
+		return rt::unique<SemanticExpression>();
+	};
+	var Syntax* type_source = this.templates.argument_syntax(@*supplied->item(0), template_argument_kind::type);
+	if (!type_source) {
+		@this.error(&@syntax, "aggregate access requires a type argument");
+		return rt::unique<SemanticExpression>();
+	};
+	Type* requested = @this.type(@scope, @*type_source);
+	if (!requested) {
+		return rt::unique<SemanticExpression>();
+	};
+	TemplateInstantiation* instance = owner->entity()->template_arguments();
+	if (instance->arguments.size() != 1 || instance->arguments.data()[0].kind != template_argument_kind::pack || !instance->arguments.data()[0].pack) {
+		@this.error(&@syntax, "aggregate type arguments are unavailable");
+		return rt::unique<SemanticExpression>();
+	};
+	var TemplatePack* elements = instance->arguments.data()[0].pack;
+	usize position = 0;
+	usize count = 0;
+	usize index = 0;
+	while (index < elements->elements.size()) {
+		if (elements->elements.data()[index].type->same_shape(*requested)) {
+			@position = index;
+			@count = count + 1;
+		};
+		@index = index + 1;
+	};
+	if (!count) {
+		@this.error(&@syntax, "requested type is not an aggregate element");
+		return rt::unique<SemanticExpression>();
+	};
+	if (count != 1) {
+		@this.error(&@syntax, "aggregate type access requires a unique element type");
+		return rt::unique<SemanticExpression>();
+	};
+	if (predicate) {
+		var tag = @aggregate_element(@this, @syntax, $receiver, owner->entity()->find_member("_index"));
+		var number = @this.node(semantic_kind::literal_integer, this.types->find_primitive("usize"), &@syntax);
+		Token operation = syntax.token();
+		@operation.kind = token_kind::op_equal;
+		var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::binary, this.types->find_primitive("bool"), operation));
+		if (!tag.get() || !number.get() || !result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@number.get()->set_integer(u64(position + 1));
+		if (!@result.get()->append($tag) || !@result.get()->append($number)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.convert($result, expected, @syntax);
+	};
+	if (requested->kind() == type_kind::null_type) {
+		Type* null_type = @this.types->pointer(@this.types->qualified(*requested, type_qualifier::immutable));
+		var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
+		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.convert($result, expected, @syntax);
+	};
+	if (kind == 2) {
+		@receiver = @aggregate_element(@this, @syntax, rt::unique<SemanticExpression>(@receiver.release()), owner->entity()->find_member("_storage"));
+		if (!receiver.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@owner = receiver.get()->type();
+	};
+	var name = DiagnosticMessage();
+	@name.text("_element");
+	@name.number(u64(position));
+	var Entity* field = nullptr;
+	@index = 0;
+	while (index < owner->entity()->fields().size()) {
+		if (owner->entity()->fields().data()[index]->name() == name.view()) {
+			@field = owner->entity()->fields().data()[index];
+			break;
+		};
+		@index = index + 1;
+	};
+	return @this.convert(@aggregate_element(@this, @syntax, $receiver, field), expected, @syntax);
+};

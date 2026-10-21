@@ -1,0 +1,57 @@
+fn aggregate_arguments(var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, syntax_kind operation, var TemplatePack& pack) -> bool {
+	if (syntax.kind() == operation) {
+		usize index = 0;
+		while (index < syntax.size()) {
+			if (!aggregate_arguments(@analyzer, @scope, @*syntax.item(index), syntax_kind(operation), @pack)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	TemplateArgument argument;
+	@argument.kind = template_argument_kind::type;
+	@argument.type = @analyzer.type(@scope, @syntax);
+	if (!argument.type) {
+		return false;
+	};
+	PackElementSignature signature;
+	@signature.kind = template_argument_kind::type;
+	return @pack.signature.push_back($signature) && @pack.elements.push_back($argument);
+};
+
+fn TemplateEngine::aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> Type* {
+	var name = rt::string_view("tuple");
+	if (syntax.kind() == syntax_kind::type_variant) {
+		@name = "variant";
+	};
+	var Entity* runtime = analyzer.semantic_unit()->root_scope()->local("rt");
+	var Entity* pattern = nullptr;
+	if (runtime && runtime->kind() == entity_kind::namespace_body && runtime->members()) {
+		@pattern = runtime->members()->local(name);
+	};
+	if (!pattern || pattern->kind() != entity_kind::template_pattern) {
+		var message = DiagnosticMessage();
+		@message.text("type operator requires the rt::");
+		@message.text(name);
+		@message.text(" standard library template declaration");
+		@analyzer.report(syntax.token(), message.view());
+		return nullptr;
+	};
+	var TemplatePack* pack = @analyzer.semantic_unit()->create_pack();
+	if (!pack || !aggregate_arguments(@analyzer, @scope, @syntax, syntax.kind(), @*pack)) {
+		return nullptr;
+	};
+	rt::buffer<TemplateArgument> arguments;
+	TemplateArgument argument;
+	@argument.kind = template_argument_kind::pack;
+	@argument.pack = pack;
+	if (!@arguments.push_back($argument)) {
+		return nullptr;
+	};
+	var Entity* instance = @this.instantiate(@analyzer, @scope, @*pattern, TemplateInput(arguments, syntax.token()));
+	if (!instance) {
+		return nullptr;
+	};
+	return instance->type();
+};
