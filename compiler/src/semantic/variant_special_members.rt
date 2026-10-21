@@ -1,0 +1,125 @@
+fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -> bool {
+	var Entity* owner = function.scope()->owner();
+	TemplatePack& alternatives = *owner->template_arguments()->arguments.data()[0].pack;
+	if (function.role() == function_role::constructor && function.parameters().size() == 1) {
+		if (!alternatives.elements.size()) {
+			return false;
+		};
+		Type* first = alternatives.elements.data()[0].type;
+		return first->kind() == type_kind::null_type || @this.prepare_default(first);
+	};
+	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
+	usize index = 0;
+	while (index < alternatives.elements.size()) {
+		Type* type = alternatives.elements.data()[index].type;
+		@index = index + 1;
+		if (type->kind() == type_kind::null_type) {
+			continue;
+		};
+		if (!@this.prepare_lifetime(type)) {
+			return false;
+		};
+		if (copy && !@this.prepare_copy(type)) {
+			return false;
+		};
+		if (copy && function.role() == function_role::assignment && !@this.prepare_copy_assignment(type)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn variant_special_nonthrowing(Entity& function) -> bool {
+	var Entity* owner = function.scope()->owner();
+	if (function.role() == function_role::constructor && function.parameters().size() == 1) {
+		TemplatePack& alternatives = *owner->template_arguments()->arguments.data()[0].pack;
+		if (!alternatives.elements.size()) {
+			return false;
+		};
+		Type* first = alternatives.elements.data()[0].type;
+		return first->kind() == type_kind::null_type || exception_operation_nonthrowing(*first, exception_operation::initialize);
+	};
+	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
+	bool destroys = function.role() == function_role::destructor || function.role() == function_role::assignment;
+	TemplatePack& alternatives = *owner->template_arguments()->arguments.data()[0].pack;
+	usize index = 0;
+	while (index < alternatives.elements.size()) {
+		Type* type = alternatives.elements.data()[index].type;
+		@index = index + 1;
+		if (type->kind() == type_kind::null_type) {
+			continue;
+		};
+		if (destroys && !exception_type_nonthrowing(*type)) {
+			return false;
+		};
+		if (copy && !exception_operation_nonthrowing(*type, exception_operation::copy_construct)) {
+			return false;
+		};
+		if (copy && function.role() == function_role::assignment && !exception_operation_nonthrowing(*type, exception_operation::copy_assign)) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn variant_default_constructible(Type* type) -> bool {
+	if (type->kind() == type_kind::reference) {
+		return false;
+	};
+	if (type->kind() == type_kind::array) {
+		return variant_default_constructible(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* record = type->entity();
+	var Entity* constructor = record->default_constructor();
+	if (!constructor || constructor->definition() == function_definition::deleted || constructor->access() != access_kind::public_access) {
+		return false;
+	};
+	if (constructor->definition() != function_definition::defaulted || record->layout() == record_layout::overlapping) {
+		return true;
+	};
+	if (variant_instance(*record)) {
+		TemplatePack& alternatives = *record->template_arguments()->arguments.data()[0].pack;
+		return alternatives.elements.size() && variant_default_constructible(alternatives.elements.data()[0].type);
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (!variant_default_constructible(record->bases().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		var Entity* field = record->fields().data()[index];
+		if (!field->body() && (!field->declaration() || field->declaration()->variable_initializer()->kind() == syntax_kind::absent) && !variant_default_constructible(field->type())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn configure_variant_copy(var Entity& record) {
+	TemplatePack& alternatives = *record.template_arguments()->arguments.data()[0].pack;
+	usize index = 0;
+	while (index < alternatives.elements.size()) {
+		if (!exception_copyable(alternatives.elements.data()[index].type)) {
+			@index = 0;
+			while (index < record.members()->bindings().size()) {
+				var Entity* function = record.members()->bindings().data()[index];
+				@index = index + 1;
+				if (function->kind() != entity_kind::function || function->definition() != function_definition::defaulted || function->parameters().size() != 2 || function->parameters().data()[1]->type()->kind() != type_kind::reference) {
+					continue;
+				};
+				if (function->role() == function_role::constructor || function->role() == function_role::assignment) {
+					@function->set_definition(function_definition::deleted);
+				};
+			};
+			return;
+		};
+		@index = index + 1;
+	};
+};

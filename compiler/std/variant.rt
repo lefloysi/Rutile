@@ -1,90 +1,20 @@
 namespace rt {
-	// Alternatives are materialized as overlapping fields for each instantiation.
-	template<typename... Types>
-	union variant_storage {
-		fn variant_storage(var variant_storage& this);
-		fn ~variant_storage(var variant_storage& this);
+	struct monostate {
 	};
 
-	template<typename... Types>
+	template<typename...Ts>
 	struct variant {
-		fn variant(var variant& this);
-		fn variant(var variant& this, variant& other);
-		fn variant(var variant& this, variant other);
-		fn ~variant(var variant& this);
-		fn operator=(var variant& this, variant other) -> var variant&;
-		fn operator:=(var variant& this, variant& other) -> var variant&;
+		fn variant(var variant& this, variant& other) : [default];
+		fn variant(var variant& this, variant other) : [default];
+		fn ~variant(var variant& this) : [default];
+		fn operator=(var variant& this, variant other) -> var variant& : [default];
+		fn operator:=(var variant& this, variant& other) -> var variant& : [default];
 
 	private:
-		variant_storage<Types...> _storage;
+		union Storage {
+		};
+
+		Storage _storage;
 		usize _index;
-	};
-
-	template<typename... Types>
-	fn variant_storage<Types...>::variant_storage(var variant_storage& this) {
-	};
-
-	template<typename... Types>
-	fn variant_storage<Types...>::~variant_storage(var variant_storage& this) {
-	};
-
-	template<typename T, typename V>
-	fn variant_destroy(var V& value) {
-		if (value.has<T>()) {
-			@value.get<T>().~T();
-		};
-	};
-
-	template<typename T, typename V, typename U>
-	fn variant_copy(var V& target, U& source) {
-		if (source.has<T>()) {
-			@target.get<T>().T(source.get<T>());
-		};
-	};
-
-	template<typename T, typename V>
-	fn variant_move(var V& target, var V& source) {
-		if (source.has<T>()) {
-			var T* pointer = &@source.get<T>();
-			@target.get<T>().T($(*pointer));
-		};
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::variant(var variant& this) {
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::variant(var variant& this, variant& other) {
-		(variant_copy<_StoredTypes>(@this, other), ...);
-		@this._index := other._index;
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::variant(var variant& this, variant other) {
-		(variant_move<_StoredTypes>(@this, @other), ...);
-		@this._index := other._index;
-		@other._index = 0;
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::~variant(var variant& this) {
-		(variant_destroy<_StoredTypes>(@this), ...);
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::operator=(var variant& this, variant other) -> var variant& {
-		(variant_destroy<_StoredTypes>(@this), ...);
-		@this._index = 0;
-		(variant_move<_StoredTypes>(@this, @other), ...);
-		@this._index := other._index;
-		@other._index = 0;
-		return @this;
-	};
-
-	template<typename... Types>
-	fn variant<Types...>::operator:=(var variant& this, variant& other) -> var variant& {
-		var replacement = variant(other);
-		return @this = $replacement;
 	};
 };

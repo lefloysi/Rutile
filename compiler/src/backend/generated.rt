@@ -143,6 +143,9 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 
 	Type* type = function->parameters().data()[0]->type()->element();
 	var LLVMOpaqueValue* destination = LLVMGetParam(this.function, 0);
+	if (aggregate_access_kind(type) == 2) {
+		return @this.generated_variant(function, type, destination);
+	};
 
 	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
 		LLVMBuildStore(this.backend->builder(), LLVMConstNull(@this.backend->type(type, function->token())), destination);

@@ -59,7 +59,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		if (!@this.supply_special_functions((var Entity*(entity)))) {
 			return false;
 		};
-		if (!configure_variant_default(@this, @*entity)) {
+		if (!@this.configure_variant_default(@*entity)) {
 			return false;
 		};
 	}
@@ -626,6 +626,13 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> bool {
 	@entity->set_body_state(entity_state::resolving);
 	var context = FunctionAnalysisScope(@this.function, @this.loop_depth, @this.active_switch, rt::optional_ref<Entity>(@*entity));
 	var variant_context = VariantFlowScope(@this.variant_facts);
+	if (entity->definition() == function_definition::defaulted && entity->scope()->owner() && variant_instance(*entity->scope()->owner())) {
+		if (!@this.prepare_variant_special(@*entity)) {
+			return false;
+		};
+		@entity->set_body_state(entity_state::ready);
+		return @this.prepare_function_exception(@*entity);
+	};
 
 	if (entity->role() == function_role::constructor && entity->scope()->owner()->layout() != record_layout::overlapping && (entity->definition() == function_definition::user_defined || entity->parameters().size() == 1)) {
 		var Entity* owner = entity->scope()->owner();

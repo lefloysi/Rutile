@@ -9,12 +9,6 @@ from run import run_case
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = """
-namespace rt {
-	template<typename... Ts>
-	struct tuple {};
-	template<typename... Ts>
-	struct variant {};
-};
 struct Foo {};
 struct Bar {};
 struct Baz {};
@@ -209,6 +203,18 @@ fn take(void* value) -> i32 { if (value == nullptr) { return 42; }; return 1; };
 fn main() -> i32 { Choice value; return take(value); };
 """, None),
 
+
+	("variant-proof-first-pointer-default", """
+using Choice = void* | i64;
+fn take(void* value) -> i32 { if (value == nullptr) { return 42; }; return 1; };
+fn main() -> i32 { Choice value; return take(value); };
+""", None),
+	("variant-proof-middle-null-not-default", """
+using Choice = i64 | null;
+fn take(void* value) -> i32 { return 42; };
+fn main() -> i32 { Choice value; return take(value); };
+""", r"(?i)(cannot|applicable|argument|convert)"),
+
 	("variant-proven-cast-noncopyable-other", """
 struct NoCopy {
 	fn NoCopy(var NoCopy& this) : [default];
@@ -287,15 +293,15 @@ fn main() -> i32 {
 using Choice = i32 | null;
 fn main() -> i32 {
 	Choice value;
-	if (!value.has<null>() || value.has<i32>()) { return 1; };
-	if (value.get<null>() != nullptr) { return 2; };
+	if (!value.has<i32>() || value.has<null>()) { return 1; };
+	if (value.get<i32>() != 0) { return 2; };
 	return 42;
 };
 """, None),
 	("variant-null-cast", """
 using Choice = i32 | null;
 fn main() -> i32 {
-	Choice value;
+	Choice value = Choice(nullptr);
 	if ((null)value != nullptr) { return 1; };
 	return 42;
 };
@@ -303,7 +309,7 @@ fn main() -> i32 {
 	("variant-null-cast-throws", """
 using Choice = i32 | null;
 fn main() -> i32 {
-	Choice value;
+	Choice value = Choice(nullptr);
 	try { i32 discarded = (i32)value; }
 	catch (const null* held) { if (held == nullptr) { return 42; }; };
 	return 1;
@@ -464,7 +470,7 @@ def main():
 		path = directory / "case.rt"
 		library = (name, source, reject) in LIBRARY_CASES
 		path.write_text(("" if library else FIXTURE) + source.strip() + "\n", encoding="utf-8")
-		sources = [ROOT / "compiler/std/tuple.rt", ROOT / "compiler/std/variant.rt", path] if library else [path]
+		sources = [ROOT / "compiler/std/tuple.rt", ROOT / "compiler/std/variant.rt", path]
 		run_case("type-aggregates/" + name, sources, reject=reject, compiler=compiler)
 		count += 1
 	if not count:

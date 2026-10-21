@@ -1,0 +1,187 @@
+// A null source destroys the active payload; otherwise it copy constructs that payload.
+fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, bool assign) -> bool {
+	var Entity* record = type->entity();
+	var Entity* storage_field = record->find_member("_storage");
+	var Entity* tag_field = record->find_member("_index");
+	if (!storage_field || !tag_field || storage_field->type()->kind() != type_kind::named) {
+		return @this.backend->error(record->token(), "variant special member requires payload storage and a tag");
+	};
+	var LLVMOpaqueType* native = @this.backend->type(type, record->token());
+	var LLVMOpaqueType* tag_type = @this.backend->type(tag_field->type(), tag_field->token());
+	if (!native || !tag_type) {
+		return false;
+	};
+	var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, storage_field->index()), "variant.payload\0".data());
+	var LLVMOpaqueValue* output_tag = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, tag_field->index()), "variant.tag.address\0".data());
+	var LLVMOpaqueValue* input = output;
+	var LLVMOpaqueValue* input_tag = output_tag;
+	if (source) {
+		@input = LLVMBuildStructGEP2(this.backend->builder(), native, source, this.backend->field_index(record, storage_field->index()), "variant.copy.payload\0".data());
+		@input_tag = LLVMBuildStructGEP2(this.backend->builder(), native, source, this.backend->field_index(record, tag_field->index()), "variant.copy.tag.address\0".data());
+	};
+	var LLVMOpaqueValue* tag = LLVMBuildLoad2(this.backend->builder(), tag_type, input_tag, "variant.active\0".data());
+	var LLVMOpaqueBasicBlock* after = @this.block("variant.transfer.after");
+	var LLVMOpaqueBasicBlock* invalid = @this.block("variant.transfer.invalid");
+	var Entity* storage = storage_field->type()->entity();
+	var LLVMOpaqueValue* dispatch = LLVMBuildSwitch(this.backend->builder(), tag, invalid, static_cast<u32>(storage->fields().size()));
+	TemplatePack& alternatives = *record->template_arguments()->arguments.data()[0].pack;
+	usize index = 0;
+	while (index < alternatives.elements.size()) {
+		if (alternatives.elements.data()[index].type->kind() == type_kind::null_type) {
+			LLVMAddCase(dispatch, LLVMConstInt(tag_type, u64(index + 1), 0), after);
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < storage->fields().size()) {
+		var Entity* alternative = storage->fields().data()[index];
+		var LLVMOpaqueBasicBlock* active = @this.block("variant.transfer.active");
+		LLVMAddCase(dispatch, LLVMConstInt(tag_type, alternative->integer() + 1, 0), active);
+		LLVMPositionBuilderAtEnd(this.backend->builder(), active);
+		if (source) {
+			if (assign) {
+				if (!@this.copy_assign(alternative->type(), output, input)) {
+					return false;
+				};
+			}
+			else {
+				if (!@this.copy_initialize(alternative->type(), output, input)) {
+					return false;
+				};
+			};
+		}
+		else {
+			if (!@this.destroy(alternative->type(), output)) {
+				return false;
+			};
+		};
+		LLVMBuildBr(this.backend->builder(), after);
+		@index = index + 1;
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), invalid);
+	LLVMBuildUnreachable(this.backend->builder());
+	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+	if (source && !assign) {
+		LLVMBuildStore(this.backend->builder(), tag, output_tag);
+	};
+	return true;
+};
+
+fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* function, Type* type, var LLVMOpaqueValue* destination) -> bool {
+	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
+		var Entity* record = type->entity();
+		TemplatePack& alternatives = *record->template_arguments()->arguments.data()[0].pack;
+		if (!alternatives.elements.size()) {
+			return @this.backend->error(function->token(), "variant default construction requires a first alternative");
+		};
+		var Entity* storage_field = record->find_member("_storage");
+		var Entity* tag_field = record->find_member("_index");
+		var LLVMOpaqueType* native = @this.backend->type(type, function->token());
+		var LLVMOpaqueType* tag_type = @this.backend->type(tag_field->type(), tag_field->token());
+		if (!native || !tag_type) {
+			return false;
+		};
+		Type* first = alternatives.elements.data()[0].type;
+		if (first->kind() != type_kind::null_type) {
+			var LLVMOpaqueValue* payload = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, storage_field->index()), "variant.default.payload\0".data());
+			if (!@this.initialize(first, payload)) {
+				return false;
+			};
+		};
+		var LLVMOpaqueValue* tag = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, tag_field->index()), "variant.default.tag\0".data());
+		LLVMBuildStore(this.backend->builder(), LLVMConstInt(tag_type, 1, 0), tag);
+	}
+	else if (function->role() == function_role::destructor) {
+		if (!@this.variant_transfer(type, destination, nullptr, false)) {
+			return false;
+		};
+	}
+	else {
+		if (function->parameters().size() != 2) {
+			return @this.backend->error(function->token(), "variant special member requires one source object");
+		};
+		var Entity* parameter = function->parameters().data()[1];
+		bool copy = parameter->type()->kind() == type_kind::reference;
+		var LLVMOpaqueValue* source = this.storage(parameter);
+		if (copy) {
+			@source = LLVMGetParam(this.function, 1);
+		};
+		var LLVMOpaqueBasicBlock* complete;
+		var LLVMOpaqueValue* replacement;
+		usize unwind_begin = this.unwinds.size();
+		if (function->role() == function_role::assignment) {
+			var LLVMOpaqueBasicBlock* replace = @this.block("variant.assign.replace");
+			@complete = @this.block("variant.assign.complete");
+			if (copy) {
+				LLVMBuildBr(this.backend->builder(), replace);
+			}
+			else {
+				LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, destination, source, "variant.same.object\0".data()), complete, replace);
+			};
+			LLVMPositionBuilderAtEnd(this.backend->builder(), replace);
+			if (copy) {
+				var Entity* tag_field = type->entity()->find_member("_index");
+				var LLVMOpaqueType* native = @this.backend->type(type, function->token());
+				var LLVMOpaqueType* tag_type = @this.backend->type(tag_field->type(), tag_field->token());
+				u32 field_index = this.backend->field_index(type->entity(), tag_field->index());
+				var LLVMOpaqueValue* output_tag = LLVMBuildStructGEP2(this.backend->builder(), native, destination, field_index, "variant.assign.target.tag.address\0".data());
+				var LLVMOpaqueValue* input_tag = LLVMBuildStructGEP2(this.backend->builder(), native, source, field_index, "variant.assign.source.tag.address\0".data());
+				var LLVMOpaqueValue* left = LLVMBuildLoad2(this.backend->builder(), tag_type, output_tag, "variant.assign.target.tag\0".data());
+				var LLVMOpaqueValue* right = LLVMBuildLoad2(this.backend->builder(), tag_type, input_tag, "variant.assign.source.tag\0".data());
+				var LLVMOpaqueBasicBlock* assign = @this.block("variant.assign.active");
+				var LLVMOpaqueBasicBlock* reconstruct = @this.block("variant.assign.reconstruct");
+				LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, left, right, "variant.same.alternative\0".data()), assign, reconstruct);
+				LLVMPositionBuilderAtEnd(this.backend->builder(), assign);
+				if (!@this.variant_transfer(type, destination, source, true)) {
+					return false;
+				};
+				LLVMBuildBr(this.backend->builder(), complete);
+				LLVMPositionBuilderAtEnd(this.backend->builder(), reconstruct);
+				@replacement = @this.slot(type);
+				if (!replacement || !@this.variant_transfer(type, replacement, source, false)) {
+					return false;
+				};
+				if (!@this.retain_unwind(type, replacement, nullptr, nullptr)) {
+					return false;
+				};
+			};
+			if (!@this.variant_transfer(type, destination, nullptr, false)) {
+				return false;
+			};
+		};
+		if (replacement) {
+			if (!@this.copy_representation(type, destination, replacement)) {
+				return false;
+			};
+			@this.forget_unwinds(unwind_begin);
+		}
+		else if (copy) {
+			if (!@this.variant_transfer(type, destination, source, false)) {
+				return false;
+			};
+		}
+		else {
+			if (!@this.copy_representation(type, destination, source)) {
+				return false;
+			};
+			@this.binding_live(parameter, false);
+		};
+		if (complete) {
+			LLVMBuildBr(this.backend->builder(), complete);
+			LLVMPositionBuilderAtEnd(this.backend->builder(), complete);
+		};
+	};
+	if (!@this.cleanup_bindings(0)) {
+		return false;
+	};
+	if (this.result->kind() == type_kind::void_type) {
+		LLVMBuildRetVoid(this.backend->builder());
+	}
+	else if (this.result->kind() == type_kind::reference) {
+		LLVMBuildRet(this.backend->builder(), destination);
+	}
+	else {
+		LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result, function->token()), destination, "variant.result\0".data()));
+	};
+	return true;
+};

@@ -48,42 +48,16 @@ fn materialize_tuple(var Analyzer& analyzer, var Entity& record, TemplatePack& e
 	return true;
 };
 
-fn materialize_variant_storage(var Analyzer& analyzer, var Entity& record, TemplatePack& elements) -> bool {
-	return materialize_tuple(@analyzer, @record, elements);
-};
-
 fn materialize_variant(var Analyzer& analyzer, var Entity& record, TemplatePack& elements) -> bool {
-	var TemplatePack* stored = @analyzer.semantic_unit()->create_pack();
-	if (!stored) {
+	var Entity* storage = record.find_member("Storage");
+	if (!storage || storage->kind() != entity_kind::record || storage->layout() != record_layout::overlapping || !storage->members()) {
+		@analyzer.error(record.declaration(), "variant requires a nested storage union");
 		return false;
 	};
-	usize index = 0;
-	while (index < elements.elements.size()) {
-		TemplateArgument& element = elements.elements.data()[index];
-		if (element.kind == template_argument_kind::type && element.type && element.type->kind() != type_kind::null_type) {
-			TemplateArgument copy;
-			@copy.kind = template_argument_kind::type;
-			@copy.type = element.type;
-			PackElementSignature signature;
-			@signature.kind = template_argument_kind::type;
-			if (!@stored->elements.push_back($copy) || !@stored->signature.push_back($signature)) {
-				return false;
-			};
-		};
-		@index = index + 1;
-	};
-	Token location = record.token();
-	var Entity* binding = @analyzer.semantic_unit()->create_entity(entity_kind::pack_binding, location, record.declaration(), record.members());
-	if (!binding || !@binding->set_name("_StoredTypes")) {
-		return false;
-	};
-	@binding->set_pack(stored);
-	@binding->set_origin(declaration_origin::compiler_supplied);
-	@binding->set_state(entity_state::ready);
-	return true;
+	return materialize_tuple(@analyzer, @*storage, elements);
 };
 
-fn configure_variant_default(var Analyzer& analyzer, var Entity& record) -> bool {
+fn Analyzer::configure_variant_default(var Analyzer& this, var Entity& record) -> bool {
 	if (!variant_instance(record)) {
 		return true;
 	};
@@ -92,28 +66,27 @@ fn configure_variant_default(var Analyzer& analyzer, var Entity& record) -> bool
 		return false;
 	};
 	var TemplatePack* elements = instance->arguments.data()[0].pack;
-	u64 active = 0;
+	configure_variant_copy(@record);
+	bool available = elements->elements.size() && variant_default_constructible(elements->elements.data()[0].type);
 	usize index = 0;
-	while (index < elements->elements.size()) {
-		if (elements->elements.data()[index].type && elements->elements.data()[index].type->kind() == type_kind::null_type) {
-			@active = u64(index + 1);
-			break;
-		};
-		@index = index + 1;
-	};
-	@index = 0;
 	while (index < record.members()->bindings().size()) {
 		var Entity* member = record.members()->bindings().data()[index];
-		if (member->kind() == entity_kind::function && member->role() == function_role::constructor && member->parameters().size() == 1 && !active) {
+		if (member->kind() == entity_kind::function && member->role() == function_role::constructor && member->parameters().size() == 1 && !available) {
 			@member->set_definition(function_definition::deleted);
 		};
 		@index = index + 1;
 	};
-	if (!active) {
+	if (!available) {
 		return true;
 	};
+	var Entity* constructor = @this.supply_special(&@record, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
+	if (!constructor) {
+		return false;
+	};
+	@constructor->set_definition(function_definition::defaulted);
+	@record.set_default_constructor(constructor);
 	var Entity* tag = record.find_member("_index");
-	if (!tag || !@analyzer.resolve(tag)) {
+	if (!tag || !@this.resolve(tag)) {
 		return false;
 	};
 	Token location = tag->token();
@@ -121,7 +94,7 @@ fn configure_variant_default(var Analyzer& analyzer, var Entity& record) -> bool
 	if (!initializer.get()) {
 		return false;
 	};
-	@initializer.get()->set_integer(active);
+	@initializer.get()->set_integer(1);
 	@tag->set_body($initializer);
 	@tag->set_body_state(entity_state::ready);
 	return true;

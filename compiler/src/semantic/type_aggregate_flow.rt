@@ -142,17 +142,7 @@ fn variant_flow_known(VariantFlowFacts& facts, SemanticExpression& value) -> Typ
 		return variant_flow_type(value.type(), usize(value.integer() - 1));
 	};
 	if (value.kind() == semantic_kind::construction && !value.integer() && value.size() == 1 && !value.item(0)->size()) {
-		usize index = 0;
-		while (true) {
-			Type* alternative = variant_flow_type(value.type(), index);
-			if (!alternative) {
-				break;
-			};
-			if (alternative->kind() == type_kind::null_type) {
-				return alternative;
-			};
-			@index = index + 1;
-		};
+		return variant_flow_type(value.type(), 0);
 	};
 	var Entity* binding = variant_flow_binding(value);
 	if (binding) {

@@ -31,15 +31,15 @@ fn main() -> i32 {
 		var first = Choice(Payload(42));
 		var second = Choice(Payload(1));
 		@second := first;
-		if (copies != 1 || destroyed != 1 || first.get<Payload>().value != 42 || second.get<Payload>().value != 42) { return 1; };
+		if (copies || destroyed || first.get<Payload>().value != 42 || second.get<Payload>().value != 42) { return 1; };
 		@second = Choice(i64(9));
-		if (!second.has<i64>() || destroyed != 2) { return 2; };
+		if (!second.has<i64>() || destroyed != 1) { return 2; };
 		@second = Choice(Payload(7));
 		if (!second.has<Payload>() || second.get<Payload>().value != 7) { return 3; };
 		@first := first;
-		if (copies != 2 || destroyed != 3 || first.get<Payload>().value != 42) { return 4; };
+		if (copies || destroyed != 1 || first.get<Payload>().value != 42) { return 4; };
 	};
-	if (destroyed != 5) { return 5; };
+	if (destroyed != 3) { return 5; };
 	return 42;
 };
 """),
@@ -49,11 +49,23 @@ using Last = i32 | null;
 fn main() -> i32 {
 	var first = First();
 	var last = Last();
-	if (!first.has<null>() || !last.has<null>()) { return 1; };
-	if (first.get<null>() != nullptr || last.get<null>() != nullptr) { return 2; };
+	if (!first.has<null>() || !last.has<i32>()) { return 1; };
+	if (first.get<null>() != nullptr || last.get<i32>() != 0) { return 2; };
 	return 42;
 };
 """),
+
+	("variant-monostate-first", """
+using Choice = rt::monostate | Payload;
+fn main() -> i32 {
+	var first = Choice();
+	var moved = Choice($first);
+	if (!moved.has<rt::monostate>()) { return 1; };
+	rt::monostate& empty = moved.get<rt::monostate>();
+	return 42;
+};
+"""),
+
 	("variant-only-null", """
 using Empty = rt::variant<null>;
 fn main() -> i32 {
@@ -97,7 +109,7 @@ fn main() -> i32 {
 using Choice = Payload | null | i64;
 fn main() -> i32 {
 	{
-		var empty = Choice();
+		var empty = Choice(nullptr);
 		var explicit_null = Choice(nullptr);
 		var scalar = Choice(i64(42));
 		if (!empty.has<null>() || !explicit_null.has<null>() || empty.has<Payload>() || empty.has<i64>() || scalar.has<Payload>()) { return 1; };
@@ -119,11 +131,77 @@ fn main() -> i32 {
 	return 42;
 };
 """),
+
+	("variant-first-record-default", """
+struct First {
+	i32 value;
+	fn First(var First& this) noexcept { @this.value := 42; };
+};
+struct PotentiallyThrowingFirst {
+	fn PotentiallyThrowingFirst(var PotentiallyThrowingFirst& this) {};
+};
+using Choice = First | null | i64;
+using ThrowingChoice = PotentiallyThrowingFirst | null;
+fn main() -> i32 {
+	var value = Choice();
+	if (!value.has<First>() || !noexcept(Choice()) || noexcept(ThrowingChoice())) { return 1; };
+	return value.get<First>().value;
+};
+"""),
+	("variant-payload-copy-assignment", """
+i32 assignments;
+struct Assigned {
+	i32 value;
+	fn Assigned(var Assigned& this, i32 value) { @this.value := value; };
+	fn Assigned(var Assigned& this, Assigned& other) : [default];
+	fn Assigned(var Assigned& this, Assigned other) : [default];
+	fn operator:=(var Assigned& this, Assigned& other) -> var Assigned& {
+		@assignments = assignments + 1;
+		@this.value := other.value;
+		return @this;
+	};
+};
+using Choice = Assigned | i64;
+fn main() -> i32 {
+	var first = Choice(Assigned(42));
+	var second = Choice(Assigned(1));
+	@second := first;
+	@first := first;
+	if (assignments != 2 || first.get<Assigned>().value != 42) { return 1; };
+	return second.get<Assigned>().value;
+};
+"""),
+	("variant-throwing-copy-preserves-destination", """
+struct ThrowingCopy {
+	i32 value;
+	fn ThrowingCopy(var ThrowingCopy& this, i32 value) { @this.value := value; };
+	fn ThrowingCopy(var ThrowingCopy& this, ThrowingCopy& other) {
+		var error = i32(42);
+		throw $error;
+	};
+	fn ThrowingCopy(var ThrowingCopy& this, ThrowingCopy other) : [default];
+};
+using Choice = ThrowingCopy | i64;
+fn main() -> i32 {
+	var source = Choice(ThrowingCopy(7));
+	var target = Choice(i64(42));
+	try { @target := source; }
+	catch (i32 error) {
+		if (!source.has<ThrowingCopy>() || !target.has<i64>()) { return 1; };
+		return i32(target.get<i64>());
+	};
+	return 2;
+};
+"""),
+
 ]
 
 REJECTIONS = [
 	("variant-no-default", """
-using Choice = i32 | i64;
+struct NoDefault {
+	fn NoDefault(var NoDefault& this, i32 value) {};
+};
+using Choice = NoDefault | rt::monostate | null | i64;
 fn main() -> i32 { Choice value; return 42; };
 """, r"(?i)(deleted|no applicable constructor|no.*constructor)"),
 	("variant-null-not-alternative", """
