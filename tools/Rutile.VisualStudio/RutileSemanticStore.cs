@@ -117,7 +117,8 @@ namespace Rutile.VisualStudio {
 					}
 					else {
 						legend = Array.Empty<string>();
-						documents.Clear();
+						// Document synchronization can precede custom RPC attachment.
+						// Keep open text until didClose so initialization can request colors.
 						connection = rpc;
 						return;
 					}
