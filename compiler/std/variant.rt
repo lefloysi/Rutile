@@ -12,6 +12,8 @@ namespace rt {
 		fn variant(var variant& this, variant& other);
 		fn variant(var variant& this, variant other);
 		fn ~variant(var variant& this);
+		fn operator=(var variant& this, variant other) -> var variant&;
+		fn operator:=(var variant& this, variant& other) -> var variant&;
 
 	private:
 		variant_storage<Types...> _storage;
@@ -68,5 +70,21 @@ namespace rt {
 	template<typename... Types>
 	fn variant<Types...>::~variant(var variant& this) {
 		(variant_destroy<_StoredTypes>(@this), ...);
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::operator=(var variant& this, variant other) -> var variant& {
+		(variant_destroy<_StoredTypes>(@this), ...);
+		@this._index = 0;
+		(variant_move<_StoredTypes>(@this, @other), ...);
+		@this._index := other._index;
+		@other._index = 0;
+		return @this;
+	};
+
+	template<typename... Types>
+	fn variant<Types...>::operator:=(var variant& this, variant& other) -> var variant& {
+		var replacement = variant(other);
+		return @this = $replacement;
 	};
 };

@@ -1,18 +1,4 @@
 namespace rt {
-	enum optional_state : [u08] {
-		empty;
-		engaged;
-	};
-
-	template<typename T>
-	union optional_storage {
-		fn optional_storage(var optional_storage& this);
-		fn ~optional_storage(var optional_storage& this);
-
-		u08 empty;
-		T value;
-	};
-
 	template<typename T>
 	struct optional {
 		fn optional(var optional& this);
@@ -20,6 +6,8 @@ namespace rt {
 		fn optional(var optional& this, optional& other);
 		fn optional(var optional& this, optional other);
 		fn ~optional(var optional& this);
+		fn operator=(var optional& this, optional other) -> var optional&;
+		fn operator:=(var optional& this, optional& other) -> var optional&;
 
 		fn reset(var optional& this);
 		fn emplace(var optional& this, T value) -> var T&;
@@ -30,8 +18,18 @@ namespace rt {
 		fn value(auto optional& this) -> const[this] T&;
 
 	private:
-		optional_storage<T> storage;
-		optional_state state;
+		union Storage {
+			fn Storage(var Storage& this) {
+			};
+
+			fn ~Storage(var Storage& this) {
+			};
+
+			T value;
+		};
+
+		Storage storage;
+		bool engaged;
 	};
 
 	template<typename T>
@@ -53,29 +51,20 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional_storage<T>::optional_storage(var optional_storage& this) {
-		@this.empty = 0;
-	};
-
-	template<typename T>
-	fn optional_storage<T>::~optional_storage(var optional_storage& this) {
-	};
-
-	template<typename T>
 	fn optional<T>::optional(var optional& this) {
 	};
 
 	template<typename T>
 	fn optional<T>::optional(var optional& this, T value) {
 		@this.storage.value.T($value);
-		@this.state = optional_state::engaged;
+		@this.engaged = true;
 	};
 
 	template<typename T>
 	fn optional<T>::optional(var optional& this, optional& other) {
 		if (other.has_value()) {
 			@this.storage.value.T(other.storage.value);
-			@this.state = optional_state::engaged;
+			@this.engaged = true;
 		};
 	};
 
@@ -85,8 +74,8 @@ namespace rt {
 			var T* source = &@other.storage.value;
 
 			@this.storage.value.T($(*source));
-			@this.state = optional_state::engaged;
-			@other.state = optional_state::empty;
+			@this.engaged = true;
+			@other.engaged = false;
 		};
 	};
 
@@ -96,8 +85,26 @@ namespace rt {
 	};
 
 	template<typename T>
+	fn optional<T>::operator=(var optional& this, optional other) -> var optional& {
+		@this.reset();
+		if (other.has_value()) {
+			var T* source = &@other.storage.value;
+			@this.storage.value.T($(*source));
+			@this.engaged = true;
+			@other.engaged = false;
+		};
+		return @this;
+	};
+
+	template<typename T>
+	fn optional<T>::operator:=(var optional& this, optional& other) -> var optional& {
+		var replacement = optional(other);
+		return @this = $replacement;
+	};
+
+	template<typename T>
 	fn optional<T>::has_value(optional& this) -> bool {
-		return this.state == optional_state::engaged;
+		return this.engaged;
 	};
 
 	template<typename T>
@@ -121,14 +128,14 @@ namespace rt {
 		};
 
 		@this.storage.value.~T();
-		@this.state = optional_state::empty;
+		@this.engaged = false;
 	};
 
 	template<typename T>
 	fn optional<T>::emplace(var optional& this, T value) -> var T& {
 		@this.reset();
 		@this.storage.value.T($value);
-		@this.state = optional_state::engaged;
+		@this.engaged = true;
 
 		return @this.storage.value;
 	};

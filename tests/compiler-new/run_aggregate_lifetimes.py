@@ -24,6 +24,25 @@ struct Payload {
 """
 
 CASES = [
+	("variant-copy-move-assignment", """
+using Choice = Payload | null | i64;
+fn main() -> i32 {
+	{
+		var first = Choice(Payload(42));
+		var second = Choice(Payload(1));
+		@second := first;
+		if (copies != 1 || destroyed != 1 || first.get<Payload>().value != 42 || second.get<Payload>().value != 42) { return 1; };
+		@second = Choice(i64(9));
+		if (!second.has<i64>() || destroyed != 2) { return 2; };
+		@second = Choice(Payload(7));
+		if (!second.has<Payload>() || second.get<Payload>().value != 7) { return 3; };
+		@first := first;
+		if (copies != 2 || destroyed != 3 || first.get<Payload>().value != 42) { return 4; };
+	};
+	if (destroyed != 5) { return 5; };
+	return 42;
+};
+"""),
 	("variant-null-default-position", """
 using First = null | i32;
 using Last = i32 | null;
