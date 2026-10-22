@@ -3,10 +3,15 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.VisualStudio.Editor;
+using Microsoft.VisualStudio.Language.Intellisense.AsyncCompletion;
+using Microsoft.VisualStudio.OLE.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
+using Microsoft.VisualStudio.Text.BraceCompletion;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Utilities;
 
@@ -20,6 +25,11 @@ public sealed class PaletteProbe : Microsoft.VisualStudio.LanguageServer.Client.
 	[Import] internal IClassificationFormatMapService Formats = null!;
 	[Import] internal IClassificationTypeRegistryService Types = null!;
 	[Import] internal ITextDocumentFactoryService Documents = null!;
+	[Import] internal IVsEditorAdaptersFactoryService Adapters = null!;
+	[Import] internal IAsyncCompletionBroker Completion = null!;
+	[Import] internal IBraceCompletionManagerFactory BraceManagers = null!;
+	[ImportMany] internal IEnumerable<Lazy<IBraceCompletionDefaultProvider, IDictionary<string, object>>> DefaultBraces = null!;
+	[ImportMany] internal IEnumerable<Lazy<IBraceCompletionContextProvider, IDictionary<string, object>>> ContextBraces = null!;
 	public string Name => "Rutile palette verification";
 	public IEnumerable<string> ConfigurationSections => Array.Empty<string>();
 	public object InitializationOptions => null!;
@@ -114,8 +124,13 @@ public sealed class PaletteProbe : Microsoft.VisualStudio.LanguageServer.Client.
 					var translated = classifier.GetClassificationSpans(new SnapshotSpan(after, 0, after.Length));
 					var retained = translated.Any(span => span.Span.Start.Position == offset + 1 && span.ClassificationType.IsOfType("rutile.function"));
 					observed.Add("cached-span-translation=" + retained);
-					File.WriteAllLines(path!, observed);
 					timer.Stop();
+					if (Environment.GetEnvironmentVariable("RUTILE_TYPING_TEST") == "1") {
+						BeginTyping(buffer, observed);
+					}
+					else {
+						File.WriteAllLines(path!, observed);
+					}
 					return;
 				}
 				if (++tries >= 240) {
@@ -129,5 +144,158 @@ public sealed class PaletteProbe : Microsoft.VisualStudio.LanguageServer.Client.
 			}
 		};
 		timer.Start();
+	}
+
+	private void Type(IWpfTextView view, char? character) {
+		var target = (IOleCommandTarget)Adapters.GetViewAdapter(view);
+		var group = Microsoft.VisualStudio.VSConstants.VSStd2K;
+		var value = IntPtr.Zero;
+		try {
+			if (character.HasValue && character.Value != '\n' && character.Value != '\t') {
+				value = Marshal.AllocCoTaskMem(32);
+				Marshal.GetNativeVariantForObject((ushort)character.Value, value);
+			}
+			var command = !character.HasValue ? Microsoft.VisualStudio.VSConstants.VSStd2KCmdID.BACKSPACE
+				: character.Value == '\n' ? Microsoft.VisualStudio.VSConstants.VSStd2KCmdID.RETURN
+				: character.Value == '\t' ? Microsoft.VisualStudio.VSConstants.VSStd2KCmdID.TAB
+				: Microsoft.VisualStudio.VSConstants.VSStd2KCmdID.TYPECHAR;
+			Marshal.ThrowExceptionForHR(target.Exec(ref group, (uint)command, 0, value, IntPtr.Zero));
+		}
+		finally {
+			if (value != IntPtr.Zero) { Marshal.FreeCoTaskMem(value); }
+		}
+	}
+
+
+
+	private static int Columns(string text, int tabSize) {
+		var column = 0;
+		foreach (var value in text) { column = value == '\t' ? column + tabSize - column % tabSize : column + 1; }
+		return column;
+	}
+
+	private string BraceDiagnostics(IWpfTextView view, int start) {
+		var details = new List<string> { "start=" + start, "caret=" + view.Caret.Position.BufferPosition.Position,
+			"content-type=" + view.TextBuffer.ContentType.TypeName,
+			"actual-text=" + view.TextBuffer.CurrentSnapshot.GetText().Replace("\r", "\\r").Replace("\n", "\\n") };
+		try {
+			details.Add("brace-option=" + view.Options.GetOptionValue<bool>(DefaultTextViewOptions.BraceCompletionEnabledOptionName));
+			var manager = BraceManagers.TryGetBraceCompletionManager(view);
+			details.Add("brace-manager=" + (manager == null ? "<null>" : manager.GetType().FullName));
+			if (manager != null) {
+				details.Add("brace-manager-enabled=" + manager.Enabled + ";sessions=" + manager.ActiveSessionCount + ";opening=" + string.Join(",", manager.OpeningBraces));
+			}
+			foreach (var provider in DefaultBraces) {
+				if (provider.Metadata.TryGetValue("ContentTypes", out var names) && names is IEnumerable<string> contentTypes && contentTypes.Contains("Rutile")) {
+					details.Add("default-provider=" + provider.Value.GetType().FullName);
+				}
+			}
+			foreach (var provider in ContextBraces) {
+				if (provider.Metadata.TryGetValue("ContentTypes", out var names) && names is IEnumerable<string> contentTypes && contentTypes.Contains("Rutile")) {
+					details.Add("context-provider=" + provider.Value.GetType().FullName);
+					var point = new SnapshotPoint(view.TextSnapshot, Math.Min(start, view.TextSnapshot.Length));
+					var accepted = provider.Value.TryCreateContext(view, point, '(', ')', out var context);
+					details.Add("context-at-opening=" + accepted + ";context=" + context?.GetType().FullName);
+				}
+			}
+		}
+		catch (Exception error) { details.Add("brace-diagnostic-error=" + error); }
+		return string.Join("; ", details);
+	}
+
+	private void BeginTyping(ITextBuffer buffer, List<string> observed) {
+		var view = buffer.Properties.GetProperty<IWpfTextView>(typeof(PaletteTypingView));
+		var snapshot = buffer.CurrentSnapshot;
+		var text = snapshot.GetText();
+		var marker = text.IndexOf("// typing cursor", StringComparison.Ordinal);
+		var start = marker < 0 ? -1 : text.IndexOf('\n', marker) + 1;
+		if (start <= 0) { throw new InvalidOperationException("Missing typing fixture"); }
+		while (start < text.Length && (text[start] == ' ' || text[start] == '\t')) { ++start; }
+		if (start >= text.Length || (text[start] != '\r' && text[start] != '\n')) { throw new InvalidOperationException("Typing fixture must be a blank EOL"); }
+		view.Caret.MoveTo(new SnapshotPoint(snapshot, start));
+		string[] items = Array.Empty<string>();
+		var triggered = false;
+		EventHandler<Microsoft.VisualStudio.Language.Intellisense.AsyncCompletion.Data.CompletionTriggeredEventArgs> handler = (_, args) => {
+			if (args.TextView != view) { return; }
+			triggered = true;
+			args.CompletionSession.ItemsUpdated += (sender, update) => {
+				System.Threading.Interlocked.Exchange(ref items, update.Items.Items.Select(item => item.DisplayText).ToArray());
+			};
+		};
+		Completion.CompletionTriggered += handler;
+		// Only a real TYPECHAR command starts completion; the probe never invokes completion itself.
+		Type(view, 'c');
+		var timer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(250) };
+		var tries = 0;
+		timer.Tick += (_, __) => {
+			try {
+				var current = System.Threading.Volatile.Read(ref items);
+				string? completionFailure = null;
+				if (!current.Contains("completion_local")) {
+					if (++tries < 80) { return; }
+					completionFailure = "Normal identifier typing did not offer completion_local; triggered=" + triggered + "; supported=" + Completion.IsCompletionSupported(buffer.ContentType, view.Roles) + "; items=" + string.Join(",", current);
+				}
+				observed.Add("automatic-identifier-completion=" + (completionFailure == null));
+				observed.Add("automatic-completion-items=" + string.Join(",", current));
+				Completion.GetSession(view)?.Dismiss();
+				Completion.CompletionTriggered -= handler;
+				using (var edit = buffer.CreateEdit()) { edit.Delete(start, 1); edit.Apply(); }
+				view.Caret.MoveTo(new SnapshotPoint(buffer.CurrentSnapshot, start));
+				var before = buffer.CurrentSnapshot.GetText();
+				Type(view, '(');
+				if (buffer.CurrentSnapshot.GetText() != before.Insert(start, "()") || view.Caret.Position.BufferPosition.Position != start + 1) { throw new InvalidOperationException("Native parenthesis insertion failed; " + BraceDiagnostics(view, start)); }
+				observed.Add("native-brace-pair=True");
+				Type(view, null);
+				if (buffer.CurrentSnapshot.GetText() != before) { throw new InvalidOperationException("Native paired backspace failed; " + BraceDiagnostics(view, start)); }
+				observed.Add("native-brace-paired-backspace=True");
+				Type(view, '(');
+				Type(view, ')');
+				if (buffer.CurrentSnapshot.GetText() != before.Insert(start, "()") || view.Caret.Position.BufferPosition.Position != start + 2) { throw new InvalidOperationException("Native closing-brace overtype failed; " + BraceDiagnostics(view, start)); }
+				observed.Add("native-brace-overtype=True");
+
+				using (var edit = buffer.CreateEdit()) { edit.Delete(start, 2); edit.Apply(); }
+				view.Caret.MoveTo(new SnapshotPoint(buffer.CurrentSnapshot, start));
+				Type(view, '(');
+				var beforeTab = buffer.CurrentSnapshot.GetText();
+				Type(view, '\t');
+				if (buffer.CurrentSnapshot.GetText() != beforeTab || view.Caret.Position.BufferPosition.Position != start + 2) { throw new InvalidOperationException("Native Tab past same-line closing brace failed; " + BraceDiagnostics(view, start)); }
+				observed.Add("native-brace-tab=True");
+				using (var edit = buffer.CreateEdit()) { edit.Delete(start, 2); edit.Apply(); }
+				view.Caret.MoveTo(new SnapshotPoint(buffer.CurrentSnapshot, start));
+				var openingLine = buffer.CurrentSnapshot.GetLineFromPosition(start);
+				var indent = openingLine.GetText();
+				Type(view, '{');
+				Type(view, '\n');
+				var updated = buffer.CurrentSnapshot;
+				openingLine = updated.GetLineFromPosition(start);
+				var bodyLine = updated.GetLineFromLineNumber(openingLine.LineNumber + 1);
+				var closingLine = updated.GetLineFromLineNumber(openingLine.LineNumber + 2);
+				var tabSize = Math.Max(1, view.Options.GetOptionValue(DefaultOptions.TabSizeOptionId));
+				var bodyColumn = Columns(indent, tabSize) + Math.Max(1, view.Options.GetOptionValue(DefaultOptions.IndentSizeOptionId));
+				if (openingLine.GetText() != indent + "{" || closingLine.GetText() != indent + "}" || !string.IsNullOrWhiteSpace(bodyLine.GetText()) || Columns(bodyLine.GetText(), tabSize) != bodyColumn || view.Caret.Position.BufferPosition.Position != bodyLine.End.Position) {
+					throw new InvalidOperationException("Native empty-brace Return indentation/caret failed; " + BraceDiagnostics(view, start));
+				}
+				observed.Add("native-brace-return=True");
+				if (completionFailure != null) { observed.Add("FAILED: " + completionFailure); }
+
+				File.WriteAllLines(path!, observed);
+				timer.Stop();
+			}
+			catch (Exception error) {
+				Completion.CompletionTriggered -= handler;
+				File.WriteAllText(path!, string.Join(Environment.NewLine, observed) + Environment.NewLine + "FAILED: " + error);
+				timer.Stop();
+			}
+		};
+		timer.Start();
+	}
+
+}
+
+
+[Export(typeof(IWpfTextViewCreationListener)), ContentType("Rutile"), TextViewRole(PredefinedTextViewRoles.Editable)]
+public sealed class PaletteTypingView : IWpfTextViewCreationListener {
+	public void TextViewCreated(IWpfTextView textView) {
+		textView.TextBuffer.Properties[typeof(PaletteTypingView)] = textView;
 	}
 }

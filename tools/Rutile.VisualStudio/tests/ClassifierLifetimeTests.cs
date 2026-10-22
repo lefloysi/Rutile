@@ -40,6 +40,46 @@ sealed class InterfaceStub<T> : RealProxy {
 }
 
 static class ClassifierLifetimeTests {
+	private static void BraceCompletion(Assembly assembly, ITextSnapshot snapshot) {
+		var providerType = assembly.GetType("Rutile.VisualStudio.RutileBraceCompletionProvider", true);
+		var pairs = providerType.GetCustomAttributesData().Where(attribute => attribute.AttributeType.Name == "BracePairAttribute").Select(attribute => "" + (char)attribute.ConstructorArguments[0].Value + (char)attribute.ConstructorArguments[1].Value).ToArray();
+		if (!pairs.OrderBy(pair => pair).SequenceEqual(new[] { "()", "[]", "{}", "\"\"", "''" }.OrderBy(pair => pair))) {
+			throw new Exception("Native brace completion does not export the expected punctuation pairs");
+		}
+		var defaultsType = assembly.GetType("Rutile.VisualStudio.RutileBraceCompletionDefaults", true);
+		var defaultPairs = defaultsType.GetCustomAttributesData().Where(attribute => attribute.AttributeType.Name == "BracePairAttribute").Select(attribute => "" + (char)attribute.ConstructorArguments[0].Value + (char)attribute.ConstructorArguments[1].Value);
+		if (!defaultsType.GetInterfaces().Any(type => type.FullName == "Microsoft.VisualStudio.Text.BraceCompletion.IBraceCompletionDefaultProvider") || !defaultPairs.OrderBy(pair => pair).SequenceEqual(pairs.OrderBy(pair => pair))) {
+			throw new Exception("Native default brace session provider does not match the context provider");
+		}
+		var canStart = providerType.GetMethod("CanStart", BindingFlags.NonPublic | BindingFlags.Static);
+		foreach (var prefix in new[] { "", "fn f", "/* closed */", "// comment\n", "\"closed\"", "'x'" }) {
+			if (!(bool)canStart.Invoke(null, new object[] { prefix, '(', ')' })) {
+				throw new Exception("Brace completion rejected code after closed trivia: " + prefix);
+			}
+		}
+		foreach (var prefix in new[] { "// comment", "/* comment", "\"literal", "'literal", "\"escaped\\\"" }) {
+			if ((bool)canStart.Invoke(null, new object[] { prefix, '(', ')' })) {
+				throw new Exception("Brace completion entered comment or literal: " + prefix);
+			}
+		}
+		if ((bool)canStart.Invoke(null, new object[] { "template", '<', '>' })) {
+			throw new Exception("Brace completion guessed whether a comparison was a template");
+		}
+		var provider = Activator.CreateInstance(providerType, true);
+		var classifiers = new InterfaceStub<IClassifierAggregatorService>((method, args) => new InterfaceStub<IClassifier>((member, values) => Array.Empty<ClassificationSpan>()).Value).Value;
+		providerType.GetField("Classifiers", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(provider, classifiers);
+		var arguments = new object[] { null, new SnapshotPoint(snapshot, 4), '(', ')', null };
+		if (!(bool)providerType.GetMethod("TryCreateContext").Invoke(provider, arguments) || arguments[4] == null) {
+			throw new Exception("Actual SDK brace provider did not create the native editor context");
+		}
+		var contextType = assembly.GetType("Rutile.VisualStudio.RutileBraceCompletionContext", true);
+		var indent = contextType.GetMethod("BodyIndent", BindingFlags.NonPublic | BindingFlags.Static);
+		if ((string)indent.Invoke(null, new object[] { "\t", 4, 4, false }) != "\t\t" || (string)indent.Invoke(null, new object[] { "  ", 2, 4, true }) != "    " || (string)indent.Invoke(null, new object[] { "", 4, 8, false }) != "    ") {
+			throw new Exception("Brace newline indentation does not respect editor indent and tab settings");
+		}
+		Console.WriteLine("Native brace MEF pairs, context suppression and editor indentation settings PASS");
+	}
+
 	private static System.Collections.Generic.IList<ClassificationSpan> Colors(object classifier, ITextSnapshot snapshot, int length) {
 		return ((IClassifier)classifier).GetClassificationSpans(new SnapshotSpan(snapshot, 0, length));
 	}
@@ -105,6 +145,7 @@ static class ClassifierLifetimeTests {
 		}).Value;
 
 		var assembly = Assembly.LoadFrom(args[0]);
+		BraceCompletion(assembly, snapshot);
 		var providerType = assembly.GetType("Rutile.VisualStudio.RutileLexicalClassifierProvider", true);
 		var provider = Activator.CreateInstance(providerType, true);
 		providerType.GetField("Documents", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(provider, factory);

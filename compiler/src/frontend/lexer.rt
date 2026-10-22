@@ -2,6 +2,7 @@ struct Lexer {
 	fn Lexer(var Lexer& this, var SourceFile& source);
 
 	fn scan(var Lexer& this) -> bool;
+	fn keyword_spelling(token_kind kind) -> rt::string_view;
 
 	fn error(Lexer& this) -> rt::string_view;
 	fn error_token(Lexer& this) -> Token;
@@ -116,127 +117,82 @@ fn Lexer::digit(char value) -> bool {
 	return value >= '0' && value <= '9';
 };
 
+fn Lexer::keyword_spelling(token_kind kind) -> rt::string_view {
+	switch (kind) {
+		case token_kind::kw_fn:
+			return "fn";
+		case token_kind::kw_using:
+			return "using";
+		case token_kind::kw_const:
+			return "const";
+		case token_kind::kw_discard:
+			return "discard";
+		case token_kind::kw_delete:
+			return "delete";
+		case token_kind::kw_new:
+			return "new";
+		case token_kind::kw_implicit:
+			return "implicit";
+		case token_kind::kw_nullptr:
+			return "nullptr";
+		case token_kind::kw_template:
+			return "template";
+		case token_kind::kw_typename:
+			return "typename";
+		case token_kind::kw_class:
+			return "class";
+		case token_kind::kw_var:
+			return "var";
+		case token_kind::kw_struct:
+			return "struct";
+		case token_kind::kw_union:
+			return "union";
+		case token_kind::kw_enum:
+			return "enum";
+		case token_kind::kw_namespace:
+			return "namespace";
+		case token_kind::kw_virtual:
+			return "virtual";
+		case token_kind::kw_override:
+			return "override";
+		case token_kind::kw_final:
+			return "final";
+		case token_kind::kw_return:
+			return "return";
+		case token_kind::kw_if:
+			return "if";
+		case token_kind::kw_else:
+			return "else";
+		case token_kind::kw_while:
+			return "while";
+		case token_kind::kw_for:
+			return "for";
+		case token_kind::kw_switch:
+			return "switch";
+		case token_kind::kw_case:
+			return "case";
+		case token_kind::kw_default:
+			return "default";
+		case token_kind::kw_break:
+			return "break";
+		case token_kind::kw_continue:
+			return "continue";
+		case token_kind::kw_sizeof:
+			return "sizeof";
+		default:
+			return rt::string_view();
+	};
+};
+
 fn Lexer::identifier_kind(rt::string_view spelling) -> token_kind {
-	if (spelling == "fn") {
-		return token_kind::kw_fn;
+	i32 value = static_cast<i32>(token_kind::kw_fn);
+	while (value <= static_cast<i32>(token_kind::kw_sizeof)) {
+		var kind = static_cast<token_kind>(value);
+		if (keyword_spelling(kind) == spelling) {
+			return $kind;
+		};
+		@value = value + 1;
 	};
-
-	if (spelling == "using") {
-		return token_kind::kw_using;
-	};
-
-	if (spelling == "const") {
-		return token_kind::kw_const;
-	};
-
-	if (spelling == "discard") {
-		return token_kind::kw_discard;
-	};
-
-	if (spelling == "delete") {
-		return token_kind::kw_delete;
-	};
-
-	if (spelling == "new") {
-		return token_kind::kw_new;
-	};
-
-	if (spelling == "implicit") {
-		return token_kind::kw_implicit;
-	};
-
-	if (spelling == "nullptr") {
-		return token_kind::kw_nullptr;
-	};
-
-	if (spelling == "template") {
-		return token_kind::kw_template;
-	};
-
-	if (spelling == "typename") {
-		return token_kind::kw_typename;
-	};
-
-	if (spelling == "class") {
-		return token_kind::kw_class;
-	};
-
-	if (spelling == "var") {
-		return token_kind::kw_var;
-	};
-
-	if (spelling == "struct") {
-		return token_kind::kw_struct;
-	};
-
-	if (spelling == "union") {
-		return token_kind::kw_union;
-	};
-
-	if (spelling == "enum") {
-		return token_kind::kw_enum;
-	};
-
-	if (spelling == "namespace") {
-		return token_kind::kw_namespace;
-	};
-
-	if (spelling == "virtual") {
-		return token_kind::kw_virtual;
-	};
-
-	if (spelling == "override") {
-		return token_kind::kw_override;
-	};
-
-	if (spelling == "final") {
-		return token_kind::kw_final;
-	};
-
-	if (spelling == "return") {
-		return token_kind::kw_return;
-	};
-
-	if (spelling == "if") {
-		return token_kind::kw_if;
-	};
-
-	if (spelling == "else") {
-		return token_kind::kw_else;
-	};
-
-	if (spelling == "while") {
-		return token_kind::kw_while;
-	};
-
-	if (spelling == "for") {
-		return token_kind::kw_for;
-	};
-
-	if (spelling == "switch") {
-		return token_kind::kw_switch;
-	};
-
-	if (spelling == "case") {
-		return token_kind::kw_case;
-	};
-
-	if (spelling == "default") {
-		return token_kind::kw_default;
-	};
-
-	if (spelling == "break") {
-		return token_kind::kw_break;
-	};
-
-	if (spelling == "continue") {
-		return token_kind::kw_continue;
-	};
-
-	if (spelling == "sizeof") {
-		return token_kind::kw_sizeof;
-	};
-
 	return token_kind::identifier;
 };
 

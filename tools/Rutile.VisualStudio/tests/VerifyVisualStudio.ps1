@@ -3,6 +3,7 @@ param(
     [switch]$Install,
     [string]$KilnVsix,
     [switch]$Palette,
+    [switch]$Typing,
     [switch]$FullShell,
     [string]$RootSuffix,
     [string]$Kiln
@@ -113,6 +114,12 @@ enum mode { executable; library; };
 fn value()->i32 { Item thing; mode chosen=mode::executable; return thing.read(); };
 }
 fn main()->i32 { return sample::value(); };
+fn typing_probe()->i32 {
+    i32 completion_local = 42;
+    // typing cursor
+$("    ")
+    return completion_local;
+};
 "@)
     }
     [IO.File]::WriteAllText((Join-Path $directory 'kiln.rt'), 'fn main(kiln::Options& options) { var target = kiln::add_target("app.exe", kiln::TargetType::executable); @target.sources.add("app"); };')
@@ -171,6 +178,7 @@ try {
             }
         }
         $launch.EnvironmentVariables['RUTILE_PALETTE_RESULT'] = $paletteResult
+        if ($Typing) { $launch.EnvironmentVariables['RUTILE_TYPING_TEST'] = '1' }
         $launch.EnvironmentVariables['RUTILE_PALETTE_SOURCE'] = Join-Path $first 'app/main.rt'
     }
     $process = [Diagnostics.Process]::Start($launch)
@@ -200,6 +208,9 @@ try {
         Wait-For { Test-Path -LiteralPath $paletteResult } 'effective editor palette'
         $observed = [IO.File]::ReadAllText($paletteResult)
         $required = @('sample {=rutile.namespace:#FFD4D4D4','Item {=rutile.type:#FF4EC9B0','value()=rutile.function:#FFDCDCAA','read(Item=rutile.function:#FFDCDCAA','executable;=rutile.function:#FFDCDCAA','i32 field=rutile.keyword:#FF569CD6','return this=rutile.control:#FFC586C0','cached-span-translation=True')
+        if ($Typing) {
+            $required += @('automatic-identifier-completion=True','native-brace-pair=True','native-brace-paired-backspace=True','native-brace-overtype=True','native-brace-return=True','native-brace-tab=True')
+        }
         foreach ($expected in $required) {
             if (!$observed.Contains($expected)) {
                 throw ('Effective editor palette mismatch: ' + $observed)

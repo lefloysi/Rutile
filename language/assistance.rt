@@ -28,26 +28,253 @@ fn LanguageWorkspace::cursor(var LanguageWorkspace& this, LanguageIndex& index, 
 	return @this.old_offset(index, usize(source), $current, @offset);
 };
 
-fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> rt::unique<rt::json_value> {
-	var result = rt::json_value::make_array();
-	usize source = 0;
-	usize offset = 0;
-	if (!result.get() || !@this.cursor(index, parameters, @source, @offset)) {
-		return $result;
+fn language_completion_identifier(char character) -> bool {
+	return character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_';
+};
+
+fn language_completion_match(rt::string_view name, rt::string_view prefix) -> bool {
+	if (name.empty() || name.size() < prefix.size()) {
+		return false;
 	};
+	usize index = 0;
+	while (index < prefix.size()) {
+		char expected = prefix.data()[index];
+		char actual = name.data()[index];
+		if (expected >= 'A' && expected <= 'Z') {
+			@expected = char(expected + ('a' - 'A'));
+		};
+		if (actual >= 'A' && actual <= 'Z') {
+			@actual = char(actual + ('a' - 'A'));
+		};
+		if (expected != actual) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
 
-	u64 selected_context = @this.template_context(index, parameters);
+fn language_completion_kind(u32 kind) -> u32 {
+	switch (kind) {
+		case 3:
+			return 9;
+		case 5:
+			return 7;
+		case 6:
+			return 2;
+		case 8:
+			return 5;
+		case 9:
+			return 4;
+		case 10:
+			return 13;
+		case 11:
+			return 8;
+		case 12:
+			return 3;
+		case 14:
+			return 21;
+		case 22:
+			return 20;
+		case 23:
+			return 22;
+		case 26:
+			return 25;
+		default:
+			return 6;
+	};
+};
 
-	// Candidate identities come only from compiler bindings in the enclosing scope.
-	// Prefix extraction filters these candidates; it never resolves an identifier.
-	rt::string_view text = index.sources.data()[source].text.view();
-	usize begin = offset;
-	while (begin) {
-		char character = text.data()[begin - 1];
-		if (!(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_')) {
+fn language_completion_item(rt::string_view name, rt::string_view detail, u32 kind, u64 rank, LanguageText& text, usize begin, usize end) -> rt::unique<rt::json_value> {
+	var item = rt::json_value::make_object();
+	var edit = rt::json_value::make_object();
+	var order = DiagnosticMessage();
+	u64 place = 1000000000;
+	while (place > 1 && rank < place) {
+		@order.text("0");
+		@place = place / 10;
+	};
+	@order.number(rank);
+	@order.text(":");
+	@order.text(name);
+	if (
+		!item.get() || !edit.get()
+		|| !@item.get()->set("label", rt::json_value::make_string(name))
+		|| !@item.get()->set("detail", rt::json_value::make_string(detail))
+		|| !@item.get()->set("kind", rt::json_value::make_unsigned(u64(kind)))
+		|| !@item.get()->set("filterText", rt::json_value::make_string(name))
+		|| !@item.get()->set("sortText", rt::json_value::make_string(order.view()))
+		|| !@edit.get()->set("range", LanguageJson::range(text, begin, end))
+		|| !@edit.get()->set("newText", rt::json_value::make_string(name))
+		|| !@item.get()->set("textEdit", $edit)
+	) {
+		return rt::unique<rt::json_value>();
+	};
+	return $item;
+};
+
+fn language_completion_trivia(rt::string_view text, usize offset) -> bool {
+	SourceFile source;
+	if (!@source.assign("", text)) {
+		return true;
+	};
+	var lexer = Lexer(@source);
+	bool valid = @lexer.scan();
+	usize index = 0;
+	while (index < source.comments().size()) {
+		Token& comment = source.comments().data()[index];
+		@index = index + 1;
+		if (comment.begin < offset && offset < comment.begin + comment.length) {
+			return true;
+		};
+		if (comment.begin < offset && offset == comment.begin + comment.length) {
+			var spelling = comment.text();
+			if (spelling.size() < 4 || spelling.data()[1] == '/' || spelling.data()[spelling.size() - 2] != '*' || spelling.data()[spelling.size() - 1] != '/') {
+				return true;
+			};
+		};
+	};
+	@index = 0;
+	while (index < source.tokens().size()) {
+		Token& token = source.tokens().data()[index];
+		@index = index + 1;
+		if (token.kind != token_kind::literal_string && !(token.kind == token_kind::literal_number && token.length && token.text().data()[0] == '\'')) {
+			continue;
+		};
+		if (token.begin < offset && (offset < token.begin + token.length || !valid && lexer.error_token().begin == token.begin && offset == token.begin + token.length)) {
+			return true;
+		};
+	};
+	return false;
+};
+
+fn language_completion_depth(LanguageIndex& index, u64 scope) -> usize {
+	usize depth = 0;
+	while (scope) {
+		var found = index.scope_ids.find(scope);
+		if (!found) {
 			break;
 		};
+		@depth = depth + 1;
+		@scope = index.scopes.data()[*found].parent;
+	};
+	return depth;
+};
+
+fn language_completion_scope(LanguageIndex& index, usize source, usize offset, u64 context, var usize& depth) -> u64 {
+	u64 scope = 0;
+	usize width = usize::max;
+	usize region = 0;
+	while (region < index.scopes.size()) {
+		NavigationScope& candidate = index.scopes.data()[region];
+		@region = region + 1;
+		if ((context && candidate.context && index.template_owner(u64(candidate.context)) != context) || candidate.range.begin >= candidate.range.end || candidate.range.source != source || candidate.range.begin > offset || offset > candidate.range.end) {
+			continue;
+		};
+		usize candidate_width = candidate.range.end - candidate.range.begin;
+		usize candidate_depth = language_completion_depth(index, candidate.id);
+		if (candidate_width < width || candidate_width == width && candidate_depth > depth) {
+			@scope = candidate.id;
+			@width = candidate_width;
+			@depth = candidate_depth;
+		};
+	};
+	return scope;
+};
+
+fn LanguageWorkspace::completion_visible(var LanguageWorkspace& this, LanguageIndex& index, NavigationSymbol& symbol) -> bool {
+	SourceRange range;
+	if (!@this.mapped(index, symbol.declaration, @range)) {
+		return false;
+	};
+	LanguageIndexedSource& source = index.sources.data()[symbol.declaration.source];
+	LanguageText* current = &@source.text;
+	var LanguageDocument* open = @this.document_key(source.key.view());
+	if (open) {
+		@current = &@open->text;
+	};
+	if (symbol.declaration.end > source.text.view().size() || range.end > current->view().size()) {
+		return false;
+	};
+	var before = rt::string_view(source.text.view().data() + symbol.declaration.begin, symbol.declaration.end - symbol.declaration.begin);
+	var after = rt::string_view(current->view().data() + range.begin, range.end - range.begin);
+	return before == after;
+};
+
+fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> rt::unique<rt::json_value> {
+	var result = rt::json_value::make_array();
+	rt::json_value* document = parameters.member("textDocument");
+	rt::json_value* position = parameters.member("position");
+	rt::string path;
+	rt::string key;
+	if (!result.get() || !document || !position || !LanguageUri::decode(LanguageJson::text(*document, "uri"), @path) || !LanguageUri::key(path.view(), @key)) {
+		return $result;
+	};
+	var found_source = index.source_ids.find(key.view());
+	if (!found_source) {
+		return $result;
+	};
+	usize source = *found_source;
+	LanguageText* current = &@index.sources.data()[source].text;
+	var LanguageDocument* open = @this.document_key(key.view());
+	if (open) {
+		@current = &@open->text;
+	};
+	i64 line = LanguageJson::integer(*position, "line", -1);
+	i64 character = LanguageJson::integer(*position, "character", -1);
+	if (line < 0 || character < 0) {
+		return $result;
+	};
+	usize cursor = current->offset(usize(line), usize(character));
+	var text = current->view();
+	if (language_completion_trivia(text, cursor)) {
+		return $result;
+	};
+	usize begin = cursor;
+	while (begin && language_completion_identifier(text.data()[begin - 1])) {
 		@begin = begin - 1;
+	};
+	usize end = cursor;
+	while (end < text.size() && language_completion_identifier(text.data()[end])) {
+		@end = end + 1;
+	};
+	var prefix = rt::string_view(text.data() + begin, cursor - begin);
+	usize offset = 0;
+	if (!@this.old_offset(index, source, cursor, @offset)) {
+		if (!@this.old_offset(index, source, begin, @offset)) {
+			if (begin) {
+				if (!@this.old_offset(index, source, begin - 1, @offset)) {
+					return $result;
+				};
+				@offset = offset + 1;
+			}
+			else {
+				@offset = 0;
+			};
+		};
+	};
+	u64 selected_context = @this.template_context(index, source, offset);
+	usize scope_depth = 0;
+	u64 scope = language_completion_scope(index, source, offset, selected_context, @scope_depth);
+	if (index.semantic_failed && this.highlight_fallback.get() && &@index != this.highlight_fallback.get()) {
+		var fallback = this.highlight_fallback.get();
+		var fallback_source = fallback->source_ids.find(key.view());
+		if (fallback_source) {
+			usize fallback_offset = 0;
+			bool mapped = @this.old_offset(*fallback, *fallback_source, cursor, @fallback_offset) || @this.old_offset(*fallback, *fallback_source, begin, @fallback_offset);
+			if (!mapped && begin) {
+				@mapped = @this.old_offset(*fallback, *fallback_source, begin - 1, @fallback_offset);
+				@fallback_offset = fallback_offset + 1;
+			};
+			if (mapped) {
+				usize fallback_depth = 0;
+				u64 context = @this.template_context(*fallback, *fallback_source, fallback_offset);
+				language_completion_scope(*fallback, *fallback_source, fallback_offset, context, @fallback_depth);
+				if (fallback_depth > scope_depth) {
+					return @this.completion(*fallback, parameters);
+				};
+			};
+		};
 	};
 	usize receiver = 0;
 	rt::unordered_map<u64, bool> seen;
@@ -57,7 +284,7 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& ind
 		if (
 			site.selector.source != source
 			|| selected_context && site.context && index.template_owner(u64(site.context)) != selected_context
-			|| site.selector.begin >= begin
+			|| site.selector.begin >= offset
 			|| site.selector.end < offset
 		) {
 			continue;
@@ -71,19 +298,18 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& ind
 				continue;
 			};
 			LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
-			rt::string_view name = symbol.name.view();
-			rt::string_view prefix = rt::string_view(text.data() + begin, offset - begin);
-			if (name.empty() || name.size() < prefix.size() || rt::string_view(name.data(), prefix.size()) != prefix) {
+			var name = symbol.name.view();
+			if (!language_completion_match(name, prefix) || !@this.completion_visible(index, symbol.value)) {
 				continue;
 			};
-			var item = rt::json_value::make_object();
-			if (
-				!@seen.insert($identity, true)
-				|| !item.get()
-				|| !@item.get()->set("label", rt::json_value::make_string(name))
-				|| !@item.get()->set("detail", rt::json_value::make_string(symbol.detail.view()))
-				|| !@result.get()->append($item)
-			) {
+			u64 rank = 4;
+			if (symbol.value.declaration.source != source) {
+				@rank = rank + 2;
+			};
+			if (rt::string_view(name.data(), prefix.size()) != prefix) {
+				@rank = rank + 1;
+			};
+			if (!@seen.insert(identity, true) || !@result.get()->append(language_completion_item(name, symbol.detail.view(), language_completion_kind(symbol.value.kind), rank, *current, begin, end))) {
 				return rt::unique<rt::json_value>();
 			};
 		};
@@ -92,41 +318,39 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& ind
 	while (separator && (text.data()[separator - 1] == ' ' || text.data()[separator - 1] == '\t')) {
 		@separator = separator - 1;
 	};
-	if (separator && (text.data()[separator - 1] == '.' || text.data()[separator - 1] == ':' || text.data()[separator - 1] == '>')) {
+	if (separator && (text.data()[separator - 1] == '.' || separator >= 2 && ((text.data()[separator - 2] == ':' && text.data()[separator - 1] == ':') || (text.data()[separator - 2] == '-' && text.data()[separator - 1] == '>')))) {
 		return $result;
 	};
-	var prefix = rt::string_view(text.data() + begin, offset - begin);
-	u64 scope = 0;
-	usize width = usize::max;
-	usize region = 0;
-	while (region < index.scopes.size()) {
-		NavigationScope& candidate = index.scopes.data()[region];
-		@region = region + 1;
-		if ((!selected_context || !candidate.context || index.template_owner(u64(candidate.context)) == selected_context) && candidate.range.begin < candidate.range.end && candidate.range.source == source && candidate.range.begin <= offset && offset <= candidate.range.end && candidate.range.end - candidate.range.begin < width) {
-			@scope = candidate.id;
-			@width = candidate.range.end - candidate.range.begin;
-		};
-	};
 	rt::unordered_map<rt::string_view, u64> names;
+	u64 depth = 0;
 	while (scope) {
 		var members = index.scope_members.find(scope);
 		usize member = 0;
 		while (members && member < members->size()) {
 			LanguageIndexedSymbol& symbol = index.symbols.data()[members->data()[member]];
 			@member = member + 1;
-			rt::string_view name = symbol.name.view();
-			if (name.empty() || name.size() < prefix.size() || rt::string_view(name.data(), prefix.size()) != prefix || symbol.value.kind == 13 && symbol.value.declaration.source == source && symbol.value.declaration.begin > offset) {
+			var name = symbol.name.view();
+			if (!language_completion_match(name, prefix) || !@this.completion_visible(index, symbol.value) || symbol.value.kind == 13 && symbol.value.declaration.source == source && symbol.value.declaration.begin > offset) {
 				continue;
 			};
 			var hidden = names.find(name);
 			if (hidden && *hidden != scope) {
 				continue;
 			};
-			if (!hidden && !@names.insert(name, u64(scope))) {
+			if (!hidden && !@names.insert(name, scope)) {
 				return rt::unique<rt::json_value>();
 			};
-			var item = rt::json_value::make_object();
-			if (!item.get() || !@item.get()->set("label", rt::json_value::make_string(name)) || !@item.get()->set("detail", rt::json_value::make_string(symbol.detail.view())) || !@result.get()->append($item)) {
+			u64 rank = (depth + 1) * 4;
+			if (symbol.value.declaration.source != source) {
+				@rank = rank + 2;
+			};
+			if (name == "this") {
+				@rank = 0;
+			};
+			if (rt::string_view(name.data(), prefix.size()) != prefix) {
+				@rank = rank + 1;
+			};
+			if (!@result.get()->append(language_completion_item(name, symbol.detail.view(), language_completion_kind(symbol.value.kind), rank, *current, begin, end))) {
 				return rt::unique<rt::json_value>();
 			};
 		};
@@ -135,10 +359,29 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& ind
 			break;
 		};
 		@scope = index.scopes.data()[*descriptor].parent;
+		@depth = depth + 1;
+	};
+	usize primitive = 0;
+	while (true) {
+		var name = TypeStore::primitive_spelling(primitive);
+		if (name.empty()) {
+			break;
+		};
+		@primitive = primitive + 1;
+		if (!names.find(name) && language_completion_match(name, prefix) && !@result.get()->append(language_completion_item(name, "Rutile built-in type", 7, 100000, *current, begin, end))) {
+			return rt::unique<rt::json_value>();
+		};
+	};
+	i32 keyword = i32(token_kind::kw_fn);
+	while (keyword <= i32(token_kind::kw_sizeof)) {
+		var name = Lexer::keyword_spelling(static_cast<token_kind>(keyword));
+		@keyword = keyword + 1;
+		if (!names.find(name) && language_completion_match(name, prefix) && !@result.get()->append(language_completion_item(name, "Rutile keyword", 14, 100004, *current, begin, end))) {
+			return rt::unique<rt::json_value>();
+		};
 	};
 	return $result;
 };
-
 fn LanguageWorkspace::signature_item(LanguageIndex& index, NavigationCall& call, u64 identity, usize offset) -> rt::unique<rt::json_value> {
 	var found = index.symbol_ids.find(identity);
 	if (!found) {

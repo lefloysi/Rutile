@@ -26,6 +26,17 @@ legend and open buffers, and late responses from the previous server are ignored
 Compiler and extension versions do not need to match. VSIX updates are for editor integration
 changes.
 
+Typing support pairs parentheses, square brackets, braces, and quotes using Visual Studio's
+brace completion sessions. Closing characters step over their matching pair; Backspace removes
+empty pairs and Tab moves past the closing character. Enter inside empty braces creates an
+indented body using the editor's indentation settings. Pairing is suppressed in comments and
+strings.
+
+Completion ranks `this` first, followed by names in the nearest scope and then outer scopes.
+Member access uses the compiler's accessible member candidates. Keywords and built-in types
+come from the compiler's own inventories and follow visible symbols. Completion edits replace
+the current identifier, including when the caret is in the middle of it.
+
 ## Build and install
 
 Install Visual Studio 2022 with the extension development workload, then build each package:

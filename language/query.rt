@@ -220,6 +220,9 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 	if (index && (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range")) {
 		return @this.measured(@this.tokens(*index, parameters, method == "textDocument/semanticTokens/range"), $started);
 	};
+	if (index && method == "textDocument/completion") {
+		return @this.measured(@this.completion(*index, parameters), $started);
+	};
 	if (!index || index->generation < this.minimum_semantic_generation) {
 		if (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range") {
 			var empty = rt::json_parse("{\"data\":[]}");
@@ -238,9 +241,6 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 		return @this.measured(@this.template_contexts(*index, parameters, method == "rutile/selectTemplateContext"), $started);
 	};
 
-	if (method == "textDocument/completion") {
-		return @this.measured(@this.completion(*index, parameters), $started);
-	};
 	if (method == "textDocument/signatureHelp") {
 		return @this.measured(@this.signature(*index, parameters), $started);
 	};

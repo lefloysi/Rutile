@@ -43,6 +43,7 @@ class Editor:
 		capabilities = self.call("initialize", {"rootUri": root.as_uri(), "capabilities": {},
 			"initializationOptions": {"rutileSemanticColors": custom_colors}})["capabilities"]
 		self.legend = self.call("rutile/semanticTokensLegend", {})["tokenTypes"]
+		assert "_" in capabilities["completionProvider"]["triggerCharacters"], capabilities
 		if custom_colors:
 			assert "semanticTokensProvider" not in capabilities, capabilities
 		else:
@@ -174,6 +175,47 @@ class Editor:
 		for expected in expected_tokens:
 			assert expected in found, f"Missing live token {expected}: {found}"
 
+
+	def completion(self, uri, source, needle, prefix, trigger_kind=1):
+		offset = source.index(needle) + len(prefix)
+		line = source.count("\n", 0, offset)
+		character = len(source[source.rfind("\n", 0, offset) + 1:offset].encode("utf-16-le")) // 2
+		end = offset
+		while end < len(source) and (source[end].isalnum() or source[end] == "_"):
+			end += 1
+		end_character = character + len(source[offset:end].encode("utf-16-le")) // 2
+		items = self.call("textDocument/completion", {"textDocument": {"uri": uri},
+			"position": {"line": line, "character": character}, "context": {"triggerKind": trigger_kind}})
+		if isinstance(items, dict):
+			items = items["items"]
+		for item in items:
+			assert item["filterText"] == item["label"], item
+			assert "sortText" in item and "kind" in item, item
+			assert item["textEdit"] == {"range": {"start": {"line": line, "character": character - len(prefix)},
+				"end": {"line": line, "character": end_character}}, "newText": item["label"]}, item
+		return sorted(items, key=lambda item: item["sortText"])
+
+	def completion_scope(self, uri, source, needle, prefix, trigger_kind=1):
+		items = self.completion(uri, source, needle, prefix, trigger_kind)
+		names = [item["label"] for item in items]
+		if not prefix:
+			assert names and names[0] == "this", items
+			for name in ["i32", "bool", "fn", "return"]:
+				assert name in names and names.index(name) > names.index("complete_global"), items
+				assert next(item for item in items if item["label"] == name)["kind"] == (7 if name in ["i32", "bool"] else 14), items
+		for name in ["complete_inner", "complete_local", "complete_parameter", "complete_member", "complete_global"]:
+			assert name in names, (name, items)
+		assert names.index("complete_inner") < names.index("complete_local"), items
+		assert names.index("complete_local") < names.index("complete_parameter") < names.index("complete_member") < names.index("complete_global"), items
+		assert "complete_future" not in names and "complete_hidden" not in names, items
+		shadowed = [item for item in items if item["label"] == "complete_shadow"]
+		assert len(shadowed) == 1 and "i32" in shadowed[0]["detail"] and "i64" not in shadowed[0]["detail"], shadowed
+		for item in items:
+			if item["label"] in ["complete_inner", "complete_local", "complete_parameter", "complete_global"]:
+				assert item["kind"] == 6, item
+			if item["label"] == "complete_member":
+				assert item["kind"] == 5, item
+
 	def close(self):
 		try:
 			self.call("shutdown", {})
@@ -204,6 +246,27 @@ fn answer()->i32 {
 	return 0;
 };
 """
+
+		completion_source = source + """
+i32 complete_global;
+i64 complete_shadow;
+struct CompletionRecord {
+	i32 complete_member;
+	fn inspect(CompletionRecord& this, i32 complete_parameter)->i32 {
+		var complete_local = i32(1);
+		var complete_shadow = i32(2);
+		{ var complete_hidden = i32(3); };
+		{
+			var complete_inner = i32(4);
+			this.complete_member; // member cursor
+			/* closed */complete_inner; // cursor
+			var complete_future = i32(5);
+		};
+		return complete_local;
+	};
+};
+"""
+
 		file = root / "main.rt"
 		file.write_text(source, encoding="utf-8")
 		with (root / "compiler.log").open("wb") as log:
@@ -275,6 +338,55 @@ fn answer()->i32 {
 							assert editor.diagnostics(uri, 12) == [], editor.diagnostics(uri, 12)
 							editor.tokens(uri, source)
 							print("Session 1: live and settled semantic errors retain current comment colors", flush=True)
+
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 13}, "contentChanges": [{"text": completion_source}]})
+							editor.ready(uri, 13)
+							assert editor.diagnostics(uri, 13) == [], editor.diagnostics(uri, 13)
+							editor.completion_scope(uri, completion_source, "complete_inner; // cursor", "")
+
+							assert editor.completion(uri, completion_source, "member cursor", "mem") == []
+							assert editor.completion(uri, completion_source, "continued comment */", "cont") == []
+							assert editor.completion(uri, completion_source, "if // text", "if") == []
+
+							incomplete = completion_source.replace("complete_inner; // cursor", "compl; // cursor")
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 14}, "contentChanges": [{"text": incomplete}]})
+							editor.ready(uri, 14, require_bindings=False)
+							editor.completion_scope(uri, incomplete, "compl; // cursor", "compl", trigger_kind=3)
+							incomplete = completion_source.replace("this.complete_member; // member cursor", "this.comp; // member cursor")
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 15}, "contentChanges": [{"text": incomplete}]})
+							editor.ready(uri, 15, require_bindings=False)
+							members = editor.completion(uri, incomplete, "comp; // member cursor", "comp", trigger_kind=3)
+							assert [item["label"] for item in members] == ["complete_member"], members
+							bare = completion_source + "fn completion_blank()->i32 {\n\ti32 completion_local = 42;\n\t// blank insertion\n" + "\t\n" + "\treturn completion_local;\n};\n"
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 16}, "contentChanges": [{"text": bare}]})
+							editor.ready(uri, 16)
+							assert editor.diagnostics(uri, 16) == [], editor.diagnostics(uri, 16)
+
+							items = editor.completion(uri, bare, "\n\treturn completion_local;", "")
+							assert items and items[0]["label"] == "completion_local", ("valid blank line", items)
+
+							point = bare.index("\n", bare.index("// blank insertion")) + 2
+							line = bare.count("\n", 0, point)
+							incomplete = bare[:point] + "c" + bare[point:]
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 17}, "contentChanges": [{"range": {"start": {"line": line, "character": 1},
+									"end": {"line": line, "character": 1}}, "text": "c"}]})
+							for settled in [False, True]:
+								if settled:
+									editor.ready(uri, 17, require_bindings=False)
+									assert editor.diagnostics(uri, 17), "Bare identifier fixture must be incomplete"
+								items = editor.completion(uri, incomplete, "c\n\treturn completion_local;", "c")
+								assert items and items[0]["label"] == "completion_local", (settled, items)
+							editor.send("textDocument/didChange", {"textDocument": {"uri": uri,
+								"version": 18}, "contentChanges": [{"text": source}]})
+							editor.ready(uri, 18)
+							assert editor.diagnostics(uri, 18) == [], editor.diagnostics(uri, 18)
+							print("Session 1: scoped completion ranking, shadowing, editable prefixes and member filtering PASS", flush=True)
+
 
 					except BaseException:
 						# The outer cleanup kills our compiler before closing a failed pipe.
