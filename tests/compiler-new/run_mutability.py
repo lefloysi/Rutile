@@ -122,7 +122,7 @@ def main():
 	parser.add_argument("--standard-directory", default="compiler/std", type=Path)
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-727574696c65632e657865/rutilec.exe"
 	runtime = "/MD"
 	directory = build / "tests/mutability"
 	directory.mkdir(parents=True, exist_ok=True)

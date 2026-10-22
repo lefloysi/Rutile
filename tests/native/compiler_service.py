@@ -120,13 +120,30 @@ def run(compiler, directory):
 		progress = json.loads((connection_directory / "progress.json").read_text())
 		assert progress["request_id"] == payload["request_id"]
 		assert progress["state"] == "succeeded" and progress["pid"] == process.pid
+		events = [json.loads(line) for line in (connection_directory / "progress.events.jsonl").read_text().splitlines()]
+		assert any(event["phase"] == "functions" and event["detail"].endswith(f"{first} :: answer") for event in events)
+		assert any(event["phase"] == "functions" and event["detail"].endswith(f"{second} :: value") for event in events)
+
+		# Incremental requests replace only changed files in the persistent source snapshot.
+		first.unlink()
+		updated_second = b"fn value() -> i32 { return 43; };"
+		second.write_bytes(updated_second)
+		incremental = dict(payload, request_id="test-incremental", incremental=True,
+					   changed_sources=[str(second)])
+		result = compile_request(incremental)
+		assert result["succeeded"] and result["compilations"] == 2, result
+		check_bundle(result, [originals[0], updated_second])
+		events = [json.loads(line) for line in (connection_directory / "progress.events.jsonl").read_text().splitlines()]
+		assert any(event["phase"] == "changed-source" and event["detail"] == str(second) for event in events)
+		first.write_bytes(originals[0])
+		second.write_bytes(originals[1])
 
 		broken = b"// preserve original line\nfn value() -> i32 { return missing(); };"
 		overlays = directory / "overlays.json"
 		overlays.write_text(json.dumps({str(second): broken.decode("utf-8")}), encoding="utf-8")
 		invalid_payload = dict(payload, request_id="test-invalid", overlays_path=str(overlays))
 		result = compile_request(invalid_payload)
-		assert not result["succeeded"] and result["compilations"] == 2, result
+		assert not result["succeeded"] and result["compilations"] == 3, result
 		assert str(second) + ":2:" in result["diagnostics"], result
 		assert "missing" in result["diagnostics"]
 		assert second.read_bytes() == originals[1]
@@ -150,10 +167,10 @@ def run(compiler, directory):
 			assert protected_source.read_bytes() == originals[0]
 
 		result = compile_request(dict(payload, request_id="test-recovered", optimization=2))
-		assert result["succeeded"] and result["compilations"] == 3, result
+		assert result["succeeded"] and result["compilations"] == 4, result
 		check_bundle(result, originals)
 		hello = json.loads(request(endpoint, "hello"))
-		assert hello["pid"] == process.pid and hello["compilations"] == 3
+		assert hello["pid"] == process.pid and hello["compilations"] == 4
 		assert request(endpoint, "exit") == "Compiler stopped."
 		assert process.wait(timeout=5) == 0
 		print("compiler-service: PASS (same PID; failed build recovery; overlay locations; bundle mapping; source protection)")
@@ -167,5 +184,5 @@ def run(compiler, directory):
 
 if __name__ == "__main__":
 	root = Path(__file__).resolve().parents[2]
-	compiler = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root.parent / "Kiln/build/bootstrap/bin/compiler.exe"
+	compiler = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root.parent / "Kiln/build/bootstrap/bin/rutilec.exe"
 	run(compiler, root / "build/native-tests/compiler-service/project")

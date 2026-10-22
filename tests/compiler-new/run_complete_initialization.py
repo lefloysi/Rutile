@@ -40,7 +40,7 @@ def main():
 	parser.add_argument("--build", type=Path, default=Path(".kiln/build/release"))
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-727574696c65632e657865/rutilec.exe"
 	output = build / "tests/complete-initialization"
 	output.mkdir(parents=True, exist_ok=True)
 	toolchain = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/VsDevCmd.bat")

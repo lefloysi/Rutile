@@ -5,6 +5,9 @@ fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32
 	if (kind == 1) {
 		@category = language_group_kind::analysis;
 	};
+	if (kind == 2) {
+		@category = language_group_kind::standard;
+	};
 	while (index < workspace.groups.size() && (workspace.groups.data()[index].kind != category || workspace.groups.data()[index].name.view() != rt::from_c_string(name))) {
 		@index = index + 1;
 	};
@@ -49,6 +52,10 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 	usize group = 0;
 	while (group < this.groups.size()) {
 		var LanguageGroup& input = @(@this.groups).data()[group];
+		if (input.kind == language_group_kind::standard) {
+			@group = group + 1;
+			continue;
+		};
 		if (!@this.analyze_group(@input, @job, @*index.get())) {
 			return rt::unique<LanguageIndex>();
 		};
@@ -80,8 +87,24 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 		};
 		@document = document + 1;
 	};
-	if (loose.paths.size() && !@this.analyze_group(@loose, @job, @*index.get())) {
-		return rt::unique<LanguageIndex>();
+	if (loose.paths.size()) {
+		@group = 0;
+		while (group < this.groups.size()) {
+			LanguageGroup& standard = this.groups.data()[group];
+			if (standard.kind == language_group_kind::standard) {
+				usize path = 0;
+				while (path < standard.paths.size()) {
+					if (!@loose.paths.push_back(rt::string(standard.paths.data()[path]))) {
+						return rt::unique<LanguageIndex>();
+					};
+					@path = path + 1;
+				};
+			};
+			@group = group + 1;
+		};
+		if (!@this.analyze_group(@loose, @job, @*index.get())) {
+			return rt::unique<LanguageIndex>();
+		};
 	};
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 4);
@@ -148,13 +171,58 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@source = source + 1;
 	};
 
+	var build_lease = @this.compiler->acquire_analysis();
+	Analysis* build_analysis = build_lease.get();
+	bool reusable = build_analysis != nullptr
+		&& build_analysis->source_count() == analysis.get()->source_count()
+		&& build_analysis->pointer_bits() == 64
+		&& !build_analysis->diagnostics().failed()
+		&& build_analysis->semantics() != nullptr;
+	if (reusable) {
+		usize current = 0;
+		while (current < group.paths.size()) {
+			if (build_analysis->source_path(current) != analysis.get()->source_path(current)
+				|| build_analysis->source_text(current) != analysis.get()->source_text(current)) {
+				@reusable = false;
+				break;
+			};
+			@current = current + 1;
+		};
+	};
+	if (reusable) {
+		usize document = 0;
+		while (document < job.documents.size()) {
+			LanguageDocument& candidate = job.documents.data()[document];
+			if (candidate.template_anchor.has_value()) {
+				usize current = 0;
+				while (current < group.paths.size()) {
+					rt::string source_key;
+					if (!LanguageUri::key(group.paths.data()[current].view(), @source_key)) {
+						return false;
+					};
+					if (source_key.view() == candidate.key.view()) {
+						@reusable = false;
+						break;
+					};
+					@current = current + 1;
+				};
+				if (!reusable) {
+					break;
+				};
+			};
+			@document = document + 1;
+		};
+	};
+
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 2);
-	@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
+	if (!reusable) {
+		@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
+	};
 	var contextual = rt::unique<Analysis>();
 	LanguageTemplateResult context_result;
 	usize requested = 0;
-	while (requested < job.documents.size()) {
+	while (!reusable && requested < job.documents.size()) {
 		LanguageDocument& document = job.documents.data()[requested];
 		if (!document.template_anchor.has_value()) {
 			@requested = requested + 1;
@@ -212,6 +280,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 3);
 	Analysis* indexed = analysis.get();
+	if (reusable) {
+		@indexed = build_analysis;
+	};
 	if (contextual.get()) {
 		@indexed = contextual.get();
 	};
@@ -227,7 +298,13 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	if (!@index.targets.push_back(rt::string(key))) {
 		return false;
 	};
-	analysis_publication publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
+	analysis_publication publication = analysis_publication::unavailable;
+	if (reusable) {
+		@publication = @this.compiler->publish_target_alias(key.view(), u64(job.generation), @*build_analysis);
+	}
+	else {
+		@publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
+	};
 	return publication == analysis_publication::published && !LanguageWorkspace::cancelled(&@cancellation);
 };
 

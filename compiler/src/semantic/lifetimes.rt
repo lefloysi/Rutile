@@ -12,6 +12,7 @@ enum flow_exit : [u08] {
 	return_function;
 	break_loop;
 	continue_loop;
+	throw_exception;
 };
 
 enum flow_region : [u08] {
@@ -60,6 +61,12 @@ private:
 	var LoopFlow* previous;
 };
 
+struct ExceptionFlow {
+	usize boundary;
+	var ExceptionFlow* parent;
+	rt::buffer<rt::unique<FlowState>> entries;
+};
+
 struct LifetimeAnalyzer {
 	fn LifetimeAnalyzer(var LifetimeAnalyzer& this, var Diagnostics& diagnostics);
 
@@ -79,9 +86,80 @@ private:
 	fn loop(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 	fn selection(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 	fn save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<FlowState>>& exits, var FlowState& state, usize boundary, var SemanticExpression* expression) -> bool;
+	fn exceptions(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
+	fn exceptional_edge(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 
 	var Diagnostics* diagnostics;
 	var LoopFlow* active_loop;
+	var ExceptionFlow* active_exception;
+};
+
+fn LifetimeAnalyzer::exceptional_edge(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool {
+	if (!this.active_exception || state.exited()) {
+		return true;
+	};
+	return @this.save(@this.active_exception->entries, @state, usize(this.active_exception->boundary), expression);
+};
+
+fn LifetimeAnalyzer::exceptions(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool {
+	ExceptionFlow region;
+	@region.boundary = state.size();
+	@region.parent = this.active_exception;
+	@this.active_exception = &@region;
+	FlowState normal;
+	if (!@normal.copy_from(state)) {
+		@this.active_exception = region.parent;
+		return @this.error(expression, "exception flow storage is unavailable");
+	};
+	bool valid = @this.walk(expression->item(0), @normal);
+	@this.active_exception = region.parent;
+	if (!valid) {
+		return false;
+	};
+	@normal.truncate(usize(region.boundary));
+	if (!@state.copy_from(normal)) {
+		return false;
+	};
+	if (!region.entries.size()) {
+		return true;
+	};
+	FlowState incoming;
+	if (!@incoming.copy_from(*region.entries.data()[0].get())) {
+		return false;
+	};
+	usize edge = 1;
+	while (edge < region.entries.size()) {
+		FlowState previous;
+		if (!@previous.copy_from(incoming) || !@this.merge(@incoming, @previous, @*region.entries.data()[edge].get(), expression)) {
+			return false;
+		};
+		@edge = edge + 1;
+	};
+	usize index = 1;
+	while (index < expression->size()) {
+		var SemanticExpression* handler = expression->item(index);
+		FlowState caught;
+		if (!@caught.copy_from(incoming)) {
+			return false;
+		};
+		if (handler->entity() && !@caught.declare(handler->entity())) {
+			return @this.error(handler, "catch binding storage is unavailable");
+		};
+		if (!@this.walk(handler->item(0), @caught)) {
+			return false;
+		};
+		@caught.truncate(usize(region.boundary));
+		FlowState previous;
+		if (!@previous.copy_from(state) || !@this.merge(@state, @previous, @caught, expression)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	var SemanticExpression* last = expression->item(expression->size() - 1);
+	if (last->type()->kind() != type_kind::void_type && !@this.exceptional_edge(expression, @incoming)) {
+		return false;
+	};
+	return true;
 };
 
 fn LifetimeAnalyzer::error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view message) -> bool {
@@ -359,6 +437,18 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	};
 
 	switch (expression->kind()) {
+		case semantic_kind::exception_try:
+			return @this.exceptions(expression, @state);
+		case semantic_kind::exception_throw:
+		case semantic_kind::exception_rethrow:
+			if (expression->size() && !@this.walk(expression->item(0), @state)) {
+				return false;
+			};
+			if (!@this.exceptional_edge(expression, @state)) {
+				return false;
+			};
+			@state.leave(flow_exit::throw_exception);
+			return true;
 		case semantic_kind::binary:
 			if (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or) {
 				if (!@this.walk(expression->item(0), @state)) {
@@ -491,7 +581,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 		};
 		case semantic_kind::construction: {
 			if (expression->size() < 2) {
-				return @this.walk(expression->item(0), @state);
+				return @this.walk(expression->item(0), @state) && @this.exceptional_edge(expression, @state);
 			};
 
 			var SemanticExpression* destination = expression->item(1);
@@ -500,6 +590,9 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				return false;
 			};
 
+			if (!@this.exceptional_edge(expression, @state)) {
+				return false;
+			};
 			var Entity* owner = destination->owned_binding();
 
 			if (owner) {
@@ -563,6 +656,11 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 		@index = index + 1;
 	};
 
+	if (expression->kind() == semantic_kind::call || expression->kind() == semantic_kind::allocation || expression->kind() == semantic_kind::deallocation || expression->kind() == semantic_kind::array_deallocation) {
+		if (!@this.exceptional_edge(expression, @state)) {
+			return false;
+		};
+	};
 	if (expression->kind() == semantic_kind::brace) {
 		@state.truncate(boundary);
 	};

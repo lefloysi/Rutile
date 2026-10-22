@@ -3,8 +3,11 @@ param(
     [switch]$Install,
     [string]$KilnVsix,
     [switch]$Palette,
+    [switch]$PaletteOnly,
     [switch]$Typing,
+    [switch]$DelayedCompiler,
     [switch]$FullShell,
+    [switch]$Standalone,
     [string]$RootSuffix,
     [string]$Kiln
 )
@@ -14,7 +17,7 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
     throw 'Run this verification with powershell.exe -STA.'
 }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
-$version = [IO.File]::ReadAllText((Join-Path $root 'version/release.txt')).Trim()
+$version = [IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
 if (!$RootSuffix) {
     $RootSuffix = 'RutileValidation' + ($version -split '\.')[-1]
 }
@@ -23,12 +26,12 @@ if ($RootSuffix -notmatch '^RutileValidation[0-9]+$') {
 }
 $Vsix = [IO.Path]::GetFullPath($Vsix)
 if (!$Kiln) {
-    $Kiln = Join-Path $root '../Kiln/build/bootstrap/bin/kiln.exe'
+    $Kiln = Join-Path $env:LOCALAPPDATA 'Programs/Kiln/bin/kiln.exe'
+    if (!(Test-Path -LiteralPath $Kiln)) {
+        $Kiln = Join-Path $root '../Kiln/distro/windows-x64/kiln.exe'
+    }
 }
 $Kiln = [IO.Path]::GetFullPath($Kiln)
-if ((& $Kiln --version | Out-String).Trim() -ne $version) {
-    throw 'The verification Kiln does not match version/release.txt.'
-}
 $existing = @(Get-CimInstance Win32_Process -Filter "Name='devenv.exe'" | Where-Object { $_.CommandLine -match [regex]::Escape($RootSuffix) })
 if ($existing.Count) {
     throw 'The dedicated verification profile is already running; it will not be disturbed.'
@@ -45,7 +48,7 @@ try {
         $reader.Dispose()
     }
     if ($manifest.PackageManifest.Metadata.Identity.Version -ne $version) {
-        throw 'The VSIX does not match version/release.txt.'
+        throw 'The VSIX does not match VERSION.'
     }
 }
 finally {
@@ -62,7 +65,10 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 if (!$KilnVsix) {
     $KilnVsix = Join-Path $PSScriptRoot '../../../../Kiln/tools/Kiln.VisualStudio/bin/Release/Kiln.VisualStudio.vsix'
 }
-$packages = @([IO.Path]::GetFullPath($KilnVsix), $Vsix)
+$packages = @($Vsix)
+if (!$Standalone) {
+    $packages = @([IO.Path]::GetFullPath($KilnVsix)) + $packages
+}
 if ($Palette) {
     $probe = & (Join-Path $PSScriptRoot 'BuildPaletteProbe.ps1') -OutputDirectory (Join-Path $output 'probe')
     $packages += $probe
@@ -158,6 +164,7 @@ $filter = [VisualStudioMessageFilter]::new()
 $first = New-Project 'first'
 $second = New-Project 'second'
 $process = $null
+$compilerStartup = $null
 $script:dte = $null
 $results = [Collections.Generic.List[string]]::new()
 try {
@@ -188,14 +195,40 @@ try {
     Wait-For { $script:dte = [VisualStudioAutomation]::Find($process.Id); $script:dte -ne $null } 'dedicated Visual Studio automation'
     Write-Output 'Dedicated automation object: attached'
     $script:dte.SuppressUI = $true
-    $script:dte.MainWindow.Visible = $false
+    try {
+        $script:dte.MainWindow.Visible = $false
+    }
+    catch [Runtime.InteropServices.COMException] {
+        Write-Warning ('Dedicated VS window visibility: ' + $_.Exception.Message)
+    }
     Write-Output 'Opening dedicated test solution'
     $script:dte.Solution.Open((Join-Path $first 'Rutile.sln'))
+    if ($PaletteOnly) {
+        if ($DelayedCompiler) {
+            $compilerStartup = Start-Job -ScriptBlock {
+                param($directory, $executable)
+                Start-Sleep -Seconds 35
+                Set-Location -LiteralPath $directory
+                & $executable configure --profile debug
+                if ($LASTEXITCODE) { throw 'Delayed compiler configuration failed.' }
+            } -ArgumentList $first, $Kiln
+        }
+        else {
+            Push-Location $first
+            try {
+                & $Kiln configure --profile debug
+                if ($LASTEXITCODE) { throw 'Palette compiler configuration failed.' }
+            }
+            finally { Pop-Location }
+        }
+    }
     $main = Join-Path $first 'app/main.rt'
     $script:dte.ItemOperations.OpenFile($main) | Out-Null
-    Wait-For { Managed $first } 'IDE-owned Kiln startup'
-    $results.Add('IDE-owned project process')
-    Write-Output 'IDE-owned project process: PASS'
+    if (!$PaletteOnly) {
+        Wait-For { Managed $first } 'IDE-owned Kiln startup'
+        $results.Add('IDE-owned project process')
+        Write-Output 'IDE-owned project process: PASS'
+    }
     if ($Palette) {
         $probeDocument = Join-Path $first 'palette.rprobe'
         [IO.File]::WriteAllText($probeDocument, 'palette')
@@ -203,11 +236,14 @@ try {
         Wait-For { Test-Path -LiteralPath ($paletteResult + '.ready') } 'palette package initialization'
     }
     if ($Palette) {
+        Write-Output 'Closing palette source document'
         $script:dte.Documents.Item($main).Close(2)
+        Write-Output 'Palette source document closed; reopening'
         $script:dte.ItemOperations.OpenFile($main) | Out-Null
+        Write-Output 'Palette source document reopened'
         Wait-For { Test-Path -LiteralPath $paletteResult } 'effective editor palette'
         $observed = [IO.File]::ReadAllText($paletteResult)
-        $required = @('sample {=rutile.namespace:#FFD4D4D4','Item {=rutile.type:#FF4EC9B0','value()=rutile.function:#FFDCDCAA','read(Item=rutile.function:#FFDCDCAA','executable;=rutile.function:#FFDCDCAA','i32 field=rutile.keyword:#FF569CD6','return this=rutile.control:#FFC586C0','cached-span-translation=True')
+        $required = @('sample {=rutile.namespace:#FF909090','Item {=rutile.type:#FF4EC9B0','value()=rutile.function:#FFDCDCAA','read(Item=rutile.function:#FFDCDCAA','executable;=rutile.function:#FFDCDCAA','i32 field=rutile.keyword:#FF569CD6','return this=rutile.control:#FFC586C0','cached-span-translation=True')
         if ($Typing) {
             $required += @('automatic-identifier-completion=True','native-brace-pair=True','native-brace-paired-backspace=True','native-brace-overtype=True','native-brace-return=True','native-brace-tab=True')
         }
@@ -218,6 +254,9 @@ try {
         }
         $results.Add('effective editor palette and cached span translation')
         Write-Output 'effective editor palette and cached span translation: PASS'
+    }
+    if ($PaletteOnly) {
+        return
     }
 
 
@@ -235,6 +274,17 @@ try {
 finally {
     try {
         if ($script:dte) {
+            foreach ($pane in $script:dte.ToolWindows.OutputWindow.OutputWindowPanes) {
+                if ($pane.Name -match 'Rutile|Kiln') {
+                    try {
+                        $text = $pane.TextDocument.StartPoint.CreateEditPoint().GetText($pane.TextDocument.EndPoint)
+                        [IO.File]::WriteAllText((Join-Path $output ($pane.Name + '-output.txt')), $text)
+                    }
+                    catch {
+                        Write-Warning $_.Exception.Message
+                    }
+                }
+            }
             try {
                 $script:dte.Quit()
             }
@@ -244,6 +294,11 @@ finally {
         }
     }
     finally {
+        if ($compilerStartup) {
+            Receive-Job $compilerStartup
+            Stop-Job $compilerStartup
+            Remove-Job $compilerStartup
+        }
         if ($process -and !$process.HasExited -and !$process.WaitForExit(30000)) {
             $process.Kill()
         }

@@ -4,7 +4,6 @@ using System.ComponentModel.Composition;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.LanguageServer.Client;
-using Kiln.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudio.Utilities;
@@ -14,16 +13,17 @@ using StreamJsonRpc;
 namespace Rutile.VisualStudio {
 	[Export(typeof(ILanguageClient)), ContentType(RutileContentType.Name), Name("Rutile Language Client")]
 	internal sealed class RutileLanguageClient : ILanguageClient, ILanguageClientCustomMessage2, IDisposable {
-		private ServerProcess? server;
-		private readonly IKilnWorkspace workspace;
+		private RutileServiceConnection? server;
+		private readonly RutileWorkspace workspace;
+		private readonly SemaphoreSlim activationGate = new SemaphoreSlim(1, 1);
 		private int subscribed;
 		private string? serverRoot;
 		private int disposed;
 		private int initialized;
 
 		[ImportingConstructor]
-		public RutileLanguageClient(IKilnWorkspace workspace) {
-			this.workspace = workspace;
+		public RutileLanguageClient() {
+			workspace = new RutileWorkspace();
 		}
 
 		public string Name => "Rutile";
@@ -44,7 +44,16 @@ namespace Rutile.VisualStudio {
 
 		public async Task<Connection?> ActivateAsync(CancellationToken token) {
 			token.ThrowIfCancellationRequested();
-			Volatile.Write(ref initialized, 0);
+			await activationGate.WaitAsync(token).ConfigureAwait(false);
+			try {
+				return await ActivateCoreAsync(token).ConfigureAwait(false);
+			}
+			finally {
+				activationGate.Release();
+			}
+		}
+
+		private async Task<Connection?> ActivateCoreAsync(CancellationToken token) {
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(token);
 			if (Volatile.Read(ref disposed) != 0) {
 				throw new ObjectDisposedException(nameof(RutileLanguageClient));
@@ -54,11 +63,25 @@ namespace Rutile.VisualStudio {
 			if (folder == null) {
 				throw new InvalidOperationException("Open a Rutile folder or solution before using Rutile language support.");
 			}
+			var active = Volatile.Read(ref server);
+			if (active != null && string.Equals(serverRoot, folder, StringComparison.OrdinalIgnoreCase)) {
+				return null;
+			}
 
 			StopServer();
-			var created = new ServerProcess(workspace.ExecutablePath, folder, token, OnExitedAsync, ServerOutput.Write);
+			var created = await RutileServiceConnection.ConnectAsync(folder, token, OnDisconnectedAsync, ServerOutput.Write);
+			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(token);
+			if (created.IsDisposed || Volatile.Read(ref disposed) != 0 || !string.Equals(workspace.CurrentRoot(), folder, StringComparison.OrdinalIgnoreCase)) {
+				created.Dispose();
+				return null;
+			}
+			if (Volatile.Read(ref server) != null) {
+				created.Dispose();
+				return null;
+			}
+			Volatile.Write(ref initialized, 0);
 			serverRoot = folder;
-			Interlocked.Exchange(ref server, created)?.Dispose();
+			Interlocked.Exchange(ref server, created);
 
 			return created.Connection;
 		}
@@ -81,18 +104,23 @@ namespace Rutile.VisualStudio {
 			return RutileSemanticStore.Instance.InitializeAsync();
 		}
 
-		public Task<InitializationFailureContext?> OnServerInitializeFailedAsync(ILanguageClientInitializationInfo information) {
+		public async Task<InitializationFailureContext?> OnServerInitializeFailedAsync(ILanguageClientInitializationInfo information) {
 			if (information.InitializationException != null) {
 				ServerOutput.Write(information.InitializationException.ToString());
 			}
 
+			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+			var root = Volatile.Read(ref disposed) == 0 ? workspace.CurrentRoot() : null;
 			StopServer();
-			return Task.FromResult<InitializationFailureContext?>(new InitializationFailureContext {
+			if (root != null) {
+				_ = ThreadHelper.JoinableTaskFactory.RunAsync(() => RestartAfterDisconnectAsync(root));
+			}
+			return new InitializationFailureContext {
 				FailureMessage = "Rutile language support could not start. See the Rutile Output pane for details."
-			});
+			};
 		}
 
-		private async Task OnExitedAsync(ServerProcess exited) {
+		private async Task OnDisconnectedAsync(RutileServiceConnection exited) {
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 			if (Interlocked.CompareExchange(ref server, null, exited) != exited) {
 				return;
@@ -103,6 +131,19 @@ namespace Rutile.VisualStudio {
 
 			if (handler != null) {
 				await handler.InvokeAsync(this, EventArgs.Empty).ConfigureAwait(false);
+			}
+			await RestartAfterDisconnectAsync(exited.Root).ConfigureAwait(false);
+		}
+
+		private async Task RestartAfterDisconnectAsync(string root) {
+			await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+			if (Volatile.Read(ref disposed) != 0 || server != null || !string.Equals(workspace.CurrentRoot(), root, StringComparison.OrdinalIgnoreCase)) {
+				return;
+			}
+			var start = StartAsync;
+			if (start != null) {
+				await start.InvokeAsync(this, EventArgs.Empty).ConfigureAwait(false);
 			}
 		}
 
@@ -154,6 +195,10 @@ namespace Rutile.VisualStudio {
 			if (Interlocked.Exchange(ref subscribed, 0) != 0) {
 				workspace.RootChanged -= OnWorkspaceRootChanged;
 			}
+			_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
+				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+				workspace.Dispose();
+			});
 		}
 	}
 }

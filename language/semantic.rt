@@ -69,6 +69,50 @@ fn LanguageIndex::classify_source(var LanguageIndex& this, Analysis& analysis, u
 	return language_lexical_tokens(&@analysis, *tokens, *comments, target, @source);
 };
 
+fn language_classify_template_names(var LanguageIndex& index, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax, var rt::buffer<Token>& parameters, bool unqualified) -> bool {
+	usize checkpoint = parameters.size();
+	if (syntax.kind() == syntax_kind::template_declaration) {
+		Syntax& list = *syntax.template_parameters();
+		usize parameter = 0;
+		while (parameter < list.size()) {
+			Syntax& declaration = *list.item(parameter);
+			if ((declaration.template_parameter_type()->kind() == syntax_kind::absent || declaration.template_parameter_type()->kind() == syntax_kind::pack_signature) && !@parameters.push_back(declaration.template_parameter_name()->token())) {
+				return false;
+			};
+			@parameter = parameter + 1;
+		};
+	};
+	if (unqualified && syntax.kind() == syntax_kind::name) {
+		usize parameter = parameters.size();
+		while (parameter) {
+			@parameter = parameter - 1;
+			if (parameters.data()[parameter].same(syntax.token())) {
+				SourceRange range = analysis.navigation().range(syntax.token());
+				if (range.source < mapping.size()) {
+					var LanguageIndexedSource& source = @(@index.sources).data()[mapping.data()[range.source]];
+					var found = source.token_offsets.find(range.begin);
+					if (found && source.tokens.data()[*found].range.end == range.end && (source.tokens.data()[*found].type == u32::max || source.tokens.data()[*found].type == 0)) {
+						@(@source.tokens).data()[*found].type = 6;
+					};
+				};
+				break;
+			};
+		};
+	};
+	usize child = 0;
+	while (child < syntax.size()) {
+		bool child_unqualified = syntax.kind() != syntax_kind::qualified_name || !child;
+		if (!language_classify_template_names(@index, analysis, mapping, *syntax.item(child), @parameters, $child_unqualified)) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	while (parameters.size() > checkpoint) {
+		@parameters.pop_back();
+	};
+	return true;
+};
+
 fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool {
 	rt::buffer<rt::unique<Syntax>>& roots = analysis.syntax_roots();
 	usize root = 0;
@@ -109,12 +153,26 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 			continue;
 		};
 		@token.type = analysis.navigation().semantic_token_type(occurrence->symbol);
+		if (source.text.view().slice(token.range.begin, token.range.end - token.range.begin) == "this") {
+			@token.type = 13;
+		};
 		if (occurrence->roles & 1) {
 			@token.modifiers = token.modifiers | 1;
 		};
 		if (analysis.navigation().symbol_readonly(occurrence->symbol)) {
 			@token.modifiers = token.modifiers | 4;
 		};
+	};
+	rt::buffer<Token> parameters;
+	@root = 0;
+	while (root < roots.size()) {
+		if (!@this.classify_syntax(analysis, mapping, *roots.data()[root].get())) {
+			return false;
+		};
+		if (!language_classify_template_names(@this, analysis, mapping, *roots.data()[root].get(), @parameters, true)) {
+			return false;
+		};
+		@root = root + 1;
 	};
 	return true;
 };

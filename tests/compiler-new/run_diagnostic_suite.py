@@ -35,7 +35,7 @@ def main():
 	parser.add_argument("--object", type=Path)
 	options = parser.parse_args()
 	build = (ROOT / options.build).resolve()
-	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-727574696c65632e657865/rutilec.exe"
 	core = (ROOT / options.object).resolve() if options.object else build / "target-727574696c652d6c616e67756167652e6f626a/rutile-language.obj"
 	configuration = build.name
 	directory = ROOT / "build/diagnostics-tests" / configuration

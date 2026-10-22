@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def run_case(name, sources, entry="main", expected=42, reject=None, compiler=None):
 	directory = ROOT / "build" / "compiler-new" / name
 	directory.mkdir(parents=True, exist_ok=True)
-	compiler = ROOT / (compiler or ".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
+	compiler = ROOT / (compiler or ".kiln/build/release/target-727574696c65632e657865/rutilec.exe")
 	output = directory / "case.obj"
 	command = [str(compiler), *[str(ROOT / source) for source in sources],
 		"--output", str(output), "--optimization", "2"]

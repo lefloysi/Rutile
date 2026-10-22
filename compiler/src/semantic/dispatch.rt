@@ -200,6 +200,10 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> bool {
 
 		if (slot < inherited) {
 			var Entity* previous = entity->virtual_functions().data()[slot];
+			if (previous->nonthrowing() && !function->nonthrowing()) {
+				@this.error(function->declaration(), "virtual override cannot weaken a nonthrowing exception specification");
+				return false;
+			};
 
 			if (previous->is_final()) {
 				var message = DiagnosticMessage();

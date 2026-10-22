@@ -54,6 +54,21 @@ fn Analyzer::compatible(Analyzer& this, Type* source, Type* target) -> bool {
 		return true;
 	};
 
+	if (from->kind() == type_kind::function && to->kind() == type_kind::function && from->signature().nonthrowing() && !to->signature().nonthrowing()) {
+		FunctionSignature& first = from->signature();
+		FunctionSignature& second = to->signature();
+		if (first.result() != second.result() || first.arity() != second.arity() || first.parameters().size() != second.parameters().size()) {
+			return false;
+		};
+		usize index = 0;
+		while (index < first.parameters().size()) {
+			if (first.parameters().data()[index] != second.parameters().data()[index]) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
 	return from->same_shape(*to) || from->derived_from(*to);
 };
 

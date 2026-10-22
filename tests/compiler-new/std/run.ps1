@@ -1,5 +1,5 @@
 param(
-	[string]$Compiler = "$PSScriptRoot/../../../.kiln/build/release/target-636f6d70696c65722e657865/compiler.exe",
+	[string]$Compiler = "$PSScriptRoot/../../../.kiln/build/release/target-727574696c65632e657865/rutilec.exe",
 	[string]$DeveloperCommand = '',
 	[string]$Output = "$PSScriptRoot/../../../build/tests/compiler-new/std"
 )

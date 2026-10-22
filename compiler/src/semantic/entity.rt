@@ -45,6 +45,12 @@ enum function_completion : [u08] {
 	no_fallthrough;
 };
 
+enum exception_specification : [u08] {
+	inferred;
+	potentially_throwing;
+	nonthrowing;
+};
+
 enum function_role : [u08] {
 	ordinary;
 	constructor;
@@ -166,6 +172,11 @@ struct Entity {
 	fn set_definition(var Entity& this, function_definition definition);
 	fn role(Entity& this) -> function_role;
 	fn set_role(var Entity& this, function_role role);
+	fn set_exception_specification(var Entity& this, exception_specification specification);
+	fn exception_contract(Entity& this) -> exception_specification;
+	fn nonthrowing(Entity& this) -> bool;
+	fn exception_state(Entity& this) -> entity_state;
+	fn set_exception_state(var Entity& this, entity_state state);
 	fn conversion(Entity& this) -> conversion_mode;
 	fn set_conversion(var Entity& this, conversion_mode mode);
 	fn access(Entity& this) -> access_kind;
@@ -200,6 +211,8 @@ private:
 	usize dispatch_slot;
 	function_definition body_kind;
 	function_role function_kind;
+	exception_specification exception_kind;
+	entity_state exception_resolution;
 	conversion_mode conversion_kind;
 	access_kind visibility;
 	token_kind operator_symbol;
@@ -563,6 +576,165 @@ fn Entity::role(Entity& this) -> function_role {
 	return function_role(this.function_kind);
 };
 
+fn Entity::set_exception_specification(var Entity& this, exception_specification specification) {
+	@this.exception_kind = $specification;
+};
+
+fn Entity::exception_contract(Entity& this) -> exception_specification {
+	return exception_specification(this.exception_kind);
+};
+
+fn Entity::exception_state(Entity& this) -> entity_state {
+	return entity_state(this.exception_resolution);
+};
+
+fn Entity::set_exception_state(var Entity& this, entity_state state) {
+	@this.exception_resolution = $state;
+};
+
+fn exception_type_nonthrowing(Type& type) -> bool {
+	if (type.kind() == type_kind::array) {
+		return exception_type_nonthrowing(*type.element());
+	};
+	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* destructor = type.entity()->destructor();
+	if (destructor) {
+		return destructor->nonthrowing();
+	};
+	usize base = 0;
+	while (base < type.entity()->bases().size()) {
+		if (!exception_type_nonthrowing(*type.entity()->bases().data()[base])) {
+			return false;
+		};
+		@base = base + 1;
+	};
+	usize field = 0;
+	while (field < type.entity()->fields().size()) {
+		if (!exception_type_nonthrowing(*type.entity()->fields().data()[field]->type())) {
+			return false;
+		};
+		@field = field + 1;
+	};
+	return true;
+};
+
+enum exception_operation : [u08] {
+	initialize;
+	copy_construct;
+	copy_assign;
+};
+
+fn exception_operation_nonthrowing(Type& type, exception_operation operation) -> bool {
+	if (type.kind() == type_kind::array) {
+		return exception_operation_nonthrowing(*type.element(), exception_operation(operation));
+	};
+	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* record = type.entity();
+	var Entity* selected = record->default_constructor();
+	if (operation == exception_operation::copy_construct) {
+		@selected = record->copy_constructor();
+	}
+	else if (operation == exception_operation::copy_assign) {
+		var CopyAssignmentPlan* plan = record->copy_assignment();
+		if (plan) {
+			return exception_expression_nonthrowing(plan->expression());
+		};
+		return false;
+	};
+	if (selected) {
+		return selected->nonthrowing();
+	};
+	if (record->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (!exception_operation_nonthrowing(*record->bases().data()[index], exception_operation(operation))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		var Entity* field = record->fields().data()[index];
+		if (operation == exception_operation::initialize && field->body()) {
+			if (!exception_initializer_nonthrowing(*field->body())) {
+				return false;
+			};
+		}
+		else if (!exception_operation_nonthrowing(*field->type(), exception_operation(operation))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Entity::nonthrowing(Entity& this) -> bool {
+	if (this.exception_kind != exception_specification::inferred) {
+		return this.exception_kind == exception_specification::nonthrowing;
+	};
+	if (this.role() != function_role::destructor && this.definition() != function_definition::defaulted) {
+		return false;
+	};
+	var Entity* owner = this.scope()->owner();
+	if (!owner || owner->kind() != entity_kind::record) {
+		return this.role() == function_role::destructor;
+	};
+	if (this.definition() == function_definition::defaulted && variant_instance(*owner)) {
+		return variant_special_nonthrowing(this);
+	};
+	if (this.role() == function_role::constructor && this.parameters().size() == 2 && this.parameters().data()[1]->type()->kind() != type_kind::reference) {
+		return true;
+	};
+	if (this.role() == function_role::assignment && this.parameters().size() == 2 && this.parameters().data()[1]->type()->kind() != type_kind::reference) {
+		var Entity* move = owner->move_constructor();
+		return exception_type_nonthrowing(*owner->type()) && (!move || move->nonthrowing());
+	};
+	if (owner->layout() == record_layout::overlapping && this.role() != function_role::destructor) {
+		return true;
+	};
+	exception_operation operation = exception_operation::initialize;
+	if (this.role() == function_role::assignment) {
+		@operation = exception_operation::copy_assign;
+	}
+	else if (this.role() == function_role::constructor && this.parameters().size() == 2) {
+		@operation = exception_operation::copy_construct;
+	};
+	usize index = 0;
+	while (index < owner->bases().size()) {
+		Type& base = *owner->bases().data()[index];
+		bool safe = exception_type_nonthrowing(base);
+		if (this.role() != function_role::destructor) {
+			@safe = exception_operation_nonthrowing(base, exception_operation(operation));
+		};
+		if (!safe) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < owner->fields().size()) {
+		var Entity* field = owner->fields().data()[index];
+		bool safe = exception_type_nonthrowing(*field->type());
+		if (this.role() != function_role::destructor) {
+			@safe = exception_operation_nonthrowing(*field->type(), exception_operation(operation));
+			if (operation == exception_operation::initialize && field->body()) {
+				@safe = exception_initializer_nonthrowing(*field->body());
+			};
+		};
+		if (!safe) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
 fn Entity::conversion(Entity& this) -> conversion_mode {
 	return conversion_mode(this.conversion_kind);
 };
@@ -616,6 +788,7 @@ fn Entity::adopt_definition(var Entity& this, Entity& source) -> bool {
 	@this.member_scope = source.members();
 	@this.body_kind = source.definition();
 	@this.function_kind = source.role();
+	@this.exception_kind = source.exception_contract();
 
 	if (source.conversion() == conversion_mode::implicit_allowed) {
 		@this.conversion_kind = conversion_mode::implicit_allowed;

@@ -80,7 +80,7 @@ fn LanguageWorkspace::location(var LanguageWorkspace& this, LanguageIndex& index
 	return $result;
 };
 
-fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result, bool follow_receiver) -> bool {
+fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result) -> bool {
 	rt::json_value* document = parameters.member("textDocument");
 	rt::json_value* position = parameters.member("position");
 	if (!document || !position) {
@@ -112,23 +112,6 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 		return true;
 	};
 
-	if (follow_receiver) {
-		usize receiver = 0;
-		while (receiver < index.receivers.size()) {
-			NavigationReceiver& site = index.receivers.data()[receiver];
-			@receiver = receiver + 1;
-			if (site.selector.source != source || original < site.selector.begin || original > site.selector.end || site.root.source != source) {
-				continue;
-			};
-			SourceRange root;
-			if (@this.mapped(index, site.root, @root)) {
-				@original = site.root.begin;
-				@current = root.begin;
-				break;
-			};
-		};
-	};
-
 	usize first = 0;
 	usize last = index.occurrences.size();
 	while (first < last) {
@@ -145,6 +128,8 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 	usize boundary = first;
 	usize pass = 0;
 	while (pass < 2 && !result.size()) {
+		usize selected_width = usize::max;
+		u32 selected_role = 0;
 		@first = boundary;
 		while (first) {
 			@first = first - 1;
@@ -162,6 +147,16 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 			bool contains = mapped.begin <= current && current < mapped.end;
 			bool selected_end = pass == 1 && mapped.begin < mapped.end && current == mapped.end;
 			if (contains || selected_end) {
+				usize width = mapped.end - mapped.begin;
+				u32 role = candidate.roles & 16;
+				if (width > selected_width || width == selected_width && role < selected_role) {
+					continue;
+				};
+				if (width < selected_width || role > selected_role) {
+					@result.clear();
+					@selected_width = $width;
+					@selected_role = $role;
+				};
 				usize duplicate = 0;
 				while (duplicate < result.size() && result.data()[duplicate] != candidate.symbol) {
 					@duplicate = duplicate + 1;
@@ -285,7 +280,7 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 	};
 
 	rt::buffer<u64> bindings;
-	if (!@this.bindings(*index, parameters, @bindings, method == "textDocument/definition")) {
+	if (!@this.bindings(*index, parameters, @bindings)) {
 		return rt::unique<rt::json_value>();
 	};
 	if (method == "textDocument/hover") {
@@ -333,18 +328,6 @@ fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method,
 					continue;
 				};
 				@found = type;
-			};
-			NavigationSymbol& symbol = index->symbols.data()[*found].value;
-			u32 semantic_type = index->symbols.data()[*found].semantic_type;
-			if (method == "textDocument/definition" && (semantic_type == 7 || semantic_type == 8 || semantic_type == 9)) {
-				usize source = 0;
-				usize offset = 0;
-				if (@this.cursor(*index, parameters, @source, @offset) && source == symbol.declaration.source && symbol.declaration.begin <= offset && offset <= symbol.declaration.end) {
-					var target = index->symbol_ids.find(index->identity(index->symbols.data()[*found].type_symbol));
-					if (target) {
-						@found = target;
-					};
-				};
 			};
 			NavigationSymbol& destination = index->symbols.data()[*found].value;
 			SourceRange range := destination.declaration;

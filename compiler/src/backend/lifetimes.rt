@@ -50,8 +50,13 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 
 	var Entity* record = type->entity();
 	var Entity* destructor = record->destructor();
+	usize unwind_begin = this.unwinds.size();
+	bool protect_components = !this.unwind_depth && record->layout() == record_layout::sequential && aggregate_access_kind(type) != 2;
 
 	if (!@this.initialize_dispatch(type, address)) {
+		return false;
+	};
+	if (protect_components && !@this.retain_components(type, address)) {
 		return false;
 	};
 
@@ -95,7 +100,9 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 
 		var LLVMOpaqueValue*[1] arguments {};
 		@arguments[0] = address;
-		LLVMBuildCall2(this.backend->builder(), @this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1, "\0".data());
+		if (!@this.native_call(@this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1)) {
+			return false;
+		};
 	};
 
 	if (record->layout() == record_layout::overlapping || aggregate_access_kind(type) == 2) {
@@ -109,6 +116,9 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 		var Entity* field = record->fields().data()[index];
 
 		if (FunctionEmitter::needs_destruction(field->type())) {
+			if (protect_components) {
+				@this.forget_unwinds(this.unwinds.size() - 1);
+			};
 			var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0".data());
 
 			if (!@this.destroy(field->type(), member)) {
@@ -122,11 +132,15 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 	while (index) {
 		@index = index - 1;
 		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "destroy.base\0".data());
+		if (protect_components && FunctionEmitter::needs_destruction(record->bases().data()[index])) {
+			@this.forget_unwinds(this.unwinds.size() - 1);
+		};
 
 		if (!@this.destroy(record->bases().data()[index], base)) {
 			return false;
 		};
 	};
+	@this.forget_unwinds(unwind_begin);
 
 	return true;
 };
@@ -189,6 +203,8 @@ fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* 
 	NativeTemporary temporary;
 	@temporary.expression = expression;
 	@temporary.address = address;
+	@this.lifetime_order = this.lifetime_order + 1;
+	@temporary.order = this.lifetime_order;
 
 	if (FunctionEmitter::needs_destruction(expression->type())) {
 		@temporary.live = @this.live_flag();
@@ -203,6 +219,7 @@ fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* 
 	if (!@this.temporaries.push_back($temporary)) {
 		return @this.backend->error(expression->token(), "cannot retain a consumable lifetime");
 	};
+	@this.lifetime_revision = this.lifetime_revision + 1;
 
 	return true;
 };
@@ -233,6 +250,11 @@ fn FunctionEmitter::value(var FunctionEmitter& this, var SemanticExpression* exp
 
 fn FunctionEmitter::take(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	var LLVMOpaqueValue* value = @this.value(expression);
+	@this.consume(expression);
+	return value;
+};
+
+fn FunctionEmitter::consume(var FunctionEmitter& this, var SemanticExpression* expression) {
 	usize index = this.temporaries.size();
 
 	while (index) {
@@ -245,7 +267,6 @@ fn FunctionEmitter::take(var FunctionEmitter& this, var SemanticExpression* expr
 		};
 	};
 
-	return value;
 };
 
 fn FunctionEmitter::set_live(var FunctionEmitter& this, var SemanticExpression* expression, bool live) {
@@ -325,6 +346,7 @@ fn FunctionEmitter::cleanup_bindings(var FunctionEmitter& this, usize begin) -> 
 fn FunctionEmitter::forget_temporaries(var FunctionEmitter& this, usize begin) {
 	while (this.temporaries.size() > begin) {
 		@this.temporaries.pop_back();
+		@this.lifetime_revision = this.lifetime_revision + 1;
 	};
 };
 
@@ -335,6 +357,7 @@ fn FunctionEmitter::leave_scope(var FunctionEmitter& this, usize begin) -> bool 
 
 	while (this.bindings.size() > begin) {
 		@this.bindings.pop_back();
+		@this.lifetime_revision = this.lifetime_revision + 1;
 	};
 
 	return true;

@@ -64,7 +64,7 @@ Always use goals and subagents when performing work.
 - Use the distributed Rutile compiler as the bootstrap seed and keep it matched to its source.
 
 - Commit completed, verified changes as work progresses.
-- Keep the release version in version/release.txt as the single source of truth.
+- Keep the release version in the root VERSION file as the single source of truth.
 - Increment the patch component for each completed change batch: 0.0.2, 0.0.3, and onward.
 - Keep the major and minor components at zero until the user explicitly authorizes 0.1.0.
 - Keep the communication protocol version separate; change it only for protocol changes.

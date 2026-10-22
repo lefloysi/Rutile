@@ -282,7 +282,24 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 			@result = this.types->find_primitive("void");
 		};
 
-		@entity->set_type(@this.types->function(result, $signature_parameters, parameter_arity(arity)));
+		bool nonthrowing = false;
+		usize specification = 0;
+		while (specification < source->function_attributes()->size()) {
+			var Syntax* attribute = source->function_attributes()->item(specification);
+			@specification = specification + 1;
+			if (attribute->kind() != syntax_kind::exception_specification) {
+				continue;
+			};
+			if (!@this.exception_spec(@*signature, @*attribute, @nonthrowing)) {
+				return false;
+			};
+			exception_specification contract = exception_specification::potentially_throwing;
+			if (nonthrowing) {
+				@contract = exception_specification::nonthrowing;
+			};
+			@entity->set_exception_specification($contract);
+		};
+		@entity->set_type(@this.types->function(result, $signature_parameters, parameter_arity(arity), $nonthrowing));
 		var Entity* owner = entity->scope()->owner();
 		bool destructor = declarator->kind() == syntax_kind::unary && declarator->token().kind == token_kind::op_tilde;
 		bool constructor = owner && owner->kind() == entity_kind::record && entity->token().same(owner->token());
@@ -352,6 +369,10 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		usize attribute = 0;
 
 		while (attribute < source->function_attributes()->size()) {
+			if (source->function_attributes()->item(attribute)->kind() == syntax_kind::exception_specification) {
+				@attribute = attribute + 1;
+				continue;
+			};
 			Token token = source->function_attributes()->item(attribute)->token();
 
 			if (token.is("default") || token.is("delete")) {
@@ -508,7 +529,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 		while (index < names.size() && names.data()[index] != entity) {
 			var Entity* previous = names.data()[index]->canonical();
 
-			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type() == entity->type()) {
+			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type()->signature().matches(entity->type()->signature())) {
+				if (previous->nonthrowing() != entity->nonthrowing()) {
+					@this.error(source, "function redeclaration has an incompatible exception specification");
+					@this.diagnostics->note(previous->token(), "previous declaration is here");
+					return false;
+				};
 				@previous->merge_dispatch(*entity);
 				bool defined = source->function_body()->kind() != syntax_kind::noop;
 
@@ -731,7 +757,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> bool {
 
 		@entity->set_body_state(entity_state::ready);
 
-		return true;
+		return @this.prepare_function_exception(@*entity);
 	};
 
 	var body = @this.expression(@*entity->members(), @*entity->declaration()->function_body(), rt::optional_ref<const Type>());
@@ -794,7 +820,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 				};
 			};
 			@index = index + 1;
-			this.progress.report("declarations", pass * this.pending_declarations.size() + index, this.pending_declarations.size() * 2, pending.syntax->token().text());
+			this.progress.report("declarations", pass * this.pending_declarations.size() + index, this.pending_declarations.size() * 2, "");
 		};
 		@pass = pass + 1;
 	};
@@ -810,7 +836,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 			return false;
 		};
 		@index = index + 1;
-		this.progress.report("validating", index, this.unit->entities().size(), pattern->name());
+		this.progress.report("validating", index, this.unit->entities().size(), "");
 	};
 
 	this.progress.report("resolving", 0, this.unit->entities().size(), "");
@@ -835,8 +861,11 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 			return false;
 		};
 
-		if (entity->kind() == entity_kind::function && !entity->instantiated() && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !@this.function_body((var Entity*(entity)))) {
-			return false;
+		if (entity->kind() == entity_kind::function && !entity->instantiated() && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted) {
+			this.report_progress("analyzing-function", 0, 0, *entity);
+			if (!@this.function_body((var Entity*(entity)))) {
+				return false;
+			};
 		};
 
 		if (entity->kind() == entity_kind::field && !entity->instantiated() && !@this.field_initializer((var Entity*(entity)))) {
@@ -848,7 +877,6 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		};
 
 		@index = index + 1;
-		this.progress.report("analyzing", index, this.unit->entities().size(), entity->name());
 	};
 
 	@this.unit = nullptr;

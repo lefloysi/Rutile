@@ -82,6 +82,9 @@ fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::
 };
 
 fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -> bool {
+	if (this.state == language_server_state::running && !@this.workspace->refresh_sources()) {
+		return false;
+	};
 	var absent = rt::json_value::make_null();
 	if (!absent.get()) {
 		return false;

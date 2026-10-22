@@ -6,7 +6,7 @@ namespace Rutile.VisualStudio {
 	internal static class RutileContentType {
 		public const string Name = "Rutile";
 
-		[Export, Name(Name), BaseDefinition(CodeRemoteContentDefinition.CodeRemoteBaseTypeName)]
+		[Export, Name(Name), BaseDefinition("text"), BaseDefinition(CodeRemoteContentDefinition.CodeRemoteBaseTypeName)]
 		internal static ContentTypeDefinition Definition = null!;
 
 		[Export, FileExtension(".rt"), ContentType(Name)]

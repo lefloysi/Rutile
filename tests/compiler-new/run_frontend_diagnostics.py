@@ -22,7 +22,7 @@ CASES = [
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--compiler", default=".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe")
+	parser.add_argument("--compiler", default=".kiln/build/release/target-727574696c65632e657865/rutilec.exe")
 	options = parser.parse_args()
 	compiler = ROOT / options.compiler
 	output = ROOT / "build" / "compiler-new" / "frontend-diagnostics"

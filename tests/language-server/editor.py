@@ -118,6 +118,6 @@ fn forward(T value)->i32 {return choose(value);};
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--server", type=Path, default=Path("../Kiln/build/bootstrap/bin/kiln.exe"))
-	parser.add_argument("--compiler", type=Path, default=Path(".kiln/build/debug/target-636f6d70696c65722e657865/compiler.exe"))
+	parser.add_argument("--compiler", type=Path, default=Path(".kiln/build/debug/target-727574696c65632e657865/rutilec.exe"))
 	options = parser.parse_args()
 	main(options.server.resolve(), options.compiler.resolve())

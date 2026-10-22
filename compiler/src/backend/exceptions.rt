@@ -1,0 +1,528 @@
+fn native_windows_exceptions(Backend& backend) -> bool {
+	var triple = rt::from_c_string(LLVMGetTarget(backend.module()));
+	usize index = 0;
+	while (index + 7 <= triple.size()) {
+		if (triple.slice(index, 7) == "windows") {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn FunctionEmitter::native_allocate(var FunctionEmitter& this, var LLVMOpaqueValue* bytes) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
+	var LLVMOpaqueType* signature = LLVMFunctionType(LLVMPointerTypeInContext(this.backend->context(), 0), &@integer, 1, 0);
+	var LLVMOpaqueValue* function = LLVMGetNamedFunction(this.backend->module(), "malloc\0".data());
+	if (!function) {
+		@function = LLVMAddFunction(this.backend->module(), "malloc\0".data(), signature);
+	};
+	return @this.native_call(signature, function, &@bytes, 1);
+};
+
+fn FunctionEmitter::native_free(var FunctionEmitter& this, var LLVMOpaqueValue* address) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
+	var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(this.backend->context()), &@pointer, 1, 0);
+	var LLVMOpaqueValue* function = LLVMGetNamedFunction(this.backend->module(), "free\0".data());
+	if (!function) {
+		@function = LLVMAddFunction(this.backend->module(), "free\0".data(), signature);
+	};
+	return @this.native_call(signature, function, &@address, 1);
+};
+
+fn FunctionEmitter::terminate_handler(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock* {
+	var LLVMOpaqueValue* personality = LLVMGetNamedFunction(this.backend->module(), "__CxxFrameHandler3\0".data());
+	if (!personality) {
+		@personality = LLVMAddFunction(this.backend->module(), "__CxxFrameHandler3\0".data(), LLVMFunctionType(LLVMIntTypeInContext(this.backend->context(), 32), nullptr, 0, 1));
+	};
+	LLVMSetPersonalityFn(this.function, personality);
+	var LLVMOpaqueBasicBlock* destination = @this.block("noexcept.dispatch");
+	var LLVMOpaqueBasicBlock* handler = @this.block("noexcept.terminate");
+	LLVMPositionBuilderAtEnd(this.backend->builder(), destination);
+	var LLVMOpaqueValue* parent = LLVMConstNull(LLVMTokenTypeInContext(this.backend->context()));
+	var LLVMOpaqueValue* dispatch = LLVMBuildCatchSwitch(this.backend->builder(), parent, nullptr, 1, "noexcept.switch\0".data());
+	LLVMAddHandler(dispatch, handler);
+	LLVMPositionBuilderAtEnd(this.backend->builder(), handler);
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
+	var LLVMOpaqueValue*[3] arguments {};
+	@arguments[0] = LLVMConstNull(pointer);
+	@arguments[1] = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), 64, 0);
+	@arguments[2] = LLVMConstNull(pointer);
+	var LLVMOpaqueValue* pad = LLVMBuildCatchPad(this.backend->builder(), dispatch, &@arguments[0], 3, "noexcept.pad\0".data());
+	var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(this.backend->context()), nullptr, 0, 0);
+	var LLVMOpaqueValue* terminate = LLVMGetNamedFunction(this.backend->module(), "terminate\0".data());
+	if (!terminate) {
+		@terminate = LLVMAddFunction(this.backend->module(), "terminate\0".data(), signature);
+	};
+	var LLVMOpaqueOperandBundle* bundle = LLVMCreateOperandBundle("funclet\0".data(), 7, &@pad, 1);
+	LLVMBuildCallWithOperandBundles(this.backend->builder(), signature, terminate, nullptr, 0, &@bundle, 1, "\0".data());
+	LLVMDisposeOperandBundle(bundle);
+	LLVMBuildUnreachable(this.backend->builder());
+	return destination;
+};
+
+fn FunctionEmitter::retain_components(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
+	var Entity* record = type->entity();
+	if (record->layout() == record_layout::overlapping) {
+		return true;
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, static_cast<u32>(index), "unwind.base\0".data());
+		if (!@this.retain_unwind(record->bases().data()[index], base, nullptr, nullptr)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		var Entity* field = record->fields().data()[index];
+		var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type), address, this.backend->field_index(record, index), "unwind.field\0".data());
+		if (!@this.retain_unwind(field->type(), member, nullptr, nullptr)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn FunctionEmitter::native_call(var FunctionEmitter& this, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var LLVMOpaqueValue var** arguments, u32 count) -> var LLVMOpaqueValue* {
+	if (!type || !function) {
+		return nullptr;
+	};
+	if (!native_windows_exceptions(*this.backend)) {
+		return LLVMBuildCall2(this.backend->builder(), type, function, arguments, count, "\0".data());
+	};
+
+	var LLVMOpaqueBasicBlock* current = LLVMGetInsertBlock(this.backend->builder());
+	var LLVMOpaqueBasicBlock* unwind = @this.unwind_destination();
+	LLVMPositionBuilderAtEnd(this.backend->builder(), current);
+	var LLVMOpaqueOperandBundle* bundle;
+
+	if (this.active_pad) {
+		@bundle = LLVMCreateOperandBundle("funclet\0".data(), 7, &@this.active_pad, 1);
+	};
+
+	var LLVMOpaqueValue* result;
+
+	if (unwind) {
+		var LLVMOpaqueBasicBlock* normal = @this.block("invoke.continue");
+		if (bundle) {
+			@result = LLVMBuildInvokeWithOperandBundles(this.backend->builder(), type, function, arguments, count, normal, unwind, &@bundle, 1, "\0".data());
+		}
+		else {
+			@result = LLVMBuildInvoke2(this.backend->builder(), type, function, arguments, count, normal, unwind, "\0".data());
+		};
+		LLVMPositionBuilderAtEnd(this.backend->builder(), normal);
+	}
+	else if (bundle) {
+		@result = LLVMBuildCallWithOperandBundles(this.backend->builder(), type, function, arguments, count, &@bundle, 1, "\0".data());
+	}
+	else {
+		@result = LLVMBuildCall2(this.backend->builder(), type, function, arguments, count, "\0".data());
+	};
+
+	if (bundle) {
+		LLVMDisposeOperandBundle(bundle);
+	};
+	return result;
+};
+
+fn FunctionEmitter::unwind_destination(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock* {
+	usize route_index = this.unwind_routes.size();
+	while (route_index) {
+		@route_index = route_index - 1;
+		NativeUnwindRoute& route = this.unwind_routes.data()[route_index];
+		if (route.revision == this.lifetime_revision && route.depth == this.unwind_depth && route.pad == this.active_pad && route.handler == this.active_handler) {
+			return route.destination;
+		};
+	};
+	usize binding_begin = 0;
+	usize temporary_begin = 0;
+	usize unwind_begin = 0;
+	var LLVMOpaqueBasicBlock* target;
+
+	if (this.active_catch && this.active_handler == this.active_catch->handlers && !this.unwind_depth) {
+		@binding_begin = this.active_catch->bindings;
+		@temporary_begin = this.active_catch->temporaries;
+		@unwind_begin = this.active_catch->unwinds;
+		@target = this.active_catch->unwind;
+	}
+	else if (this.active_handler && !this.unwind_depth) {
+		@binding_begin = this.active_handler->bindings;
+		@temporary_begin = this.active_handler->temporaries;
+		@unwind_begin = this.active_handler->unwinds;
+		@target = this.active_handler->destination;
+	};
+
+	bool cleanup = this.unwinds.size() > unwind_begin;
+	usize index = binding_begin;
+	while (index < this.bindings.size()) {
+		@cleanup = cleanup || this.bindings.data()[index].live != nullptr;
+		@index = index + 1;
+	};
+	@index = temporary_begin;
+	while (index < this.temporaries.size()) {
+		@cleanup = cleanup || this.temporaries.data()[index].live != nullptr;
+		@index = index + 1;
+	};
+
+	if (!cleanup && !this.unwind_depth) {
+		return target;
+	};
+
+	var LLVMOpaqueValue* personality = LLVMGetNamedFunction(this.backend->module(), "__CxxFrameHandler3\0".data());
+	if (!personality) {
+		@personality = LLVMAddFunction(this.backend->module(), "__CxxFrameHandler3\0".data(), LLVMFunctionType(LLVMIntTypeInContext(this.backend->context(), 32), nullptr, 0, 1));
+	};
+	LLVMSetPersonalityFn(this.function, personality);
+	var LLVMOpaqueBasicBlock* destination = @this.block("exception.cleanup");
+	NativeUnwindRoute route;
+	@route.revision = this.lifetime_revision;
+	@route.depth = this.unwind_depth;
+	@route.pad = this.active_pad;
+	@route.handler = this.active_handler;
+	@route.destination = destination;
+	if (!@this.unwind_routes.push_back($route)) {
+		Token token;
+		@this.backend->error(token, "cannot retain native unwind destination");
+		return nullptr;
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), destination);
+	var LLVMOpaqueValue* parent = this.active_pad;
+	if (!parent) {
+		@parent = LLVMConstNull(LLVMTokenTypeInContext(this.backend->context()));
+	};
+	var LLVMOpaqueValue* pad = LLVMBuildCleanupPad(this.backend->builder(), parent, nullptr, 0, "cleanup.pad\0".data());
+	var LLVMOpaqueValue* previous_pad = this.active_pad;
+	@this.active_pad = pad;
+
+	if (this.unwind_depth) {
+		var LLVMOpaqueValue* terminate = LLVMGetNamedFunction(this.backend->module(), "terminate\0".data());
+		var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(this.backend->context()), nullptr, 0, 0);
+		if (!terminate) {
+			@terminate = LLVMAddFunction(this.backend->module(), "terminate\0".data(), signature);
+		};
+		var LLVMOpaqueOperandBundle* bundle = LLVMCreateOperandBundle("funclet\0".data(), 7, &@pad, 1);
+		LLVMBuildCallWithOperandBundles(this.backend->builder(), signature, terminate, nullptr, 0, &@bundle, 1, "\0".data());
+		LLVMDisposeOperandBundle(bundle);
+		LLVMBuildUnreachable(this.backend->builder());
+	}
+	else {
+		@this.unwind_depth = this.unwind_depth + 1;
+		bool success = @this.unwind_cleanup(binding_begin, temporary_begin, unwind_begin);
+		@this.unwind_depth = this.unwind_depth - 1;
+		if (success && !this.terminated()) {
+			LLVMBuildCleanupRet(this.backend->builder(), pad, target);
+		};
+	};
+	@this.active_pad = previous_pad;
+	return destination;
+};
+
+fn FunctionEmitter::retain_unwind(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* count, var LLVMOpaqueValue* allocation) -> bool {
+	if (!count && !allocation && !FunctionEmitter::needs_destruction(type)) {
+		return true;
+	};
+	NativeUnwind action;
+	@action.type = type;
+	@action.address = address;
+	@action.count = count;
+	@action.allocation = allocation;
+	@this.lifetime_order = this.lifetime_order + 1;
+	@action.order = this.lifetime_order;
+	if (!@this.unwinds.push_back($action)) {
+		Token token;
+		return @this.backend->error(token, "cannot retain exception cleanup");
+	};
+	@this.lifetime_revision = this.lifetime_revision + 1;
+	return true;
+};
+
+fn FunctionEmitter::forget_unwinds(var FunctionEmitter& this, usize begin) {
+	while (this.unwinds.size() > begin) {
+		@this.unwinds.pop_back();
+		@this.lifetime_revision = this.lifetime_revision + 1;
+	};
+};
+
+fn FunctionEmitter::unwind_cleanup(var FunctionEmitter& this, usize bindings, usize temporaries, usize unwinds) -> bool {
+	usize binding_index = this.bindings.size();
+	usize temporary_index = this.temporaries.size();
+	usize unwind_index = this.unwinds.size();
+	while (binding_index > bindings || temporary_index > temporaries || unwind_index > unwinds) {
+		usize binding_order = 0;
+		usize temporary_order = 0;
+		usize unwind_order = 0;
+		if (binding_index > bindings) {
+			@binding_order = this.bindings.data()[binding_index - 1].order;
+		};
+		if (temporary_index > temporaries) {
+			@temporary_order = this.temporaries.data()[temporary_index - 1].order;
+		};
+		if (unwind_index > unwinds) {
+			@unwind_order = this.unwinds.data()[unwind_index - 1].order;
+		};
+		if (binding_order > temporary_order && binding_order > unwind_order) {
+			@binding_index = binding_index - 1;
+			NativeBinding& binding = this.bindings.data()[binding_index];
+			if (!@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)) {
+				return false;
+			};
+			continue;
+		};
+		if (temporary_order > unwind_order) {
+			@temporary_index = temporary_index - 1;
+			NativeTemporary& temporary = this.temporaries.data()[temporary_index];
+			if (!@this.guarded_destroy(temporary.expression->type(), temporary.address, temporary.live)) {
+				return false;
+			};
+			continue;
+		};
+		@unwind_index = unwind_index - 1;
+		NativeUnwind& action = this.unwinds.data()[unwind_index];
+		if (action.count) {
+			var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
+			var LLVMOpaqueValue* count = LLVMBuildLoad2(this.backend->builder(), integer, action.count, "constructed.count\0".data());
+			if (!@this.destroy_range(action.type, action.address, count)) {
+				return false;
+			};
+		}
+		else if (action.address && !@this.destroy(action.type, action.address)) {
+			return false;
+		};
+		if (action.allocation) {
+			var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
+			var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(this.backend->context()), &@pointer, 1, 0);
+			var LLVMOpaqueValue* free = LLVMGetNamedFunction(this.backend->module(), "free\0".data());
+			if (!free) {
+				@free = LLVMAddFunction(this.backend->module(), "free\0".data(), signature);
+			};
+			var LLVMOpaqueOperandBundle* bundle = LLVMCreateOperandBundle("funclet\0".data(), 7, &@this.active_pad, 1);
+			var LLVMOpaqueValue* allocation = action.allocation;
+			LLVMBuildCallWithOperandBundles(this.backend->builder(), signature, free, &@allocation, 1, &@bundle, 1, "\0".data());
+			LLVMDisposeOperandBundle(bundle);
+		};
+	};
+	return true;
+};
+
+fn FunctionEmitter::exception_throw(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+	if (!native_windows_exceptions(*this.backend)) {
+		return @this.backend->error(expression->token(), "native exception handling currently requires a Windows target");
+	};
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
+	var LLVMOpaqueValue*[2] arguments {};
+	@arguments[0] = LLVMConstNull(pointer);
+	@arguments[1] = LLVMConstNull(pointer);
+
+	if (expression->kind() == semantic_kind::exception_throw) {
+		var SemanticExpression* value = expression->item(0);
+		var LLVMOpaqueValue* storage = @this.slot(value->type());
+		if (!storage || !@this.initialize_value(value->type(), storage, value)) {
+			return false;
+		};
+		@arguments[0] = storage;
+		@arguments[1] = @this.backend->exception_info(value->type());
+		if (!arguments[1]) {
+			return false;
+		};
+	};
+
+	var LLVMOpaqueType*[2] parameters {};
+	@parameters[0] = pointer;
+	@parameters[1] = pointer;
+	var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(this.backend->context()), &@parameters[0], 2, 0);
+	var LLVMOpaqueValue* function = LLVMGetNamedFunction(this.backend->module(), "_CxxThrowException\0".data());
+	if (!function) {
+		@function = LLVMAddFunction(this.backend->module(), "_CxxThrowException\0".data(), signature);
+	};
+	if (!@this.native_call(signature, function, &@arguments[0], 2)) {
+		return false;
+	};
+	LLVMBuildUnreachable(this.backend->builder());
+	return true;
+};
+
+fn native_exception_accepts_nonthrowing(Type* type) -> bool {
+	if (type->kind() == type_kind::reference) {
+		if (type->element()->qualifier() != type_qualifier::immutable) {
+			return false;
+		};
+		@type = type->element();
+	};
+	return type->kind() == type_kind::pointer && type->element()->kind() == type_kind::function && !type->element()->signature().nonthrowing();
+};
+
+fn FunctionEmitter::exception_try(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+	if (!native_windows_exceptions(*this.backend)) {
+		return @this.backend->error(expression->token(), "native exception handling currently requires a Windows target");
+	};
+	var LLVMOpaqueValue* personality = LLVMGetNamedFunction(this.backend->module(), "__CxxFrameHandler3\0".data());
+	if (!personality) {
+		@personality = LLVMAddFunction(this.backend->module(), "__CxxFrameHandler3\0".data(), LLVMFunctionType(LLVMIntTypeInContext(this.backend->context(), 32), nullptr, 0, 1));
+	};
+	LLVMSetPersonalityFn(this.function, personality);
+	var LLVMOpaqueBasicBlock* before = LLVMGetInsertBlock(this.backend->builder());
+	var LLVMOpaqueBasicBlock* outer_unwind = @this.unwind_destination();
+	var LLVMOpaqueBasicBlock* dispatch = @this.block("catch.dispatch");
+	var LLVMOpaqueBasicBlock* after = @this.block("try.after");
+	LLVMPositionBuilderAtEnd(this.backend->builder(), before);
+	NativeHandler handler;
+	@handler.destination = dispatch;
+	@handler.parent_pad = this.active_pad;
+	@handler.parent = this.active_handler;
+	@handler.bindings = this.bindings.size();
+	@handler.temporaries = this.temporaries.size();
+	@handler.unwinds = this.unwinds.size();
+	@this.active_handler = &@handler;
+	@this.lifetime_revision = this.lifetime_revision + 1;
+	if (!@this.scoped_statement(expression->item(0))) {
+		return false;
+	};
+	if (!this.terminated()) {
+		LLVMBuildBr(this.backend->builder(), after);
+	};
+	@this.active_handler = handler.parent;
+	@this.lifetime_revision = this.lifetime_revision + 1;
+	LLVMPositionBuilderAtEnd(this.backend->builder(), dispatch);
+	var LLVMOpaqueValue* parent = this.active_pad;
+	if (!parent) {
+		@parent = LLVMConstNull(LLVMTokenTypeInContext(this.backend->context()));
+	};
+	usize count = expression->size() - 1;
+	usize index = 1;
+	while (index < expression->size()) {
+		if (native_exception_accepts_nonthrowing(expression->item(index)->type())) {
+			@count = count + 1;
+		};
+		@index = index + 1;
+	};
+	var LLVMOpaqueValue* switch_pad = LLVMBuildCatchSwitch(this.backend->builder(), parent, outer_unwind, static_cast<u32>(count), "catch.switch\0".data());
+	@index = 1;
+	while (index < expression->size()) {
+		var SemanticExpression* source = expression->item(index);
+		if (!@this.catch_handler(source, switch_pad, after, outer_unwind, nullptr)) {
+			return false;
+		};
+		if (native_exception_accepts_nonthrowing(source->type())) {
+			Type* type = source->type();
+			if (type->kind() == type_kind::reference) {
+				@type = type->element();
+			};
+			var LLVMOpaqueValue* descriptor = native_exception_function_pointer_descriptor(@*this.backend, type, true);
+			if (!descriptor || !@this.catch_handler(source, switch_pad, after, outer_unwind, descriptor)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
+	return true;
+};
+
+fn FunctionEmitter::catch_handler(var FunctionEmitter& this, var SemanticExpression* source, var LLVMOpaqueValue* dispatch, var LLVMOpaqueBasicBlock* after, var LLVMOpaqueBasicBlock* unwind, var LLVMOpaqueValue* descriptor) -> bool {
+	var LLVMOpaqueBasicBlock* body = @this.block("catch.body");
+	LLVMAddHandler(dispatch, body);
+	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
+	var LLVMOpaqueValue*[3] arguments {};
+	@arguments[0] = LLVMConstNull(pointer);
+	@arguments[1] = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), 64, 0);
+	@arguments[2] = LLVMConstNull(pointer);
+	var LLVMOpaqueValue* storage;
+	if (source->type()->kind() != type_kind::void_type) {
+		Type* type = source->type();
+		u64 flags = 0;
+		if (type->kind() == type_kind::reference) {
+			@type = type->element();
+			@flags = 8;
+		};
+		if (type->kind() == type_kind::pointer && type->element()->kind() != type_kind::null_type && type->element()->kind() != type_kind::function && type->element()->qualifier() == type_qualifier::immutable) {
+			@flags = flags | 1;
+		};
+		@arguments[0] = descriptor;
+		if (!arguments[0]) {
+			@arguments[0] = @this.backend->exception_type(type);
+		};
+		@arguments[1] = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), flags, 0);
+		@storage = @this.slot(source->type());
+		@arguments[2] = storage;
+		if (!arguments[0] || !storage) {
+			return false;
+		};
+	};
+	var LLVMOpaqueValue* pad = LLVMBuildCatchPad(this.backend->builder(), dispatch, &@arguments[0], 3, "catch.pad\0".data());
+	NativeCatch active;
+	@active.pad = pad;
+	@active.parent_pad = this.active_pad;
+	@active.parent = this.active_catch;
+	@active.handlers = this.active_handler;
+	@active.unwind = unwind;
+	@active.bindings = this.bindings.size();
+	@active.temporaries = this.temporaries.size();
+	@active.unwinds = this.unwinds.size();
+	@this.active_pad = pad;
+	@this.active_catch = &@active;
+	if (source->entity() && !@this.bind(source->entity(), storage)) {
+		return false;
+	};
+	if (!@this.scoped_statement(source->item(0)) || !@this.leave_scope(active.bindings)) {
+		return false;
+	};
+	if (!this.terminated()) {
+		LLVMBuildCatchRet(this.backend->builder(), pad, after);
+	};
+	@this.active_catch = active.parent;
+	@this.active_pad = active.parent_pad;
+	return true;
+};
+
+fn FunctionEmitter::exit_cleanup(var FunctionEmitter& this, usize bindings, var NativeCatch* catches, var NativeHandler* handlers) -> bool {
+	var NativeCatch* previous_catch = this.active_catch;
+	var NativeHandler* previous_handler = this.active_handler;
+	var LLVMOpaqueValue* previous_pad = this.active_pad;
+	usize index = this.bindings.size();
+	bool success = @this.cleanup_temporaries(0);
+	while (success) {
+		usize boundary = bindings;
+		if (this.active_handler != handlers && (!this.active_catch || this.active_catch == catches || this.active_handler != this.active_catch->handlers)) {
+			@boundary = this.active_handler->bindings;
+		}
+		else if (this.active_catch != catches) {
+			@boundary = this.active_catch->bindings;
+		};
+		while (index > boundary) {
+			@index = index - 1;
+			NativeBinding& binding = this.bindings.data()[index];
+			if (!@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)) {
+				@success = false;
+				break;
+			};
+		};
+		if (!success) {
+			break;
+		};
+		if (this.active_handler != handlers && (!this.active_catch || this.active_catch == catches || this.active_handler != this.active_catch->handlers)) {
+			@this.active_handler = this.active_handler->parent;
+			@this.lifetime_revision = this.lifetime_revision + 1;
+			continue;
+		};
+		if (this.active_catch != catches) {
+			var NativeCatch* active = this.active_catch;
+			var LLVMOpaqueBasicBlock* next = @this.block("catch.leave");
+			LLVMBuildCatchRet(this.backend->builder(), active->pad, next);
+			LLVMPositionBuilderAtEnd(this.backend->builder(), next);
+			@this.active_pad = active->parent_pad;
+			@this.active_catch = active->parent;
+			@this.lifetime_revision = this.lifetime_revision + 1;
+			continue;
+		};
+		break;
+	};
+	@this.active_catch = previous_catch;
+	@this.active_handler = previous_handler;
+	@this.active_pad = previous_pad;
+	@this.lifetime_revision = this.lifetime_revision + 1;
+	return success;
+};

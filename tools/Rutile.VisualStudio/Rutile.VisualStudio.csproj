@@ -3,20 +3,14 @@
     <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RutileVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\version\release.txt').Trim())</RutileVersion>
+    <RutileVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</RutileVersion>
+    <AssemblyName>Rutile.VisualStudio</AssemblyName>
     <Version>$(RutileVersion)</Version>
     <AssemblyVersion>$(RutileVersion).0</AssemblyVersion>
     <FileVersion>$(RutileVersion).0</FileVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <GeneratedRutileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\source.extension.vsixmanifest</GeneratedRutileManifest>
     <IntermediateVsixManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\extension.vsixmanifest</IntermediateVsixManifest>
-    <GeneratePkgDefFile>false</GeneratePkgDefFile>
-    <UseCodebase>true</UseCodebase>
-    <IncludePkgdefInVSIXContainer>false</IncludePkgdefInVSIXContainer>
-    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
-    <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
-    <CreateVsixContainer>true</CreateVsixContainer>
-    <DeployExtension>false</DeployExtension>
     <FileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-files.json</FileManifest>
     <ResourceManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\resources.json</ResourceManifest>
     <CtoFileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\cto-files.json</CtoFileManifest>
@@ -24,14 +18,18 @@
     <TemplateOutputDirectory>$(MSBuildProjectDirectory)\obj\$(Configuration)\</TemplateOutputDirectory>
     <TemplateFileManifest>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-template-files.json</TemplateFileManifest>
     <CreateTemplateManifestsCacheFile>$(MSBuildProjectDirectory)\obj\$(Configuration)\vsix-template-manifests.cache</CreateTemplateManifestsCacheFile>
+    <GeneratePkgDefFile>false</GeneratePkgDefFile>
+    <UseCodebase>true</UseCodebase>
+    <IncludePkgdefInVSIXContainer>false</IncludePkgdefInVSIXContainer>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
+    <CreateVsixContainer>true</CreateVsixContainer>
+    <DeployExtension>false</DeployExtension>
     <TargetVsixContainer>$(MSBuildProjectDirectory)\bin\$(Configuration)\Rutile.VisualStudio.vsix</TargetVsixContainer>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Kiln\tools\Kiln.VisualStudio\Kiln.VisualStudio.csproj">
-      <Private>false</Private>
-      <IncludeInVSIX>false</IncludeInVSIX>
-    </ProjectReference>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="ServerProcess.cs" />
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.0.32112.339" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Client" Version="17.0.5158" />
     <PackageReference Include="Microsoft.VisualStudio.Utilities" Version="17.0.32112.339" />
@@ -39,24 +37,34 @@
     <PackageReference Include="Microsoft.VisualStudio.Text.UI.Wpf" Version="17.0.491" />
     <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.13.2" />
     <PackageReference Include="Microsoft.VisualStudio.ComponentModelHost" Version="17.0.491" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="System.Collections.Immutable" Version="8.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" PrivateAssets="all" />
     <Reference Include="System.ComponentModel.Composition" />
     <None Include="source.extension.vsixmanifest" />
     <SourceVsixManifest Include="$(GeneratedRutileManifest)" />
+    <Reference Include="Microsoft.VisualStudio.Workspace">
+      <HintPath>$(MSBuildToolsPath)\..\..\..\Common7\IDE\CommonExtensions\Microsoft\OpenFolder\Microsoft.VisualStudio.Workspace.dll</HintPath>
+      <Private>false</Private>
+      <IncludeInVSIX>false</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.VisualStudio.Workspace.VSIntegration.Contracts">
+      <HintPath>$(MSBuildToolsPath)\..\..\..\Common7\IDE\CommonExtensions\Microsoft\OpenFolder\Microsoft.VisualStudio.Workspace.VSIntegration.Contracts.dll</HintPath>
+      <Private>false</Private>
+      <IncludeInVSIX>false</IncludeInVSIX>
+    </Reference>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\VSSDK\Microsoft.VsSDK.targets')" />
   <PropertyGroup>
     <CreateVsixContainerDependsOn>$(CreateVsixContainerDependsOn);DetokenizeVsixManifestFile</CreateVsixContainerDependsOn>
   </PropertyGroup>
   <Target Name="GenerateRutileManifest" BeforeTargets="FindSourceVsixManifest;DetokenizeVsixManifestFile;ValidateVsixManifest">
-    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(RutileVersion)', '^0\.0\.[1-9][0-9]*$'))" Text="version/release.txt has an invalid Rutile release version." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(RutileVersion)', '^0\.0\.[1-9][0-9]*$'))" Text="VERSION has an invalid Rutile release version." />
     <MakeDir Directories="$(MSBuildProjectDirectory)\obj\$(Configuration)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\source.extension.vsixmanifest" DestinationFiles="$(GeneratedRutileManifest)" />
     <XmlPoke XmlInputPath="$(GeneratedRutileManifest)" Query="/*[local-name()='PackageManifest']/*[local-name()='Metadata']/*[local-name()='Identity']/@Version" Value="$(RutileVersion)" />
   </Target>
   <Target Name="WriteRutilePackageManifest" BeforeTargets="CreateVsixContainer" DependsOnTargets="GenerateRutileManifest;DetokenizeVsixManifestFile">
-    <!-- This manifest contains literal paths, with no VSSDK replacement tokens. -->
     <Copy SourceFiles="$(GeneratedRutileManifest)" DestinationFiles="$(IntermediateVsixManifest)" />
   </Target>
 </Project>

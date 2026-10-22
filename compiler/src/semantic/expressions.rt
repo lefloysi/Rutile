@@ -1,3 +1,166 @@
+fn Analyzer::exception_spec(var Analyzer& this, var Scope& scope, var Syntax& syntax, var bool& nonthrowing) -> bool {
+	@nonthrowing = false;
+	if (syntax.kind() == syntax_kind::absent) {
+		return true;
+	};
+	@nonthrowing = true;
+	if (syntax.operand()->kind() == syntax_kind::absent) {
+		return true;
+	};
+	var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*this.types->find_primitive("bool")));
+	u64 result = 0;
+	if (!value.get() || !@this.constant_integer(*value.get(), @result)) {
+		@this.error(&@syntax, "noexcept specification requires a constant boolean expression");
+		return false;
+	};
+	@nonthrowing = result != 0;
+	return true;
+};
+
+fn exception_expression_contract(SemanticExpression& expression, bool temporary) -> bool {
+	semantic_kind kind = expression.kind();
+	if (kind == semantic_kind::exception_throw || kind == semantic_kind::exception_rethrow || kind == semantic_kind::allocation) {
+		return false;
+	};
+	if (kind == semantic_kind::call) {
+		var Entity* function = expression.entity();
+		if (function && function->kind() == entity_kind::function) {
+			if (!function->nonthrowing()) {
+				return false;
+			};
+		}
+		else {
+			Type* callable = expression.item(0)->type();
+			if (callable->kind() == type_kind::pointer || callable->kind() == type_kind::reference) {
+				@callable = callable->element();
+			};
+			if (callable->kind() != type_kind::function || !callable->signature().nonthrowing()) {
+				return false;
+			};
+		};
+	};
+	if (kind == semantic_kind::construction || kind == semantic_kind::destruction) {
+		if (expression.entity() && !expression.entity()->nonthrowing()) {
+			return false;
+		};
+	};
+	if (kind == semantic_kind::construction && expression.type()->kind() == type_kind::array) {
+		var SemanticExpression* arguments = expression.item(0);
+		if (!arguments->size() && !exception_operation_nonthrowing(*expression.type(), exception_operation::initialize)) {
+			return false;
+		};
+		if (arguments->size() == 1 && arguments->item(0)->type()->same_shape(*expression.type()) && arguments->item(0)->category() == value_category::place && !exception_operation_nonthrowing(*expression.type(), exception_operation::copy_construct)) {
+			return false;
+		};
+	};
+	if (kind == semantic_kind::construction && !expression.entity() && expression.type()->kind() == type_kind::named && expression.type()->entity()->kind() == entity_kind::record) {
+		var Entity* record = expression.type()->entity();
+		var SemanticExpression* arguments = expression.item(0);
+		if (arguments->size() == 1 && arguments->item(0)->type()->same_shape(*expression.type())) {
+			if (arguments->item(0)->category() == value_category::place) {
+				if (!exception_operation_nonthrowing(*expression.type(), exception_operation::copy_construct)) {
+					return false;
+				};
+			}
+			else if (record->move_constructor() && !record->move_constructor()->nonthrowing()) {
+				return false;
+			};
+		}
+		else if (record->layout() != record_layout::overlapping) {
+			usize base = 0;
+			while (base < record->bases().size()) {
+				if (!exception_operation_nonthrowing(*record->bases().data()[base], exception_operation::initialize)) {
+					return false;
+				};
+				@base = base + 1;
+			};
+			usize field = arguments->size();
+			while (field < record->fields().size()) {
+				var Entity* member = record->fields().data()[field];
+				if (member->body()) {
+					if (!exception_initializer_nonthrowing(*member->body())) {
+						return false;
+					};
+				}
+				else if (!exception_operation_nonthrowing(*member->type(), exception_operation::initialize)) {
+					return false;
+				};
+				@field = field + 1;
+			};
+		};
+	};
+	if (kind == semantic_kind::deallocation || kind == semantic_kind::array_deallocation) {
+		Type* pointer = expression.item(0)->type();
+		if (pointer->kind() == type_kind::pointer && !exception_type_nonthrowing(*pointer->element())) {
+			return false;
+		};
+	};
+	if (temporary && (kind == semantic_kind::construction || kind == semantic_kind::call) || kind == semantic_kind::variable) {
+		Type* object = expression.type();
+		if (kind == semantic_kind::variable && expression.entity()) {
+			@object = expression.entity()->type();
+		};
+		if (!exception_type_nonthrowing(*object)) {
+			return false;
+		};
+	};
+	usize index = 0;
+	while (index < expression.size()) {
+		if (!exception_expression_nonthrowing(*expression.item(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn exception_expression_nonthrowing(SemanticExpression& expression) -> bool {
+	return exception_expression_contract(expression, true);
+};
+
+fn exception_initializer_nonthrowing(SemanticExpression& expression) -> bool {
+	return exception_expression_contract(expression, false);
+};
+
+fn Analyzer::prepare_exception_spec(var Analyzer& this, SemanticExpression& expression) -> bool {
+	var Entity* function = expression.entity();
+	if (function && function->kind() == entity_kind::function && !@this.prepare_function_exception(@*function)) {
+		return false;
+	};
+	usize index = 0;
+	while (index < expression.size()) {
+		if (!@this.prepare_exception_spec(*expression.item(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Analyzer::potentially_throwing(Analyzer& this, SemanticExpression& expression) -> bool {
+	return !exception_expression_nonthrowing(expression);
+};
+
+fn exception_member_access(var Analyzer& analyzer, var Entity* member, var Scope& scope, Token& location) -> bool {
+	if (!member) {
+		return true;
+	};
+	if (member->definition() == function_definition::deleted) {
+		@analyzer.deleted_function(location, *member);
+		return false;
+	};
+	if (!analyzer.accessible(*member, @scope)) {
+		var message = DiagnosticMessage();
+		@message.text("exception handling requires function '");
+		diagnostic_entity(@message, *member);
+		@message.text("' which is not accessible from this scope");
+		@analyzer.report(location, message.view());
+		@analyzer.note(member->token(), "function is declared here");
+		return false;
+	};
+	return true;
+};
+
 fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	if (this.diagnostics->failed()) {
 		return rt::unique<SemanticExpression>();
@@ -6,6 +169,18 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 	Type* void_type = this.types->find_primitive("void");
 	Type* bool_type = this.types->find_primitive("bool");
 	syntax_kind kind = syntax.kind();
+	if (kind == syntax_kind::exception_query) {
+		var operand = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>());
+		if (!operand.get() || !@this.prepare_exception_spec(*operand.get())) {
+			return rt::unique<SemanticExpression>();
+		};
+		var result = @this.node(semantic_kind::literal_integer, bool_type, &@syntax);
+		if (!result.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		@result.get()->set_integer(static_cast<u64>(!this.potentially_throwing(*operand.get())));
+		return @this.convert($result, expected, @syntax);
+	};
 
 	if (this.editor && kind == syntax_kind::error_expression) {
 		return @this.node(semantic_kind::noop, void_type, &@syntax);
@@ -449,6 +624,10 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 		};
 
 		Type* type = entity->type();
+		if (entity->kind() == entity_kind::function && !@this.prepare_function_exception(@*entity)) {
+			return rt::unique<SemanticExpression>();
+		};
+		@type = entity->type();
 
 		if (type->kind() == type_kind::reference) {
 			@type = type->element();
@@ -664,6 +843,144 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 			return rt::unique<SemanticExpression>();
 		};
 
+		return $result;
+	};
+
+	if (kind == syntax_kind::exception_throw) {
+		if (syntax.operand()->kind() == syntax_kind::absent) {
+			return @this.convert(@this.node(semantic_kind::exception_rethrow, void_type, &@syntax), expected, @syntax);
+		};
+		var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>());
+		if (!value.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (value.get()->category() != value_category::consumable) {
+			@this.error(&@syntax, "throw requires a temporary; copy or move the operand explicitly");
+			return rt::unique<SemanticExpression>();
+		};
+		Type* type = value.get()->type();
+		if (type->kind() == type_kind::void_type) {
+			@this.error(&@syntax, "exception object cannot have type void");
+			return rt::unique<SemanticExpression>();
+		};
+		if (type->kind() == type_kind::array || type->kind() == type_kind::function) {
+			Type* element = type;
+			if (type->kind() == type_kind::array) {
+				@element = type->element();
+			};
+			@type = @this.types->pointer(element);
+		}
+		else {
+			@type = @this.types->qualified(*type, type_qualifier::mutable);
+		};
+		if (!type) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (type->kind() != type_kind::null_type && !type->has_layout() || type->kind() == type_kind::pointer && type->element()->kind() != type_kind::void_type && type->element()->kind() != type_kind::function && type->element()->kind() != type_kind::null_type && !type->element()->has_layout()) {
+			@this.error(&@syntax, "exception object requires a complete object type");
+			return rt::unique<SemanticExpression>();
+		};
+		if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record && !exception_member_access(@this, type->entity()->destructor(), @scope, syntax.token())) {
+			return rt::unique<SemanticExpression>();
+		};
+		@value = @this.initialize(@syntax, type, rt::unique<SemanticExpression>(@value.release()));
+		if (value.get() && value.get()->kind() == semantic_kind::construction && !exception_member_access(@this, value.get()->entity(), @scope, syntax.token())) {
+			return rt::unique<SemanticExpression>();
+		};
+		var result = @this.node(semantic_kind::exception_throw, void_type, &@syntax);
+		if (!value.get() || !result.get() || !@result.get()->append($value)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.convert($result, expected, @syntax);
+	};
+
+	if (kind == syntax_kind::exception_try) {
+		@this.variant_facts.clear();
+		if (!this.function) {
+			@this.error(&@syntax, "try requires an enclosing function");
+			return rt::unique<SemanticExpression>();
+		};
+		var result = @this.node(semantic_kind::exception_try, void_type, &@syntax);
+		var body = @this.expression(@scope, @*syntax.item(0), rt::optional_ref<const Type>());
+		if (!result.get() || !body.get() || !@result.get()->append($body)) {
+			return rt::unique<SemanticExpression>();
+		};
+		var Syntax* handlers = syntax.item(1);
+		usize index = 0;
+		while (index < handlers->size()) {
+			@this.variant_facts.clear();
+			var Syntax* source = handlers->item(index);
+			var Syntax* parameter = source->item(0);
+			var Scope* local = @this.unit->create_scope(&@scope, this.function);
+			Type* type = void_type;
+			var Entity* entity = nullptr;
+			if (!local || !@this.unit->record_scope(@*local, @*source)) {
+				return rt::unique<SemanticExpression>();
+			};
+			if (parameter->kind() != syntax_kind::absent) {
+				@type = @this.type(@*local, @*parameter->parameter_type());
+				if (!type) {
+					return rt::unique<SemanticExpression>();
+				};
+				if (type->kind() == type_kind::array) {
+					@type = @this.types->pointer(type->element());
+				}
+				else if (type->kind() == type_kind::function) {
+					@type = @this.types->pointer(type);
+				};
+				Type* object = type;
+				if (object->kind() == type_kind::reference) {
+					@object = object->element();
+				};
+				if (object->kind() == type_kind::void_type || object->kind() == type_kind::array || object->kind() == type_kind::function || object->kind() == type_kind::null_type) {
+					@this.error(parameter, "catch declaration requires an object type or reference to an object type");
+					return rt::unique<SemanticExpression>();
+				};
+				if (!object->has_layout() || object->kind() == type_kind::pointer && object->element()->kind() != type_kind::void_type && object->element()->kind() != type_kind::function && object->element()->kind() != type_kind::null_type && !object->element()->has_layout()) {
+					@this.error(parameter, "catch declaration requires a complete exception type");
+					return rt::unique<SemanticExpression>();
+				};
+				if (type->kind() != type_kind::reference && object->kind() == type_kind::named && object->entity()->kind() == entity_kind::record) {
+					if (!exception_member_access(@this, object->entity()->copy_constructor(), @*local, parameter->token()) || !exception_member_access(@this, object->entity()->destructor(), @*local, parameter->token())) {
+						return rt::unique<SemanticExpression>();
+					};
+				};
+				Token name = parameter->parameter_name()->token();
+				@entity = @this.unit->create_entity(entity_kind::local, name, parameter, local);
+				if (!entity) {
+					return rt::unique<SemanticExpression>();
+				};
+				@entity->set_type(type);
+				@entity->set_state(entity_state::ready);
+			}
+			else if (index + 1 != handlers->size()) {
+				@this.error(source, "catch(...) must be the final handler");
+				return rt::unique<SemanticExpression>();
+			};
+			var handler = @this.node(semantic_kind::exception_handler, type, source);
+			var Syntax* body_source = source->item(1);
+			var handler_body = @this.node(semantic_kind::brace, void_type, body_source);
+			if (!handler.get() || !handler_body.get() || !@this.unit->record_scope(@*local, @*body_source)) {
+				return rt::unique<SemanticExpression>();
+			};
+			usize statement = 0;
+			while (statement < body_source->size()) {
+				var child = @this.expression(@*local, @*body_source->item(statement), rt::optional_ref<const Type>());
+				if (!child.get() || !@handler_body.get()->append($child)) {
+					return rt::unique<SemanticExpression>();
+				};
+				@statement = statement + 1;
+			};
+			if (!@handler.get()->append($handler_body)) {
+				return rt::unique<SemanticExpression>();
+			};
+			@handler.get()->bind(entity, value_category::consumable);
+			if (!@result.get()->append($handler)) {
+				return rt::unique<SemanticExpression>();
+			};
+			@index = index + 1;
+		};
+		@this.variant_facts.clear();
 		return $result;
 	};
 

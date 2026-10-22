@@ -30,6 +30,8 @@ struct Backend {
 	fn symbol(Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
 	fn implementation(Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
 	fn table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*;
+	fn exception_type(var Backend& this, Type* type) -> var LLVMOpaqueValue*;
+	fn exception_info(var Backend& this, Type* type) -> var LLVMOpaqueValue*;
 	fn field_index(Backend& this, var Entity* entity, usize index) -> u32;
 
 	fn context(Backend& this) -> var LLVMOpaqueContext*;
@@ -213,7 +215,7 @@ fn Backend::optimize(var Backend& this) -> bool {
 		return @this.error(location, "cannot create optimization options");
 	};
 
-	LLVMPassBuilderOptionsSetVerifyEach(options.get(), 1);
+	LLVMPassBuilderOptionsSetVerifyEach(options.get(), 0);
 	rt::string_view pipeline = "default<O0>";
 
 	switch (this.optimization) {

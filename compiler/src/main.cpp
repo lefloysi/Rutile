@@ -6,14 +6,26 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <variant>
 
+struct Compiler;
+extern "C" int rutile_compiler_session(int (*callback)(Compiler*, void*), void* data);
+extern "C" int kiln_language_server(Compiler* compiler, std::FILE* input, std::FILE* output, const char* root);
 extern "C" int rutile_compile_library(const char* const* paths, std::size_t count,
 	const char* output, std::FILE* (*open)(const char*, const char*), int optimization,
 	std::FILE* diagnostics);
 extern const std::string_view software_version;
+
+int rutile_language_server_session(Compiler* compiler, void* context) {
+	auto* root = static_cast<std::string*>(context);
+	return kiln_language_server(compiler, platform_standard_input(), platform_standard_output(), root->c_str());
+}
 
 extern "C" std::FILE* compiler_open_native_file(const char* path, const char* mode) {
 	return platform_open_file(std::filesystem::u8path(path), mode);
@@ -23,11 +35,66 @@ int main(int argc, char** argv) {
 	if (argc == 3 && std::string_view(argv[1]) == "serve") {
 		return rutile_service_serve(argv[2]);
 	}
-	if (argc == 2 && (std::string_view(argv[1]) == "status" || std::string_view(argv[1]) == "exit")) {
+	if (argc == 3 && std::string_view(argv[1]) == "language-server" && std::string_view(argv[2]) == "--stdio") {
+		if (!platform_language_stdio()) {
+			std::fputs("Could not configure the IDE connection streams.\n", stderr);
+			return 1;
+		}
+		std::error_code error;
+		const auto directory = std::filesystem::current_path(error);
+		if (error) {
+			std::fputs("Could not determine the project directory.\n", stderr);
+			return 1;
+		}
+		const auto encoded = directory.generic_u8string();
+		std::string root(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+		return rutile_compiler_session(rutile_language_server_session, &root);
+	}
+	if (argc == 2 && (std::string_view(argv[1]) == "status" || std::string_view(argv[1]) == "exit" || std::string_view(argv[1]) == "progress")) {
 		return rutile_service_control(argv[1]);
 	}
+	if (argc >= 2 && std::string_view(argv[1]) == "request") {
+		if (argc < 3 || argc > 4) {
+			std::fputs("Usage: rutilec request <operation> [payload.json|-]\n", stderr);
+			return 1;
+		}
+		std::string request = argv[2];
+		if (argc == 4) {
+			std::ifstream file;
+			std::istream* input = &std::cin;
+			if (std::string_view(argv[3]) != "-") {
+				file.open(std::filesystem::u8path(argv[3]), std::ios::binary);
+				if (!file) {
+					std::fputs("Cannot read the request payload file.\n", stderr);
+					return 1;
+				}
+				input = &file;
+			}
+			std::string payload;
+			char buffer[4096];
+			while (input->read(buffer, sizeof(buffer)) || input->gcount()) {
+				payload.append(buffer, static_cast<std::size_t>(input->gcount()));
+				if (payload.size() > 8 * 1024 * 1024) {
+					std::fputs("Compiler request payload exceeds 8 MiB.\n", stderr);
+					return 1;
+				}
+			}
+			if (input->bad()) {
+				std::fputs("Cannot finish reading the request payload.\n", stderr);
+				return 1;
+			}
+			try {
+				request += " " + nlohmann::json::parse(payload).dump();
+			}
+			catch (const nlohmann::json::exception& error) {
+				std::fprintf(stderr, "Invalid JSON request payload: %s\n", error.what());
+				return 1;
+			}
+		}
+		return rutile_service_control(request.c_str());
+	}
 	CLI::App command{ "Compile Rutile sources into a native object." };
-	command.footer("Service operations: compiler status, compiler exit. Kiln starts the persistent compiler automatically.");
+	command.footer("Persistent compiler: rutilec status, rutilec progress, rutilec exit.\nSend an operation: rutilec request <operation> [payload.json|-].\nOperations include sources, configure, compile, result <request_id>, and progress <request_id>.\nQuote operations containing a request ID. Use '-' to read a JSON payload from stdin.\nKiln starts the persistent compiler and supplies its project configuration.");
 	command.set_version_flag("--version", std::string(software_version));
 	argv = command.ensure_utf8(argv);
 	std::vector<std::string> inputs;

@@ -2,12 +2,14 @@ struct NativeBinding {
 	var Entity* entity;
 	var LLVMOpaqueValue* address;
 	var LLVMOpaqueValue* live;
+	usize order;
 };
 
 struct NativeTemporary {
 	var SemanticExpression* expression;
 	var LLVMOpaqueValue* address;
 	var LLVMOpaqueValue* live;
+	usize order;
 };
 
 struct NativeAssignment {
@@ -19,8 +21,46 @@ struct NativeControl {
 	var LLVMOpaqueBasicBlock* leave;
 	var LLVMOpaqueBasicBlock* resume;
 	var NativeControl* parent;
+	var NativeCatch* catches;
+	var NativeHandler* handlers;
 	usize binding_boundary;
 	usize leave_edges;
+};
+
+struct NativeUnwind {
+	Type* type;
+	var LLVMOpaqueValue* address;
+	var LLVMOpaqueValue* count;
+	var LLVMOpaqueValue* allocation;
+	usize order;
+};
+
+struct NativeHandler {
+	var LLVMOpaqueBasicBlock* destination;
+	var LLVMOpaqueValue* parent_pad;
+	var NativeHandler* parent;
+	usize bindings;
+	usize temporaries;
+	usize unwinds;
+};
+
+struct NativeCatch {
+	var LLVMOpaqueValue* pad;
+	var LLVMOpaqueValue* parent_pad;
+	var NativeCatch* parent;
+	var NativeHandler* handlers;
+	var LLVMOpaqueBasicBlock* unwind;
+	usize bindings;
+	usize temporaries;
+	usize unwinds;
+};
+
+struct NativeUnwindRoute {
+	usize revision;
+	usize depth;
+	var LLVMOpaqueValue* pad;
+	var NativeHandler* handler;
+	var LLVMOpaqueBasicBlock* destination;
 };
 
 enum native_evaluation : [u08] {
@@ -39,6 +79,7 @@ struct FunctionEmitter {
 
 	fn bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address) -> bool;
 	fn destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
+	fn destroy_exception(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
 	fn needs_destruction(Type* type) -> bool;
 
 	fn take(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
@@ -62,6 +103,7 @@ private:
 
 	fn live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue*;
 	fn set_live(var FunctionEmitter& this, var SemanticExpression* expression, bool live);
+	fn consume(var FunctionEmitter& this, var SemanticExpression* expression);
 	fn remember(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
 	fn temporary(FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
@@ -70,6 +112,19 @@ private:
 	fn guarded_destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> bool;
 	fn forget_temporaries(var FunctionEmitter& this, usize begin);
 	fn leave_scope(var FunctionEmitter& this, usize begin) -> bool;
+	fn native_call(var FunctionEmitter& this, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var LLVMOpaqueValue var** arguments, u32 count) -> var LLVMOpaqueValue*;
+	fn native_allocate(var FunctionEmitter& this, var LLVMOpaqueValue* bytes) -> var LLVMOpaqueValue*;
+	fn native_free(var FunctionEmitter& this, var LLVMOpaqueValue* address) -> var LLVMOpaqueValue*;
+	fn unwind_destination(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock*;
+	fn unwind_cleanup(var FunctionEmitter& this, usize bindings, usize temporaries, usize unwinds) -> bool;
+	fn retain_unwind(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* count, var LLVMOpaqueValue* allocation) -> bool;
+	fn forget_unwinds(var FunctionEmitter& this, usize begin);
+	fn exception_try(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
+	fn catch_handler(var FunctionEmitter& this, var SemanticExpression* source, var LLVMOpaqueValue* dispatch, var LLVMOpaqueBasicBlock* after, var LLVMOpaqueBasicBlock* unwind, var LLVMOpaqueValue* descriptor) -> bool;
+	fn exception_throw(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
+	fn exit_cleanup(var FunctionEmitter& this, usize bindings, var NativeCatch* catches, var NativeHandler* handlers) -> bool;
+	fn terminate_handler(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock*;
+	fn retain_components(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
 
 	fn scoped_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
 	fn lower_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
@@ -101,6 +156,10 @@ private:
 	fn validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
 
 	fn construct(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
+	fn construct_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
+	fn initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
+	fn copy_initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
+	fn initialize_value_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> bool;
 
 	fn allocate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn allocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
@@ -116,8 +175,17 @@ private:
 	var LLVMOpaqueValue* variant_payload_address;
 	Type* result;
 	var NativeControl* active_control;
+	var NativeHandler* active_handler;
+	var NativeHandler* function_handler;
+	var LLVMOpaqueValue* active_pad;
+	var NativeCatch* active_catch;
+	usize unwind_depth;
+	usize lifetime_order;
+	usize lifetime_revision;
 	rt::buffer<NativeBinding> bindings;
 	rt::buffer<NativeTemporary> temporaries;
+	rt::buffer<NativeUnwind> unwinds;
+	rt::buffer<NativeUnwindRoute> unwind_routes;
 };
 
 fn FunctionEmitter::FunctionEmitter(var FunctionEmitter& this, var Backend& backend, var LLVMOpaqueValue* function, Type* result) {
@@ -141,6 +209,8 @@ fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVM
 	NativeBinding binding;
 	@binding.entity = entity;
 	@binding.address = address;
+	@this.lifetime_order = this.lifetime_order + 1;
+	@binding.order = this.lifetime_order;
 
 	if (FunctionEmitter::needs_destruction(entity->type())) {
 		@binding.live = @this.live_flag();
@@ -157,6 +227,7 @@ fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVM
 
 		return @this.backend->error(location, "cannot retain native local storage");
 	};
+	@this.lifetime_revision = this.lifetime_revision + 1;
 
 	return true;
 };
@@ -177,6 +248,14 @@ fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LL
 
 fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> bool {
 	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("entry"));
+	NativeHandler boundary;
+	if (function->nonthrowing() && native_windows_exceptions(*this.backend)) {
+		var LLVMOpaqueBasicBlock* entry = LLVMGetInsertBlock(this.backend->builder());
+		@boundary.destination = @this.terminate_handler();
+		@this.active_handler = &@boundary;
+		@this.function_handler = &@boundary;
+		LLVMPositionBuilderAtEnd(this.backend->builder(), entry);
+	};
 	usize index = 0;
 
 	while (index < function->parameters().size()) {
@@ -198,6 +277,12 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> boo
 
 	if (function->definition() == function_definition::defaulted) {
 		return @this.generated(function);
+	};
+	if (function->role() == function_role::destructor && function->nonthrowing()) {
+		Type* type = function->parameters().data()[0]->type()->element();
+		if (!@this.retain_components(type, LLVMGetParam(this.function, 0))) {
+			return false;
+		};
 	};
 
 	if (function->role() == function_role::constructor) {
@@ -483,7 +568,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 			@argument = @this.address(source);
 		}
 		else {
-			@argument = @this.take(source);
+			@argument = @this.value(source);
 
 			if (argument && index >= signature.parameters().size() && signature.arity() == parameter_arity::variadic) {
 				Type* type = FunctionEmitter::representation(source->type());
@@ -514,7 +599,14 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 	if (!native) {
 		return nullptr;
 	};
-	return LLVMBuildCall2(this.backend->builder(), native, function, (@arguments).data(), static_cast<u32>(arguments.size()), "\0".data());
+	@index = 0;
+	while (index < source_arguments->size()) {
+		if (index >= signature.parameters().size() || signature.parameters().data()[index]->kind() != type_kind::reference) {
+			@this.consume(source_arguments->item(index));
+		};
+		@index = index + 1;
+	};
+	return @this.native_call(native, function, (@arguments).data(), static_cast<u32>(arguments.size()));
 };
 
 fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* native) -> var LLVMOpaqueValue* {

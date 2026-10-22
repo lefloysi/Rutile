@@ -18,6 +18,7 @@ struct TypeStore {
 	fn reference(var TypeStore& this, Type* element) -> Type*;
 	fn array(var TypeStore& this, Type* element, u64 count) -> Type*;
 	fn function(var TypeStore& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity) -> Type*;
+	fn function(var TypeStore& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity, bool nonthrowing) -> Type*;
 	fn qualified(var TypeStore& this, Type& type, type_qualifier qualifier) -> Type*;
 	fn clear(var TypeStore& this);
 
@@ -162,7 +163,11 @@ fn TypeStore::array(var TypeStore& this, Type* element, u64 count) -> Type* {
 };
 
 fn TypeStore::function(var TypeStore& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity) -> Type* {
-	var signature = rt::unique<FunctionSignature>(new var FunctionSignature($result, $parameters, $arity));
+	return @this.function($result, $parameters, $arity, false);
+};
+
+fn TypeStore::function(var TypeStore& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity, bool nonthrowing) -> Type* {
+	var signature = rt::unique<FunctionSignature>(new var FunctionSignature($result, $parameters, $arity, $nonthrowing));
 
 	if (!signature.get()) {
 		return nullptr;

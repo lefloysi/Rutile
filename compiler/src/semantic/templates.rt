@@ -199,6 +199,9 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 			return false;
 		};
 
+		if (!@analyzer.semantic_unit()->record_name(@analyzer, @scope, @*name->left(), @*owner, 2)) {
+			return false;
+		};
 		TemplateMemberDefinition definition;
 		@definition.owner = $owner;
 		@definition.source = &@source;
@@ -226,6 +229,9 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 				diagnostic_name(@message, *name);
 				@message.text("': qualified function owner has no member scope");
 				@analyzer.report(source.token(), message.view());
+				return false;
+			};
+			if (!@analyzer.semantic_unit()->record_name(@analyzer, @scope, @*name->left(), @*owner, 2)) {
 				return false;
 			};
 			return @this.auto_declaration(@analyzer, @*owner->members(), @*owner->members(), @source, scope.access());
@@ -819,6 +825,7 @@ fn TemplateEngine::instantiate(var TemplateEngine& this, var Analyzer& analyzer,
 		return nullptr;
 	};
 	var TemplateInstance* published = instance.get();
+	analyzer.report_progress("instantiating-template", 0, 0, *entity);
 
 	if (!@this.instances.push_back($instance)) {
 		@analyzer.error(declaration, "template instance storage is unavailable");

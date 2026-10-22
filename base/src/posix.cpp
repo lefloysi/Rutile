@@ -55,6 +55,19 @@ struct PlatformServer {
 	char endpoint[sizeof(sockaddr_un::sun_path)];
 };
 
+struct PlatformStreamServer {
+	int listener;
+	int client;
+	dev_t device;
+	ino_t inode;
+	char endpoint[sizeof(sockaddr_un::sun_path)];
+};
+
+struct PlatformStream {
+	std::FILE* input;
+	std::FILE* output;
+};
+
 bool platform_current_directory(char* path, std::size_t capacity) {
 	return capacity > 0 && getcwd(path, capacity) != nullptr;
 }
@@ -600,6 +613,158 @@ void platform_server_disconnect(struct PlatformServer* server) {
 void platform_server_close(struct PlatformServer* server) {
 	if (server) {
 		platform_server_disconnect(server);
+		close(server->listener);
+		struct stat current;
+		if (!lstat(server->endpoint, &current) && current.st_dev == server->device && current.st_ino == server->inode) {
+			unlink(server->endpoint);
+		}
+		delete server;
+	}
+}
+
+struct PlatformStreamServer* platform_stream_server_open(const char* endpoint) {
+	struct sockaddr_un address;
+	if (!posix_address(endpoint, &address)) {
+		return nullptr;
+	}
+	int listener = posix_socket();
+	if (listener < 0) {
+		return nullptr;
+	}
+	auto* server = new (std::nothrow) PlatformStreamServer{};
+	if (!server) {
+		close(listener);
+		return nullptr;
+	}
+	struct stat existing;
+	bool exists = !lstat(endpoint, &existing);
+	if ((exists && (!S_ISSOCK(existing.st_mode) || existing.st_uid != getuid())) || (!exists && errno != ENOENT)) {
+		close(listener);
+		delete server;
+		return nullptr;
+	}
+	if (exists && unlink(endpoint)) {
+		close(listener);
+		delete server;
+		return nullptr;
+	}
+	if (bind(listener, reinterpret_cast<struct sockaddr*>(&address), sizeof(address))) {
+		close(listener);
+		delete server;
+		return nullptr;
+	}
+	struct stat bound;
+	if (lstat(endpoint, &bound) || chmod(endpoint, 0600) || listen(listener, 8)) {
+		close(listener);
+		unlink(endpoint);
+		delete server;
+		return nullptr;
+	}
+	server->listener = listener;
+	server->client = -1;
+	server->device = bound.st_dev;
+	server->inode = bound.st_ino;
+	strcpy(server->endpoint, endpoint);
+	return server;
+}
+
+platform_accept platform_stream_server_accept_for(struct PlatformStreamServer* server, unsigned int timeout_ms, struct PlatformStream** stream) {
+	if (!server || !stream) {
+		return platform_accept::error;
+	}
+	*stream = nullptr;
+	if (server->client >= 0) {
+		shutdown(server->client, SHUT_RDWR);
+		close(server->client);
+		server->client = -1;
+	}
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+	while (true) {
+		struct pollfd state = { server->listener, POLLIN, 0 };
+		int wait = -1;
+		if (timeout_ms != UINT_MAX) {
+			const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+			wait = remaining <= 0 ? 0 : remaining > INT_MAX ? INT_MAX : static_cast<int>(remaining);
+		}
+		int result = poll(&state, 1, wait);
+		if (!result) {
+			return platform_accept::timeout;
+		}
+		if (result < 0 && errno == EINTR) {
+			continue;
+		}
+		if (result <= 0 || !(state.revents & POLLIN)) {
+			return platform_accept::error;
+		}
+		int client = accept(server->listener, nullptr, nullptr);
+		if (client < 0 && errno == EINTR) {
+			continue;
+		}
+		if (client < 0 || fcntl(client, F_SETFD, FD_CLOEXEC) < 0) {
+			if (client >= 0) {
+				close(client);
+			}
+			return platform_accept::error;
+		}
+		int input_fd = dup(client);
+		int output_fd = dup(client);
+		if (input_fd < 0 || output_fd < 0) {
+			if (input_fd >= 0) close(input_fd);
+			if (output_fd >= 0) close(output_fd);
+			close(client);
+			return platform_accept::error;
+		}
+		fcntl(input_fd, F_SETFD, FD_CLOEXEC);
+		fcntl(output_fd, F_SETFD, FD_CLOEXEC);
+		auto* input = fdopen(input_fd, "rb");
+		auto* output = fdopen(output_fd, "wb");
+		if (!input || !output) {
+			if (input) fclose(input); else close(input_fd);
+			if (output) fclose(output); else close(output_fd);
+			close(client);
+			return platform_accept::error;
+		}
+		auto* accepted = new (std::nothrow) PlatformStream{ input, output };
+		if (!accepted) {
+			fclose(input);
+			fclose(output);
+			close(client);
+			return platform_accept::error;
+		}
+		server->client = client;
+		*stream = accepted;
+		return platform_accept::accepted;
+	}
+}
+
+std::FILE* platform_stream_input(struct PlatformStream* stream) {
+	return stream ? stream->input : nullptr;
+}
+
+std::FILE* platform_stream_output(struct PlatformStream* stream) {
+	return stream ? stream->output : nullptr;
+}
+
+void platform_stream_close(struct PlatformStream* stream) {
+	if (stream) {
+		if (stream->input) fclose(stream->input);
+		if (stream->output) fclose(stream->output);
+		delete stream;
+	}
+}
+
+void platform_stream_server_interrupt(struct PlatformStreamServer* server) {
+	if (server && server->client >= 0) {
+		shutdown(server->client, SHUT_RDWR);
+	}
+}
+
+void platform_stream_server_close(struct PlatformStreamServer* server) {
+	if (server) {
+		if (server->client >= 0) {
+			shutdown(server->client, SHUT_RDWR);
+			close(server->client);
+		}
 		close(server->listener);
 		struct stat current;
 		if (!lstat(server->endpoint, &current) && current.st_dev == server->device && current.st_ino == server->inode) {

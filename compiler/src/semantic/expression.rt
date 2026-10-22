@@ -19,6 +19,10 @@ enum semantic_kind : [u08] {
 	deferred_argument;
 	variable;
 	return_value;
+	exception_try;
+	exception_handler;
+	exception_throw;
+	exception_rethrow;
 	conditional;
 	switch_expression;
 	case_label;
@@ -146,6 +150,9 @@ fn SemanticExpression::set_type_use(var SemanticExpression& this, TypeUse& use) 
 };
 
 fn SemanticExpression::type(SemanticExpression& this) -> Type* {
+	if (this.kind() == semantic_kind::name && this.binding && this.binding->kind() == entity_kind::function) {
+		return this.binding->type();
+	};
 	return this.value_type;
 };
 

@@ -5,7 +5,7 @@ $output = Join-Path $root 'build/native-tests/compiler-progress'
 New-Item -ItemType Directory -Force $output | Out-Null
 $sources = Get-ChildItem "$root/compiler/std", "$root/compiler/src" -Recurse -Filter '*.rt' |
 	Sort-Object FullName | Select-Object -ExpandProperty FullName
-& "$root/distro/windows-x64/compiler.exe" @sources --output "$output/compiler.obj" --optimization 0
+& "$root/distro/windows-x64/rutilec.exe" @sources --output "$output/compiler.obj" --optimization 0
 if ($LASTEXITCODE) {
 	throw 'Compiler progress source compilation failed.'
 }

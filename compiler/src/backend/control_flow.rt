@@ -97,6 +97,8 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 	@loop.leave := after;
 	@loop.resume := step;
 	@loop.parent := this.active_control;
+	@loop.catches = this.active_catch;
+	@loop.handlers = this.active_handler;
 	@loop.binding_boundary = this.bindings.size();
 	@this.active_control = &@loop;
 	bool emitted = @this.scoped_statement(expression->item(body_index));
@@ -188,7 +190,14 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 				return false;
 			};
 
-			return @this.initialize_value(entity->type(), slot, expression->item(0));
+			@this.binding_live(entity, false);
+
+			if (!@this.initialize_value(entity->type(), slot, expression->item(0))) {
+				return false;
+			};
+
+			@this.binding_live(entity, true);
+			return true;
 		};
 
 		case semantic_kind::return_value: {
@@ -198,8 +207,11 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 				if (operand && operand->kind() != semantic_kind::noop && !@this.statement(operand)) {
 					return false;
 				};
+				if (this.terminated()) {
+					return true;
+				};
 
-				if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(0)) {
+				if (!@this.exit_cleanup(0, nullptr, this.function_handler)) {
 					return false;
 				};
 
@@ -221,10 +233,21 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 				return false;
 			};
 
-			if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(0)) {
+			usize unwind_begin = this.unwinds.size();
+			if (FunctionEmitter::needs_destruction(this.result)) {
+				var LLVMOpaqueValue* storage = @this.slot(this.result);
+				if (!storage) {
+					return false;
+				};
+				LLVMBuildStore(this.backend->builder(), value, storage);
+				if (!@this.retain_unwind(this.result, storage, nullptr, nullptr)) {
+					return false;
+				};
+			};
+			if (!@this.exit_cleanup(0, nullptr, this.function_handler)) {
 				return false;
 			};
-
+			@this.forget_unwinds(unwind_begin);
 			LLVMBuildRet(this.backend->builder(), value);
 
 			return true;
@@ -232,17 +255,19 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 
 		case semantic_kind::conditional:
 			return @this.conditional(expression);
+		case semantic_kind::exception_try:
+			return @this.exception_try(expression);
+		case semantic_kind::exception_throw:
+		case semantic_kind::exception_rethrow:
+			return @this.exception_throw(expression);
 		case semantic_kind::destruction: {
 			var SemanticExpression* object = expression->item(0);
 			var LLVMOpaqueValue* address = @this.address(object);
-
-			if (!address || !@this.destroy(object->type(), address)) {
+			if (!address) {
 				return false;
 			};
-
 			@this.set_live(object, false);
-
-			return true;
+			return @this.destroy(object->type(), address);
 		};
 
 		case semantic_kind::while_loop:
@@ -264,7 +289,7 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 				return @this.backend->error(expression->token(), "control transfer has no enclosing native destination");
 			};
 
-			if (!@this.cleanup_temporaries(0) || !@this.cleanup_bindings(target->binding_boundary)) {
+			if (!@this.exit_cleanup(target->binding_boundary, target->catches, target->handlers)) {
 				return false;
 			};
 

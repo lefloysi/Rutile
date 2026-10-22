@@ -24,7 +24,7 @@ def main():
 	arguments.add_argument("--source-root", type=Path, default=ROOT)
 	options = arguments.parse_args()
 	build = ROOT / options.build
-	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-636f6d70696c65722e657865/compiler.exe"
+	compiler = (ROOT / options.compiler).resolve() if options.compiler else build / "target-727574696c65632e657865/rutilec.exe"
 	runtime = "/MD"
 	source_root = options.source_root.resolve()
 	directory = ROOT / "build/compiler-new/language-shared"

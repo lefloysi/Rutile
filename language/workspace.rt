@@ -15,6 +15,7 @@ fn runtime_atomic_store(var RuntimeAtomic* destination, u64 value);
 fn runtime_atomic_fetch_add(var RuntimeAtomic* destination, u64 value) -> u64;
 fn runtime_clock_nanoseconds() -> u64;
 fn kiln_project_sources(char* root, ((var void*, char*, char*, i32) -> i32)* add, var void* context, ((var void*, char*) -> void)* diagnostic) -> i32;
+fn kiln_project_sources_revision() -> u64;
 
 struct LanguageEdit {
 	u64 revision;
@@ -41,6 +42,7 @@ enum language_group_kind : [u08] {
 	target;
 	loose;
 	analysis;
+	standard;
 };
 
 struct LanguageGroup {
@@ -155,6 +157,7 @@ struct LanguageWorkspace {
 	fn change(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
 	fn close(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
 	fn refresh(var LanguageWorkspace& this) -> bool;
+	fn refresh_sources(var LanguageWorkspace& this) -> bool;
 	fn cancel(var LanguageWorkspace& this);
 	fn query(var LanguageWorkspace& this, rt::string_view method, rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn status(var LanguageWorkspace& this) -> rt::unique<rt::json_value>;
@@ -181,7 +184,7 @@ private:
 	fn mapped(var LanguageWorkspace& this, LanguageIndex& index, SourceRange& input, var SourceRange& output) -> bool;
 	fn old_offset(var LanguageWorkspace& this, LanguageIndex& index, usize source, usize current, var usize& original) -> bool;
 	fn location(var LanguageWorkspace& this, LanguageIndex& index, SourceRange& range) -> rt::unique<rt::json_value>;
-	fn bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result, bool follow_receiver) -> bool;
+	fn bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result) -> bool;
 	fn template_contexts(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool select) -> rt::unique<rt::json_value>;
 	fn template_context(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> u64;
 	fn template_context(var LanguageWorkspace& this, LanguageIndex& index, usize source, usize offset) -> u64;
@@ -208,6 +211,7 @@ private:
 	rt::string root;
 	u64 configuration;
 	u64 cached_configuration;
+	u64 sources_revision;
 	u64 revision;
 	u64 minimum_semantic_generation;
 	u64 queries;
@@ -229,6 +233,7 @@ fn LanguageWorkspace::LanguageWorkspace(var LanguageWorkspace& this, var Compile
 	@this.protocol = &@protocol;
 	@this.root = rt::string(root);
 	@this.configuration = 1;
+	@this.sources_revision = kiln_project_sources_revision();
 	@this.jobs_mutex = runtime_mutex_create();
 	@this.publication_mutex = runtime_mutex_create();
 	@this.wake = runtime_condition_create();
@@ -654,9 +659,14 @@ fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& paramet
 };
 
 fn LanguageWorkspace::refresh(var LanguageWorkspace& this) -> bool {
+	@this.sources_revision = kiln_project_sources_revision();
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	return @this.schedule();
+};
+
+fn LanguageWorkspace::refresh_sources(var LanguageWorkspace& this) -> bool {
+	return this.sources_revision == kiln_project_sources_revision() || @this.refresh();
 };
 
 fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) -> bool {

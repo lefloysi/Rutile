@@ -8,6 +8,8 @@
 
 struct PlatformLock;
 struct PlatformServer;
+struct PlatformStreamServer;
+struct PlatformStream;
 
 extern "C" std::FILE* platform_standard_error();
 extern "C" std::FILE* platform_standard_input();
@@ -47,6 +49,14 @@ bool platform_server_read(struct PlatformServer* server, char* command, std::siz
 bool platform_server_write(struct PlatformServer* server, const char* response);
 void platform_server_disconnect(struct PlatformServer* server);
 void platform_server_close(struct PlatformServer* server);
+
+struct PlatformStreamServer* platform_stream_server_open(const char* endpoint);
+platform_accept platform_stream_server_accept_for(struct PlatformStreamServer* server, unsigned int timeout_ms, struct PlatformStream** stream);
+std::FILE* platform_stream_input(struct PlatformStream* stream);
+std::FILE* platform_stream_output(struct PlatformStream* stream);
+void platform_stream_close(struct PlatformStream* stream);
+void platform_stream_server_interrupt(struct PlatformStreamServer* server);
+void platform_stream_server_close(struct PlatformStreamServer* server);
 
 
 

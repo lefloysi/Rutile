@@ -198,19 +198,24 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				var LLVMOpaqueBasicBlock* after = @this.block("delete.after");
 				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
+				usize unwind_begin = this.unwinds.size();
+				if (!@this.retain_unwind(element, nullptr, nullptr, pointer)) {
+					return nullptr;
+				};
 
 				if (!@this.destroy(element, pointer)) {
 					return nullptr;
 				};
 
-				var LLVMOpaqueValue* disposed = LLVMBuildFree(this.backend->builder(), pointer);
+				@this.forget_unwinds(unwind_begin);
+				var LLVMOpaqueValue* disposed = @this.native_free(pointer);
 				LLVMBuildBr(this.backend->builder(), after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 				return disposed;
 			};
 
-			return LLVMBuildFree(this.backend->builder(), pointer);
+			return @this.native_free(pointer);
 		};
 
 		case semantic_kind::array_deallocation:

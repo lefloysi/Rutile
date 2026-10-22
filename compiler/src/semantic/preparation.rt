@@ -156,6 +156,89 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 	return true;
 };
 
+fn Analyzer::prepare_function_exception(var Analyzer& this, var Entity& entity) -> bool {
+	if (entity.kind() != entity_kind::function || entity.exception_contract() != exception_specification::inferred || entity.exception_state() != entity_state::declared || entity.definition() == function_definition::deleted) {
+		return true;
+	};
+	if (entity.role() != function_role::destructor && entity.definition() != function_definition::defaulted) {
+		return true;
+	};
+	var Entity* owner = entity.scope()->owner();
+	if (owner && owner->kind() == entity_kind::record && owner->state() != entity_state::ready) {
+		return true;
+	};
+	@entity.set_exception_state(entity_state::resolving);
+	if (entity.definition() == function_definition::defaulted && !@this.function_body(&@entity)) {
+		return false;
+	};
+	rt::buffer<Type*> parameters;
+	usize index = 0;
+	while (index < entity.type()->signature().parameters().size()) {
+		if (!@parameters.push_back(entity.type()->signature().parameters().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	Type* type = @this.types->function(entity.type()->signature().result(), $parameters, entity.type()->signature().arity(), entity.nonthrowing());
+	if (!type) {
+		return false;
+	};
+	@entity.set_type(type);
+	@entity.set_exception_state(entity_state::ready);
+	return true;
+};
+
+fn exception_copyable(Type* type) -> bool {
+	if (type->kind() == type_kind::array) {
+		return exception_copyable(type->element());
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* record = type->entity();
+	var Entity* copy = record->copy_constructor();
+	if (copy && copy->definition() == function_definition::deleted) {
+		return false;
+	};
+	if (copy && copy->definition() != function_definition::defaulted) {
+		return true;
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (!exception_copyable(record->bases().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		if (!exception_copyable(record->fields().data()[index]->type())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Analyzer::prepare_exception_type(var Analyzer& this, Type* type) -> bool {
+	if (!@this.prepare_lifetime(type)) {
+		return false;
+	};
+	if (exception_copyable(type) && !@this.prepare_copy(type)) {
+		return false;
+	};
+	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
+		usize index = 0;
+		while (index < type->entity()->bases().size()) {
+			if (!@this.prepare_exception_type(type->entity()->bases().data()[index])) {
+				return false;
+			};
+			@index = index + 1;
+		};
+	};
+	return true;
+};
+
 fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expression) -> bool {
 	if (!expression) {
 		return true;
@@ -173,11 +256,26 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 		};
 		return false;
 	};
+	if (selected && selected->kind() == entity_kind::function && !@this.prepare_function_exception(@*selected)) {
+		return false;
+	};
 
-	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name) && selected && !@this.prepare_lifetime(selected->type())) {
+	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::exception_handler) && selected && !@this.prepare_lifetime(selected->type())) {
 		return false;
 	};
 	if (expression->kind() == semantic_kind::variable && selected && expression->size() && expression->item(0)->kind() == semantic_kind::noop && !@this.prepare_default(selected->type())) {
+		return false;
+	};
+	if (expression->kind() == semantic_kind::exception_handler && selected && selected->type()->kind() != type_kind::reference) {
+		if (!exception_copyable(selected->type())) {
+			@this.report(expression->token(), "catch by value requires a copyable exception type");
+			return false;
+		};
+		if (!@this.prepare_copy(selected->type())) {
+			return false;
+		};
+	};
+	if (expression->kind() == semantic_kind::exception_throw && !@this.prepare_exception_type(expression->item(0)->type())) {
 		return false;
 	};
 

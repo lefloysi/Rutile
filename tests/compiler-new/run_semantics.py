@@ -7,7 +7,7 @@ sys.dont_write_bytecode = True
 from run import run_case
 
 
-compiler = ".kiln/build/release/target-636f6d70696c65722e657865/compiler.exe"
+compiler = ".kiln/build/release/target-727574696c65632e657865/rutilec.exe"
 sources = "tests/compiler-new/semantic/"
 failures = []
 

@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
 			}
 			final_events.insert_or_assign(event.phase, event);
 		}
-		for (const auto* phase : { "reading", "parsing", "collecting", "declarations", "validating", "resolving", "analyzing", "lifetimes", "declaring", "emitting", "dispatch", "initializing", "optimizing", "object", "writing" }) {
+		for (const auto* phase : { "reading", "parsing", "collecting", "declarations", "validating", "resolving", "analyzing", "lifetimes", "declaring", "functions", "dispatch", "initializing", "optimizing", "object", "writing" }) {
 			if (!final_events.contains(phase) || final_events.at(phase).completed != final_events.at(phase).total) {
 				std::fprintf(stderr, "Incomplete progress phase: %s\n", phase);
 				return 5;
@@ -76,6 +76,22 @@ int main(int argc, char** argv) {
 		}
 		if (final_events.at("reading").total != 2 || final_events.at("reading").detail != paths[1] || final_events.at("parsing").detail != paths[1] || !final_events.at("writing").total) {
 			return 6;
+		}
+		if (final_events.at("functions").total != 2 || final_events.at("functions").completed != 2 || final_events.at("functions").detail.empty()) {
+			return 10;
+		}
+		bool reported_first_function = false;
+		bool reported_second_function = false;
+		for (const auto& event : events) {
+			if (event.phase != "functions" || event.completed == 0) {
+				continue;
+			}
+			reported_first_function = reported_first_function || event.detail.find("original/first.rt :: answer") != std::string::npos;
+			reported_second_function = reported_second_function || event.detail.find("original/second.rt :: value") != std::string::npos;
+		}
+		if (!reported_first_function || !reported_second_function) {
+			std::fputs("Function progress did not include each function's source file.\n", stderr);
+			return 11;
 		}
 	}
 	// Separate original files retain parser boundaries and exact diagnostic locations.

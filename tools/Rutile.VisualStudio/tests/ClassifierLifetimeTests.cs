@@ -146,6 +146,18 @@ static class ClassifierLifetimeTests {
 
 		var assembly = Assembly.LoadFrom(args[0]);
 		BraceCompletion(assembly, snapshot);
+		if (assembly.GetReferencedAssemblies().Any(name => name.Name == "Kiln.VisualStudio")) {
+			throw new Exception("Rutile still requires the Kiln managed extension assembly");
+		}
+		var fixture = Path.Combine(Path.GetDirectoryName(args[0]), "workspace-discovery");
+		var own = Path.Combine(fixture, "rutile");
+		Directory.CreateDirectory(own);
+		var executable = Path.Combine(own, "rutilec.exe");
+		File.WriteAllText(executable, "fixture");
+		var discovery = assembly.GetType("Rutile.VisualStudio.RutileWorkspace", true).GetMethod("FindCompiler", BindingFlags.Static | BindingFlags.NonPublic);
+		if ((string)discovery.Invoke(null, new object[] { own, null }) != executable || (string)discovery.Invoke(null, new object[] { own, executable }) != executable) {
+			throw new Exception("Independent language server discovery failed");
+		}
 		var providerType = assembly.GetType("Rutile.VisualStudio.RutileLexicalClassifierProvider", true);
 		var provider = Activator.CreateInstance(providerType, true);
 		providerType.GetField("Documents", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(provider, factory);
@@ -199,21 +211,27 @@ static class ClassifierLifetimeTests {
 				serverRpc.AddLocalRpcTarget(target);
 				serverRpc.StartListening();
 				clientRpc.StartListening();
-				var languageClient = (ILanguageClient)Activator.CreateInstance(assembly.GetType("Rutile.VisualStudio.RutileLanguageClient", true), new object[] { new InterfaceStub<Kiln.VisualStudio.IKilnWorkspace>((method, values) => null).Value });
+				var languageClient = (ILanguageClient)Activator.CreateInstance(assembly.GetType("Rutile.VisualStudio.RutileLanguageClient", true));
 				if (!((JObject)languageClient.InitializationOptions).Value<bool>("rutileSemanticColors")) {
 					throw new Exception("Custom classifier did not opt out of native semantic tagger");
+				}
+				var opened = new JObject { ["textDocument"] = new JObject { ["uri"] = uri, ["text"] = source } };
+				var openedFirst = args.Length > 1 && args[1] == "opened-first";
+				var middleLayer = (ILanguageClientMiddleLayer)((ILanguageClientCustomMessage2)languageClient).MiddleLayer;
+				if (openedFirst) {
+					middleLayer.HandleNotificationAsync("textDocument/didOpen", opened, parameters => clientRpc.NotifyWithParameterObjectAsync("textDocument/didOpen", parameters)).GetAwaiter().GetResult();
 				}
 				var initializedFirst = args.Length > 1 && args[1] == "initialized-first";
 				if (initializedFirst) {
 					languageClient.OnServerInitializedAsync().GetAwaiter().GetResult();
 				}
 				((ILanguageClientCustomMessage2)languageClient).AttachForCustomMessageAsync(clientRpc).GetAwaiter().GetResult();
-				var middleLayer = (ILanguageClientMiddleLayer)((ILanguageClientCustomMessage2)languageClient).MiddleLayer;
 				if (middleLayer.CanHandle("initialize")) {
 					throw new Exception("Legend bootstrap still depends on unsupported initialize middleware");
 				}
-				var opened = new JObject { ["textDocument"] = new JObject { ["uri"] = uri, ["text"] = source } };
-				middleLayer.HandleNotificationAsync("textDocument/didOpen", opened, parameters => clientRpc.NotifyWithParameterObjectAsync("textDocument/didOpen", parameters)).GetAwaiter().GetResult();
+				if (!openedFirst) {
+					middleLayer.HandleNotificationAsync("textDocument/didOpen", opened, parameters => clientRpc.NotifyWithParameterObjectAsync("textDocument/didOpen", parameters)).GetAwaiter().GetResult();
+				}
 				if (!initializedFirst) {
 					languageClient.OnServerInitializedAsync().GetAwaiter().GetResult();
 				}

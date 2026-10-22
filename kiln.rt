@@ -1,25 +1,150 @@
-fn configure_native(var kiln::Target& target) {
+struct ConfigurationFile;
+fn fopen(const char* path, const char* mode) -> var ConfigurationFile*;
+fn fread(var void* destination, usize size, usize count, var ConfigurationFile* file) -> usize;
+fn fclose(var ConfigurationFile* file) -> i32;
+fn getenv(const char* name) -> var char*;
+fn puts(const char* text) -> i32;
+
+fn configuration_error(rt::string_view message) {
+	var text = rt::string("Rutile configuration error: ");
+	@text.append(message);
+	puts(text.c_str());
+	@kiln::failure = 1;
+};
+
+fn configuration_required(rt::string_view path) -> bool {
+	if (configuration_exists(path)) {
+		return true;
+	};
+	var message = rt::string("Required dependency not found: ");
+	@message.append(path);
+	configuration_error(message.view());
+	return false;
+};
+
+fn configuration_path(rt::string_view root, rt::string_view suffix) -> rt::string {
+	var path = rt::string(root);
+	@path.append(suffix);
+	return $path;
+};
+
+fn configuration_exists(rt::string_view path) -> bool {
+	var native = rt::string(path);
+	var file = fopen(native.c_str(), "rb\0".data());
+	if (!file) {
+		return false;
+	};
+	fclose($file);
+	return true;
+};
+
+fn configuration_environment(rt::string_view name) -> rt::string {
+	var native = rt::string(name);
+	return rt::string(rt::from_c_string(getenv(native.c_str())));
+};
+
+fn configure_native(var kiln::Target& target, kiln::Options& options) {
+	var version_path = configuration_path(options.path(), "/VERSION");
+	var version_file = fopen(version_path.c_str(), "rb\0".data());
+	if (!version_file) {
+		var message = rt::string("Cannot read version file: ");
+		@message.append(version_path.view());
+		configuration_error(message.view());
+		return;
+	};
+	char[64] version_bytes {};
+	usize version_length = fread(&@version_bytes[0], 1, sizeof(version_bytes), version_file);
+	fclose($version_file);
+	while (version_length && (version_bytes[version_length - 1] == '\r' || version_bytes[version_length - 1] == '\n')) {
+		@version_length = version_length - 1;
+	};
+	if (!version_length || version_length == sizeof(version_bytes)) {
+		configuration_error("VERSION must contain a nonempty version shorter than 64 bytes.");
+		return;
+	};
+	var definitions = rt::string("RUTILE_VERSION=\"");
+	@definitions.append(rt::string_view(&@version_bytes[0], version_length));
+	@definitions.append("\";RUTILE_PROTOCOL_VERSION=2");
+
+	var dependencies = configuration_environment("RUTILE_DEPENDENCIES");
+	var cli_include = configuration_path(dependencies.view(), "/include");
+	var json_include = configuration_path(dependencies.view(), "/include");
+	var cli_library = configuration_path(dependencies.view(), "/lib");
+	if (dependencies.empty()) {
+		var vcpkg = configuration_environment("VCPKG_ROOT");
+		if (vcpkg.empty()) {
+			configuration_error("Set RUTILE_DEPENDENCIES to an installed dependency prefix or VCPKG_ROOT to a vcpkg installation.");
+			return;
+		};
+		@cli_include = configuration_path(vcpkg.view(), "/installed/x64-windows/include");
+		@json_include = configuration_path(vcpkg.view(), "/installed/x64-windows/include");
+		@cli_library = configuration_path(vcpkg.view(), "/installed/x64-windows/lib");
+		var header = configuration_path(cli_include.view(), "/CLI/CLI.hpp");
+		if (!configuration_exists(header.view())) {
+			@cli_include = configuration_path(vcpkg.view(), "/packages/cli11_x64-windows/include");
+			@cli_library = configuration_path(vcpkg.view(), "/packages/cli11_x64-windows/lib");
+		};
+		var json_header = configuration_path(json_include.view(), "/nlohmann/json.hpp");
+		if (!configuration_exists(json_header.view())) {
+			@json_include = configuration_path(vcpkg.view(), "/packages/nlohmann-json_x64-windows/include");
+		};
+	};
+	var llvm = configuration_environment("LLVM_ROOT");
+	if (llvm.empty()) {
+		var program_files = configuration_environment("ProgramFiles");
+		@llvm = configuration_path(program_files.view(), "/LLVM");
+	};
+	var includes = rt::string("base/include;compiler/include;");
+	@includes.append(cli_include.view());
+	@includes.append(";");
+	@includes.append(json_include.view());
+	var library_paths = rt::string(cli_library.view());
+	@library_paths.append(";");
+	@library_paths.append(llvm.view());
+	@library_paths.append("/lib");
+	var runtime = configuration_path(llvm.view(), "/bin/LLVM-C.dll");
+	var cli_header = configuration_path(cli_include.view(), "/CLI/CLI.hpp");
+	var json_header = configuration_path(json_include.view(), "/nlohmann/json.hpp");
+	var cli_import = configuration_path(cli_library.view(), "/CLI11.lib");
+	var llvm_import = configuration_path(llvm.view(), "/lib/LLVM-C.lib");
+	if (!configuration_required(cli_header.view())) {
+		return;
+	};
+	if (!configuration_required(json_header.view())) {
+		return;
+	};
+	if (!configuration_required(cli_import.view())) {
+		return;
+	};
+	if (!configuration_required(llvm_import.view())) {
+		return;
+	};
+	if (!configuration_required(runtime.view())) {
+		return;
+	};
+
 	@target.compiler("cpp");
 	@target.sources.add("base/src");
-	@target.sources.add("version");
 	@target.sources.add("compiler/src");
 	@target.depends_on("rutile-language.obj");
 	@target.option("standard", "c++latest");
-	@target.option("includes", "base/include;version;../Kiln/build/bootstrap/include");
-	@target.option("forced_includes", "../Kiln/build/bootstrap/config.hpp");
-	@target.option("library_paths", "../Kiln/build/bootstrap/lib");
+	@target.option("includes", includes.view());
+	@target.option("defines", definitions.view());
+	@target.option("library_paths", library_paths.view());
 	@target.option("libraries", "LLVM-C.lib;CLI11.lib;legacy_stdio_definitions.lib;kernel32.lib;user32.lib;shell32.lib;advapi32.lib");
 	@target.option("excludes", "base/src/posix.cpp");
-	@target.option("runtime_files", "distro/windows-x64/LLVM-C.dll");
+	@target.option("runtime_files", runtime.view());
 };
 
 fn main(kiln::Options& options) {
+	kiln::build_directory("build");
 	kiln::profile("debug", 0);
 	kiln::profile("release", 2);
 	var language = kiln::add_target("rutile-language.obj", kiln::TargetType::object_lib);
 	@language.sources.add("compiler/std");
 	@language.sources.add("compiler/src");
+	@language.sources.add("language");
 
-	var compiler = kiln::add_target("compiler.exe", kiln::TargetType::executable);
-	configure_native(@compiler);
+	var compiler = kiln::add_target("rutilec.exe", kiln::TargetType::executable);
+	configure_native(@compiler, options);
 };

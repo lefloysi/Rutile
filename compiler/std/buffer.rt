@@ -1,5 +1,4 @@
 fn malloc(usize size) -> var void*;
-
 fn free(void* memory);
 
 namespace rt {
@@ -76,21 +75,16 @@ namespace rt {
 			return true;
 		};
 
-		usize element_size = sizeof(T);
-		usize maximum = usize::max;
-		if (element_size) {
-			@maximum = maximum / element_size;
-		};
-
-		if (required > maximum) {
+		const usize element_size = sizeof(T);
+		if (element_size && required > usize::max / element_size) {
 			return false;
 		};
 
 		usize count = $required;
-		if (this._capacity <= (maximum >> 1)) {
-			usize grown = this._capacity << 1;
-			if (grown > count) {
-				@count = $grown;
+		if (this._capacity <= (usize::max >> 1)) {
+			const usize grown = this._capacity << 1;
+			if (grown > count && (!element_size || grown <= usize::max / element_size)) {
+				@count = grown;
 			};
 		};
 

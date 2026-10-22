@@ -1,0 +1,683 @@
+// Microsoft x64 exception metadata follows the platform C++ runtime ABI.
+struct NativeExceptionBase {
+	Type* type;
+	u64 offset;
+};
+
+struct NativeExceptionNames {
+	rt::buffer<rt::string> names;
+	rt::buffer<Type*> arguments;
+};
+
+fn native_exception_source_name(var NativeExceptionNames& context, rt::string_view source, var rt::string& name) -> bool {
+	usize index = 0;
+	while (index < context.names.size()) {
+		if (context.names.data()[index].view() == source) {
+			char code = static_cast<char>(u32('0') + static_cast<u32>(index));
+			return @name.append(rt::string_view(&code, 1));
+		};
+		@index = index + 1;
+	};
+	if (context.names.size() < 10 && !@context.names.push_back(rt::string(source))) {
+		return false;
+	};
+	return @name.append(source) && @name.append("@");
+};
+
+fn native_exception_number(u64 value, var rt::string& name) -> bool {
+	if (!value) {
+		return @name.append("A@");
+	};
+	if (value <= 10) {
+		char digit = static_cast<char>(u64('0') + value - 1);
+		return @name.append(rt::string_view(&digit, 1));
+	};
+	char[16] digits {};
+	usize count = 0;
+	while (value) {
+		@digits[count] = static_cast<char>(u64('A') + (value & 15));
+		@count = count + 1;
+		@value = value >> 4;
+	};
+	while (count) {
+		@count = count - 1;
+		if (!@name.append(rt::string_view(&digits[count], 1))) {
+			return false;
+		};
+	};
+	return @name.append("@");
+};
+
+fn native_exception_template_argument(var NativeExceptionNames& context, TemplateArgument& argument, var rt::string& name) -> bool {
+	if (argument.kind == template_argument_kind::pack) {
+		if (!argument.pack || !@name.append("$$P") || !native_exception_number(argument.pack->elements.size(), @name)) {
+			return false;
+		};
+		usize index = 0;
+		while (index < argument.pack->elements.size()) {
+			if (!native_exception_template_argument(@context, argument.pack->elements.data()[index], @name)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return @name.append("$$E");
+	};
+	if (argument.kind == template_argument_kind::type) {
+		return native_exception_encoding(@context, argument.type, @name, false, true);
+	};
+	if (argument.type && argument.type->kind() == type_kind::floating_point) {
+		f64 real = argument.real_value;
+		u64 bits = *reinterpret_cast<u64*>(&real);
+		return @name.append("$$R") && native_exception_encoding(@context, argument.type, @name, false, true) && native_exception_number(bits, @name);
+	};
+	if (!@name.append("$0")) {
+		return false;
+	};
+	u64 value = argument.value;
+	if (argument.type && argument.type->kind() == type_kind::signed_integer && argument.type->signed_value(value) < 0) {
+		if (!@name.append("?")) {
+			return false;
+		};
+		@value = u64(0) - static_cast<u64>(argument.type->signed_value(value));
+	}
+	else if (static_cast<i64>(value) < 0) {
+		if (!@name.append("?")) {
+			return false;
+		};
+		@value = u64(0) - value;
+	};
+	return native_exception_number(value, @name);
+};
+
+fn native_exception_template(var Entity& entity, var rt::string& name) -> bool {
+	TemplateInstantiation* instance = entity.template_arguments();
+	if (!instance || !instance->pattern || !@name.append("?$")) {
+		return false;
+	};
+	var context = NativeExceptionNames();
+	if (!native_exception_source_name(@context, instance->pattern->name(), @name)) {
+		return false;
+	};
+	usize index = 0;
+	while (index < instance->arguments.size()) {
+		TemplateArgument& argument = instance->arguments.data()[index];
+		if (!native_exception_template_argument(@context, argument, @name)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var rt::string& name, bool result, bool escape) -> bool {
+	if (type->kind() == type_kind::reference) {
+		if (type->element()->kind() == type_kind::function) {
+			if (!@name.append("A6")) {
+				return false;
+			};
+			return native_exception_function(@context, type->element(), @name);
+		};
+		if (!@name.append("AE")) {
+			return false;
+		};
+		if (type->element()->qualifier() == type_qualifier::immutable) {
+			if (!@name.append("B")) {
+				return false;
+			};
+		}
+		else if (!@name.append("A")) {
+			return false;
+		};
+		return native_exception_encoding(@context, type->element(), @name, false, false);
+	};
+	if (escape && type->qualifier() == type_qualifier::immutable && type->kind() != type_kind::pointer && type->kind() != type_kind::array && !@name.append("$$CB")) {
+		return false;
+	};
+	if (result && type->qualifier() == type_qualifier::immutable && type->kind() != type_kind::named && type->kind() != type_kind::pointer && type->kind() != type_kind::array && type->kind() != type_kind::function && !@name.append("?B")) {
+		return false;
+	};
+	switch (type->kind()) {
+		case type_kind::void_type:
+			return @name.append("X");
+		case type_kind::boolean:
+			return @name.append("_N");
+		case type_kind::character:
+			return @name.append("D");
+		case type_kind::signed_integer:
+			switch (type->bits()) {
+				case 8:
+					return @name.append("C");
+				case 16:
+					return @name.append("F");
+				case 32:
+					return @name.append("H");
+				case 64:
+					return @name.append("_J");
+			};
+			return false;
+		case type_kind::unsigned_integer:
+			switch (type->bits()) {
+				case 8:
+					return @name.append("E");
+				case 16:
+					return @name.append("G");
+				case 32:
+					return @name.append("I");
+				case 64:
+					return @name.append("_K");
+			};
+			return false;
+		case type_kind::floating_point:
+			if (type->bits() == 32) {
+				return @name.append("M");
+			};
+			return @name.append("N");
+		case type_kind::pointer: {
+			if (type->element()->kind() == type_kind::null_type) {
+				return @name.append("$$T");
+			};
+			if (type->element()->kind() == type_kind::function) {
+				if (type->qualifier() == type_qualifier::immutable) {
+					if (!@name.append("Q6")) {
+						return false;
+					};
+				}
+				else if (!@name.append("P6")) {
+					return false;
+				};
+				return native_exception_function(@context, type->element(), @name);
+			};
+			if (type->qualifier() == type_qualifier::immutable) {
+				if (!@name.append("QE")) {
+					return false;
+				};
+			}
+			else if (!@name.append("PE")) {
+				return false;
+			};
+			if (type->element()->qualifier() == type_qualifier::immutable) {
+				if (!@name.append("B")) {
+					return false;
+				};
+			}
+			else if (!@name.append("A")) {
+				return false;
+			};
+			return native_exception_encoding(@context, type->element(), @name, false, false);
+		};
+		case type_kind::function:
+			if (!@name.append("$$A6")) {
+				return false;
+			};
+			return native_exception_function(@context, type, @name);
+		case type_kind::array: {
+			if ((result || escape) && !@name.append("$$B")) {
+				return false;
+			};
+			if (!@name.append("Y")) {
+				return false;
+			};
+			usize dimensions = 0;
+			Type* element = type;
+			while (element->kind() == type_kind::array) {
+				@dimensions = dimensions + 1;
+				@element = element->element();
+			};
+			if (!native_exception_number(static_cast<u64>(dimensions), @name)) {
+				return false;
+			};
+			@element = type;
+			while (element->kind() == type_kind::array) {
+				if (!native_exception_number(element->count(), @name)) {
+					return false;
+				};
+				@element = element->element();
+			};
+			if (type->qualifier() == type_qualifier::immutable) {
+				var qualified = element->qualified(type_qualifier::immutable);
+				return native_exception_encoding(@context, &qualified, @name, false, true);
+			};
+			return native_exception_encoding(@context, element, @name, false, true);
+		};
+		case type_kind::named: {
+			var Entity* entity = type->entity();
+			if (!entity) {
+				return false;
+			};
+			if (result) {
+				if (type->qualifier() == type_qualifier::immutable) {
+					if (!@name.append("?B")) {
+						return false;
+					};
+				}
+				else if (!@name.append("?A")) {
+					return false;
+				};
+			};
+			if (entity->kind() == entity_kind::enumeration) {
+				if (!@name.append("W4")) {
+					return false;
+				};
+			}
+			else if (entity->layout() == record_layout::overlapping) {
+				if (!@name.append("T")) {
+					return false;
+				};
+			}
+			else if (!@name.append("U")) {
+				return false;
+			};
+			while (entity) {
+				if (entity->template_arguments()) {
+					var template_name = rt::string();
+					if (!native_exception_template(@*entity, @template_name) || !native_exception_source_name(@context, template_name.view(), @name)) {
+						return false;
+					};
+				}
+				else if (!native_exception_source_name(@context, entity->name(), @name)) {
+					return false;
+				};
+				var Scope* scope = entity->scope();
+				@entity = nullptr;
+				while (scope && !entity) {
+					@entity = scope->owner();
+					@scope = scope->parent();
+				};
+			};
+			return @name.append("@");
+		};
+		default:
+			return false;
+	};
+};
+
+fn native_exception_name(Type* type, var rt::string& name) -> bool {
+	var context = NativeExceptionNames();
+	while (type->kind() == type_kind::reference) {
+		@type = type->element();
+	};
+	var normalized = type->qualified(type_qualifier::mutable);
+	if (type->kind() == type_kind::pointer) {
+		var element = type->element()->qualified(type_qualifier::mutable);
+		TypeShape shape;
+		@shape.element = &element;
+		var pointer = Type(type_kind::pointer, $shape);
+		return native_exception_encoding(@context, &pointer, @name, true, false);
+	};
+	return native_exception_encoding(@context, &normalized, @name, true, false);
+};
+
+fn native_exception_function(var NativeExceptionNames& context, Type* type, var rt::string& name) -> bool {
+	FunctionSignature& signature = type->signature();
+	if (!@name.append("A") || !native_exception_encoding(@context, signature.result(), @name, true, false)) {
+		return false;
+	};
+	usize index = 0;
+	while (index < signature.parameters().size()) {
+		Type* parameter = signature.parameters().data()[index];
+		usize previous = 0;
+		while (previous < context.arguments.size() && !parameter->equals(*context.arguments.data()[previous])) {
+			@previous = previous + 1;
+		};
+		if (previous < context.arguments.size()) {
+			char digit = static_cast<char>(u32('0') + static_cast<u32>(previous));
+			if (!@name.append(rt::string_view(&digit, 1))) {
+				return false;
+			};
+		}
+		else {
+			usize begin = name.size();
+			if (!native_exception_encoding(@context, parameter, @name, false, false)) {
+				return false;
+			};
+			if (name.size() - begin > 1 && context.arguments.size() < 10 && !@context.arguments.push_back(parameter)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	if (signature.arity() == parameter_arity::variadic) {
+		if (!@name.append("Z")) {
+			return false;
+		};
+	}
+	else if (!signature.parameters().size()) {
+		if (!@name.append("X")) {
+			return false;
+		};
+	}
+	else if (!@name.append("@")) {
+		return false;
+	};
+	if (signature.nonthrowing()) {
+		return @name.append("_E");
+	};
+	return @name.append("Z");
+};
+
+fn native_exception_function_pointer_descriptor(var Backend& backend, Type* pointer, bool nonthrowing) -> var LLVMOpaqueValue* {
+	if (pointer->kind() != type_kind::pointer || pointer->element()->kind() != type_kind::function) {
+		return nullptr;
+	};
+	FunctionSignature& source = pointer->element()->signature();
+	rt::buffer<Type*> parameters;
+	usize index = 0;
+	while (index < source.parameters().size()) {
+		if (!@parameters.push_back(source.parameters().data()[index])) {
+			return nullptr;
+		};
+		@index = index + 1;
+	};
+	var signature = FunctionSignature(source.result(), $parameters, source.arity(), nonthrowing);
+	TypeShape function_shape;
+	@function_shape.signature = &signature;
+	var function = Type(type_kind::function, $function_shape);
+	TypeShape pointer_shape;
+	@pointer_shape.element = &function;
+	var converted = Type(type_kind::pointer, $pointer_shape);
+	return @backend.exception_type(&converted);
+};
+
+fn native_exception_rva(var Backend& backend, var LLVMOpaqueValue* value) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* integer = LLVMIntTypeInContext(backend.context(), 64);
+	var LLVMOpaqueType* relative = LLVMIntTypeInContext(backend.context(), 32);
+	if (!value) {
+		return LLVMConstNull(relative);
+	};
+	var LLVMOpaqueValue* image = LLVMGetNamedGlobal(backend.module(), "__ImageBase\0".data());
+	if (!image) {
+		@image = LLVMAddGlobal(backend.module(), LLVMIntTypeInContext(backend.context(), 8), "__ImageBase\0".data());
+	};
+	return LLVMConstTrunc(LLVMConstSub(LLVMConstPtrToInt(value, integer), LLVMConstPtrToInt(image, integer)), relative);
+};
+
+fn native_exception_global(var Backend& backend, rt::string_view prefix, rt::string_view suffix, var LLVMOpaqueValue* initializer) -> var LLVMOpaqueValue* {
+	var name = rt::string(prefix);
+	if (!@name.append(suffix)) {
+		return nullptr;
+	};
+	var LLVMOpaqueValue* global = LLVMGetNamedGlobal(backend.module(), name.c_str());
+	if (global) {
+		return global;
+	};
+	@global = LLVMAddGlobal(backend.module(), LLVMTypeOf(initializer), name.c_str());
+	LLVMSetInitializer(global, initializer);
+	LLVMSetGlobalConstant(global, 1);
+	LLVMSetLinkage(global, 3);
+	LLVMSetComdat(global, LLVMGetOrInsertComdat(backend.module(), name.c_str()));
+	return global;
+};
+
+fn Backend::exception_type(var Backend& this, Type* type) -> var LLVMOpaqueValue* {
+	var name = rt::string(".");
+	if (!native_exception_name(type, @name)) {
+		Token origin;
+		@this.error(origin, "exception type requires a supported Microsoft C++ type identity");
+		return nullptr;
+	};
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.context(), 0);
+	var LLVMOpaqueValue* vtable = LLVMGetNamedGlobal(this.module(), "??_7type_info@@6B@\0".data());
+	if (!vtable) {
+		@vtable = LLVMAddGlobal(this.module(), pointer, "??_7type_info@@6B@\0".data());
+	};
+	var LLVMOpaqueValue* text = LLVMConstStringInContext2(this.context(), name.c_str(), name.size(), 0);
+	var LLVMOpaqueType*[3] fields {};
+	@fields[0] = pointer;
+	@fields[1] = pointer;
+	@fields[2] = LLVMTypeOf(text);
+	var LLVMOpaqueType* structure = LLVMStructTypeInContext(this.context(), &@fields[0], 3, 0);
+	var LLVMOpaqueValue*[3] values {};
+	@values[0] = vtable;
+	@values[1] = LLVMConstNull(pointer);
+	@values[2] = text;
+	var LLVMOpaqueValue* descriptor = native_exception_global(@this, "__rutile_eh_type_", name.view(), LLVMConstNamedStruct(structure, &@values[0], 3));
+	if (descriptor) {
+		LLVMSetGlobalConstant(descriptor, 0);
+	};
+	return descriptor;
+};
+
+fn native_exception_thunk(var Backend& backend, Type* type, rt::string_view name, bool copy) -> var LLVMOpaqueValue* {
+	var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(backend.context(), 0);
+	var LLVMOpaqueType*[2] parameters {};
+	@parameters[0] = pointer;
+	@parameters[1] = pointer;
+	u32 count = 1;
+	if (copy) {
+		@count = 2;
+	};
+	var LLVMOpaqueType* signature = LLVMFunctionType(LLVMVoidTypeInContext(backend.context()), &@parameters[0], count, 0);
+	var native_name = rt::string(name);
+	var LLVMOpaqueValue* function = LLVMGetNamedFunction(backend.module(), native_name.c_str());
+	if (function) {
+		return function;
+	};
+	@function = LLVMAddFunction(backend.module(), native_name.c_str(), signature);
+	LLVMSetLinkage(function, 3);
+	LLVMSetComdat(function, LLVMGetOrInsertComdat(backend.module(), native_name.c_str()));
+	var LLVMOpaqueBasicBlock* saved = LLVMGetInsertBlock(backend.builder());
+	LLVMPositionBuilderAtEnd(backend.builder(), LLVMAppendBasicBlockInContext(backend.context(), function, "entry\0".data()));
+	var emitter = FunctionEmitter(@backend, function, nullptr);
+	bool emitted = true;
+	if (copy) {
+		@emitted = @emitter.copy_initialize(type, LLVMGetParam(function, 0), LLVMGetParam(function, 1));
+	}
+	else {
+		@emitted = @emitter.destroy_exception(type, LLVMGetParam(function, 0));
+	};
+	if (emitted) {
+		LLVMBuildRetVoid(backend.builder());
+	};
+	if (saved) {
+		LLVMPositionBuilderAtEnd(backend.builder(), saved);
+	};
+	if (!emitted) {
+		return nullptr;
+	};
+	return function;
+};
+
+fn FunctionEmitter::destroy_exception(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
+	var LLVMOpaqueBasicBlock* current = LLVMGetInsertBlock(this.backend->builder());
+	NativeHandler boundary;
+	@boundary.destination = @this.terminate_handler();
+	var NativeHandler* previous = this.active_handler;
+	@this.active_handler = &@boundary;
+	LLVMPositionBuilderAtEnd(this.backend->builder(), current);
+	bool result = @this.destroy(type, address);
+	@this.active_handler = previous;
+	return result;
+};
+
+fn native_exception_bases(var Backend& backend, Type* type, u64 offset, var rt::buffer<NativeExceptionBase>& bases) -> bool {
+	NativeExceptionBase base;
+	@base.type = type;
+	@base.offset = offset;
+	if (!@bases.push_back($base)) {
+		return false;
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* record = type->entity();
+	usize index = 0;
+	while (index < record->bases().size()) {
+		Type* parent = record->bases().data()[index];
+		u64 displacement = LLVMOffsetOfElement(backend.layout(), @backend.type(type), static_cast<u32>(index));
+		if (!native_exception_bases(@backend, parent, offset + displacement, @bases)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Backend::exception_info(var Backend& this, Type* type) -> var LLVMOpaqueValue* {
+	var name = rt::string();
+	if (!native_exception_name(type, @name) || !@this.exception_type(type)) {
+		return nullptr;
+	};
+	var symbol_name = rt::string("__rutile_eh_throw_");
+	if (!@symbol_name.append(name.view())) {
+		return nullptr;
+	};
+	bool pointee_const = type->kind() == type_kind::pointer && type->element()->kind() != type_kind::null_type && type->element()->kind() != type_kind::function && type->element()->qualifier() == type_qualifier::immutable;
+	if (pointee_const && !@symbol_name.append("_const")) {
+		return nullptr;
+	};
+	var LLVMOpaqueValue* existing = LLVMGetNamedGlobal(this.module(), symbol_name.c_str());
+	if (existing) {
+		return existing;
+	};
+	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.context(), 32);
+	var LLVMOpaqueType*[7] fields {};
+	usize index = 0;
+	while (index < 7) {
+		@fields[index] = integer;
+		@index = index + 1;
+	};
+	var LLVMOpaqueType* catchable = LLVMStructTypeInContext(this.context(), &@fields[0], 7, 0);
+	rt::buffer<NativeExceptionBase> bases;
+	Type* hierarchy = type;
+	bool pointer = type->kind() == type_kind::pointer && type->element()->kind() != type_kind::null_type;
+	if (pointer) {
+		@hierarchy = type->element();
+	};
+	if (!native_exception_bases(@this, hierarchy, 0, @bases)) {
+		return nullptr;
+	};
+	rt::buffer<var LLVMOpaqueValue*> entries;
+	@index = 0;
+	while (index < bases.size()) {
+		Type* target = bases.data()[index].type;
+		usize appearances = 0;
+		usize other = 0;
+		while (other < bases.size()) {
+			if (target->same_shape(*bases.data()[other].type)) {
+				@appearances = appearances + 1;
+			};
+			@other = other + 1;
+		};
+		if (appearances > 1) {
+			@index = index + 1;
+			continue;
+		};
+		TypeShape pointer_shape;
+		@pointer_shape.element = target;
+		var converted = Type(type_kind::pointer, $pointer_shape);
+		if (pointer) {
+			@target = &converted;
+		};
+		var base_name = rt::string();
+		if (!native_exception_name(target, @base_name)) {
+			return nullptr;
+		};
+		var LLVMOpaqueValue* copy;
+		bool copyable = exception_copyable(target);
+		if (copyable && target->kind() == type_kind::named && target->entity()->kind() == entity_kind::record) {
+			var copy_name = rt::string("__rutile_eh_copy_");
+			if (!@copy_name.append(base_name.view())) {
+				return nullptr;
+			};
+			@copy = native_exception_thunk(@this, target, copy_name.view(), true);
+			if (!copy) {
+				return nullptr;
+			};
+		};
+		var LLVMOpaqueValue*[7] values {};
+		bool scalar = target->kind().is_scalar() || target->kind() == type_kind::named && target->entity()->kind() == entity_kind::enumeration;
+		u64 properties = static_cast<u64>(scalar);
+		if (!copyable) {
+			@properties = properties | 2;
+		};
+		@values[0] = LLVMConstInt(integer, properties, 0);
+		@values[1] = native_exception_rva(@this, @this.exception_type(target));
+		@values[2] = LLVMConstInt(integer, bases.data()[index].offset, 0);
+		@values[3] = LLVMConstInt(integer, u64::max, 1);
+		@values[4] = LLVMConstNull(integer);
+		var LLVMOpaqueType* representation = LLVMPointerTypeInContext(this.context(), 0);
+		if (!pointer) {
+			@representation = @this.type(target);
+		};
+		@values[5] = LLVMConstInt(integer, LLVMABISizeOfType(this.layout(), representation), 0);
+		@values[6] = native_exception_rva(@this, copy);
+		var item_name = rt::string(name.view());
+		if (!@item_name.append("_") || !@item_name.append(base_name.view())) {
+			return nullptr;
+		};
+		var LLVMOpaqueValue* item = native_exception_global(@this, "__rutile_eh_catch_", item_name.view(), LLVMConstNamedStruct(catchable, &@values[0], 7));
+		if (!@entries.push_back(native_exception_rva(@this, item))) {
+			return nullptr;
+		};
+		@index = index + 1;
+	};
+	if (type->kind() == type_kind::pointer && type->element()->kind() != type_kind::void_type && type->element()->kind() != type_kind::function) {
+		TypeShape void_shape;
+		@void_shape.bits = 0;
+		var void_type = Type(type_kind::void_type, $void_shape);
+		TypeShape pointer_shape;
+		@pointer_shape.element = &void_type;
+		var void_pointer = Type(type_kind::pointer, $pointer_shape);
+		var LLVMOpaqueValue*[7] values {};
+		@values[0] = LLVMConstInt(integer, 1, 0);
+		@values[1] = native_exception_rva(@this, @this.exception_type(&void_pointer));
+		@values[2] = LLVMConstNull(integer);
+		@values[3] = LLVMConstInt(integer, u64::max, 1);
+		@values[4] = LLVMConstNull(integer);
+		@values[5] = LLVMConstInt(integer, static_cast<u64>(this.pointer_bits() / 8), 0);
+		@values[6] = LLVMConstNull(integer);
+		var LLVMOpaqueValue* item = native_exception_global(@this, "__rutile_eh_void_catch_", name.view(), LLVMConstNamedStruct(catchable, &@values[0], 7));
+		if (!@entries.push_back(native_exception_rva(@this, item))) {
+			return nullptr;
+		};
+	};
+	if (type->kind() == type_kind::pointer && type->element()->kind() == type_kind::function && type->element()->signature().nonthrowing()) {
+		var LLVMOpaqueValue* descriptor = native_exception_function_pointer_descriptor(@this, type, false);
+		if (!descriptor) {
+			return nullptr;
+		};
+		var LLVMOpaqueValue*[7] values {};
+		@values[0] = LLVMConstInt(integer, 1, 0);
+		@values[1] = native_exception_rva(@this, descriptor);
+		@values[2] = LLVMConstNull(integer);
+		@values[3] = LLVMConstInt(integer, u64::max, 1);
+		@values[4] = LLVMConstNull(integer);
+		@values[5] = LLVMConstInt(integer, static_cast<u64>(this.pointer_bits() / 8), 0);
+		@values[6] = LLVMConstNull(integer);
+		var LLVMOpaqueValue* item = native_exception_global(@this, "__rutile_eh_throwing_function_catch_", name.view(), LLVMConstNamedStruct(catchable, &@values[0], 7));
+		if (!@entries.push_back(native_exception_rva(@this, item))) {
+			return nullptr;
+		};
+	};
+	var LLVMOpaqueValue* array = LLVMConstArray2(integer, (@entries).data(), entries.size());
+	var LLVMOpaqueType*[2] array_fields {};
+	@array_fields[0] = integer;
+	@array_fields[1] = LLVMTypeOf(array);
+	var LLVMOpaqueType* array_type = LLVMStructTypeInContext(this.context(), &@array_fields[0], 2, 0);
+	var LLVMOpaqueValue*[2] array_values {};
+	@array_values[0] = LLVMConstInt(integer, entries.size(), 0);
+	@array_values[1] = array;
+	var LLVMOpaqueValue* catchable_array = native_exception_global(@this, "__rutile_eh_array_", name.view(), LLVMConstNamedStruct(array_type, &@array_values[0], 2));
+	var LLVMOpaqueValue* destructor;
+	if (FunctionEmitter::needs_destruction(type)) {
+		var destructor_name = rt::string("__rutile_eh_destroy_");
+		if (!@destructor_name.append(name.view())) {
+			return nullptr;
+		};
+		@destructor = native_exception_thunk(@this, type, destructor_name.view(), false);
+		if (!destructor) {
+			return nullptr;
+		};
+	};
+	var LLVMOpaqueType* info_type = LLVMStructTypeInContext(this.context(), &@fields[0], 4, 0);
+	var LLVMOpaqueValue*[4] info {};
+	u64 attributes = 0;
+	if (pointee_const) {
+		@attributes = 1;
+	};
+	@info[0] = LLVMConstInt(integer, attributes, 0);
+	@info[1] = native_exception_rva(@this, destructor);
+	@info[2] = LLVMConstNull(integer);
+	@info[3] = native_exception_rva(@this, catchable_array);
+	return native_exception_global(@this, "", symbol_name.view(), LLVMConstNamedStruct(info_type, &@info[0], 4));
+};

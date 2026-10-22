@@ -53,7 +53,7 @@ namespace Rutile.VisualStudio {
 	internal sealed class RutileNamespaceFormat : ClassificationFormatDefinition {
 		public RutileNamespaceFormat() {
 			DisplayName = "Rutile namespace";
-			ForegroundColor = Color.FromRgb(212, 212, 212);
+			ForegroundColor = Color.FromRgb(144, 144, 144);
 		}
 	}
 }

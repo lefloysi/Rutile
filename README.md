@@ -1,44 +1,45 @@
 # Rutile
 
-Rutile and its standard library live here. The build system lives in the sibling `Kiln`
-folder. Keep the projects beside one another:
+Rutile and its standard library are built here. Kiln is a separate project; this
+repository provides the Rutile language extension and compiler service.
 
-```text
-Projects/
-  Kiln/
-  Rutile/
+## Build Rutilec
+
+On Windows, use Git Bash with Visual Studio 2022 C++ build tools, LLVM, and the
+existing CLI11 and nlohmann/json dependencies available. The script does not fetch
+dependencies. Set `RUTILE_DEPENDENCIES` to an existing dependency root if discovery
+does not find them, or set `LLVM_ROOT` and `VCPKG_ROOT` as needed.
+
+```bash
+bash tools/build.sh help
+bash tools/build.sh prepare
+bash tools/build.sh build debug
+bash tools/build.sh build release
 ```
 
-On Windows x64, install Visual Studio's Desktop development with C++ workload and prepare
-Kiln once:
+`prepare` writes bootstrap files and copies dependencies beneath `build/<profile>/`.
+`build` compiles the Rutile compiler and its language service, then links
+`build/<profile>/native/rutilec.exe`. Set `RUTILE_COMPILER` to choose the Rutilec bootstrap
+compiler; otherwise the script searches `PATH` and then `distro/windows-x64/`.
+All generated objects, executables, dependencies, and logs belong under `build/`.
 
-```powershell
-./tools/bootstrap/bootstrap.ps1
-../Kiln/build/bootstrap/bin/kiln.exe build compiler.exe
+The root `kiln.rt` describes the Rutile build as a Rutile language object target and
+a native compiler target. Kiln can use that script to rebuild Rutilec after changes.
+The standalone Bash entry point prepares the native Visual Studio toolchain and
+bootstraps the same compiler sources.
+
+## Visual Studio extension
+
+The independent Rutile extension package is built with:
+
+```bash
+bash tools/Rutile.VisualStudio/Package.sh Release
 ```
 
-The forwarding bootstrap uses the distributed compiler in `distro/` to build Kiln.
-The root `kiln.rt` declares the Rutile compiler object and native compiler driver.
-It includes this checkout's standard library when rebuilding the compiler.
-Kiln discovers their sources recursively and builds their dependencies first.
-Use `--profile release` for an optimized build. Build outputs are under `.kiln/build`.
+The VSIX is copied to `distro/windows-x64/Rutile.VisualStudio.vsix`. It supplies
+editor support and connects to the existing Rutilec service; Kiln owns project
+configuration and starts that service.
 
-`compiler/src` contains the compiler; `compiler/std` contains the standard library.
-`language` contains the Rutile language service. Kiln's Rutile integration builds and
-connects that service. See [Kiln](../Kiln/README.md) for build operations and extension points.
-
-Kiln starts one persistent Rutile compiler for the project and sends each build to it.
-Build output reports the current compiler phase, source counts, file being processed,
-and elapsed time. The compiler combines each request into a mapped `.sources.rt` file
-next to its object output; the adjacent `.sources.json` maps byte ranges back to the
-original files. After a build, `compiler status` reports the active service, and
-`compiler exit` requests its graceful shutdown.
-
-After changing the compiler, refresh the distributed seed only after staged verification:
-
-```powershell
-./tools/bootstrap/refresh-seed.ps1
-```
-
-That script verifies matching native objects from the source files, the newly built compiler,
-and its complete source snapshot before publishing the seed.
+`compiler/src` contains the compiler, `compiler/std` its standard library, and
+`language` its editor-language support. The `base` directory contains native runtime
+and platform code.

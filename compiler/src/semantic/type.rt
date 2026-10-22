@@ -39,17 +39,20 @@ fn type_kind::is_scalar(type_kind& this) -> bool {
 };
 
 struct FunctionSignature {
-	fn FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity);
+	fn FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity, bool nonthrowing);
 
 	fn result(FunctionSignature& this) -> Type*;
 	fn parameters(FunctionSignature& this) -> rt::buffer<Type*>&;
 	fn arity(FunctionSignature& this) -> parameter_arity;
+	fn nonthrowing(FunctionSignature& this) -> bool;
 	fn equals(FunctionSignature& this, FunctionSignature& other) -> bool;
+	fn matches(FunctionSignature& this, FunctionSignature& other) -> bool;
 
 private:
 	Type* return_type;
 	rt::buffer<Type*> parameter_types;
 	parameter_arity argument_arity;
+	bool exception_free;
 };
 
 struct ArrayShape {
@@ -132,7 +135,7 @@ fn Type::hash(Type& this) -> usize {
 			return (hash * 37 + (reinterpret_cast<usize>(this.shape.array.element) >> 3)) * 37 + static_cast<usize>(this.shape.array.count);
 		case type_kind::function: {
 			FunctionSignature& signature = *this.shape.signature;
-			@hash = (hash * 37 + (reinterpret_cast<usize>(signature.result()) >> 3)) * 37 + static_cast<usize>(signature.arity());
+			@hash = ((hash * 37 + (reinterpret_cast<usize>(signature.result()) >> 3)) * 37 + static_cast<usize>(signature.arity())) * 37 + static_cast<usize>(signature.nonthrowing());
 			usize index = 0;
 			while (index < signature.parameters().size()) {
 				@hash = hash * 37 + (reinterpret_cast<usize>(signature.parameters().data()[index]) >> 3);
@@ -150,10 +153,15 @@ fn Type::hash(Type& this) -> usize {
 	};
 };
 
-fn FunctionSignature::FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity) {
+fn FunctionSignature::FunctionSignature(var FunctionSignature& this, Type* result, rt::buffer<Type*> parameters, parameter_arity arity, bool nonthrowing) {
 	@this.return_type = $result;
 	@this.parameter_types = $parameters;
 	@this.argument_arity = $arity;
+	@this.exception_free = $nonthrowing;
+};
+
+fn FunctionSignature::nonthrowing(FunctionSignature& this) -> bool {
+	return this.exception_free;
 };
 
 fn FunctionSignature::result(FunctionSignature& this) -> Type* {
@@ -169,6 +177,10 @@ fn FunctionSignature::arity(FunctionSignature& this) -> parameter_arity {
 };
 
 fn FunctionSignature::equals(FunctionSignature& this, FunctionSignature& other) -> bool {
+	return this.exception_free == other.exception_free && this.matches(other);
+};
+
+fn FunctionSignature::matches(FunctionSignature& this, FunctionSignature& other) -> bool {
 	if (this.return_type != other.return_type || this.argument_arity != other.argument_arity || this.parameter_types.size() != other.parameter_types.size()) {
 		return false;
 	};

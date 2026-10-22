@@ -14,9 +14,6 @@ $compiler = Join-Path $installation 'MSBuild/Current/Bin/Roslyn/csc.exe'
 
 $assembly = Join-Path $PSScriptRoot '../bin/Release/net472'
 $references = Get-ChildItem $assembly -Filter '*.dll' | ForEach-Object { '/reference:' + $_.FullName }
-$kilnAssembly = Join-Path $PSScriptRoot '../../../../Kiln/tools/Kiln.VisualStudio/bin/Release/net472/Kiln.VisualStudio.dll'
-$references += '/reference:' + $kilnAssembly
-Copy-Item -LiteralPath $kilnAssembly -Destination $output -Force
 $references += '/reference:C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.7.2/Facades/netstandard.dll'
 $exe = Join-Path $output 'ClassifierLifetimeTests.exe'
 & $compiler /nologo /langversion:latest /target:exe "/out:$exe" @references (Join-Path $PSScriptRoot 'ClassifierLifetimeTests.cs')
@@ -44,7 +41,7 @@ Get-ChildItem $assembly -Filter '*.dll' | ForEach-Object {
 }
 
 $configuration.Save($exe + '.config')
-foreach ($order in @('attached-first', 'initialized-first')) {
+foreach ($order in @('attached-first', 'initialized-first', 'opened-first')) {
 	& $exe (Join-Path $output 'Rutile.VisualStudio.dll') $order
 	if ($LASTEXITCODE) {
 		throw ('Classifier RPC regression failed: ' + $order)

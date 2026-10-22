@@ -4,14 +4,17 @@
 #include <windows.h>
 
 #include <climits>
+#include <atomic>
 #include <fcntl.h>
 #include <io.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <mutex>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 std::FILE* platform_standard_error() {
@@ -45,6 +48,25 @@ struct PlatformServer {
 	HANDLE pipe;
 	bool connected;
 	bool replied;
+};
+
+struct PlatformStreamServer {
+	HANDLE pipe;
+	std::atomic<bool> connected;
+	std::atomic<bool> interrupted;
+	std::mutex mutex;
+	PlatformStream* stream = nullptr;
+};
+
+struct PlatformStream {
+	std::FILE* input = nullptr;
+	std::FILE* output = nullptr;
+	PlatformStreamServer* server = nullptr;
+	HANDLE stop = nullptr;
+	HANDLE input_write = INVALID_HANDLE_VALUE;
+	HANDLE output_read = INVALID_HANDLE_VALUE;
+	std::thread input_worker;
+	std::thread output_worker;
 };
 
 std::wstring windows_wide(const char* text) {
@@ -570,6 +592,332 @@ void platform_server_disconnect(struct PlatformServer* server) {
 void platform_server_close(struct PlatformServer* server) {
 	if (server) {
 		platform_server_disconnect(server);
+		CloseHandle(server->pipe);
+		delete server;
+	}
+}
+
+std::FILE* windows_stream_file(HANDLE handle, int flags, const char* mode) {
+	int descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | flags);
+	if (descriptor < 0) {
+		CloseHandle(handle);
+		return nullptr;
+	}
+	auto* file = _fdopen(descriptor, mode);
+	if (!file) {
+		_close(descriptor);
+	}
+	return file;
+}
+
+bool windows_stream_input_pipe(HANDLE& reader, HANDLE& writer) {
+	static std::atomic<unsigned long long> sequence{};
+	auto name = L"\\\\.\\pipe\\rutile-stream-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(sequence.fetch_add(1));
+	writer = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 64 * 1024, 64 * 1024, 1000, nullptr);
+	if (writer == INVALID_HANDLE_VALUE) {
+		return false;
+	}
+	reader = CreateFileW(name.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (reader == INVALID_HANDLE_VALUE) {
+		CloseHandle(writer);
+		writer = INVALID_HANDLE_VALUE;
+		return false;
+	}
+	OVERLAPPED operation{};
+	operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	if (!operation.hEvent) {
+		CloseHandle(reader);
+		CloseHandle(writer);
+		reader = writer = INVALID_HANDLE_VALUE;
+		return false;
+	}
+	BOOL connected = ConnectNamedPipe(writer, &operation);
+	DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+	if (error == ERROR_IO_PENDING) {
+		DWORD transferred = 0;
+		if (WaitForSingleObject(operation.hEvent, 1000) == WAIT_OBJECT_0) {
+			connected = GetOverlappedResult(writer, &operation, &transferred, FALSE);
+		}
+		else {
+			CancelIoEx(writer, &operation);
+			GetOverlappedResult(writer, &operation, &transferred, TRUE);
+			connected = FALSE;
+		}
+		error = connected ? ERROR_SUCCESS : ERROR_OPERATION_ABORTED;
+	}
+	CloseHandle(operation.hEvent);
+	if (error != ERROR_SUCCESS && error != ERROR_PIPE_CONNECTED) {
+		CloseHandle(reader);
+		CloseHandle(writer);
+		reader = writer = INVALID_HANDLE_VALUE;
+		return false;
+	}
+	return true;
+}
+
+bool windows_stream_transfer(PlatformStream* stream, HANDLE pipe, bool writing, char* data, DWORD length, DWORD& transferred) {
+	OVERLAPPED operation{};
+	operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	if (!operation.hEvent) {
+		return false;
+	}
+	if (WaitForSingleObject(stream->stop, 0) == WAIT_OBJECT_0) {
+		CloseHandle(operation.hEvent);
+		return false;
+	}
+	BOOL success = writing ? WriteFile(pipe, data, length, &transferred, &operation) : ReadFile(pipe, data, length, &transferred, &operation);
+	if (!success && GetLastError() == ERROR_IO_PENDING) {
+		HANDLE events[]{ stream->stop, operation.hEvent };
+		if (WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+			success = GetOverlappedResult(pipe, &operation, &transferred, FALSE);
+		}
+		else {
+			CancelIoEx(pipe, &operation);
+			GetOverlappedResult(pipe, &operation, &transferred, TRUE);
+			success = FALSE;
+		}
+	}
+	CloseHandle(operation.hEvent);
+	return success;
+}
+
+void windows_stream_input_worker(PlatformStream* stream) {
+	char buffer[16 * 1024];
+	while (true) {
+		DWORD received = 0;
+		if (!windows_stream_transfer(stream, stream->server->pipe, false, buffer, sizeof(buffer), received) || !received) {
+			break;
+		}
+		DWORD offset = 0;
+		while (offset < received) {
+			DWORD written = 0;
+			if (!windows_stream_transfer(stream, stream->input_write, true, buffer + offset, received - offset, written) || !written) {
+				CloseHandle(stream->input_write);
+				SetEvent(stream->stop);
+				return;
+			}
+			offset += written;
+		}
+	}
+	CloseHandle(stream->input_write);
+	SetEvent(stream->stop);
+}
+
+void windows_stream_output_worker(PlatformStream* stream) {
+	char buffer[16 * 1024];
+	while (WaitForSingleObject(stream->stop, 0) != WAIT_OBJECT_0) {
+		DWORD available = 0;
+		if (!PeekNamedPipe(stream->output_read, nullptr, 0, nullptr, &available, nullptr)) {
+			break;
+		}
+		if (!available) {
+			WaitForSingleObject(stream->stop, 10);
+			continue;
+		}
+		DWORD received = 0;
+		DWORD count = available < sizeof(buffer) ? available : static_cast<DWORD>(sizeof(buffer));
+		if (!ReadFile(stream->output_read, buffer, count, &received, nullptr) || !received) {
+			break;
+		}
+		DWORD offset = 0;
+		while (offset < received) {
+			DWORD written = 0;
+			if (!windows_stream_transfer(stream, stream->server->pipe, true, buffer + offset, received - offset, written) || !written) {
+				CloseHandle(stream->output_read);
+				SetEvent(stream->stop);
+				return;
+			}
+			offset += written;
+		}
+	}
+	CloseHandle(stream->output_read);
+	SetEvent(stream->stop);
+}
+
+struct PlatformStreamServer* platform_stream_server_open(const char* endpoint) {
+	std::wstring wide = windows_wide(endpoint);
+	if (wide.empty()) {
+		return nullptr;
+	}
+	HANDLE pipe = CreateNamedPipeW(wide.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 64 * 1024, 64 * 1024, 1000, nullptr);
+	if (pipe == INVALID_HANDLE_VALUE) {
+		return nullptr;
+	}
+	auto* server = new (std::nothrow) PlatformStreamServer{ pipe, false, false };
+	if (!server) {
+		CloseHandle(pipe);
+	}
+	return server;
+}
+
+platform_accept platform_stream_server_accept_for(struct PlatformStreamServer* server, unsigned int timeout_ms, struct PlatformStream** stream) {
+	if (!server || !stream || server->interrupted.load()) {
+		return platform_accept::error;
+	}
+	*stream = nullptr;
+	if (server->connected.exchange(false)) {
+		DisconnectNamedPipe(server->pipe);
+	}
+	OVERLAPPED operation{};
+	operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	if (!operation.hEvent) {
+		return platform_accept::error;
+	}
+	BOOL connected = ConnectNamedPipe(server->pipe, &operation);
+	DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+	if (error == ERROR_IO_PENDING) {
+		if (WaitForSingleObject(operation.hEvent, timeout_ms) == WAIT_OBJECT_0) {
+			DWORD transferred = 0;
+			connected = GetOverlappedResult(server->pipe, &operation, &transferred, FALSE);
+			error = connected ? ERROR_SUCCESS : GetLastError();
+		}
+		else {
+			CancelIoEx(server->pipe, &operation);
+			DWORD transferred = 0;
+			connected = GetOverlappedResult(server->pipe, &operation, &transferred, TRUE);
+			error = connected ? ERROR_SUCCESS : GetLastError();
+			if (error == ERROR_OPERATION_ABORTED) {
+				CloseHandle(operation.hEvent);
+				return platform_accept::timeout;
+			}
+		}
+	}
+	CloseHandle(operation.hEvent);
+	if (error != ERROR_SUCCESS && error != ERROR_PIPE_CONNECTED) {
+		if (error == ERROR_NO_DATA) {
+			DisconnectNamedPipe(server->pipe);
+		}
+		return platform_accept::error;
+	}
+	server->connected.store(true);
+
+	// CRT streams own synchronous, unidirectional pipe endpoints. The input bridge
+	// has an overlapped writer so stopping also cancels writes to a full input buffer.
+	// Only bridge workers touch the duplex pipe, using separate OVERLAPPED I/O.
+	auto* accepted = new (std::nothrow) PlatformStream{};
+	if (!accepted) {
+		server->connected.store(false);
+		DisconnectNamedPipe(server->pipe);
+		return platform_accept::error;
+	}
+	accepted->server = server;
+	accepted->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	HANDLE input_read = INVALID_HANDLE_VALUE;
+	HANDLE output_write = INVALID_HANDLE_VALUE;
+	if (!accepted->stop || !windows_stream_input_pipe(input_read, accepted->input_write)
+		|| !CreatePipe(&accepted->output_read, &output_write, nullptr, 64 * 1024)) {
+		for (HANDLE handle : { input_read, output_write, accepted->input_write, accepted->output_read }) {
+			if (handle != INVALID_HANDLE_VALUE) {
+				CloseHandle(handle);
+			}
+		}
+		if (accepted->stop) {
+			CloseHandle(accepted->stop);
+		}
+		delete accepted;
+		server->connected.store(false);
+		DisconnectNamedPipe(server->pipe);
+		return platform_accept::error;
+	}
+	accepted->input = windows_stream_file(input_read, _O_RDONLY, "rb");
+	accepted->output = windows_stream_file(output_write, _O_WRONLY, "wb");
+	if (!accepted->input || !accepted->output) {
+		if (accepted->input) {
+			std::fclose(accepted->input);
+		}
+		if (accepted->output) {
+			std::fclose(accepted->output);
+		}
+		CloseHandle(accepted->input_write);
+		CloseHandle(accepted->output_read);
+		CloseHandle(accepted->stop);
+		delete accepted;
+		server->connected.store(false);
+		DisconnectNamedPipe(server->pipe);
+		return platform_accept::error;
+	}
+	std::setvbuf(accepted->output, nullptr, _IONBF, 0);
+	{
+		std::lock_guard guard(server->mutex);
+		if (server->interrupted.load()) {
+			SetEvent(accepted->stop);
+		}
+		server->stream = accepted;
+	}
+	try {
+		accepted->input_worker = std::thread(windows_stream_input_worker, accepted);
+		accepted->output_worker = std::thread(windows_stream_output_worker, accepted);
+	}
+	catch (const std::system_error&) {
+		if (!accepted->input_worker.joinable()) {
+			CloseHandle(accepted->input_write);
+		}
+		if (!accepted->output_worker.joinable()) {
+			CloseHandle(accepted->output_read);
+		}
+		platform_stream_close(accepted);
+		return platform_accept::error;
+	}
+	*stream = accepted;
+	return platform_accept::accepted;
+}
+
+std::FILE* platform_stream_input(struct PlatformStream* stream) {
+	return stream ? stream->input : nullptr;
+}
+
+std::FILE* platform_stream_output(struct PlatformStream* stream) {
+	return stream ? stream->output : nullptr;
+}
+
+void platform_stream_close(struct PlatformStream* stream) {
+	if (!stream) {
+		return;
+	}
+	{
+		std::lock_guard guard(stream->server->mutex);
+		stream->server->stream = nullptr;
+		SetEvent(stream->stop);
+	}
+	CancelIoEx(stream->server->pipe, nullptr);
+	stream->server->connected.store(false);
+	DisconnectNamedPipe(stream->server->pipe);
+	if (stream->input) {
+		std::fclose(stream->input);
+	}
+	if (stream->output) {
+		std::fclose(stream->output);
+	}
+	if (stream->input_worker.joinable()) {
+		stream->input_worker.join();
+	}
+	if (stream->output_worker.joinable()) {
+		stream->output_worker.join();
+	}
+	CloseHandle(stream->stop);
+	delete stream;
+}
+
+void platform_stream_server_interrupt(struct PlatformStreamServer* server) {
+	if (!server) {
+		return;
+	}
+	server->interrupted.store(true);
+	{
+		std::lock_guard guard(server->mutex);
+		if (server->stream) {
+			SetEvent(server->stream->stop);
+		}
+	}
+	CancelIoEx(server->pipe, nullptr);
+	if (server->connected.exchange(false)) {
+		DisconnectNamedPipe(server->pipe);
+	}
+}
+
+void platform_stream_server_close(struct PlatformStreamServer* server) {
+	if (server) {
+		platform_stream_server_interrupt(server);
 		CloseHandle(server->pipe);
 		delete server;
 	}

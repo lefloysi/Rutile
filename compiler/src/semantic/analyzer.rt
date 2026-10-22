@@ -24,6 +24,7 @@ struct Analyzer {
 	fn Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits);
 
 	fn set_progress(var Analyzer& this, CompilerProgress progress);
+	fn report_progress(Analyzer& this, rt::string_view phase, usize completed, usize total, Entity& entity);
 	fn set_editor(var Analyzer& this, bool enabled);
 	fn analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit>;
 	fn editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool;
@@ -46,6 +47,11 @@ struct Analyzer {
 	fn function_body(var Analyzer& this, var Entity* entity) -> bool;
 	fn global_initializer(var Analyzer& this, var Entity& entity) -> bool;
 	fn constant_integer(var Analyzer& this, SemanticExpression& expression, var u64& result) -> bool;
+	fn exception_spec(var Analyzer& this, var Scope& scope, var Syntax& syntax, var bool& nonthrowing) -> bool;
+	fn potentially_throwing(Analyzer& this, SemanticExpression& expression) -> bool;
+	fn prepare_exception_spec(var Analyzer& this, SemanticExpression& expression) -> bool;
+	fn prepare_exception_type(var Analyzer& this, Type* type) -> bool;
+	fn prepare_function_exception(var Analyzer& this, var Entity& entity) -> bool;
 	fn validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bool class_scope) -> bool;
 
 	fn semantic_unit(Analyzer& this) -> var SemanticUnit*;
@@ -401,7 +407,11 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 			@result = this.types->find_primitive("void");
 		};
 
-		return @this.types->function($result, $parameters, parameter_arity(arity));
+		bool nonthrowing = false;
+		if (!@this.exception_spec(@scope, @*syntax.item(2), @nonthrowing)) {
+			return nullptr;
+		};
+		return @this.types->function($result, $parameters, parameter_arity(arity), $nonthrowing);
 	};
 
 	if (kind == syntax_kind::type_pointer || kind == syntax_kind::type_reference || kind == syntax_kind::type_array || (kind == syntax_kind::type_const || kind == syntax_kind::type_mutable)) {
@@ -791,6 +801,9 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			return false;
 		};
 
+		if (!@this.unit->record_name(@this, @*scope_cursor, @*name->left(), @*owner, 2)) {
+			return false;
+		};
 		@scope_cursor = owner->members();
 		@name = name->right();
 	};
@@ -945,4 +958,10 @@ fn Analyzer::recovery_operand(Analyzer& this, Syntax& syntax) -> bool {
 
 fn Analyzer::set_progress(var Analyzer& this, CompilerProgress progress) {
 	@this.progress = $progress;
+};
+
+fn Analyzer::report_progress(Analyzer& this, rt::string_view phase, usize completed, usize total, Entity& entity) {
+	DiagnosticMessage detail;
+	diagnostic_entity(@detail, entity);
+	this.progress.report(phase, completed, total, detail.view());
 };

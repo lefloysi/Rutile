@@ -36,7 +36,7 @@ namespace Rutile.VisualStudio {
 
 			var response = await rpc.InvokeWithParameterObjectAsync<JToken>("rutile/semanticTokensLegend", new JObject()).ConfigureAwait(false);
 			if (!(response?["tokenTypes"] is JArray types)) {
-				throw new InvalidOperationException("Kiln did not provide its semantic token legend.");
+				throw new InvalidOperationException("Rutilec did not provide its semantic token legend.");
 			}
 
 			var names = new string[types.Count];
@@ -235,7 +235,7 @@ namespace Rutile.VisualStudio {
 						prepared.Add(new ColoredSnapshotSpan(new SnapshotSpan(snapshot, item.Start, item.Length), item.Classification));
 					}
 					lock (gate) {
-						if (next.IsCancellationRequested || !ReferenceEquals(request, next) || !ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc) || buffer.CurrentSnapshot.GetText() != snapshot.GetText()) {
+					if (next.IsCancellationRequested || !ReferenceEquals(request, next) || !ReferenceEquals(rpc, RutileEditorConnection.Instance.Rpc) || buffer.CurrentSnapshot.GetText() != snapshot.GetText()) {
 							return;
 						}
 						spans = Translate(prepared, buffer.CurrentSnapshot);

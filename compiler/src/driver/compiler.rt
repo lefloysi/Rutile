@@ -6,6 +6,18 @@ fn runtime_mutex_unlock(var RuntimeMutex* mutex);
 
 struct Compiler;
 
+struct CompilerOperation {
+	fn CompilerOperation(var CompilerOperation& this, var Compiler& compiler);
+	fn CompilerOperation(var CompilerOperation& this, CompilerOperation& other) : [delete];
+	fn CompilerOperation(var CompilerOperation& this, CompilerOperation other) : [delete];
+	fn ~CompilerOperation(var CompilerOperation& this);
+	fn acquired(CompilerOperation& this) -> bool;
+
+private:
+	var Compiler* compiler;
+	bool locked;
+};
+
 enum analysis_publication : [u08] {
 	published;
 	obsolete;
@@ -15,13 +27,14 @@ enum analysis_publication : [u08] {
 struct PublishedAnalysis {
 	rt::unique<Analysis> analysis;
 	usize readers;
-	u64 revision;
+	usize owners;
 };
 
 struct TargetAnalysis {
 	rt::string key;
 	u64 expected_revision;
-	rt::unique<PublishedAnalysis> published;
+	u64 published_revision;
+	var PublishedAnalysis* published;
 };
 
 struct AnalysisLease {
@@ -29,7 +42,7 @@ struct AnalysisLease {
 	fn AnalysisLease(var AnalysisLease& this, AnalysisLease& other) : [delete];
 	fn operator=(var AnalysisLease& this, AnalysisLease& other) -> var AnalysisLease& : [delete];
 	fn operator:=(var AnalysisLease& this, AnalysisLease& other) -> var AnalysisLease& : [delete];
-	fn AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry);
+	fn AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry, u64 revision);
 	fn ~AnalysisLease(var AnalysisLease& this);
 
 	fn get(AnalysisLease& this) -> Analysis*;
@@ -39,6 +52,7 @@ struct AnalysisLease {
 private:
 	var Compiler* owner;
 	var PublishedAnalysis* entry;
+	u64 published_revision;
 };
 
 struct Compilation {
@@ -59,11 +73,14 @@ private:
 struct Compiler {
 	fn Compiler(var Compiler& this);
 	fn ~Compiler(var Compiler& this);
+	fn begin_operation(var Compiler& this) -> bool;
+	fn end_operation(var Compiler& this);
 
 	fn set_progress(var Compiler& this, CompilerProgress progress);
 	fn next_editor_revision(var Compiler& this) -> u64;
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
 	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
+	fn publish_target_alias(var Compiler& this, rt::string_view key, u64 revision, Analysis& analysis) -> analysis_publication;
 	fn acquire_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
 	fn acquire_current_target(var Compiler& this, rt::string_view key) -> AnalysisLease;
 	fn emit_target(var Compiler& this, rt::string_view key, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
@@ -80,15 +97,32 @@ private:
 	fn finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 	CompilerProgress progress;
+	var RuntimeMutex* operation_mutex;
 	var RuntimeMutex* publication_mutex;
 	u64 editor_revision;
 	rt::unordered_map<rt::string_view, rt::unique<TargetAnalysis>> targets;
-	rt::buffer<rt::unique<PublishedAnalysis>> retired;
+	rt::buffer<rt::unique<PublishedAnalysis>> publications;
 };
 
-fn AnalysisLease::AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry) {
+fn CompilerOperation::CompilerOperation(var CompilerOperation& this, var Compiler& compiler) {
+	@this.compiler = &@compiler;
+	@this.locked = @compiler.begin_operation();
+};
+
+fn CompilerOperation::~CompilerOperation(var CompilerOperation& this) {
+	if (this.locked) {
+		@this.compiler->end_operation();
+	};
+};
+
+fn CompilerOperation::acquired(CompilerOperation& this) -> bool {
+	return this.locked;
+};
+
+fn AnalysisLease::AnalysisLease(var AnalysisLease& this, var Compiler& owner, var PublishedAnalysis* entry, u64 revision) {
 	@this.owner = &@owner;
 	@this.entry = $entry;
+	@this.published_revision = $revision;
 };
 
 fn AnalysisLease::~AnalysisLease(var AnalysisLease& this) {
@@ -110,20 +144,30 @@ fn AnalysisLease::value(AnalysisLease& this) -> Analysis& {
 };
 
 fn Compiler::Compiler(var Compiler& this) {
+	@this.operation_mutex = runtime_mutex_create();
 	@this.publication_mutex = runtime_mutex_create();
 	@this.editor_revision = 0;
 };
 
 fn Compiler::~Compiler(var Compiler& this) {
 	runtime_mutex_destroy(this.publication_mutex);
+	runtime_mutex_destroy(this.operation_mutex);
+};
+
+fn Compiler::begin_operation(var Compiler& this) -> bool {
+	if (!this.operation_mutex) {
+		return false;
+	};
+	runtime_mutex_lock(this.operation_mutex);
+	return true;
+};
+
+fn Compiler::end_operation(var Compiler& this) {
+	runtime_mutex_unlock(this.operation_mutex);
 };
 
 fn AnalysisLease::revision(AnalysisLease& this) -> u64 {
-	if (!this.entry) {
-		return 0;
-	};
-
-	return this.entry->revision;
+	return this.published_revision;
 };
 
 fn Compiler::next_editor_revision(var Compiler& this) -> u64 {
@@ -176,7 +220,6 @@ fn Compiler::publish_target(var Compiler& this, rt::string_view key, u64 revisio
 		return analysis_publication::unavailable;
 	};
 	@next.get()->analysis = $analysis;
-	@next.get()->revision = revision;
 
 	runtime_mutex_lock(this.publication_mutex);
 	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
@@ -191,21 +234,67 @@ fn Compiler::publish_target(var Compiler& this, rt::string_view key, u64 revisio
 		return analysis_publication::obsolete;
 	};
 
-	if (target->published.get()) {
-		usize index = 0;
-		while (index < this.retired.size() && this.retired.data()[index].get()) {
-			@index = index + 1;
-		};
-		if (index == this.retired.size()) {
-			if (!@this.retired.reserve(index + 1) || !@this.retired.push_back(rt::unique<PublishedAnalysis>())) {
-				runtime_mutex_unlock(this.publication_mutex);
-				return analysis_publication::unavailable;
-			};
-		};
-		var rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
-		@entries[index].reset(@target->published.release());
+	usize slot = 0;
+	while (slot < this.publications.size() && this.publications.data()[slot].get()) {
+		@slot = slot + 1;
 	};
-	@target->published.reset(@next.release());
+	if (slot == this.publications.size()) {
+		if (!@this.publications.reserve(slot + 1) || !@this.publications.push_back(rt::unique<PublishedAnalysis>())) {
+			runtime_mutex_unlock(this.publication_mutex);
+			return analysis_publication::unavailable;
+		};
+	};
+	var rt::unique<PublishedAnalysis>* entries = (@this.publications).data();
+	@next.get()->owners = 1;
+	var PublishedAnalysis* published = next.get();
+	@entries[slot].reset(@next.release());
+	if (target->published) {
+		if (target->published->owners) {
+			@target->published->owners = target->published->owners - 1;
+		};
+	};
+	@target->published = $published;
+	@target->published_revision = revision;
+	runtime_mutex_unlock(this.publication_mutex);
+	@this.collect_retired();
+	return analysis_publication::published;
+};
+
+fn Compiler::publish_target_alias(var Compiler& this, rt::string_view key, u64 revision, Analysis& analysis) -> analysis_publication {
+	if (!this.publication_mutex) {
+		return analysis_publication::unavailable;
+	};
+	runtime_mutex_lock(this.publication_mutex);
+	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
+	if (!found) {
+		runtime_mutex_unlock(this.publication_mutex);
+		return analysis_publication::unavailable;
+	};
+	var TargetAnalysis* target = found->get();
+	if (target->expected_revision != revision) {
+		runtime_mutex_unlock(this.publication_mutex);
+		return analysis_publication::obsolete;
+	};
+	var PublishedAnalysis* shared = nullptr;
+	usize index = 0;
+	while (index < this.publications.size()) {
+		var PublishedAnalysis* candidate = this.publications.data()[index].get();
+		if (candidate && candidate->analysis.get() == &@analysis) {
+			@shared = $candidate;
+			break;
+		};
+		@index = index + 1;
+	};
+	if (!shared) {
+		runtime_mutex_unlock(this.publication_mutex);
+		return analysis_publication::unavailable;
+	};
+	@shared->owners = shared->owners + 1;
+	if (target->published && target->published->owners) {
+		@target->published->owners = target->published->owners - 1;
+	};
+	@target->published = $shared;
+	@target->published_revision = revision;
 	runtime_mutex_unlock(this.publication_mutex);
 	@this.collect_retired();
 	return analysis_publication::published;
@@ -227,15 +316,17 @@ fn Compiler::acquire_target(var Compiler& this, rt::string_view key) -> Analysis
 	runtime_mutex_lock(this.publication_mutex);
 	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
 	var PublishedAnalysis* entry = nullptr;
+	u64 revision = 0;
 	if (found) {
-		@entry = found->get()->published.get();
+		@entry = found->get()->published;
+		@revision = found->get()->published_revision;
 	};
 
 	if (entry) {
 		@entry->readers = entry->readers + 1;
 	};
 	runtime_mutex_unlock(this.publication_mutex);
-	return AnalysisLease(@this, $entry);
+	return AnalysisLease(@this, $entry, $revision);
 };
 
 fn Compiler::acquire_current_target(var Compiler& this, rt::string_view key) -> AnalysisLease {
@@ -245,12 +336,14 @@ fn Compiler::acquire_current_target(var Compiler& this, rt::string_view key) -> 
 	runtime_mutex_lock(this.publication_mutex);
 	var rt::unique<TargetAnalysis>* found = @this.targets.find(key);
 	var PublishedAnalysis* entry = nullptr;
-	if (found && found->get()->published.get() && found->get()->expected_revision == found->get()->published.get()->revision) {
-		@entry = found->get()->published.get();
+	u64 revision = 0;
+	if (found && found->get()->published && found->get()->expected_revision == found->get()->published_revision) {
+		@entry = found->get()->published;
+		@revision = found->get()->published_revision;
 		@entry->readers = entry->readers + 1;
 	};
 	runtime_mutex_unlock(this.publication_mutex);
-	return AnalysisLease(@this, $entry);
+	return AnalysisLease(@this, $entry, $revision);
 };
 
 fn Compiler::acquire_analysis(var Compiler& this) -> AnalysisLease {
@@ -270,10 +363,10 @@ fn Compiler::collect_retired(var Compiler& this) {
 		rt::unique<PublishedAnalysis> garbage;
 		runtime_mutex_lock(this.publication_mutex);
 		usize index = 0;
-		while (index < this.retired.size()) {
-			var PublishedAnalysis* entry = this.retired.data()[index].get();
-			if (entry && !entry->readers) {
-				var rt::unique<PublishedAnalysis>* entries = (@this.retired).data();
+		while (index < this.publications.size()) {
+			var PublishedAnalysis* entry = this.publications.data()[index].get();
+			if (entry && !entry->owners && !entry->readers) {
+				var rt::unique<PublishedAnalysis>* entries = (@this.publications).data();
 				@garbage.reset(@entries[index].release());
 				break;
 			};
@@ -458,6 +551,11 @@ fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& pa
 	};
 	if (output_path.empty()) {
 		@errors.error(location, "native object output path is required");
+		return 1;
+	};
+	var operation = CompilerOperation(@this);
+	if (!operation.acquired()) {
+		@errors.error(location, "compiler operation lock is unavailable");
 		return 1;
 	};
 	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));

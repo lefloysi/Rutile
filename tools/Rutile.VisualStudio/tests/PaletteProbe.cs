@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Language.Intellisense.AsyncCompletion;
@@ -51,6 +52,48 @@ public sealed class PaletteProbe : Microsoft.VisualStudio.LanguageServer.Client.
 	private string? path;
 	private readonly HashSet<ITextBuffer> checkedBuffers = new HashSet<ITextBuffer>();
 
+	private void Diagnostics(ITextBuffer buffer) {
+		var lines = new List<string> { "utc=" + DateTime.UtcNow.ToString("O"), "content-type=" + buffer.ContentType.TypeName };
+		try {
+			lines.Add("source=" + (Documents.TryGetTextDocument(buffer, out var document) ? document.FilePath : "<no document>"));
+			var assembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(item => item.GetName().Name == "Rutile.VisualStudio");
+			lines.Add("assembly=" + (assembly?.Location ?? "<not loaded>"));
+			if (assembly != null) {
+				var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+				var editorType = assembly.GetType("Rutile.VisualStudio.RutileEditorConnection", true);
+				var editor = editorType.GetProperty("Instance", flags).GetValue(null);
+				lines.Add("rpc-null=" + (editorType.GetProperty("Rpc", flags).GetValue(editor) == null));
+				var storeType = assembly.GetType("Rutile.VisualStudio.RutileSemanticStore", true);
+				var store = storeType.GetProperty("Instance", flags).GetValue(null);
+				foreach (var name in new[] { "legend", "documents", "buffers" }) {
+					var value = storeType.GetField(name, flags).GetValue(store);
+					var collection = value as System.Collections.ICollection;
+					lines.Add(name + "-count=" + (collection == null ? "<unknown>" : collection.Count.ToString()));
+					if (name == "buffers" && value is System.Collections.IEnumerable buffers) {
+						var index = 0;
+						foreach (var reference in buffers) {
+							var arguments = new object?[] { null };
+							var alive = (bool)reference.GetType().GetMethod("TryGetTarget").Invoke(reference, arguments);
+							var state = arguments[0];
+							if (!alive || state == null) {
+								lines.Add("buffer[" + index++ + "]=<collected>");
+								continue;
+							}
+							var stateType = state.GetType();
+							var spans = stateType.GetField("spans", flags).GetValue(state);
+							var spanCollection = spans as System.Collections.ICollection;
+							lines.Add("buffer[" + index++ + "]=" + stateType.GetProperty("Uri", flags).GetValue(state) + ";spans-count=" + (spanCollection == null ? "<unknown>" : spanCollection.Count.ToString()));
+						}
+					}
+				}
+			}
+		}
+		catch (Exception error) {
+			lines.Add(error.ToString());
+		}
+		File.WriteAllLines(path + ".diagnostics", lines);
+	}
+
 	public async System.Threading.Tasks.Task OnLoadedAsync() {
 		await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		path = Environment.GetEnvironmentVariable("RUTILE_PALETTE_RESULT");
@@ -94,6 +137,9 @@ public sealed class PaletteProbe : Microsoft.VisualStudio.LanguageServer.Client.
 		var last = "waiting";
 		timer.Tick += (_, __) => {
 			try {
+				if (tries % 12 == 0) {
+					Diagnostics(buffer);
+				}
 				var snapshot = buffer.CurrentSnapshot;
 				var source = snapshot.GetText();
 				var spans = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length));
