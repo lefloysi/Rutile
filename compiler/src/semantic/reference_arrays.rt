@@ -1,0 +1,490 @@
+struct ReferenceContentRoot {
+	ReferenceSlotPath holding;
+	ReferenceLoanPlace referent;
+	var Entity* field;
+	type_qualifier permission;
+};
+
+fn reference_array_members(Type& type, usize depth) -> bool {
+	if (depth > 16) {
+		return true;
+	};
+	if (type.kind() == type_kind::array) {
+		return reference_loan_members(type);
+	};
+	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
+		return false;
+	};
+	usize index = 0;
+	while (index < type.entity()->fields().size()) {
+		if (reference_array_members(*type.entity()->fields().data()[index]->type(), depth + 1)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn reference_slot_append(ReferenceSlotPath& prefix, ReferenceSlotPath& suffix, var ReferenceSlotPath& result) -> bool {
+	reference_slot_copy(prefix, @result);
+	usize index = 0;
+	while (index < suffix.size) {
+		if (result.size == 16) {
+			@result.imprecise = true;
+			return false;
+		};
+		ReferenceSlotStep& step = suffix.steps[index];
+		@result.steps[result.size].field = step.field;
+		@result.steps[result.size].index = step.index;
+		@result.steps[result.size].kind = step.kind;
+		@result.steps[result.size].value = step.value;
+		@result.size = result.size + 1;
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn reference_content_field(Type& type, usize depth) -> var Entity* {
+	if (depth > 16) {
+		return nullptr;
+	};
+	if (type.kind() == type_kind::array) {
+		return reference_content_field(*type.element(), depth + 1);
+	};
+	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
+		return nullptr;
+	};
+	usize index = 0;
+	while (index < type.entity()->fields().size()) {
+		var Entity* field = type.entity()->fields().data()[index];
+		if (field->type()->kind() == type_kind::reference) {
+			return field;
+		};
+		var Entity* nested = reference_content_field(*field->type(), depth + 1);
+		if (nested) {
+			return nested;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type& type, SemanticExpression* source, var rt::buffer<ReferenceContentRoot>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, ReferenceSlotPath& holding, var Entity* symbolic, usize depth) -> bool {
+	if (depth > 16) {
+		return @this.error(*this.function_body, "reference holding projection exceeds the analysis depth limit");
+	};
+	while (source && (source->kind() == semantic_kind::access || source->kind() == semantic_kind::cast || source->kind() == semantic_kind::relocation) && source->size()) {
+		@source = source->item(0);
+	};
+	if (source && source->kind() == semantic_kind::construction && source->size() && source->item(0)->size() == 1 && source->item(0)->item(0)->type()->same_shape(type)) {
+		return @this.content_sources(type, source->item(0)->item(0), @output, @substitutions, context, holding, symbolic, depth + 1);
+	};
+	if (source && (source->kind() == semantic_kind::name || source->kind() == semantic_kind::member || source->kind() == semantic_kind::index) && (type.kind() == type_kind::array || type.kind() == type_kind::named)) {
+		rt::buffer<ReferenceStoreBinding> bindings;
+		var slot = this.store_slot(*source, bindings, context, 0);
+		usize index = 0;
+		bool found = false;
+		while (index < this.loans.size()) {
+			ReferenceLoan& loan = this.loans.data()[index];
+			if (loan.binding == slot.root && loan.stored_field && reference_slot_overlap(loan.holding, slot.path) && @this.reaching_contents(loan, *source)) {
+				ReferenceContentRoot root;
+				ReferenceSlotPath relative;
+				usize projection = slot.path.size;
+				while (projection < loan.holding.size) {
+					ReferenceSlotStep& step = loan.holding.steps[projection];
+					if (relative.size == 16) {
+						return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+					};
+					@relative.steps[relative.size].kind = step.kind;
+					@relative.steps[relative.size].field = step.field;
+					@relative.steps[relative.size].index = step.index;
+					@relative.steps[relative.size].value = step.value;
+					@relative.size = relative.size + 1;
+					@projection = projection + 1;
+				};
+				if (!relative.size && !reference_slot_field(@relative, loan.stored_field)) {
+					return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+				};
+				if (!reference_slot_append(holding, relative, @root.holding)) {
+					return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+				};
+				@root.field = loan.stored_field;
+				@root.referent.root = loan.place.root;
+				@root.referent.reference_contents = loan.place.reference_contents;
+				@root.referent.field = loan.place.field;
+				@root.referent.element = loan.place.element;
+				@root.referent.through = loan.place.through;
+				@root.permission = loan.permission;
+				if (!@output.push_back($root)) {
+					return false;
+				};
+				@found = true;
+			};
+			@index = index + 1;
+		};
+		if (found) {
+			return true;
+		};
+		if (slot.root && slot.root->kind() == entity_kind::parameter) {
+			@symbolic = slot.root;
+			@source = nullptr;
+		};
+	};
+	if (source && source->kind() == semantic_kind::name && (type.kind() == type_kind::array || type.kind() == type_kind::named)) {
+		usize index = 0;
+		bool found = false;
+		while (index < this.loans.size()) {
+			ReferenceLoan& loan = this.loans.data()[index];
+			if (loan.binding == source->entity() && loan.stored_field && @this.reaching_contents(loan, *source)) {
+				ReferenceContentRoot root;
+				ReferenceSlotPath path;
+				reference_slot_copy(loan.holding, @path);
+				if (!path.size && !reference_slot_field(@path, loan.stored_field)) {
+					return false;
+				};
+				if (!reference_slot_append(holding, path, @root.holding)) {
+					return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+				};
+				@root.field = loan.stored_field;
+				@root.referent.root = loan.place.root;
+				@root.referent.reference_contents = loan.place.reference_contents;
+				@root.referent.field = loan.place.field;
+				@root.referent.element = loan.place.element;
+				@root.referent.through = loan.place.through;
+				@root.permission = loan.permission;
+				if (!@output.push_back($root)) {
+					return false;
+				};
+				@found = true;
+			};
+			@index = index + 1;
+		};
+		if (found) {
+			return true;
+		};
+		if (source->entity()->kind() == entity_kind::parameter) {
+			@symbolic = source->entity();
+			@source = nullptr;
+		}
+		else if (context && source->entity()->kind() == entity_kind::local) {
+			var SemanticExpression* initial = this.initializer(*context->body(), *source->entity());
+			if (initial) {
+				return @this.content_sources(type, initial, @output, @substitutions, context, holding, symbolic, depth + 1);
+			};
+		};
+	};
+	if (source && source->kind() == semantic_kind::call && reference_loan_members(type)) {
+		rt::buffer<ReferenceLoanPlace> targets;
+		if (!@this.places(*source, @targets, @substitutions, context, depth + 1)) {
+			return false;
+		};
+		var Entity* field = reference_content_field(type, 0);
+		if (!field) {
+			return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+		};
+		usize index = 0;
+		while (index < targets.size()) {
+			ReferenceContentRoot root;
+			reference_slot_copy(holding, @root.holding);
+			if (!reference_slot_field(@root.holding, nullptr)) {
+				return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
+			};
+			@root.field = field;
+			@root.permission = reference_loan_permission(type, 0);
+			@root.referent.root = targets.data()[index].root;
+			@root.referent.reference_contents = targets.data()[index].reference_contents;
+			@root.referent.field = targets.data()[index].field;
+			@root.referent.element = targets.data()[index].element;
+			@root.referent.through = targets.data()[index].through;
+			if (!@output.push_back($root)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	if (type.kind() == type_kind::array) {
+		if (!type.count() || !reference_loan_members(type)) {
+			return true;
+		};
+		ReferenceSlotPath element;
+		reference_slot_copy(holding, @element);
+		if (!reference_slot_index(@element, nullptr)) {
+			return @this.error(*this.function_body, "reference holding projection exceeds the analysis depth limit");
+		};
+		return @this.content_sources(*type.element(), nullptr, @output, @substitutions, context, element, symbolic, depth + 1);
+	};
+	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var SemanticExpression* arguments = nullptr;
+	bool custom = false;
+	if (source && source->kind() == semantic_kind::construction && source->size()) {
+		@arguments = source->item(0);
+		@custom = source->entity() && source->entity()->canonical()->definition() != function_definition::defaulted;
+	};
+	usize index = 0;
+	while (index < type.entity()->fields().size()) {
+		var Entity* field = type.entity()->fields().data()[index];
+		var SemanticExpression* value = field->body();
+		if (arguments && !custom && index < arguments->size()) {
+			@value = arguments->item(index);
+		};
+		@index = index + 1;
+		if (field->type()->kind() != type_kind::reference && !reference_loan_members(*field->type())) {
+			continue;
+		};
+		ReferenceSlotPath path;
+		reference_slot_copy(holding, @path);
+		if (!reference_slot_field(@path, field)) {
+			return @this.error(*this.function_body, "reference holding projection exceeds the analysis depth limit");
+		};
+		if (field->type()->kind() != type_kind::reference) {
+			if (!@this.content_sources(*field->type(), value, @output, @substitutions, context, path, symbolic, depth + 1)) {
+				return false;
+			};
+			continue;
+		};
+		rt::buffer<ReferenceLoanPlace> targets;
+		if (symbolic) {
+			bool mapped = false;
+			usize substitution = 0;
+			while (substitution < substitutions.size()) {
+				ReferenceLoanSubstitution& entry = substitutions.data()[substitution];
+				if (entry.parameter == symbolic) {
+					usize candidate = 0;
+					while (candidate < entry.places.size()) {
+						ReferenceLoanPlace target;
+						@target.root = entry.places.data()[candidate].root;
+						@target.reference_contents = entry.places.data()[candidate].reference_contents;
+						@target.field = entry.places.data()[candidate].field;
+						@target.element = entry.places.data()[candidate].element;
+						if (!@targets.push_back($target)) {
+							return false;
+						};
+						@candidate = candidate + 1;
+					};
+					@mapped = true;
+				};
+				@substitution = substitution + 1;
+			};
+			if (!mapped) {
+				ReferenceLoanPlace target;
+				@target.root = symbolic;
+				@target.reference_contents = symbolic->type()->kind() != type_kind::reference;
+				if (!@targets.push_back($target)) {
+					return false;
+				};
+			};
+		}
+		else if (value && !@this.places(*value, @targets, @substitutions, context, depth + 1)) {
+			return false;
+		};
+		usize candidate = 0;
+		while (candidate < targets.size()) {
+			ReferenceContentRoot root;
+			reference_slot_copy(path, @root.holding);
+			@root.field = field;
+			@root.permission = field->type()->element()->qualifier();
+			@root.referent.root = targets.data()[candidate].root;
+			@root.referent.reference_contents = targets.data()[candidate].reference_contents;
+			@root.referent.field = targets.data()[candidate].field;
+			@root.referent.element = targets.data()[candidate].element;
+			@root.referent.through = targets.data()[candidate].through;
+			if (!@output.push_back($root)) {
+				return false;
+			};
+			@candidate = candidate + 1;
+		};
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::array_aggregate(var ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> bool {
+	if (this.phase != reference_loan_phase::collect) {
+		return true;
+	};
+	rt::buffer<ReferenceContentRoot> roots;
+	rt::buffer<ReferenceLoanSubstitution> substitutions;
+	ReferenceSlotPath path;
+	if (!@this.content_sources(*expression.entity()->type(), expression.item(0), @roots, @substitutions, nullptr, path, nullptr, 0)) {
+		return false;
+	};
+	usize index = 0;
+	while (index < roots.size()) {
+		ReferenceContentRoot& root = roots.data()[index];
+		ReferenceLoan loan;
+		@loan.binding = expression.entity();
+		@loan.stored_field = root.field;
+		@loan.creation = fact_no_node();
+		reference_slot_copy(root.holding, @loan.holding);
+		@loan.place.root = root.referent.root;
+		@loan.place.reference_contents = root.referent.reference_contents;
+		@loan.place.field = root.referent.field;
+		@loan.place.element = root.referent.element;
+		@loan.place.through = root.referent.through;
+		@loan.permission = root.permission;
+		if (!@this.append_array_loan($loan)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::stored_contents(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var bool& found) -> bool {
+	rt::buffer<ReferenceStoreBinding> bindings;
+	var slot = this.store_slot(@expression, bindings, nullptr, 0);
+	if (!slot.root) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.loans.size()) {
+		ReferenceLoan& loan = this.loans.data()[index];
+		@index = index + 1;
+		if (loan.binding != slot.root || !loan.stored_field || !@this.reaching_contents(loan, expression)) {
+			continue;
+		};
+		ReferenceSlotPath holding;
+		reference_slot_copy(loan.holding, @holding);
+		if (!holding.size && !reference_slot_field(@holding, loan.stored_field)) {
+			return false;
+		};
+		if (!reference_slot_overlap(holding, slot.path)) {
+			continue;
+		};
+		ReferenceLoanPlace root;
+		@root.root = loan.place.root;
+		@root.reference_contents = loan.place.reference_contents;
+		@root.field = loan.place.field;
+		@root.element = loan.place.element;
+		@root.through = loan.binding;
+		if (!@output.push_back($root)) {
+			return false;
+		};
+		@found = true;
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::holding_use(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, var SemanticExpression& expression) -> bool {
+	if (!loan.stored_field || !reference_array_members(*loan.binding->type(), 0)) {
+		return expression.kind() == semantic_kind::name && expression.entity() == loan.binding;
+	};
+	if (expression.kind() != semantic_kind::name && expression.kind() != semantic_kind::member && expression.kind() != semantic_kind::index && expression.kind() != semantic_kind::access && expression.kind() != semantic_kind::relocation && expression.kind() != semantic_kind::cast && expression.kind() != semantic_kind::variant_cast && expression.kind() != semantic_kind::variant_payload) {
+		return false;
+	};
+	// A projected base is an address computation, not a separate read of every
+	// reference stored in its owner. The outer projection records the actual use.
+	usize parent = 0;
+	while (parent < this.expressions.size()) {
+		SemanticExpression& candidate = *this.expressions.data()[parent];
+		if (candidate.size() && candidate.item(0) == &expression && (candidate.kind() == semantic_kind::member || candidate.kind() == semantic_kind::index || candidate.kind() == semantic_kind::access || candidate.kind() == semantic_kind::relocation || candidate.kind() == semantic_kind::cast || candidate.kind() == semantic_kind::variant_cast || candidate.kind() == semantic_kind::variant_payload)) {
+			return false;
+		};
+		@parent = parent + 1;
+	};
+	rt::buffer<ReferenceStoreBinding> bindings;
+	var slot = this.store_slot(@expression, bindings, nullptr, 0);
+	if (slot.root != loan.binding) {
+		return false;
+	};
+	return reference_slot_overlap(loan.holding, slot.path);
+};
+
+fn ReferenceLoanAnalyzer::loan_definition(ReferenceLoanAnalyzer& this, ReferenceLoan& loan) -> usize {
+	if (loan.creation != fact_no_node()) {
+		return loan.creation;
+	};
+	usize index = 0;
+	while (index < this.graph.nodes.size()) {
+		FactNode& node = this.graph.nodes.data()[index];
+		if (node.kind == fact_node_kind::expression && node.expression && node.expression->kind() == semantic_kind::variable && node.expression->entity() == loan.binding) {
+			return index;
+		};
+		@index = index + 1;
+	};
+	return fact_no_node();
+};
+
+fn ReferenceLoanAnalyzer::reaching_contents(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, SemanticExpression& use) -> bool {
+	usize position = this.position(use);
+	usize definition = this.loan_definition(loan);
+	if (position == fact_no_node() || definition == fact_no_node()) {
+		return true;
+	};
+	return @this.reachable(definition, position, fact_no_node(), loan.binding) && @this.loan_store_path(definition, position, loan, definition);
+};
+
+fn ReferenceLoanAnalyzer::append_array_loan(var ReferenceLoanAnalyzer& this, ReferenceLoan loan) -> bool {
+	usize index = 0;
+	while (index < this.loans.size()) {
+		ReferenceLoan& existing = this.loans.data()[index];
+		if (existing.binding == loan.binding && existing.stored_field == loan.stored_field && existing.creation == loan.creation && existing.permission == loan.permission && existing.place.root == loan.place.root && existing.place.field == loan.place.field && existing.place.element == loan.place.element && existing.place.reference_contents == loan.place.reference_contents && reference_slot_equal(existing.holding, loan.holding)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return @this.loans.push_back($loan);
+};
+
+fn ReferenceLoanAnalyzer::refresh_array_aliases(var ReferenceLoanAnalyzer& this) -> bool {
+	usize iteration = 0;
+	while (iteration < 16) {
+		usize previous = this.loans.size();
+		usize index = 0;
+		while (index < this.expressions.size()) {
+			var SemanticExpression* expression = this.expressions.data()[index];
+			@index = index + 1;
+			if (expression->kind() != semantic_kind::variable || !expression->entity() || !expression->size()) {
+				continue;
+			};
+			if (reference_array_members(*expression->entity()->type(), 0)) {
+				@this.phase = reference_loan_phase::collect;
+				bool collected = @this.array_aggregate(*expression);
+				@this.phase = reference_loan_phase::validate;
+				if (!collected) {
+					return false;
+				};
+				continue;
+			};
+			if (expression->entity()->type()->kind() != type_kind::reference || reference_loan_members(*expression->entity()->type()->element())) {
+				continue;
+			};
+			rt::buffer<ReferenceStoreBinding> bindings;
+			var slot = this.store_slot(*expression->item(0), bindings, nullptr, 0);
+			if (!slot.root || !reference_array_members(*slot.root->type(), 0)) {
+				continue;
+			};
+			rt::buffer<ReferenceLoanPlace> targets;
+			rt::buffer<ReferenceLoanSubstitution> substitutions;
+			if (!@this.places(*expression->item(0), @targets, @substitutions, nullptr, 0)) {
+				return false;
+			};
+			usize candidate = 0;
+			while (candidate < targets.size()) {
+				ReferenceLoan loan;
+				@loan.binding = expression->entity();
+				@loan.creation = fact_no_node();
+				@loan.permission = expression->entity()->type()->element()->qualifier();
+				@loan.place.root = targets.data()[candidate].root;
+				@loan.place.reference_contents = targets.data()[candidate].reference_contents;
+				@loan.place.field = targets.data()[candidate].field;
+				@loan.place.element = targets.data()[candidate].element;
+				@loan.place.through = targets.data()[candidate].through;
+				if (!@this.append_array_loan($loan)) {
+					return false;
+				};
+				@candidate = candidate + 1;
+			};
+		};
+		if (!@this.retain_stores(@*this.function_body)) {
+			return false;
+		};
+		if (previous == this.loans.size()) {
+			return true;
+		};
+		@iteration = iteration + 1;
+	};
+	return @this.error(*this.function_body, "reference array alias analysis did not converge within the analysis limit");
+};

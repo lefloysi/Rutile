@@ -1,3 +1,9 @@
+enum reference_initialization_kind : [u08] {
+	initialize;
+	copy;
+	relocate;
+};
+
 // Special members have implicit receivers rather than ordinary call arguments.
 fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> bool {
 	var Entity* implementation = function.canonical();
@@ -119,7 +125,7 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 		if (owner && construction->kind() == semantic_kind::construction && construction->entity() && !@this.retain_effect_capture(@*construction->entity(), owner, construction->item(0), this.position(*construction), *expression)) {
 			return false;
 		};
-		if (owner && construction->kind() == semantic_kind::construction && !@this.retain_constructor_captures(owner->type(), owner, this.position(*construction), *expression, 0, 0, construction)) {
+		if (owner && construction->kind() == semantic_kind::construction && !@this.retain_constructor_captures(owner->type(), owner, this.position(*construction), *expression, 0, reference_initialization_kind::initialize, construction)) {
 			return false;
 		};
 
@@ -179,7 +185,7 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 // Follow the same selected initialization path as backend initialize_members and
 // copy_members. Generated relocation transfers representation without invoking
 // member constructors; a custom constructor initializes its members normally.
-fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, usize mode, var SemanticExpression* initialization) -> bool {
+fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> bool {
 	if (depth > 32) {
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
@@ -192,22 +198,22 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 			@selected = selected->canonical();
 		};
 		if (selected) {
-			@mode = 0;
+			@mode = reference_initialization_kind::initialize;
 			if (selected->definition() == function_definition::defaulted && selected->parameters().size() == 2) {
-				@mode = 2;
+				@mode = reference_initialization_kind::relocate;
 				if (selected->parameters().data()[1]->type()->kind() == type_kind::reference) {
-					@mode = 1;
+					@mode = reference_initialization_kind::copy;
 				};
 			};
 		}
 		else if (initialization->size() && initialization->item(0)->size() == 1 && initialization->item(0)->item(0)->type()->same_shape(*type)) {
-			@mode = 2;
+			@mode = reference_initialization_kind::relocate;
 			if (initialization->item(0)->item(0)->category() == value_category::place) {
-				@mode = 1;
+				@mode = reference_initialization_kind::copy;
 			};
 		};
 	};
-	if (mode == 2) {
+	if (mode == reference_initialization_kind::relocate) {
 		return true;
 	};
 	if (type->kind() == type_kind::array) {
@@ -227,11 +233,11 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 		else {
 			var Entity* field = record->fields().data()[member - record->bases().size()];
 			@child = field->type();
-			if (mode == 0) {
+			if (mode == reference_initialization_kind::initialize) {
 				@value = field->body();
 			};
 		};
-		if (mode == 0 && initialization && !initialization->entity() && initialization->kind() == semantic_kind::construction && initialization->size() && member < initialization->item(0)->size()) {
+		if (mode == reference_initialization_kind::initialize && initialization && !initialization->entity() && initialization->kind() == semantic_kind::construction && initialization->size() && member < initialization->item(0)->size()) {
 			@value = initialization->item(0)->item(member);
 		};
 		@member = member + 1;
@@ -242,11 +248,11 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 		if (element->kind() == type_kind::reference) {
 			continue;
 		};
-		usize child_mode = mode;
+		reference_initialization_kind child_mode = mode;
 		if (element->kind() == type_kind::named && element->entity()->kind() == entity_kind::record) {
 			var Entity* constructor = element->entity()->default_constructor();
 			var SemanticExpression* arguments = nullptr;
-			if (mode == 1) {
+			if (mode == reference_initialization_kind::copy) {
 				@constructor = element->entity()->copy_constructor();
 			}
 			else if (value) {
@@ -257,7 +263,7 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 				}
 				else {
 					@constructor = element->entity()->move_constructor();
-					@child_mode = 2;
+					@child_mode = reference_initialization_kind::relocate;
 				};
 			};
 			if (constructor) {
@@ -278,7 +284,7 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 				if (!@this.retain_effect_capture(@*constructor, owner, arguments, position, location)) {
 					return false;
 				};
-				@child_mode = 0;
+				@child_mode = reference_initialization_kind::initialize;
 				@value = nullptr;
 			};
 		};

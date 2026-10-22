@@ -6,6 +6,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
+    ("raw-helper-publication", "Holder holder = Holder(shared_value); publish_holder(&@holder); overwrite_escaped(); return holder.reference;", False),
+    ("raw-wrapper-publication", "Holder holder = Holder(shared_value); publish_wrapper(&@holder); @holder = Holder(shared_value); overwrite_escaped(); return holder.reference;", False),
+    ("cast-base-overlap", "BorrowDerived object; var BorrowBase& reference = static_cast<var BorrowBase&>(@object); const BorrowBase& view = object; return reference.value + view.value;", False),
+    ("alias-reference-overlap", "BorrowAliases object; BorrowAliases::reference reference = @object.value; BorrowAliases::const_reference view = object.value; return reference + view;", False),
+    ("raw-variadic-holder", "Holder holder = Holder(shared_value); overwrite_variadic(0, &@holder); return holder.reference;", False),
     ("shared", "i32 value = 4; const i32& a = value; const i32& b = value; return a + b;", True),
     ("exclusive-conflict", "i32 value = 4; var i32& a = @value; var i32& b = @value; return a + b;", False),
     ("shared-write", "i32 value = 4; const i32& a = value; @value = 5; return a;", False),
@@ -119,6 +124,44 @@ CASES = [
     ("forward-declared-constructor", "ForwardOuter value; return 0;", True),
     ("forward-declared-capture", "i32 value = 4; forward_declared(value); return 0;", False),
 
+    ("holder-array-source-write", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); @value = 5; return values[0].reference;", False),
+    ("holder-array-independent-element", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); @value = 5; return values[1].reference;", True),
+    ("holder-array-unknown-element", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); @value = 5; return values[unknown_index()].reference;", False),
+    ("holder-array-inner-store", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); }; return values[0].reference;", False),
+    ("holder-array-overwrite", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); @values[0] = DefaultHolder(shared_value); }; return values[0].reference;", True),
+    ("holder-array-sibling-overwrite", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); @values[1] = DefaultHolder(shared_value); }; return values[0].reference;", False),
+    ("holder-array-unknown-overwrite", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); @values[unknown_index()] = DefaultHolder(shared_value); }; return values[0].reference;", False),
+    ("raw-write-unrestricted", "i32 value = 4; const i32& shared = value; var i32* pointer = &@value; @*pointer = 5; return shared;", True),
+
+    ("holder-array-copy", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); DefaultHolder[2] copy = values; @value = 5; return copy[0].reference;", False),
+    ("holder-array-move", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); DefaultHolder[2] copy = $values; @value = 5; return copy[0].reference;", False),
+    ("holder-array-copy-after-overwrite", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); @values[0] = DefaultHolder(shared_value); }; DefaultHolder[2] copy = values; return copy[0].reference;", True),
+    ("holder-array-move-after-overwrite", "DefaultHolder[2] values; { i32 local = 4; @values[0] = DefaultHolder(local); @values[0] = DefaultHolder(shared_value); }; DefaultHolder[2] copy = $values; return copy[0].reference;", True),
+    ("holder-array-reference-alias", "DefaultHolder[2] values; i32 value = 4; @values[0] = DefaultHolder(value); const i32& alias = values[0].reference; @value = 5; return alias;", False),
+    ("holder-array-nested-field", "ArrayHolder holder; i32 value = 4; @holder.values[0] = DefaultHolder(value); @value = 5; return holder.values[0].reference;", False),
+    ("holder-array-nested-independent", "ArrayHolder holder; i32 value = 4; @holder.values[0] = DefaultHolder(value); @value = 5; return holder.values[1].reference;", True),
+    ("holder-array-local-return", "i32 value = 4; DefaultHolder[1] values; @values[0] = DefaultHolder(value); return $values;", False),
+    ("holder-array-returned-store", "i32 value = 4; DefaultHolder[1] values = make_array(value); @value = 5; return values[0].reference;", False),
+    ("holder-returned-store", "i32 value = 4; Holder holder = make_changed(value); @value = 5; return holder.reference;", False),
+    ("raw-holder-opaque", "Holder holder = Holder(shared_value); overwrite_raw(&@holder); return holder.reference;", False),
+    ("raw-holder-known", "Holder holder = Holder(shared_value); raw_replace(&@holder, shared_value); return holder.reference;", False),
+    ("raw-holder-unused", "Holder holder = Holder(shared_value); overwrite_raw(&@holder); return 0;", True),
+    ("raw-holder-restored", "Holder holder = Holder(shared_value); overwrite_raw(&@holder); @holder = Holder(shared_value); return holder.reference;", True),
+    ("raw-holder-branch", "Holder holder = Holder(shared_value); if (condition) { overwrite_raw(&@holder); }; return holder.reference;", False),
+    ("raw-holder-branch-restored", "Holder holder = Holder(shared_value); if (condition) { overwrite_raw(&@holder); }; @holder = Holder(shared_value); return holder.reference;", True),
+    ("raw-holder-other-branch", "Holder holder = Holder(shared_value); if (condition) { overwrite_raw(&@holder); } else { @holder = Holder(shared_value); }; return holder.reference;", False),
+    ("raw-array-restored-slot", "DefaultHolder[2] values; raw_default(&@values[0]); @values[0] = DefaultHolder(shared_value); return values[0].reference;", True),
+    ("raw-array-unknown-slot", "DefaultHolder[2] values; raw_default(&@values[0]); @values[1] = DefaultHolder(shared_value); return values[0].reference;", False),
+    ("raw-array-independent-slot", "DefaultHolder[2] values; raw_default(&@values[0]); return values[1].reference;", True),
+
+    ("raw-placement-holder", "Holder holder = Holder(shared_value); i32 local = 4; var Holder* pointer = &@holder; @pointer->Holder(local); return holder.reference;", False),
+    ("raw-placement-restored", "Holder holder = Holder(shared_value); i32 local = 4; var Holder* pointer = &@holder; @pointer->Holder(local); @holder = Holder(shared_value); return holder.reference;", True),
+    ("raw-global-pointer-escape", "Holder holder = Holder(shared_value); @escaped_holder = &@holder; overwrite_escaped(); return holder.reference;", False),
+    ("raw-retained-pointer-after-restore", "Holder holder = Holder(shared_value); overwrite_raw(&@holder); @holder = Holder(shared_value); overwrite_escaped(); return holder.reference;", False),
+
+    ("returned-array-first-field", "i32 first = 4; i32 second = 5; DoubleDefault[1] values = make_pair_array(first, second); @first = 6; return values[0].first;", False),
+    ("returned-array-second-field", "i32 first = 4; i32 second = 5; DoubleDefault[1] values = make_pair_array(first, second); @second = 6; return values[0].second;", False),
+
 ]
 
 
@@ -133,12 +176,17 @@ def main():
         result_type = "const i32&" if name in ("local-return", "local-return-wrapper") else "i32"
         if name in ("stored-local-return", "stored-local-move-return"):
             result_type = "Holder"
+        if name == "holder-array-local-return":
+            result_type = "DefaultHolder[1]"
         if name == "union-local-return":
             result_type = "Choice"
         parameter_type = "i32" if name == "implicit-value-parameter-retained" else "bool"
         path = directory / (name + ".rt")
         source = (
             "struct Pair { i32 first; i32 second; };\n"
+            "struct BorrowBase { i32 value; }; struct BorrowDerived : [BorrowBase] {};\n"
+            "struct BorrowAliases { i32 value; using reference = var i32&; using const_reference = const i32&; };\n"
+            "fn overwrite_variadic(i32 tag, ...);\n"
             "struct Holder { const i32& reference; };\n"
             "struct MutableHolder { var i32& reference; };\n"
             "struct DoubleMutable { var i32& first; var i32& second; };\n"
@@ -148,6 +196,8 @@ def main():
             "struct DefaultHolder { const i32& reference = shared_value; };\n"
             "struct CustomDefault { const i32& reference = shared_value; fn CustomDefault(var CustomDefault& this) {}; };\n"
             "struct NestedDefault { DefaultHolder inner; };\n"
+            "struct ArrayHolder { DefaultHolder[2] values; };\n"
+            "struct DoubleDefault { const i32& first = shared_value; const i32& second = shared_value; };\n"
             "struct VirtualBorrow { fn choose(const VirtualBorrow& this, var i32& value) -> var i32& : [virtual] { return @value; }; };\n"
             "i32 observed;\n"
             "struct ReadHolder { const i32& reference; fn ~ReadHolder(var ReadHolder& this) { @observed = this.reference; }; };\n"
@@ -181,6 +231,16 @@ def main():
             "struct ForwardOuter { ForwardPart part; };\n"
             "fn forward_declared(const i32& value);\n"
             "fn forward_declared(const i32& value) { retain(value); };\n"
+            "var Holder* escaped_holder;\n"
+            "fn overwrite_escaped();\n"
+            "fn publish_holder(var Holder* value) { @escaped_holder = value; };\n"
+            "fn publish_wrapper(var Holder* value) { publish_holder(value); };\n"
+            "fn overwrite_raw(var Holder* value);\n"
+            "fn raw_default(var DefaultHolder* value);\n"
+            "fn raw_replace(var Holder* destination, const i32& value) { @*destination = Holder(value); };\n"
+            "fn make_changed(const i32& value) -> Holder { Holder holder = Holder(shared_value); write_holder(@holder, value); return $holder; };\n"
+            "fn make_pair_array(const i32& first, const i32& second) -> DoubleDefault[1] { DoubleDefault[1] values; @values[0] = DoubleDefault(first, second); return $values; };\n"
+            "fn make_array(const i32& value) -> DefaultHolder[1] { DefaultHolder[1] values; @values[0] = DefaultHolder(value); return $values; };\n"
             "fn unknown_index() -> usize;\n"
             "fn identity(var i32& value) -> var i32& { return @value; };\n"
             "fn shared_identity(const i32& value) -> const i32& { return value; };\n"
@@ -221,6 +281,9 @@ def main():
             "special member capture analysis limit exceeded",
             "constructor reference capture may outlive local storage",
             "implicit constructor capture provenance is unavailable",
+            "reference holding projection exceeds the analysis depth limit",
+            "reference contents have unknown provenance after a raw or opaque memory effect",
+            "recursive returned reference contents require conservative rejection",
         )):
             raise RuntimeError(f"{name}: expected loan diagnostic\n{output}")
         print(name + ": PASS")

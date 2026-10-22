@@ -1,0 +1,422 @@
+// Lifetime values and reference identity share the evaluation graph with facts,
+// but use their own finite domain and preserve lifetime-specific diagnostics.
+enum graph_storage : [u08] {
+	unavailable;
+	available;
+};
+
+struct GraphLifetimeValue {
+	graph_storage storage;
+	object_lifetime lifetime;
+	var Entity* referent;
+};
+
+struct GraphLifetimeState {
+	bool reachable;
+	rt::buffer<GraphLifetimeValue> values;
+	fn copy_from(var GraphLifetimeState& this, GraphLifetimeState& source) -> bool;
+	fn join(var GraphLifetimeState& this, GraphLifetimeState& source, var bool& changed) -> bool;
+	fn same(GraphLifetimeState& this, GraphLifetimeState& other) -> bool;
+};
+
+fn GraphLifetimeState::copy_from(var GraphLifetimeState& this, GraphLifetimeState& source) -> bool {
+	@this.reachable = source.reachable;
+	@this.values.clear();
+	usize index = 0;
+	while (index < source.values.size()) {
+		if (!@this.values.push_back(GraphLifetimeValue(source.values.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn GraphLifetimeState::join(var GraphLifetimeState& this, GraphLifetimeState& source, var bool& changed) -> bool {
+	if (!source.reachable) {
+		return true;
+	};
+	if (!this.reachable) {
+		@changed = true;
+		return @this.copy_from(source);
+	};
+	usize index = 0;
+	while (index < this.values.size()) {
+		var GraphLifetimeValue& target = @(@this.values).data()[index];
+		GraphLifetimeValue& incoming = source.values.data()[index];
+		if (target.storage == graph_storage::available && incoming.storage == graph_storage::unavailable) {
+			@target.storage = graph_storage::unavailable;
+			@changed = true;
+		};
+		if (target.lifetime != object_lifetime::indeterminate && (incoming.lifetime == object_lifetime::indeterminate || (target.lifetime == object_lifetime::live) != (incoming.lifetime == object_lifetime::live))) {
+			@target.lifetime = object_lifetime::indeterminate;
+			@changed = true;
+		};
+		if (target.referent && target.referent != incoming.referent) {
+			@target.referent = nullptr;
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn GraphLifetimeState::same(GraphLifetimeState& this, GraphLifetimeState& other) -> bool {
+	if (this.reachable != other.reachable || this.values.size() != other.values.size()) {
+		return false;
+	};
+	usize index = 0;
+	while (index < this.values.size()) {
+		GraphLifetimeValue& first = this.values.data()[index];
+		GraphLifetimeValue& second = other.values.data()[index];
+		if (first.storage != second.storage || first.lifetime != second.lifetime || first.referent != second.referent) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn graph_lifetime_index(rt::buffer<var Entity*>& bindings, Entity* entity) -> usize {
+	usize index = 0;
+	while (index < bindings.size()) {
+		if (bindings.data()[index] == entity) {
+			return index;
+		};
+		@index = index + 1;
+	};
+	return fact_no_node();
+};
+
+fn graph_lifetime_owner(SemanticExpression* expression, rt::buffer<var Entity*>& bindings, GraphLifetimeState& state) -> var Entity* {
+	while (expression) {
+		semantic_kind kind = expression->kind();
+		if (kind == semantic_kind::name) {
+			var Entity* entity = expression->entity();
+			if (!entity || entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter) {
+				return nullptr;
+			};
+			usize remaining = bindings.size();
+			while (entity && entity->type()->kind() == type_kind::reference) {
+				usize index = graph_lifetime_index(bindings, entity);
+				if (!remaining || index == fact_no_node() || !state.values.data()[index].referent) {
+					return nullptr;
+				};
+				@entity = state.values.data()[index].referent;
+				@remaining = remaining - 1;
+			};
+			return entity;
+		};
+		if (kind == semantic_kind::access || kind == semantic_kind::cast || kind == semantic_kind::member || kind == semantic_kind::index && expression->item(0)->type()->kind() == type_kind::array) {
+			@expression = expression->item(0);
+		}
+		else if (kind == semantic_kind::dereference && expression->item(0)->kind() == semantic_kind::address) {
+			@expression = expression->item(0)->item(0);
+		}
+		else if (kind == semantic_kind::sequence) {
+			@expression = expression->item(2);
+		}
+		else {
+			return nullptr;
+		};
+	};
+	return nullptr;
+};
+
+fn graph_lifetime_declares(SemanticExpression* expression, Entity* entity) -> bool {
+	if (!expression) {
+		return false;
+	};
+	if (expression->kind() == semantic_kind::variable && expression->entity() == entity) {
+		return true;
+	};
+	usize child = 0;
+	while (child < expression->size()) {
+		if (graph_lifetime_declares(expression->item(child), entity)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn LifetimeAnalyzer::graph_transfer(var LifetimeAnalyzer& this, FactNode& node, rt::buffer<var Entity*>& bindings, var GraphLifetimeState& state) -> bool {
+	var SemanticExpression* expression = node.expression;
+	var Entity* entity = node.owner;
+	if (node.kind == fact_node_kind::lifetime_begin && entity) {
+		usize index = graph_lifetime_index(bindings, entity);
+		if (index != fact_no_node()) {
+			@(@state.values).data()[index].storage = graph_storage::available;
+			@(@state.values).data()[index].lifetime = object_lifetime::live;
+		};
+		return true;
+	};
+	if (node.kind == fact_node_kind::lifetime_end && entity) {
+		usize index = graph_lifetime_index(bindings, entity);
+		if (index != fact_no_node() && (!expression || expression->kind() != semantic_kind::relocation && expression->kind() != semantic_kind::destruction)) {
+			@(@state.values).data()[index].storage = graph_storage::unavailable;
+		};
+		return true;
+	};
+	if (node.kind != fact_node_kind::expression || !expression) {
+		return true;
+	};
+	semantic_kind kind = expression->kind();
+	if ((kind == semantic_kind::variable || kind == semantic_kind::exception_handler) && expression->entity()) {
+		usize index = graph_lifetime_index(bindings, expression->entity());
+		if (index != fact_no_node()) {
+			var GraphLifetimeValue& value = @(@state.values).data()[index];
+			@value.storage = graph_storage::available;
+			@value.lifetime = object_lifetime::live;
+			if (kind == semantic_kind::variable && expression->entity()->type()->kind() == type_kind::reference) {
+				@value.referent = graph_lifetime_owner(expression->item(0), bindings, state);
+			};
+		};
+	};
+	if ((kind == semantic_kind::relocation || kind == semantic_kind::destruction) && expression->size()) {
+		usize index = graph_lifetime_index(bindings, expression->item(0)->owned_binding());
+		if (index != fact_no_node()) {
+			object_lifetime ending = object_lifetime::relocated;
+			if (kind == semantic_kind::destruction) {
+				@ending = object_lifetime::destroyed;
+			};
+			@(@state.values).data()[index].lifetime = ending;
+		};
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::graph_check(var LifetimeAnalyzer& this, FactNode& node, rt::buffer<var Entity*>& bindings, GraphLifetimeState& state) -> bool {
+	var SemanticExpression* expression = node.expression;
+	if (!expression || node.kind != fact_node_kind::expression) {
+		return true;
+	};
+	if (expression->kind() == semantic_kind::sequence && expression->category() == value_category::place) {
+		var Entity* owner = graph_lifetime_owner(expression->item(2), bindings, state);
+		if (owner && graph_lifetime_declares(expression, owner)) {
+			return @this.binding_error(expression, "sequence result refers to local storage", *owner);
+		};
+	};
+	if (expression->kind() != semantic_kind::name || !expression->entity() || expression->entity()->kind() != entity_kind::local && expression->entity()->kind() != entity_kind::parameter) {
+		return true;
+	};
+	var Entity* entity = expression->entity();
+	var Entity* owner = graph_lifetime_owner(expression, bindings, state);
+	if (owner) {
+		@entity = owner;
+	};
+	usize index = graph_lifetime_index(bindings, entity);
+	if (index == fact_no_node() || state.values.data()[index].storage == graph_storage::unavailable) {
+		if (node.evaluation == fact_evaluation::storage) {
+			return @this.binding_error(expression, "object storage does not reach this construction", *entity);
+		};
+		return @this.binding_error(expression, "object construction does not reach this use", *entity);
+	};
+	if (node.evaluation == fact_evaluation::storage) {
+		return true;
+	};
+	object_lifetime lifetime = state.values.data()[index].lifetime;
+	if (lifetime == object_lifetime::live) {
+		return true;
+	};
+	if (lifetime == object_lifetime::relocated) {
+		return @this.binding_error(expression, "object has been relocated", *entity);
+	};
+	if (lifetime == object_lifetime::destroyed) {
+		return @this.binding_error(expression, "object has been destroyed", *entity);
+	};
+	if (lifetime == object_lifetime::discarded) {
+		return @this.binding_error(expression, "object has been discarded", *entity);
+	};
+	return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths", *entity);
+};
+
+fn graph_lifetime_edge(FactEdge& edge) -> bool {
+	bool truth = false;
+	if (edge.condition && edge.condition->constant_truth(@truth)) {
+		if (edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth) {
+			return false;
+		};
+	};
+	return true;
+};
+
+fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& function) -> bool {
+	FactGraph graph;
+	if (!@graph.build_function(function)) {
+		return @this.error(function.body(), "lifetime state storage is unavailable");
+	};
+	rt::buffer<var Entity*> bindings;
+	usize index = 0;
+	while (index < function.parameters().size()) {
+		if (!@bindings.push_back(function.parameters().data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < graph.nodes.size()) {
+		var SemanticExpression* expression = graph.nodes.data()[index].expression;
+		if (graph.nodes.data()[index].kind == fact_node_kind::expression && expression && (expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::exception_handler) && expression->entity() && graph_lifetime_index(bindings, expression->entity()) == fact_no_node() && !@bindings.push_back(expression->entity())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	rt::buffer<rt::unique<GraphLifetimeState>> incoming;
+	rt::buffer<rt::unique<GraphLifetimeState>> entries;
+	@index = 0;
+	while (index < graph.nodes.size()) {
+		var state = rt::unique<GraphLifetimeState>::make();
+		var entry = rt::unique<GraphLifetimeState>::make();
+		if (!state.get() || !entry.get()) {
+			return false;
+		};
+		usize binding = 0;
+		while (binding < bindings.size()) {
+			GraphLifetimeValue value;
+			if (index == graph.entry && binding < function.parameters().size()) {
+				@value.storage = graph_storage::available;
+			};
+			if (!@state.get()->values.push_back($value)) {
+				return false;
+			};
+			@binding = binding + 1;
+		};
+		if (index == graph.entry) {
+			@state.get()->reachable = true;
+		};
+		if (!@incoming.push_back($state) || !@entries.push_back($entry)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	rt::buffer<usize> first_edges;
+	rt::buffer<usize> next_edges;
+	rt::buffer<usize> first_incoming;
+	rt::buffer<usize> next_incoming;
+	rt::buffer<rt::unique<GraphLifetimeState>> produced;
+	rt::buffer<u08> queued;
+	rt::buffer<usize> pending;
+	@index = 0;
+	while (index < graph.nodes.size()) {
+		var output = rt::unique<GraphLifetimeState>::make();
+		if (!output.get() || !@produced.push_back($output) || !@first_edges.push_back(fact_no_node()) || !@first_incoming.push_back(fact_no_node()) || !@queued.push_back(u08(index == graph.entry))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < graph.edges.size()) {
+		if (!@next_edges.push_back(fact_no_node()) || !@next_incoming.push_back(fact_no_node())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = graph.edges.size();
+	while (index) {
+		@index = index - 1;
+		FactEdge& edge = graph.edges.data()[index];
+		@(@next_edges).data()[index] = first_edges.data()[edge.source];
+		@(@first_edges).data()[edge.source] = index;
+		@(@next_incoming).data()[index] = first_incoming.data()[edge.target];
+		@(@first_incoming).data()[edge.target] = index;
+	};
+	if (!@pending.push_back(graph.entry)) {
+		return false;
+	};
+	usize cursor = 0;
+	while (cursor < pending.size()) {
+		usize source = pending.data()[cursor];
+		@cursor = cursor + 1;
+		@(@queued).data()[source] = 0;
+		var GraphLifetimeState& outgoing = @*(@produced).data()[source].get();
+		if (!@outgoing.copy_from(*incoming.data()[source].get()) || !@this.graph_transfer(graph.nodes.data()[source], bindings, @outgoing)) {
+			return false;
+		};
+		usize edge_index = first_edges.data()[source];
+		while (edge_index != fact_no_node()) {
+			FactEdge& edge = graph.edges.data()[edge_index];
+			if (graph_lifetime_edge(edge)) {
+				GraphLifetimeState merged;
+				GraphLifetimeState entry;
+				usize predecessor = first_incoming.data()[edge.target];
+				while (predecessor != fact_no_node()) {
+					FactEdge& previous = graph.edges.data()[predecessor];
+					GraphLifetimeState& value = *produced.data()[previous.source].get();
+					bool changed = false;
+					if (value.reachable && graph_lifetime_edge(previous)) {
+						if (!@merged.join(value, @changed)) {
+							return false;
+						};
+						if (previous.kind != fact_edge_kind::backedge && graph.nodes.data()[edge.target].region && !@entry.join(value, @changed)) {
+							return false;
+						};
+					};
+					@predecessor = next_incoming.data()[predecessor];
+				};
+				if (graph.nodes.data()[edge.target].region && !@entries.data()[edge.target].get()->copy_from(entry)) {
+					return false;
+				};
+				var GraphLifetimeState& current = @*(@incoming).data()[edge.target].get();
+				if (!current.same(merged)) {
+					if (!@current.copy_from(merged)) {
+						return false;
+					};
+					if (!queued.data()[edge.target]) {
+						if (!@pending.push_back(edge.target)) {
+							return false;
+						};
+						@(@queued).data()[edge.target] = 1;
+					};
+				};
+			};
+			@edge_index = next_edges.data()[edge_index];
+		};
+	};
+	@index = 0;
+	while (index < graph.edges.size()) {
+		FactEdge& edge = graph.edges.data()[index];
+		if (edge.kind == fact_edge_kind::backedge && graph_lifetime_edge(edge) && incoming.data()[edge.source].get()->reachable && entries.data()[edge.target].get()->reachable) {
+			GraphLifetimeState repeated;
+			if (!@repeated.copy_from(*incoming.data()[edge.source].get()) || !@this.graph_transfer(graph.nodes.data()[edge.source], bindings, @repeated)) {
+				return false;
+			};
+			GraphLifetimeState& entry = *entries.data()[edge.target].get();
+			usize binding = 0;
+			while (binding < bindings.size()) {
+				GraphLifetimeValue& initial = entry.values.data()[binding];
+				GraphLifetimeValue& next = repeated.values.data()[binding];
+				if (initial.storage == graph_storage::available && (next.storage != graph_storage::available || (initial.lifetime == object_lifetime::indeterminate) != (next.lifetime == object_lifetime::indeterminate) || (initial.lifetime == object_lifetime::live) != (next.lifetime == object_lifetime::live))) {
+					return @this.binding_error(graph.nodes.data()[edge.target].region, "inconsistent object lifetimes at reachable loop backedge", *bindings.data()[binding]);
+				};
+				@binding = binding + 1;
+			};
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < graph.nodes.size()) {
+		if (incoming.data()[index].get()->reachable && !@this.graph_check(graph.nodes.data()[index], bindings, *incoming.data()[index].get())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	function_completion completion = function_completion::no_fallthrough;
+	if (incoming.data()[graph.fallthrough_exit].get()->reachable) {
+		@completion = function_completion::reaches_end;
+	};
+	@function.set_completion(completion);
+	return true;
+};
+
+fn LifetimeAnalyzer::validate_graph(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool {
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		var Entity* function = unit.entities().data()[index].get();
+		@index = index + 1;
+		if (function->kind() == entity_kind::function && function->body() && !@this.graph_function(@*function)) {
+			return false;
+		};
+	};
+	return true;
+};

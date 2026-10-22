@@ -1,8 +1,9 @@
 // Reference-slot identity is distinct from the objects referenced by that slot.
 struct ReferenceStoreSlot {
+	ReferenceSlotPath path;
 	var Entity* root;
 	var Entity* field;
-	var SemanticExpression* expression;
+	SemanticExpression* expression;
 };
 
 struct ReferenceStoreBinding {
@@ -102,7 +103,7 @@ fn reference_store_region(var SemanticExpression& expression, Entity& binding, v
 };
 
 fn reference_store_same(ReferenceStoreSlot& first, ReferenceStoreSlot& second) -> bool {
-	return first.root == second.root && first.field == second.field;
+	return first.root == second.root && reference_slot_equal(first.path, second.path);
 };
 
 fn reference_store_graph_path(FactGraph& graph, usize source, usize target, usize avoid) -> bool {
@@ -173,7 +174,7 @@ fn reference_store_required(Entity& function, SemanticExpression& operation) -> 
 	return node != fact_no_node() && reference_store_graph_path(graph, usize(graph.entry), usize(graph.normal_exit), fact_no_node()) && !reference_store_graph_path(graph, usize(graph.entry), usize(graph.normal_exit), node);
 };
 
-fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, var SemanticExpression& expression, rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, usize depth) -> ReferenceStoreSlot {
+fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, usize depth) -> ReferenceStoreSlot {
 	ReferenceStoreSlot slot;
 	if (depth > 16) {
 		return $slot;
@@ -187,6 +188,7 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, var SemanticEx
 				@slot.root = bindings.data()[index].slot.root;
 				@slot.field = bindings.data()[index].slot.field;
 				@slot.expression = bindings.data()[index].slot.expression;
+				reference_slot_copy(bindings.data()[index].slot.path, @slot.path);
 				return $slot;
 			};
 		};
@@ -205,7 +207,7 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, var SemanticEx
 			return $slot;
 		};
 		@slot.root = binding;
-		@slot.expression = &@expression;
+		@slot.expression = &expression;
 		return $slot;
 	};
 	if (expression.kind() == semantic_kind::access || expression.kind() == semantic_kind::cast || expression.kind() == semantic_kind::relocation) {
@@ -216,11 +218,19 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, var SemanticEx
 		if (!slot.field) {
 			@slot.field = expression.entity();
 		};
-		@slot.expression = &@expression;
+		@slot.expression = &expression;
+		if (!reference_slot_field(@slot.path, expression.entity())) {
+			@slot.path.imprecise = true;
+		};
 		return $slot;
 	};
 	if (expression.kind() == semantic_kind::index && expression.item(0)->type()->kind() == type_kind::array) {
-		return this.store_slot(@*expression.item(0), bindings, context, depth + 1);
+		@slot = this.store_slot(@*expression.item(0), bindings, context, depth + 1);
+		if (!reference_slot_index(@slot.path, expression.item(1))) {
+			@slot.path.imprecise = true;
+		};
+		@slot.expression = &expression;
+		return $slot;
 	};
 	return $slot;
 };
@@ -261,6 +271,7 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 						@effect.slot.root = slot.root;
 						@effect.slot.field = slot.field;
 						@effect.slot.expression = slot.expression;
+						reference_slot_copy(slot.path, @effect.slot.path);
 						@effect.field = field;
 						@effect.referent.root = targets.data()[target].root;
 						@effect.referent.reference_contents = targets.data()[target].reference_contents;
@@ -362,6 +373,10 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			ReferenceStoreEffect& effect = this.stores.data()[index];
 			ReferenceLoan loan;
 			@loan.binding = effect.slot.root;
+			reference_slot_copy(effect.slot.path, @loan.holding);
+			if (!reference_slot_field(@loan.holding, effect.field)) {
+				return @this.error(*effect.site, "reference holding projection exceeds the analysis depth limit");
+			};
 			@loan.stored_field = effect.field;
 			if (effect.slot.field) {
 				@loan.stored_field = effect.slot.field;
@@ -400,7 +415,7 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 		usize index = 0;
 		while (node != source && index < this.stores.size()) {
 			ReferenceStoreEffect& replacement = this.stores.data()[index];
-			if (replacement.definite && replacement.site != effect.site && replacement.slot.root == effect.slot.root && (!replacement.slot.field || replacement.slot.field == effect.slot.field) && this.position(*replacement.site) == node) {
+			if (replacement.definite && replacement.site != effect.site && replacement.slot.root == effect.slot.root && reference_slot_prefix(replacement.slot.path, effect.slot.path) && this.position(*replacement.site) == node) {
 				@killed = true;
 				break;
 			};

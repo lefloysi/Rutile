@@ -20,6 +20,7 @@ CASES = [
 	("signed-unknown", "fn inspect(i32 index) -> i32 { i32[2] values {}; if (index < 2) { return values[index]; }; return 0; };", False),
 	("signed-negative-pointer", "fn inspect(var i32* values) -> i32 { i32 index = -1; return values[index]; };", False),
 	("signed-negative-array", "fn main() -> i32 { i32[2] values {}; i32 index = -1; return values[index]; };", True),
+	("signed-minimum-array", "fn main() -> i32 { i32[2] values {}; i64 index = -i64::max - 1; return values[index]; };", True),
 	("signed-negative-branch", "fn inspect(i32 index) -> i32 { i32[2] values {}; if (index < 0) { return values[index]; }; return 0; };", True),
 	("overflow", "fn main() -> i32 { i32[2] values {}; u08 index = 255; @index = index + u08(1); return values[index]; };", False),
 	("loop-updates", "fn main() -> i32 { i32[2] values {}; usize index = 2; while (index) { @index = index - 1; values[index]; }; return 0; };", False),
@@ -32,6 +33,13 @@ CASES = [
 	("destructor-effects", "usize index = 2; struct Change { fn ~Change(var Change& this) { @index = 0; }; }; fn main() -> i32 { i32[2] values {}; { Change change; }; return values[index]; };", False),
 	("overlapping-fields", "struct Inner { usize index; }; struct Outer { Inner inner; }; fn replace(var Inner* inner); fn main() -> i32 { i32[2] values {}; Outer owner; @owner.inner.index = 2; replace(&@owner.inner); return values[owner.inner.index]; };", False),
 ]
+
+DEDUCTIONS = {
+	"local-invalid": "inferred index range is [2, 2]; array extent is 2",
+	"signed-negative-array": "inferred index range is [-1, -1]; array extent is 2",
+	"signed-minimum-array": "inferred index range is [-9223372036854775808, -9223372036854775808]; array extent is 2",
+	"merge-all-invalid": "inferred index range is [2, 3]; array extent is 2",
+}
 
 
 def check_codegen(compiler, directory):
@@ -112,6 +120,8 @@ def main():
 			if (rejected and (result.returncode != 1 or BOUNDS not in output)
 				or not rejected and result.returncode or "internal compiler error" in output):
 				raise RuntimeError(f"unexpected exit {result.returncode}\n{output}")
+			if name in DEDUCTIONS and DEDUCTIONS[name] not in output:
+				raise RuntimeError(f"missing bounds deduction\n{output}")
 			print(name + ": PASS")
 		except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
 			failures.append(name)

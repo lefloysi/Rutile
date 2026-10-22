@@ -9,6 +9,12 @@ enum fact_node_kind : [u08] {
 	opaque;
 	lifetime_begin;
 	lifetime_end;
+	fallthrough_exit;
+};
+
+enum fact_evaluation : [u08] {
+	value;
+	storage;
 };
 
 enum fact_edge_kind : [u08] {
@@ -23,6 +29,8 @@ struct FactNode {
 	fact_node_kind kind;
 	var SemanticExpression* expression;
 	var Entity* owner;
+	var SemanticExpression* region;
+	fact_evaluation evaluation;
 };
 
 struct FactEdge {
@@ -92,6 +100,23 @@ fn fact_temporary_source(var SemanticExpression* expression, bool nested) -> var
 		return nullptr;
 	};
 	semantic_kind kind = expression->kind();
+	// initialize_value_body constructs a matching consumable initializer
+	// directly in owned variable storage. Only its arguments can create
+	// full-expression temporaries; the outer object ends at scope cleanup.
+	if (kind == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() != type_kind::reference && expression->size()) {
+		var SemanticExpression* initializer = expression->item(0);
+		if (initializer->kind() == semantic_kind::construction && initializer->category() == value_category::consumable && expression->entity()->type()->same_shape(*initializer->type())) {
+			usize child = 0;
+			while (child < initializer->size()) {
+				var SemanticExpression* temporary = fact_temporary_source(initializer->item(child), true);
+				if (temporary) {
+					return temporary;
+				};
+				@child = child + 1;
+			};
+			return nullptr;
+		};
+	};
 	if (kind == semantic_kind::conditional || kind == semantic_kind::while_loop || kind == semantic_kind::for_loop || kind == semantic_kind::switch_expression || kind == semantic_kind::exception_try || kind == semantic_kind::sequence || kind == semantic_kind::statements || kind == semantic_kind::return_value || kind == semantic_kind::exception_throw || kind == semantic_kind::exception_rethrow || kind == semantic_kind::brace && !nested) {
 		return nullptr;
 	};
@@ -115,6 +140,7 @@ struct FactGraph {
 	usize entry;
 	usize normal_exit;
 	usize exceptional_exit;
+	usize fallthrough_exit;
 	usize return_target;
 
 	fn build(var FactGraph& this, var SemanticExpression* body) -> bool;
@@ -174,6 +200,12 @@ fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge
 	@edge.source = $source;
 	@edge.target = $target;
 	@edge.kind = $kind;
+	// The initial entry is connected before the loop header is annotated.
+	// Later header entries include continues from increment expressions and
+	// their cleanup chains, and must retain backedge lifetime validation.
+	if (edge.kind == fact_edge_kind::next && this.nodes.data()[edge.target].region) {
+		@edge.kind = fact_edge_kind::backedge;
+	};
 	@edge.condition = $condition;
 	return @this.edges.push_back($edge);
 };
@@ -191,7 +223,7 @@ fn FactGraph::build(var FactGraph& this, var SemanticExpression* body) -> bool {
 	if (!@this.lower(body, @current, fact_no_node(), fact_no_node(), this.exceptional_exit)) {
 		return false;
 	};
-	return @this.connect(current, this.normal_exit, fact_edge_kind::next, nullptr);
+	return @this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit) && @this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr) && @this.connect(this.fallthrough_exit, this.normal_exit, fact_edge_kind::next, nullptr);
 };
 
 fn FactGraph::build_function(var FactGraph& this, Entity& function) -> bool {
@@ -220,7 +252,7 @@ fn FactGraph::build_function(var FactGraph& this, Entity& function) -> bool {
 		};
 	};
 	@this.return_target = normal;
-	return @this.lower(function.body(), @current, fact_no_node(), fact_no_node(), exceptional) && @this.connect(current, normal, fact_edge_kind::next, nullptr);
+	return @this.lower(function.body(), @current, fact_no_node(), fact_no_node(), exceptional) && @this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit) && @this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr) && @this.connect(this.fallthrough_exit, normal, fact_edge_kind::next, nullptr);
 };
 
 fn FactGraph::cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result) -> bool {
@@ -388,6 +420,7 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		if (!@this.add_node(fact_node_kind::merge, nullptr, @header) || !@this.add_node(fact_node_kind::merge, nullptr, @body) || !@this.add_node(fact_node_kind::merge, nullptr, @step) || !@this.add_node(fact_node_kind::merge, nullptr, @after) || !@this.connect(current, header, fact_edge_kind::next, nullptr)) {
 			return false;
 		};
+		@(@this.nodes).data()[header].region = expression;
 		usize test_index = 0;
 		usize body_index = 1;
 		if (is_for) {
@@ -562,8 +595,19 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		if (children == 2 && (kind == semantic_kind::index || kind == semantic_kind::construction)) {
 			@child = 1 - index;
 		};
+		usize begin = this.nodes.size();
 		if (!@this.lower(expression->item(child), @current, break_target, continue_target, exception_target)) {
 			return false;
+		};
+		if (kind == semantic_kind::construction && children > 1 && child == 1) {
+			var Entity* owner = expression->item(child)->owned_binding();
+			while (begin < this.nodes.size()) {
+				var FactNode& lowered = @(@this.nodes).data()[begin];
+				if (owner && lowered.kind == fact_node_kind::expression && lowered.expression && lowered.expression->kind() == semantic_kind::name && lowered.expression->entity() == owner) {
+					@lowered.evaluation = fact_evaluation::storage;
+				};
+				@begin = begin + 1;
+			};
 		};
 		@index = index + 1;
 	};

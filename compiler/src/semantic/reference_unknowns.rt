@@ -1,0 +1,439 @@
+struct ReferenceUnknownContent {
+	var Entity* root;
+	ReferenceSlotPath holding;
+	usize source;
+};
+
+fn reference_holder_contents(Type* type) -> bool {
+	if (type->kind() == type_kind::reference) {
+		@type = type->element();
+	};
+	return reference_loan_members(*type);
+};
+
+fn reference_raw_function(Entity& function, rt::buffer<var Entity*>& functions) -> bool {
+	usize index = 0;
+	while (index < functions.size()) {
+		if (functions.data()[index] == function.canonical()) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn reference_raw_effects(SemanticExpression& expression, rt::buffer<var Entity*>& functions) -> bool {
+	if (expression.kind() == semantic_kind::binary && (expression.operation() == token_kind::op_assign || expression.operation() == token_kind::op_copy) && expression.item(0)->type()->kind() == type_kind::pointer) {
+		SemanticExpression* target = expression.item(0);
+		while ((target->kind() == semantic_kind::access || target->kind() == semantic_kind::cast) && target->size()) {
+			@target = target->item(0);
+		};
+		Entity* destination = target->entity();
+		if (destination && destination->kind() == entity_kind::global) {
+			return true;
+		};
+	};
+	if (expression.kind() == semantic_kind::construction && expression.size() > 1 && expression.item(1)->indirect_storage() || (expression.kind() == semantic_kind::destruction || expression.kind() == semantic_kind::relocation) && expression.size() && expression.item(0)->indirect_storage()) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::binary && (expression.operation() == token_kind::op_assign || expression.operation() == token_kind::op_copy) && expression.item(0)->indirect_storage()) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::call && expression.size() >= 2) {
+		var Entity* function = expression.entity();
+		if (function) {
+			@function = function->canonical();
+			if (reference_raw_function(*function, functions)) {
+				return true;
+			};
+			if (function->role() == function_role::assignment && expression.item(1)->size() && expression.item(1)->item(0)->indirect_storage()) {
+				return true;
+			};
+		};
+		Type* signature = expression.item(0)->type();
+		if (signature->kind() == type_kind::pointer) {
+			@signature = signature->element();
+		};
+		if ((!function || !function->body() || function->dispatch() != function_dispatch::ordinary) && signature->kind() == type_kind::function) {
+			usize parameter = 0;
+			while (parameter < expression.item(1)->size()) {
+				Type* actual_type = expression.item(1)->item(parameter)->type();
+				if (actual_type->kind() == type_kind::reference) {
+					@actual_type = actual_type->element();
+				};
+				if (actual_type->kind() == type_kind::pointer) {
+					return true;
+				};
+				@parameter = parameter + 1;
+			};
+		};
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_raw_effects(*expression.item(child), functions)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::prepare_unknowns(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool {
+	@this.raw_functions.clear();
+	@this.raw_globals.clear();
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		var Entity* entity = unit.entities().data()[index].get();
+		if (entity->kind() == entity_kind::global && entity->type() && reference_holder_contents(entity->type()) && !@this.raw_globals.push_back(entity)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	while (true) {
+		usize previous = this.raw_functions.size();
+		@index = 0;
+		while (index < unit.entities().size()) {
+			var Entity* function = unit.entities().data()[index].get();
+			if (function->kind() == entity_kind::function && function->body() && !reference_raw_function(*function, this.raw_functions) && reference_raw_effects(*function->body(), this.raw_functions) && !@this.raw_functions.push_back(function->canonical())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		if (previous == this.raw_functions.size()) {
+			return true;
+		};
+	};
+};
+
+fn ReferenceLoanAnalyzer::unknown_event(var ReferenceLoanAnalyzer& this, var Entity* root, ReferenceSlotPath& holding, usize position) -> bool {
+	usize index = 0;
+	while (index < this.unknowns.size()) {
+		ReferenceUnknownContent& event = this.unknowns.data()[index];
+		if (event.root == root && event.source == position && reference_slot_equal(event.holding, holding)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	ReferenceUnknownContent event;
+	@event.root = root;
+	@event.source = position;
+	reference_slot_copy(holding, @event.holding);
+	return @this.unknowns.push_back($event);
+};
+
+fn ReferenceLoanAnalyzer::raw_targets(var ReferenceLoanAnalyzer& this, SemanticExpression& pointer, usize operation, usize depth) -> bool {
+	ReferenceSlotPath empty;
+	if (depth > 16) {
+		return @this.unknown_event(nullptr, empty, operation);
+	};
+	if ((pointer.kind() == semantic_kind::cast || pointer.kind() == semantic_kind::access || pointer.kind() == semantic_kind::relocation) && pointer.size()) {
+		return @this.raw_targets(*pointer.item(0), operation, depth + 1);
+	};
+	if (pointer.kind() == semantic_kind::address && pointer.size()) {
+		SemanticExpression* address = pointer.item(0);
+		while ((address->kind() == semantic_kind::access || address->kind() == semantic_kind::cast) && address->size()) {
+			@address = address->item(0);
+		};
+		SemanticExpression& value = *address;
+		if (value.kind() == semantic_kind::dereference && value.size()) {
+			return @this.raw_targets(*value.item(0), operation, depth + 1);
+		};
+		if (value.kind() == semantic_kind::member && value.entity() && value.entity()->type()->kind() == type_kind::reference) {
+			rt::buffer<ReferenceLoanPlace> targets;
+			rt::buffer<ReferenceLoanSubstitution> substitutions;
+			if (!@this.places(value, @targets, @substitutions, nullptr, 0)) {
+				return false;
+			};
+			usize index = 0;
+			while (index < targets.size()) {
+				if (!@this.unknown_event(targets.data()[index].root, empty, operation)) {
+					return false;
+				};
+				@index = index + 1;
+			};
+			return targets.size() || @this.unknown_event(nullptr, empty, operation);
+		};
+		rt::buffer<ReferenceStoreBinding> bindings;
+		var slot = this.store_slot(value, bindings, nullptr, 0);
+		return @this.unknown_event(slot.root, slot.path, operation);
+	};
+	if (pointer.kind() == semantic_kind::name && pointer.entity() && pointer.entity()->kind() == entity_kind::local && pointer.entity()->type()->kind() == type_kind::pointer) {
+		var SemanticExpression* initial = this.initializer(*this.function_body, *pointer.entity());
+		if (!initial || !@this.raw_targets(*initial, operation, depth + 1)) {
+			return initial == nullptr && @this.unknown_event(nullptr, empty, operation);
+		};
+		usize index = 0;
+		while (index < this.expressions.size()) {
+			SemanticExpression& assignment = *this.expressions.data()[index];
+			if (assignment.kind() == semantic_kind::binary && (assignment.operation() == token_kind::op_assign || assignment.operation() == token_kind::op_copy) && assignment.item(0)->owned_binding() == pointer.entity() && @this.reachable(this.position(assignment), operation, fact_no_node(), nullptr) && !@this.raw_targets(*assignment.item(1), operation, depth + 1)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	if (pointer.kind() == semantic_kind::null_pointer) {
+		return true;
+	};
+	return @this.unknown_event(nullptr, empty, operation);
+};
+
+fn ReferenceLoanAnalyzer::raw_write(var ReferenceLoanAnalyzer& this, SemanticExpression& destination, usize operation) -> bool {
+	if (destination.kind() == semantic_kind::dereference || destination.kind() == semantic_kind::index && destination.item(0)->type()->kind() == type_kind::pointer || destination.kind() == semantic_kind::member && destination.item(0)->type()->kind() == type_kind::pointer) {
+		return @this.raw_targets(*destination.item(0), operation, 0);
+	};
+	if (destination.size() && destination.indirect_storage()) {
+		return @this.raw_write(*destination.item(0), operation);
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> bool {
+	@this.unknowns.clear();
+	bool tracked = false;
+	usize candidate = 0;
+	while (candidate < this.expressions.size()) {
+		if (reference_holder_contents(this.expressions.data()[candidate]->type())) {
+			@tracked = true;
+			break;
+		};
+		@candidate = candidate + 1;
+	};
+	if (!tracked) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.expressions.size()) {
+		SemanticExpression& expression = *this.expressions.data()[index];
+		@index = index + 1;
+		usize operation = this.position(expression);
+		if (expression.kind() == semantic_kind::construction && expression.size() > 1 && expression.item(1)->indirect_storage() && !@this.raw_write(*expression.item(1), operation)) {
+			return false;
+		};
+		if ((expression.kind() == semantic_kind::destruction || expression.kind() == semantic_kind::relocation) && expression.size() && expression.item(0)->indirect_storage() && !@this.raw_write(*expression.item(0), operation)) {
+			return false;
+		};
+		if (expression.kind() == semantic_kind::binary && (expression.operation() == token_kind::op_assign || expression.operation() == token_kind::op_copy) && expression.item(0)->indirect_storage() && !@this.raw_write(*expression.item(0), operation)) {
+			return false;
+		};
+		if (expression.kind() != semantic_kind::call || expression.size() < 2) {
+			continue;
+		};
+		var Entity* function = expression.entity();
+		if (function) {
+			@function = function->canonical();
+			if (function->role() == function_role::assignment && expression.item(1)->size() && expression.item(1)->item(0)->indirect_storage() && !@this.raw_write(*expression.item(1)->item(0), operation)) {
+				return false;
+			};
+		};
+		bool opaque = !function || function->definition() != function_definition::defaulted && (!function->body() || function->dispatch() != function_dispatch::ordinary);
+		bool effects = function && reference_raw_function(*function, this.raw_functions);
+		if (!opaque && !effects) {
+			continue;
+		};
+		Type* signature = expression.item(0)->type();
+		if (signature->kind() == type_kind::pointer) {
+			@signature = signature->element();
+		};
+		if (signature->kind() != type_kind::function) {
+			continue;
+		};
+		usize argument = 0;
+		bool reachable_argument = false;
+		while (argument < expression.item(1)->size()) {
+			SemanticExpression& actual = *expression.item(1)->item(argument);
+			Type* parameter = actual.type();
+			if (argument < signature->signature().parameters().size()) {
+				@parameter = signature->signature().parameters().data()[argument];
+			};
+			if (parameter->kind() == type_kind::reference && parameter->element()->kind() == type_kind::pointer) {
+				@parameter = parameter->element();
+			};
+			if (parameter->kind() == type_kind::pointer) {
+				if (!@this.raw_targets(actual, operation, 0)) {
+					return false;
+				};
+				@reachable_argument = true;
+			}
+			else if (effects && parameter->kind() == type_kind::reference) {
+				rt::buffer<ReferenceStoreBinding> bindings;
+				var slot = this.store_slot(actual, bindings, nullptr, 0);
+				if (!@this.unknown_event(slot.root, slot.path, operation)) {
+					return false;
+				};
+				@reachable_argument = true;
+			};
+			@argument = argument + 1;
+		};
+		ReferenceSlotPath empty;
+		if (effects && !reachable_argument && !@this.unknown_event(nullptr, empty, operation)) {
+			return false;
+		};
+		if (!@this.visible_raw_targets(operation)) {
+			return false;
+		};
+		usize global = 0;
+		while (global < this.raw_globals.size()) {
+			if (!@this.unknown_event(this.raw_globals.data()[global], empty, operation)) {
+				return false;
+			};
+			@global = global + 1;
+		};
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::unknown_path(var ReferenceLoanAnalyzer& this, ReferenceUnknownContent& event, ReferenceStoreSlot& slot, usize target) -> bool {
+	rt::buffer<usize> pending;
+	rt::buffer<usize> visited;
+	if (event.source == fact_no_node() || target == fact_no_node() || !@pending.push_back(usize(event.source))) {
+		return true;
+	};
+	usize cursor = 0;
+	while (cursor < pending.size()) {
+		usize node = pending.data()[cursor];
+		@cursor = cursor + 1;
+		if (node == target) {
+			return true;
+		};
+		bool seen = false;
+		usize index = 0;
+		while (index < visited.size()) {
+			if (visited.data()[index] == node) {
+				@seen = true;
+				break;
+			};
+			@index = index + 1;
+		};
+		if (seen) {
+			continue;
+		};
+		if (!@visited.push_back(usize(node))) {
+			return true;
+		};
+		FactNode& current = this.graph.nodes.data()[node];
+		if (node != event.source && current.owner == slot.root && (current.kind == fact_node_kind::lifetime_begin || current.kind == fact_node_kind::lifetime_end)) {
+			continue;
+		};
+		bool restored = false;
+		@index = 0;
+		while (index < this.stores.size()) {
+			ReferenceStoreEffect& replacement = this.stores.data()[index];
+			if (replacement.definite && replacement.slot.root == slot.root && this.position(*replacement.site) == node && reference_slot_prefix(replacement.slot.path, slot.path)) {
+				@restored = true;
+			};
+			@index = index + 1;
+		};
+		@index = 0;
+		while (index < this.graph.edges.size()) {
+			FactEdge& edge = this.graph.edges.data()[index];
+			bool truth = false;
+			bool feasible = !(restored && edge.kind != fact_edge_kind::exceptional);
+			if (edge.condition && edge.condition->constant_truth(@truth)) {
+				@feasible = feasible && !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
+			};
+			if (edge.source == node && feasible && !@pending.push_back(usize(edge.target))) {
+				return true;
+			};
+			@index = index + 1;
+		};
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::raw_address_context(ReferenceLoanAnalyzer& this, SemanticExpression& expression, usize depth) -> bool {
+	if (depth > 16) {
+		return false;
+	};
+	usize index = 0;
+	while (index < this.expressions.size()) {
+		SemanticExpression& parent = *this.expressions.data()[index];
+		if (parent.size() && parent.item(0) == &expression) {
+			if (parent.kind() == semantic_kind::address) {
+				return true;
+			};
+			if ((parent.kind() == semantic_kind::access || parent.kind() == semantic_kind::cast || parent.kind() == semantic_kind::member || parent.kind() == semantic_kind::index) && this.raw_address_context(parent, depth + 1)) {
+				return true;
+			};
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::check_unknown(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, reference_loan_access access) -> bool {
+	if (!this.unknowns.size() || expression.indirect_storage() || this.raw_address_context(expression, 0)) {
+		return true;
+	};
+	bool reference_member = expression.kind() == semantic_kind::member && expression.entity() && expression.entity()->type()->kind() == type_kind::reference;
+	if (!reference_member && (access != reference_loan_access::read || !reference_loan_members(*expression.type()))) {
+		return true;
+	};
+	if (expression.kind() != semantic_kind::name && expression.kind() != semantic_kind::member && expression.kind() != semantic_kind::index && expression.kind() != semantic_kind::variant_cast && expression.kind() != semantic_kind::variant_payload) {
+		return true;
+	};
+	rt::buffer<ReferenceStoreBinding> bindings;
+	var slot = this.store_slot(expression, bindings, nullptr, 0);
+	if (!slot.root || !reference_holder_contents(slot.root->type())) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.unknowns.size()) {
+		ReferenceUnknownContent& event = this.unknowns.data()[index];
+		if ((!event.root || event.root == slot.root) && reference_slot_overlap(event.holding, slot.path) && @this.unknown_path(event, slot, this.position(expression))) {
+			return @this.error(expression, "reference contents have unknown provenance after a raw or opaque memory effect");
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+// A later opaque operation can write through an address previously published to
+// global storage or retained by an earlier pointer-taking opaque operation.
+fn ReferenceLoanAnalyzer::visible_raw_targets(var ReferenceLoanAnalyzer& this, usize operation) -> bool {
+	usize index = 0;
+	while (index < this.expressions.size()) {
+		SemanticExpression& source = *this.expressions.data()[index];
+		usize position = this.position(source);
+		@index = index + 1;
+		if (position == fact_no_node() || position == operation || !@this.reachable(position, operation, fact_no_node(), nullptr)) {
+			continue;
+		};
+		if (source.kind() == semantic_kind::binary && (source.operation() == token_kind::op_assign || source.operation() == token_kind::op_copy) && source.item(0)->type()->kind() == type_kind::pointer) {
+			rt::buffer<ReferenceStoreBinding> bindings;
+			var slot = this.store_slot(*source.item(0), bindings, nullptr, 0);
+			if (slot.root && slot.root->kind() == entity_kind::global && !@this.raw_targets(*source.item(1), operation, 0)) {
+				return false;
+			};
+		};
+		if (source.kind() != semantic_kind::call || source.size() < 2) {
+			continue;
+		};
+		var Entity* callee = source.entity();
+		if (callee) {
+			@callee = callee->canonical();
+		};
+		if (callee && callee->body() && callee->dispatch() == function_dispatch::ordinary && !reference_raw_function(*callee, this.raw_functions)) {
+			continue;
+		};
+		Type* signature = source.item(0)->type();
+		if (signature->kind() == type_kind::pointer) {
+			@signature = signature->element();
+		};
+		if (signature->kind() != type_kind::function) {
+			continue;
+		};
+		usize parameter = 0;
+		while (parameter < source.item(1)->size()) {
+			Type* actual_type = source.item(1)->item(parameter)->type();
+			if (actual_type->kind() == type_kind::reference) {
+				@actual_type = actual_type->element();
+			};
+			if (actual_type->kind() == type_kind::pointer && !@this.raw_targets(*source.item(1)->item(parameter), operation, 0)) {
+				return false;
+			};
+			@parameter = parameter + 1;
+		};
+	};
+	return true;
+};

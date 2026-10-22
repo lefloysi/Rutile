@@ -26,6 +26,15 @@ fn fact_range(u64 lower, u64 upper) -> IntegerRange {
 	return $result;
 };
 
+fn fact_diagnostic_bound(var DiagnosticMessage& message, u64 value, integer_range_sign sign) {
+	if (sign == integer_range_sign::negative) {
+		@message.text("-");
+		@message.number(u64::max - value + 1);
+		return;
+	};
+	@message.number(value);
+};
+
 fn fact_limit(Type* type) -> u64 {
 	if (!type || !type->representation()->kind().is_integer()) {
 		return 0;
@@ -473,6 +482,8 @@ struct InferredFacts {
 	fn evaluate(var InferredFacts& this, SemanticExpression* expression, FactState& state) -> FactValue;
 	fn invalidate(var InferredFacts& this, var FactState& state, usize place);
 	fn end_lifetime(var InferredFacts& this, var FactState& state, Entity* owner);
+	fn seed_default_members(var InferredFacts& this, Type* type, Entity* owner, usize parent, var FactState& state, usize version, usize depth);
+	fn seed_default_record(var InferredFacts& this, Entity* owner, SemanticExpression* initializer, var FactState& state, usize version);
 	fn collect(var InferredFacts& this, SemanticExpression* expression) -> bool;
 	fn summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize;
 	fn summary_value(var InferredFacts& this, FunctionFactSummary& summary, usize expression, SemanticExpression& call, FactState& state, usize depth) -> FactValue;
@@ -509,6 +520,93 @@ fn fact_place_pure(SemanticExpression& expression) -> bool {
 		return fact_place_pure(*expression.item(0));
 	};
 	return false;
+};
+
+fn fact_default_constant(SemanticExpression* expression, var u64& value) -> bool {
+	if (!expression) {
+		@value = 0;
+		return true;
+	};
+	if (expression->kind() == semantic_kind::construction && !expression->entity() && expression->type()->representation()->kind().is_integer() && expression->size() == 1 && expression->item(0)->kind() == semantic_kind::brace && expression->item(0)->size() <= 1) {
+		if (!expression->item(0)->size()) {
+			@value = 0;
+			return true;
+		};
+		var SemanticExpression* source = expression->item(0)->item(0);
+		if (!fact_default_constant(source, @value)) {
+			return false;
+		};
+		IntegerRange before = fact_constant(source->type(), value);
+		IntegerRange converted = fact_convert(before, expression->type());
+		if (converted.available == fact_truth::unknown || converted.lower != converted.upper) {
+			return false;
+		};
+		@value = converted.lower;
+		return true;
+	};
+	return fact_pure(*expression) && expression->constant_integer(@value);
+};
+
+// Mirror only default initialization whose complete implicit evaluation has no
+// unknown effects. Custom constructors and alias-bearing storage stay opaque.
+fn fact_default_safe(Type* type, SemanticExpression* initializer, usize depth, var usize& budget) -> bool {
+	if (!budget || depth > 32 || type->kind() == type_kind::reference) {
+		return false;
+	};
+	@budget = budget - 1;
+	if (initializer && initializer->kind() == semantic_kind::noop) {
+		@initializer = nullptr;
+	};
+	if (type->kind().is_integer()) {
+		u64 value = 0;
+		return fact_default_constant(initializer, @value);
+	};
+	if (type->kind() == type_kind::array) {
+		return !initializer && fact_default_safe(type->element(), nullptr, depth + 1, @budget);
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return !initializer || initializer->kind() == semantic_kind::literal_real || initializer->kind() == semantic_kind::null_pointer;
+	};
+	var Entity* record = type->entity();
+	if (record->layout() == record_layout::overlapping || aggregate_access_kind(type) == 2) {
+		return false;
+	};
+	var Entity* constructor = record->default_constructor();
+	if (constructor) {
+		@constructor = constructor->canonical();
+		if (constructor->definition() != function_definition::defaulted || constructor->role() != function_role::constructor || constructor->parameters().size() != 1) {
+			return false;
+		};
+	};
+	if (initializer) {
+		if (initializer->kind() != semantic_kind::construction || initializer->integer() || !initializer->size() || initializer->item(0)->size() || initializer->entity() && initializer->entity()->canonical() != constructor) {
+			return false;
+		};
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (!fact_default_safe(record->bases().data()[index], nullptr, depth + 1, @budget)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		var Entity* field = record->fields().data()[index];
+		if (!fact_default_safe(field->type(), field->body(), depth + 1, @budget)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn fact_default_record(SemanticExpression* expression) -> bool {
+	if (!expression || expression->kind() != semantic_kind::construction || expression->type()->kind() != type_kind::named || expression->type()->entity()->kind() != entity_kind::record) {
+		return false;
+	};
+	usize budget = 1024;
+	return fact_default_safe(expression->type(), expression, 0, @budget);
 };
 
 // These operations may discard their computed Boolean only after evaluating
@@ -1239,6 +1337,52 @@ fn InferredFacts::refine_outcome(var InferredFacts& this, var FactState& state, 
 	};
 };
 
+fn InferredFacts::seed_default_members(var InferredFacts& this, Type* type, Entity* owner, usize parent, var FactState& state, usize version, usize depth) {
+	if (depth > 32 || type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return;
+	};
+	var Entity* record = type->entity();
+	usize field = 0;
+	while (field < record->fields().size()) {
+		var Entity* member = record->fields().data()[field];
+		usize index = 0;
+		while (index < this.places.size()) {
+			FactPlace& place = this.places.data()[index];
+			if (place.root == owner && place.parent == parent && place.field == member) {
+				if (member->type()->kind().is_integer()) {
+					u64 constant = 0;
+					if (fact_default_constant(member->body(), @constant)) {
+						FactValue value;
+						@value.range = fact_constant(member->type(), constant);
+						@value.version = version + index + 1;
+						@((@state.places).data()[index]) = $value;
+					};
+				}
+				else {
+					@this.seed_default_members(member->type(), owner, index + 1, @state, version, depth + 1);
+				};
+			};
+			@index = index + 1;
+		};
+		@field = field + 1;
+	};
+};
+
+fn InferredFacts::seed_default_record(var InferredFacts& this, Entity* owner, SemanticExpression* initializer, var FactState& state, usize version) {
+	if (!owner || !initializer || owner->kind() != entity_kind::local || !owner->type()->same_shape(*initializer->type()) || !fact_default_record(initializer)) {
+		return;
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		if (this.places.data()[index].root == owner && !this.places.data()[index].parent) {
+			@this.invalidate(@state, index + 1);
+			@this.seed_default_members(owner->type(), owner, index + 1, @state, version, 0);
+			return;
+		};
+		@index = index + 1;
+	};
+};
+
 fn InferredFacts::end_lifetime(var InferredFacts& this, var FactState& state, Entity* owner) {
 	if (!owner) {
 		return;
@@ -1538,7 +1682,19 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 	if (!value.version) {
 		@value.version = version;
 	};
+	if (expression->kind() == semantic_kind::construction && fact_default_record(expression)) {
+		if (expression->size() == 1) {
+			return @state.record(expression, $value);
+		};
+		usize destination = @this.place(expression->item(1));
+		if (destination) {
+			@this.invalidate(@state, destination);
+			@this.seed_default_record(expression->item(1)->owned_binding(), expression, @state, version);
+			return @state.record(expression, $value);
+		};
+	};
 	if (expression->kind() == semantic_kind::variable) {
+		@this.seed_default_record(expression->entity(), expression->item(0), @state, version);
 		usize index = 0;
 		while (index < this.places.size()) {
 			if (this.places.data()[index].root == expression->entity() && !this.places.data()[index].parent) {
@@ -1761,7 +1917,14 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 				FactValue index = state.value(expression->item(1));
 				if (index.range.available != fact_truth::unknown && (index.range.sign == integer_range_sign::negative || index.range.lower >= expression->item(0)->type()->count())) {
 					@this.diagnostics->error(expression->token(), "array index is provably outside the array bounds");
-					@this.diagnostics->note(expression->item(1)->token(), "the index range is established by the preceding control flow");
+					DiagnosticMessage deduction;
+					@deduction.text("inferred index range is [");
+					fact_diagnostic_bound(@deduction, index.range.lower, index.range.sign);
+					@deduction.text(", ");
+					fact_diagnostic_bound(@deduction, index.range.upper, index.range.sign);
+					@deduction.text("]; array extent is ");
+					@deduction.number(expression->item(0)->type()->count());
+					@this.diagnostics->note(expression->item(1)->token(), deduction.view());
 					return false;
 				};
 			};

@@ -39,6 +39,9 @@ fn fact_context_check_walk(SemanticExpression* expression, usize depth, usize ca
 		return true;
 	};
 	var Entity* target = expression->entity();
+	if (target && target->kind() == entity_kind::function) {
+		@target = target->canonical();
+	};
 	if (expression->kind() == semantic_kind::call && target && target->dispatch() == function_dispatch::ordinary && target->body() && calls < 8) {
 		usize prior = 0;
 		while (prior < visited.size() && visited.data()[prior] != target) {
@@ -149,7 +152,10 @@ fn InferredFacts::context_override(var InferredFacts& this, var SemanticExpressi
 
 fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpression& call, FactState& state) -> bool {
 	var Entity* function = call.entity();
-	if (this.context_requests.size() >= 512 || !function || function == this.analyzed_function || function->dispatch() != function_dispatch::ordinary || function->role() != function_role::ordinary || function->definition() != function_definition::user_defined || !function->body() || function->parameters().size() > 16 || call.size() != 2 || call.item(0)->kind() != semantic_kind::name || call.item(0)->entity() != function || call.item(1)->size() != function->parameters().size() || !fact_context_has_check(function->body(), 0)) {
+	if (function) {
+		@function = function->canonical();
+	};
+	if (this.context_requests.size() >= 512 || !function || function == this.analyzed_function || function->dispatch() != function_dispatch::ordinary || function->role() != function_role::ordinary || function->definition() != function_definition::user_defined || !function->body() || function->parameters().size() > 16 || call.size() != 2 || call.item(0)->kind() != semantic_kind::name || (!call.item(0)->entity() || call.item(0)->entity()->canonical() != function) || call.item(1)->size() != function->parameters().size() || !fact_context_has_check(function->body(), 0)) {
 		return true;
 	};
 	var request = rt::unique<FactContextRequest>::make();

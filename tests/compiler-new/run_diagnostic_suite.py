@@ -22,6 +22,7 @@ SUITES = (
 	"run_inheritance_diagnostics.py",
 	"run_switch_diagnostics.py",
 	"run_lifetime_diagnostics.py",
+	"run_graph_lifetimes.py",
 	"run_backend_lifetime_diagnostics.py",
 	"run_layout_diagnostics.py",
 	"run_inferred_facts.py",

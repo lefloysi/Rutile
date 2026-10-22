@@ -72,6 +72,8 @@ struct LifetimeAnalyzer {
 
 	fn sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> bool;
 	fn validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool;
+	fn validate_graph(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool;
+	fn validate_legacy(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool;
 
 	fn storage_owner(LifetimeAnalyzer& this, SemanticExpression& expression, var FlowState& state) -> rt::optional_ref<Entity>;
 
@@ -88,6 +90,9 @@ private:
 	fn save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<FlowState>>& exits, var FlowState& state, usize boundary, var SemanticExpression* expression) -> bool;
 	fn exceptions(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
 	fn exceptional_edge(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool;
+	fn graph_function(var LifetimeAnalyzer& this, var Entity& function) -> bool;
+	fn graph_transfer(var LifetimeAnalyzer& this, FactNode& node, rt::buffer<var Entity*>& bindings, var GraphLifetimeState& state) -> bool;
+	fn graph_check(var LifetimeAnalyzer& this, FactNode& node, rt::buffer<var Entity*>& bindings, GraphLifetimeState& state) -> bool;
 
 	var Diagnostics* diagnostics;
 	var LoopFlow* active_loop;
@@ -669,6 +674,10 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 };
 
 fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool {
+	return @this.validate_graph(unit);
+};
+
+fn LifetimeAnalyzer::validate_legacy(var LifetimeAnalyzer& this, SemanticUnit& unit) -> bool {
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();

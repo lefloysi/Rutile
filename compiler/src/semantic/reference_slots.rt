@@ -1,0 +1,133 @@
+// Holding slots describe where references are stored. Referent places continue
+// to describe the objects accessed through those references.
+enum reference_slot_step_kind : [u08] {
+	field;
+	known_index;
+	unknown_index;
+};
+
+struct ReferenceSlotStep {
+	reference_slot_step_kind kind;
+	var Entity* field;
+	var SemanticExpression* index;
+	u64 value;
+};
+
+struct ReferenceSlotPath {
+	ReferenceSlotStep[16] steps;
+	usize size;
+	bool imprecise;
+};
+
+fn reference_slot_copy(ReferenceSlotPath& source, var ReferenceSlotPath& target) {
+	@target.size = source.size;
+	@target.imprecise = source.imprecise;
+	usize index = 0;
+	while (index < source.size) {
+		@target.steps[index].field = source.steps[index].field;
+		@target.steps[index].index = source.steps[index].index;
+		@target.steps[index].kind = source.steps[index].kind;
+		@target.steps[index].value = source.steps[index].value;
+		@index = index + 1;
+	};
+};
+
+fn reference_slot_field(var ReferenceSlotPath& path, var Entity* field) -> bool {
+	if (path.size == 16) {
+		@path.imprecise = true;
+		return false;
+	};
+	@path.steps[path.size].field = field;
+	@path.steps[path.size].kind = reference_slot_step_kind::field;
+	@path.steps[path.size].index = nullptr;
+	@path.steps[path.size].value = 0;
+	@path.size = path.size + 1;
+	return true;
+};
+
+fn reference_slot_index(var ReferenceSlotPath& path, var SemanticExpression* expression) -> bool {
+	if (path.size == 16) {
+		@path.imprecise = true;
+		return false;
+	};
+	var ReferenceSlotStep* step = &@path.steps[path.size];
+	@step->kind = reference_slot_step_kind::unknown_index;
+	@step->field = nullptr;
+	@step->value = 0;
+	@step->index = expression;
+	if (expression) {
+		u64 value = 0;
+		if (expression->constant_integer(@value) || expression->inferred_integer(@value)) {
+			@step->kind = reference_slot_step_kind::known_index;
+			@step->value = value;
+		};
+	};
+	@path.size = path.size + 1;
+	return true;
+};
+
+fn reference_slot_overlap(ReferenceSlotPath& first, ReferenceSlotPath& second) -> bool {
+	usize index = 0;
+	while (index < first.size && index < second.size) {
+		ReferenceSlotStep& left = first.steps[index];
+		ReferenceSlotStep& right = second.steps[index];
+		if ((left.kind == reference_slot_step_kind::field) != (right.kind == reference_slot_step_kind::field)) {
+			return true;
+		};
+		if (left.kind != reference_slot_step_kind::field) {
+			if (left.kind == reference_slot_step_kind::known_index && right.kind == reference_slot_step_kind::known_index && left.value != right.value) {
+				return false;
+			};
+		}
+		else if (left.field && right.field && left.field != right.field) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+// A write may kill an old slot only when it definitely covers that slot.
+// Unknown indices overlap for reads, but never prove such coverage.
+fn reference_slot_prefix(ReferenceSlotPath& replacement, ReferenceSlotPath& previous) -> bool {
+	if (replacement.imprecise || previous.imprecise || replacement.size > previous.size) {
+		return false;
+	};
+	usize index = 0;
+	while (index < replacement.size) {
+		ReferenceSlotStep& left = replacement.steps[index];
+		ReferenceSlotStep& right = previous.steps[index];
+		if ((left.kind == reference_slot_step_kind::field) != (right.kind == reference_slot_step_kind::field)) {
+			return false;
+		};
+		if (left.kind != reference_slot_step_kind::field) {
+			if (left.kind != reference_slot_step_kind::known_index || right.kind != reference_slot_step_kind::known_index || left.value != right.value) {
+				return false;
+			};
+		}
+		else if (!left.field || !right.field || left.field != right.field) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn reference_slot_equal(ReferenceSlotPath& first, ReferenceSlotPath& second) -> bool {
+	if (first.size != second.size || first.imprecise != second.imprecise) {
+		return false;
+	};
+	usize index = 0;
+	while (index < first.size) {
+		ReferenceSlotStep& left = first.steps[index];
+		ReferenceSlotStep& right = second.steps[index];
+		if (left.kind != right.kind) {
+			return false;
+		};
+		if (left.kind == reference_slot_step_kind::field && left.field != right.field || left.kind == reference_slot_step_kind::known_index && left.value != right.value || left.kind == reference_slot_step_kind::unknown_index && left.index != right.index) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};

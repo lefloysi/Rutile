@@ -11,6 +11,38 @@ from run import run_case
 ROOT = Path(__file__).resolve().parents[2]
 BOUNDS = "array index is provably outside the array bounds"
 CASES = [
+	('default-record-narrow-widen', 'struct Counter { usize length = usize(u08(257)); }; fn main() -> i32 { i32[2] data {}; Counter c; return data[c.length]; };', False),
+	('default-record-narrow-invalid', 'struct Counter { u08 length = u08(258); }; fn main() -> i32 { i32[2] data {}; Counter c; return data[c.length]; };', True),
+	('default-record-many-fields', 'struct Counter { usize field0; usize field1; usize field2; usize field3; usize field4; usize field5; usize field6; usize field7; usize field8; usize field9; usize field10; usize field11; usize field12; usize field13; usize field14; usize field15; usize field16; usize field17; usize field18; usize field19; usize field20; usize field21; usize field22; usize field23; usize field24; usize field25; usize field26; usize field27; usize field28; usize field29; usize field30; usize field31; usize field32; usize field33; usize field34; usize field35; usize field36; usize field37; usize field38; usize field39; usize field40; usize field41; usize field42; usize field43; usize field44; usize field45; usize field46; usize field47; usize field48; usize field49; usize field50; usize field51; usize field52; usize field53; usize field54; usize field55; usize field56; usize field57; usize field58; usize field59; usize field60; usize field61; usize field62; usize field63; }; fn read(Counter& c) -> usize { c.field0; c.field1; c.field2; c.field3; c.field4; c.field5; c.field6; c.field7; c.field8; c.field9; c.field10; c.field11; c.field12; c.field13; c.field14; c.field15; c.field16; c.field17; c.field18; c.field19; c.field20; c.field21; c.field22; c.field23; c.field24; c.field25; c.field26; c.field27; c.field28; c.field29; c.field30; c.field31; c.field32; c.field33; c.field34; c.field35; c.field36; c.field37; c.field38; c.field39; c.field40; c.field41; c.field42; c.field43; c.field44; c.field45; c.field46; c.field47; c.field48; c.field49; c.field50; c.field51; c.field52; c.field53; c.field54; c.field55; c.field56; c.field57; c.field58; c.field59; c.field60; c.field61; c.field62; return c.field63; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c) + 2]; };', True),
+	('default-record-zero-getter', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c) + 2]; };', True),
+	('default-record-initializer', 'struct Counter { usize length = 3; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c)]; };', True),
+	('default-record-nested', 'struct Inner { usize length = 3; }; struct Outer { Inner child; }; fn read(Outer& c) -> usize { return c.child.length; }; fn main() -> i32 { i32[2] data {}; Outer c; return data[read(c)]; };', True),
+	('default-record-array-field', 'struct Counter { i32[2] data; usize length = 3; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c)]; };', True),
+	('default-record-preserves-scalars', 'struct Counter { usize length; }; fn main() -> i32 { i32[2] data {}; usize index = 3; Counter c; return data[index]; };', True),
+	('default-record-custom-constructor', 'struct Counter { usize length = 3; fn Counter(var Counter& this) { @this.length = 0; }; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c)]; };', False),
+	('default-record-nested-custom', 'usize index; struct Inner { fn Inner(var Inner& this) { @index = 0; }; }; struct Outer { Inner child; usize length = 3; }; fn main() -> i32 { i32[2] data {}; @index = 3; Outer c; return data[index]; };', False),
+	('default-record-impure-initializer', 'usize index; fn clear() -> usize { @index = 0; return 3; }; struct Counter { usize length = clear(); }; fn main() -> i32 { i32[2] data {}; @index = 3; Counter c; return data[index]; };', False),
+	('default-record-reference-boundary', 'usize global; struct Counter { usize& reference = global; usize length = 3; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c)]; };', False),
+	('default-record-variant-boundary', 'using Choice = i32 | i64; struct Counter { Choice choice; usize length = 3; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c)]; };', False),
+	('default-record-overlap-boundary', 'union Counter { usize length; usize other; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[c.length]; };', False),
+	('default-record-reconstruction', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter c; @c.length = 3; @c.~Counter(); @c.Counter(); return data[read(c) + 2]; };', True),
+	('composed-deep-mutating-wrappers', 'fn wrap0(var usize& n, bool choice) -> bool { return wrap1(@n, choice); }; fn wrap1(var usize& n, bool choice) -> bool { return wrap2(@n, choice); }; fn wrap2(var usize& n, bool choice) -> bool { return wrap3(@n, choice); }; fn wrap3(var usize& n, bool choice) -> bool { return wrap4(@n, choice); }; fn wrap4(var usize& n, bool choice) -> bool { return wrap5(@n, choice); }; fn wrap5(var usize& n, bool choice) -> bool { return wrap6(@n, choice); }; fn wrap6(var usize& n, bool choice) -> bool { return wrap7(@n, choice); }; fn wrap7(var usize& n, bool choice) -> bool { return wrap8(@n, choice); }; fn wrap8(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; return false; }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; if (wrap0(@n, choice)) { return data[n]; }; return 0; };', True),
+	('composed-path-budget', 'fn choose(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; @n = 0; return false; }; fn wrap(var usize& n, bool choice) -> bool { choose(@n, choice); choose(@n, choice); choose(@n, choice); choose(@n, choice); choose(@n, choice); choose(@n, choice); choose(@n, choice); return false; }; fn main() -> i32 { i32[2] data {}; usize n = 3; wrap(@n, false); return data[n]; };', False),
+	('composed-opaque-callee', 'fn external(var usize* n) -> bool; fn wrap(var usize* n) -> bool { return external(n); }; fn inspect() -> i32 { i32[2] data {}; usize n = 3; wrap(&@n); return data[n]; };', False),
+	('composed-narrow-overflow', 'fn increment(var u08& n) -> bool { @n = n + 1; return true; }; fn wrap(var u08& n) -> bool { return increment(@n); }; fn main() -> i32 { i32[2] data {}; u08 n = 255; wrap(@n); return data[n]; };', False),
+	('composed-bool-state-invalid', 'fn set(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; return false; }; fn wrap(var usize& n, bool choice) -> bool { return set(@n, choice); }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; bool result = wrap(@n, choice); if (result) { return data[n]; }; return 0; };', True),
+	('composed-bool-other-state', 'fn set(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; return false; }; fn wrap(var usize& n, bool choice) -> bool { bool result = set(@n, choice); return result; }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; if (!wrap(@n, choice)) { return data[n]; }; return 0; };', False),
+	('composed-conditional-call', 'fn set(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; return false; }; fn wrap(var usize& n, bool choice) -> bool { if (set(@n, choice)) { return true; }; return false; }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; if (wrap(@n, choice)) { return data[n]; }; return 0; };', True),
+	('composed-void-write', 'fn set(var usize& n) { @n = 3; }; fn wrap(var usize& n) { set(@n); }; fn main() -> i32 { i32[2] data {}; usize n = 1; wrap(@n); return data[n]; };', True),
+	('composed-write-snapshots', 'fn step(var usize& n) -> usize { usize old = n; @n = n + 1; @n = n + 1; return old; }; fn wrap(var usize& n) -> usize { return step(@n); }; fn main() -> i32 { i32[2] data {}; usize n = 0; usize old = wrap(@n); return data[n - old]; };', True),
+	('composed-assignment-call', 'fn set(var usize& n, bool choice) -> bool { if (choice) { @n = 3; return true; }; return false; }; fn wrap(var usize& n, bool choice) -> bool { bool result = false; @result = set(@n, choice); return result; }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; if (wrap(@n, choice)) { return data[n]; }; return 0; };', True),
+	('composed-union-state', 'using Choice = i32 | i64; fn set(var usize& n, bool choice) -> Choice { if (choice) { @n = 3; return Choice(i32(0)); }; return Choice(i64(0)); }; fn wrap(var usize& n, bool choice) -> Choice { return set(@n, choice); }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; Choice result = wrap(@n, choice); if (result.has<i32>()) { return data[n]; }; return 0; };', True),
+	('composed-union-other-state', 'using Choice = i32 | i64; fn set(var usize& n, bool choice) -> Choice { if (choice) { @n = 3; return Choice(i32(0)); }; return Choice(i64(0)); }; fn wrap(var usize& n, bool choice) -> Choice { return set(@n, choice); }; fn inspect(bool choice) -> i32 { i32[2] data {}; usize n = 1; Choice result = wrap(@n, choice); if (result.has<i64>()) { return data[n]; }; return 0; };', False),
+	('composed-nested-call-effects', 'fn clear(var usize& n) -> bool { @n = 0; return true; }; fn choose(bool value) -> bool { return value; }; fn wrap(var usize& n) -> bool { return choose(clear(@n)); }; fn main() -> i32 { i32[2] data {}; usize n = 3; wrap(@n); return data[n]; };', False),
+	('composed-alias-unknown', 'fn change(var usize& first, var usize& second) -> bool { @first = 3; @second = 0; return true; }; fn wrap(var usize& n) -> bool { return change(@n, @n); }; fn main() -> i32 { i32[2] data {}; usize n = 3; wrap(@n); return data[n]; };', False),
+	('composed-recursion-unknown', 'fn first(var usize& n) -> bool { return second(@n); }; fn second(var usize& n) -> bool { return first(@n); }; fn inspect(var usize& n) -> i32 { i32[2] data {}; if (first(@n)) { return data[n]; }; return 0; };', False),
+	('canonical-forward-wrapper', 'fn identity(usize declaration) -> usize; fn identity(usize definition) -> usize { return definition; }; fn wrap(usize value) -> usize { return identity(value); }; fn main() -> i32 { i32[2] data {}; return data[wrap(3)]; };', True),
+	('composed-overflow-outcome', 'fn grow(var usize& n) -> bool { if (n == usize::max) { return false; }; @n = n + 1; return true; }; fn wrap(var usize& n) -> bool { return grow(@n); }; fn main() -> i32 { i32[2] data {}; usize n = usize::max; if (wrap(@n)) { return data[n]; }; return 0; };', False),
 	("guarded-shrink-invalid", "fn shrink(var usize& value) -> bool { if (value == 0) { return false; }; @value = value - 1; return true; }; fn main() -> i32 { i32[2] data {}; usize index = 3; if (shrink(@index)) { return data[index]; }; return 0; };", True),
 	("assignment-address-after-value", "fn main() -> i32 { i32[2] data {}; usize index = 2; @data[index] = i32(@index = 0) + 42; return data[0]; };", False),
 	("assignment-value-invalidates-address", "fn main() -> i32 { i32[2] data {}; usize index = 0; @data[index] = i32(@index = 2) + 40; return 42; };", True),
@@ -88,6 +120,13 @@ fn shrink(var usize& value) -> bool {
 	@value = value - 1;
 	return true;
 };
+fn grow_wrapper(var usize& value) -> bool { return grow(@value); };
+fn composed_verify(usize value) -> bool {
+	usize old = value;
+	bool changed = grow_wrapper(@value);
+	if (changed) { return value > old; };
+	return true;
+};
 fn verify(usize value) -> bool {
 	usize old = value;
 	bool changed = grow(@value);
@@ -132,6 +171,18 @@ fn guard_changed(usize index, usize length, usize replacement) -> bool {
 };
 struct Counter { usize length; };
 fn read(Counter& counter) -> usize { return counter.length; };
+struct Initialized { usize first = 1; usize second = 2; };
+fn initialized_siblings(usize value) -> bool {
+	Initialized fields;
+	if (fields.first == fields.second) { return false; };
+	@fields.first = value;
+	return fields.second == 2;
+};
+fn default_getter() -> bool {
+	Counter counter;
+	if (read(counter) == 0) { return true; };
+	return false;
+};
 fn getter_identity(usize value) -> bool {
 	Counter counter;
 	usize snapshot = value;
@@ -161,6 +212,9 @@ fn getter_shrink(usize value) -> bool {
 };
 fn main() -> i32 {
 	if (!verify(0) || !verify(usize::max - 1) || !verify(usize::max)) { return 1; };
+	if (!composed_verify(0) || !composed_verify(usize::max - 1) || !composed_verify(usize::max)) { return 10; };
+	if (!default_getter()) { return 11; };
+	if (!initialized_siblings(0) || !initialized_siblings(2) || !initialized_siblings(usize::max)) { return 12; };
 	if (!local(0) || !local(99) || !local(100)) { return 2; };
 	if (uncertain(usize::max)) { return 3; };
 	if (!guard(0, 2) || !guard(3, 2)) { return 4; };
@@ -195,6 +249,8 @@ def check_affine_codegen(compiler, directory, function, expected):
 	retained = function in ("uncertain", "guard_loose", "guard_changed")
 	if (retained and not comparisons or not retained and comparisons != expected):
 		raise RuntimeError(f"expected {expected} comparisons in {function} at optimization 0, found {comparisons}\n{body}")
+	if function == "composed_verify" and not re.search(r"\bcall\s+grow_wrapper\b", body):
+		raise RuntimeError("composed proof check lost the required wrapper call at optimization 0")
 	print(f"affine-{function}-codegen: PASS")
 
 
@@ -235,7 +291,7 @@ def main():
 		print(f"runtime-mutation: FAIL: {error}")
 	for function, expected in [("verify", 0), ("local", 1), ("uncertain", 1),
 		("guard", 0), ("guard_loose", 1), ("guard_changed", 1),
-		("getter_identity", 0), ("getter_growth", 0), ("getter_shrink", 0)]:
+		("getter_identity", 0), ("getter_growth", 0), ("getter_shrink", 0), ("composed_verify", 0), ("default_getter", 0), ("initialized_siblings", 0)]:
 		try:
 			check_affine_codegen(compiler, directory, function, expected)
 		except (OSError, RuntimeError, subprocess.SubprocessError) as error:
@@ -295,6 +351,70 @@ fn main() -> i32 {
 	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
 		failures.append("float-unordered-runtime")
 		print(f"float-unordered-runtime: FAIL: {error}")
+	path = directory / "composed-runtime.rt"
+	path.write_text("""
+using Choice = i32 | i64;
+fn select(var usize& n, bool choice) -> bool {
+	if (choice) { @n = 3; return true; };
+	@n = 1;
+	return false;
+};
+fn bool_wrapper(var usize& n, bool choice) -> bool {
+	bool result = select(@n, choice);
+	return result;
+};
+fn tagged(var usize& n, bool choice) -> Choice {
+	if (choice) { @n = 3; return Choice(i32(0)); };
+	@n = 1;
+	return Choice(i64(0));
+};
+fn union_wrapper(var usize& n, bool choice) -> Choice { return tagged(@n, choice); };
+fn increment(var u08& n) -> bool { @n = n + 1; return true; };
+fn narrow_wrapper(var u08& n) -> bool { return increment(@n); };
+fn main() -> i32 {
+	usize n = 0;
+	if (!bool_wrapper(@n, true) || n != 3) { return 1; };
+	if (bool_wrapper(@n, false) || n != 1) { return 2; };
+	Choice first = union_wrapper(@n, true);
+	if (!first.has<i32>() || n != 3) { return 3; };
+	Choice second = union_wrapper(@n, false);
+	if (!second.has<i64>() || n != 1) { return 4; };
+	u08 small = 255;
+	if (!narrow_wrapper(@small) || small != 0) { return 5; };
+	return 42;
+};
+""", encoding="utf-8")
+	try:
+		run_case("facts-composed-runtime", ["compiler/std/variant.rt", path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("composed-runtime")
+		print(f"composed-runtime: FAIL: {error}")
+	path = directory / "default-buffer-runtime.rt"
+	path.write_text("fn emptyverify() -> i32 { rt::buffer<i32> buffer; "
+		"if (buffer.size() != 0) { return 1; }; return 42; }; "
+		"fn main() -> i32 { return emptyverify(); };\n", encoding="utf-8")
+	try:
+		output = directory / "default-buffer.obj"
+		subprocess.run([str(compiler), str(ROOT / "compiler/std/buffer.rt"), str(path),
+			"--output", str(output), "--optimization", "0"], capture_output=True,
+			text=True, check=True, timeout=30)
+		toolsets = sorted(Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC").glob("*/bin/Hostx64/x64/dumpbin.exe"))
+		if not toolsets:
+			raise RuntimeError("dumpbin.exe unavailable for required code-generation verification")
+		disassembly = subprocess.run([str(toolsets[-1]), "/nologo", "/disasm", str(output)],
+			capture_output=True, text=True, check=True, timeout=30).stdout
+		(directory / "default-buffer.disasm.txt").write_text(disassembly, encoding="utf-8")
+		match = re.search(r"(?m)^emptyverify:\s*\n", disassembly)
+		if not match:
+			raise RuntimeError("missing disassembly for emptyverify")
+		body = re.split(r"(?m)^[^\s:]+:\s*$|^\s+Summary\s*$", disassembly[match.end():], maxsplit=1)[0]
+		if re.search(r"\b(?:cmp|set[a-z]+)\s", body):
+			raise RuntimeError("default buffer size comparison remains at optimization 0\n" + body)
+		print("default-buffer-codegen: PASS")
+		run_case("facts-default-buffer-runtime", ["compiler/std/buffer.rt", path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("default-buffer-runtime")
+		print(f"default-buffer-runtime: FAIL: {error}")
 	if failures:
 		raise SystemExit(f"{len(failures)} function-facts case(s) failed: {', '.join(failures)}")
 

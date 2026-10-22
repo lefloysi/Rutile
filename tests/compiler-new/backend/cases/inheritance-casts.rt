@@ -16,11 +16,15 @@ fn main() -> i32 {
 	var Derived* derived = static_cast<var Derived*>(base);
 	@derived->other = 22;
 	var Base& reference = static_cast<var Base&>(@object);
+	if (&@reference != base) {
+		return 1;
+	};
+	i32 result = reference.value;
 	const Base& borrowed = object;
 	var Derived* absent = nullptr;
 	var Base* empty = static_cast<var Base*>(absent);
-	if (&@reference != base || &@borrowed != base || derived != &@object || empty || object.get() != 20) {
+	if (&@borrowed != base || derived != &@object || empty || object.get() != 20) {
 		return 1;
 	};
-	return reference.value + object.other;
+	return result + object.other;
 };

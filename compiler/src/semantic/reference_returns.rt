@@ -1,0 +1,113 @@
+fn reference_returns_local(SemanticExpression& expression) -> bool {
+	if (expression.kind() == semantic_kind::return_value && expression.size()) {
+		SemanticExpression* value = expression.item(0);
+		while ((value->kind() == semantic_kind::relocation || value->kind() == semantic_kind::access || value->kind() == semantic_kind::cast) && value->size()) {
+			@value = value->item(0);
+		};
+		if (value->kind() == semantic_kind::name && value->entity() && value->entity()->kind() == entity_kind::local && reference_loan_members(*value->type())) {
+			return true;
+		};
+	};
+	usize index = 0;
+	while (index < expression.size()) {
+		if (reference_returns_local(*expression.item(index))) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+// A returned local carries its reaching contents, including stores performed
+// after its initializer. Reuse the same graph/store analysis in a separate state
+// so a callee's slots never become slots in the caller's current object state.
+fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this, var Entity& function, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, usize depth) -> bool {
+	if (depth > 16) {
+		return @this.error(*function.body(), "reference provenance analysis limit exceeded");
+	};
+	usize index = 0;
+	while (index < this.return_functions.size()) {
+		if (this.return_functions.data()[index] == &function) {
+			return @this.error(*function.body(), "recursive returned reference contents require conservative rejection");
+		};
+		@index = index + 1;
+	};
+	var local = ReferenceLoanAnalyzer(@*this.diagnostics);
+	@index = 0;
+	while (index < this.return_functions.size()) {
+		if (!@local.return_functions.push_back(this.return_functions.data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	if (!@local.return_functions.push_back(&@function)) {
+		return false;
+	};
+	@index = 0;
+	while (index < this.store_functions.size()) {
+		if (!@local.store_functions.push_back(this.store_functions.data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@local.function_body = function.body();
+	@local.return_type = function.type()->signature().result();
+	@local.phase = reference_loan_phase::collect;
+	if (!@local.graph.build_function(function) || !@local.collect(function.body()) || !@local.walk(function.body(), reference_loan_access::read)) {
+		return false;
+	};
+	@local.phase = reference_loan_phase::validate;
+	if (!@local.retain_stores(@*function.body()) || !@local.refresh_array_aliases()) {
+		return false;
+	};
+	rt::buffer<ReferenceLoanPlace> roots;
+	rt::buffer<ReferenceLoanSubstitution> none;
+	if (!@local.returned_places(*function.body(), @roots, @none, nullptr, depth + 1)) {
+		return false;
+	};
+	@index = 0;
+	while (index < roots.size()) {
+		ReferenceLoanPlace& root = roots.data()[index];
+		bool mapped = false;
+		usize substitution = 0;
+		while (substitution < substitutions.size()) {
+			ReferenceLoanSubstitution& argument = substitutions.data()[substitution];
+			if (argument.parameter == root.root) {
+				usize candidate = 0;
+				while (candidate < argument.places.size()) {
+					ReferenceLoanPlace result;
+					@result.root = argument.places.data()[candidate].root;
+					@result.reference_contents = argument.places.data()[candidate].reference_contents;
+					@result.field = argument.places.data()[candidate].field;
+					@result.element = argument.places.data()[candidate].element;
+					@result.through = argument.places.data()[candidate].through;
+					if (!result.field) {
+						@result.field = root.field;
+					};
+					if (!result.element) {
+						@result.element = root.element;
+					};
+					if (!@output.push_back($result)) {
+						return false;
+					};
+					@candidate = candidate + 1;
+				};
+				@mapped = true;
+			};
+			@substitution = substitution + 1;
+		};
+		if (!mapped) {
+			ReferenceLoanPlace result;
+			@result.root = root.root;
+			@result.reference_contents = root.reference_contents;
+			@result.field = root.field;
+			@result.element = root.element;
+			@result.through = root.through;
+			if (!@output.push_back($result)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	return true;
+};

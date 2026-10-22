@@ -70,19 +70,14 @@ fn ReferenceLoanAnalyzer::loan_store_path(var ReferenceLoanAnalyzer& this, usize
 	if (!loan.stored_field || definition == fact_no_node()) {
 		return true;
 	};
-	usize index = 0;
-	while (index < this.stores.size()) {
-		ReferenceStoreEffect& effect = this.stores.data()[index];
-		if (effect.slot.root == loan.binding && this.position(*effect.site) == definition && effect.field == loan.stored_field && effect.referent.root == loan.place.root) {
-			return @this.store_path(source, target, effect);
-		};
-		@index = index + 1;
-	};
 	ReferenceStoreEffect effect;
 	@effect.site = this.graph.nodes.data()[definition].expression;
 	@effect.slot.root = loan.binding;
-	if (loan.stored_field->type()->kind() != type_kind::reference) {
-		@effect.slot.field = loan.stored_field;
+	reference_slot_copy(loan.holding, @effect.slot.path);
+	if (!effect.slot.path.size && loan.stored_field) {
+		if (!reference_slot_field(@effect.slot.path, loan.stored_field)) {
+			return true;
+		};
 	};
 	return @this.store_path(source, target, effect);
 };

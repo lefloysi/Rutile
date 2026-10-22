@@ -1,5 +1,6 @@
 """Check language behavior through the replacement compiler's native output."""
 
+import argparse
 import sys
 
 sys.dont_write_bytecode = True
@@ -7,7 +8,9 @@ sys.dont_write_bytecode = True
 from run import run_case
 
 
-compiler = ".kiln/build/release/target-727574696c65632e657865/rutilec.exe"
+arguments = argparse.ArgumentParser(description=__doc__)
+arguments.add_argument("--compiler", default=".kiln/build/release/target-727574696c65632e657865/rutilec.exe")
+compiler = arguments.parse_args().compiler
 sources = "tests/compiler-new/semantic/"
 failures = []
 

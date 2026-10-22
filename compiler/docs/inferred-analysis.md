@@ -6,9 +6,9 @@ analysis work.
 
 ## Analysis pipeline
 
-`InferredFacts` runs after semantic construction and before the existing lifetime analysis.
-`ReferenceLoanAnalyzer` then checks tracked reference accesses. Both use `FactGraph`; the existing
-lifetime and frontend variant analyses remain in place.
+`InferredFacts` runs after semantic construction. `LifetimeAnalyzer` and `ReferenceLoanAnalyzer`
+then check object lifetimes and tracked reference accesses. All three use `FactGraph` with
+separate states. The frontend variant analysis remains in place.
 
 The graph represents branches, short circuiting, loops, switches, returns, throws, and handlers.
 Exception dispatch deliberately includes every potentially matching handler. Unsupported effects
@@ -29,6 +29,11 @@ and writes. Boolean and union outcomes retain their correlations with resulting 
 common to every corresponding return path are exported. Read-only wrappers compose summaries to
 a fixed point; unresolved recursion and dynamically dispatched calls remain conservative.
 
+Direct mutating calls also compose their normal outcomes through wrapper statements, returns,
+local initializers, assignments, and conditions. Arguments are evaluated once; imported guards,
+returned values, and write values use the frozen call-entry state before writes are installed.
+Composition retains at most 64 paths. Exceeding the bound makes the summary opaque.
+
 A direct throw ends its normal path. A scalar memory read can return an unknown value while
 preserving the guards on that path. A read-only wrapper imports its callee's single normal
 outcome, including those guards. This does not classify a throw as a compile-time violation.
@@ -39,7 +44,8 @@ effects invalidate potentially affected facts. No method names identify getters 
 ## Observable behavior
 
 - Provably invalid fixed-array accesses produce a compile-time diagnostic, including negative
-  indices. Uncertain accesses retain their existing runtime behavior.
+  indices. A note reports the inferred index range and array extent. Uncertain accesses retain
+  their existing runtime behavior.
 - Proven scalar expressions become constants in native generation when evaluation has no
   observable effects. Checked variant extraction also consumes proven alternatives.
 - A proven effectful Boolean condition still evaluates its calls and operands. Integer comparison
@@ -48,11 +54,23 @@ effects invalidate potentially affected facts. No method names identify getters 
 - Repeated guards and relations learned across calls can disappear at optimization level zero.
 - Guarded growth can establish that a new value exceeds its previous value. Unguarded wrapping
   arithmetic does not establish that relationship.
+- Effect-free compiler-defaulted local record initialization establishes integer field values,
+  including zero initialization, constant field initializers, and nested records. Custom
+  constructors, reference-bearing storage, and overlapping layouts remain conservative.
 - Local reference loans distinguish shared and exclusive access, follow reborrows, and use graph
   reachability for liveness. Returned-reference summaries preserve all known possible roots.
+- Object lifetime propagation uses a graph worklist. Storage availability remains separate from
+  value lifetime so reconstruction can reuse relocated or destroyed storage. Loop backedges,
+  exceptional construction, sequence escapes, and fallthrough retain their lifetime diagnostics.
 - Stored reference fields, defaulted transfers, and bounded nested aggregates propagate known
   referents. Distinct known elements of direct local fixed arrays can be borrowed independently.
-- Opaque reference calls conservatively retain known loans. Raw pointers remain untracked.
+- Reference-bearing fixed arrays use separate holding-slot paths containing field and index
+  projections. Definite covered writes end old contents; different or unknown indices preserve
+  potentially surviving contents. Copying and returning holders uses reaching stores.
+- Opaque reference calls conservatively retain known loans. Raw pointers do not create loans.
+- Raw writes, placement operations, pointer publication, and opaque pointer calls can make
+  tracked reference contents unknown. Safe extraction then requires established provenance or a
+  definite covered replacement. The raw pointer operations themselves remain unrestricted.
 - In-range writes into directly owned fixed arrays preserve independent scalar and sibling-field
   facts. An unproven index or raw-pointer write retains conservative memory invalidation.
 
@@ -71,6 +89,8 @@ This is not yet a complete implementation of every planned verifier capability.
 - Summaries containing loops, caught exceptions, arbitrary mutation through aliases, or
   unsupported operations remain opaque. In particular, the allocator and relocation paths in
   the current buffer implementation do not yet receive complete numeric summaries.
+- Numeric field facts are not yet transferred through general aggregate relocation. Existing
+  scalar relocation preserves evaluated value snapshots while ending access through the source.
 - Variant summary payloads are restricted to operations whose effects are understood. General
   user-defined payload lifecycle effects remain conservative.
 - Call-context analysis has bounded attempts, recursion depth, and implementation counts. A
@@ -84,10 +104,16 @@ This is not yet a complete implementation of every planned verifier capability.
   provenance is not converted into a trusted tracked referent.
 - Reference provenance expansion and special-member capture traversal have explicit limits.
   Exhaustion produces a diagnostic instead of silently discarding known reference roots.
-- Arrays whose elements contain references are not yet represented as aggregate reference loans.
+- Holding paths are bounded to 16 projections. Returned aggregate slots can become wildcard
+  paths when their identity is not unique, preserving roots while losing disjointness precision.
+- Raw memory analysis does not discover arbitrary pointer referents. Unknown effects retain
+  possible old roots and prevent treating those roots as complete reference provenance.
+- Virtual and indirect reference calls conservatively permit capture. This can reject local
+  reference uses even when the runtime target does not retain them.
+- Lifetime reachability currently uses existing constant conditions rather than the full numeric
+  relation state. Numeric facts primarily serve access diagnostics and check elimination.
 - Constructor captures from unnamed temporaries or union subobjects still need enclosing-storage
   provenance; named owner capture coverage does not establish those cases.
-- The existing lifetime pass has not yet been migrated onto the shared graph.
 
 ## Verification
 
@@ -98,9 +124,10 @@ python tests/compiler-new/run_inferred_facts.py
 python tests/compiler-new/run_function_facts.py
 python tests/compiler-new/run_call_contexts.py
 python tests/compiler-new/run_condition_effects.py
+python tests/compiler-new/run_graph_lifetimes.py
 python tests/compiler-new/run_reference_loans.py --compiler build/release/native/rutilec.exe
 ```
 
 The function-fact and numeric suites inspect native disassembly at optimization zero and execute
-boundary and side-effect cases. The diagnostic suite runner includes these five suites.
+boundary and side-effect cases. The diagnostic suite runner includes these six suites.
 Self-hosting must also pass before committing an implementation batch.
