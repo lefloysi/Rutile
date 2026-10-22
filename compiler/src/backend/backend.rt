@@ -42,6 +42,11 @@ struct Backend {
 	fn error(var Backend& this, Token& token, rt::string_view message) -> bool;
 	fn note(var Backend& this, Token& token, rt::string_view message);
 	fn failed(Backend& this) -> bool;
+	fn declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> bool;
+	fn emit_fact_contexts(var Backend& this) -> bool;
+	fn fact_context(Backend& this, usize context) -> var InferredFunctionContext*;
+	fn fact_symbol(Backend& this, usize context) -> var LLVMOpaqueValue*;
+	fn redirected_call(Backend& this, SemanticExpression& call, InferredFunctionContext* context) -> var LLVMOpaqueValue*;
 
 private:
 	fn verify(var Backend& this) -> bool;
@@ -68,6 +73,8 @@ private:
 	rt::buffer<NativeType> types;
 	rt::buffer<NativeEntity> entities;
 	rt::buffer<NativeTable> tables;
+	InferredContextSet* fact_context_set;
+	rt::buffer<var LLVMOpaqueValue*> fact_symbols;
 };
 
 fn Backend::Backend(var Backend& this, var Diagnostics& diagnostics) {

@@ -72,6 +72,9 @@ struct FunctionEmitter {
 	fn FunctionEmitter(var FunctionEmitter& this, var Backend& backend, var LLVMOpaqueValue* function, Type* result);
 
 	fn emit(var FunctionEmitter& this, var Entity* function) -> bool;
+	fn set_fact_context(var FunctionEmitter& this, InferredFunctionContext* context);
+	fn integer_fact(FunctionEmitter& this, SemanticExpression& expression, var u64& value) -> bool;
+	fn alternative_fact(FunctionEmitter& this, SemanticExpression& expression) -> u64;
 	fn statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
 	fn value(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
@@ -171,6 +174,7 @@ private:
 	fn representation(Type* type) -> Type*;
 
 	var Backend* backend;
+	InferredFunctionContext* fact_context;
 	var LLVMOpaqueValue* function;
 	var LLVMOpaqueValue* variant_payload_address;
 	Type* result;
@@ -605,6 +609,10 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 			@this.consume(source_arguments->item(index));
 		};
 		@index = index + 1;
+	};
+	var LLVMOpaqueValue* specialized = this.backend->redirected_call(*expression, this.fact_context);
+	if (specialized) {
+		@function = specialized;
 	};
 	return @this.native_call(native, function, (@arguments).data(), static_cast<u32>(arguments.size()));
 };

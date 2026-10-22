@@ -1,0 +1,116 @@
+fn FunctionEmitter::set_fact_context(var FunctionEmitter& this, InferredFunctionContext* context) {
+	@this.fact_context = context;
+};
+
+fn FunctionEmitter::integer_fact(FunctionEmitter& this, SemanticExpression& expression, var u64& value) -> bool {
+	if (this.fact_context) {
+		usize index = 0;
+		while (index < this.fact_context->overrides.size()) {
+			InferredExpressionFact& fact = this.fact_context->overrides.data()[index];
+			if (fact.expression == &expression && fact.kind == inferred_override_kind::integer) {
+				@value = fact.value;
+				return true;
+			};
+			@index = index + 1;
+		};
+	};
+	return expression.inferred_integer(@value);
+};
+
+fn FunctionEmitter::alternative_fact(FunctionEmitter& this, SemanticExpression& expression) -> u64 {
+	if (this.fact_context) {
+		usize index = 0;
+		while (index < this.fact_context->overrides.size()) {
+			InferredExpressionFact& fact = this.fact_context->overrides.data()[index];
+			if (fact.expression == &expression && fact.kind == inferred_override_kind::alternative) {
+				return fact.value;
+			};
+			@index = index + 1;
+		};
+	};
+	return expression.inferred_alternative();
+};
+
+fn Backend::fact_context(Backend& this, usize context) -> var InferredFunctionContext* {
+	if (!this.fact_context_set || !context || context > this.fact_context_set->contexts.size()) {
+		return nullptr;
+	};
+	return this.fact_context_set->contexts.data()[context - 1].get();
+};
+
+fn Backend::fact_symbol(Backend& this, usize context) -> var LLVMOpaqueValue* {
+	if (!context || context > this.fact_symbols.size()) {
+		return nullptr;
+	};
+	return this.fact_symbols.data()[context - 1];
+};
+
+fn Backend::redirected_call(Backend& this, SemanticExpression& call, InferredFunctionContext* context) -> var LLVMOpaqueValue* {
+	if (!this.fact_context_set || !call.entity() || call.entity()->dispatch() != function_dispatch::ordinary || call.size() != 2 || call.item(0)->kind() != semantic_kind::name || call.item(0)->entity() != call.entity()) {
+		return nullptr;
+	};
+	// A context body has its own call bindings. Generic-site assumptions must
+	// never leak into another emission of the same shared semantic body.
+	rt::buffer<InferredCallBinding>* bindings = &this.fact_context_set->calls;
+	if (context) {
+		@bindings = &context->calls;
+	};
+	usize index = 0;
+	while (index < bindings->size()) {
+		InferredCallBinding& binding = bindings->data()[index];
+		if (binding.expression == &call) {
+			var InferredFunctionContext* target = this.fact_context(binding.context);
+			if (target && target->function && target->function->canonical() == call.entity()->canonical()) {
+				return this.fact_symbol(binding.context);
+			};
+			return nullptr;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn Backend::declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> bool {
+	@this.fact_context_set = &contexts;
+	@this.fact_symbols.clear();
+	usize index = 0;
+	while (index < contexts.contexts.size()) {
+		var InferredFunctionContext* context = contexts.contexts.data()[index].get();
+		if (!context || !context->function || context->function->dispatch() != function_dispatch::ordinary || !context->function->body()) {
+			Token token;
+			return @this.error(token, "invalid inferred function context");
+		};
+		DiagnosticMessage name;
+		@name.text("rt.fact.");
+		@name.number(u64(index + 1));
+		var spelling = rt::string(name.view());
+		var LLVMOpaqueType* signature = @this.type(context->function->type(), context->function->token());
+		if (!signature) {
+			return false;
+		};
+		var LLVMOpaqueValue* symbol = LLVMAddFunction(this.module(), spelling.c_str(), signature);
+		LLVMSetLinkage(symbol, 9);
+		if (!@this.fact_symbols.push_back(symbol)) {
+			return @this.error(context->function->token(), "cannot retain inferred context symbol");
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Backend::emit_fact_contexts(var Backend& this) -> bool {
+	if (!this.fact_context_set) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.fact_context_set->contexts.size()) {
+		var InferredFunctionContext* context = this.fact_context(index + 1);
+		var emitter = FunctionEmitter(@this, this.fact_symbol(index + 1), context->function->type()->signature().result());
+		@emitter.set_fact_context(context);
+		if (!@emitter.emit(context->function)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};

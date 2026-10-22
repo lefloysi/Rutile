@@ -117,6 +117,8 @@ struct SemanticUnit {
 	fn record_classification(var SemanticUnit& this, Token& location, u32 type, u32 modifiers) -> bool;
 	fn classifications(SemanticUnit& this) -> rt::buffer<SemanticClassification>&;
 	fn references(SemanticUnit& this) -> rt::buffer<ResolvedReference>&;
+	fn fact_contexts(SemanticUnit& this) -> InferredContextSet&;
+	fn mutable_fact_contexts(var SemanticUnit& this) -> var InferredContextSet&;
 
 private:
 	fn retain_use(var SemanticUnit& this, rt::unique<TypeUse> use) -> TypeUse*;
@@ -136,8 +138,17 @@ private:
 	rt::buffer<SemanticReceiverSite> receivers;
 	rt::buffer<InlineRecord> inline_records;
 	var Scope* global_scope;
+	InferredContextSet inferred_contexts;
 	rt::buffer<rt::unique<Scope>> scopes;
 	rt::buffer<rt::unique<Entity>> declarations;
+};
+
+fn SemanticUnit::fact_contexts(SemanticUnit& this) -> InferredContextSet& {
+	return this.inferred_contexts;
+};
+
+fn SemanticUnit::mutable_fact_contexts(var SemanticUnit& this) -> var InferredContextSet& {
+	return @this.inferred_contexts;
 };
 
 fn SemanticUnit::entities(SemanticUnit& this) -> rt::buffer<rt::unique<Entity>>& {

@@ -92,6 +92,9 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	};
 
 	usize function_count = 0;
+	if (!@this.declare_fact_contexts(unit.fact_contexts())) {
+		return false;
+	};
 	@index = 0;
 
 	while (index < unit.entities().size()) {
@@ -128,6 +131,9 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		@index = index + 1;
 	};
 
+	if (!@this.emit_fact_contexts()) {
+		return false;
+	};
 	this.progress.report("dispatch", 0, unit.entities().size(), "");
 	@index = 0;
 

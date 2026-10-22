@@ -11,6 +11,12 @@ from run import run_case
 ROOT = Path(__file__).resolve().parents[2]
 BOUNDS = "array index is provably outside the array bounds"
 CASES = [
+	("throw-is-program-outcome", "fn checked(usize index) -> usize { if (index >= 2) { throw i32(7); }; return index; }; fn main() -> i32 { return i32(checked(3)); };", False),
+	("normal-return-bounds", "fn checked(usize index) -> usize { if (index < 2) { throw i32(7); }; return index; }; fn inspect(usize index) -> i32 { i32[2] data {}; usize result = checked(index); return data[result]; };", True),
+	("normal-return-wrapper", "fn checked(usize index) -> usize { if (index < 2) { throw i32(7); }; return index; }; fn wrapper(usize index) -> usize { return checked(index); }; fn inspect(usize index) -> i32 { i32[2] data {}; return data[wrapper(index)]; };", True),
+	("normal-void-wrapper", "fn checked(usize index) { if (index < 2) { throw i32(7); }; }; fn wrapper(usize index) { checked(index); }; fn inspect(usize index) -> i32 { i32[2] data {}; wrapper(index); return data[index]; };", True),
+	("caught-throw-effects", "fn reset(var usize& index) { @index = 0; throw i32(7); }; fn main() -> i32 { i32[2] data {}; usize index = 2; try { reset(@index); } catch (i32 caught) {}; return data[index]; };", False),
+	("read-return-unknown", "fn checked(var usize* data, usize index) -> usize { if (index >= 2) { throw i32(7); }; return data[index]; }; fn inspect(var usize* data, usize index) -> i32 { i32[2] fixed {}; return fixed[checked(data, index)]; };", False),
 	("identity-invalid", "fn identity(usize value) -> usize { return value; }; fn main() -> i32 { i32[2] values {}; return values[identity(2)]; };", True),
 	("identity-valid", "fn identity(usize value) -> usize { return value; }; fn main() -> i32 { i32[2] values {}; return values[identity(1)]; };", False),
 	("field-getter-invalid", "struct Counter { usize length; }; fn read(Counter& counter) -> usize { return counter.length; }; fn main() -> i32 { i32[2] values {}; Counter counter; @counter.length = 2; return values[read(counter)]; };", True),
@@ -225,6 +231,19 @@ fn main() -> i32 {
 	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
 		failures.append("cleanup-runtime")
 		print(f"cleanup-runtime: FAIL: {error}")
+	path = directory / "float-unordered-runtime.rt"
+	path.write_text("fn equal(f64 value) -> bool { return value == value; }; "
+		"fn ordered(f64 value) -> bool { return value <= value; }; "
+		"fn identity(f64 value) -> f64 { return value; }; "
+		"fn wrapped(f64 value) -> bool { return identity(value) == identity(value); }; "
+		"fn main() -> i32 { f64 zero = 0.0; f64 value = zero / zero; "
+		"if (equal(value) || ordered(value) || wrapped(value)) { return 1; }; "
+		"return 42; };\n", encoding="utf-8")
+	try:
+		run_case("facts-float-unordered-runtime", [path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("float-unordered-runtime")
+		print(f"float-unordered-runtime: FAIL: {error}")
 	if failures:
 		raise SystemExit(f"{len(failures)} function-facts case(s) failed: {', '.join(failures)}")
 

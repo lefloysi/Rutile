@@ -265,3 +265,30 @@ fn SemanticExpression::set_real(var SemanticExpression& this, f64 value) {
 fn SemanticExpression::set_text(var SemanticExpression& this, rt::string_view value) -> bool {
 	return @this.text_value.append(value);
 };
+
+enum inferred_override_kind : [u08] {
+	integer;
+	alternative;
+};
+
+struct InferredExpressionFact {
+	var SemanticExpression* expression;
+	u64 value;
+	inferred_override_kind kind;
+};
+
+struct InferredCallBinding {
+	var SemanticExpression* expression;
+	usize context;
+};
+
+struct InferredFunctionContext {
+	var Entity* function;
+	rt::buffer<InferredExpressionFact> overrides;
+	rt::buffer<InferredCallBinding> calls;
+};
+
+struct InferredContextSet {
+	rt::buffer<rt::unique<InferredFunctionContext>> contexts;
+	rt::buffer<InferredCallBinding> calls;
+};

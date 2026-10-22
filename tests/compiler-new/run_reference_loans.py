@@ -54,6 +54,15 @@ CASES = [
     ("destructor-retains-write", "i32 value = 4; ReadHolder holder = ReadHolder(value); @value = 5; return value;", False),
     ("destructor-scope-end", "i32 value = 4; { ReadHolder holder = ReadHolder(value); }; @value = 5; return value;", True),
     ("explicit-destructor-ends-loan", "i32 value = 4; ReadHolder holder = ReadHolder(value); @holder.~ReadHolder(); @value = 5; return value;", True),
+    ("store-inner-to-outer", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); }; return outer.reference;", False),
+    ("store-wrapper-inner-to-outer", "Holder outer = Holder(shared_value); { i32 local = 4; write_wrapper(@outer, local); }; return outer.reference;", False),
+    ("store-outer-to-inner", "i32 value = 4; { Holder inner = Holder(shared_value); write_holder(@inner, value); return inner.reference; };", True),
+    ("store-global-escape", "i32 value = 4; write_holder(@global_holder, value); return 0;", False),
+    ("store-overwritten-before-exit", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); write_holder(@outer, shared_value); }; return outer.reference;", True),
+    ("store-conditional-overwrite", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); maybe_write(condition, @outer, shared_value); }; return outer.reference;", False),
+    ("store-transitive-slot-copy", "Holder outer = Holder(shared_value); Holder copy = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); write_holder(@copy, outer.reference); }; return copy.reference;", False),
+    ("store-caught-throw-overwrite", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); try { throwing_write(condition, @outer, shared_value); } catch (i32 caught) {}; }; return outer.reference;", False),
+    ("store-caught-helper-overwrite", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); caught_write(condition, @outer, shared_value); }; return outer.reference;", False),
 ]
 
 
@@ -76,6 +85,7 @@ def main():
             "struct DoubleMutable { var i32& first; var i32& second; };\n"
             "struct NestedHolder { Holder inner; };\n"
             "i32 shared_value = 4;\n"
+            "Holder global_holder = Holder(shared_value);\n"
             "struct DefaultHolder { const i32& reference = shared_value; };\n"
             "struct CustomDefault { const i32& reference = shared_value; fn CustomDefault(var CustomDefault& this) {}; };\n"
             "struct NestedDefault { DefaultHolder inner; };\n"
@@ -91,6 +101,11 @@ def main():
             "fn choose(bool condition, var i32& first, var i32& second) -> var i32& { if (condition) { return @first; }; return @second; };\n"
             "fn make_holder(const i32& value) -> Holder { return Holder(value); };\n"
             "fn make_holder_alias(const i32& value) -> Holder { Holder holder = Holder(value); return $holder; };\n"
+            "fn write_holder(var Holder& destination, const i32& value) { @destination = Holder(value); };\n"
+            "fn write_wrapper(var Holder& destination, const i32& value) { write_holder(@destination, value); };\n"
+            "fn maybe_write(bool condition, var Holder& destination, const i32& value) { if (condition) { write_holder(@destination, value); }; };\n"
+            "fn throwing_write(bool condition, var Holder& destination, const i32& value) { if (condition) { throw i32(7); }; write_holder(@destination, value); };\n"
+            "fn caught_write(bool condition, var Holder& destination, const i32& value) { try { if (condition) { throw i32(7); }; write_holder(@destination, value); } catch (i32 caught) {}; };\n"
             f"fn inspect(bool condition) -> {result_type} {{ {body} }};\n"
             "fn main() -> i32 { return 0; };\n"
         )
@@ -107,6 +122,7 @@ def main():
             "access conflicts with a live reference loan",
             "returned reference refers to local storage",
             "reference members contain conflicting loans",
+            "stored reference may outlive its referent",
         )):
             raise RuntimeError(f"{name}: expected loan diagnostic\n{output}")
         print(name + ": PASS")

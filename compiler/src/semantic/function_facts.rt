@@ -115,11 +115,11 @@ struct FunctionFactSummaries {
 	fn validate(var FunctionFactSummaries& this, SemanticUnit& unit) -> bool;
 	fn find(FunctionFactSummaries& this, Entity* function) -> var FunctionFactSummary*;
 	fn build(var FunctionFactSummaries& this, var Entity& function) -> bool;
-	fn expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> usize;
+	fn expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> usize;
 	fn walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) -> bool;
 	fn finish(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* returned, usize result, FunctionFactPath& path) -> bool;
-	fn import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, FunctionFactPath& path, usize depth) -> usize;
-	fn payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> bool;
+	fn import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, var FunctionFactPath& path, usize depth) -> usize;
+	fn payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> bool;
 };
 
 fn function_fact_clone_place(var SemanticExpression* source) -> rt::unique<SemanticExpression> {
@@ -183,7 +183,7 @@ fn FunctionFactSummaries::find(FunctionFactSummaries& this, Entity* function) ->
 	return nullptr;
 };
 
-fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> usize {
+fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> usize {
 	if (!expression || summary.expressions.size() >= 4096) {
 		@summary.opaque = true;
 		return 0;
@@ -196,7 +196,7 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		@result.integer = integer;
 	}
 	else if (expression->kind() == semantic_kind::access && expression->size() == 1) {
-		return @this.expression(@summary, expression->item(0), path);
+		return @this.expression(@summary, expression->item(0), @path);
 	}
 	else if (expression->kind() == semantic_kind::construction && !expression->entity() && expression->type()->representation()->kind().is_numeric() && expression->size() == 1 && expression->item(0)->kind() == semantic_kind::brace && expression->item(0)->size() <= 1) {
 		if (!expression->item(0)->size()) {
@@ -205,11 +205,11 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		}
 		else {
 			@result.kind = function_fact_kind::cast;
-			@result.left = @this.expression(@summary, expression->item(0)->item(0), path);
+			@result.left = @this.expression(@summary, expression->item(0)->item(0), @path);
 		};
 	}
 	else if (expression->kind() == semantic_kind::cast && expression->size() == 1 && expression->type()->kind() == type_kind::named && variant_instance(*expression->type()->entity()) && expression->type()->same_shape(*expression->item(0)->type())) {
-		return @this.expression(@summary, expression->item(0), path);
+		return @this.expression(@summary, expression->item(0), @path);
 	}
 	else if (expression->kind() == semantic_kind::construction && !expression->entity() && expression->integer() && expression->type()->kind() == type_kind::named && variant_instance(*expression->type()->entity())) {
 		var Entity* destructor = expression->type()->entity()->destructor();
@@ -219,7 +219,7 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		};
 		usize child = 0;
 		while (child < expression->size()) {
-			if (!@this.payload_safe(@summary, expression->item(child), path)) {
+			if (!@this.payload_safe(@summary, expression->item(child), @path)) {
 				@summary.opaque = true;
 				return 0;
 			};
@@ -246,17 +246,44 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 	}
 	else if (expression->kind() == semantic_kind::call && expression->entity() && expression->size() == 2) {
 		var FunctionFactSummary* callee = this.find(expression->entity());
-		if (!callee || callee->opaque || callee->outcomes.size() != 1 || callee->outcomes.data()[0].writes.size() || callee->outcomes.data()[0].conditions.size()) {
+		if (!callee || callee->opaque || callee->outcomes.size() != 1 || callee->outcomes.data()[0].writes.size()) {
 			@summary.opaque = true;
 			return 0;
 		};
 		// Even unused arguments execute. Check every argument for opaque effects.
 		usize argument = 0;
 		while (argument < expression->item(1)->size()) {
-			@this.expression(@summary, expression->item(1)->item(argument), path);
+			@this.expression(@summary, expression->item(1)->item(argument), @path);
 			@argument = argument + 1;
 		};
-		return @this.import_value(@summary, *callee, callee->outcomes.data()[0].result, @*expression, path, 0);
+		// A read-only callee can restrict its normal continuation even when
+		// its other paths throw. Substitute those guards through wrappers.
+		FunctionFactOutcome& outcome = callee->outcomes.data()[0];
+		usize condition = 0;
+		while (condition < outcome.conditions.size()) {
+			FactPathCondition guard;
+			@guard.value = @this.import_value(@summary, *callee, outcome.conditions.data()[condition].value, @*expression, @path, 0);
+			@guard.truth = outcome.conditions.data()[condition].truth;
+			if (!@path.conditions.push_back($guard)) {
+				@summary.opaque = true;
+				return 0;
+			};
+			@condition = condition + 1;
+		};
+		if (!outcome.result) {
+			return 0;
+		};
+		return @this.import_value(@summary, *callee, callee->outcomes.data()[0].result, @*expression, @path, 0);
+	}
+	else if ((expression->kind() == semantic_kind::index || expression->kind() == semantic_kind::dereference) && expression->type()->representation()->kind().is_scalar()) {
+		// A memory read has an unknown value, but does not erase the guards
+		// on paths that return normally. Its operands still execute.
+		usize child = 0;
+		while (child < expression->size()) {
+			@this.expression(@summary, expression->item(child), @path);
+			@child = child + 1;
+		};
+		@result.kind = function_fact_kind::unknown;
 	}
 	else if ((expression->kind() == semantic_kind::binary && expression->size() == 2) || (expression->kind() == semantic_kind::unary && expression->size() == 1) || (expression->kind() == semantic_kind::cast && expression->size() == 1)) {
 		@result.operation = expression->operation();
@@ -275,9 +302,9 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		else if (expression->kind() == semantic_kind::unary) {
 			@result.kind = function_fact_kind::unary;
 		};
-		@result.left = @this.expression(@summary, expression->item(0), path);
+		@result.left = @this.expression(@summary, expression->item(0), @path);
 		if (expression->size() == 2) {
-			@result.right = @this.expression(@summary, expression->item(1), path);
+			@result.right = @this.expression(@summary, expression->item(1), @path);
 		};
 	}
 	else {
@@ -291,7 +318,7 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 	return summary.expressions.size();
 };
 
-fn FunctionFactSummaries::payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> bool {
+fn FunctionFactSummaries::payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> bool {
 	if (!expression) {
 		return false;
 	};
@@ -312,12 +339,12 @@ fn FunctionFactSummaries::payload_safe(var FunctionFactSummaries& this, var Func
 		};
 	}
 	else if (expression->kind() != semantic_kind::brace && expression->kind() != semantic_kind::cast && expression->kind() != semantic_kind::access) {
-		@this.expression(@summary, expression, path);
+		@this.expression(@summary, expression, @path);
 		return !summary.opaque;
 	};
 	usize child = 0;
 	while (child < expression->size()) {
-		if (!@this.payload_safe(@summary, expression->item(child), path)) {
+		if (!@this.payload_safe(@summary, expression->item(child), @path)) {
 			return false;
 		};
 		@child = child + 1;
@@ -325,7 +352,7 @@ fn FunctionFactSummaries::payload_safe(var FunctionFactSummaries& this, var Func
 	return true;
 };
 
-fn FunctionFactSummaries::import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, FunctionFactPath& path, usize depth) -> usize {
+fn FunctionFactSummaries::import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, var FunctionFactPath& path, usize depth) -> usize {
 	if (!value || value > callee.expressions.size() || depth > 64) {
 		@summary.opaque = true;
 		return 0;
@@ -336,7 +363,7 @@ fn FunctionFactSummaries::import_value(var FunctionFactSummaries& this, var Func
 		usize parameter = 0;
 		while (source->kind() == semantic_kind::name && parameter < callee.function->parameters().size()) {
 			if (source->entity() == callee.function->parameters().data()[parameter]) {
-				return @this.expression(@summary, call.item(1)->item(parameter), path);
+				return @this.expression(@summary, call.item(1)->item(parameter), @path);
 			};
 			@parameter = parameter + 1;
 		};
@@ -350,13 +377,13 @@ fn FunctionFactSummaries::import_value(var FunctionFactSummaries& this, var Func
 			@summary.opaque = true;
 			return 0;
 		};
-		return @this.expression(@summary, place, path);
+		return @this.expression(@summary, place, @path);
 	};
 	if (result.left) {
-		@result.left = @this.import_value(@summary, callee, result.left, @call, path, depth + 1);
+		@result.left = @this.import_value(@summary, callee, result.left, @call, @path, depth + 1);
 	};
 	if (result.right) {
-		@result.right = @this.import_value(@summary, callee, result.right, @call, path, depth + 1);
+		@result.right = @this.import_value(@summary, callee, result.right, @call, @path, depth + 1);
 	};
 	if (summary.expressions.size() >= 4096 || !@summary.expressions.push_back($result)) {
 		@summary.opaque = true;
@@ -413,7 +440,7 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 		rt::buffer<rt::unique<FunctionFactPath>> branches;
 		usize index = 0;
 		while (index < paths.size()) {
-			FunctionFactPath& source = *paths.data()[index].get();
+			var FunctionFactPath& source = @*(@paths).data()[index].get();
 			if (source.returned) {
 				var retained = rt::unique<FunctionFactPath>::make();
 				if (!retained.get() || !@retained.get()->copy_from(source) || !@branches.push_back($retained)) {
@@ -421,7 +448,7 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 				};
 			}
 			else {
-				usize condition = @this.expression(@summary, expression->item(0), source);
+				usize condition = @this.expression(@summary, expression->item(0), @source);
 				usize branch = 0;
 				while (branch < 2) {
 					var state = rt::unique<FunctionFactPath>::make();
@@ -460,10 +487,15 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 	while (index < paths.size()) {
 		var FunctionFactPath& path = @*(@paths).data()[index].get();
 		if (!path.returned) {
-			if (kind == semantic_kind::return_value) {
+			if (kind == semantic_kind::exception_throw || kind == semantic_kind::exception_rethrow) {
+				// This path has no normal continuation. A throw does not itself
+				// describe a violated language rule or classify an API outcome.
+				@path.returned = true;
+			}
+			else if (kind == semantic_kind::return_value) {
 				usize result = 0;
 				if (expression->size()) {
-					@result = @this.expression(@summary, expression->item(0), path);
+					@result = @this.expression(@summary, expression->item(0), @path);
 				};
 				if (!@this.finish(@summary, expression, result, path)) {
 					return false;
@@ -483,13 +515,13 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 				};
 				FactWrite write;
 				@write.target = target;
-				@write.value = @this.expression(@summary, value, path);
+				@write.value = @this.expression(@summary, value, @path);
 				if (!@path.writes.push_back($write)) {
 					return false;
 				};
 			}
 			else if (kind != semantic_kind::noop) {
-				@this.expression(@summary, expression, path);
+				@this.expression(@summary, expression, @path);
 			};
 		};
 		@index = index + 1;

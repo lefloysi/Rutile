@@ -465,7 +465,7 @@ fn fact_affine(var FactValue& result, FactValue& base, u64 amount, bool subtract
 
 struct InferredFacts {
 	fn InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics);
-	fn validate(var InferredFacts& this, SemanticUnit& unit) -> bool;
+	fn validate(var InferredFacts& this, var SemanticUnit& unit) -> bool;
 	fn analyze(var InferredFacts& this, var SemanticExpression* body) -> bool;
 	fn place(var InferredFacts& this, SemanticExpression* expression) -> usize;
 	fn transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version) -> bool;
@@ -480,10 +480,20 @@ struct InferredFacts {
 	fn refine_outcome(var InferredFacts& this, var FactState& state, usize condition, u64 selector, bool matches, bool variant);
 	fn constant_version(var InferredFacts& this, Type* type, u64 value) -> usize;
 	fn correlation_place(var InferredFacts& this, var rt::buffer<FactCorrelationPlace>& places, usize place, bool written) -> bool;
+	fn summary_cache(InferredFacts& this) -> FunctionFactSummaries&;
+	fn context_seed(var InferredFacts& this, var FactState& state) -> bool;
+	fn context_capture(var InferredFacts& this, var SemanticExpression& call, FactState& state) -> bool;
+	fn context_override(var InferredFacts& this, var SemanticExpression& expression, inferred_override_kind kind, u64 value) -> bool;
 	var Diagnostics* diagnostics;
 	rt::buffer<FactPlace> places;
 	rt::buffer<rt::unique<FactState>> incoming;
 	FunctionFactSummaries summaries;
+	FunctionFactSummaries* summary_source;
+	var Entity* analyzed_function;
+	var InferredFunctionContext* context_output;
+	rt::buffer<FactContextInput> context_inputs;
+	rt::buffer<FactContextRelation> context_relations;
+	rt::buffer<rt::unique<FactContextRequest>> context_requests;
 	rt::buffer<FactIntegerConstant> constants;
 	usize constant_base;
 };
@@ -549,6 +559,13 @@ fn fact_variant_transfer(SemanticExpression& expression) -> bool {
 
 fn InferredFacts::InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics) {
 	@this.diagnostics = &@diagnostics;
+};
+
+fn InferredFacts::summary_cache(InferredFacts& this) -> FunctionFactSummaries& {
+	if (this.summary_source) {
+		return *this.summary_source;
+	};
+	return this.summaries;
 };
 
 fn InferredFacts::constant_version(var InferredFacts& this, Type* type, u64 value) -> usize {
@@ -630,7 +647,7 @@ fn InferredFacts::collect(var InferredFacts& this, SemanticExpression* expressio
 	};
 	@this.place(expression);
 	if (expression->kind() == semantic_kind::call && expression->entity()) {
-		var FunctionFactSummary* summary = this.summaries.find(expression->entity());
+		var FunctionFactSummary* summary = this.summary_cache().find(expression->entity());
 		if (summary && !summary->opaque) {
 			usize item = 0;
 			while (item < summary->expressions.size()) {
@@ -758,6 +775,9 @@ fn InferredFacts::summary_value(var InferredFacts& this, FunctionFactSummary& su
 		return $result;
 	};
 	FactValue right = @this.summary_value(summary, value.right, call, state, depth + 1);
+	if (!value.left || !value.right || !summary.expressions.data()[value.left - 1].type->representation()->kind().is_integer() || !summary.expressions.data()[value.right - 1].type->representation()->kind().is_integer()) {
+		return $result;
+	};
 	fact_truth truth = fact_compare_values(value.operation, left, right);
 	if (truth != fact_truth::unknown) {
 		u64 integer = 0;
@@ -787,7 +807,7 @@ fn InferredFacts::summary_value(var InferredFacts& this, FunctionFactSummary& su
 };
 
 fn InferredFacts::apply_summary(var InferredFacts& this, var SemanticExpression& call, var FactState& state, var FactValue& result, usize version) -> bool {
-	var FunctionFactSummary* summary = this.summaries.find(call.entity());
+	var FunctionFactSummary* summary = this.summary_cache().find(call.entity());
 	if (!summary || summary->opaque || !summary->outcomes.size() || call.entity()->dispatch() != function_dispatch::ordinary) {
 		return false;
 	};
@@ -1040,6 +1060,35 @@ fn InferredFacts::summary_assume(var InferredFacts& this, FunctionFactSummary& s
 	if (condition.kind != function_fact_kind::binary || !condition.left || !condition.right) {
 		return;
 	};
+	token_kind predicate = condition.operation;
+	if (predicate != token_kind::op_equal && predicate != token_kind::op_not_equal && predicate != token_kind::op_less && predicate != token_kind::op_less_equal && predicate != token_kind::op_greater && predicate != token_kind::op_greater_equal) {
+		return;
+	};
+	if (!summary.expressions.data()[condition.left - 1].type->representation()->kind().is_integer() || !summary.expressions.data()[condition.right - 1].type->representation()->kind().is_integer()) {
+		return;
+	};
+	if (!truth) {
+		@predicate = fact_inverse(predicate);
+	};
+	FactValue first = @this.summary_value(summary, condition.left, call, state, 0);
+	FactValue second = @this.summary_value(summary, condition.right, call, state, 0);
+	if (first.version && second.version && (!first.origin || !first.displacement) && (!second.origin || !second.displacement)) {
+		usize index = 0;
+		while (index < state.relations.size()) {
+			FactRelation& relation = state.relations.data()[index];
+			if (relation.left == first.version && relation.right == second.version && relation.operation == predicate) {
+				break;
+			};
+			@index = index + 1;
+		};
+		if (index == state.relations.size()) {
+			FactRelation relation;
+			@relation.left = first.version;
+			@relation.right = second.version;
+			@relation.operation = predicate;
+			@state.relations.push_back($relation);
+		};
+	};
 	FunctionFactExpression& left = summary.expressions.data()[condition.left - 1];
 	if (left.kind != function_fact_kind::entry_place) {
 		return;
@@ -1259,6 +1308,9 @@ fn InferredFacts::evaluate(var InferredFacts& this, SemanticExpression* expressi
 	if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
 		return $right;
 	};
+	if (!expression->item(0)->type()->representation()->kind().is_integer() || !expression->item(1)->type()->representation()->kind().is_integer()) {
+		return $result;
+	};
 	fact_truth truth = fact_compare_values(operation, left, right);
 	usize relation = 0;
 	while (truth == fact_truth::unknown && left.version && right.version && relation < state.relations.size()) {
@@ -1318,6 +1370,9 @@ fn InferredFacts::assume(var InferredFacts& this, var SemanticExpression* condit
 		@this.refine_outcome(@state, known.version, u64(truth), true, false);
 	};
 	if (condition->kind() != semantic_kind::binary || condition->size() != 2) {
+		return true;
+	};
+	if (!condition->item(0)->type()->representation()->kind().is_integer() || !condition->item(1)->type()->representation()->kind().is_integer()) {
 		return true;
 	};
 	token_kind operation = condition->operation();
@@ -1512,6 +1567,9 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 		};
 		if (node == graph.entry) {
 			@state.get()->reachable = true;
+			if (!@this.context_seed(@*state.get())) {
+				return false;
+			};
 		};
 		if (!@this.incoming.push_back($state)) {
 			return false;
@@ -1575,11 +1633,29 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 		FactState& state = *this.incoming.data()[node].get();
 		if (expression && state.reachable && graph.nodes.data()[node].kind != fact_node_kind::opaque) {
 			if (expression->kind() == semantic_kind::variant_cast && state.value(expression->item(0)).alternative == expression->integer()) {
-				@expression->set_inferred_alternative(expression->integer());
+				if (this.context_output) {
+					if (expression->inferred_alternative() != expression->integer() && !@this.context_override(@*expression, inferred_override_kind::alternative, expression->integer())) {
+						return false;
+					};
+				}
+				else {
+					@expression->set_inferred_alternative(expression->integer());
+				};
 			};
 			FactValue value = @this.evaluate(expression, state);
 			if (value.range.available != fact_truth::unknown && value.range.lower == value.range.upper && fact_pure(*expression)) {
-				@expression->set_inferred_integer(value.range.lower);
+				if (this.context_output) {
+					u64 previous = 0;
+					if (fact_context_condition(graph, expression) && !expression->inferred_integer(@previous) && !@this.context_override(@*expression, inferred_override_kind::integer, value.range.lower)) {
+						return false;
+					};
+				}
+				else {
+					@expression->set_inferred_integer(value.range.lower);
+				};
+			};
+			if (expression->kind() == semantic_kind::call && !@this.context_capture(@*expression, state)) {
+				return false;
 			};
 			if (expression->kind() == semantic_kind::index && expression->item(0)->type()->kind() == type_kind::array) {
 				FactValue index = state.value(expression->item(1));
@@ -1595,17 +1671,21 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	return true;
 };
 
-fn InferredFacts::validate(var InferredFacts& this, SemanticUnit& unit) -> bool {
+fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> bool {
 	if (!@this.summaries.validate(unit)) {
 		return false;
 	};
 	usize index = 0;
+	@this.context_requests.clear();
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
-		if (entity->kind() == entity_kind::function && entity->body() && !@this.analyze(entity->body())) {
-			return false;
+		if (entity->kind() == entity_kind::function && entity->body()) {
+			@this.analyzed_function = entity;
+			if (!@this.analyze(entity->body())) {
+				return false;
+			};
 		};
 		@index = index + 1;
 	};
-	return true;
+	return fact_build_contexts(@this, @unit.mutable_fact_contexts());
 };
