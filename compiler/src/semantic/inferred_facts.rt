@@ -1,0 +1,1611 @@
+enum fact_truth : [u08] {
+	unknown;
+	proven;
+	disproven;
+};
+
+enum integer_range_sign : [u08] {
+	nonnegative;
+	negative;
+};
+
+// Negative bounds use sign-extended two's complement values, whose unsigned
+// ordering is monotone within the negative half. Mixed-sign ranges widen away.
+struct IntegerRange {
+	fact_truth available;
+	integer_range_sign sign;
+	u64 lower;
+	u64 upper;
+};
+
+fn fact_range(u64 lower, u64 upper) -> IntegerRange {
+	IntegerRange result;
+	@result.available = fact_truth::proven;
+	@result.lower = lower;
+	@result.upper = upper;
+	return $result;
+};
+
+fn fact_limit(Type* type) -> u64 {
+	if (!type || !type->representation()->kind().is_integer()) {
+		return 0;
+	};
+	@type = type->representation();
+	if (type->kind() == type_kind::boolean) {
+		return 1;
+	};
+	u32 bits = type->bits();
+	if (type->kind() == type_kind::signed_integer) {
+		return (u64(1) << u64(bits - 1)) - 1;
+	};
+	if (bits == 64) {
+		return u64::max;
+	};
+	return (u64(1) << u64(bits)) - 1;
+};
+
+fn fact_constant(Type* type, u64 value) -> IntegerRange {
+	IntegerRange result;
+	if (!type || !type->representation()->kind().is_integer()) {
+		return $result;
+	};
+	@type = type->representation();
+	u64 normalized = type->normalize_integer(value);
+	@result = fact_range(normalized, normalized);
+	if (type->kind() == type_kind::signed_integer && type->signed_value(normalized) < 0) {
+		@result.sign = integer_range_sign::negative;
+		@result.lower = static_cast<u64>(type->signed_value(normalized));
+		@result.upper = result.lower;
+	};
+	return $result;
+};
+
+fn fact_convert(IntegerRange& source, Type* target) -> IntegerRange {
+	if (source.available == fact_truth::unknown) {
+		return IntegerRange();
+	};
+	if (target && target->kind() == type_kind::boolean) {
+		if (source.lower) {
+			return fact_range(1, 1);
+		};
+		if (!source.upper) {
+			return fact_range(0, 0);
+		};
+		return fact_range(0, 1);
+	};
+	if (source.lower == source.upper) {
+		return fact_constant(target, source.lower);
+	};
+	if (source.sign == integer_range_sign::nonnegative && source.upper <= fact_limit(target)) {
+		return IntegerRange(source);
+	};
+	return IntegerRange();
+};
+
+struct FactPlace {
+	var Entity* root;
+	usize parent;
+	var Entity* field;
+};
+
+struct FactValue {
+	IntegerRange range;
+	usize version;
+	u64 alternative;
+	usize origin;
+	i64 displacement;
+};
+
+struct FactEvaluation {
+	var SemanticExpression* expression;
+	FactValue value;
+};
+
+struct FactRelation {
+	usize left;
+	usize right;
+	token_kind operation;
+};
+
+struct ConditionalFact {
+	usize condition;
+	u64 selector;
+	bool variant;
+	usize place;
+	usize expected_version;
+	FactValue value;
+};
+
+struct ConditionalRelation {
+	usize condition;
+	u64 selector;
+	bool variant;
+	FactRelation relation;
+	usize occurrences;
+	usize last_outcome;
+};
+
+struct FactOutcomeCount {
+	u64 selector;
+	usize count;
+};
+
+struct FactCorrelationPlace {
+	usize place;
+	bool written;
+};
+
+struct FactIntegerConstant {
+	Type* type;
+	u64 value;
+};
+
+struct FactState {
+	bool reachable;
+	rt::buffer<FactValue> places;
+	rt::buffer<FactEvaluation> evaluated;
+	rt::buffer<FactRelation> relations;
+	rt::buffer<ConditionalFact> conditional;
+	rt::buffer<ConditionalRelation> conditional_relations;
+	fn copy_from(var FactState& this, FactState& other) -> bool;
+	fn value(FactState& this, SemanticExpression* expression) -> FactValue;
+	fn record(var FactState& this, var SemanticExpression* expression, FactValue value) -> bool;
+	fn join(var FactState& this, FactState& incoming, bool widen, var bool& changed) -> bool;
+};
+
+fn FactState::copy_from(var FactState& this, FactState& other) -> bool {
+	@this.reachable = other.reachable;
+	@this.places.clear();
+	@this.evaluated.clear();
+	@this.relations.clear();
+	@this.conditional.clear();
+	@this.conditional_relations.clear();
+	usize index = 0;
+	while (index < other.places.size()) {
+		if (!@this.places.push_back(FactValue(other.places.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.evaluated.size()) {
+		if (!@this.evaluated.push_back(FactEvaluation(other.evaluated.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.relations.size()) {
+		if (!@this.relations.push_back(FactRelation(other.relations.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.conditional.size()) {
+		if (!@this.conditional.push_back(ConditionalFact(other.conditional.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.conditional_relations.size()) {
+		if (!@this.conditional_relations.push_back(ConditionalRelation(other.conditional_relations.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn FactState::value(FactState& this, SemanticExpression* expression) -> FactValue {
+	usize index = this.evaluated.size();
+	while (index) {
+		@index = index - 1;
+		if (this.evaluated.data()[index].expression == expression) {
+			return FactValue(this.evaluated.data()[index].value);
+		};
+	};
+	return FactValue();
+};
+
+fn FactState::record(var FactState& this, var SemanticExpression* expression, FactValue value) -> bool {
+	usize index = 0;
+	while (index < this.evaluated.size()) {
+		var FactEvaluation& entry = @((@this.evaluated).data()[index]);
+		if (entry.expression == expression) {
+			@entry.value = $value;
+			return true;
+		};
+		@index = index + 1;
+	};
+	FactEvaluation entry;
+	@entry.expression = expression;
+	@entry.value = $value;
+	return @this.evaluated.push_back($entry);
+};
+
+fn fact_join_value(var FactValue& current, FactValue& incoming, bool widen) -> bool {
+	bool changed = false;
+	if (current.origin && (current.origin != incoming.origin || current.displacement != incoming.displacement)) {
+		@current.origin = 0;
+		@changed = true;
+	};
+	if (current.alternative && current.alternative != incoming.alternative) {
+		@current.alternative = 0;
+		@changed = true;
+	};
+	if (current.version != incoming.version && current.version) {
+		@current.version = 0;
+		@changed = true;
+	};
+	if (current.range.available == fact_truth::unknown) {
+		return changed;
+	};
+	if (incoming.range.available == fact_truth::unknown || current.range.sign != incoming.range.sign || widen && (current.range.lower != incoming.range.lower || current.range.upper != incoming.range.upper)) {
+		@current.range.available = fact_truth::unknown;
+		return true;
+	};
+	if (incoming.range.lower < current.range.lower) {
+		@current.range.lower = incoming.range.lower;
+		@changed = true;
+	};
+	if (incoming.range.upper > current.range.upper) {
+		@current.range.upper = incoming.range.upper;
+		@changed = true;
+	};
+	return changed;
+};
+
+fn FactState::join(var FactState& this, FactState& incoming, bool widen, var bool& changed) -> bool {
+	if (!incoming.reachable) {
+		return true;
+	};
+	if (!this.reachable) {
+		@changed = true;
+		return @this.copy_from(incoming);
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		if (fact_join_value(@((@this.places).data()[index]), incoming.places.data()[index], widen)) {
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.evaluated.size()) {
+		var FactEvaluation& entry = @((@this.evaluated).data()[index]);
+		FactValue other = incoming.value(entry.expression);
+		if (fact_join_value(@entry.value, other, widen)) {
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.relations.size()) {
+		var FactRelation& relation = @((@this.relations).data()[index]);
+		bool retained = false;
+		usize other = 0;
+		while (other < incoming.relations.size()) {
+			FactRelation& candidate = incoming.relations.data()[other];
+			if (candidate.left == relation.left && candidate.right == relation.right && candidate.operation == relation.operation) {
+				@retained = true;
+			};
+			@other = other + 1;
+		};
+		if (!retained && relation.left) {
+			@relation.left = 0;
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.conditional.size()) {
+		var ConditionalFact& entry = @((@this.conditional).data()[index]);
+		bool retained = false;
+		usize other = 0;
+		while (other < incoming.conditional.size()) {
+			ConditionalFact& candidate = incoming.conditional.data()[other];
+			if (entry.condition && candidate.condition == entry.condition && candidate.selector == entry.selector && candidate.variant == entry.variant && candidate.place == entry.place && candidate.expected_version == entry.expected_version) {
+				@retained = true;
+				if (fact_join_value(@entry.value, candidate.value, widen)) {
+					@changed = true;
+				};
+			};
+			@other = other + 1;
+		};
+		if (!retained && entry.condition) {
+			@entry.condition = 0;
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.conditional_relations.size()) {
+		var ConditionalRelation& entry = @((@this.conditional_relations).data()[index]);
+		bool retained = false;
+		usize other = 0;
+		while (other < incoming.conditional_relations.size()) {
+			ConditionalRelation& candidate = incoming.conditional_relations.data()[other];
+			if (entry.condition && entry.condition == candidate.condition && entry.selector == candidate.selector && entry.variant == candidate.variant && entry.relation.left == candidate.relation.left && entry.relation.right == candidate.relation.right && entry.relation.operation == candidate.relation.operation) {
+				@retained = true;
+			};
+			@other = other + 1;
+		};
+		if (!retained && entry.condition) {
+			@entry.condition = 0;
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn fact_inverse(token_kind operation) -> token_kind {
+	switch (operation) {
+		case token_kind::op_less: return token_kind::op_greater_equal;
+		case token_kind::op_less_equal: return token_kind::op_greater;
+		case token_kind::op_greater: return token_kind::op_less_equal;
+		case token_kind::op_greater_equal: return token_kind::op_less;
+		case token_kind::op_equal: return token_kind::op_not_equal;
+		case token_kind::op_not_equal: return token_kind::op_equal;
+	};
+	return operation;
+};
+
+fn fact_comparison(token_kind operation, IntegerRange& left, IntegerRange& right) -> fact_truth {
+	if (left.available == fact_truth::unknown || right.available == fact_truth::unknown) {
+		return fact_truth::unknown;
+	};
+	if (left.sign != right.sign) {
+		IntegerRange first = fact_range(0, 0);
+		IntegerRange second = fact_range(1, 1);
+		if (left.sign == integer_range_sign::negative) {
+			return fact_comparison(operation, first, second);
+		};
+		return fact_comparison(operation, second, first);
+	};
+	switch (operation) {
+		case token_kind::op_less:
+			if (left.upper < right.lower) {
+				return fact_truth::proven;
+			};
+			if (left.lower >= right.upper) {
+				return fact_truth::disproven;
+			};
+			break;
+		case token_kind::op_less_equal:
+			if (left.upper <= right.lower) {
+				return fact_truth::proven;
+			};
+			if (left.lower > right.upper) {
+				return fact_truth::disproven;
+			};
+			break;
+		case token_kind::op_greater: return fact_comparison(token_kind::op_less, right, left);
+		case token_kind::op_greater_equal: return fact_comparison(token_kind::op_less_equal, right, left);
+		case token_kind::op_equal:
+			if (left.lower == left.upper && right.lower == right.upper && left.lower == right.lower) {
+				return fact_truth::proven;
+			};
+			if (left.upper < right.lower || right.upper < left.lower) {
+				return fact_truth::disproven;
+			};
+			break;
+		case token_kind::op_not_equal: {
+			fact_truth equal = fact_comparison(token_kind::op_equal, left, right);
+			if (equal == fact_truth::proven) {
+				return fact_truth::disproven;
+			};
+			if (equal == fact_truth::disproven) {
+				return fact_truth::proven;
+			};
+			break;
+		};
+	};
+	return fact_truth::unknown;
+};
+
+fn fact_compare_values(token_kind operation, FactValue& left, FactValue& right) -> fact_truth {
+	fact_truth result = fact_comparison(operation, left.range, right.range);
+	if (result != fact_truth::unknown) {
+		return result;
+	};
+	usize first = left.origin;
+	usize second = right.origin;
+	i64 first_offset = left.displacement;
+	i64 second_offset = right.displacement;
+	if (!first) {
+		@first = left.version;
+		@first_offset = 0;
+	};
+	if (!second) {
+		@second = right.version;
+		@second_offset = 0;
+	};
+	if (!first || first != second) {
+		return fact_truth::unknown;
+	};
+	bool truth = false;
+	switch (operation) {
+		case token_kind::op_equal: @truth = first_offset == second_offset; break;
+		case token_kind::op_not_equal: @truth = first_offset != second_offset; break;
+		case token_kind::op_less: @truth = first_offset < second_offset; break;
+		case token_kind::op_less_equal: @truth = first_offset <= second_offset; break;
+		case token_kind::op_greater: @truth = first_offset > second_offset; break;
+		case token_kind::op_greater_equal: @truth = first_offset >= second_offset; break;
+		default: return fact_truth::unknown;
+	};
+	if (truth) {
+		return fact_truth::proven;
+	};
+	return fact_truth::disproven;
+};
+
+fn fact_affine(var FactValue& result, FactValue& base, u64 amount, bool subtract) {
+	if (amount > u64(i64::max) || !base.version) {
+		return;
+	};
+	i64 offset = 0;
+	usize origin = base.version;
+	if (base.origin) {
+		@origin = base.origin;
+		@offset = base.displacement;
+	};
+	i64 delta = i64(amount);
+	if (subtract) {
+		@delta = -delta;
+	};
+	if (delta >= 0 && offset > i64::max - delta || delta < 0 && offset < (-i64::max - 1) - delta) {
+		return;
+	};
+	@result.origin = origin;
+	@result.displacement = offset + delta;
+};
+
+struct InferredFacts {
+	fn InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics);
+	fn validate(var InferredFacts& this, SemanticUnit& unit) -> bool;
+	fn analyze(var InferredFacts& this, var SemanticExpression* body) -> bool;
+	fn place(var InferredFacts& this, SemanticExpression* expression) -> usize;
+	fn transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version) -> bool;
+	fn assume(var InferredFacts& this, var SemanticExpression* condition, bool truth, var FactState& state) -> bool;
+	fn evaluate(var InferredFacts& this, SemanticExpression* expression, FactState& state) -> FactValue;
+	fn invalidate(var InferredFacts& this, var FactState& state, usize place);
+	fn collect(var InferredFacts& this, SemanticExpression* expression) -> bool;
+	fn summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize;
+	fn summary_value(var InferredFacts& this, FunctionFactSummary& summary, usize expression, SemanticExpression& call, FactState& state, usize depth) -> FactValue;
+	fn summary_assume(var InferredFacts& this, FunctionFactSummary& summary, usize expression, bool truth, SemanticExpression& call, var FactState& state);
+	fn apply_summary(var InferredFacts& this, var SemanticExpression& call, var FactState& state, var FactValue& result, usize version) -> bool;
+	fn refine_outcome(var InferredFacts& this, var FactState& state, usize condition, u64 selector, bool matches, bool variant);
+	fn constant_version(var InferredFacts& this, Type* type, u64 value) -> usize;
+	fn correlation_place(var InferredFacts& this, var rt::buffer<FactCorrelationPlace>& places, usize place, bool written) -> bool;
+	var Diagnostics* diagnostics;
+	rt::buffer<FactPlace> places;
+	rt::buffer<rt::unique<FactState>> incoming;
+	FunctionFactSummaries summaries;
+	rt::buffer<FactIntegerConstant> constants;
+	usize constant_base;
+};
+
+// Only expressions without calls, lifetime effects, or potentially throwing
+// conversions can be replaced by a constant without evaluating their operands.
+fn fact_place_pure(SemanticExpression& expression) -> bool {
+	if (expression.kind() == semantic_kind::name) {
+		return expression.entity() && expression.entity()->kind() != entity_kind::function;
+	};
+	if ((expression.kind() == semantic_kind::member || expression.kind() == semantic_kind::access || expression.kind() == semantic_kind::cast) && expression.size() == 1) {
+		return fact_place_pure(*expression.item(0));
+	};
+	return false;
+};
+
+fn fact_pure(SemanticExpression& expression) -> bool {
+	switch (expression.kind()) {
+		case semantic_kind::literal_integer:
+		case semantic_kind::name:
+			return expression.type()->kind().is_integer();
+		case semantic_kind::member:
+			return expression.type()->kind().is_integer() && expression.size() == 1 && fact_place_pure(*expression.item(0));
+		case semantic_kind::access:
+		case semantic_kind::cast:
+		case semantic_kind::unary:
+			return expression.size() == 1 && expression.type()->kind().is_integer() && fact_pure(*expression.item(0));
+		case semantic_kind::binary:
+			return expression.operation() != token_kind::op_assign && expression.operation() != token_kind::op_copy && expression.size() == 2 && fact_pure(*expression.item(0)) && fact_pure(*expression.item(1));
+	};
+	return false;
+};
+
+fn fact_variant_transfer(SemanticExpression& expression) -> bool {
+	if (expression.kind() != semantic_kind::construction || aggregate_access_kind(expression.type()) != 2 || expression.integer() || expression.size() != 1 || expression.item(0)->size() != 1 || !expression.item(0)->item(0)->type()->same_shape(*expression.type())) {
+		return false;
+	};
+	if (!expression.entity()) {
+		return true;
+	};
+	if (expression.entity()->definition() != function_definition::defaulted) {
+		return false;
+	};
+	usize index = 0;
+	while (true) {
+		Type* alternative = variant_flow_type(expression.type(), index);
+		if (!alternative) {
+			break;
+		};
+		if (alternative->kind() == type_kind::named && alternative->entity()->kind() == entity_kind::record) {
+			var Entity* record = alternative->entity();
+			if (record->fields().size() || record->copy_constructor() && record->copy_constructor()->definition() != function_definition::defaulted || record->destructor() && record->destructor()->definition() != function_definition::defaulted) {
+				return false;
+			};
+		}
+		else if (!alternative->representation()->kind().is_scalar() && alternative->kind() != type_kind::null_type) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn InferredFacts::InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics) {
+	@this.diagnostics = &@diagnostics;
+};
+
+fn InferredFacts::constant_version(var InferredFacts& this, Type* type, u64 value) -> usize {
+	usize index = 0;
+	while (index < this.constants.size()) {
+		FactIntegerConstant& entry = this.constants.data()[index];
+		if (entry.value == value && entry.type->same_shape(*type)) {
+			return this.constant_base + index;
+		};
+		@index = index + 1;
+	};
+	FactIntegerConstant entry;
+	@entry.type = type;
+	@entry.value = value;
+	if (!@this.constants.push_back($entry)) {
+		return 0;
+	};
+	return this.constant_base + index;
+};
+
+fn InferredFacts::place(var InferredFacts& this, SemanticExpression* expression) -> usize {
+	if (!expression) {
+		return 0;
+	};
+	if ((expression->kind() == semantic_kind::access || expression->kind() == semantic_kind::relocation) && expression->size() == 1) {
+		return @this.place(expression->item(0));
+	};
+	if (expression->kind() == semantic_kind::cast && expression->size() == 1) {
+		if (!expression->type()->same_shape(*expression->item(0)->type())) {
+			return 0;
+		};
+		return @this.place(expression->item(0));
+	};
+	var Entity* root = nullptr;
+	var Entity* field = nullptr;
+	usize parent = 0;
+	if (expression->kind() == semantic_kind::name && expression->entity() && expression->entity()->type()->kind() != type_kind::reference) {
+		@root = expression->entity();
+	}
+	else if (expression->kind() == semantic_kind::member && expression->size() == 1 && expression->entity()) {
+		if (expression->entity()->type()->kind() == type_kind::reference) {
+			return 0;
+		};
+		@parent = @this.place(expression->item(0));
+		if (!parent) {
+			return 0;
+		};
+		@root = this.places.data()[parent - 1].root;
+		@field = expression->entity();
+		Type* receiver = expression->item(0)->type();
+		if (receiver->kind() == type_kind::named && receiver->entity()->layout() == record_layout::overlapping) {
+			return 0;
+		};
+	}
+	else {
+		return 0;
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		FactPlace& candidate = this.places.data()[index];
+		if (candidate.root == root && candidate.parent == parent && candidate.field == field) {
+			return index + 1;
+		};
+		@index = index + 1;
+	};
+	FactPlace result;
+	@result.root = root;
+	@result.parent = parent;
+	@result.field = field;
+	if (!@this.places.push_back($result)) {
+		return 0;
+	};
+	return this.places.size();
+};
+
+fn InferredFacts::collect(var InferredFacts& this, SemanticExpression* expression) -> bool {
+	if (!expression) {
+		return true;
+	};
+	@this.place(expression);
+	if (expression->kind() == semantic_kind::call && expression->entity()) {
+		var FunctionFactSummary* summary = this.summaries.find(expression->entity());
+		if (summary && !summary->opaque) {
+			usize item = 0;
+			while (item < summary->expressions.size()) {
+				FunctionFactExpression& value = summary->expressions.data()[item];
+				if (value.kind == function_fact_kind::entry_place) {
+					@this.summary_place(value.place, *expression, *summary);
+				};
+				@item = item + 1;
+			};
+			@item = 0;
+			while (item < summary->outcomes.size()) {
+				FunctionFactOutcome& outcome = summary->outcomes.data()[item];
+				usize write = 0;
+				while (write < outcome.writes.size()) {
+					@this.summary_place(outcome.writes.data()[write].target, *expression, *summary);
+					@write = write + 1;
+				};
+				@item = item + 1;
+			};
+		};
+	};
+	usize index = 0;
+	while (index < expression->size()) {
+		if (!@this.collect(expression->item(index))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn InferredFacts::summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize {
+	while (expression && expression->kind() == semantic_kind::access && expression->size() == 1) {
+		@expression = expression->item(0);
+	};
+	if (!expression) {
+		return 0;
+	};
+	if (expression->kind() == semantic_kind::name) {
+		usize parameter = 0;
+		while (parameter < summary.function->parameters().size()) {
+			if (summary.function->parameters().data()[parameter] == expression->entity()) {
+				if (call.size() != 2 || parameter >= call.item(1)->size()) {
+					return 0;
+				};
+				return @this.place(call.item(1)->item(parameter));
+			};
+			@parameter = parameter + 1;
+		};
+		return @this.place(expression);
+	};
+	if (expression->kind() != semantic_kind::member || expression->size() != 1) {
+		return 0;
+	};
+	usize parent = @this.summary_place(expression->item(0), call, summary);
+	if (!parent) {
+		return 0;
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		FactPlace& candidate = this.places.data()[index];
+		if (candidate.parent == parent && candidate.field == expression->entity()) {
+			return index + 1;
+		};
+		@index = index + 1;
+	};
+	FactPlace result;
+	@result.root = this.places.data()[parent - 1].root;
+	@result.parent = parent;
+	@result.field = expression->entity();
+	if (!@this.places.push_back($result)) {
+		return 0;
+	};
+	return this.places.size();
+};
+
+fn InferredFacts::summary_value(var InferredFacts& this, FunctionFactSummary& summary, usize expression, SemanticExpression& call, FactState& state, usize depth) -> FactValue {
+	FactValue result;
+	if (!expression || expression > summary.expressions.size() || depth > 64) {
+		return $result;
+	};
+	FunctionFactExpression& value = summary.expressions.data()[expression - 1];
+	if (value.kind == function_fact_kind::integer) {
+		@result.range = fact_constant(value.type, value.integer);
+		@result.version = @this.constant_version(value.type, value.integer);
+		return $result;
+	};
+	if (value.kind == function_fact_kind::variant) {
+		@result.alternative = value.integer;
+		return $result;
+	};
+	if (value.kind == function_fact_kind::entry_place) {
+		var SemanticExpression* source = function_fact_unwrap(value.place);
+		usize parameter = 0;
+		while (source->kind() == semantic_kind::name && parameter < summary.function->parameters().size()) {
+			if (source->entity() == summary.function->parameters().data()[parameter] && source->entity()->type()->kind() != type_kind::reference) {
+				return state.value(call.item(1)->item(parameter));
+			};
+			@parameter = parameter + 1;
+		};
+		usize place = @this.summary_place(value.place, call, summary);
+		if (place && place <= state.places.size()) {
+			return FactValue(state.places.data()[place - 1]);
+		};
+		return $result;
+	};
+	FactValue left = @this.summary_value(summary, value.left, call, state, depth + 1);
+	if (value.kind == function_fact_kind::cast) {
+		IntegerRange converted = fact_convert(left.range, value.type);
+		if (converted.available == fact_truth::unknown || converted.lower != left.range.lower || converted.upper != left.range.upper || converted.sign != left.range.sign) {
+			@left.version = 0;
+			@left.origin = 0;
+		};
+		@left.range = $converted;
+		return $left;
+	};
+	if (value.kind == function_fact_kind::unary && value.operation == token_kind::op_bang) {
+		if (left.range.available != fact_truth::unknown && (left.range.lower || !left.range.upper)) {
+			u64 integer = 0;
+			if (!left.range.upper) {
+				@integer = 1;
+			};
+			@result.range = fact_range(integer, integer);
+		};
+		return $result;
+	};
+	FactValue right = @this.summary_value(summary, value.right, call, state, depth + 1);
+	fact_truth truth = fact_compare_values(value.operation, left, right);
+	if (truth != fact_truth::unknown) {
+		u64 integer = 0;
+		if (truth == fact_truth::proven) {
+			@integer = 1;
+		};
+		@result.range = fact_range(integer, integer);
+		return $result;
+	};
+	if (left.range.available == fact_truth::unknown || right.range.available == fact_truth::unknown || left.range.sign == integer_range_sign::negative || right.range.sign == integer_range_sign::negative) {
+		return $result;
+	};
+	u64 limit = fact_limit(value.type);
+	if (value.operation == token_kind::op_plus && right.range.upper <= limit && left.range.upper <= limit - right.range.upper) {
+		@result.range = fact_range(left.range.lower + right.range.lower, left.range.upper + right.range.upper);
+		if (right.range.lower == right.range.upper) {
+			fact_affine(@result, left, right.range.lower, false);
+		};
+	};
+	if (value.operation == token_kind::op_minus && left.range.lower >= right.range.upper) {
+		@result.range = fact_range(left.range.lower - right.range.upper, left.range.upper - right.range.lower);
+		if (right.range.lower == right.range.upper) {
+			fact_affine(@result, left, right.range.lower, true);
+		};
+	};
+	return $result;
+};
+
+fn InferredFacts::apply_summary(var InferredFacts& this, var SemanticExpression& call, var FactState& state, var FactValue& result, usize version) -> bool {
+	var FunctionFactSummary* summary = this.summaries.find(call.entity());
+	if (!summary || summary->opaque || !summary->outcomes.size() || call.entity()->dispatch() != function_dispatch::ordinary) {
+		return false;
+	};
+	FactState combined;
+	FactValue combined_result;
+	rt::buffer<ConditionalFact> learned;
+	rt::buffer<ConditionalRelation> learned_relations;
+	rt::buffer<FactOutcomeCount> outcome_counts;
+	rt::buffer<FactCorrelationPlace> correlated_places;
+	usize item = 0;
+	while (item < summary->expressions.size()) {
+		FunctionFactExpression& expression = summary->expressions.data()[item];
+		if (expression.kind == function_fact_kind::entry_place && !@this.correlation_place(@correlated_places, @this.summary_place(expression.place, call, *summary), false)) {
+			return false;
+		};
+		@item = item + 1;
+	};
+	@item = 0;
+	while (item < summary->outcomes.size()) {
+		FunctionFactOutcome& outcome = summary->outcomes.data()[item];
+		usize effect = 0;
+		while (effect < outcome.writes.size()) {
+			if (!@this.correlation_place(@correlated_places, @this.summary_place(outcome.writes.data()[effect].target, call, *summary), true)) {
+				return false;
+			};
+			@effect = effect + 1;
+		};
+		@item = item + 1;
+	};
+	bool union_result = aggregate_access_kind(call.type()) == 2;
+	bool correlate = call.type()->kind() == type_kind::boolean || union_result;
+	bool first = true;
+	usize index = 0;
+	while (index < summary->outcomes.size()) {
+		FunctionFactOutcome& outcome = summary->outcomes.data()[index];
+		bool feasible = true;
+		usize condition = 0;
+		while (condition < outcome.conditions.size()) {
+			FactPathCondition& guard = outcome.conditions.data()[condition];
+			FactValue value = @this.summary_value(*summary, guard.value, call, state, 0);
+			if (value.range.available != fact_truth::unknown && (guard.truth && !value.range.upper || !guard.truth && value.range.lower)) {
+				@feasible = false;
+			};
+			@condition = condition + 1;
+		};
+		if (feasible) {
+			FactState branch;
+			FactState entry;
+			if (!@entry.copy_from(state)) {
+				return false;
+			};
+			@condition = 0;
+			while (condition < outcome.conditions.size()) {
+				FactPathCondition& guard = outcome.conditions.data()[condition];
+				@this.summary_assume(*summary, guard.value, guard.truth, call, @entry);
+				@condition = condition + 1;
+			};
+			if (!@branch.copy_from(entry)) {
+				return false;
+			};
+			FactValue returned = @this.summary_value(*summary, outcome.result, call, entry, 0);
+			usize write = 0;
+			while (write < outcome.writes.size()) {
+				FactWrite& effect = outcome.writes.data()[write];
+				usize place = @this.summary_place(effect.target, call, *summary);
+				if (!place || place > branch.places.size()) {
+					return false;
+				};
+				FactValue value = @this.summary_value(*summary, effect.value, call, entry, 0);
+				@this.invalidate(@branch, place);
+				@value.version = version + place;
+				@((@branch.places).data()[place - 1]) = $value;
+				@write = write + 1;
+			};
+			if (union_result && !returned.alternative || !union_result && (returned.range.available == fact_truth::unknown || returned.range.lower != returned.range.upper)) {
+				@correlate = false;
+			};
+			if (correlate) {
+				u64 selector = returned.alternative;
+				if (!union_result) {
+					@selector = returned.range.lower;
+				};
+				usize effect = 0;
+				while (effect < correlated_places.size()) {
+						FactCorrelationPlace& storage = correlated_places.data()[effect];
+						usize place = storage.place;
+						if (!place || place > branch.places.size()) {
+							return false;
+						};
+						usize existing = 0;
+						bool found = false;
+						while (existing < learned.size()) {
+							var ConditionalFact& entry = @((@learned).data()[existing]);
+							if (entry.place == place && entry.selector == selector) {
+								fact_join_value(@entry.value, branch.places.data()[place - 1], false);
+								@found = true;
+							};
+							@existing = existing + 1;
+						};
+						if (!found) {
+							ConditionalFact entry;
+							@entry.condition = version;
+							@entry.selector = selector;
+							@entry.variant = union_result;
+							@entry.place = place;
+							@entry.expected_version = state.places.data()[place - 1].version;
+							if (storage.written) {
+								@entry.expected_version = version + place;
+							};
+							@entry.value := branch.places.data()[place - 1];
+							if (!@learned.push_back($entry)) {
+								return false;
+							};
+						};
+						@effect = effect + 1;
+				};
+				usize group = 0;
+				while (group < outcome_counts.size() && outcome_counts.data()[group].selector != selector) {
+					@group = group + 1;
+				};
+				if (group == outcome_counts.size()) {
+					FactOutcomeCount count;
+					@count.selector = selector;
+					if (!@outcome_counts.push_back($count)) {
+						return false;
+					};
+				};
+				@((@outcome_counts).data()[group]).count = outcome_counts.data()[group].count + 1;
+				@condition = 0;
+				while (condition < outcome.conditions.size()) {
+					FactPathCondition& guard = outcome.conditions.data()[condition];
+					FunctionFactExpression& expression = summary->expressions.data()[guard.value - 1];
+					if (expression.kind == function_fact_kind::binary && (expression.operation == token_kind::op_equal || expression.operation == token_kind::op_not_equal || expression.operation == token_kind::op_less || expression.operation == token_kind::op_less_equal || expression.operation == token_kind::op_greater || expression.operation == token_kind::op_greater_equal)) {
+						FactValue left = @this.summary_value(*summary, expression.left, call, entry, 0);
+						FactValue right = @this.summary_value(*summary, expression.right, call, entry, 0);
+						if (left.version && right.version && (!left.origin || !left.displacement) && (!right.origin || !right.displacement)) {
+							token_kind operation = expression.operation;
+							if (!guard.truth) {
+								@operation = fact_inverse(operation);
+							};
+							usize existing = 0;
+							while (existing < learned_relations.size()) {
+								ConditionalRelation& candidate = learned_relations.data()[existing];
+								if (candidate.selector == selector && candidate.relation.left == left.version && candidate.relation.right == right.version && candidate.relation.operation == operation) {
+									break;
+								};
+								@existing = existing + 1;
+							};
+							if (existing == learned_relations.size()) {
+								ConditionalRelation relation;
+								@relation.condition = version;
+								@relation.selector = selector;
+								@relation.variant = union_result;
+								@relation.relation.left = left.version;
+								@relation.relation.right = right.version;
+								@relation.relation.operation = operation;
+								if (!@learned_relations.push_back($relation)) {
+									return false;
+								};
+							};
+							var ConditionalRelation& candidate = @((@learned_relations).data()[existing]);
+							if (candidate.last_outcome != index + 1) {
+								@candidate.last_outcome = index + 1;
+								@candidate.occurrences = candidate.occurrences + 1;
+							};
+						};
+					};
+					@condition = condition + 1;
+				};
+			};
+			if (first) {
+				@combined_result = $returned;
+				@first = false;
+			}
+			else {
+				fact_join_value(@combined_result, returned, false);
+			};
+			bool changed = false;
+			if (!@combined.join(branch, false, @changed)) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	if (first) {
+		return false;
+	};
+	if (!@state.copy_from(combined)) {
+		return false;
+	};
+	if (correlate && (learned.size() || learned_relations.size())) {
+		@combined_result.version = version;
+		usize entry = 0;
+		while (entry < learned.size()) {
+			ConditionalFact& fact = learned.data()[entry];
+			bool valid = fact.expected_version && state.places.data()[fact.place - 1].version == fact.expected_version;
+			if (fact.expected_version == version + fact.place) {
+				@((@state.places).data()[fact.place - 1]).version = fact.expected_version;
+				@valid = true;
+			};
+			if (valid && !@state.conditional.push_back(ConditionalFact(fact))) {
+				return false;
+			};
+			@entry = entry + 1;
+		};
+		@entry = 0;
+		while (entry < learned_relations.size()) {
+			ConditionalRelation& relation = learned_relations.data()[entry];
+			usize group = 0;
+			while (group < outcome_counts.size()) {
+				FactOutcomeCount& count = outcome_counts.data()[group];
+				if (count.selector == relation.selector && count.count == relation.occurrences && !@state.conditional_relations.push_back(ConditionalRelation(relation))) {
+					return false;
+				};
+				@group = group + 1;
+			};
+			@entry = entry + 1;
+		};
+	};
+	@result = $combined_result;
+	return true;
+};
+
+fn InferredFacts::correlation_place(var InferredFacts& this, var rt::buffer<FactCorrelationPlace>& places, usize place, bool written) -> bool {
+	if (!place) {
+		return true;
+	};
+	usize index = 0;
+	while (index < places.size()) {
+		var FactCorrelationPlace& entry = @((@places).data()[index]);
+		if (entry.place == place) {
+			if (written) {
+				@entry.written = true;
+			};
+			return true;
+		};
+		@index = index + 1;
+	};
+	FactCorrelationPlace entry;
+	@entry.place = place;
+	@entry.written = written;
+	return @places.push_back($entry);
+};
+
+fn InferredFacts::summary_assume(var InferredFacts& this, FunctionFactSummary& summary, usize expression, bool truth, SemanticExpression& call, var FactState& state) {
+	if (!expression || expression > summary.expressions.size()) {
+		return;
+	};
+	FunctionFactExpression& condition = summary.expressions.data()[expression - 1];
+	if (condition.kind != function_fact_kind::binary || !condition.left || !condition.right) {
+		return;
+	};
+	FunctionFactExpression& left = summary.expressions.data()[condition.left - 1];
+	if (left.kind != function_fact_kind::entry_place) {
+		return;
+	};
+	var Entity* root = function_fact_root(left.place);
+	if (!root) {
+		return;
+	};
+	usize place = @this.summary_place(left.place, call, summary);
+	if (!place || place > state.places.size()) {
+		return;
+	};
+	FactValue before = @this.summary_value(summary, condition.left, call, state, 0);
+	if (!before.version || before.version != state.places.data()[place - 1].version) {
+		return;
+	};
+	FactValue right = @this.summary_value(summary, condition.right, call, state, 0);
+	IntegerRange range = IntegerRange(state.places.data()[place - 1].range);
+	if (range.available == fact_truth::unknown || right.range.available == fact_truth::unknown || range.sign == integer_range_sign::negative || right.range.sign == integer_range_sign::negative) {
+		return;
+	};
+	token_kind operation = condition.operation;
+	if (!truth) {
+		@operation = fact_inverse(operation);
+	};
+	if (operation == token_kind::op_less && right.range.upper && range.upper >= right.range.upper) {
+		@range.upper = right.range.upper - 1;
+	};
+	if (operation == token_kind::op_less_equal && range.upper > right.range.upper) {
+		@range.upper = right.range.upper;
+	};
+	if (operation == token_kind::op_greater && right.range.lower != u64::max && range.lower <= right.range.lower) {
+		@range.lower = right.range.lower + 1;
+	};
+	if (operation == token_kind::op_greater_equal && range.lower < right.range.lower) {
+		@range.lower = right.range.lower;
+	};
+	if (operation == token_kind::op_equal) {
+		if (range.lower < right.range.lower) {
+			@range.lower = right.range.lower;
+		};
+		if (range.upper > right.range.upper) {
+			@range.upper = right.range.upper;
+		};
+	};
+	if (operation == token_kind::op_not_equal && right.range.lower == right.range.upper) {
+		if (range.upper == right.range.lower && range.upper) {
+			@range.upper = range.upper - 1;
+		};
+		if (range.lower == right.range.lower && range.lower != u64::max) {
+			@range.lower = range.lower + 1;
+		};
+	};
+	if (range.lower <= range.upper) {
+		usize value = 0;
+		while (value < state.places.size()) {
+			if (state.places.data()[value].version == before.version) {
+				@((@state.places).data()[value]).range := range;
+			};
+			@value = value + 1;
+		};
+		@value = 0;
+		while (value < state.evaluated.size()) {
+			if (state.evaluated.data()[value].value.version == before.version) {
+				@((@state.evaluated).data()[value]).value.range := range;
+			};
+			@value = value + 1;
+		};
+	};
+};
+
+fn InferredFacts::refine_outcome(var InferredFacts& this, var FactState& state, usize condition, u64 selector, bool matches, bool variant) {
+	usize relation = 0;
+	while (matches && relation < state.conditional_relations.size()) {
+		ConditionalRelation& entry = state.conditional_relations.data()[relation];
+		if (entry.condition == condition && entry.selector == selector && entry.variant == variant) {
+			usize known = 0;
+			while (known < state.relations.size()) {
+				FactRelation& candidate = state.relations.data()[known];
+				if (candidate.left == entry.relation.left && candidate.right == entry.relation.right && candidate.operation == entry.relation.operation) {
+					break;
+				};
+				@known = known + 1;
+			};
+			if (known == state.relations.size()) {
+				@state.relations.push_back(FactRelation(entry.relation));
+			};
+		};
+		@relation = relation + 1;
+	};
+	usize place = 0;
+	while (place < state.places.size()) {
+		bool found = false;
+		FactValue refined;
+		usize index = 0;
+		while (index < state.conditional.size()) {
+			ConditionalFact& entry = state.conditional.data()[index];
+			if (entry.condition == condition && entry.variant == variant && (entry.selector == selector) == matches && entry.place == place + 1 && state.places.data()[place].version == entry.expected_version) {
+				if (!found) {
+					@refined := entry.value;
+					@found = true;
+				}
+				else {
+					fact_join_value(@refined, entry.value, false);
+				};
+			};
+			@index = index + 1;
+		};
+		if (found) {
+			@((@state.places).data()[place]).range := refined.range;
+			@((@state.places).data()[place]).origin = refined.origin;
+			@((@state.places).data()[place]).displacement = refined.displacement;
+			@((@state.places).data()[place]).alternative = refined.alternative;
+		};
+		@place = place + 1;
+	};
+};
+
+fn InferredFacts::invalidate(var InferredFacts& this, var FactState& state, usize place) {
+	usize index = 0;
+	while (index < this.places.size()) {
+		usize ancestor = index + 1;
+		while (ancestor && ancestor != place) {
+			@ancestor = this.places.data()[ancestor - 1].parent;
+		};
+		if (!place || ancestor) {
+			@((@state.places).data()[index]) = FactValue();
+		};
+		if (place && !ancestor) {
+			usize parent = this.places.data()[place - 1].parent;
+			while (parent && parent != index + 1) {
+				@parent = this.places.data()[parent - 1].parent;
+			};
+			if (parent) {
+				@((@state.places).data()[index]) = FactValue();
+			};
+		};
+		@index = index + 1;
+	};
+};
+
+fn InferredFacts::evaluate(var InferredFacts& this, SemanticExpression* expression, FactState& state) -> FactValue {
+	FactValue result;
+	if (!expression) {
+		return $result;
+	};
+	u64 literal = 0;
+	if (expression->constant_integer(@literal)) {
+		@result.range = fact_constant(expression->type(), literal);
+		@result.version = @this.constant_version(expression->type(), literal);
+		return $result;
+	};
+	if (expression->kind() == semantic_kind::construction && aggregate_access_kind(expression->type()) == 2 && expression->integer()) {
+		@result.alternative = expression->integer();
+		return $result;
+	};
+	if (fact_variant_transfer(*expression)) {
+		return state.value(expression->item(0)->item(0));
+	};
+	if (expression->kind() == semantic_kind::member && expression->entity() && expression->entity()->name() == "_index" && aggregate_access_kind(expression->item(0)->type()) == 2) {
+		@result = state.value(expression->item(0));
+		if (result.alternative) {
+			@result.range = fact_range(result.alternative, result.alternative);
+		};
+		return $result;
+	};
+	if (expression->kind() == semantic_kind::cast || expression->kind() == semantic_kind::access || expression->kind() == semantic_kind::relocation) {
+		if (expression->size() != 1) {
+			return $result;
+		};
+		@result = state.value(expression->item(0));
+		IntegerRange converted = fact_convert(result.range, expression->type());
+		if (!expression->type()->same_shape(*expression->item(0)->type()) && (converted.available == fact_truth::unknown || converted.lower != result.range.lower || converted.upper != result.range.upper || converted.sign != result.range.sign)) {
+			@result.version = 0;
+			@result.origin = 0;
+		};
+		@result.range = $converted;
+		return $result;
+	};
+	usize place = @this.place(expression);
+	if (place && place <= state.places.size()) {
+		return FactValue(state.places.data()[place - 1]);
+	};
+	if (expression->kind() == semantic_kind::construction && expression->type()->representation()->kind().is_integer() && expression->size() == 1 && !expression->entity()) {
+		if (!expression->item(0)->size()) {
+			@result.range = fact_range(0, 0);
+			return $result;
+		};
+		if (expression->item(0)->size() == 1) {
+			@result = state.value(expression->item(0)->item(0));
+			IntegerRange converted = fact_convert(result.range, expression->type());
+			if (converted.available == fact_truth::unknown || converted.lower != result.range.lower || converted.upper != result.range.upper || converted.sign != result.range.sign) {
+				@result.version = 0;
+				@result.origin = 0;
+			};
+			@result.range = $converted;
+			return $result;
+		};
+	};
+	if (expression->kind() == semantic_kind::unary && expression->operation() == token_kind::op_bang) {
+		FactValue operand = state.value(expression->item(0));
+		if (operand.range.available != fact_truth::unknown && (operand.range.lower || !operand.range.upper)) {
+			u64 value = 0;
+			if (!operand.range.upper) {
+				@value = 1;
+			};
+			@result.range = fact_range(value, value);
+		};
+		return $result;
+	};
+	if (expression->kind() != semantic_kind::binary || expression->size() != 2) {
+		return state.value(expression);
+	};
+	FactValue left = state.value(expression->item(0));
+	FactValue right = state.value(expression->item(1));
+	token_kind operation = expression->operation();
+	if (operation == token_kind::op_assign || operation == token_kind::op_copy) {
+		return $right;
+	};
+	fact_truth truth = fact_compare_values(operation, left, right);
+	usize relation = 0;
+	while (truth == fact_truth::unknown && left.version && right.version && relation < state.relations.size()) {
+		FactRelation& entry = state.relations.data()[relation];
+		if (entry.left == left.version && entry.right == right.version) {
+			if (entry.operation == operation) {
+				@truth = fact_truth::proven;
+			};
+			if (entry.operation == fact_inverse(operation)) {
+				@truth = fact_truth::disproven;
+			};
+		};
+		@relation = relation + 1;
+	};
+	if (truth != fact_truth::unknown) {
+		u64 value = 0;
+		if (truth == fact_truth::proven) {
+			@value = 1;
+		};
+		@result.range = fact_range(value, value);
+		return $result;
+	};
+	if (left.range.available == fact_truth::unknown || right.range.available == fact_truth::unknown || left.range.sign == integer_range_sign::negative || right.range.sign == integer_range_sign::negative) {
+		return $result;
+	};
+	u64 limit = fact_limit(expression->type());
+	if (operation == token_kind::op_plus && right.range.upper <= limit && left.range.upper <= limit - right.range.upper) {
+		@result.range = fact_range(left.range.lower + right.range.lower, left.range.upper + right.range.upper);
+		if (right.range.lower == right.range.upper) {
+			fact_affine(@result, left, right.range.lower, false);
+		};
+	};
+	if (operation == token_kind::op_minus && left.range.lower >= right.range.upper) {
+		@result.range = fact_range(left.range.lower - right.range.upper, left.range.upper - right.range.lower);
+		if (right.range.lower == right.range.upper) {
+			fact_affine(@result, left, right.range.lower, true);
+		};
+	};
+	return $result;
+};
+
+fn InferredFacts::assume(var InferredFacts& this, var SemanticExpression* condition, bool truth, var FactState& state) -> bool {
+	FactValue known = state.value(condition);
+	if (known.range.available != fact_truth::unknown) {
+		if (truth && !known.range.upper || !truth && known.range.lower) {
+			@state.reachable = false;
+			return true;
+		};
+	};
+	if (condition->kind() == semantic_kind::cast && condition->size() == 1) {
+		return @this.assume(condition->item(0), truth, @state);
+	};
+	if (condition->kind() == semantic_kind::unary && condition->operation() == token_kind::op_bang) {
+		return @this.assume(condition->item(0), !truth, @state);
+	};
+	if (known.version && condition->type()->kind() == type_kind::boolean) {
+		@this.refine_outcome(@state, known.version, u64(truth), true, false);
+	};
+	if (condition->kind() != semantic_kind::binary || condition->size() != 2) {
+		return true;
+	};
+	token_kind operation = condition->operation();
+	if (operation != token_kind::op_equal && operation != token_kind::op_not_equal && operation != token_kind::op_less && operation != token_kind::op_less_equal && operation != token_kind::op_greater && operation != token_kind::op_greater_equal) {
+		return true;
+	};
+	if (!truth) {
+		@operation = fact_inverse(operation);
+	};
+	FactValue left = state.value(condition->item(0));
+	FactValue right = state.value(condition->item(1));
+	if ((operation == token_kind::op_equal || operation == token_kind::op_not_equal) && left.version && right.range.available != fact_truth::unknown && right.range.lower == right.range.upper) {
+		@this.refine_outcome(@state, left.version, right.range.lower, operation == token_kind::op_equal, true);
+		@this.refine_outcome(@state, left.version, right.range.lower, operation == token_kind::op_equal, false);
+	};
+	if (left.version && right.version) {
+		FactRelation relation;
+		@relation.left = left.version;
+		@relation.right = right.version;
+		@relation.operation = operation;
+		bool exists = false;
+		usize index = 0;
+		while (index < state.relations.size()) {
+			FactRelation& entry = state.relations.data()[index];
+			if (entry.left == relation.left && entry.right == relation.right && entry.operation == operation) {
+				@exists = true;
+			};
+			@index = index + 1;
+		};
+		if (!exists && !@state.relations.push_back($relation)) {
+			return false;
+		};
+	};
+	usize place = @this.place(condition->item(0));
+	if (place && left.range.available == fact_truth::unknown && condition->item(0)->type()->kind() == type_kind::signed_integer && right.range.available != fact_truth::unknown) {
+		IntegerRange refined;
+		u64 limit = fact_limit(condition->item(0)->type());
+		if (right.range.sign == integer_range_sign::nonnegative) {
+			if (operation == token_kind::op_less && !right.range.upper) {
+				@refined = fact_range(u64::max - limit, u64::max);
+				@refined.sign = integer_range_sign::negative;
+			};
+			if ((operation == token_kind::op_greater_equal || operation == token_kind::op_greater) && right.range.lower <= limit) {
+				u64 lower = right.range.lower;
+				if (operation == token_kind::op_greater) {
+					if (lower == limit) {
+						@state.reachable = false;
+						return true;
+					};
+					@lower = lower + 1;
+				};
+				@refined = fact_range(lower, limit);
+			};
+		};
+		if (operation == token_kind::op_equal && right.range.lower == right.range.upper) {
+			@refined := right.range;
+		};
+		if (refined.available != fact_truth::unknown) {
+			@((@state.places).data()[place - 1]).range = $refined;
+		};
+	};
+	if (!place || right.range.available == fact_truth::unknown || left.range.available == fact_truth::unknown || left.range.sign == integer_range_sign::negative || right.range.sign == integer_range_sign::negative) {
+		return true;
+	};
+	IntegerRange refined = IntegerRange(left.range);
+	if (operation == token_kind::op_less && right.range.upper) {
+		if (refined.upper >= right.range.upper) {
+			@refined.upper = right.range.upper - 1;
+		};
+	};
+	if (operation == token_kind::op_less_equal && refined.upper > right.range.upper) {
+		@refined.upper = right.range.upper;
+	};
+	if (operation == token_kind::op_greater && right.range.lower != u64::max && refined.lower <= right.range.lower) {
+		@refined.lower = right.range.lower + 1;
+	};
+	if (operation == token_kind::op_greater_equal && refined.lower < right.range.lower) {
+		@refined.lower = right.range.lower;
+	};
+	if (operation == token_kind::op_equal) {
+		if (refined.lower < right.range.lower) {
+			@refined.lower = right.range.lower;
+		};
+		if (refined.upper > right.range.upper) {
+			@refined.upper = right.range.upper;
+		};
+	};
+	if (refined.lower > refined.upper) {
+		@state.reachable = false;
+		return true;
+	};
+	@((@state.places).data()[place - 1]).range = $refined;
+	return true;
+};
+
+fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version) -> bool {
+	if (!expression) {
+		return true;
+	};
+	@version = version * (this.places.size() + 1);
+	FactValue value = @this.evaluate(expression, state);
+	if (expression->kind() == semantic_kind::call && expression->entity() && @this.apply_summary(@*expression, @state, @value, version)) {
+		if (!value.version) {
+			@value.version = version;
+		};
+		return @state.record(expression, $value);
+	};
+	if (!value.version) {
+		@value.version = version;
+	};
+	if (expression->kind() == semantic_kind::variable) {
+		usize index = 0;
+		while (index < this.places.size()) {
+			if (this.places.data()[index].root == expression->entity() && !this.places.data()[index].parent) {
+				@value = state.value(expression->item(0));
+				if (!value.version) {
+					@value.version = version;
+				};
+				@((@state.places).data()[index]) = FactValue(value);
+			};
+			@index = index + 1;
+		};
+	};
+	if (expression->kind() == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
+		usize place = @this.place(expression->item(0));
+		@this.invalidate(@state, place);
+		if (place) {
+			@value = state.value(expression->item(1));
+			if (!value.version) {
+				@value.version = version;
+			};
+			@((@state.places).data()[place - 1]) = FactValue(value);
+		};
+	};
+	if (expression->kind() == semantic_kind::call || expression->kind() == semantic_kind::allocation || expression->kind() == semantic_kind::deallocation || expression->kind() == semantic_kind::array_deallocation || expression->kind() == semantic_kind::exception_try || expression->kind() == semantic_kind::switch_expression || expression->kind() == semantic_kind::construction && expression->entity() && !fact_variant_transfer(*expression) || expression->kind() == semantic_kind::destruction) {
+		@this.invalidate(@state, 0);
+		@state.relations.clear();
+		@state.conditional.clear();
+		@state.conditional_relations.clear();
+		@state.evaluated.clear();
+	};
+	if (expression->kind() == semantic_kind::relocation || expression->kind() == semantic_kind::destruction || expression->kind() == semantic_kind::address) {
+		@this.invalidate(@state, @this.place(expression->item(0)));
+	};
+	if (expression->kind() == semantic_kind::variant_cast) {
+		usize place = @this.place(expression->item(0));
+		if (place) {
+			@((@state.places).data()[place - 1]).alternative = expression->integer();
+		};
+	};
+	return @state.record(expression, $value);
+};
+
+fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body) -> bool {
+	@this.places.clear();
+	@this.incoming.clear();
+	@this.constants.clear();
+	if (!@this.collect(body)) {
+		return false;
+	};
+	FactGraph graph;
+	if (!@graph.build(body)) {
+		return false;
+	};
+	// Large functions remain conservative until sparse state storage is available.
+	if (graph.nodes.size() > 512) {
+		return true;
+	};
+	@this.constant_base = (graph.nodes.size() + 3) * (this.places.size() + 1);
+	usize node = 0;
+	while (node < graph.nodes.size()) {
+		var state = rt::unique<FactState>::make();
+		if (!state.get()) {
+			return false;
+		};
+		usize place = 0;
+		while (place < this.places.size()) {
+			FactValue value;
+			@value.version = (graph.nodes.size() + 1) * (this.places.size() + 1) + place + 1;
+			FactPlace& storage = this.places.data()[place];
+			Type* type = storage.root->type();
+			if (storage.field) {
+				@type = storage.field->type();
+			};
+			if (type->kind() == type_kind::unsigned_integer || type->kind() == type_kind::boolean || type->kind() == type_kind::character) {
+				@value.range = fact_range(0, fact_limit(type));
+			};
+			if (!@state.get()->places.push_back($value)) {
+				return false;
+			};
+			@place = place + 1;
+		};
+		if (node == graph.entry) {
+			@state.get()->reachable = true;
+		};
+		if (!@this.incoming.push_back($state)) {
+			return false;
+		};
+		@node = node + 1;
+	};
+	usize iteration = 0;
+	while (true) {
+		bool changed = false;
+		usize edge = 0;
+		while (edge < graph.edges.size()) {
+			FactEdge& link = graph.edges.data()[edge];
+			FactState& source = *this.incoming.data()[link.source].get();
+			if (source.reachable) {
+				FactState outgoing;
+				if (!@outgoing.copy_from(source)) {
+					return false;
+				};
+				var SemanticExpression* expression = graph.nodes.data()[link.source].expression;
+				if (graph.nodes.data()[link.source].kind == fact_node_kind::opaque) {
+					@this.invalidate(@outgoing, 0);
+					@outgoing.evaluated.clear();
+					@outgoing.relations.clear();
+					@outgoing.conditional.clear();
+					@outgoing.conditional_relations.clear();
+				}
+				else if (!@this.transfer(expression, @outgoing, link.source + 1)) {
+					return false;
+				};
+				if (link.condition && (link.kind == fact_edge_kind::when_true || link.kind == fact_edge_kind::when_false)) {
+					if (!@this.assume(link.condition, link.kind == fact_edge_kind::when_true, @outgoing)) {
+						return false;
+					};
+				};
+				if (link.kind == fact_edge_kind::exceptional || link.kind == fact_edge_kind::backedge) {
+					if (link.kind == fact_edge_kind::exceptional) {
+						@this.invalidate(@outgoing, 0);
+					};
+					@outgoing.evaluated.clear();
+					@outgoing.relations.clear();
+					@outgoing.conditional.clear();
+					@outgoing.conditional_relations.clear();
+				};
+				if (!@this.incoming.data()[link.target].get()->join(outgoing, iteration > 1 && link.kind == fact_edge_kind::backedge, @changed)) {
+					return false;
+				};
+			};
+			@edge = edge + 1;
+		};
+		if (!changed) {
+			break;
+		};
+		@iteration = iteration + 1;
+		if (iteration > graph.nodes.size() * 4 + 16) {
+			return true;
+		};
+	};
+	@node = 0;
+	while (node < graph.nodes.size()) {
+		var SemanticExpression* expression = graph.nodes.data()[node].expression;
+		FactState& state = *this.incoming.data()[node].get();
+		if (expression && state.reachable && graph.nodes.data()[node].kind != fact_node_kind::opaque) {
+			if (expression->kind() == semantic_kind::variant_cast && state.value(expression->item(0)).alternative == expression->integer()) {
+				@expression->set_inferred_alternative(expression->integer());
+			};
+			FactValue value = @this.evaluate(expression, state);
+			if (value.range.available != fact_truth::unknown && value.range.lower == value.range.upper && fact_pure(*expression)) {
+				@expression->set_inferred_integer(value.range.lower);
+			};
+			if (expression->kind() == semantic_kind::index && expression->item(0)->type()->kind() == type_kind::array) {
+				FactValue index = state.value(expression->item(1));
+				if (index.range.available != fact_truth::unknown && (index.range.sign == integer_range_sign::negative || index.range.lower >= expression->item(0)->type()->count())) {
+					@this.diagnostics->error(expression->token(), "array index is provably outside the array bounds");
+					@this.diagnostics->note(expression->item(1)->token(), "the index range is established by the preceding control flow");
+					return false;
+				};
+			};
+		};
+		@node = node + 1;
+	};
+	return true;
+};
+
+fn InferredFacts::validate(var InferredFacts& this, SemanticUnit& unit) -> bool {
+	if (!@this.summaries.validate(unit)) {
+		return false;
+	};
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		var Entity* entity = unit.entities().data()[index].get();
+		if (entity->kind() == entity_kind::function && entity->body() && !@this.analyze(entity->body())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};

@@ -59,6 +59,10 @@ struct SemanticExpression {
 	fn set_integer(var SemanticExpression& this, u64 value);
 	fn set_real(var SemanticExpression& this, f64 value);
 	fn set_text(var SemanticExpression& this, rt::string_view value) -> bool;
+	fn set_inferred_integer(var SemanticExpression& this, u64 value);
+	fn inferred_integer(SemanticExpression& this, var u64& value) -> bool;
+	fn set_inferred_alternative(var SemanticExpression& this, u64 alternative);
+	fn inferred_alternative(SemanticExpression& this) -> u64;
 
 	fn copy_constant(SemanticExpression& this) -> rt::unique<SemanticExpression>;
 	fn constant_truth(SemanticExpression& this, var bool& result) -> bool;
@@ -83,6 +87,9 @@ struct SemanticExpression {
 
 private:
 	semantic_kind category_kind;
+	bool has_inferred_integer;
+	u64 inferred_integer_value;
+	u64 inferred_alternative_value;
 	value_category value_kind;
 	bool reference_access;
 	Type* value_type;
@@ -231,6 +238,24 @@ fn SemanticExpression::set_category(var SemanticExpression& this, value_category
 
 fn SemanticExpression::set_integer(var SemanticExpression& this, u64 value) {
 	@this.integer_value = $value;
+};
+
+fn SemanticExpression::set_inferred_integer(var SemanticExpression& this, u64 value) {
+	@this.has_inferred_integer = true;
+	@this.inferred_integer_value = value;
+};
+
+fn SemanticExpression::inferred_integer(SemanticExpression& this, var u64& value) -> bool {
+	@value = this.inferred_integer_value;
+	return this.has_inferred_integer;
+};
+
+fn SemanticExpression::set_inferred_alternative(var SemanticExpression& this, u64 alternative) {
+	@this.inferred_alternative_value = alternative;
+};
+
+fn SemanticExpression::inferred_alternative(SemanticExpression& this) -> u64 {
+	return this.inferred_alternative_value;
 };
 
 fn SemanticExpression::set_real(var SemanticExpression& this, f64 value) {

@@ -126,12 +126,22 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 	};
 	if (analyzed) {
+		var facts = InferredFacts(@this.messages);
+		if (!@facts.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
+			@this.messages.error(location, "internal compiler error: inferred fact analysis failed without a diagnostic");
+		};
 		this.progress.report("lifetimes", 0, 1, "");
 		var lifetimes = LifetimeAnalyzer(@this.messages);
 		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
 			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic");
 		};
 		this.progress.report("lifetimes", 1, 1, "");
+		if (!this.messages.failed()) {
+			var loans = ReferenceLoanAnalyzer(@this.messages);
+			if (!@loans.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
+				@this.messages.error(location, "internal compiler error: reference loan analysis failed without a diagnostic");
+			};
+		};
 	};
 	if (this.messages.cancelled()) {
 		return false;

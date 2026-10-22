@@ -9,6 +9,9 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 		return nullptr;
 	};
 	var LLVMOpaqueValue* storage = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), storage_field->index()), "variant.payload\0".data());
+	if (storage && expression->inferred_alternative() == expression->integer()) {
+		return storage;
+	};
 	var LLVMOpaqueValue* tag_address = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), index_field->index()), "variant.tag.address\0".data());
 	var LLVMOpaqueType* tag_type = @this.backend->type(index_field->type(), expression->token());
 	if (!storage || !tag_address || !tag_type) {

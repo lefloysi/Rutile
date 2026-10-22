@@ -1,0 +1,613 @@
+enum function_fact_kind : [u08] {
+	unknown;
+	integer;
+	entry_place;
+	binary;
+	unary;
+	cast;
+	variant;
+};
+
+struct FunctionFactExpression {
+	function_fact_kind kind;
+	u64 integer;
+	var SemanticExpression* place;
+	token_kind operation;
+	usize left;
+	usize right;
+	Type* type;
+};
+
+struct FactPathCondition {
+	usize value;
+	bool truth;
+};
+
+struct FactWrite {
+	var SemanticExpression* target;
+	usize value;
+};
+
+struct FunctionFactOutcome {
+	var SemanticExpression* return_expression;
+	usize result;
+	rt::buffer<FactPathCondition> conditions;
+	rt::buffer<FactWrite> writes;
+};
+
+struct FunctionFactSummary {
+	var Entity* function;
+	rt::buffer<FunctionFactExpression> expressions;
+	rt::buffer<FunctionFactOutcome> outcomes;
+	rt::buffer<rt::unique<SemanticExpression>> projected_places;
+	bool opaque;
+};
+
+struct FunctionFactPath {
+	rt::buffer<FactPathCondition> conditions;
+	rt::buffer<FactWrite> writes;
+	bool returned;
+	fn copy_from(var FunctionFactPath& this, FunctionFactPath& other) -> bool;
+};
+
+fn FunctionFactPath::copy_from(var FunctionFactPath& this, FunctionFactPath& other) -> bool {
+	@this.returned = other.returned;
+	usize index = 0;
+	while (index < other.conditions.size()) {
+		if (!@this.conditions.push_back(FactPathCondition(other.conditions.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.writes.size()) {
+		if (!@this.writes.push_back(FactWrite(other.writes.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn function_fact_unwrap(var SemanticExpression* expression) -> var SemanticExpression* {
+	while (expression && expression->size() == 1 && (expression->kind() == semantic_kind::access || expression->kind() == semantic_kind::cast && expression->category() == value_category::place && expression->type()->same_shape(*expression->item(0)->type()))) {
+		@expression = expression->item(0);
+	};
+	return expression;
+};
+
+fn function_fact_same_place(var SemanticExpression* left, var SemanticExpression* right) -> bool {
+	var SemanticExpression* first = function_fact_unwrap(left);
+	var SemanticExpression* second = function_fact_unwrap(right);
+	if (!first || !second) {
+		return false;
+	};
+	if ((first->kind() == semantic_kind::name || first->kind() == semantic_kind::variable) && (second->kind() == semantic_kind::name || second->kind() == semantic_kind::variable)) {
+		return first->entity() == second->entity();
+	};
+	return first->kind() == semantic_kind::member && second->kind() == semantic_kind::member && first->entity() == second->entity() && function_fact_same_place(first->item(0), second->item(0));
+};
+
+fn function_fact_root(var SemanticExpression* expression) -> var Entity* {
+	@expression = function_fact_unwrap(expression);
+	while (expression && expression->kind() == semantic_kind::member) {
+		if (expression->entity() && expression->entity()->type()->kind() == type_kind::reference) {
+			return nullptr;
+		};
+		var SemanticExpression* receiver = function_fact_unwrap(expression->item(0));
+		Type* type = receiver->type();
+		if (type->kind() == type_kind::reference) {
+			@type = type->element();
+		};
+		if (type->kind() == type_kind::pointer || type->kind() == type_kind::named && type->entity()->layout() == record_layout::overlapping) {
+			return nullptr;
+		};
+		@expression = receiver;
+	};
+	if (expression && (expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::variable)) {
+		return expression->entity();
+	};
+	return nullptr;
+};
+
+struct FunctionFactSummaries {
+	rt::buffer<rt::unique<FunctionFactSummary>> summaries;
+	fn validate(var FunctionFactSummaries& this, SemanticUnit& unit) -> bool;
+	fn find(FunctionFactSummaries& this, Entity* function) -> var FunctionFactSummary*;
+	fn build(var FunctionFactSummaries& this, var Entity& function) -> bool;
+	fn expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> usize;
+	fn walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) -> bool;
+	fn finish(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* returned, usize result, FunctionFactPath& path) -> bool;
+	fn import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, FunctionFactPath& path, usize depth) -> usize;
+	fn payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> bool;
+};
+
+fn function_fact_clone_place(var SemanticExpression* source) -> rt::unique<SemanticExpression> {
+	@source = function_fact_unwrap(source);
+	if (!source || source->kind() != semantic_kind::name && source->kind() != semantic_kind::member) {
+		return rt::unique<SemanticExpression>();
+	};
+	var token = source->token();
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(source->kind(), source->type(), token));
+	if (!result.get()) {
+		return $result;
+	};
+	@result.get()->bind(source->entity(), value_category::place);
+	if (source->kind() == semantic_kind::member && !@result.get()->append(function_fact_clone_place(source->item(0)))) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};
+
+fn function_fact_project_place(FunctionFactSummary& callee, var SemanticExpression* source, var SemanticExpression& call) -> rt::unique<SemanticExpression> {
+	@source = function_fact_unwrap(source);
+	if (!source) {
+		return rt::unique<SemanticExpression>();
+	};
+	if (source->kind() == semantic_kind::name) {
+		usize parameter = 0;
+		while (parameter < callee.function->parameters().size()) {
+			if (source->entity() == callee.function->parameters().data()[parameter]) {
+				if (call.size() != 2 || parameter >= call.item(1)->size()) {
+					return rt::unique<SemanticExpression>();
+				};
+				return function_fact_clone_place(call.item(1)->item(parameter));
+			};
+			@parameter = parameter + 1;
+		};
+		return function_fact_clone_place(source);
+	};
+	if (source->kind() != semantic_kind::member) {
+		return rt::unique<SemanticExpression>();
+	};
+	var token = source->token();
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::member, source->type(), token));
+	if (!result.get()) {
+		return $result;
+	};
+	@result.get()->bind(source->entity(), value_category::place);
+	if (!@result.get()->append(function_fact_project_place(callee, source->item(0), @call))) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};
+
+fn FunctionFactSummaries::find(FunctionFactSummaries& this, Entity* function) -> var FunctionFactSummary* {
+	usize index = this.summaries.size();
+	while (index) {
+		@index = index - 1;
+		if (this.summaries.data()[index].get()->function == function) {
+			return this.summaries.data()[index].get();
+		};
+	};
+	return nullptr;
+};
+
+fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> usize {
+	if (!expression || summary.expressions.size() >= 4096) {
+		@summary.opaque = true;
+		return 0;
+	};
+	FunctionFactExpression result;
+	@result.type = expression->type();
+	u64 integer = 0;
+	if (expression->constant_integer(@integer)) {
+		@result.kind = function_fact_kind::integer;
+		@result.integer = integer;
+	}
+	else if (expression->kind() == semantic_kind::access && expression->size() == 1) {
+		return @this.expression(@summary, expression->item(0), path);
+	}
+	else if (expression->kind() == semantic_kind::construction && !expression->entity() && expression->type()->representation()->kind().is_numeric() && expression->size() == 1 && expression->item(0)->kind() == semantic_kind::brace && expression->item(0)->size() <= 1) {
+		if (!expression->item(0)->size()) {
+			@result.kind = function_fact_kind::integer;
+			@result.integer = 0;
+		}
+		else {
+			@result.kind = function_fact_kind::cast;
+			@result.left = @this.expression(@summary, expression->item(0)->item(0), path);
+		};
+	}
+	else if (expression->kind() == semantic_kind::cast && expression->size() == 1 && expression->type()->kind() == type_kind::named && variant_instance(*expression->type()->entity()) && expression->type()->same_shape(*expression->item(0)->type())) {
+		return @this.expression(@summary, expression->item(0), path);
+	}
+	else if (expression->kind() == semantic_kind::construction && !expression->entity() && expression->integer() && expression->type()->kind() == type_kind::named && variant_instance(*expression->type()->entity())) {
+		var Entity* destructor = expression->type()->entity()->destructor();
+		if (destructor && destructor->definition() != function_definition::defaulted) {
+			@summary.opaque = true;
+			return 0;
+		};
+		usize child = 0;
+		while (child < expression->size()) {
+			if (!@this.payload_safe(@summary, expression->item(child), path)) {
+				@summary.opaque = true;
+				return 0;
+			};
+			@child = child + 1;
+		};
+		@result.kind = function_fact_kind::variant;
+		@result.integer = expression->integer();
+	}
+	else if (expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::member) {
+		usize index = path.writes.size();
+		while (index) {
+			@index = index - 1;
+			if (function_fact_same_place(expression, path.writes.data()[index].target)) {
+				return path.writes.data()[index].value;
+			};
+		};
+		var Entity* root = function_fact_root(expression);
+		if (!root || root->kind() != entity_kind::parameter && root->kind() != entity_kind::global) {
+			@summary.opaque = true;
+			return 0;
+		};
+		@result.kind = function_fact_kind::entry_place;
+		@result.place = expression;
+	}
+	else if (expression->kind() == semantic_kind::call && expression->entity() && expression->size() == 2) {
+		var FunctionFactSummary* callee = this.find(expression->entity());
+		if (!callee || callee->opaque || callee->outcomes.size() != 1 || callee->outcomes.data()[0].writes.size() || callee->outcomes.data()[0].conditions.size()) {
+			@summary.opaque = true;
+			return 0;
+		};
+		// Even unused arguments execute. Check every argument for opaque effects.
+		usize argument = 0;
+		while (argument < expression->item(1)->size()) {
+			@this.expression(@summary, expression->item(1)->item(argument), path);
+			@argument = argument + 1;
+		};
+		return @this.import_value(@summary, *callee, callee->outcomes.data()[0].result, @*expression, path, 0);
+	}
+	else if ((expression->kind() == semantic_kind::binary && expression->size() == 2) || (expression->kind() == semantic_kind::unary && expression->size() == 1) || (expression->kind() == semantic_kind::cast && expression->size() == 1)) {
+		@result.operation = expression->operation();
+		if (expression->kind() == semantic_kind::binary && result.operation != token_kind::op_plus && result.operation != token_kind::op_minus && result.operation != token_kind::op_less && result.operation != token_kind::op_less_equal && result.operation != token_kind::op_greater && result.operation != token_kind::op_greater_equal && result.operation != token_kind::op_equal && result.operation != token_kind::op_not_equal) {
+			@summary.opaque = true;
+			return 0;
+		};
+		if (expression->kind() == semantic_kind::unary && result.operation != token_kind::op_bang && result.operation != token_kind::op_minus && result.operation != token_kind::op_plus) {
+			@summary.opaque = true;
+			return 0;
+		};
+		@result.kind = function_fact_kind::binary;
+		if (expression->kind() == semantic_kind::cast) {
+			@result.kind = function_fact_kind::cast;
+		}
+		else if (expression->kind() == semantic_kind::unary) {
+			@result.kind = function_fact_kind::unary;
+		};
+		@result.left = @this.expression(@summary, expression->item(0), path);
+		if (expression->size() == 2) {
+			@result.right = @this.expression(@summary, expression->item(1), path);
+		};
+	}
+	else {
+		@summary.opaque = true;
+		return 0;
+	};
+	if (!@summary.expressions.push_back($result)) {
+		@summary.opaque = true;
+		return 0;
+	};
+	return summary.expressions.size();
+};
+
+fn FunctionFactSummaries::payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, FunctionFactPath& path) -> bool {
+	if (!expression) {
+		return false;
+	};
+	if (expression->kind() == semantic_kind::construction) {
+		Type* type = expression->type();
+		if (expression->entity() && expression->entity()->definition() != function_definition::defaulted) {
+			return false;
+		};
+		if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
+			var Entity* record = type->entity();
+			var Entity* destructor = record->destructor();
+			if (record->fields().size() || record->bases().size() || destructor && destructor->definition() != function_definition::defaulted) {
+				return false;
+			};
+		}
+		else if (!type->representation()->kind().is_scalar()) {
+			return false;
+		};
+	}
+	else if (expression->kind() != semantic_kind::brace && expression->kind() != semantic_kind::cast && expression->kind() != semantic_kind::access) {
+		@this.expression(@summary, expression, path);
+		return !summary.opaque;
+	};
+	usize child = 0;
+	while (child < expression->size()) {
+		if (!@this.payload_safe(@summary, expression->item(child), path)) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	return true;
+};
+
+fn FunctionFactSummaries::import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, FunctionFactPath& path, usize depth) -> usize {
+	if (!value || value > callee.expressions.size() || depth > 64) {
+		@summary.opaque = true;
+		return 0;
+	};
+	FunctionFactExpression result = FunctionFactExpression(callee.expressions.data()[value - 1]);
+	if (result.kind == function_fact_kind::entry_place) {
+		var SemanticExpression* source = function_fact_unwrap(result.place);
+		usize parameter = 0;
+		while (source->kind() == semantic_kind::name && parameter < callee.function->parameters().size()) {
+			if (source->entity() == callee.function->parameters().data()[parameter]) {
+				return @this.expression(@summary, call.item(1)->item(parameter), path);
+			};
+			@parameter = parameter + 1;
+		};
+		var projected = function_fact_project_place(callee, source, @call);
+		if (!projected.get()) {
+			@summary.opaque = true;
+			return 0;
+		};
+		var SemanticExpression* place = projected.get();
+		if (!@summary.projected_places.push_back($projected)) {
+			@summary.opaque = true;
+			return 0;
+		};
+		return @this.expression(@summary, place, path);
+	};
+	if (result.left) {
+		@result.left = @this.import_value(@summary, callee, result.left, @call, path, depth + 1);
+	};
+	if (result.right) {
+		@result.right = @this.import_value(@summary, callee, result.right, @call, path, depth + 1);
+	};
+	if (summary.expressions.size() >= 4096 || !@summary.expressions.push_back($result)) {
+		@summary.opaque = true;
+		return 0;
+	};
+	return summary.expressions.size();
+};
+
+fn FunctionFactSummaries::finish(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* returned, usize result, FunctionFactPath& path) -> bool {
+	FunctionFactOutcome outcome;
+	@outcome.return_expression = returned;
+	@outcome.result = result;
+	usize index = 0;
+	while (index < path.conditions.size()) {
+		if (!@outcome.conditions.push_back(FactPathCondition(path.conditions.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < path.writes.size()) {
+		FactWrite& write = path.writes.data()[index];
+		var Entity* root = function_fact_root(write.target);
+		if (root && (root->kind() == entity_kind::global || root->kind() == entity_kind::parameter && root->type()->kind() == type_kind::reference)) {
+			if (!@outcome.writes.push_back(FactWrite(write))) {
+				return false;
+			};
+		};
+		@index = index + 1;
+	};
+	return @summary.outcomes.push_back($outcome);
+};
+
+fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) -> bool {
+	if (!expression || summary.opaque) {
+		return true;
+	};
+	semantic_kind kind = expression->kind();
+	if (kind == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() == type_kind::reference) {
+		@summary.opaque = true;
+		return true;
+	};
+	if (kind == semantic_kind::brace || kind == semantic_kind::statements) {
+		usize child = 0;
+		while (child < expression->size()) {
+			if (!@this.walk(@summary, expression->item(child), @paths)) {
+				return false;
+			};
+			@child = child + 1;
+		};
+		return true;
+	};
+	if (kind == semantic_kind::conditional) {
+		rt::buffer<rt::unique<FunctionFactPath>> branches;
+		usize index = 0;
+		while (index < paths.size()) {
+			FunctionFactPath& source = *paths.data()[index].get();
+			if (source.returned) {
+				var retained = rt::unique<FunctionFactPath>::make();
+				if (!retained.get() || !@retained.get()->copy_from(source) || !@branches.push_back($retained)) {
+					return false;
+				};
+			}
+			else {
+				usize condition = @this.expression(@summary, expression->item(0), source);
+				usize branch = 0;
+				while (branch < 2) {
+					var state = rt::unique<FunctionFactPath>::make();
+					if (!state.get() || !@state.get()->copy_from(source)) {
+						return false;
+					};
+					FactPathCondition fact;
+					@fact.value = condition;
+					@fact.truth = !branch;
+					if (!@state.get()->conditions.push_back($fact)) {
+						return false;
+					};
+					rt::buffer<rt::unique<FunctionFactPath>> selected;
+					if (!@selected.push_back($state) || !@this.walk(@summary, expression->item(branch + 1), @selected)) {
+						return false;
+					};
+					usize selected_index = 0;
+					while (selected_index < selected.size()) {
+						if (!@branches.push_back(rt::unique<FunctionFactPath>(@((@selected).data()[selected_index]).release()))) {
+							return false;
+						};
+						@selected_index = selected_index + 1;
+					};
+					@branch = branch + 1;
+				};
+			};
+			@index = index + 1;
+		};
+		@paths = $branches;
+		if (paths.size() > 64) {
+			@summary.opaque = true;
+		};
+		return true;
+	};
+	usize index = 0;
+	while (index < paths.size()) {
+		var FunctionFactPath& path = @*(@paths).data()[index].get();
+		if (!path.returned) {
+			if (kind == semantic_kind::return_value) {
+				usize result = 0;
+				if (expression->size()) {
+					@result = @this.expression(@summary, expression->item(0), path);
+				};
+				if (!@this.finish(@summary, expression, result, path)) {
+					return false;
+				};
+				@path.returned = true;
+			}
+			else if (kind == semantic_kind::variable || kind == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
+				var SemanticExpression* target = expression;
+				var SemanticExpression* value = expression->item(0);
+				if (kind == semantic_kind::binary) {
+					@target = expression->item(0);
+					@value = expression->item(1);
+				};
+				if (!function_fact_root(target)) {
+					@summary.opaque = true;
+					return true;
+				};
+				FactWrite write;
+				@write.target = target;
+				@write.value = @this.expression(@summary, value, path);
+				if (!@path.writes.push_back($write)) {
+					return false;
+				};
+			}
+			else if (kind != semantic_kind::noop) {
+				@this.expression(@summary, expression, path);
+			};
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& function) -> bool {
+	var summary = rt::unique<FunctionFactSummary>::make();
+	if (!summary.get()) {
+		return false;
+	};
+	@summary.get()->function = &@function;
+	if (function.dispatch() != function_dispatch::ordinary) {
+		// A statically selected declaration does not identify a virtual target.
+		@summary.get()->opaque = true;
+	};
+	usize parameter = 0;
+	while (parameter < function.parameters().size()) {
+		Type* type = function.parameters().data()[parameter]->type();
+		// Destruction of value parameters is implicit in the semantic body.
+		// Until those cleanup effects are summarized, aggregate parameters
+		// cannot be treated as a read-only call merely from their statements.
+		if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record || type->kind() == type_kind::array) {
+			@summary.get()->opaque = true;
+		};
+		@parameter = parameter + 1;
+	};
+	if (!function.body()) {
+		@summary.get()->opaque = true;
+	}
+	else {
+		rt::buffer<rt::unique<FunctionFactPath>> paths;
+		var initial = rt::unique<FunctionFactPath>::make();
+		if (!initial.get() || !@paths.push_back($initial) || !@this.walk(@*summary.get(), function.body(), @paths)) {
+			return false;
+		};
+		usize index = 0;
+		while (index < paths.size()) {
+			FunctionFactPath& path = *paths.data()[index].get();
+			if (!path.returned && !@this.finish(@*summary.get(), nullptr, 0, path)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		// Without call-site alias partitioning, two reference parameters or a
+		// global and a reference may denote the same storage. Do not summarize
+		// mutations using independently substituted entry values in that case.
+		usize references = 0;
+		@index = 0;
+		while (index < function.parameters().size()) {
+			if (function.parameters().data()[index]->type()->kind() == type_kind::reference) {
+				@references = references + 1;
+			};
+			@index = index + 1;
+		};
+		bool globals = false;
+		@index = 0;
+		while (index < summary.get()->expressions.size()) {
+			FunctionFactExpression& value = summary.get()->expressions.data()[index];
+			if (value.kind == function_fact_kind::entry_place) {
+				var Entity* root = function_fact_root(value.place);
+				if (root && root->kind() == entity_kind::global) {
+					@globals = true;
+				};
+			};
+			@index = index + 1;
+		};
+		@index = 0;
+		while (index < summary.get()->outcomes.size()) {
+			FunctionFactOutcome& outcome = summary.get()->outcomes.data()[index];
+			usize write = 0;
+			while (write < outcome.writes.size()) {
+				var Entity* root = function_fact_root(outcome.writes.data()[write].target);
+				if (root && root->kind() == entity_kind::global) {
+					@globals = true;
+				};
+				@write = write + 1;
+			};
+			if (outcome.writes.size() && (references > 1 || references && globals)) {
+				@summary.get()->opaque = true;
+			};
+			@index = index + 1;
+		};
+	};
+	usize existing = 0;
+	while (existing < this.summaries.size()) {
+		if (this.summaries.data()[existing].get()->function == &@function) {
+			@((@this.summaries).data()[existing]) = $summary;
+			return true;
+		};
+		@existing = existing + 1;
+	};
+	return @this.summaries.push_back($summary);
+};
+
+fn FunctionFactSummaries::validate(var FunctionFactSummaries& this, SemanticUnit& unit) -> bool {
+	@this.summaries.clear();
+	while (true) {
+		bool changed = false;
+		usize index = 0;
+		while (index < unit.entities().size()) {
+			var Entity* entity = unit.entities().data()[index].get();
+			var FunctionFactSummary* previous = this.find(entity);
+			if (entity->kind() == entity_kind::function && (!previous || previous->opaque)) {
+				if (!@this.build(@*entity)) {
+					return false;
+				};
+				var FunctionFactSummary* resolved = this.find(entity);
+				if (resolved && !resolved->opaque) {
+					@changed = true;
+				};
+			};
+			@index = index + 1;
+		};
+		if (!changed) {
+			break;
+		};
+	};
+	return true;
+};
