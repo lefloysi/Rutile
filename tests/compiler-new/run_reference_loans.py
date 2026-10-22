@@ -63,6 +63,62 @@ CASES = [
     ("store-transitive-slot-copy", "Holder outer = Holder(shared_value); Holder copy = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); write_holder(@copy, outer.reference); }; return copy.reference;", False),
     ("store-caught-throw-overwrite", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); try { throwing_write(condition, @outer, shared_value); } catch (i32 caught) {}; }; return outer.reference;", False),
     ("store-caught-helper-overwrite", "Holder outer = Holder(shared_value); { i32 local = 4; write_holder(@outer, local); caught_write(condition, @outer, shared_value); }; return outer.reference;", False),
+    ("implicit-value-parameter-retained", "retain(condition); return 0;", False),
+    ("implicit-scalar-retained", "i32 value = 4; retain(value); return 0;", False),
+    ("implicit-array-retained", "i32[2] values; retain(values[0]); return 0;", False),
+    ("implicit-field-retained", "Pair value; retain(value.first); return 0;", False),
+    ("implicit-holder-retained", "i32 value = 4; { Holder holder = Holder(value); retain(holder.reference); }; return 0;", False),
+    ("implicit-global-retained", "retain(shared_value); return 0;", True),
+    ("implicit-ref-last-use", "i32 value = 4; { const i32& borrowed = value; i32 copy = borrowed; }; return value;", True),
+    ("implicit-branch-retained", "if (condition) { i32 value = 4; retain(value); }; return 0;", False),
+    ("implicit-loop-break-retained", "while (condition) { i32 value = 4; retain(value); break; }; return 0;", False),
+    ("implicit-loop-continue-retained", "while (condition) { i32 value = 4; retain(value); continue; }; return 0;", False),
+    ("implicit-throw-retained", "try { i32 value = 4; retain(value); throw i32(3); } catch (i32 caught) {}; return 0;", False),
+    ("implicit-bypassed-declaration", "if (condition) { return 0; }; i32 value = 4; return value;", True),
+
+    ("opaque-wrapper-end", "i32 value = 4; forward(value); return 0;", False),
+    ("opaque-wrapper-deep", "i32 value = 4; forward_deep(value); return 0;", False),
+    ("opaque-wrapper-alias", "i32 value = 4; forward_alias(value); return 0;", False),
+    ("opaque-wrapper-recursive", "i32 value = 4; forward_recursive(condition, value); return 0;", False),
+    ("opaque-wrapper-aggregate", "i32 value = 4; Holder holder = Holder(value); forward_holder(holder); return 0;", False),
+    ("opaque-wrapper-field", "Pair value; forward_field(value); return 0;", False),
+    ("pure-recursive-noescape", "i32 value = 4; pure_recursive(condition, value); return 0;", True),
+
+    ("opaque-value-holder-move", "i32 value = 4; Holder holder = Holder(value); forward_value($holder); return 0;", False),
+    ("opaque-value-holder-copy", "i32 value = 4; Holder holder = Holder(value); forward_value(Holder(holder)); return 0;", False),
+    ("opaque-value-nested", "i32 value = 4; NestedHolder holder = NestedHolder(Holder(value)); forward_nested($holder); return 0;", False),
+    ("pure-value-holder", "i32 value = 4; Holder holder = Holder(value); pure_value($holder); return 0;", True),
+
+    ("deep-returned-reference", "i32 value = 4; const i32& borrowed = return_deep_20(value); return borrowed;", False),
+
+    ("opaque-holder-object-end", "Holder holder = Holder(shared_value); retain_holder(holder); return 0;", False),
+    ("content-wrapper-value", "i32 value = 4; Holder holder = Holder(value); forward_value_ref($holder); return 0;", False),
+    ("content-wrapper-value-global", "Holder holder = Holder(shared_value); forward_value_ref($holder); return 0;", True),
+    ("union-local-return", "i32 value = 4; return Choice(Holder(value));", False),
+    ("union-stored-reference", "i32 value = 4; Choice choice = Choice(Holder(value)); @value = 5; return choice.get<Holder>().reference;", False),
+
+    ("union-copy-reference", "i32 value = 4; Choice first = Choice(Holder(value)); Choice second = Choice(first); @value = 5; return second.get<Holder>().reference;", False),
+    ("union-move-reference", "i32 value = 4; Choice first = Choice(Holder(value)); Choice second = Choice($first); @value = 5; return second.get<Holder>().reference;", False),
+    ("union-extracted-reference", "i32 value = 4; Choice choice = Choice(Holder(value)); const Holder& payload = choice.get<Holder>(); @value = 5; return payload.reference;", False),
+
+    ("destructor-captures-contents", "i32 value = 4; { RetainHolder holder = RetainHolder(value); }; return 0;", False),
+    ("destructor-captures-global", "{ RetainHolder holder = RetainHolder(shared_value); }; return 0;", True),
+    ("constructor-captures-this", "CaptureThis value; return 0;", False),
+
+    ("nested-destructor-captures-contents", "i32 value = 4; { NestedRetainHolder holder = NestedRetainHolder(RetainHolder(value)); }; return 0;", False),
+    ("nested-destructor-captures-global", "{ NestedRetainHolder holder = NestedRetainHolder(RetainHolder(shared_value)); }; return 0;", True),
+
+    ("constructor-throws-after-capture", "try { ThrowCaptureThis value; } catch (i32 caught) {}; return 0;", False),
+
+    ("opaque-special-constructor", "ForeignConstructed value; return 0;", False),
+    ("opaque-special-destructor", "ForeignDestroyed value; return 0;", False),
+    ("opaque-nested-constructor", "NestedForeignConstructed value; return 0;", False),
+
+    ("unused-opaque-copy", "UnusedCopyOuter outer; return 0;", True),
+
+    ("forward-declared-constructor", "ForwardOuter value; return 0;", True),
+    ("forward-declared-capture", "i32 value = 4; forward_declared(value); return 0;", False),
+
 ]
 
 
@@ -77,6 +133,9 @@ def main():
         result_type = "const i32&" if name in ("local-return", "local-return-wrapper") else "i32"
         if name in ("stored-local-return", "stored-local-move-return"):
             result_type = "Holder"
+        if name == "union-local-return":
+            result_type = "Choice"
+        parameter_type = "i32" if name == "implicit-value-parameter-retained" else "bool"
         path = directory / (name + ".rt")
         source = (
             "struct Pair { i32 first; i32 second; };\n"
@@ -94,6 +153,34 @@ def main():
             "struct ReadHolder { const i32& reference; fn ~ReadHolder(var ReadHolder& this) { @observed = this.reference; }; };\n"
             "fn mutate_second(i32 ignored, var i32& value) { @value = 5; };\n"
             "fn retain(const i32& value);\n"
+            "fn forward(const i32& value) { retain(value); };\n"
+            "fn forward_deep(const i32& value) { forward(value); };\n"
+            "fn forward_alias(const i32& value) { const i32& alias = value; retain(alias); };\n"
+            "fn forward_recursive(bool condition, const i32& value) { if (condition) { forward_recursive(condition, value); } else { retain(value); }; };\n"
+            "fn retain_holder(const Holder& value);\n"
+            "fn forward_value_ref(Holder value) { forward_holder(value); };\n"
+            "fn forward_value(Holder value) { retain(value.reference); };\n"
+            "fn forward_nested(NestedHolder value) { retain(value.inner.reference); };\n"
+            "fn pure_value(Holder value) {};\n"
+            "fn forward_holder(const Holder& value) { retain(value.reference); };\n"
+            "fn forward_field(const Pair& value) { retain(value.first); };\n"
+            "fn pure_recursive(bool condition, const i32& value) { if (condition) { pure_recursive(condition, value); }; };\n"
+            "struct RetainHolder { const i32& reference; fn ~RetainHolder(var RetainHolder& this) { retain(this.reference); }; };\n"
+            "struct NestedRetainHolder { RetainHolder inner; };\n"
+            "fn retain_this(const CaptureThis& value);\n"
+            "struct CaptureThis { fn CaptureThis(var CaptureThis& this) { retain_this(this); }; };\n"
+            "fn retain_throw_this(const ThrowCaptureThis& value);\n"
+            "struct ThrowCaptureThis { fn ThrowCaptureThis(var ThrowCaptureThis& this) { retain_throw_this(this); throw i32(7); }; };\n"
+            "struct ForeignConstructed { fn ForeignConstructed(var ForeignConstructed& this); };\n"
+            "struct ForeignDestroyed { fn ~ForeignDestroyed(var ForeignDestroyed& this); };\n"
+            "struct NestedForeignConstructed { ForeignConstructed member; };\n"
+            "struct UnusedCopyPart { fn UnusedCopyPart(var UnusedCopyPart& this) : [default]; fn UnusedCopyPart(var UnusedCopyPart& this, const UnusedCopyPart& other); };\n"
+            "struct UnusedCopyOuter { UnusedCopyPart part; };\n"
+            "struct ForwardPart { fn ForwardPart(var ForwardPart& this); fn ForwardPart(var ForwardPart& this, const ForwardPart& other); };\n"
+            "fn ForwardPart::ForwardPart(var ForwardPart& this) {};\n"
+            "struct ForwardOuter { ForwardPart part; };\n"
+            "fn forward_declared(const i32& value);\n"
+            "fn forward_declared(const i32& value) { retain(value); };\n"
             "fn unknown_index() -> usize;\n"
             "fn identity(var i32& value) -> var i32& { return @value; };\n"
             "fn shared_identity(const i32& value) -> const i32& { return value; };\n"
@@ -106,12 +193,18 @@ def main():
             "fn maybe_write(bool condition, var Holder& destination, const i32& value) { if (condition) { write_holder(@destination, value); }; };\n"
             "fn throwing_write(bool condition, var Holder& destination, const i32& value) { if (condition) { throw i32(7); }; write_holder(@destination, value); };\n"
             "fn caught_write(bool condition, var Holder& destination, const i32& value) { try { if (condition) { throw i32(7); }; write_holder(@destination, value); } catch (i32 caught) {}; };\n"
-            f"fn inspect(bool condition) -> {result_type} {{ {body} }};\n"
+            f"fn inspect({parameter_type} condition) -> {result_type} {{ {body} }};\n"
             "fn main() -> i32 { return 0; };\n"
         )
+        if name.startswith("union-"):
+            source = source.replace("struct Holder { const i32& reference; };", "struct Holder { const i32& reference; }; using Choice = Holder | i32;")
+        if name == "deep-returned-reference":
+            source += "fn return_deep_0(const i32& value) -> const i32& { return value; };\n"
+            for level in range(1, 21):
+                source += f"fn return_deep_{level}(const i32& value) -> const i32& {{ return return_deep_{level - 1}(value); }};\n"
         path.write_text(source, encoding="utf-8")
         result = subprocess.run(
-            [str(compiler), str(path), "--output", str(directory / (name + ".obj"))],
+            [str(compiler), *([str(ROOT / "compiler/std/variant.rt")] if name.startswith("union-") else []), str(path), "--output", str(directory / (name + ".obj"))],
             capture_output=True, text=True, timeout=30,
         )
         output = result.stdout + result.stderr
@@ -123,6 +216,11 @@ def main():
             "returned reference refers to local storage",
             "reference members contain conflicting loans",
             "stored reference may outlive its referent",
+            "object lifetime ends while a dependent reference loan is active",
+            "reference provenance analysis limit exceeded",
+            "special member capture analysis limit exceeded",
+            "constructor reference capture may outlive local storage",
+            "implicit constructor capture provenance is unavailable",
         )):
             raise RuntimeError(f"{name}: expected loan diagnostic\n{output}")
         print(name + ": PASS")

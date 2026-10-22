@@ -263,6 +263,7 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 						@effect.slot.expression = slot.expression;
 						@effect.field = field;
 						@effect.referent.root = targets.data()[target].root;
+						@effect.referent.reference_contents = targets.data()[target].reference_contents;
 						@effect.referent.field = targets.data()[target].field;
 						@effect.referent.through = targets.data()[target].through;
 						@effect.referent.element = targets.data()[target].element;
@@ -367,6 +368,7 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			};
 			@loan.creation = this.position(*effect.site);
 			@loan.place.root = effect.referent.root;
+			@loan.place.reference_contents = effect.referent.reference_contents;
 			@loan.place.field = effect.referent.field;
 			@loan.place.through = effect.referent.through;
 			@loan.place.element = effect.referent.element;
@@ -374,7 +376,7 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			if (loan.binding && loan.place.root && !@this.loans.push_back($loan)) {
 				return @this.error(*effect.site, "reference store loan storage is unavailable");
 			};
-				@index = index + 1;
+			@index = index + 1;
 		};
 		if (previous == this.stores.size()) {
 			return true;
@@ -398,11 +400,14 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 		usize index = 0;
 		while (node != source && index < this.stores.size()) {
 			ReferenceStoreEffect& replacement = this.stores.data()[index];
-			if (replacement.definite && replacement.site != effect.site && reference_store_same(replacement.slot, effect.slot) && this.position(*replacement.site) == node) {
+			if (replacement.definite && replacement.site != effect.site && replacement.slot.root == effect.slot.root && (!replacement.slot.field || replacement.slot.field == effect.slot.field) && this.position(*replacement.site) == node) {
 				@killed = true;
 				break;
 			};
 			@index = index + 1;
+		};
+		if (node != source && this.graph.nodes.data()[node].kind == fact_node_kind::lifetime_end && this.graph.nodes.data()[node].owner == effect.slot.root) {
+			continue;
 		};
 		if (node == target) {
 			return true;
@@ -451,7 +456,7 @@ fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> bo
 		@index = index + 1;
 		var Entity* source = effect.referent.root;
 		var Entity* destination = effect.slot.root;
-		if (!source || !destination || source->kind() == entity_kind::global || source->kind() == entity_kind::parameter && source->type()->kind() == type_kind::reference || source->kind() != entity_kind::local && source->kind() != entity_kind::parameter) {
+		if (effect.referent.reference_contents || !source || !destination || source->kind() == entity_kind::global || source->kind() == entity_kind::parameter && source->type()->kind() == type_kind::reference || source->kind() != entity_kind::local && source->kind() != entity_kind::parameter) {
 			continue;
 		};
 		var SemanticExpression* region = reference_store_region(@*this.function_body, *source, this.function_body);

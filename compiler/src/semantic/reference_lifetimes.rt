@@ -1,0 +1,111 @@
+// Lifetime state follows the same exceptional and cleanup edges as loan uses.
+struct ReferenceLifetimeVisit {
+	usize node;
+	bool live;
+};
+
+fn ReferenceLoanAnalyzer::owner_live_at(var ReferenceLoanAnalyzer& this, var Entity* owner, usize target) -> bool {
+	rt::buffer<ReferenceLifetimeVisit> pending;
+	rt::buffer<ReferenceLifetimeVisit> visited;
+	ReferenceLifetimeVisit initial;
+	@initial.node = this.graph.entry;
+	if (!@pending.push_back($initial)) {
+		return true;
+	};
+	usize cursor = 0;
+	while (cursor < pending.size()) {
+		ReferenceLifetimeVisit state = pending.data()[cursor];
+		@cursor = cursor + 1;
+		if (state.node == target && state.live) {
+			return true;
+		};
+		bool seen = false;
+		usize index = 0;
+		while (index < visited.size()) {
+			ReferenceLifetimeVisit& previous = visited.data()[index];
+			if (previous.node == state.node && previous.live == state.live) {
+				@seen = true;
+				break;
+			};
+			@index = index + 1;
+		};
+		if (seen) {
+			continue;
+		};
+		if (!@visited.push_back(ReferenceLifetimeVisit(state))) {
+			return true;
+		};
+		FactNode& node = this.graph.nodes.data()[state.node];
+		if (node.owner == owner) {
+			if (node.kind == fact_node_kind::lifetime_begin) {
+				@state.live = true;
+			};
+			if (node.kind == fact_node_kind::lifetime_end) {
+				@state.live = false;
+			};
+		};
+		@index = 0;
+		while (index < this.graph.edges.size()) {
+			FactEdge& edge = this.graph.edges.data()[index];
+			bool truth = false;
+			bool feasible = true;
+			if (edge.condition && edge.condition->constant_truth(@truth)) {
+				@feasible = !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
+			};
+			if (edge.source == state.node && feasible) {
+				ReferenceLifetimeVisit next;
+				@next.node = edge.target;
+				@next.live = state.live;
+				if (!@pending.push_back($next)) {
+					return true;
+				};
+			};
+			@index = index + 1;
+		};
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::loan_store_path(var ReferenceLoanAnalyzer& this, usize source, usize target, ReferenceLoan& loan, usize definition) -> bool {
+	if (!loan.stored_field || definition == fact_no_node()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.stores.size()) {
+		ReferenceStoreEffect& effect = this.stores.data()[index];
+		if (effect.slot.root == loan.binding && this.position(*effect.site) == definition && effect.field == loan.stored_field && effect.referent.root == loan.place.root) {
+			return @this.store_path(source, target, effect);
+		};
+		@index = index + 1;
+	};
+	ReferenceStoreEffect effect;
+	@effect.site = this.graph.nodes.data()[definition].expression;
+	@effect.slot.root = loan.binding;
+	if (loan.stored_field->type()->kind() != type_kind::reference) {
+		@effect.slot.field = loan.stored_field;
+	};
+	return @this.store_path(source, target, effect);
+};
+
+fn ReferenceLoanAnalyzer::validate_ends(var ReferenceLoanAnalyzer& this) -> bool {
+	usize index = 0;
+	while (index < this.graph.nodes.size()) {
+		FactNode& node = this.graph.nodes.data()[index];
+		if (node.kind == fact_node_kind::lifetime_end && node.owner) {
+			usize loan_index = 0;
+			while (loan_index < this.loans.size()) {
+				ReferenceLoan& loan = this.loans.data()[loan_index];
+				if (!loan.place.reference_contents && loan.place.root == node.owner && @this.active_at(loan, index) && @this.owner_live_at(node.owner, index)) {
+					var SemanticExpression* location = node.expression;
+					if (!location) {
+						@location = this.function_body;
+					};
+					return @this.error(*location, "object lifetime ends while a dependent reference loan is active");
+				};
+				@loan_index = loan_index + 1;
+			};
+		};
+		@index = index + 1;
+	};
+	return true;
+};

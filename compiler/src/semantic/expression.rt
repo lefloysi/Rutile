@@ -3,6 +3,12 @@ enum value_category : [u08] {
 	consumable;
 };
 
+enum inferred_condition_state : [u08] {
+	unknown;
+	when_false;
+	when_true;
+};
+
 enum semantic_kind : [u08] {
 	noop;
 	literal_integer;
@@ -61,6 +67,8 @@ struct SemanticExpression {
 	fn set_text(var SemanticExpression& this, rt::string_view value) -> bool;
 	fn set_inferred_integer(var SemanticExpression& this, u64 value);
 	fn inferred_integer(SemanticExpression& this, var u64& value) -> bool;
+	fn set_inferred_condition(var SemanticExpression& this, bool value);
+	fn inferred_condition(SemanticExpression& this, var bool& value) -> bool;
 	fn set_inferred_alternative(var SemanticExpression& this, u64 alternative);
 	fn inferred_alternative(SemanticExpression& this) -> u64;
 
@@ -88,6 +96,7 @@ struct SemanticExpression {
 private:
 	semantic_kind category_kind;
 	bool has_inferred_integer;
+	inferred_condition_state inferred_condition_value;
 	u64 inferred_integer_value;
 	u64 inferred_alternative_value;
 	value_category value_kind;
@@ -250,6 +259,18 @@ fn SemanticExpression::inferred_integer(SemanticExpression& this, var u64& value
 	return this.has_inferred_integer;
 };
 
+fn SemanticExpression::set_inferred_condition(var SemanticExpression& this, bool value) {
+	@this.inferred_condition_value = inferred_condition_state::when_false;
+	if (value) {
+		@this.inferred_condition_value = inferred_condition_state::when_true;
+	};
+};
+
+fn SemanticExpression::inferred_condition(SemanticExpression& this, var bool& value) -> bool {
+	@value = this.inferred_condition_value == inferred_condition_state::when_true;
+	return this.inferred_condition_value != inferred_condition_state::unknown;
+};
+
 fn SemanticExpression::set_inferred_alternative(var SemanticExpression& this, u64 alternative) {
 	@this.inferred_alternative_value = alternative;
 };
@@ -269,6 +290,7 @@ fn SemanticExpression::set_text(var SemanticExpression& this, rt::string_view va
 enum inferred_override_kind : [u08] {
 	integer;
 	alternative;
+	evaluated_condition;
 };
 
 struct InferredExpressionFact {

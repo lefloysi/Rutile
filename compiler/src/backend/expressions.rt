@@ -131,6 +131,11 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 
+			bool condition = false;
+			if (this.condition_fact(*expression, @condition)) {
+				return LLVMConstInt(type, static_cast<u64>($condition), 0);
+			};
+
 			Type* signature = expression->item(0)->type();
 
 			if (signature->kind() == type_kind::pointer) {
@@ -165,8 +170,13 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 					return LLVMBuildNeg(this.backend->builder(), value, "negate\0".data());
 				case token_kind::op_tilde:
 					return LLVMBuildNot(this.backend->builder(), value, "complement\0".data());
-				case token_kind::op_bang:
+				case token_kind::op_bang: {
+					bool condition = false;
+					if (this.condition_fact(*expression, @condition)) {
+						return LLVMConstInt(type, static_cast<u64>($condition), 0);
+					};
 					return LLVMBuildNot(this.backend->builder(), @this.truth(value, operand->type()), "not\0".data());
+				};
 			};
 
 			break;

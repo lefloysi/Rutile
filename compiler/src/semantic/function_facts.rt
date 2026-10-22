@@ -110,6 +110,13 @@ fn function_fact_root(var SemanticExpression* expression) -> var Entity* {
 	return nullptr;
 };
 
+fn function_fact_unknown_binary(token_kind operation) -> bool {
+	return operation == token_kind::op_star || operation == token_kind::op_slash
+		|| operation == token_kind::op_remainder || operation == token_kind::op_shift_left
+		|| operation == token_kind::op_shift_right || operation == token_kind::op_ampersand
+		|| operation == token_kind::op_pipe || operation == token_kind::op_caret;
+};
+
 struct FunctionFactSummaries {
 	rt::buffer<rt::unique<FunctionFactSummary>> summaries;
 	fn validate(var FunctionFactSummaries& this, SemanticUnit& unit) -> bool;
@@ -287,7 +294,7 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 	}
 	else if ((expression->kind() == semantic_kind::binary && expression->size() == 2) || (expression->kind() == semantic_kind::unary && expression->size() == 1) || (expression->kind() == semantic_kind::cast && expression->size() == 1)) {
 		@result.operation = expression->operation();
-		if (expression->kind() == semantic_kind::binary && result.operation != token_kind::op_plus && result.operation != token_kind::op_minus && result.operation != token_kind::op_less && result.operation != token_kind::op_less_equal && result.operation != token_kind::op_greater && result.operation != token_kind::op_greater_equal && result.operation != token_kind::op_equal && result.operation != token_kind::op_not_equal) {
+		if (expression->kind() == semantic_kind::binary && !function_fact_unknown_binary(result.operation) && result.operation != token_kind::op_plus && result.operation != token_kind::op_minus && result.operation != token_kind::op_less && result.operation != token_kind::op_less_equal && result.operation != token_kind::op_greater && result.operation != token_kind::op_greater_equal && result.operation != token_kind::op_equal && result.operation != token_kind::op_not_equal) {
 			@summary.opaque = true;
 			return 0;
 		};
@@ -296,7 +303,10 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 			return 0;
 		};
 		@result.kind = function_fact_kind::binary;
-		if (expression->kind() == semantic_kind::cast) {
+		if (expression->kind() == semantic_kind::binary && function_fact_unknown_binary(result.operation)) {
+			@result.kind = function_fact_kind::unknown;
+		}
+		else if (expression->kind() == semantic_kind::cast) {
 			@result.kind = function_fact_kind::cast;
 		}
 		else if (expression->kind() == semantic_kind::unary) {

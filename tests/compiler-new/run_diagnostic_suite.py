@@ -27,6 +27,7 @@ SUITES = (
 	"run_inferred_facts.py",
 	"run_function_facts.py",
 	"run_call_contexts.py",
+	"run_condition_effects.py",
 	"run_reference_loans.py",
 	"run_emission_diagnostics.py",
 )

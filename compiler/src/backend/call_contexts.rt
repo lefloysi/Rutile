@@ -114,3 +114,18 @@ fn Backend::emit_fact_contexts(var Backend& this) -> bool {
 	};
 	return true;
 };
+
+fn FunctionEmitter::condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool {
+	if (this.fact_context) {
+		usize index = 0;
+		while (index < this.fact_context->overrides.size()) {
+			InferredExpressionFact& fact = this.fact_context->overrides.data()[index];
+			if (fact.expression == &expression && fact.kind == inferred_override_kind::evaluated_condition) {
+				@value = fact.value != 0;
+				return true;
+			};
+			@index = index + 1;
+		};
+	};
+	return expression.inferred_condition(@value);
+};

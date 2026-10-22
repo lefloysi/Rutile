@@ -1,0 +1,212 @@
+// Capture summaries grow monotonically over the finite set of formal references.
+// Recursion without a path to an opaque capture contributes no captures.
+struct ReferenceCapture {
+	bool contents;
+	var Entity* function;
+	var Entity* parameter;
+};
+
+fn reference_capture_initializer(SemanticExpression& expression, Entity& binding) -> var SemanticExpression* {
+	if (expression.kind() == semantic_kind::variable && expression.entity() == &binding && expression.size()) {
+		return expression.item(0);
+	};
+	usize index = 0;
+	while (index < expression.size()) {
+		var SemanticExpression* result = reference_capture_initializer(*expression.item(index), binding);
+		if (result) {
+			return result;
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+// Trace reference-producing syntax without recursively expanding callees. Alias
+// cycles terminate on binding identity; call summaries themselves use a fixed point.
+fn reference_capture_depends(SemanticExpression& expression, Entity& binding, ReferenceLoanAnalyzer& analyzer, Entity& function, var rt::buffer<var Entity*>& visited) -> bool {
+	if (expression.kind() == semantic_kind::dereference) {
+		return false;
+	};
+	if (expression.kind() == semantic_kind::name) {
+		var Entity* name = expression.entity();
+		if (name == &binding) {
+			return true;
+		};
+		if (!name || name->kind() != entity_kind::local || !(name->type()->kind() == type_kind::reference || reference_loan_members(*name->type()))) {
+			return false;
+		};
+		usize index = 0;
+		while (index < visited.size()) {
+			if (visited.data()[index] == name) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		if (!@visited.push_back(name)) {
+			return true;
+		};
+		var SemanticExpression* source = reference_capture_initializer(*function.body(), *name);
+		return source && reference_capture_depends(*source, binding, analyzer, function, @visited);
+	};
+	if (expression.kind() == semantic_kind::member || expression.kind() == semantic_kind::index) {
+		if (expression.size() && expression.item(0)->type()->kind() == type_kind::pointer) {
+			return false;
+		};
+		return expression.size() && reference_capture_depends(*expression.item(0), binding, analyzer, function, @visited);
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_capture_depends(*expression.item(child), binding, analyzer, function, @visited)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn reference_capture_aggregate(Type* type) -> bool {
+	if (type->kind() == type_kind::reference) {
+		@type = type->element();
+	};
+	return reference_loan_members(*type);
+};
+
+fn ReferenceLoanAnalyzer::captures(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument) -> bool {
+	return this.capture_mode(call, argument, false) || this.capture_mode(call, argument, true);
+};
+
+fn ReferenceLoanAnalyzer::capture_mode(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool {
+	var Entity* callee = call.entity();
+	if (callee) {
+		@callee = callee->canonical();
+	};
+	if (!callee || callee->dispatch() != function_dispatch::ordinary || !callee->body() && callee->definition() != function_definition::defaulted) {
+		Type* signature = call.item(0)->type();
+		if (signature->kind() == type_kind::pointer) {
+			@signature = signature->element();
+		};
+		if (signature->kind() != type_kind::function || argument >= signature->signature().parameters().size()) {
+			return true;
+		};
+		Type* parameter = signature->signature().parameters().data()[argument];
+		if (contents) {
+			return reference_capture_aggregate(parameter);
+		};
+		return parameter->kind() == type_kind::reference;
+	};
+	if (callee->definition() == function_definition::defaulted) {
+		return false;
+	};
+
+	if (argument >= callee->parameters().size()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < this.captures_summary.size()) {
+		ReferenceCapture& capture = this.captures_summary.data()[index];
+		if (capture.function == callee && capture.parameter == callee->parameters().data()[argument] && capture.contents == contents) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> bool {
+	if (expression.kind() == semantic_kind::call && expression.size() >= 2) {
+		Type* signature = expression.item(0)->type();
+		if (signature->kind() == type_kind::pointer) {
+			@signature = signature->element();
+		};
+		if (signature->kind() == type_kind::function) {
+			usize argument = 0;
+			while (argument < expression.item(1)->size() && argument < signature->signature().parameters().size()) {
+				Type* parameter = signature->signature().parameters().data()[argument];
+				if ((parameter->kind() == type_kind::reference || reference_loan_members(*parameter)) && this.captures(expression, argument)) {
+					usize mode = 0;
+					while (mode < 2) {
+						bool contents = mode == 1;
+						@mode = mode + 1;
+						if (!this.capture_mode(expression, argument, contents)) {
+							continue;
+						};
+						rt::buffer<ReferenceLoanPlace> roots;
+						rt::buffer<ReferenceLoanSubstitution> substitutions;
+						if (!@this.places(*expression.item(1)->item(argument), @roots, @substitutions, &@function, 0)) {
+							return false;
+						};
+						usize formal = 0;
+						while (formal < function.parameters().size()) {
+							var Entity* binding = function.parameters().data()[formal];
+							@formal = formal + 1;
+							if (!(binding->type()->kind() == type_kind::reference || reference_loan_members(*binding->type()))) {
+								continue;
+							};
+							rt::buffer<var Entity*> aliases;
+							bool captured_contents = contents && reference_capture_aggregate(binding->type());
+							bool captured = reference_capture_depends(*expression.item(1)->item(argument), *binding, this, function, @aliases);
+							usize root = 0;
+							while (root < roots.size()) {
+								if (roots.data()[root].root == binding) {
+									@captured = true;
+									if (roots.data()[root].reference_contents) {
+										@captured_contents = true;
+									};
+								};
+								@root = root + 1;
+							};
+							if (!captured) {
+								continue;
+							};
+							usize existing = 0;
+							while (existing < this.captures_summary.size()) {
+								ReferenceCapture& previous = this.captures_summary.data()[existing];
+								if (previous.function == &function && previous.parameter == binding && previous.contents == captured_contents) {
+									break;
+								};
+								@existing = existing + 1;
+							};
+							if (existing == this.captures_summary.size()) {
+								ReferenceCapture capture;
+								@capture.function = &@function;
+								@capture.parameter = binding;
+								@capture.contents = captured_contents;
+								if (!@this.captures_summary.push_back($capture)) {
+									return false;
+								};
+							};
+						};
+					};
+				};
+				@argument = argument + 1;
+			};
+		};
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (!@this.capture_walk(*expression.item(child), @function)) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool {
+	@this.captures_summary.clear();
+	while (true) {
+		usize previous = this.captures_summary.size();
+		usize index = 0;
+		while (index < unit.entities().size()) {
+			var Entity* function = unit.entities().data()[index].get();
+			@index = index + 1;
+			if (function->kind() == entity_kind::function && function->body() && function->dispatch() == function_dispatch::ordinary && !@this.capture_walk(*function->body(), @*function)) {
+				return @this.error(*function->body(), "reference capture summary storage is unavailable");
+			};
+		};
+		if (previous == this.captures_summary.size()) {
+			break;
+		};
+	};
+	return true;
+};

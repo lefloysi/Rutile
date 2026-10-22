@@ -11,6 +11,19 @@ from run import run_case
 ROOT = Path(__file__).resolve().parents[2]
 BOUNDS = "array index is provably outside the array bounds"
 CASES = [
+	("guarded-shrink-invalid", "fn shrink(var usize& value) -> bool { if (value == 0) { return false; }; @value = value - 1; return true; }; fn main() -> i32 { i32[2] data {}; usize index = 3; if (shrink(@index)) { return data[index]; }; return 0; };", True),
+	("assignment-address-after-value", "fn main() -> i32 { i32[2] data {}; usize index = 2; @data[index] = i32(@index = 0) + 42; return data[0]; };", False),
+	("assignment-value-invalidates-address", "fn main() -> i32 { i32[2] data {}; usize index = 0; @data[index] = i32(@index = 2) + 40; return 42; };", True),
+	("array-element-preserves-scalar", "fn main() -> i32 { i32[2] data {}; usize index = 2; @data[0] = 7; return data[index]; };", True),
+	("array-unknown-element-preserves-scalar", "fn inspect(usize element) -> i32 { i32[2] data {}; usize index = 2; if (element < 2) { @data[element] = 7; return data[index]; }; return 0; };", True),
+	("array-unproven-element-unknown", "fn inspect(usize element) -> i32 { i32[2] data {}; usize index = 2; @data[element] = 7; return data[index]; };", False),
+	("array-element-preserves-sibling", "struct Holder { usize length; i32[2] data; }; fn main() -> i32 { i32[2] data {}; Holder holder; @holder.length = 2; @holder.data[0] = 7; return data[holder.length]; };", True),
+	("raw-element-write-unknown", "fn main() -> i32 { i32[2] data {}; var i32* pointer = &@data[0]; usize index = 2; @pointer[0] = 7; return data[index]; };", False),
+	("relocated-value-facts", "fn main() -> i32 { i32[2] data {}; usize index = 2; usize moved = $index; return data[moved]; };", True),
+	("relocated-value-snapshot", "fn main() -> i32 { i32[2] data {}; usize index = 2; usize moved = $index; @index.usize(0); return data[moved]; };", True),
+	("unknown-readonly-arithmetic", "fn multiply(usize value) -> usize { return value * value; }; fn inspect(usize value) -> i32 { i32[2] data {}; usize index = 2; multiply(value); return data[index]; };", True),
+	("unknown-arithmetic-result", "fn multiply(usize value) -> usize { return value * value; }; fn inspect(usize value) -> i32 { i32[2] data {}; return data[multiply(value)]; };", False),
+	("unknown-arithmetic-effects", "fn multiply(var usize& value) -> usize { return (@value = 0) * 2; }; fn main() -> i32 { i32[2] data {}; usize index = 2; multiply(@index); return data[index]; };", False),
 	("throw-is-program-outcome", "fn checked(usize index) -> usize { if (index >= 2) { throw i32(7); }; return index; }; fn main() -> i32 { return i32(checked(3)); };", False),
 	("normal-return-bounds", "fn checked(usize index) -> usize { if (index < 2) { throw i32(7); }; return index; }; fn inspect(usize index) -> i32 { i32[2] data {}; usize result = checked(index); return data[result]; };", True),
 	("normal-return-wrapper", "fn checked(usize index) -> usize { if (index < 2) { throw i32(7); }; return index; }; fn wrapper(usize index) -> usize { return checked(index); }; fn inspect(usize index) -> i32 { i32[2] data {}; return data[wrapper(index)]; };", True),
@@ -70,6 +83,11 @@ fn grow(var usize& value) -> bool {
 	@value = value + 1;
 	return true;
 };
+fn shrink(var usize& value) -> bool {
+	if (value == 0) { return false; };
+	@value = value - 1;
+	return true;
+};
 fn verify(usize value) -> bool {
 	usize old = value;
 	bool changed = grow(@value);
@@ -112,6 +130,35 @@ fn guard_changed(usize index, usize length, usize replacement) -> bool {
 	};
 	return true;
 };
+struct Counter { usize length; };
+fn read(Counter& counter) -> usize { return counter.length; };
+fn getter_identity(usize value) -> bool {
+	Counter counter;
+	usize snapshot = value;
+	@counter.length = snapshot;
+	if (read(counter) == snapshot) { return true; };
+	return false;
+};
+fn getter_growth(usize value) -> bool {
+	Counter counter;
+	usize snapshot = value;
+	@counter.length = snapshot;
+	if (grow(@counter.length)) {
+		if (read(counter) > snapshot) { return true; };
+		return false;
+	};
+	return true;
+};
+fn getter_shrink(usize value) -> bool {
+	Counter counter;
+	usize snapshot = value;
+	@counter.length = snapshot;
+	if (shrink(@counter.length)) {
+		if (read(counter) < snapshot) { return true; };
+		return false;
+	};
+	return true;
+};
 fn main() -> i32 {
 	if (!verify(0) || !verify(usize::max - 1) || !verify(usize::max)) { return 1; };
 	if (!local(0) || !local(99) || !local(100)) { return 2; };
@@ -119,6 +166,9 @@ fn main() -> i32 {
 	if (!guard(0, 2) || !guard(3, 2)) { return 4; };
 	if (guard_loose(3, 2, true)) { return 5; };
 	if (guard_changed(0, 2, 3)) { return 6; };
+	if (!getter_identity(0) || !getter_identity(usize::max)) { return 7; };
+	if (!getter_growth(0) || !getter_growth(usize::max)) { return 8; };
+	if (!getter_shrink(0) || !getter_shrink(usize::max)) { return 9; };
 	return 42;
 };
 """
@@ -184,7 +234,8 @@ def main():
 		failures.append("runtime-mutation")
 		print(f"runtime-mutation: FAIL: {error}")
 	for function, expected in [("verify", 0), ("local", 1), ("uncertain", 1),
-		("guard", 0), ("guard_loose", 1), ("guard_changed", 1)]:
+		("guard", 0), ("guard_loose", 1), ("guard_changed", 1),
+		("getter_identity", 0), ("getter_growth", 0), ("getter_shrink", 0)]:
 		try:
 			check_affine_codegen(compiler, directory, function, expected)
 		except (OSError, RuntimeError, subprocess.SubprocessError) as error:

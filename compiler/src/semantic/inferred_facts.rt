@@ -472,6 +472,7 @@ struct InferredFacts {
 	fn assume(var InferredFacts& this, var SemanticExpression* condition, bool truth, var FactState& state) -> bool;
 	fn evaluate(var InferredFacts& this, SemanticExpression* expression, FactState& state) -> FactValue;
 	fn invalidate(var InferredFacts& this, var FactState& state, usize place);
+	fn end_lifetime(var InferredFacts& this, var FactState& state, Entity* owner);
 	fn collect(var InferredFacts& this, SemanticExpression* expression) -> bool;
 	fn summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize;
 	fn summary_value(var InferredFacts& this, FunctionFactSummary& summary, usize expression, SemanticExpression& call, FactState& state, usize depth) -> FactValue;
@@ -508,6 +509,29 @@ fn fact_place_pure(SemanticExpression& expression) -> bool {
 		return fact_place_pure(*expression.item(0));
 	};
 	return false;
+};
+
+// These operations may discard their computed Boolean only after evaluating
+// their operands through the ordinary backend lifetime and exception paths.
+fn fact_evaluated_condition(SemanticExpression& expression) -> bool {
+	if (expression.type()->kind() != type_kind::boolean) {
+		return false;
+	};
+	if (expression.kind() == semantic_kind::call) {
+		Type* callable = expression.item(0)->type();
+		if (callable->kind() == type_kind::pointer) {
+			@callable = callable->element();
+		};
+		return callable->kind() == type_kind::function && callable->signature().result()->kind() == type_kind::boolean;
+	};
+	if (expression.kind() == semantic_kind::unary) {
+		return expression.operation() == token_kind::op_bang;
+	};
+	if (expression.kind() != semantic_kind::binary || expression.size() != 2 || !expression.item(0)->type()->representation()->kind().is_integer() || !expression.item(1)->type()->representation()->kind().is_integer()) {
+		return false;
+	};
+	token_kind operation = expression.operation();
+	return operation == token_kind::op_equal || operation == token_kind::op_not_equal || operation == token_kind::op_less || operation == token_kind::op_less_equal || operation == token_kind::op_greater || operation == token_kind::op_greater_equal;
 };
 
 fn fact_pure(SemanticExpression& expression) -> bool {
@@ -757,7 +781,7 @@ fn InferredFacts::summary_value(var InferredFacts& this, FunctionFactSummary& su
 	FactValue left = @this.summary_value(summary, value.left, call, state, depth + 1);
 	if (value.kind == function_fact_kind::cast) {
 		IntegerRange converted = fact_convert(left.range, value.type);
-		if (converted.available == fact_truth::unknown || converted.lower != left.range.lower || converted.upper != left.range.upper || converted.sign != left.range.sign) {
+		if (!value.type->same_shape(*summary.expressions.data()[value.left - 1].type) && (converted.available == fact_truth::unknown || converted.lower != left.range.lower || converted.upper != left.range.upper || converted.sign != left.range.sign)) {
 			@left.version = 0;
 			@left.origin = 0;
 		};
@@ -999,6 +1023,10 @@ fn InferredFacts::apply_summary(var InferredFacts& this, var SemanticExpression&
 		return false;
 	};
 	if (correlate && (learned.size() || learned_relations.size())) {
+		if (call.type()->representation()->kind().is_integer() && combined_result.version && !combined_result.origin) {
+			@combined_result.origin = combined_result.version;
+			@combined_result.displacement = 0;
+		};
 		@combined_result.version = version;
 		usize entry = 0;
 		while (entry < learned.size()) {
@@ -1107,6 +1135,10 @@ fn InferredFacts::summary_assume(var InferredFacts& this, FunctionFactSummary& s
 	};
 	FactValue right = @this.summary_value(summary, condition.right, call, state, 0);
 	IntegerRange range = IntegerRange(state.places.data()[place - 1].range);
+	Type* representation = left.type->representation();
+	if (range.available == fact_truth::unknown && (representation->kind() == type_kind::unsigned_integer || representation->kind() == type_kind::boolean || representation->kind() == type_kind::character)) {
+		@range = fact_range(0, fact_limit(representation));
+	};
 	if (range.available == fact_truth::unknown || right.range.available == fact_truth::unknown || range.sign == integer_range_sign::negative || right.range.sign == integer_range_sign::negative) {
 		return;
 	};
@@ -1204,6 +1236,29 @@ fn InferredFacts::refine_outcome(var InferredFacts& this, var FactState& state, 
 			@((@state.places).data()[place]).alternative = refined.alternative;
 		};
 		@place = place + 1;
+	};
+};
+
+fn InferredFacts::end_lifetime(var InferredFacts& this, var FactState& state, Entity* owner) {
+	if (!owner) {
+		return;
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		if (this.places.data()[index].root == owner) {
+			@((@state.places).data()[index]) = FactValue();
+		};
+		@index = index + 1;
+	};
+	// Evaluations are immutable snapshots. In particular, a relocated value
+	// remains available to initialize its destination after the source ends.
+	@index = 0;
+	while (index < state.conditional.size()) {
+		usize place = state.conditional.data()[index].place;
+		if (place && this.places.data()[place - 1].root == owner) {
+			@((@state.conditional).data()[index]).place = 0;
+		};
+		@index = index + 1;
 	};
 };
 
@@ -1498,7 +1553,23 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 	};
 	if (expression->kind() == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
 		usize place = @this.place(expression->item(0));
-		@this.invalidate(@state, place);
+		usize affected = place;
+		if (!affected) {
+			var SemanticExpression* target = expression->item(0);
+			while (target->kind() == semantic_kind::access && target->size() == 1) {
+				@target = target->item(0);
+			};
+			while (target->kind() == semantic_kind::index && target->item(0)->type()->kind() == type_kind::array) {
+				FactValue index = state.value(target->item(1));
+				if (index.range.available == fact_truth::unknown || index.range.sign == integer_range_sign::negative || index.range.upper >= target->item(0)->type()->count()) {
+					@affected = 0;
+					break;
+				};
+				@target = target->item(0);
+				@affected = @this.place(target);
+			};
+		};
+		@this.invalidate(@state, affected);
 		if (place) {
 			@value = state.value(expression->item(1));
 			if (!value.version) {
@@ -1514,7 +1585,7 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 		@state.conditional_relations.clear();
 		@state.evaluated.clear();
 	};
-	if (expression->kind() == semantic_kind::relocation || expression->kind() == semantic_kind::destruction || expression->kind() == semantic_kind::address) {
+	if (expression->kind() == semantic_kind::relocation || expression->kind() == semantic_kind::destruction) {
 		@this.invalidate(@state, @this.place(expression->item(0)));
 	};
 	if (expression->kind() == semantic_kind::variant_cast) {
@@ -1534,7 +1605,12 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 		return false;
 	};
 	FactGraph graph;
-	if (!@graph.build(body)) {
+	if (this.analyzed_function) {
+		if (!@graph.build_function(*this.analyzed_function)) {
+			return false;
+		};
+	}
+	else if (!@graph.build(body)) {
 		return false;
 	};
 	// Large functions remain conservative until sparse state storage is available.
@@ -1596,7 +1672,10 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 					@outgoing.conditional.clear();
 					@outgoing.conditional_relations.clear();
 				}
-				else if (!@this.transfer(expression, @outgoing, link.source + 1)) {
+				else if (graph.nodes.data()[link.source].kind == fact_node_kind::lifetime_end) {
+					@this.end_lifetime(@outgoing, graph.nodes.data()[link.source].owner);
+				}
+				else if (graph.nodes.data()[link.source].kind != fact_node_kind::lifetime_begin && !@this.transfer(expression, @outgoing, link.source + 1)) {
 					return false;
 				};
 				if (link.condition && (link.kind == fact_edge_kind::when_true || link.kind == fact_edge_kind::when_false)) {
@@ -1631,7 +1710,7 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	while (node < graph.nodes.size()) {
 		var SemanticExpression* expression = graph.nodes.data()[node].expression;
 		FactState& state = *this.incoming.data()[node].get();
-		if (expression && state.reachable && graph.nodes.data()[node].kind != fact_node_kind::opaque) {
+		if (expression && state.reachable && graph.nodes.data()[node].kind == fact_node_kind::expression) {
 			if (expression->kind() == semantic_kind::variant_cast && state.value(expression->item(0)).alternative == expression->integer()) {
 				if (this.context_output) {
 					if (expression->inferred_alternative() != expression->integer() && !@this.context_override(@*expression, inferred_override_kind::alternative, expression->integer())) {
@@ -1652,6 +1731,27 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 				}
 				else {
 					@expression->set_inferred_integer(value.range.lower);
+				};
+			};
+			if (!fact_pure(*expression) && fact_evaluated_condition(*expression) && fact_context_condition(graph, expression)) {
+				if (expression->kind() == semantic_kind::call) {
+					FactState returned;
+					if (!@returned.copy_from(state) || !@this.transfer(expression, @returned, node + 1)) {
+						return false;
+					};
+					@value = returned.value(expression);
+				};
+				if (value.range.available != fact_truth::unknown && value.range.lower == value.range.upper && value.range.upper <= 1) {
+					bool known = value.range.lower != 0;
+					if (this.context_output) {
+						bool previous = false;
+						if (!expression->inferred_condition(@previous) && !@this.context_override(@*expression, inferred_override_kind::evaluated_condition, value.range.lower)) {
+							return false;
+						};
+					}
+					else {
+						@expression->set_inferred_condition(known);
+					};
 				};
 			};
 			if (expression->kind() == semantic_kind::call && !@this.context_capture(@*expression, state)) {

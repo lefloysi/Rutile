@@ -173,6 +173,10 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 	if (!first || !second) {
 		return nullptr;
 	};
+	bool condition = false;
+	if (this.condition_fact(*expression, @condition)) {
+		return LLVMConstInt(@this.backend->type(expression->type(), expression->token()), static_cast<u64>($condition), 0);
+	};
 
 	if ((operation == token_kind::op_plus || operation == token_kind::op_minus) && (left->type()->kind() == type_kind::pointer || right->type()->kind() == type_kind::pointer)) {
 		if (left->type()->kind() == type_kind::pointer && right->type()->kind() == type_kind::pointer) {
