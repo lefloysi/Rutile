@@ -1,0 +1,240 @@
+struct TestFunction {
+	rt::string name;
+	usize parameters;
+};
+
+struct TestRunnerSource {
+	fn collect(var TestRunnerSource& this, Syntax& syntax, rt::string_view prefix, var Diagnostics& diagnostics) -> bool;
+	fn generate(TestRunnerSource& this, var rt::string& output) -> bool;
+	fn registration(TestRunnerSource& this, var rt::string& output, usize count) -> bool;
+	fn configuration(TestRunnerSource& this, var rt::string& output) -> bool;
+	fn collect_registrations(var TestRunnerSource& this, Syntax& syntax, rt::string_view prefix) -> bool;
+
+	rt::buffer<TestFunction> tests;
+	rt::buffer<usize> registration_counts;
+	rt::string harness;
+};
+
+fn test_source_name(var rt::string& output, Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::qualified_name) {
+		return test_source_name(@output, *syntax.left()) && @output.append("::") && test_source_name(@output, *syntax.right());
+	};
+	return @output.append(syntax.token().text());
+};
+
+fn test_source_number(var rt::string& output, usize value) -> bool {
+	if (value >= 10 && !test_source_number(@output, value / 10)) {
+		return false;
+	};
+	rt::string_view digits = "0123456789";
+	return @output.append(digits.slice(value % 10, 1));
+};
+
+fn TestRunnerSource::collect(var TestRunnerSource& this, Syntax& syntax, rt::string_view prefix, var Diagnostics& diagnostics) -> bool {
+	if (syntax.kind() == syntax_kind::function) {
+		if (!@this.collect_registrations(syntax, prefix)) {
+			return false;
+		};
+		bool test = false;
+		bool harness = false;
+		usize index = 0;
+		while (index < syntax.declaration_attributes().size()) {
+			Syntax& attribute = *syntax.declaration_attributes().data()[index].get();
+			@test = test || attribute.token().is("test");
+			@harness = harness || attribute.token().is("harness");
+			@index = index + 1;
+		};
+		if (!test && !harness) {
+			return true;
+		};
+		if (!syntax.function_body() || syntax.function_body()->kind() == syntax_kind::absent) {
+			@diagnostics.error(syntax.token(), "test and harness attributes require a function definition");
+			return true;
+		};
+		var function = TestFunction();
+		@function.parameters = syntax.function_parameters()->size();
+		if (!@function.name.append(prefix) || !test_source_name(@function.name, *syntax.function_name())) {
+			return false;
+		};
+		if (harness) {
+			if (!this.harness.empty()) {
+				@diagnostics.error(syntax.token(), "a test target can define only one harness");
+				return true;
+			};
+			if (function.parameters) {
+				@diagnostics.error(syntax.token(), "the test harness must accept no arguments");
+			};
+			@this.harness = rt::string(function.name.view());
+			return true;
+		};
+		return @this.tests.push_back($function);
+	};
+	if (syntax.kind() == syntax_kind::namespace_body) {
+		var nested = rt::string(prefix);
+		if (!test_source_name(@nested, *syntax.namespace_name()) || !@nested.append("::")) {
+			return false;
+		};
+		return @this.collect(*syntax.namespace_members(), nested.view(), @diagnostics);
+	};
+	if (syntax.kind() == syntax_kind::template_declaration) {
+		return @this.collect(*syntax.template_declaration(), prefix, @diagnostics);
+	};
+	if (syntax.kind() == syntax_kind::record) {
+		return true;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (!@this.collect(*syntax.item(index), prefix, @diagnostics)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn TestRunnerSource::generate(TestRunnerSource& this, var rt::string& output) -> bool {
+	if (!@output.append("fn puts(char* text) -> i32; namespace rt { namespace test { var failures : i32 = 0; fn expect(bool condition) -> bool { if (!condition) { @failures = failures + 1; puts(\"expectation failed\\0\".data()); }; return condition; }; ")) {
+		return false;
+	};
+	if (!this.configuration(@output)) {
+		return false;
+	};
+	usize count = 0;
+	if (this.tests.size()) {
+		@count = this.tests.data()[0].parameters;
+	};
+	if (count) {
+		@output.append("template<");
+		usize index = 0;
+		while (index < count) {
+			if (index) {
+				@output.append(", ");
+			};
+			@output.append("typename T");
+			test_source_number(@output, index);
+			@index = index + 1;
+		};
+		@output.append("> ");
+	};
+	@output.append("fn run(");
+	usize index = 0;
+	while (index < count) {
+		if (index) {
+			@output.append(", ");
+		};
+		@output.append("auto T");
+		test_source_number(@output, index);
+		@output.append("& argument");
+		test_source_number(@output, index);
+		@index = index + 1;
+	};
+	@output.append(") { ");
+	@index = 0;
+	while (index < this.tests.size()) {
+		@output.append("if (selected(");
+		test_source_number(@output, index);
+		@output.append(")) { var failures_before : i32 = failures; puts(\"");
+		@output.append(this.tests.data()[index].name.view());
+		@output.append("\\0\".data()); ");
+		@output.append(this.tests.data()[index].name.view());
+		@output.append("(");
+		usize argument = 0;
+		while (argument < count) {
+			if (argument) {
+				@output.append(", ");
+			};
+			@output.append("@argument");
+			test_source_number(@output, argument);
+			@argument = argument + 1;
+		};
+		@output.append("); if (failures == failures_before) { puts(\"[PASS]\\0\".data()); } else { puts(\"[FAIL]\\0\".data()); }; } ");
+		@index = index + 1;
+	};
+	@output.append("}; ");
+	@index = 0;
+	while (index < this.registration_counts.size()) {
+		if (!this.registration(@output, this.registration_counts.data()[index])) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@output.append("}; }; fn __rutile_test_main(i32 argument_count, char** arguments) -> i32 { if (!rt::test::configure(argument_count, arguments)) { puts(\"usage: --shard-count N --shard-index I (N > 0, I < N)\\0\".data()); return 2; }; ");
+	if (this.harness.empty()) {
+		@output.append("rt::test::run(); ");
+	}
+	else {
+		@output.append(this.harness.view());
+		@output.append("(); ");
+	};
+	return @output.append("if (rt::test::failures) { return 1; }; return 0; };");
+};
+
+
+
+
+
+
+
+fn TestRunnerSource::registration(TestRunnerSource& this, var rt::string& output, usize count) -> bool {
+	@output.append("template<typename Callback");
+	usize index = 0;
+	while (index < count) {
+		@output.append(", typename T");
+		test_source_number(@output, index);
+		@index = index + 1;
+	};
+	@output.append("> fn register(rt::string_view name, Callback callback");
+	@index = 0;
+	while (index < count) {
+		@output.append(", auto T");
+		test_source_number(@output, index);
+		@output.append("& argument");
+		test_source_number(@output, index);
+		@index = index + 1;
+	};
+	@output.append(") { var label = rt::string(name); puts(label.c_str()); var failures_before : i32 = failures; callback(");
+	@index = 0;
+	while (index < count) {
+		if (index) {
+			@output.append(", ");
+		};
+		@output.append("@argument");
+		test_source_number(@output, index);
+		@index = index + 1;
+	};
+	return @output.append("); if (failures == failures_before) { puts(\"[PASS]\\0\".data()); } else { puts(\"[FAIL]\\0\".data()); }; }; ");
+};
+
+fn TestRunnerSource::collect_registrations(var TestRunnerSource& this, Syntax& syntax, rt::string_view prefix) -> bool {
+	if (syntax.kind() == syntax_kind::call) {
+		var name = rt::string();
+		if (!test_source_name(@name, *syntax.callable())) {
+			return false;
+		};
+		if ((name.view() == "rt::test::register" || prefix == "rt::test::" && name.view() == "register") && syntax.arguments()->size() >= 2) {
+			usize count = syntax.arguments()->size() - 2;
+			usize index = 0;
+			while (index < this.registration_counts.size() && this.registration_counts.data()[index] != count) {
+				@index = index + 1;
+			};
+			if (index == this.registration_counts.size() && !@this.registration_counts.push_back(count)) {
+				return false;
+			};
+		};
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (!@this.collect_registrations(*syntax.item(index), prefix)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+
+
+
+fn TestRunnerSource::configuration(TestRunnerSource& this, var rt::string& output) -> bool {
+	return @output.append("var shard_count : usize = 1; var shard_index : usize = 0; fn selected(usize ordinal) -> bool { return ordinal % shard_count == shard_index; }; fn parse_number(rt::string_view text, var usize& value) -> bool { if (text.empty()) { return false; }; @value = 0; usize index = 0; while (index < text.size()) { char digit = text.data()[index]; if (digit < char(48) || digit > char(57)) { return false; }; usize number = static_cast<usize>(digit) - 48; if (value > (usize::max - number) / 10) { return false; }; @value = value * 10 + number; @index = index + 1; }; return true; }; fn configure(i32 argument_count, char** arguments) -> bool { bool count_seen = false; bool index_seen = false; i32 argument = 1; while (argument < argument_count) { var option = rt::from_c_string(arguments[argument]); if (argument + 1 >= argument_count) { return false; }; var value = rt::from_c_string(arguments[argument + 1]); if (option == \"--shard-count\") { if (count_seen || !parse_number(value, @shard_count)) { return false; }; @count_seen = true; } else if (option == \"--shard-index\") { if (index_seen || !parse_number(value, @shard_index)) { return false; }; @index_seen = true; } else { return false; }; @argument = argument + 2; }; return shard_count && shard_index < shard_count; }; ");
+};

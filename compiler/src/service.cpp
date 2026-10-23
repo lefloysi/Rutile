@@ -31,6 +31,8 @@ extern "C" Compiler* rutile_compiler_create();
 extern "C" void rutile_compiler_destroy(Compiler* compiler);
 extern "C" void rutile_compiler_set_progress(Compiler* compiler, RutileProgressCallback callback, void* context);
 extern "C" int rutile_compile_sources(Compiler* compiler, const char* const* paths, const char* const* texts, const std::size_t* lengths, std::size_t count, const char* output, std::FILE* (*opener)(const char*, const char*), const char* entry, int optimization, std::FILE* diagnostics, int library);
+extern "C" void rutile_compiler_clear_modules(Compiler* compiler);
+extern "C" int rutile_compiler_add_module_source(Compiler* compiler, const char* path, const char* name, int access);
 extern "C" int kiln_language_server(Compiler* compiler, std::FILE* input, std::FILE* output, const char* root);
 
 std::string rutile_service_path(const std::filesystem::path& path) {
@@ -112,6 +114,136 @@ std::FILE* rutile_service_open(const char* path, const char* mode) {
 	return platform_open_file(std::filesystem::u8path(path), mode);
 }
 
+int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, const std::vector<std::string>& names, const std::vector<std::string>& contents, std::FILE* diagnostics) {
+	std::vector<std::filesystem::path> destinations;
+	std::vector<std::string> inputs = names;
+	for (const auto& path : request.value("interfaces", std::vector<std::string>{})) {
+		inputs.push_back(path);
+	}
+	for (const auto* field : { "output", "interface_output", "library_output" }) {
+		if (!request.contains(field)) {
+			continue;
+		}
+		const auto destination = std::filesystem::absolute(std::filesystem::u8path(request.at(field).get<std::string>())).lexically_normal();
+		for (const auto& input : inputs) {
+			const auto source = std::filesystem::absolute(std::filesystem::u8path(input)).lexically_normal();
+			std::error_code error;
+			if (source == destination || std::filesystem::equivalent(source, destination, error)) {
+				throw std::runtime_error("A module output would overwrite a source or imported interface.");
+			}
+		}
+		for (const auto& previous : destinations) {
+			std::error_code error;
+			if (previous == destination || std::filesystem::equivalent(previous, destination, error)) {
+				throw std::runtime_error("Module outputs must have distinct paths.");
+			}
+		}
+		destinations.push_back(destination);
+	}
+	const auto kind = request.value("kind", std::string("object"));
+	if (kind != "object" && kind != "library" && kind != "executable" && kind != "test") {
+		throw std::runtime_error("Unknown compiler output kind.");
+	}
+	const auto module = request.value("module", std::string{});
+	if (request.contains("interface_output") && module.empty()) {
+		throw std::runtime_error("Generating a module interface requires a nonempty module identity.");
+	}
+	auto records = nlohmann::json::array();
+	std::unordered_map<std::string, std::size_t> identities;
+	std::set<std::string> private_interfaces;
+	if (kind != "test" && !request.value("test_interfaces", std::vector<std::string>{}).empty()) {
+		throw std::runtime_error("Private module access is available only to a test target.");
+	}
+	for (const auto& path : request.value("test_interfaces", std::vector<std::string>{})) {
+		private_interfaces.insert(rutile_service_path(std::filesystem::absolute(std::filesystem::u8path(path)).lexically_normal()));
+	}
+	for (const auto& path : request.value("interfaces", std::vector<std::string>{})) {
+		const auto canonical = rutile_service_path(std::filesystem::absolute(std::filesystem::u8path(path)).lexically_normal());
+		const auto interface = nlohmann::json::parse(rutile_service_read(std::filesystem::u8path(path)));
+		if (interface.value("format", 0) != 1 || interface.value("compiler", std::string{}) != software_version || interface.value("pointer_bits", 0) != sizeof(void*) * 8) {
+			throw std::runtime_error("Incompatible Rutile interface '" + path + "': compiler version and target must match.");
+		}
+		const auto tested_module = private_interfaces.contains(canonical) ? interface.at("module").get<std::string>() : std::string{};
+		for (auto record : interface.at("declarations")) {
+			const auto owner = record.at("module").get<std::string>();
+			const auto identity = owner + "|" + record.at("path").get<std::string>();
+			const int access = !tested_module.empty() && tested_module == owner ? 2 : 1;
+			auto [position, inserted] = identities.emplace(identity, records.size());
+			if (!inserted) {
+				if (records[position->second].at("text") != record.at("text")) {
+					throw std::runtime_error("Conflicting versions of imported module '" + owner + "'.");
+				}
+				if (access > records[position->second].at("access").get<int>()) {
+					records[position->second]["access"] = access;
+				}
+				continue;
+			}
+			record["access"] = access;
+			records.push_back(std::move(record));
+		}
+	}
+	for (std::size_t index = 0; index < names.size(); ++index) {
+		records.push_back({ { "path", names[index] }, { "text", contents[index] }, { "module", module }, { "access", 0 } });
+	}
+	std::vector<std::string> source_paths;
+	std::vector<std::string> source_texts;
+	std::vector<std::size_t> source_lengths;
+	rutile_compiler_clear_modules(compiler);
+	for (const auto& record : records) {
+		const auto owner = record.at("module").get<std::string>();
+		const auto access = record.at("access").get<int>();
+		auto path = record.at("path").get<std::string>();
+		if (access) {
+			path = "rti://" + owner + "/" + path;
+		}
+		source_paths.push_back(std::move(path));
+		source_texts.push_back(record.at("text").get<std::string>());
+		source_lengths.push_back(source_texts.back().size());
+		if (rutile_compiler_add_module_source(compiler, source_paths.back().c_str(), owner.c_str(), access)) {
+			throw std::runtime_error("Cannot configure module source ownership.");
+		}
+	}
+	const auto entry = request.value("entry", std::string{});
+	const auto library_source_count = source_paths.size();
+	if (kind == "executable" && !module.empty()) {
+		if (entry.empty() || entry.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:") != std::string::npos) {
+			throw std::runtime_error("An executable requires an explicit qualified entry function.");
+		}
+		source_paths.push_back("<rutile-runtime-entry>");
+		source_texts.push_back("fn __rutile_runtime_main(i32 count, char** arguments) -> i32 { var views = rt::buffer<rt::string_view>(); usize index = 1; while (index < static_cast<usize>(count)) { if (!@views.push_back(rt::from_c_string(arguments[index]))) { return 1; }; @index = index + 1; }; rt::ExitCode result = " + entry + "(rt::span<rt::string_view>(views.data(), views.size())); return static_cast<i32>(result); };");
+		source_lengths.push_back(source_texts.back().size());
+	}
+	std::vector<const char*> paths;
+	std::vector<const char*> texts;
+	for (std::size_t index = 0; index < source_paths.size(); ++index) {
+		paths.push_back(source_paths[index].c_str());
+		texts.push_back(source_texts[index].data());
+	}
+	const auto output = request.at("output").get<std::string>();
+	const auto selected_entry = kind == "executable" && !module.empty() ? std::string("__rutile_runtime_main") : entry;
+	const int mode = kind == "test" ? 2 : kind == "executable" ? 0 : 1;
+	int result = rutile_compile_sources(compiler, paths.data(), texts.data(), source_lengths.data(), paths.size(), output.c_str(), rutile_service_open, selected_entry.c_str(), request.value("optimization", 0), diagnostics, mode);
+	if (result) {
+		return result;
+	}
+	if (request.contains("library_output")) {
+		const auto library = request.at("library_output").get<std::string>();
+		result = rutile_compile_sources(compiler, paths.data(), texts.data(), source_lengths.data(), library_source_count, library.c_str(), rutile_service_open, "", request.value("optimization", 0), diagnostics, 1);
+		if (result) {
+			return result;
+		}
+	}
+	if (request.contains("interface_output")) {
+		for (auto& record : records) {
+			record.erase("access");
+		}
+		const auto target = std::filesystem::u8path(request.at("interface_output").get<std::string>());
+		std::filesystem::create_directories(target.parent_path());
+		rutile_service_write(target, nlohmann::json{ { "format", 1 }, { "compiler", software_version }, { "pointer_bits", sizeof(void*) * 8 }, { "module", module }, { "declarations", std::move(records) } }.dump());
+	}
+	return 0;
+}
+
 std::string rutile_service_diagnostics(std::FILE* file) {
 	std::rewind(file);
 	std::string result;
@@ -172,7 +304,40 @@ bool rutile_service_artifacts_exist(const nlohmann::json& request) {
 			return false;
 		}
 	}
+	for (const auto* field : { "interface_output", "library_output" }) {
+		if (request.contains(field)) {
+			std::error_code error;
+			if (!std::filesystem::is_regular_file(std::filesystem::u8path(request.at(field).get<std::string>()), error)) {
+				return false;
+			}
+		}
+	}
 	return true;
+}
+
+nlohmann::json rutile_service_companion_fingerprints(const nlohmann::json& request) {
+	auto result = nlohmann::json::object();
+	for (const auto* field : { "interface_output", "library_output" }) {
+		if (request.contains(field)) {
+			const auto fingerprint = rutile_service_artifact_fingerprint(std::filesystem::u8path(request.at(field).get<std::string>()));
+			result[field] = { { "exists", fingerprint.exists }, { "size", fingerprint.size }, { "hash", fingerprint.hash } };
+		}
+	}
+	return result;
+}
+
+bool rutile_service_companions_current(const nlohmann::json& request, const nlohmann::json& result) {
+	return rutile_service_companion_fingerprints(request) == result.value("companion_fingerprints", nlohmann::json::object());
+}
+
+std::vector<std::string> rutile_service_inputs(const nlohmann::json& request) {
+	auto sources = request.at("sources").get<std::vector<std::string>>();
+	for (const auto& interface : request.value("interfaces", std::vector<std::string>{})) {
+		if (std::find(sources.begin(), sources.end(), interface) == sources.end()) {
+			sources.push_back(interface);
+		}
+	}
+	return sources;
 }
 
 nlohmann::json rutile_service_compile(Compiler* compiler, const nlohmann::json& request, const std::filesystem::path& directory, std::unordered_map<std::string, std::string>& source_snapshot) {
@@ -291,13 +456,19 @@ nlohmann::json rutile_service_compile(Compiler* compiler, const nlohmann::json& 
 	}
 	auto entry = request.value("entry", std::string("main"));
 	auto kind = request.at("kind").get<std::string>();
-	if (kind != "object" && kind != "executable") {
+	if (kind != "object" && kind != "library" && kind != "executable" && kind != "test") {
 		throw std::runtime_error("Unknown compiler output kind.");
 	}
 	auto output_text = rutile_service_path(output);
 	auto staged_output_text = rutile_service_path(staged_output);
 	rutile_compiler_set_progress(compiler, rutile_service_progress, &progress);
-	int result = rutile_compile_sources(compiler, paths.data(), texts.data(), lengths.data(), paths.size(), staged_output_text.c_str(), rutile_service_open, entry.c_str(), request.at("optimization").get<int>(), diagnostics.get(), kind == "object");
+	auto module_request = request;
+	module_request["output"] = staged_output_text;
+	std::vector<std::string> contents;
+	for (std::size_t index = 0; index < names.size(); ++index) {
+		contents.emplace_back(bundle.data() + offsets[index], lengths[index]);
+	}
+	int result = rutile_compile_module(compiler, module_request, names, contents, diagnostics.get());
 	rutile_compiler_set_progress(compiler, nullptr, nullptr);
 	if (!result) {
 		rutile_service_progress(&progress, "publishing", 0, 1, output_text.c_str());
@@ -321,7 +492,7 @@ nlohmann::json rutile_service_compile(Compiler* compiler, const nlohmann::json& 
 	progress.metadata["artifacts_current"] = !result && artifact_revision == source_revision && fingerprint.exists;
 	progress.state = result ? "failed" : "succeeded";
 	rutile_service_progress(&progress, result ? "failed" : "compiled", 1, 1, result ? diagnostic_text.c_str() : "Compilation completed");
-	return { { "succeeded", !result }, { "diagnostics", diagnostic_text }, { "output", output_text }, { "bundle", rutile_service_path(bundle_path) }, { "source_map", rutile_service_path(map_path) }, { "source_revision", source_revision }, { "artifact_revision", artifact_revision }, { "artifacts_current", !result && artifact_revision == source_revision && fingerprint.exists }, { "artifact_fingerprint", { { "exists", fingerprint.exists }, { "size", fingerprint.size }, { "hash", fingerprint.hash } } }, { "pid", platform_process_id() } };
+	return { { "succeeded", !result }, { "diagnostics", diagnostic_text }, { "output", output_text }, { "bundle", rutile_service_path(bundle_path) }, { "source_map", rutile_service_path(map_path) }, { "source_revision", source_revision }, { "artifact_revision", artifact_revision }, { "artifacts_current", !result && artifact_revision == source_revision && fingerprint.exists }, { "companion_fingerprints", rutile_service_companion_fingerprints(request) }, { "artifact_fingerprint", { { "exists", fingerprint.exists }, { "size", fingerprint.size }, { "hash", fingerprint.hash } } }, { "pid", platform_process_id() } };
 }
 
 struct RutileServiceFileStamp {
@@ -412,7 +583,7 @@ bool rutile_service_configure_watch(const nlohmann::json& request, RutileService
 		watch.pending.clear();
 		watch.deferred_changes.clear();
 		watch.compile_failed = false;
-		for (const auto& source : request.at("sources").get<std::vector<std::string>>()) {
+		for (const auto& source : rutile_service_inputs(request)) {
 			watch.sources.insert_or_assign(source, rutile_service_stamp(source));
 		}
 	}
@@ -428,7 +599,7 @@ bool rutile_service_configure_watch(const nlohmann::json& request, RutileService
 
 std::vector<std::string> rutile_service_changed_sources_now(RutileServiceWatch& watch) {
 	std::vector<std::string> changed;
-	for (const auto& source : watch.request.at("sources").get<std::vector<std::string>>()) {
+	for (const auto& source : rutile_service_inputs(watch.request)) {
 		auto current = rutile_service_stamp(source);
 		auto previous = watch.sources.find(source);
 		if (previous == watch.sources.end() || !(previous->second == current)) {
@@ -443,7 +614,7 @@ std::vector<std::string> rutile_service_changed_sources_now(RutileServiceWatch& 
 std::vector<std::string> rutile_service_changed_sources(RutileServiceWatch& watch, std::chrono::steady_clock::time_point now) {
 	constexpr auto debounce = std::chrono::milliseconds(200);
 	std::vector<std::string> changed;
-	const auto sources = watch.request.at("sources").get<std::vector<std::string>>();
+	const auto sources = rutile_service_inputs(watch.request);
 	for (const auto& source : sources) {
 		auto current = rutile_service_stamp(source);
 		auto previous = watch.sources.find(source);
@@ -635,7 +806,7 @@ int rutile_service_serve(const char* endpoint) {
 				continue;
 			}
 			if (watch.initial_pending) {
-				for (const auto& source : watch.request.at("sources").get<std::vector<std::string>>()) {
+				for (const auto& source : rutile_service_inputs(watch.request)) {
 					watch.sources.insert_or_assign(source, rutile_service_stamp(source));
 				}
 				watch.pending.clear();
@@ -724,7 +895,7 @@ int rutile_service_serve(const char* endpoint) {
 					if (!request.contains("sources") || request.at("sources").get<std::vector<std::string>>().empty()) {
 						throw std::runtime_error("No Rutile sources were supplied in the target manifest.");
 					}
-					if (request.value("kind", std::string{}) != "object" && request.value("kind", std::string{}) != "executable") {
+					if (request.value("kind", std::string{}) != "object" && request.value("kind", std::string{}) != "library" && request.value("kind", std::string{}) != "executable" && request.value("kind", std::string{}) != "test") {
 						throw std::runtime_error("Unknown compiler output kind in the target manifest.");
 					}
 					if (!request.contains("optimization") || request.at("optimization").get<int>() < 0 || request.at("optimization").get<int>() > 3) {
@@ -783,7 +954,7 @@ int rutile_service_serve(const char* endpoint) {
 					else if (!changed_configuration && changed_sources.empty() && watch.artifact_revision == watch.source_revision
 						&& !watch.compile_failed && watch.last_result.is_object()) {
 						const auto artifact_path = std::filesystem::u8path(request.at("output").get<std::string>());
-						if (watch.artifact_fingerprint.exists && rutile_service_artifacts_exist(request) && rutile_service_artifact_fingerprint(artifact_path) == watch.artifact_fingerprint) {
+						if (watch.artifact_fingerprint.exists && rutile_service_artifacts_exist(request) && rutile_service_companions_current(request, watch.last_result) && rutile_service_artifact_fingerprint(artifact_path) == watch.artifact_fingerprint) {
 							job = std::make_shared<RutileServiceCompileJob>(session, request);
 							auto cached = watch.last_result;
 							cached["request_id"] = request_id;
@@ -829,7 +1000,7 @@ int rutile_service_serve(const char* endpoint) {
 							if (result.value("succeeded", false)) {
 								const auto expected = result.value("artifact_fingerprint", nlohmann::json::object());
 								const auto artifact_path = std::filesystem::u8path(session.request.at("output").get<std::string>());
-								artifact_changed = !expected.value("exists", false) || !rutile_service_artifacts_exist(session.request)
+								artifact_changed = !expected.value("exists", false) || !rutile_service_artifacts_exist(session.request) || !rutile_service_companions_current(session.request, result)
 									|| rutile_service_artifact_fingerprint(artifact_path) != RutileServiceArtifactFingerprint{ expected.value("exists", false), expected.value("size", std::uintmax_t{}), expected.value("hash", std::uint64_t{}) };
 								if (artifact_changed) {
 									session.compile_failed = true;

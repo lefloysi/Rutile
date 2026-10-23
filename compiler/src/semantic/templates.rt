@@ -165,7 +165,7 @@ fn TemplateEngine::pattern_owner(var TemplateEngine& this, var Analyzer& analyze
 		return @this.pattern_owner(@analyzer, @*owner->members(), @*name.right());
 	};
 
-	return scope.lookup(name.token().text());
+	return @analyzer.lookup(@scope, @name);
 };
 
 fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source) -> bool {
@@ -249,7 +249,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 		return @this.auto_declaration(@analyzer, @scope, @scope, @source, scope.access());
 	};
 
-	var Entity* previous = scope.local(name->token().text());
+	var Entity* previous = scope.local_declaration(name->token().text(), name->token().source, entity_kind::template_pattern);
 
 	if (previous && previous->kind() != entity_kind::template_pattern) {
 		var message = DiagnosticMessage();
@@ -386,7 +386,7 @@ fn TemplateEngine::auto_declaration(var TemplateEngine& this, var Analyzer& anal
 	while (index < scope.bindings().size()) {
 		var Entity* previous = scope.bindings().data()[index];
 		@index = index + 1;
-		if (previous->name() != name->token().text()) {
+		if (previous->name() != name->token().text() || !same_source_module(previous->token().source, name->token().source)) {
 			continue;
 		};
 		if (previous->kind() != entity_kind::template_pattern || previous->declaration()->kind() != syntax_kind::function) {
@@ -638,6 +638,12 @@ fn TemplateEngine::apply(var TemplateEngine& this, var Analyzer& analyzer, var S
 			@analyzer.note(pattern->token(), "non-template declaration is here");
 		};
 
+		return nullptr;
+	};
+
+	if (!analyzer.accessible_at(*pattern, @argument_scope, source.token())) {
+		@analyzer.error(&@source, "template is not accessible from this scope");
+		@analyzer.note(pattern->token(), "template is declared here");
 		return nullptr;
 	};
 
@@ -1333,6 +1339,11 @@ fn TemplateEngine::deduce(var TemplateEngine& this, var Analyzer& analyzer, var 
 };
 
 fn TemplateEngine::specialize_call(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, rt::optional_ref<Syntax> supplied, rt::buffer<rt::unique<SemanticExpression>>& values, var Syntax& request) -> var Entity* {
+	if (!analyzer.accessible_at(pattern, @scope, request.token())) {
+		@analyzer.error(&@request, "function template is not accessible from this scope");
+		@analyzer.note(pattern.token(), "template is declared here");
+		return nullptr;
+	};
 	var Syntax* declaration = this.function_source(@pattern);
 
 	if (!declaration || declaration->function_parameters()->size() != values.size()) {
@@ -1671,7 +1682,12 @@ fn TemplateArgument::same(TemplateArgument& this, TemplateArgument& other) -> bo
 
 fn TemplateEngine::signature_entity(TemplateEngine& this, var Scope& scope, var Syntax& name) -> var Entity* {
 	if (name.kind() == syntax_kind::name) {
-		return scope.lookup(name.token().text());
+		bool ambiguous = false;
+		var Entity* result = scope.lookup_from(name.token().text(), name.token().source, @ambiguous);
+		if (ambiguous) {
+			return nullptr;
+		};
+		return result;
 	};
 	if (name.kind() != syntax_kind::qualified_name || name.right()->kind() == syntax_kind::template_apply) {
 		return nullptr;
@@ -1684,7 +1700,15 @@ fn TemplateEngine::signature_entity(TemplateEngine& this, var Scope& scope, var 
 	if (!owner || !owner->members() || name.right()->kind() != syntax_kind::name) {
 		return nullptr;
 	};
-	return owner->find_member(name.right()->token().text());
+	bool ambiguous = false;
+	var Entity* result = owner->members()->local_from(name.right()->token().text(), name.token().source, @ambiguous);
+	if (ambiguous) {
+		return nullptr;
+	};
+	if (!result && owner->kind() == entity_kind::record) {
+		@result = owner->find_member(name.right()->token().text());
+	};
+	return result;
 };
 
 fn TemplateEngine::signature(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var Syntax* {
@@ -1703,7 +1727,7 @@ fn TemplateEngine::signature(var TemplateEngine& this, var Analyzer& analyzer, v
 };
 
 fn TemplateEngine::collect_signature(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> bool {
-	var Entity* previous = scope.local(syntax.item(0)->token().text());
+	var Entity* previous = scope.local_declaration(syntax.item(0)->token().text(), syntax.token().source, entity_kind::pack_signature);
 	if (previous) {
 		var message = DiagnosticMessage();
 		if (previous->kind() == entity_kind::pack_signature) {
@@ -1757,7 +1781,7 @@ fn TemplateEngine::pack_element(var TemplateEngine& this, var Analyzer& analyzer
 		var Syntax* value_source = this.argument_syntax(@*source, template_argument_kind::value);
 		var Entity* entity = nullptr;
 		if (value_source && value_source->kind() == syntax_kind::name) {
-			@entity = scope.lookup(value_source->token().text());
+			@entity = @analyzer.lookup(@scope, @*value_source);
 		}
 		else if (value_source && value_source->kind() == syntax_kind::qualified_name) {
 			@entity = @analyzer.lookup(@scope, @*value_source);

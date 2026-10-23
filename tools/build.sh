@@ -279,10 +279,10 @@ prepare() {
 find_seed_compiler() {
 	local compiler="${RUTILE_COMPILER:-}"
 	if [[ -z "$compiler" ]]; then
-		compiler="$(command -v rutilec || true)"
-	fi
-	if [[ -z "$compiler" ]]; then
 		compiler="$root/distro/windows-x64/rutilec.exe"
+	fi
+	if [[ ! -f "$(to_unix_path "$compiler")" ]]; then
+		compiler="$(command -v rutilec || true)"
 	fi
 	compiler="$(to_unix_path "$compiler")"
 	[[ -f "$compiler" ]] || fail "Rutilec seed not found: $compiler. Set RUTILE_COMPILER or add rutilec to PATH."
@@ -300,35 +300,48 @@ build_compiler() {
 	compiler="$(find_seed_compiler)"
 	export PATH="$(dirname -- "$compiler"):$root/distro/windows-x64:$PATH"
 	local -a sources=()
+	local -a module_options=()
+	local modular_std=0
+	if [[ "$("$compiler" --help)" == *--interface-output* ]]; then
+		modular_std=1
+		powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/tools/package-stdlib.ps1")" -Compiler "$(cygpath -w "$compiler")" -Destination "$(cygpath -w "$build_dir/seed-stdlib")" -Optimization "$optimization"
+		module_options+=( --interface "build/$profile/seed-stdlib/std.rti" )
+	fi
 	local name
-	for name in unique optional buffer string_view string hash equal unordered_map json identifier; do
-		if [[ -f "$root/compiler/std/$name.rt" ]]; then
-			sources+=( "compiler/std/$name.rt" )
-		fi
-	done
 	local source
-	while IFS= read -r source; do
-		local already_added=0
+	if [[ "$modular_std" == 0 ]]; then
 		for name in unique optional buffer string_view string hash equal unordered_map json identifier; do
-			if [[ "$source" == "compiler/std/$name.rt" ]]; then
-				already_added=1
-				break
+			if [[ -f "$root/compiler/std/$name.rt" ]]; then
+				sources+=( "compiler/std/$name.rt" )
 			fi
 		done
-		if [[ "$already_added" == 0 ]]; then
-			sources+=( "$source" )
-		fi
-	done < <(find compiler/std -type f -name '*.rt' -print | LC_ALL=C sort)
+		while IFS= read -r source; do
+			local already_added=0
+			for name in unique optional buffer string_view string hash equal unordered_map json identifier; do
+				if [[ "$source" == "compiler/std/$name.rt" ]]; then
+					already_added=1
+					break
+				fi
+			done
+			if [[ "$already_added" == 0 ]]; then
+				sources+=( "$source" )
+			fi
+		done < <(find compiler/std -type f -name '*.rt' -print | LC_ALL=C sort)
+	fi
 	while IFS= read -r source; do
 		sources+=( "$source" )
 	done < <(find compiler/src language -type f -name '*.rt' -print | LC_ALL=C sort)
 	mkdir -p "$native_dir"
 	printf 'Compiling %s Rutile files with %s (%s, optimization %s).\n' "${#sources[@]}" "$compiler" "$profile" "$optimization"
-	"$compiler" "${sources[@]}" --output "build/$profile/native/rutile-language.obj" --optimization "$optimization"
+	"$compiler" "${sources[@]}" "${module_options[@]}" --output "build/$profile/native/rutile-language.obj" --optimization "$optimization"
+	if [[ "$modular_std" == 1 ]]; then
+		printf '"%s"\n' "$(cygpath -w "$build_dir/seed-stdlib/std.lib")" >> "$native_dir/link-$profile.rsp"
+	fi
 	local batch_win
 	batch_win="$(cygpath -w "$native_dir/build.cmd")"
 	export RUTILE_PROFILE="$profile"
 	MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c "$batch_win"
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/tools/package-stdlib.ps1")" -Compiler "$(cygpath -w "$native_dir/rutilec.exe")" -Destination "$(cygpath -w "$build_dir/share/rutile/lib")" -Optimization "$optimization"
 	printf 'Built %s\n' "$native_dir/rutilec.exe"
 }
 

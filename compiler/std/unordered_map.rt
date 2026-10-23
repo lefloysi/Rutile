@@ -1,6 +1,6 @@
 namespace rt {
 	template<typename T>
-	union unordered_slot {
+	export union unordered_slot {
 		fn unordered_slot(var unordered_slot& this) : [default];
 		fn ~unordered_slot(var unordered_slot& this) : [default];
 
@@ -9,7 +9,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V>
-	struct unordered_node {
+	export struct unordered_node {
 		fn unordered_node(var unordered_node& this, K key, V value, usize code);
 		fn ~unordered_node(var unordered_node& this);
 
@@ -26,7 +26,7 @@ namespace rt {
 	// Pointers returned by find survive insert/reserve and moves of their owning map.
 	// Erase invalidates only the erased value; clear and destruction invalidate all values.
 	template<typename K, typename V, typename Hash = default_hash<K>, typename Equal = default_equal<K>>
-	struct unordered_map {
+	export struct unordered_map {
 		fn unordered_map(var unordered_map& this);
 		fn unordered_map(var unordered_map& this, Hash hash, Equal equal);
 		fn unordered_map(var unordered_map& this, unordered_map& other) : [delete];
@@ -51,20 +51,20 @@ namespace rt {
 	};
 
 	template<typename K, typename V>
-	fn unordered_node<K, V>::unordered_node(var unordered_node& this, K key, V value, usize code) {
+	export fn unordered_node<K, V>::unordered_node(var unordered_node& this, K key, V value, usize code) {
 		@this.key.object.K($key);
 		@this.value.object.V($value);
 		@this.hash_code = $code;
 	};
 
 	template<typename K, typename V>
-	fn unordered_node<K, V>::~unordered_node(var unordered_node& this) {
+	export fn unordered_node<K, V>::~unordered_node(var unordered_node& this) {
 		@this.value.object.~V();
 		@this.key.object.~K();
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::unordered_map(var unordered_map& this) {
+	export fn unordered_map<K, V, Hash, Equal>::unordered_map(var unordered_map& this) {
 		@this.hasher.unordered_slot<Hash>();
 		@this.comparison.unordered_slot<Equal>();
 		@this.hasher.object.Hash();
@@ -72,7 +72,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::unordered_map(var unordered_map& this, Hash hash, Equal equal) {
+	export fn unordered_map<K, V, Hash, Equal>::unordered_map(var unordered_map& this, Hash hash, Equal equal) {
 		@this.hasher.unordered_slot<Hash>();
 		@this.comparison.unordered_slot<Equal>();
 		@this.hasher.object.Hash($hash);
@@ -80,24 +80,24 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::~unordered_map(var unordered_map& this) {
+	export fn unordered_map<K, V, Hash, Equal>::~unordered_map(var unordered_map& this) {
 		@this.clear();
 		@this.comparison.object.~Equal();
 		@this.hasher.object.~Hash();
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::size(unordered_map& this) -> usize {
+	export fn unordered_map<K, V, Hash, Equal>::size(unordered_map& this) -> usize {
 		return this.length;
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::empty(unordered_map& this) -> bool {
+	export fn unordered_map<K, V, Hash, Equal>::empty(unordered_map& this) -> bool {
 		return !this.length;
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::find(auto unordered_map& this, K& key) -> const[this] V* {
+	export fn unordered_map<K, V, Hash, Equal>::find(auto unordered_map& this, K& key) -> const[this] V* {
 		if (!this.buckets.size()) {
 			return nullptr;
 		};
@@ -117,7 +117,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::insert(var unordered_map& this, K key, V value) -> bool {
+	export fn unordered_map<K, V, Hash, Equal>::insert(var unordered_map& this, K key, V value) -> bool {
 		if (this.find(key) || this.length == usize::max) {
 			return false;
 		};
@@ -145,7 +145,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::erase(var unordered_map& this, K& key) -> bool {
+	export fn unordered_map<K, V, Hash, Equal>::erase(var unordered_map& this, K& key) -> bool {
 		if (!this.buckets.size()) {
 			return false;
 		};
@@ -174,7 +174,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::clear(var unordered_map& this) {
+	export fn unordered_map<K, V, Hash, Equal>::clear(var unordered_map& this) {
 		usize index = 0;
 		while (index < this.buckets.size()) {
 			var unordered_node<K, V>* node = this.buckets.data()[index];
@@ -195,7 +195,7 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	fn unordered_map<K, V, Hash, Equal>::reserve(var unordered_map& this, usize required) -> bool {
+	export fn unordered_map<K, V, Hash, Equal>::reserve(var unordered_map& this, usize required) -> bool {
 		if (required <= this.buckets.size()) {
 			return true;
 		};

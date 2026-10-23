@@ -115,6 +115,8 @@ struct Entity {
 	fn layout(Entity& this) -> record_layout;
 	fn member_owner(Entity& this) -> var Entity*;
 	fn accessible_from(Entity& this, Scope& scope) -> bool;
+	fn imported_definition(Entity& this) -> bool;
+	fn module_exported(Entity& this) -> bool;
 	fn bases(Entity& this) -> rt::buffer<Type*>&;
 	fn add_base(var Entity& this, Type* type) -> bool;
 
@@ -776,14 +778,23 @@ fn Entity::set_type(var Entity& this, Type* type) {
 };
 
 fn Entity::merge_into(var Entity& this, var Entity* canonical) {
+	if (this.declaration() && this.declaration()->exported() && canonical->declaration()) {
+		@canonical->declaration()->mark_exported();
+	};
 	@this.previous_declaration = $canonical;
 };
 
 fn Entity::replace_declaration(var Entity& this, var Syntax* syntax) {
+	if (this.declaration() && this.declaration()->exported() && syntax) {
+		@syntax->mark_exported();
+	};
 	@this.source = $syntax;
 };
 
 fn Entity::adopt_definition(var Entity& this, Entity& source) -> bool {
+	if (this.declaration() && this.declaration()->exported() && source.declaration()) {
+		@source.declaration()->mark_exported();
+	};
 	@this.source = source.declaration();
 	@this.member_scope = source.members();
 	@this.body_kind = source.definition();
@@ -875,6 +886,29 @@ fn Entity::accessible_from(Entity& this, Scope& scope) -> bool {
 		@scope_cursor = scope_cursor->parent();
 	};
 
+	return false;
+};
+
+fn Entity::imported_definition(Entity& this) -> bool {
+	Token token = this.token();
+	return token.source && token.source->imported() && !this.instantiated() && this.origin() != declaration_origin::compiler_supplied;
+};
+
+fn Entity::module_exported(Entity& this) -> bool {
+	if (this.kind() == entity_kind::namespace_body || this.origin() == declaration_origin::compiler_supplied) {
+		return true;
+	};
+	var Syntax* declaration = this.declaration();
+	while (declaration && declaration->kind() == syntax_kind::template_declaration) {
+		@declaration = declaration->item(1);
+	};
+	if (declaration && declaration->exported()) {
+		return true;
+	};
+	var Scope* owner = this.scope();
+	if (owner && owner->owner() && owner->owner()->kind() != entity_kind::namespace_body) {
+		return owner->owner()->module_exported();
+	};
 	return false;
 };
 

@@ -149,7 +149,7 @@ fn exception_member_access(var Analyzer& analyzer, var Entity* member, var Scope
 		@analyzer.deleted_function(location, *member);
 		return false;
 	};
-	if (!analyzer.accessible(*member, @scope)) {
+	if (!analyzer.accessible_at(*member, @scope, location)) {
 		var message = DiagnosticMessage();
 		@message.text("exception handling requires function '");
 		diagnostic_entity(@message, *member);
@@ -525,6 +525,11 @@ fn Analyzer::expression_impl(var Analyzer& this, var Scope& scope, var Syntax& s
 				@message.text("'");
 				@this.diagnostics->error(syntax.token(), message.view());
 			};
+			return rt::unique<SemanticExpression>();
+		};
+		if (!this.accessible_at(*entity, @scope, syntax.token())) {
+			@this.error(&@syntax, "declaration is not accessible from this scope");
+			@this.note(entity->token(), "declaration is here");
 			return rt::unique<SemanticExpression>();
 		};
 		if (!@this.resolve((var Entity*(entity)))) {

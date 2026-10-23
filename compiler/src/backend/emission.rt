@@ -1,7 +1,8 @@
 fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 	FunctionSignature& signature = entity->type()->signature();
+	bool runtime_entry = entity->name() == "__rutile_runtime_main" || entity->name() == "__rutile_test_main";
 
-	if (signature.parameters().size() || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
+	if ((!runtime_entry && signature.parameters().size()) || (signature.result()->kind() != type_kind::void_type && !signature.result()->kind().is_integer())) {
 		var message = DiagnosticMessage();
 		@message.text("executable entry '");
 		diagnostic_entity(@message, *entity);
@@ -12,10 +13,22 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 	};
 
 	var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.context(), 32);
-	var LLVMOpaqueType* type = LLVMFunctionType((var LLVMOpaqueType*(integer)), nullptr, 0, 0);
+	var LLVMOpaqueType*[2] parameters {};
+	@parameters[0] = integer;
+	@parameters[1] = LLVMPointerTypeInContext(this.context(), 0);
+	u32 parameter_count = 0;
+	if (runtime_entry) {
+		@parameter_count = 2;
+	};
+	var LLVMOpaqueType* type = LLVMFunctionType((var LLVMOpaqueType*(integer)), &@parameters[0], parameter_count, 0);
 	var LLVMOpaqueValue* main = LLVMAddFunction(this.module(), "main\0".data(), type);
 	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), main, "entry\0".data()));
-	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), this.symbol(entity), nullptr, 0, "\0".data());
+	var LLVMOpaqueValue*[2] arguments {};
+	if (runtime_entry) {
+		@arguments[0] = LLVMGetParam(main, 0);
+		@arguments[1] = LLVMGetParam(main, 1);
+	};
+	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), this.symbol(entity), &@arguments[0], parameter_count, "\0".data());
 
 	if (signature.result()->kind() == type_kind::void_type) {
 		@result = LLVMConstInt(integer, 0, 0);
@@ -48,7 +61,10 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 };
 
 fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> bool {
-	if (output == output_kind::executable) {
+	if (output != output_kind::library) {
+		if (output == output_kind::tests) {
+			@entry = "__rutile_test_main";
+		};
 		var Entity* selected = unit.root_scope()->lookup(entry);
 
 		if (!selected || selected->kind() != entity_kind::function || !selected->body() || selected->body()->kind() == semantic_kind::noop) {
@@ -100,7 +116,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
 
-		if (this.required(entity) && entity->kind() == entity_kind::function && (entity->definition() == function_definition::defaulted || entity->body() && entity->body()->kind() != semantic_kind::noop)) {
+		if (this.required(entity) && !entity->imported_definition() && entity->kind() == entity_kind::function && (entity->definition() == function_definition::defaulted || entity->body() && entity->body()->kind() != semantic_kind::noop)) {
 			@function_count = function_count + 1;
 		};
 
@@ -114,7 +130,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
 
-		if (this.required(entity) && entity->kind() == entity_kind::function && (entity->definition() == function_definition::defaulted || entity->body() && entity->body()->kind() != semantic_kind::noop)) {
+		if (this.required(entity) && !entity->imported_definition() && entity->kind() == entity_kind::function && (entity->definition() == function_definition::defaulted || entity->body() && entity->body()->kind() != semantic_kind::noop)) {
 			var emitter = FunctionEmitter(@this, this.implementation(entity), entity->type()->signature().result());
 			DiagnosticMessage detail;
 			diagnostic_entity(@detail, *entity);
@@ -140,7 +156,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
 
-		if (this.required(entity) && entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary && !@this.emit_dispatch(entity)) {
+		if (this.required(entity) && !entity->imported_definition() && entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary && !@this.emit_dispatch(entity)) {
 			return false;
 		};
 
@@ -155,7 +171,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
 
-		if (entity->canonical() == entity && entity->kind() == entity_kind::global) {
+		if (entity->canonical() == entity && !entity->imported_definition() && entity->kind() == entity_kind::global) {
 			if (!initialize) {
 				@initialize = LLVMAddFunction(this.module(), "rt.initialize\0".data(), LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
 				LLVMSetLinkage((var LLVMOpaqueValue*(initialize)), 9);
@@ -186,7 +202,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		var Entity* entity = unit.entities().data()[index].get();
 		this.progress.report("finalizing", unit.entities().size() - index, unit.entities().size(), "");
 
-		if (entity->canonical() == entity && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
+		if (entity->canonical() == entity && !entity->imported_definition() && entity->kind() == entity_kind::global && FunctionEmitter::needs_destruction(entity->type())) {
 			if (!finalize) {
 				@finalize = LLVMAddFunction(this.module(), "rt.finalize\0".data(), LLVMFunctionType(LLVMVoidTypeInContext(this.context()), nullptr, 0, 0));
 				LLVMSetLinkage(finalize, 9);
@@ -206,7 +222,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		@this.register_lifecycle(finalize, "llvm.global_dtors");
 	};
 
-	if (output == output_kind::executable) {
+	if (output != output_kind::library) {
 		if (!@this.entry(this.selected_entry)) {
 			return false;
 		};
@@ -241,3 +257,5 @@ fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function,
 	LLVMSetInitializer(global, LLVMConstArray2(record, &@records[0], 1));
 	LLVMSetLinkage(global, 7);
 };
+
+

@@ -1,0 +1,118 @@
+fn reference_reachability_baseline(FactGraph& graph, usize source, usize target, usize kill, var Entity* cleanup_owner) -> bool {
+	rt::buffer<usize> pending;
+	rt::buffer<usize> visited;
+	if (source == fact_no_node() || target == fact_no_node()) {
+		// Opaque graph regions must not prematurely end a loan.
+		return true;
+	};
+	@pending.clear();
+	@visited.clear();
+	if (!@pending.push_back(source)) {
+		return true;
+	};
+	usize next = 0;
+	while (next < pending.size()) {
+		usize node = pending.data()[next];
+		@next = next + 1;
+		if (node == target) {
+			return true;
+		};
+		if (node == kill && node != source) {
+			continue;
+		};
+		if (cleanup_owner && node != source) {
+			if (graph.nodes.data()[node].kind == fact_node_kind::lifetime_end && graph.nodes.data()[node].owner == cleanup_owner) {
+				continue;
+			};
+			var SemanticExpression* operation = graph.nodes.data()[node].expression;
+			if (operation && (operation->kind() == semantic_kind::relocation || operation->kind() == semantic_kind::destruction) && operation->size() && operation->item(0)->owned_binding() == cleanup_owner) {
+				continue;
+			};
+		};
+		bool seen = false;
+		usize index = 0;
+		while (index < visited.size()) {
+			if (visited.data()[index] == node) {
+				@seen = true;
+				break;
+			};
+			@index = index + 1;
+		};
+		if (seen) {
+			continue;
+		};
+		if (!@visited.push_back(node)) {
+			return true;
+		};
+		@index = 0;
+		while (index < graph.edges.size()) {
+			FactEdge& edge = graph.edges.data()[index];
+			if (edge.source == node) {
+				bool feasible = fact_semantic_edge_feasible(edge);
+				if (feasible && !@pending.push_back(usize(edge.target))) {
+					return true;
+				};
+			};
+			@index = index + 1;
+		};
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::reachability_checks(var ReferenceLoanAnalyzer& this, Entity& function) -> bool {
+	if (!@this.build_graph(function)) {
+		return false;
+	};
+	var Entity* owner = nullptr;
+	usize index = 0;
+	while (index < this.graph.nodes.size() && !owner) {
+		@owner = this.graph.nodes.data()[index].owner;
+		@index = index + 1;
+	};
+	usize source = 0;
+	while (source < this.graph.nodes.size()) {
+		usize target = 0;
+		while (target < this.graph.nodes.size()) {
+			usize mode = 0;
+			while (mode < 6) {
+				usize kill = fact_no_node();
+				if (mode % 3 == 1) {
+					@kill = this.graph.entry;
+				};
+				if (mode % 3 == 2) {
+					@kill = this.graph.nodes.size() / 2;
+				};
+				var Entity* cleanup = nullptr;
+				if (mode >= 3) {
+					@cleanup = owner;
+				};
+				bool expected = reference_reachability_baseline(this.graph, source, target, kill, cleanup);
+				if (@this.reachable(source, target, kill, cleanup) != expected) {
+					return false;
+				};
+				@mode = mode + 1;
+			};
+			@target = target + 1;
+		};
+		@source = source + 1;
+	};
+	@this.visit_generation = usize::max;
+	if (!@this.reachable(this.graph.entry, this.graph.entry, fact_no_node(), nullptr) || this.visit_generation != 1) {
+		return false;
+	};
+	return @this.reachable(fact_no_node(), this.graph.normal_exit, fact_no_node(), nullptr);
+};
+
+fn reference_reachability_tests() -> i32 {
+	var fixture = ModuleFixture();
+	if (!@fixture.build("fn probe(bool condition) { i32 value = 0; while (condition) { if (value) { break; }; @value = 1; }; };", "", 0)) {
+		return 1;
+	};
+	var Entity* function = fixture.unit.get()->root_scope()->local("probe");
+	var diagnostics = Diagnostics(nullptr);
+	var loans = ReferenceLoanAnalyzer(@diagnostics);
+	if (!function || !@loans.reachability_checks(*function)) {
+		return 2;
+	};
+	return 42;
+};

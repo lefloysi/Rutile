@@ -32,8 +32,10 @@ struct Analysis {
 	fn Analysis(var Analysis& this, var NativeFile* output);
 
 	fn set_progress(var Analysis& this, CompilerProgress progress);
+	fn enable_tests(var Analysis& this);
 	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool;
 	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool;
+	fn set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access) -> bool;
 	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
 	fn request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments) -> bool;
 	fn template_context_label(Analysis& this) -> rt::string_view;
@@ -63,6 +65,7 @@ private:
 	Diagnostics messages;
 	NavigationIndex index;
 	u32 target_pointer_bits;
+	bool tests_enabled;
 };
 
 fn Analysis::Analysis(var Analysis& this, var NativeFile* output) {
@@ -72,6 +75,11 @@ fn Analysis::Analysis(var Analysis& this, var NativeFile* output) {
 fn Analysis::add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool {
 	var SourceFile* source = @this.sources.add(path, text);
 	return source && @this.index.register_source(@*source, this.sources.count() - 1);
+};
+
+fn Analysis::set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access) -> bool {
+	var SourceFile* source = @this.sources.at(index);
+	return source && @source->set_module(name, $access);
 };
 
 fn Analysis::load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool {
@@ -162,3 +170,8 @@ fn Analysis::template_context_label(Analysis& this) -> rt::string_view {
 fn Analysis::set_progress(var Analysis& this, CompilerProgress progress) {
 	@this.progress = $progress;
 };
+
+fn Analysis::enable_tests(var Analysis& this) {
+	@this.tests_enabled = true;
+};
+

@@ -1,6 +1,6 @@
 namespace rt {
 	template<typename T>
-	struct optional {
+	export struct optional {
 		fn optional(var optional& this);
 		fn optional(var optional& this, T value);
 		fn optional(var optional& this, optional& other);
@@ -32,7 +32,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	struct optional_ref {
+	export struct optional_ref {
 		fn optional_ref(var optional_ref& this) : [default];
 		fn optional_ref(var optional_ref& this, var T& value);
 		fn optional_ref(var optional_ref& this, optional_ref& other) : [implicit];
@@ -50,17 +50,17 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::optional(var optional& this) {
+	export fn optional<T>::optional(var optional& this) {
 	};
 
 	template<typename T>
-	fn optional<T>::optional(var optional& this, T value) {
+	export fn optional<T>::optional(var optional& this, T value) {
 		@this.storage.value.T($value);
 		@this.engaged = true;
 	};
 
 	template<typename T>
-	fn optional<T>::optional(var optional& this, optional& other) {
+	export fn optional<T>::optional(var optional& this, optional& other) {
 		if (other.has_value()) {
 			@this.storage.value.T(other.storage.value);
 			@this.engaged = true;
@@ -68,7 +68,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::optional(var optional& this, optional other) {
+	export fn optional<T>::optional(var optional& this, optional other) {
 		if (other.has_value()) {
 			var T* source = &@other.storage.value;
 
@@ -79,12 +79,12 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::~optional(var optional& this) {
+	export fn optional<T>::~optional(var optional& this) {
 		@this.reset();
 	};
 
 	template<typename T>
-	fn optional<T>::operator=(var optional& this, optional other) -> var optional& {
+	export fn optional<T>::operator=(var optional& this, optional other) -> var optional& {
 		@this.reset();
 		if (other.has_value()) {
 			var T* source = &@other.storage.value;
@@ -96,18 +96,18 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::operator:=(var optional& this, optional& other) -> var optional& {
+	export fn optional<T>::operator:=(var optional& this, optional& other) -> var optional& {
 		var replacement = optional(other);
 		return @this = $replacement;
 	};
 
 	template<typename T>
-	fn optional<T>::has_value(optional& this) -> bool {
+	export fn optional<T>::has_value(optional& this) -> bool {
 		return this.engaged;
 	};
 
 	template<typename T>
-	fn optional<T>::get(auto optional& this) -> const[this] T* {
+	export fn optional<T>::get(auto optional& this) -> const[this] T* {
 		if (!this.has_value()) {
 			return nullptr;
 		};
@@ -116,12 +116,12 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::value(auto optional& this) -> const[this] T& {
+	export fn optional<T>::value(auto optional& this) -> const[this] T& {
 		return const_cast<const[this] T&>(@const_cast<var T&>(this.storage.value));
 	};
 
 	template<typename T>
-	fn optional<T>::reset(var optional& this) {
+	export fn optional<T>::reset(var optional& this) {
 		if (!this.has_value()) {
 			return;
 		};
@@ -131,7 +131,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional<T>::emplace(var optional& this, T value) -> var T& {
+	export fn optional<T>::emplace(var optional& this, T value) -> var T& {
 		@this.reset();
 		@this.storage.value.T($value);
 		@this.engaged = true;
@@ -140,37 +140,37 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn optional_ref<T>::optional_ref(var optional_ref& this, var T& value) {
+	export fn optional_ref<T>::optional_ref(var optional_ref& this, var T& value) {
 		@this.pointer = &@value;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::optional_ref(var optional_ref& this, optional_ref& other) : [implicit] {
+	export fn optional_ref<T>::optional_ref(var optional_ref& this, optional_ref& other) : [implicit] {
 		@this.pointer := other.pointer;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::has_value(optional_ref& this) -> bool {
+	export fn optional_ref<T>::has_value(optional_ref& this) -> bool {
 		return this.pointer != nullptr;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::get(optional_ref& this) -> var T* {
+	export fn optional_ref<T>::get(optional_ref& this) -> var T* {
 		return this.pointer;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::value(optional_ref& this) -> var T& {
+	export fn optional_ref<T>::value(optional_ref& this) -> var T& {
 		return static_cast<var T&>(*this.pointer);
 	};
 
 	template<typename T>
-	fn optional_ref<T>::reset(var optional_ref& this) {
+	export fn optional_ref<T>::reset(var optional_ref& this) {
 		@this.pointer = nullptr;
 	};
 
 	template<typename T>
-	fn optional_ref<T>::bind(var optional_ref& this, var T& value) {
+	export fn optional_ref<T>::bind(var optional_ref& this, var T& value) {
 		@this.pointer = &@value;
 	};
 };

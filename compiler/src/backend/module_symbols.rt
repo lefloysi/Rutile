@@ -1,0 +1,53 @@
+fn native_template_modules(var DiagnosticMessage& message, TemplateArgument& argument) {
+	if (argument.type) {
+		native_type_modules(@message, *argument.type);
+	};
+	if (argument.kind == template_argument_kind::pack && argument.pack) {
+		usize index = 0;
+		while (index < argument.pack->elements.size()) {
+			native_template_modules(@message, argument.pack->elements.data()[index]);
+			@index = index + 1;
+		};
+	};
+};
+
+fn native_entity_modules(var DiagnosticMessage& message, Entity& entity) {
+	var Scope* scope = entity.scope();
+	if (scope && scope->owner() && scope->owner() != &@entity) {
+		native_entity_modules(@message, *scope->owner());
+	};
+	Token token = entity.token();
+	if (entity.kind() != entity_kind::namespace_body && token.source && !token.source->module_name().empty()) {
+		@message.text("[");
+		@message.text(token.source->module_name());
+		@message.text("]");
+	};
+	TemplateInstantiation* instance = entity.template_arguments();
+	if (instance) {
+		usize index = 0;
+		while (index < instance->arguments.size()) {
+			native_template_modules(@message, instance->arguments.data()[index]);
+			@index = index + 1;
+		};
+	};
+};
+
+fn native_type_modules(var DiagnosticMessage& message, Type& type) {
+	if (type.kind() == type_kind::named || type.kind() == type_kind::parameter) {
+		native_entity_modules(@message, *type.entity());
+		return;
+	};
+	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference || type.kind() == type_kind::array) {
+		native_type_modules(@message, *type.element());
+		return;
+	};
+	if (type.kind() == type_kind::function) {
+		FunctionSignature& signature = type.signature();
+		native_type_modules(@message, *signature.result());
+		usize index = 0;
+		while (index < signature.parameters().size()) {
+			native_type_modules(@message, *signature.parameters().data()[index]);
+			@index = index + 1;
+		};
+	};
+};

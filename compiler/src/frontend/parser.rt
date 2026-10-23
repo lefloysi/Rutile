@@ -83,6 +83,7 @@ private:
 	fn name(var Parser& this) -> rt::unique<Syntax>;
 	fn precedence(token_kind& kind) -> i32;
 
+	fn attribute_declaration(var Parser& this) -> rt::unique<Syntax>;
 	fn statement_one(var Parser& this) -> rt::unique<Syntax>;
 	fn statement(var Parser& this) -> rt::unique<Syntax>;
 	fn variable(var Parser& this) -> rt::unique<Syntax>;
@@ -1663,7 +1664,12 @@ fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	@this.add(@*result.get(), rt::unique<Syntax>(@attributes.release()));
-	@this.add(@*result.get(), @this.expression(1));
+	if (this.peek().kind == token_kind::punct_semicolon) {
+		@this.add(@*result.get(), @this.node(syntax_kind::noop, @this.take()));
+	}
+	else {
+		@this.add(@*result.get(), @this.expression(1));
+	};
 
 	if (result.get()->item(result.get()->size() - 1)->kind() != syntax_kind::noop) {
 		@this.accept(token_kind::punct_semicolon);
@@ -1928,8 +1934,112 @@ fn Parser::exception_statement(var Parser& this) -> rt::unique<Syntax> {
 	return $result;
 };
 
+fn attributed_declaration(var Syntax& source) -> var Syntax* {
+	if (source.kind() == syntax_kind::template_declaration) {
+		return attributed_declaration(@*source.item(1));
+	};
+	if (source.kind() == syntax_kind::ambiguity) {
+		usize index = 0;
+		while (index < source.size()) {
+			var Syntax* entity = attributed_declaration(@*source.item(index));
+			if (entity) {
+				return entity;
+			};
+			@index = index + 1;
+		};
+		return nullptr;
+	};
+	switch (source.kind()) {
+		case syntax_kind::variable:
+		case syntax_kind::function:
+		case syntax_kind::record:
+		case syntax_kind::enumeration:
+		case syntax_kind::namespace_body:
+		case syntax_kind::using_alias:
+		case syntax_kind::pack_signature_declaration:
+			return &@source;
+		default:
+			return nullptr;
+	};
+};
+
+fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
+	@this.take();
+	@this.require(token_kind::punct_left_bracket, "expected '[[' before declaration attribute");
+	Token key = this.peek();
+	@this.require(token_kind::identifier, "expected attribute name");
+	var attribute = @this.node(syntax_kind::declaration_attribute, key);
+	if (@this.accept(token_kind::punct_colon)) {
+		var value_parser = Parser(*this.tokens);
+		@value_parser.offset = this.offset;
+		var value = @value_parser.expression(1);
+		var type_parser = Parser(*this.tokens);
+		@type_parser.offset = this.offset;
+		var type = @type_parser.type();
+		if (value.get() && value_parser.failure.empty() && value_parser.peek().kind == token_kind::punct_right_bracket) {
+			@this.offset = value_parser.offset;
+			if (type.get() && type_parser.failure.empty() && type_parser.offset == value_parser.offset) {
+				var alternatives = @this.node(syntax_kind::ambiguity, value.get()->token());
+				@this.add(@*alternatives.get(), $type);
+				@this.add(@*alternatives.get(), rt::unique<Syntax>(@value.release()));
+				@value = $alternatives;
+			};
+			@this.add(@*attribute.get(), $value);
+		}
+		else if (type.get() && type_parser.failure.empty() && type_parser.peek().kind == token_kind::punct_right_bracket) {
+			@this.offset = type_parser.offset;
+			@this.add(@*attribute.get(), $type);
+		}
+		else {
+			@this.fail("expected attribute value or type");
+			return rt::unique<Syntax>();
+		};
+	}
+	else {
+		@this.add(@*attribute.get(), @this.absent());
+	};
+	@this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
+	@this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
+	var declaration = @this.statement_one();
+	if (!declaration.get()) {
+		return rt::unique<Syntax>();
+	};
+	var Syntax* entity = attributed_declaration(@*declaration.get());
+	if (!entity) {
+		@this.fail("attributes require an entity declaration");
+		return rt::unique<Syntax>();
+	};
+	if (!@entity->add_declaration_attribute($attribute)) {
+		@this.fail("attribute storage is unavailable");
+	};
+	return $declaration;
+};
+
 fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
+
+	if (token.kind == token_kind::kw_export) {
+		@this.take();
+		var declaration = @this.statement_one();
+		if (!declaration.get()) {
+			return rt::unique<Syntax>();
+		};
+		var Syntax* entity = attributed_declaration(@*declaration.get());
+		if (!entity) {
+			@this.fail("export requires an entity declaration");
+			return rt::unique<Syntax>();
+		};
+		if (entity->exported()) {
+			@this.fail("duplicate export qualifier");
+			return rt::unique<Syntax>();
+		};
+		@entity->mark_exported();
+		return $declaration;
+	};
+
+	if (token.kind == token_kind::punct_left_bracket) {
+		return @this.attribute_declaration();
+	};
 
 	if (token.kind == token_kind::identifier && (token.is("public") || token.is("private") || token.is("protected"))) {
 		@this.take();
@@ -2249,7 +2359,7 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 	while (candidate < alternatives.size() && compatible) {
 		var Syntax* other = alternatives.data()[candidate].get();
 
-		if (other->kind() != first->kind() || other->token().source != first->token().source || other->token().begin != first->token().begin || other->token().length != first->token().length || other->size() != first->size()) {
+		if (other->kind() != first->kind() || other->token().source != first->token().source || other->token().begin != first->token().begin || other->token().length != first->token().length || other->size() != first->size() || !other->same_declaration_metadata(*first)) {
 			@compatible = false;
 			break;
 		};
@@ -2313,6 +2423,17 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 
 	if (compatible && difference != usize::max) {
 		var result = @this.node(first->kind(), first->token());
+		if (first->exported()) {
+			@result.get()->mark_exported();
+		};
+		usize attribute = 0;
+		while (attribute < first->declaration_attributes().size()) {
+			if (!@result.get()->add_declaration_attribute(@first->take_declaration_attribute(attribute))) {
+				@this.fail("attribute storage is unavailable");
+				return rt::unique<Syntax>();
+			};
+			@attribute = attribute + 1;
+		};
 		usize index = 0;
 
 		while (index < first->size()) {

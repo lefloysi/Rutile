@@ -288,6 +288,19 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	if (!@name.append(spelling)) {
 		return @this.error(entity->token(), "cannot allocate native symbol name");
 	};
+	Token module_token = entity->token();
+	if (module_token.source && !module_token.source->module_name().empty() && (entity->kind() == entity_kind::global || entity->definition() != function_definition::declaration)) {
+		DiagnosticMessage identity;
+		@identity.text("rt.module.");
+		@identity.text(module_token.source->module_name());
+		@identity.text(".");
+		diagnostic_entity(@identity, *entity);
+		@identity.text(":");
+		diagnostic_type(@identity, *entity->type());
+		native_entity_modules(@identity, *entity);
+		native_type_modules(@identity, *entity->type());
+		@name = rt::string(identity.view());
+	};
 
 	if (entity->kind() == entity_kind::function) {
 		usize parameter = 0;
@@ -308,17 +321,39 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	var LLVMOpaqueValue* value;
 
 	if (entity->kind() == entity_kind::function) {
-		@value = LLVMAddFunction(this.module(), name.c_str(), type);
+		if (entity->definition() == function_definition::declaration) {
+			@value = LLVMGetNamedFunction(this.module(), name.c_str());
+			if (value) {
+				usize previous = 0;
+				while (previous < this.entities.size()) {
+					var Entity* previous_source = this.entities.data()[previous].source;
+					var LLVMOpaqueValue* previous_value = this.entities.data()[previous].value;
+					if (previous_value == value && @this.type(previous_source->type()) != type) {
+						return @this.error(entity->token(), "external symbol has incompatible native signatures");
+					};
+					@previous = previous + 1;
+				};
+			};
+		};
+		if (!value) {
+			@value = LLVMAddFunction(this.module(), name.c_str(), type);
+		};
 	}
 	else {
 		@value = LLVMAddGlobal(this.module(), (var LLVMOpaqueType*(type)), name.c_str());
-		LLVMSetInitializer((var LLVMOpaqueValue*(value)), LLVMConstNull(type));
+		if (!entity->imported_definition()) {
+			LLVMSetInitializer((var LLVMOpaqueValue*(value)), LLVMConstNull(type));
+		};
 	};
 
 	NativeEntity native;
 	@native.source = entity;
 	@native.value = value;
 	@native.implementation = value;
+	if (module_token.source && !module_token.source->module_name().empty() && (entity->instantiated() || entity->origin() == declaration_origin::compiler_supplied)) {
+		LLVMSetLinkage(value, 3);
+		LLVMSetComdat(value, LLVMGetOrInsertComdat(this.module(), name.c_str()));
+	};
 
 	if (entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary) {
 		rt::string wrapper;

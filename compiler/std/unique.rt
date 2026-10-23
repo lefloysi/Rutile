@@ -1,11 +1,11 @@
 namespace rt {
 	template<typename T>
-	struct default_delete {
+	export struct default_delete {
 		fn dispose(var T* pointer);
 	};
 
 	template<typename T, typename D = default_delete<T>>
-	struct unique {
+	export struct unique {
 		fn unique(var unique& this) : [default];
 		fn unique(var unique& this, var T* pointer);
 		fn unique(var unique& this, unique& other) : [delete];
@@ -24,27 +24,27 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn default_delete<T>::dispose(var T* pointer) {
+	export fn default_delete<T>::dispose(var T* pointer) {
 		delete pointer;
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::unique(var unique& this, var T* pointer) {
+	export fn unique<T, D>::unique(var unique& this, var T* pointer) {
 		@this.pointer = $pointer;
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::~unique(var unique& this) {
+	export fn unique<T, D>::~unique(var unique& this) {
 		@this.reset(nullptr);
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::get(unique& this) -> var T* {
+	export fn unique<T, D>::get(unique& this) -> var T* {
 		return this.pointer;
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::release(var unique& this) -> var T* {
+	export fn unique<T, D>::release(var unique& this) -> var T* {
 		var T* result := this.pointer;
 
 		@this.pointer = nullptr;
@@ -53,7 +53,7 @@ namespace rt {
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::reset(var unique& this, var T* pointer) {
+	export fn unique<T, D>::reset(var unique& this, var T* pointer) {
 		var T* previous := this.pointer;
 
 		@this.pointer = $pointer;
@@ -61,7 +61,7 @@ namespace rt {
 	};
 
 	template<typename T, typename D>
-	fn unique<T, D>::make() -> unique {
+	export fn unique<T, D>::make() -> unique {
 		return unique(new var T());
 	};
 };

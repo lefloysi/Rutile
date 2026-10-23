@@ -1,5 +1,5 @@
 namespace rt {
-	enum json_kind : [u08] {
+	export enum json_kind : [u08] {
 		null_value;
 		boolean;
 		number;
@@ -8,7 +8,7 @@ namespace rt {
 		object;
 	};
 
-	struct json_member {
+	export struct json_member {
 		fn json_member(var json_member& this, string key, unique<json_value> value);
 		fn json_member(var json_member& this, json_member& other) : [delete];
 
@@ -16,10 +16,10 @@ namespace rt {
 		unique<json_value> value;
 	};
 
-	using json_array = buffer<unique<json_value>>;
-	using json_object = buffer<json_member>;
+	export using json_array = buffer<unique<json_value>>;
+	export using json_object = buffer<json_member>;
 
-	union json_payload {
+	export union json_payload {
 		fn json_payload(var json_payload& this) : [default];
 		fn ~json_payload(var json_payload& this) : [default];
 
@@ -32,7 +32,7 @@ namespace rt {
 
 	// Text is UTF-8. Object keys are unique; set and parsing retain the last duplicate value.
 	// Number spelling is retained without conversion to binary floating point.
-	struct json_value {
+	export struct json_value {
 		fn json_value(var json_value& this) : [default];
 		fn json_value(var json_value& this, json_value& other) : [delete];
 		fn ~json_value(var json_value& this);
@@ -63,7 +63,7 @@ namespace rt {
 		json_payload payload;
 	};
 
-	struct json_document {
+	export struct json_document {
 		fn json_document(var json_document& this) : [default];
 		fn json_document(var json_document& this, unique<json_value> root, usize offset, string error);
 		fn json_document(var json_document& this, json_document& other) : [delete];
@@ -79,7 +79,7 @@ namespace rt {
 		string failure;
 	};
 
-	struct json_parser {
+	export struct json_parser {
 		fn json_parser(var json_parser& this, string_view text);
 		fn parse(var json_parser& this) -> json_document;
 
@@ -96,12 +96,12 @@ namespace rt {
 		fn value(var json_parser& this, usize depth) -> unique<json_value>;
 	};
 
-	fn json_member::json_member(var json_member& this, string key, unique<json_value> value) {
+	export fn json_member::json_member(var json_member& this, string key, unique<json_value> value) {
 		@this.key = $key;
 		@this.value = $value;
 	};
 
-	fn json_value::~json_value(var json_value& this) {
+	export fn json_value::~json_value(var json_value& this) {
 		if (this.tag == json_kind::number || this.tag == json_kind::string) {
 			@this.payload.text.~string();
 		}
@@ -113,7 +113,7 @@ namespace rt {
 		};
 	};
 
-	fn json_number_end(string_view input, usize begin) -> usize {
+	export fn json_number_end(string_view input, usize begin) -> usize {
 		usize cursor = begin;
 		if (cursor < input.size() && input.data()[cursor] == '-') {
 			@cursor = cursor + 1;
@@ -158,7 +158,7 @@ namespace rt {
 		return cursor;
 	};
 
-	fn json_utf8_width(string_view text, usize offset) -> usize {
+	export fn json_utf8_width(string_view text, usize offset) -> usize {
 		if (offset >= text.size()) {
 			return 0;
 		};
@@ -205,7 +205,7 @@ namespace rt {
 		return width;
 	};
 
-	fn json_valid_utf8(string_view text) -> bool {
+	export fn json_valid_utf8(string_view text) -> bool {
 		usize offset = 0;
 		while (offset < text.size()) {
 			usize width = json_utf8_width(text, offset);
@@ -217,11 +217,11 @@ namespace rt {
 		return true;
 	};
 
-	fn json_value::make_null() -> unique<json_value> {
+	export fn json_value::make_null() -> unique<json_value> {
 		return unique<json_value>::make();
 	};
 
-	fn json_value::make_boolean(bool value) -> unique<json_value> {
+	export fn json_value::make_boolean(bool value) -> unique<json_value> {
 		var result = make_null();
 		if (result.get()) {
 			@result.get()->tag = json_kind::boolean;
@@ -230,7 +230,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_number(string_view value) -> unique<json_value> {
+	export fn json_value::make_number(string_view value) -> unique<json_value> {
 		if (!value.size() || json_number_end(value, 0) != value.size()) {
 			return unique<json_value>();
 		};
@@ -246,7 +246,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_unsigned(u64 value) -> unique<json_value> {
+	export fn json_value::make_unsigned(u64 value) -> unique<json_value> {
 		char[20] digits;
 		usize begin = 20;
 		while (true) {
@@ -260,7 +260,7 @@ namespace rt {
 		return make_number(string_view(&@digits[begin], 20 - begin));
 	};
 
-	fn json_value::make_integer(i64 value) -> unique<json_value> {
+	export fn json_value::make_integer(i64 value) -> unique<json_value> {
 		if (value >= 0) {
 			return make_unsigned(static_cast<u64>($value));
 		};
@@ -272,7 +272,7 @@ namespace rt {
 		return make_number(text.view());
 	};
 
-	fn json_value::clone(json_value& this) -> unique<json_value> {
+	export fn json_value::clone(json_value& this) -> unique<json_value> {
 		switch (this.tag) {
 			case json_kind::null_value: return make_null();
 			case json_kind::boolean: return make_boolean(this.boolean());
@@ -304,7 +304,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_string(string_view value) -> unique<json_value> {
+	export fn json_value::make_string(string_view value) -> unique<json_value> {
 		if (!json_valid_utf8(value)) {
 			return unique<json_value>();
 		};
@@ -320,7 +320,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_array() -> unique<json_value> {
+	export fn json_value::make_array() -> unique<json_value> {
 		var result = make_null();
 		if (result.get()) {
 			@result.get()->payload.array.json_array();
@@ -329,7 +329,7 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::make_object() -> unique<json_value> {
+	export fn json_value::make_object() -> unique<json_value> {
 		var result = make_null();
 		if (result.get()) {
 			@result.get()->payload.object.json_object();
@@ -338,14 +338,14 @@ namespace rt {
 		return $result;
 	};
 
-	fn json_value::append(var json_value& this, unique<json_value> value) -> bool {
+	export fn json_value::append(var json_value& this, unique<json_value> value) -> bool {
 		if (this.tag != json_kind::array || !value.get()) {
 			return false;
 		};
 		return @this.payload.array.push_back($value);
 	};
 
-	fn json_value::set(var json_value& this, string_view key, unique<json_value> value) -> bool {
+	export fn json_value::set(var json_value& this, string_view key, unique<json_value> value) -> bool {
 		if (this.tag != json_kind::object || !value.get() || !json_valid_utf8(key)) {
 			return false;
 		};
@@ -364,22 +364,22 @@ namespace rt {
 		return @this.payload.object.push_back(json_member($owned_key, $value));
 	};
 
-	fn json_value::kind(json_value& this) -> json_kind {
+	export fn json_value::kind(json_value& this) -> json_kind {
 		return json_kind(this.tag);
 	};
 
-	fn json_value::text(json_value& this) -> string_view {
+	export fn json_value::text(json_value& this) -> string_view {
 		if (this.tag != json_kind::number && this.tag != json_kind::string) {
 			return string_view();
 		};
 		return this.payload.text.view();
 	};
 
-	fn json_value::boolean(json_value& this) -> bool {
+	export fn json_value::boolean(json_value& this) -> bool {
 		return this.tag == json_kind::boolean && this.payload.boolean;
 	};
 
-	fn json_value::integer(json_value& this, var i64& result) -> bool {
+	export fn json_value::integer(json_value& this, var i64& result) -> bool {
 		if (this.tag != json_kind::number) {
 			return false;
 		};
@@ -415,7 +415,7 @@ namespace rt {
 		return true;
 	};
 
-	fn json_value::member(json_value& this, string_view key) -> json_value* {
+	export fn json_value::member(json_value& this, string_view key) -> json_value* {
 		if (this.tag != json_kind::object) {
 			return nullptr;
 		};
@@ -429,7 +429,7 @@ namespace rt {
 		return nullptr;
 	};
 
-	fn json_value::item(json_value& this, usize index) -> json_value* {
+	export fn json_value::item(json_value& this, usize index) -> json_value* {
 		if (index >= this.size()) {
 			return nullptr;
 		};
@@ -439,14 +439,14 @@ namespace rt {
 		return this.payload.object.data()[index].value.get();
 	};
 
-	fn json_value::key(json_value& this, usize index) -> string_view {
+	export fn json_value::key(json_value& this, usize index) -> string_view {
 		if (this.tag != json_kind::object || index >= this.payload.object.size()) {
 			return string_view();
 		};
 		return this.payload.object.data()[index].key.view();
 	};
 
-	fn json_value::size(json_value& this) -> usize {
+	export fn json_value::size(json_value& this) -> usize {
 		if (this.tag == json_kind::array) {
 			return this.payload.array.size();
 		};
@@ -456,33 +456,33 @@ namespace rt {
 		return 0;
 	};
 
-	fn json_document::json_document(var json_document& this, unique<json_value> root, usize offset, string error) {
+	export fn json_document::json_document(var json_document& this, unique<json_value> root, usize offset, string error) {
 		@this.root = $root;
 		@this.offset = $offset;
 		@this.failure = $error;
 	};
 
-	fn json_document::value(json_document& this) -> json_value* {
+	export fn json_document::value(json_document& this) -> json_value* {
 		return this.root.get();
 	};
 
-	fn json_document::release(var json_document& this) -> unique<json_value> {
+	export fn json_document::release(var json_document& this) -> unique<json_value> {
 		return unique<json_value>(@this.root.release());
 	};
 
-	fn json_document::error(json_document& this) -> string_view {
+	export fn json_document::error(json_document& this) -> string_view {
 		return this.failure.view();
 	};
 
-	fn json_document::error_offset(json_document& this) -> usize {
+	export fn json_document::error_offset(json_document& this) -> usize {
 		return this.offset;
 	};
 
-	fn json_parser::json_parser(var json_parser& this, string_view text) {
+	export fn json_parser::json_parser(var json_parser& this, string_view text) {
 		@this.input := text;
 	};
 
-	fn json_parser::whitespace(var json_parser& this) {
+	export fn json_parser::whitespace(var json_parser& this) {
 		while (this.cursor < this.input.size()) {
 			char byte = this.input.data()[this.cursor];
 			if (byte != ' ' && byte != '\t' && byte != '\r' && byte != '\n') {
@@ -492,7 +492,7 @@ namespace rt {
 		};
 	};
 
-	fn json_parser::fail(var json_parser& this, string_view message) -> bool {
+	export fn json_parser::fail(var json_parser& this, string_view message) -> bool {
 		if (!this.failure.size()) {
 			@this.failure_offset = this.cursor;
 			@this.failure.append(message);
@@ -500,7 +500,7 @@ namespace rt {
 		return false;
 	};
 
-	fn json_parser::hex_quad(var json_parser& this, var u32& value) -> bool {
+	export fn json_parser::hex_quad(var json_parser& this, var u32& value) -> bool {
 		@value = 0;
 		usize index = 0;
 		while (index < 4) {
@@ -528,7 +528,7 @@ namespace rt {
 		return true;
 	};
 
-	fn json_append_codepoint(var string& output, u32 code) -> bool {
+	export fn json_append_codepoint(var string& output, u32 code) -> bool {
 		char[4] bytes;
 		usize count = 0;
 		if (code < 128) {
@@ -556,7 +556,7 @@ namespace rt {
 		return @output.append(string_view(&@bytes[0], $count));
 	};
 
-	fn json_parser::string_value(var json_parser& this, var string& result) -> bool {
+	export fn json_parser::string_value(var json_parser& this, var string& result) -> bool {
 		if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != '"') {
 			return @this.fail("expected a JSON string");
 		};
@@ -643,7 +643,7 @@ namespace rt {
 		return @this.fail("unterminated JSON string");
 	};
 
-	fn json_parser::value(var json_parser& this, usize depth) -> unique<json_value> {
+	export fn json_parser::value(var json_parser& this, usize depth) -> unique<json_value> {
 		@this.whitespace();
 		if (depth > 128 || this.cursor >= this.input.size()) {
 			@this.fail("expected JSON value within nesting limit");
@@ -743,7 +743,7 @@ namespace rt {
 		return unique<json_value>();
 	};
 
-	fn json_parser::parse(var json_parser& this) -> json_document {
+	export fn json_parser::parse(var json_parser& this) -> json_document {
 		var root = @this.value(0);
 		@this.whitespace();
 		if (root.get() && this.cursor != this.input.size()) {
@@ -757,12 +757,12 @@ namespace rt {
 	};
 
 	// Parsing and writing accept at most 128 nested container levels.
-	fn json_parse(string_view input) -> json_document {
+	export fn json_parse(string_view input) -> json_document {
 		var parser = json_parser(input);
 		return @parser.parse();
 	};
 
-	fn json_write_string(string_view value, var string& output) -> bool {
+	export fn json_write_string(string_view value, var string& output) -> bool {
 		if (!@output.append("\"")) {
 			return false;
 		};
@@ -791,7 +791,7 @@ namespace rt {
 		return @output.append("\"");
 	};
 
-	fn json_write_value(json_value& value, var string& output, usize depth) -> bool {
+	export fn json_write_value(json_value& value, var string& output, usize depth) -> bool {
 		if (depth > 128) {
 			return false;
 		};
@@ -834,7 +834,7 @@ namespace rt {
 		return @output.append("]");
 	};
 
-	fn json_write(json_value& value, var string& output) -> bool {
+	export fn json_write(json_value& value, var string& output) -> bool {
 		string encoded;
 		if (!json_write_value(value, @encoded, 0)) {
 			return false;

@@ -54,6 +54,7 @@ enum syntax_kind : [i32] {
 	using_alias;
 	list;
 	attributes;
+	declaration_attribute;
 	ambiguity;
 	type_name;
 	type_tuple;
@@ -97,6 +98,12 @@ struct Syntax {
 	fn operator=(var Syntax& this, Syntax other) -> var Syntax& : [default];
 	fn append(var Syntax& this, rt::unique<Syntax> child) -> bool;
 
+	fn declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>&;
+	fn add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute) -> bool;
+	fn same_declaration_metadata(Syntax& this, Syntax& other) -> bool;
+	fn take_declaration_attribute(var Syntax& this, usize index) -> rt::unique<Syntax>;
+	fn exported(Syntax& this) -> bool;
+	fn mark_exported(var Syntax& this);
 	fn kind(Syntax& this) -> syntax_kind;
 	fn explicitly_qualified(Syntax& this) -> bool;
 	fn token(Syntax& this) -> Token;
@@ -108,12 +115,52 @@ struct Syntax {
 private:
 	syntax_kind category;
 	Token location;
+	bool is_exported;
+	rt::buffer<rt::unique<Syntax>> metadata;
 	rt::buffer<rt::unique<Syntax>> children;
 };
 
 fn Syntax::Syntax(var Syntax& this, syntax_kind kind, Token& token) {
+	@this.is_exported = false;
 	@this.category = $kind;
 	@this.location := token;
+};
+
+fn Syntax::declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>& {
+	return this.metadata;
+};
+
+fn Syntax::add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute) -> bool {
+	return @this.metadata.push_back($attribute);
+};
+
+fn Syntax::same_declaration_metadata(Syntax& this, Syntax& other) -> bool {
+	if (this.exported() != other.exported() || this.metadata.size() != other.metadata.size()) {
+		return false;
+	};
+	usize index = 0;
+	while (index < this.metadata.size()) {
+		if (!this.metadata.data()[index].get()->same_tree(*other.metadata.data()[index].get())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn Syntax::take_declaration_attribute(var Syntax& this, usize index) -> rt::unique<Syntax> {
+	if (index >= this.metadata.size()) {
+		return rt::unique<Syntax>();
+	};
+	return rt::unique<Syntax>(@((@this.metadata).data()[index]).release());
+};
+
+fn Syntax::exported(Syntax& this) -> bool {
+	return this.is_exported;
+};
+
+fn Syntax::mark_exported(var Syntax& this) {
+	@this.is_exported = true;
 };
 
 fn Syntax::kind(Syntax& this) -> syntax_kind {
@@ -380,7 +427,7 @@ fn Syntax::qualifier_condition(Syntax& this) -> var Syntax* {
 };
 
 fn Syntax::same_tree(Syntax& this, Syntax& other) -> bool {
-	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size()) {
+	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size() || this.exported() != other.exported() || this.metadata.size() != other.metadata.size()) {
 		return false;
 	};
 
@@ -394,6 +441,13 @@ fn Syntax::same_tree(Syntax& this, Syntax& other) -> bool {
 		@index = index + 1;
 	};
 
+	@index = 0;
+	while (index < this.metadata.size()) {
+		if (!this.metadata.data()[index].get()->same_tree(*other.metadata.data()[index].get())) {
+			return false;
+		};
+		@index = index + 1;
+	};
 	return true;
 };
 
@@ -419,6 +473,7 @@ fn Syntax::fixed_arity(Syntax& this) -> usize {
 		case syntax_kind::access_label:
 		case syntax_kind::operator_array:
 			return 0;
+		case syntax_kind::declaration_attribute:
 		case syntax_kind::pack_signature_element:
 		case syntax_kind::pack_signature_variadic_element:
 		case syntax_kind::pack_expansion:

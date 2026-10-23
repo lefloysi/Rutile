@@ -100,9 +100,19 @@ int main(int argc, char** argv) {
 	std::vector<std::string> inputs;
 	std::string output;
 	int optimization = 0;
+	std::vector<std::string> interfaces;
+	std::string interface_output;
+	std::string module;
+	std::string kind = "object";
+	std::string entry;
 	command.add_option("sources", inputs, "Source files or directories.")->required();
 	command.add_option("-o,--output", output, "Native object output.")->required();
 	command.add_option("--optimization", optimization, "Optimization level.")->check(CLI::Range(0, 3));
+	command.add_option("--interface", interfaces, "Imported module interface (repeatable).");
+	command.add_option("--interface-output", interface_output, "Generated module interface.");
+	command.add_option("--module", module, "Module identity.");
+	command.add_option("--kind", kind, "Output kind: object, library, executable, or test.");
+	command.add_option("--entry", entry, "Executable entry function.");
 	CLI11_PARSE(command, argc, argv);
 
 	std::error_code error;
@@ -161,6 +171,36 @@ int main(int argc, char** argv) {
 	for (const auto& name : names) {
 		paths.push_back(name.c_str());
 	}
-	return rutile_compile_library(paths.data(), paths.size(), output.c_str(),
-		compiler_open_native_file, optimization, stderr);
+	if (interfaces.empty() && interface_output.empty() && module.empty() && kind == "object") {
+		return rutile_compile_library(paths.data(), paths.size(), output.c_str(), compiler_open_native_file, optimization, stderr);
+	}
+	struct ModuleRequest {
+		nlohmann::json request;
+		std::vector<std::string> names;
+		std::vector<std::string> contents;
+	};
+	ModuleRequest request;
+	request.request = { { "output", output }, { "kind", kind }, { "entry", entry }, { "optimization", optimization }, { "module", module }, { "interfaces", interfaces } };
+	if (!interface_output.empty()) {
+		request.request["interface_output"] = interface_output;
+	}
+	for (const auto& name : names) {
+		std::ifstream file(std::filesystem::u8path(name), std::ios::binary);
+		if (!file) {
+			std::fprintf(stderr, "Cannot read source '%s'.\n", name.c_str());
+			return 1;
+		}
+		request.names.push_back(name);
+		request.contents.emplace_back(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+	}
+	return rutile_compiler_session([](Compiler* compiler, void* context) {
+		auto& request = *static_cast<ModuleRequest*>(context);
+		try {
+			return rutile_compile_module(compiler, request.request, request.names, request.contents, stderr);
+		}
+		catch (const std::exception& error) {
+			std::fprintf(stderr, "%s\n", error.what());
+			return 1;
+		}
+	}, &request);
 }

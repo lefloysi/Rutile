@@ -51,7 +51,7 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 		if (owner->kind() == type_kind::named) {
 			var Entity* member = owner->entity()->find_member(syntax.member_name()->token().text());
 			if (member && member->kind() == entity_kind::field_pack) {
-				if (!this.accessible(*member, @scope)) {
+				if (!this.accessible_at(*member, @scope, syntax.token())) {
 					@this.error(&@syntax, "member pack is not accessible from this scope");
 					@this.note(member->token(), "member pack is declared here");
 					return false;
@@ -68,7 +68,7 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 	if (syntax.kind() == syntax_kind::name || syntax.kind() == syntax_kind::qualified_name) {
 		var Entity* entity = @this.lookup(@scope, @syntax);
 		if (entity && (entity->kind() == entity_kind::pack_binding || entity->kind() == entity_kind::field_pack)) {
-			if (entity->kind() == entity_kind::field_pack && !this.accessible(*entity, @scope)) {
+			if (entity->kind() == entity_kind::field_pack && !this.accessible_at(*entity, @scope, syntax.token())) {
 				@this.error(&@syntax, "member pack is not accessible from this scope");
 				@this.note(entity->token(), "member pack is declared here");
 				return false;

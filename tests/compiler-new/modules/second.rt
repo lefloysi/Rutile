@@ -1,0 +1,21 @@
+namespace detail {
+	struct Hidden {
+		i32 value;
+	};
+	i32 secret = 22;
+	fn helper() -> i32 {
+		var values = rt::buffer<Hidden>();
+		var value = Hidden();
+		@value.value = secret;
+		if (!@values.push_back($value)) {
+			return 0;
+		};
+		return values.data()[0].value;
+	};
+};
+
+namespace second {
+	export fn answer() -> i32 {
+		return detail::helper();
+	};
+};

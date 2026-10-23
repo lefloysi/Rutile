@@ -6,6 +6,12 @@ fn runtime_mutex_unlock(var RuntimeMutex* mutex);
 
 struct Compiler;
 
+struct ModuleSource {
+	rt::string path;
+	rt::string module_name;
+	i32 access;
+};
+
 struct CompilerOperation {
 	fn CompilerOperation(var CompilerOperation& this, var Compiler& compiler);
 	fn CompilerOperation(var CompilerOperation& this, CompilerOperation& other) : [delete];
@@ -77,6 +83,8 @@ struct Compiler {
 	fn end_operation(var Compiler& this);
 
 	fn set_progress(var Compiler& this, CompilerProgress progress);
+	fn clear_modules(var Compiler& this);
+	fn add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access) -> bool;
 	fn next_editor_revision(var Compiler& this) -> u64;
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> bool;
 	fn publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication;
@@ -97,6 +105,7 @@ private:
 	fn finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32;
 
 	CompilerProgress progress;
+	rt::buffer<ModuleSource> module_sources;
 	var RuntimeMutex* operation_mutex;
 	var RuntimeMutex* publication_mutex;
 	u64 editor_revision;
@@ -522,6 +531,9 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
 	var errors = Diagnostics(diagnostics);
 	Token location;
+	if (kind == output_kind::tests) {
+		@analysis.get()->enable_tests();
+	};
 	if (!@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)) {
 		@errors.error(location, "internal compiler error: analysis could not complete");
 		return 1;
@@ -540,6 +552,18 @@ fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysi
 
 fn Compiler::set_progress(var Compiler& this, CompilerProgress progress) {
 	@this.progress = $progress;
+};
+
+fn Compiler::clear_modules(var Compiler& this) {
+	@this.module_sources.clear();
+};
+
+fn Compiler::add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access) -> bool {
+	ModuleSource source;
+	@source.path = rt::string(path);
+	@source.module_name = rt::string(name);
+	@source.access = $access;
+	return @this.module_sources.push_back($source);
 };
 
 fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> i32 {
@@ -576,8 +600,17 @@ fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& pa
 			@errors.error(location, "source storage is unavailable");
 			return 1;
 		};
+		usize module_index = 0;
+		while (module_index < this.module_sources.size()) {
+			ModuleSource& source = this.module_sources.data()[module_index];
+			if (source.path.view() == path && !@analysis.get()->set_source_module(index, source.module_name.view(), source.access)) {
+				return 1;
+			};
+			@module_index = module_index + 1;
+		};
 		@index = index + 1;
 		this.progress.report("reading", index, paths.size(), path);
 	};
 	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
 };
+

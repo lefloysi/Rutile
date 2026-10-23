@@ -119,8 +119,27 @@ fn rutile_compile_sources(var Compiler* compiler, var char var** paths, var char
 		@entry_name = rt::from_c_string(entry);
 	};
 	output_kind kind = output_kind::executable;
-	if (library) {
+	if (library == 1) {
 		@kind = output_kind::library;
 	};
+	if (library == 2) {
+		@kind = output_kind::tests;
+	};
 	return @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, $kind);
+};
+
+fn rutile_compiler_clear_modules(var Compiler* compiler) {
+	if (compiler) {
+		@compiler->clear_modules();
+	};
+};
+
+fn rutile_compiler_add_module_source(var Compiler* compiler, char* path, char* name, i32 access) -> i32 {
+	if (!compiler || !path || !name) {
+		return 1;
+	};
+	if (!@compiler->add_module_source(rt::from_c_string(path), rt::from_c_string(name), $access)) {
+		return 1;
+	};
+	return 0;
 };

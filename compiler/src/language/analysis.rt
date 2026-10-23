@@ -75,6 +75,39 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		@index = index + 1;
 		this.progress.report("parsing", index, this.sources.count(), file->path());
 	};
+	if (this.tests_enabled) {
+		var runner = TestRunnerSource();
+		usize root = 0;
+		while (root < this.syntax.size()) {
+			Syntax& syntax = *this.syntax.data()[root].get();
+			if (!syntax.token().source || !syntax.token().source->imported()) {
+				if (!@runner.collect(syntax, "", @this.messages)) {
+					return false;
+				};
+			};
+			@root = root + 1;
+		};
+		var generated = rt::string();
+		if (!runner.generate(@generated) || !@this.add_source("<generated-test-runner>", generated.view())) {
+			return false;
+		};
+		var SourceFile* file = @this.sources.at(this.sources.count() - 1);
+		@file->mark_compiler_generated();
+		var lexer = Lexer(@*file);
+		if (!@lexer.scan()) {
+			@this.messages.syntax_error(lexer.error_token(), lexer.error());
+			return true;
+		};
+		var parser = Parser(file->tokens());
+		var syntax = @parser.parse();
+		if (!syntax.get()) {
+			@this.messages.syntax_error(parser.error_token(), parser.error());
+			return true;
+		};
+		if (!@this.syntax.push_back($syntax)) {
+			return false;
+		};
+	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
 	@analyzer.set_progress(this.progress);
 	@analyzer.set_editor($editor);
@@ -137,10 +170,12 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 		this.progress.report("lifetimes", 1, 1, "");
 		if (!this.messages.failed()) {
+			this.progress.report("reference-loans", 0, 1, "");
 			var loans = ReferenceLoanAnalyzer(@this.messages);
 			if (!@loans.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
 				@this.messages.error(location, "internal compiler error: reference loan analysis failed without a diagnostic");
 			};
+			this.progress.report("reference-loans", 1, 1, "");
 		};
 	};
 	if (this.messages.cancelled()) {
@@ -160,3 +195,6 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	};
 	return @this.index.build(*this.semantic_unit.get());
 };
+
+
+

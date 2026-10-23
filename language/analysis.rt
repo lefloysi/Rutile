@@ -1,7 +1,20 @@
+fn kiln_project_source_load(char* path, ((var void*, char*, char*, usize, char*, i32) -> i32)* load, var void* context) -> i32;
+
+fn language_load_interface_source(var void* context, char* path, char* text, usize size, char* module, i32 access) -> i32 {
+	var Analysis& analysis = @*reinterpret_cast<var Analysis*>(context);
+	if (!@analysis.add_source(rt::from_c_string(path), rt::string_view(text, size)) || !@analysis.set_source_module(analysis.source_count() - 1, rt::from_c_string(module), access)) {
+		return 0;
+	};
+	return 1;
+};
+
 fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32 kind) -> i32 {
 	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	usize index = 0;
 	language_group_kind category = language_group_kind::target;
+	if (kind == 6) {
+		@category = language_group_kind::test_target;
+	};
 	if (kind == 1) {
 		@category = language_group_kind::analysis;
 	};
@@ -120,6 +133,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	if (!analysis.get()) {
 		return false;
 	};
+	if (group.kind == language_group_kind::test_target) {
+		@analysis.get()->enable_tests();
+	};
 	LanguageCancellation cancellation;
 	@cancellation.generation = this.generation;
 	@cancellation.stopped = this.stopped;
@@ -140,6 +156,14 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 			return false;
 		};
 		rt::string& path = group.paths.data()[source];
+		i32 imported = kiln_project_source_load(path.c_str(), &language_load_interface_source, analysis.get());
+		if (imported >= 0) {
+			if (!imported) {
+				return false;
+			};
+			@source = source + 1;
+			continue;
+		};
 		rt::string key;
 		if (!LanguageUri::key(path.view(), @key)) {
 			return false;
@@ -166,6 +190,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 				};
 				@diagnostic = diagnostic + 1;
 			};
+			return false;
+		};
+		if (!@analysis.get()->set_source_module(analysis.get()->source_count() - 1, group.name.view(), 0)) {
 			return false;
 		};
 		@source = source + 1;

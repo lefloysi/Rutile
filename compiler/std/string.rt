@@ -15,7 +15,7 @@ namespace rt {
 		var char* heap;
 	};
 
-	struct string {
+	export struct string {
 		fn string(var string& this) : [default];
 		fn string(var string& this, string& other);
 		fn string(var string& this, string_view text);
@@ -41,12 +41,12 @@ namespace rt {
 		usize heap_capacity;
 	};
 
-	fn string_view::string_view(var string_view& this, string& text) {
+	export fn string_view::string_view(var string_view& this, string& text) {
 		@this.bytes = text.data();
 		@this.length = text.size();
 	};
 
-	fn string::reserve(var string& this, usize required) -> bool {
+	export fn string::reserve(var string& this, usize required) -> bool {
 		if (required <= this.capacity()) {
 			return true;
 		};
@@ -82,7 +82,7 @@ namespace rt {
 		return true;
 	};
 
-	fn string::append(var string& this, string_view text) -> bool {
+	export fn string::append(var string& this, string_view text) -> bool {
 		if (text.empty()) {
 			return true;
 		};
@@ -117,21 +117,21 @@ namespace rt {
 		return true;
 	};
 
-	fn string::string(var string& this, string& other) {
+	export fn string::string(var string& this, string& other) {
 		@this.append(other.view());
 	};
 
-	fn string::string(var string& this, string_view text) {
+	export fn string::string(var string& this, string_view text) {
 		@this.append(text);
 	};
 
-	fn string::~string(var string& this) {
+	export fn string::~string(var string& this) {
 		if (this.heap_capacity) {
 			free(this.storage.heap);
 		};
 	};
 
-	fn string::operator:=(var string& this, string& other) -> var string& {
+	export fn string::operator:=(var string& this, string& other) -> var string& {
 		string replacement;
 		if (!@replacement.append(other.view())) {
 			return @this;
@@ -142,11 +142,11 @@ namespace rt {
 		return @this;
 	};
 
-	fn string::size(string& this) -> usize {
+	export fn string::size(string& this) -> usize {
 		return this.length;
 	};
 
-	fn string::capacity(string& this) -> usize {
+	export fn string::capacity(string& this) -> usize {
 		if (this.heap_capacity) {
 			return this.heap_capacity;
 		};
@@ -154,11 +154,11 @@ namespace rt {
 		return 15;
 	};
 
-	fn string::empty(string& this) -> bool {
+	export fn string::empty(string& this) -> bool {
 		return !this.length;
 	};
 
-	fn string::data(auto string& this) -> const[this] char* {
+	export fn string::data(auto string& this) -> const[this] char* {
 		if (this.heap_capacity) {
 			return this.storage.heap;
 		};
@@ -166,15 +166,15 @@ namespace rt {
 		return &@this.storage.inline_bytes[0];
 	};
 
-	fn string::c_str(string& this) -> char* {
+	export fn string::c_str(string& this) -> char* {
 		return this.data();
 	};
 
-	fn string::view(string& this) -> string_view {
+	export fn string::view(string& this) -> string_view {
 		return string_view(this.data(), this.length);
 	};
 
-	fn string::clear(var string& this) {
+	export fn string::clear(var string& this) {
 		@this.length = 0;
 		var char* bytes = (@this).data();
 		@bytes[0] = '\0';

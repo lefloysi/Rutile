@@ -7,14 +7,14 @@ namespace rt {
 	const u64 fnv1a64_offset_basis = 14695981039346656037;
 	const u64 fnv1a64_prime = 1099511628211;
 
-	fn mix_hash(u64 value) -> usize {
+	export fn mix_hash(u64 value) -> usize {
 		@value = (value ^ (value >> splitmix64_first_shift)) * splitmix64_first_multiplier;
 		@value = (value ^ (value >> splitmix64_second_shift)) * splitmix64_second_multiplier;
 
 		return static_cast<usize>(value ^ (value >> splitmix64_final_shift));
 	};
 
-	fn hash_value(f32 value, f32* type_token) -> usize {
+	export fn hash_value(f32 value, f32* type_token) -> usize {
 		if (value == 0.0) {
 			return 0;
 		};
@@ -22,7 +22,7 @@ namespace rt {
 		return mix_hash(static_cast<u64>(*reinterpret_cast<u32*>(&@value)));
 	};
 	
-	fn hash_value(f64 value, f64* type_token) -> usize {
+	export fn hash_value(f64 value, f64* type_token) -> usize {
 		if (value == 0.0) {
 			return 0;
 		};
@@ -30,7 +30,7 @@ namespace rt {
 		return mix_hash(*reinterpret_cast<u64*>(&@value));
 	};
 
-	fn hash_value(string_view value, string_view* type_token) -> usize {
+	export fn hash_value(string_view value, string_view* type_token) -> usize {
 		u64 result := fnv1a64_offset_basis;
 		usize index = 0;
 		while (index < value.size()) {
@@ -46,56 +46,56 @@ namespace rt {
 	// Default pointer hashing accepts object pointers through const void*.
 	// Function pointers require an explicit compatible hash policy.
 	template<typename K>
-	struct default_hash {
+	export struct default_hash {
 		fn hash(default_hash& this, K value) -> usize;
 	};
 
-	fn hash_value(bool value, bool* type_token) -> usize {
+	export fn hash_value(bool value, bool* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(char value, char* type_token) -> usize {
+	export fn hash_value(char value, char* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(i08 value, i08* type_token) -> usize {
+	export fn hash_value(i08 value, i08* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(i16 value, i16* type_token) -> usize {
+	export fn hash_value(i16 value, i16* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(i32 value, i32* type_token) -> usize {
+	export fn hash_value(i32 value, i32* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(i64 value, i64* type_token) -> usize {
+	export fn hash_value(i64 value, i64* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(u08 value, u08* type_token) -> usize {
+	export fn hash_value(u08 value, u08* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(u16 value, u16* type_token) -> usize {
+	export fn hash_value(u16 value, u16* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(u32 value, u32* type_token) -> usize {
+	export fn hash_value(u32 value, u32* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(u64 value, u64* type_token) -> usize {
+	export fn hash_value(u64 value, u64* type_token) -> usize {
 		return mix_hash(static_cast<u64>(value));
 	};
 
-	fn hash_value(void* value, void* type_token) -> usize {
+	export fn hash_value(void* value, void* type_token) -> usize {
 		return mix_hash(static_cast<u64>(reinterpret_cast<usize>(value)));
 	};
 
 	template<typename K>
-	fn default_hash<K>::hash(default_hash& this, K value) -> usize {
+	export fn default_hash<K>::hash(default_hash& this, K value) -> usize {
 		// The type token prevents conversions from selecting another primitive hash.
 		return hash_value(value, &value);
 	};

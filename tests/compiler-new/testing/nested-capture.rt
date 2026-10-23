@@ -1,0 +1,20 @@
+struct TestEnvironment {
+	i32 count;
+};
+fn retain(var TestEnvironment& environment);
+
+[[harness]]
+fn test_harness() {
+	var environment = TestEnvironment();
+	rt::test::run(@environment);
+	rt::test::expect(environment.count == 0);
+};
+
+[[test]]
+fn nested_tests(var TestEnvironment& environment) {
+	rt::test::register("capturing child", &child_test, @environment);
+};
+
+fn child_test(var TestEnvironment& environment) {
+	retain(@environment);
+};

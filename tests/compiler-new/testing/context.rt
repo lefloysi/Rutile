@@ -1,0 +1,23 @@
+struct TestEnvironment {
+	i32 count;
+};
+
+[[harness]]
+fn test_harness() {
+	var environment = TestEnvironment();
+	rt::test::run(@environment);
+	rt::test::expect(environment.count == 3);
+};
+
+[[test]]
+fn first(var TestEnvironment& environment) {
+	@environment.count = environment.count + 1;
+	rt::test::expect(environment.count == 1);
+	@environment.count = environment.count + 1;
+};
+
+[[test]]
+fn second(var TestEnvironment& environment) {
+	rt::test::expect(environment.count == 2);
+	@environment.count = environment.count + 1;
+};

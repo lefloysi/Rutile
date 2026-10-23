@@ -20,7 +20,7 @@ bash tools/build.sh build release
 `prepare` writes bootstrap files and copies dependencies beneath `build/<profile>/`.
 `build` compiles the Rutile compiler and its language service, then links
 `build/<profile>/native/rutilec.exe`. Set `RUTILE_COMPILER` to choose the Rutilec bootstrap
-compiler; otherwise the script searches `PATH` and then `distro/windows-x64/`.
+compiler; otherwise the script uses `distro/windows-x64/`, with `PATH` as a fallback.
 All generated objects, executables, dependencies, and logs belong under `build/`.
 
 The root `kiln.rt` describes the Rutile build as a Rutile language object target and

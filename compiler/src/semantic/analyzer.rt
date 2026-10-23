@@ -58,6 +58,7 @@ struct Analyzer {
 	fn template_engine(var Analyzer& this) -> var TemplateEngine*;
 	fn type_store(Analyzer& this) -> var TypeStore*;
 	fn accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool;
+	fn accessible_at(Analyzer& this, Entity& entity, var Scope& scope, Token& use) -> bool;
 
 private:
 	fn inline_record_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> Type*;
@@ -167,6 +168,10 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 	if (name.kind() == syntax_kind::qualified_name) {
 		var Entity* owner = @this.lookup(@scope, @*name.left());
 
+		if (owner && !this.accessible_at(*owner, @scope, name.token())) {
+			@this.error(&@name, "qualified name owner is not accessible from this scope");
+			return nullptr;
+		};
 		if (!owner || !@this.resolve((var Entity*(owner)))) {
 			return nullptr;
 		};
@@ -197,7 +202,15 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 			return @this.templates.apply(@this, @*owner->members(), @scope, @*member);
 		};
 
-		var Entity* result = owner->find_member(member->token().text());
+		bool ambiguous = false;
+		var Entity* result = owner->members()->local_from(member->token().text(), name.token().source, @ambiguous);
+		if (!result && owner->kind() == entity_kind::record) {
+			@result = owner->find_member(member->token().text());
+		};
+		if (ambiguous) {
+			@this.error(&@name, "ambiguous name from imported modules");
+			return nullptr;
+		};
 		if (result && result == this.folded_pack) {
 			return this.folded_argument;
 		};
@@ -208,7 +221,12 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 		return @this.templates.apply(@this, @scope, @scope, @name);
 	};
 
-	var Entity* result = scope.lookup(name.token().text());
+	bool ambiguous = false;
+	var Entity* result = scope.lookup_from(name.token().text(), name.token().source, @ambiguous);
+	if (ambiguous) {
+		@this.error(&@name, "ambiguous name from imported modules");
+		return nullptr;
+	};
 
 	if (result) {
 		return result;
@@ -348,7 +366,7 @@ fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> T
 			return nullptr;
 		};
 
-		if (!this.accessible(*entity, @scope)) {
+		if (!this.accessible_at(*entity, @scope, syntax.token())) {
 			var message = DiagnosticMessage();
 			@message.text("type '");
 			diagnostic_entity(@message, *entity);
@@ -808,7 +826,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		@name = name->right();
 	};
 
-	var Entity* existing = scope_cursor->local(name->token().text());
+	var Entity* existing = scope_cursor->local_declaration(name->token().text(), name->token().source, entity_kind(category));
 
 	if (existing && category != entity_kind::function) {
 		if (existing->kind() != category) {
@@ -931,8 +949,32 @@ fn Analyzer::type_store(Analyzer& this) -> var TypeStore* {
 	return this.types;
 };
 
-fn Analyzer::accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool {
+fn Analyzer::accessible_at(Analyzer& this, Entity& entity, var Scope& scope, Token& use) -> bool {
+	Token declaration = entity.token();
+	if (declaration.source && declaration.source->imported()) {
+		if (declaration.source->test_access()) {
+			return true;
+		};
+		if ((!use.source || use.source->module_name() != declaration.source->module_name()) && !entity.module_exported()) {
+			return false;
+		};
+	};
 	return entity.accessible_from(@scope);
+};
+
+fn Analyzer::accessible(Analyzer& this, Entity& entity, var Scope& scope) -> bool {
+	if (this.function) {
+		return this.accessible_at(entity, @scope, this.function->token());
+	};
+	var Scope* cursor = &@scope;
+	while (cursor) {
+		if (cursor->owner()) {
+			return this.accessible_at(entity, @scope, cursor->owner()->token());
+		};
+		@cursor = cursor->parent();
+	};
+	Token use;
+	return this.accessible_at(entity, @scope, use);
 };
 
 fn Analyzer::set_editor(var Analyzer& this, bool enabled) {

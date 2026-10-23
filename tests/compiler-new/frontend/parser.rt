@@ -121,3 +121,21 @@ fn parser_tests() -> i32 {
 	};
 	return 42;
 };
+
+fn attribute_parser_tests() -> i32 {
+	var annotated = ParseFixture();
+	if (!@annotated.build("[[test]] export fn check() {}; [[foo : \"bar\"]] struct Data {}; template<typename T> export fn first(T value); export template<typename T> fn second(T value); [[context : var Data&]] fn typed(); [[harness : init]] fn setup(); [[arbitrary : 1 + 2]] i32 value;")) {
+		return 1;
+	};
+	var Syntax* test = annotated.tree.get()->item(0);
+	if (!test->exported() || test->declaration_attributes().size() != 1 || !test->declaration_attributes().data()[0].get()->token().is("test") || test->declaration_attributes().data()[0].get()->item(0)->kind() != syntax_kind::absent) {
+		return 2;
+	};
+	if (annotated.tree.get()->item(1)->declaration_attributes().data()[0].get()->item(0)->kind() != syntax_kind::string || !annotated.tree.get()->item(2)->item(1)->exported() || !annotated.tree.get()->item(3)->item(1)->exported()) {
+		return 3;
+	};
+	if (annotated.tree.get()->item(4)->declaration_attributes().data()[0].get()->item(0)->kind() != syntax_kind::type_reference || annotated.tree.get()->item(5)->declaration_attributes().data()[0].get()->item(0)->kind() != syntax_kind::ambiguity || annotated.tree.get()->item(6)->declaration_attributes().data()[0].get()->item(0)->kind() != syntax_kind::binary) {
+		return 4;
+	};
+	return 42;
+};

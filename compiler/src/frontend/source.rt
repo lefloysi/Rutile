@@ -1,3 +1,8 @@
+enum source_origin : [u08] {
+	input;
+	compiler_generated;
+};
+
 struct SourceFile {
 	fn SourceFile(var SourceFile& this) : [default];
 
@@ -12,6 +17,12 @@ struct SourceFile {
 	fn tokens(SourceFile& this) -> rt::buffer<Token>&;
 	fn comments(SourceFile& this) -> rt::buffer<Token>&;
 	fn token_count(SourceFile& this) -> usize;
+	fn set_module(var SourceFile& this, rt::string_view name, i32 access) -> bool;
+	fn module_name(SourceFile& this) -> rt::string_view;
+	fn imported(SourceFile& this) -> bool;
+	fn test_access(SourceFile& this) -> bool;
+	fn compiler_generated(SourceFile& this) -> bool;
+	fn mark_compiler_generated(var SourceFile& this);
 
 private:
 	rt::string file_path;
@@ -19,6 +30,35 @@ private:
 	rt::buffer<usize> line_offsets;
 	rt::buffer<Token> token_buffer;
 	rt::buffer<Token> comment_buffer;
+	rt::string owning_module;
+	i32 module_access;
+	source_origin origin;
+};
+
+fn SourceFile::set_module(var SourceFile& this, rt::string_view name, i32 access) -> bool {
+	@this.owning_module = rt::string(name);
+	@this.module_access = $access;
+	return true;
+};
+
+fn SourceFile::module_name(SourceFile& this) -> rt::string_view {
+	return this.owning_module.view();
+};
+
+fn SourceFile::imported(SourceFile& this) -> bool {
+	return this.module_access != 0;
+};
+
+fn SourceFile::compiler_generated(SourceFile& this) -> bool {
+	return this.origin == source_origin::compiler_generated;
+};
+
+fn SourceFile::mark_compiler_generated(var SourceFile& this) {
+	@this.origin = source_origin::compiler_generated;
+};
+
+fn SourceFile::test_access(SourceFile& this) -> bool {
+	return this.module_access == 2;
 };
 
 struct SourceManager {
@@ -51,6 +91,7 @@ fn SourceFile::assign(var SourceFile& this, rt::string_view path, rt::string_vie
 		@offset = offset + 1;
 	};
 
+	@this.origin = source_origin::input;
 	@this.token_buffer.clear();
 	@this.comment_buffer.clear();
 	@this.file_path = $next_path;
@@ -143,3 +184,5 @@ fn SourceManager::at(auto SourceManager& this, usize index) -> const[this] Sourc
 fn SourceManager::clear(var SourceManager& this) {
 	@this.files.clear();
 };
+
+

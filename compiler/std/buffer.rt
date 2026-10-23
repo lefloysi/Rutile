@@ -3,7 +3,7 @@ fn free(void* memory);
 
 namespace rt {
 	template<typename T>
-	struct buffer {
+	export struct buffer {
 		fn buffer(var buffer& this) : [default];
 		fn buffer(var buffer& this, buffer& other);
 		fn ~buffer(var buffer& this);
@@ -28,12 +28,12 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::buffer(var buffer& this, buffer& other) {
+	export fn buffer<T>::buffer(var buffer& this, buffer& other) {
 		@this.copy_from(other);
 	};
 
 	template<typename T>
-	fn buffer<T>::operator=(var buffer& this, buffer& other) -> var buffer& {
+	export fn buffer<T>::operator=(var buffer& this, buffer& other) -> var buffer& {
 		buffer replacement;
 		if (!@replacement.copy_from(other)) {
 			return @this;
@@ -45,7 +45,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::copy_from(var buffer& this, buffer& other) -> bool {
+	export fn buffer<T>::copy_from(var buffer& this, buffer& other) -> bool {
 		if (!@this.reserve(other._size)) {
 			return false;
 		};
@@ -59,18 +59,18 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::operator:=(var buffer& this, buffer& other) -> var buffer& {
+	export fn buffer<T>::operator:=(var buffer& this, buffer& other) -> var buffer& {
 		return @this = other;
 	};
 
 	template<typename T>
-	fn buffer<T>::~buffer(var buffer& this) {
+	export fn buffer<T>::~buffer(var buffer& this) {
 		@this.clear();
 		free(this._storage);
 	};
 
 	template<typename T>
-	fn buffer<T>::reserve(var buffer& this, usize required) -> bool {
+	export fn buffer<T>::reserve(var buffer& this, usize required) -> bool {
 		if (required <= this._capacity) {
 			return true;
 		};
@@ -112,7 +112,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::push_back(var buffer& this, T value) -> bool {
+	export fn buffer<T>::push_back(var buffer& this, T value) -> bool {
 		if (this._size == usize::max || !@this.reserve(this._size + 1)) {
 			return false;
 		};
@@ -124,7 +124,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::pop_back(var buffer& this) -> bool {
+	export fn buffer<T>::pop_back(var buffer& this) -> bool {
 		if (!this._size) {
 			return false;
 		};
@@ -136,7 +136,7 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::clear(var buffer& this) {
+	export fn buffer<T>::clear(var buffer& this) {
 		for (usize index = 0; index < this._size; @index = index + 1) {
 			@this._storage[index].~T();
 		};
@@ -145,17 +145,17 @@ namespace rt {
 	};
 
 	template<typename T>
-	fn buffer<T>::size(buffer& this) -> usize {
+	export fn buffer<T>::size(buffer& this) -> usize {
 		return this._size;
 	};
 
 	template<typename T>
-	fn buffer<T>::capacity(buffer& this) -> usize {
+	export fn buffer<T>::capacity(buffer& this) -> usize {
 		return this._capacity;
 	};
 
 	template<typename T>
-	fn buffer<T>::data(auto buffer& this) -> const[this] T* {
+	export fn buffer<T>::data(auto buffer& this) -> const[this] T* {
 		return this._storage;
 	};
 };

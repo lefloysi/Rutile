@@ -9,6 +9,9 @@ struct Scope {
 	fn bindings(Scope& this) -> rt::buffer<var Entity*>&;
 	fn access(Scope& this) -> access_kind;
 	fn local(Scope& this, rt::string_view name) -> var Entity*;
+	fn local_declaration(Scope& this, rt::string_view name, SourceFile* source, entity_kind category) -> var Entity*;
+	fn local_from(Scope& this, rt::string_view name, SourceFile* source, var bool& ambiguous) -> var Entity*;
+	fn lookup_from(Scope& this, rt::string_view name, SourceFile* source, var bool& ambiguous) -> var Entity*;
 	fn lookup(Scope& this, rt::string_view name) -> var Entity*;
 
 private:
@@ -55,6 +58,68 @@ fn Scope::local(Scope& this, rt::string_view name) -> var Entity* {
 	};
 
 	return nullptr;
+};
+
+fn same_source_module(SourceFile* first, SourceFile* second) -> bool {
+	if (!first || !second) {
+		return first == second;
+	};
+	return first->module_name() == second->module_name();
+};
+
+fn Scope::local_declaration(Scope& this, rt::string_view name, SourceFile* source, entity_kind category) -> var Entity* {
+	usize index = this.names.size();
+	while (index) {
+		@index = index - 1;
+		var Entity* entity = this.names.data()[index];
+		if (entity->name() == name && (same_source_module(entity->token().source, source) || category == entity_kind::namespace_body && entity->kind() == entity_kind::namespace_body)) {
+			return entity;
+		};
+	};
+	return nullptr;
+};
+
+fn Scope::local_from(Scope& this, rt::string_view name, SourceFile* source, var bool& ambiguous) -> var Entity* {
+	var Entity* result = nullptr;
+	i32 best = 0;
+	usize index = this.names.size();
+	while (index) {
+		@index = index - 1;
+		var Entity* entity = this.names.data()[index];
+		if (entity->name() != name) {
+			continue;
+		};
+		i32 rank = 1;
+		if (entity->module_exported() || entity->token().source && entity->token().source->test_access()) {
+			@rank = 2;
+		};
+		if (same_source_module(entity->token().source, source)) {
+			@rank = 3;
+		};
+		if (rank > best) {
+			@result = entity;
+			@best = rank;
+			@ambiguous = false;
+		}
+		else if (rank == best && rank >= 2 && !same_source_module(entity->token().source, result->token().source) && entity->canonical() != result->canonical()) {
+			@ambiguous = true;
+		};
+	};
+	return result;
+};
+
+fn Scope::lookup_from(Scope& this, rt::string_view name, SourceFile* source, var bool& ambiguous) -> var Entity* {
+	if (this.declaration_owner && this.declaration_owner->kind() == entity_kind::record && this.declaration_owner->name() == name) {
+		return this.declaration_owner;
+	};
+	var Entity* result = this.local_from(name, source, @ambiguous);
+	if (!result && this.declaration_owner && this.declaration_owner->kind() == entity_kind::record) {
+		@result = this.declaration_owner->find_member(name);
+	};
+	if (result || !this.enclosing) {
+		return result;
+	};
+	return this.enclosing->lookup_from(name, source, @ambiguous);
 };
 
 fn Scope::lookup(Scope& this, rt::string_view name) -> var Entity* {

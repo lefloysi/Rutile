@@ -26,6 +26,9 @@ if [[ $name == Rutile ]]; then
 	other=kiln
 fi
 [[ -f $payload/bin/$tool.exe ]] || { echo "Missing bin/$tool.exe in payload" >&2; exit 1; }
+if [[ $name == Rutile ]]; then
+	[[ -f $payload/share/rutile/lib/std.lib && -f $payload/share/rutile/lib/std.rti ]] || { echo 'Rutile payload requires version-matched std.lib and std.rti' >&2; exit 1; }
+fi
 [[ ! -e $payload/bin/$other.exe ]] || { echo 'Independent installers must not bundle the other tool' >&2; exit 1; }
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p -- "$(dirname -- "$output")"

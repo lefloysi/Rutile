@@ -482,7 +482,7 @@ fn Analyzer::cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 				@this.deleted_function(syntax.token(), *conversion);
 				return rt::unique<SemanticExpression>();
 			};
-			if (!this.accessible(*conversion, @scope)) {
+			if (!this.accessible_at(*conversion, @scope, syntax.token())) {
 				var message = DiagnosticMessage();
 				@message.text("selected conversion '");
 				diagnostic_entity(@message, *conversion);
@@ -703,7 +703,7 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 	if (!@this.resolve((var Entity*(field)))) {
 		return rt::unique<SemanticExpression>();
 	};
-	if (!this.accessible(*field, @scope)) {
+	if (!this.accessible_at(*field, @scope, syntax.token())) {
 		var message = DiagnosticMessage();
 		@message.text("data member '");
 		diagnostic_entity(@message, *field);

@@ -6,6 +6,16 @@ fn Analyzer::select(var Analyzer& this, var Entity* group, rt::buffer<rt::unique
 		var Entity* candidate = bindings.data()[index];
 
 		if (candidate->kind() == entity_kind::function && candidate->name() == group->name()) {
+			SourceFile* use = syntax.token().source;
+			SourceFile* declaration = candidate->token().source;
+			if (same_source_module(group->token().source, use) && !same_source_module(declaration, use)) {
+				@index = index + 1;
+				continue;
+			};
+			if (declaration && declaration->imported() && !declaration->test_access() && !same_source_module(declaration, use) && !candidate->module_exported()) {
+				@index = index + 1;
+				continue;
+			};
 			if (!@candidates.push_back((var Entity*(candidate)))) {
 				@this.error(&@syntax, "out of memory collecting function candidates");
 
@@ -263,7 +273,7 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 		@this.deleted_function(syntax.token(), *selected);
 		return rt::unique<SemanticExpression>();
 	};
-	if (!this.accessible(*selected, @scope)) {
+	if (!this.accessible_at(*selected, @scope, syntax.token())) {
 		var message = DiagnosticMessage();
 		@message.text("selected operator '");
 		diagnostic_entity(@message, *selected);

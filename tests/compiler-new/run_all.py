@@ -40,6 +40,8 @@ run_case("frontend-lexer", [*frontend, "tests/compiler-new/frontend/lexer.rt"],
 	entry="rutile_frontend_tests", expected=0)
 run_case("frontend-parser", [*frontend, "compiler/src/syntax/tree.rt",
 	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt"], entry="parser_tests")
+run_case("frontend-attributes", [*frontend, "compiler/src/syntax/tree.rt",
+	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/parser.rt"], entry="attribute_parser_tests")
 run_case("frontend-editor-recovery", [*frontend, "compiler/src/syntax/tree.rt",
 	"compiler/src/frontend/parser.rt", "tests/compiler-new/frontend/editor-recovery.rt"], entry="editor_recovery_tests")
 run_case("frontend-typed-callee", [*frontend, "compiler/src/syntax/tree.rt",
@@ -72,6 +74,12 @@ model = [*frontend, "compiler/src/syntax/tree.rt", "compiler/src/frontend/parser
 run_case("primitive-scopes", [*model, "tests/compiler-new/semantic/primitive-scopes.rt"],
 	entry="primitive_scope_tests")
 run_case("semantic-templates", model, entry="template_tests")
+run_case("semantic-module-visibility", [*model, "tests/compiler-new/semantic/module-visibility.rt"],
+	entry="module_visibility_tests")
+run_case("module-collisions", [*model, "tests/compiler-new/semantic/module-visibility.rt",
+	"tests/compiler-new/semantic/module-collisions.rt"], entry="module_collision_tests")
+run_case("reference-reachability", [*model, "tests/compiler-new/semantic/module-visibility.rt",
+	"tests/compiler-new/semantic/reference-reachability.rt"], entry="reference_reachability_tests")
 run_case("semantic-template-reference-inputs", [*model,
 	"tests/compiler-new/semantic/template-reference-inputs.rt"], entry="template_reference_input_tests")
 run_case("semantic-template-validation", [*model, "tests/compiler-new/semantic/template-validation.rt"],
