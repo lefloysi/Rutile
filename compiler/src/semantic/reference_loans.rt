@@ -100,6 +100,7 @@ struct ReferenceLoanAnalyzer {
 	private:
 	fn collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> bool;
 	fn position(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> usize;
+	fn build_graph(var ReferenceLoanAnalyzer& this, Entity& function) -> bool;
 	fn reachable(var ReferenceLoanAnalyzer& this, usize source, usize target, usize kill, var Entity* cleanup_owner) -> bool;
 	fn active(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, SemanticExpression& expression) -> bool;
 	fn active_at(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, usize point) -> bool;
@@ -167,6 +168,9 @@ struct ReferenceLoanAnalyzer {
 	FactGraph graph;
 	rt::buffer<usize> pending;
 	rt::buffer<usize> visited;
+	rt::buffer<usize> first_edges;
+	rt::buffer<usize> next_edges;
+	usize visit_generation;
 	Type* return_type;
 	reference_loan_phase phase;
 };
@@ -208,13 +212,53 @@ fn ReferenceLoanAnalyzer::position(ReferenceLoanAnalyzer& this, SemanticExpressi
 	return fact_no_node();
 };
 
+fn ReferenceLoanAnalyzer::build_graph(var ReferenceLoanAnalyzer& this, Entity& function) -> bool {
+	if (!@this.graph.build_function(function)) {
+		return false;
+	};
+	@this.first_edges.clear();
+	@this.next_edges.clear();
+	@this.visited.clear();
+	@this.visit_generation = 0;
+	usize index = 0;
+	while (index < this.graph.nodes.size()) {
+		if (!@this.first_edges.push_back(fact_no_node()) || !@this.visited.push_back(0)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.graph.edges.size()) {
+		if (!@this.next_edges.push_back(fact_no_node())) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = this.graph.edges.size();
+	while (index) {
+		@index = index - 1;
+		FactEdge& edge = this.graph.edges.data()[index];
+		@(@this.next_edges).data()[index] = this.first_edges.data()[edge.source];
+		@(@this.first_edges).data()[edge.source] = index;
+	};
+	return true;
+};
+
 fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize source, usize target, usize kill, var Entity* cleanup_owner) -> bool {
 	if (source == fact_no_node() || target == fact_no_node()) {
 		// Opaque graph regions must not prematurely end a loan.
 		return true;
 	};
 	@this.pending.clear();
-	@this.visited.clear();
+	if (this.visit_generation == usize::max) {
+		usize index = 0;
+		while (index < this.visited.size()) {
+			@(@this.visited).data()[index] = 0;
+			@index = index + 1;
+		};
+		@this.visit_generation = 0;
+	};
+	@this.visit_generation = this.visit_generation + 1;
 	if (!@this.pending.push_back(source)) {
 		return true;
 	};
@@ -237,31 +281,17 @@ fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize sourc
 				continue;
 			};
 		};
-		bool seen = false;
-		usize index = 0;
-		while (index < this.visited.size()) {
-			if (this.visited.data()[index] == node) {
-				@seen = true;
-				break;
-			};
-			@index = index + 1;
-		};
-		if (seen) {
+		if (this.visited.data()[node] == this.visit_generation) {
 			continue;
 		};
-		if (!@this.visited.push_back(node)) {
-			return true;
-		};
-		@index = 0;
-		while (index < this.graph.edges.size()) {
+		@(@this.visited).data()[node] = this.visit_generation;
+		usize index = this.first_edges.data()[node];
+		while (index != fact_no_node()) {
 			FactEdge& edge = this.graph.edges.data()[index];
-			if (edge.source == node) {
-				bool feasible = fact_semantic_edge_feasible(edge);
-				if (feasible && !@this.pending.push_back(usize(edge.target))) {
-					return true;
-				};
+			if (fact_semantic_edge_feasible(edge) && !@this.pending.push_back(usize(edge.target))) {
+				return true;
 			};
-			@index = index + 1;
+			@index = this.next_edges.data()[index];
 		};
 	};
 	return false;
@@ -1194,7 +1224,7 @@ fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit
 		@this.function_body = function->body();
 		@this.return_type = function->type()->signature().result();
 		@this.phase = reference_loan_phase::collect;
-		if (!@this.graph.build_function(*function) || !@this.collect(function->body()) || !@this.walk(function->body(), reference_loan_access::read)) {
+		if (!@this.build_graph(*function) || !@this.collect(function->body()) || !@this.walk(function->body(), reference_loan_access::read)) {
 			return false;
 		};
 		@this.phase = reference_loan_phase::validate;
