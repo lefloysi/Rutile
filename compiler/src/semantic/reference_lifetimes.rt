@@ -47,11 +47,7 @@ fn ReferenceLoanAnalyzer::owner_live_at(var ReferenceLoanAnalyzer& this, var Ent
 		@index = 0;
 		while (index < this.graph.edges.size()) {
 			FactEdge& edge = this.graph.edges.data()[index];
-			bool truth = false;
-			bool feasible = true;
-			if (edge.condition && edge.condition->constant_truth(@truth)) {
-				@feasible = !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
-			};
+			bool feasible = fact_semantic_edge_feasible(edge);
 			if (edge.source == state.node && feasible) {
 				ReferenceLifetimeVisit next;
 				@next.node = edge.target;

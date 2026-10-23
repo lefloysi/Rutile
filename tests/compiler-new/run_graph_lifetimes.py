@@ -9,6 +9,16 @@ from run import run_case
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
+	("proven-branch-skips-move", "fn main() -> i32 { i32 value = 42; usize length = 0; if (length > 0) { $value; }; return value; };", None),
+	("proven-branch-skips-dead-use", "fn main() -> i32 { i32 value = 42; $value; usize length = 0; if (length > 0) { return value; }; return 42; };", None),
+	("proven-branch-skips-reference-use", "fn main() -> i32 { i32 value = 42; $value; usize length = 0; if (length > 0) { const i32& borrowed = value; return borrowed; }; return 42; };", None),
+	("proven-false-loop", "fn main() -> i32 { i32 value = 42; usize length = 0; while (length) { $value; }; return value; };", None),
+	("unknown-branch-still-merges", "fn inspect(usize length) -> i32 { i32 value = 42; if (length > 0) { $value; }; return value; };", "object lifetime differs across reachable control-flow paths"),
+	("context-proof-not-generic", "fn inspect(usize length) -> i32 { i32 value = 42; if (length > 0) { $value; }; return value; }; fn main() -> i32 { return inspect(0); };", "object lifetime differs across reachable control-flow paths"),
+	("opaque-call-forgets-condition", "fn alter(var usize* length); fn main() -> i32 { i32 value = 42; usize length = 0; alter(&@length); if (length > 0) { $value; }; return value; };", "object lifetime differs across reachable control-flow paths"),
+	("widened-loop-still-checks", "fn main() -> i32 { i32 value = 42; usize index = 0; while (index < 2) { $value; @index = index + 1; }; return 42; };", "inconsistent object lifetimes at reachable loop backedge"),
+	("widened-loop-late-move", "fn main() -> i32 { i32 value = 42; usize index = 0; while (index < 2) { if (index == 1) { $value; }; @index = index + 1; }; return value; };", "inconsistent object lifetimes at reachable loop backedge"),
+	("condition-changes-with-value", "fn main() -> i32 { i32 value = 42; usize length = 0; if (length > 0) { $value; }; @length = 1; if (length > 0) { $value; }; return value; };", "object has been relocated"),
 	("dead-branch-unused", "fn inspect(bool choice) -> i32 { i32 value = 42; if (choice) { $value; }; return 42; };", None),
 	("dead-reason-order", "fn touch(); fn inspect(bool choice) -> i32 { i32 value = 42; if (choice) { touch(); touch(); touch(); $value; } else { @value.~i32(); }; return value; };", "object has been relocated"),
 	("dead-reason-after-reconstruction", "fn inspect(bool choice) -> i32 { i32 value = 42; $value; if (choice) { @value.i32(1); @value.~i32(); }; return value; };", "object has been destroyed"),
@@ -66,6 +76,20 @@ def main():
 	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
 		failures.append("elided-cleanup-runtime")
 		print(f"elided-cleanup-runtime: FAIL: {error}")
+	path = directory / "proven-effectful-comparison.rt"
+	path.write_text("i32 calls; fn observed() -> i32 { @calls = calls + 1; return 0; }; fn main() -> i32 { i32 value = 42; $value; if (observed() > 0) { return value; }; return calls + 41; };\n", encoding="utf-8")
+	try:
+		run_case("graph-lifetime-effectful-condition", [path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("effectful-condition-runtime")
+		print(f"effectful-condition-runtime: FAIL: {error}")
+	path = directory / "proven-normal-condition-throws.rt"
+	path.write_text("i32 calls; fn observed(bool fail) -> bool { @calls = calls + 1; if (fail) { throw i32(7); }; return true; }; fn inspect(bool fail) -> i32 { i32 value = 42; $value; try { if (observed(fail)) { return 42; }; return value; } catch (i32 caught) { if (caught != 7) { return 1; }; return 42; }; }; fn main() -> i32 { if (inspect(false) != 42 || inspect(true) != 42 || calls != 2) { return 2; }; return 42; };\n", encoding="utf-8")
+	try:
+		run_case("graph-lifetime-normal-condition-throws", [path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("normal-condition-throws-runtime")
+		print(f"normal-condition-throws-runtime: FAIL: {error}")
 	if failures:
 		raise SystemExit(f"{len(failures)} graph-lifetime case(s) failed: {', '.join(failures)}")
 

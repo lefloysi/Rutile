@@ -57,17 +57,23 @@ effects invalidate potentially affected facts. No method names identify getters 
 - Effect-free compiler-defaulted local record initialization establishes integer field values,
   including zero initialization, constant field initializers, and nested records. Custom
   constructors, reference-bearing storage, and overlapping layouts remain conservative.
+- Supported defaulted aggregate moves transfer integer field snapshots to destination storage.
+  Ending or reconstructing the source does not change those snapshots.
 - Local reference loans distinguish shared and exclusive access, follow reborrows, and use graph
   reachability for liveness. Returned-reference summaries preserve all known possible roots.
 - Object lifetime propagation uses a graph worklist. Storage availability remains separate from
   value lifetime so reconstruction can reuse relocated or destroyed storage. Loop backedges,
   exceptional construction, sequence escapes, and fallthrough retain their lifetime diagnostics.
+- Lifetime and reference passes consume proven generic branch conditions after numeric analysis
+  converges. Exceptional edges remain available, and call-context overrides stay separate.
 - Stored reference fields, defaulted transfers, and bounded nested aggregates propagate known
   referents. Distinct known elements of direct local fixed arrays can be borrowed independently.
 - Reference-bearing fixed arrays use separate holding-slot paths containing field and index
   projections. Definite covered writes end old contents; different or unknown indices preserve
   potentially surviving contents. Copying and returning holders uses reaching stores.
 - Opaque reference calls conservatively retain known loans. Raw pointers do not create loans.
+- Capture analysis can resolve concrete local virtual receivers and stable local callbacks,
+  including ordinary wrappers. This refines capture effects without changing runtime dispatch.
 - Raw writes, placement operations, pointer publication, and opaque pointer calls can make
   tracked reference contents unknown. Safe extraction then requires established provenance or a
   definite covered replacement. The raw pointer operations themselves remain unrestricted.
@@ -89,8 +95,9 @@ This is not yet a complete implementation of every planned verifier capability.
 - Summaries containing loops, caught exceptions, arbitrary mutation through aliases, or
   unsupported operations remain opaque. In particular, the allocator and relocation paths in
   the current buffer implementation do not yet receive complete numeric summaries.
-- Numeric field facts are not yet transferred through general aggregate relocation. Existing
-  scalar relocation preserves evaluated value snapshots while ending access through the source.
+- Aggregate relocation facts currently cover supported defaulted value transfers with known
+  field projections. Custom special members, reference-bearing records, overlapping layouts,
+  and uncertain aliases remain conservative.
 - Variant summary payloads are restricted to operations whose effects are understood. General
   user-defined payload lifecycle effects remain conservative.
 - Call-context analysis has bounded attempts, recursion depth, and implementation counts. A
@@ -108,12 +115,17 @@ This is not yet a complete implementation of every planned verifier capability.
   paths when their identity is not unique, preserving roots while losing disjointness precision.
 - Raw memory analysis does not discover arbitrary pointer referents. Unknown effects retain
   possible old roots and prevent treating those roots as complete reference provenance.
-- Virtual and indirect reference calls conservatively permit capture. This can reject local
-  reference uses even when the runtime target does not retain them.
-- Lifetime reachability currently uses existing constant conditions rather than the full numeric
-  relation state. Numeric facts primarily serve access diagnostics and check elimination.
+- Unknown virtual and indirect targets conservatively permit capture. Raw effects, reconstructed
+  receivers, destructive assignments through base views, callback mutation, recursion, and
+  analysis bounds can prevent target refinement. Unmodeled wrapper lifecycle effects also keep
+  the generic capture result.
+- Lifetime reachability consumes proven generic conditions, rather than carrying the complete
+  numeric relation state along each lifetime edge.
 - Constructor captures from unnamed temporaries or union subobjects still need enclosing-storage
   provenance; named owner capture coverage does not establish those cases.
+- Generic capture summaries do not yet propagate every constructor or destructor capture through
+  ordinary wrappers. Destructive assignment also retains old content loans conservatively when
+  destination cleanup effects are not modeled at the replacement boundary.
 
 ## Verification
 

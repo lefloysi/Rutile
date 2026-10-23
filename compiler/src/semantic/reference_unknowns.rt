@@ -284,6 +284,9 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> b
 };
 
 fn ReferenceLoanAnalyzer::unknown_path(var ReferenceLoanAnalyzer& this, ReferenceUnknownContent& event, ReferenceStoreSlot& slot, usize target) -> bool {
+	if (event.source != fact_no_node() && !@this.reachable(this.graph.entry, event.source, fact_no_node(), nullptr)) {
+		return false;
+	};
 	rt::buffer<usize> pending;
 	rt::buffer<usize> visited;
 	if (event.source == fact_no_node() || target == fact_no_node() || !@pending.push_back(usize(event.source))) {
@@ -327,11 +330,7 @@ fn ReferenceLoanAnalyzer::unknown_path(var ReferenceLoanAnalyzer& this, Referenc
 		@index = 0;
 		while (index < this.graph.edges.size()) {
 			FactEdge& edge = this.graph.edges.data()[index];
-			bool truth = false;
-			bool feasible = !(restored && edge.kind != fact_edge_kind::exceptional);
-			if (edge.condition && edge.condition->constant_truth(@truth)) {
-				@feasible = feasible && !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
-			};
+			bool feasible = fact_semantic_edge_feasible(edge) && !(restored && edge.kind != fact_edge_kind::exceptional);
 			if (edge.source == node && feasible && !@pending.push_back(usize(edge.target))) {
 				return true;
 			};

@@ -113,6 +113,7 @@ struct ReferenceLoanAnalyzer {
 	fn retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> bool;
 	fn prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool;
 	fn capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> bool;
+	fn contextual_capture(var ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool;
 	fn captures(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument) -> bool;
 	fn capture_mode(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool;
 	fn place(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> ReferenceLoanPlace;
@@ -255,13 +256,7 @@ fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize sourc
 		while (index < this.graph.edges.size()) {
 			FactEdge& edge = this.graph.edges.data()[index];
 			if (edge.source == node) {
-				bool truth = false;
-				bool feasible = true;
-				if (edge.condition && edge.condition->constant_truth(@truth)) {
-					if (edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth) {
-						@feasible = false;
-					};
-				};
+				bool feasible = fact_semantic_edge_feasible(edge);
 				if (feasible && !@this.pending.push_back(usize(edge.target))) {
 					return true;
 				};
@@ -286,6 +281,9 @@ fn ReferenceLoanAnalyzer::active_at(var ReferenceLoanAnalyzer& this, ReferenceLo
 			break;
 		};
 		@index = index + 1;
+	};
+	if (definition != fact_no_node() && !@this.reachable(this.graph.entry, definition, fact_no_node(), nullptr)) {
+		return false;
 	};
 	var Entity* cleanup_owner = nullptr;
 	if (loan.stored_field) {
@@ -327,7 +325,7 @@ fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> boo
 	while (index < this.expressions.size()) {
 		var SemanticExpression* call = this.expressions.data()[index];
 		@index = index + 1;
-		if (call->kind() != semantic_kind::call || call->size() < 2) {
+		if (call->kind() != semantic_kind::call || call->size() < 2 || !@this.reachable(this.graph.entry, this.position(*call), fact_no_node(), nullptr)) {
 			continue;
 		};
 		Type* signature = call->item(0)->type();
@@ -343,14 +341,14 @@ fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> boo
 			Type* parameter = signature->signature().parameters().data()[argument];
 			var SemanticExpression* actual = arguments->item(argument);
 			@argument = argument + 1;
-			if (!(parameter->kind() == type_kind::reference || reference_loan_members(*parameter)) || !this.captures(*call, argument - 1)) {
+			if (!(parameter->kind() == type_kind::reference || reference_loan_members(*parameter)) || !@this.contextual_capture(*call, argument - 1, false) && !@this.contextual_capture(*call, argument - 1, true)) {
 				continue;
 			};
 			usize mode = 0;
 			while (mode < 2) {
 				bool contents = mode == 1;
 				@mode = mode + 1;
-				if (!this.capture_mode(*call, argument - 1, contents)) {
+				if (!@this.contextual_capture(*call, argument - 1, contents)) {
 					continue;
 				};
 				rt::buffer<ReferenceLoanPlace> targets;
@@ -1033,6 +1031,11 @@ fn ReferenceLoanAnalyzer::storage_children(var ReferenceLoanAnalyzer& this, var 
 
 fn ReferenceLoanAnalyzer::walk(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> bool {
 	if (!expression) {
+		return true;
+	};
+	semantic_kind operation_kind = expression->kind();
+	bool structural = operation_kind == semantic_kind::brace || operation_kind == semantic_kind::statements || operation_kind == semantic_kind::sequence || operation_kind == semantic_kind::conditional || operation_kind == semantic_kind::while_loop || operation_kind == semantic_kind::for_loop || operation_kind == semantic_kind::exception_try || operation_kind == semantic_kind::exception_handler || operation_kind == semantic_kind::switch_expression || operation_kind == semantic_kind::case_label;
+	if (!structural && this.phase == reference_loan_phase::validate && this.position(*expression) != fact_no_node() && !@this.reachable(this.graph.entry, this.position(*expression), fact_no_node(), nullptr)) {
 		return true;
 	};
 	if (this.phase == reference_loan_phase::validate && !@this.check_unknown(*expression, access)) {

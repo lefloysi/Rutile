@@ -231,16 +231,6 @@ fn LifetimeAnalyzer::graph_check(var LifetimeAnalyzer& this, FactNode& node, rt:
 	return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths", *entity);
 };
 
-fn graph_lifetime_edge(FactEdge& edge) -> bool {
-	bool truth = false;
-	if (edge.condition && edge.condition->constant_truth(@truth)) {
-		if (edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth) {
-			return false;
-		};
-	};
-	return true;
-};
-
 fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& function) -> bool {
 	FactGraph graph;
 	if (!@graph.build_function(function)) {
@@ -336,7 +326,7 @@ fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& func
 		usize edge_index = first_edges.data()[source];
 		while (edge_index != fact_no_node()) {
 			FactEdge& edge = graph.edges.data()[edge_index];
-			if (graph_lifetime_edge(edge)) {
+			if (fact_semantic_edge_feasible(edge)) {
 				GraphLifetimeState merged;
 				GraphLifetimeState entry;
 				usize predecessor = first_incoming.data()[edge.target];
@@ -344,7 +334,7 @@ fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& func
 					FactEdge& previous = graph.edges.data()[predecessor];
 					GraphLifetimeState& value = *produced.data()[previous.source].get();
 					bool changed = false;
-					if (value.reachable && graph_lifetime_edge(previous)) {
+					if (value.reachable && fact_semantic_edge_feasible(previous)) {
 						if (!@merged.join(value, @changed)) {
 							return false;
 						};
@@ -376,7 +366,7 @@ fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& func
 	@index = 0;
 	while (index < graph.edges.size()) {
 		FactEdge& edge = graph.edges.data()[index];
-		if (edge.kind == fact_edge_kind::backedge && graph_lifetime_edge(edge) && incoming.data()[edge.source].get()->reachable && entries.data()[edge.target].get()->reachable) {
+		if (edge.kind == fact_edge_kind::backedge && fact_semantic_edge_feasible(edge) && incoming.data()[edge.source].get()->reachable && entries.data()[edge.target].get()->reachable) {
 			GraphLifetimeState repeated;
 			if (!@repeated.copy_from(*incoming.data()[edge.source].get()) || !@this.graph_transfer(graph.nodes.data()[edge.source], bindings, @repeated)) {
 				return false;

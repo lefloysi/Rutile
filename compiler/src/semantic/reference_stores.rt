@@ -137,11 +137,7 @@ fn reference_store_graph_path(FactGraph& graph, usize source, usize target, usiz
 		@index = 0;
 		while (index < graph.edges.size()) {
 			FactEdge& edge = graph.edges.data()[index];
-			bool truth = false;
-			bool feasible = true;
-			if (edge.condition && edge.condition->constant_truth(@truth)) {
-				@feasible = !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
-			};
+			bool feasible = fact_semantic_edge_feasible(edge);
 			if (node == avoid && edge.kind != fact_edge_kind::exceptional) {
 				@feasible = false;
 			};
@@ -445,11 +441,7 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 		@index = 0;
 		while (index < this.graph.edges.size()) {
 			FactEdge& edge = this.graph.edges.data()[index];
-			bool truth = false;
-			bool feasible = true;
-			if (edge.condition && edge.condition->constant_truth(@truth)) {
-				@feasible = !(edge.kind == fact_edge_kind::when_true && !truth || edge.kind == fact_edge_kind::when_false && truth);
-			};
+			bool feasible = fact_semantic_edge_feasible(edge);
 			// A verified replacement kills the old slot value only after normal
 			// completion. An exceptional exit may precede the actual store.
 			if (killed && edge.kind != fact_edge_kind::exceptional) {
@@ -480,6 +472,9 @@ fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> bo
 		};
 		bool external = destination->kind() == entity_kind::global || destination->kind() == entity_kind::parameter && destination->type()->kind() == type_kind::reference;
 		usize creation = this.position(*effect.site);
+		if (!@this.reachable(this.graph.entry, creation, fact_no_node(), nullptr)) {
+			continue;
+		};
 		if (external && (@this.store_path(creation, usize(this.graph.normal_exit), effect) || @this.store_path(creation, usize(this.graph.exceptional_exit), effect))) {
 			return @this.error(*effect.site, "stored reference may outlive its referent");
 		};

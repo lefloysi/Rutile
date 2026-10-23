@@ -1,0 +1,281 @@
+// Contexts refine capture effects only; unknown targets retain the generic summary.
+struct ReferenceDispatchBinding {
+	var Entity* parameter;
+	var Entity* root;
+};
+
+fn reference_dispatch_origin(SemanticExpression& expression, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body, usize depth) -> var Entity* {
+	if (depth > 24) {
+		return nullptr;
+	};
+	if ((expression.kind() == semantic_kind::access || expression.kind() == semantic_kind::cast) && expression.size()) {
+		if (expression.item(0)->type()->kind() == type_kind::pointer) {
+			return nullptr;
+		};
+		return reference_dispatch_origin(*expression.item(0), bindings, body, depth + 1);
+	};
+	if (expression.kind() != semantic_kind::name || !expression.entity()) {
+		return nullptr;
+	};
+	var Entity* entity = expression.entity();
+	usize index = 0;
+	while (index < bindings.size()) {
+		if (bindings.data()[index].parameter == entity) {
+			return bindings.data()[index].root;
+		};
+		@index = index + 1;
+	};
+	if (entity->kind() == entity_kind::local && entity->type()->kind() == type_kind::reference && body) {
+		SemanticExpression* initial = reference_capture_initializer(*body, *entity);
+		if (initial) {
+			return reference_dispatch_origin(*initial, bindings, body, depth + 1);
+		};
+		return nullptr;
+	};
+	return entity;
+};
+
+fn reference_dispatch_mentions(SemanticExpression& expression, Entity& binding) -> bool {
+	if (expression.kind() == semantic_kind::name && expression.entity() == &binding) {
+		return true;
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_dispatch_mentions(*expression.item(child), binding)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn reference_dispatch_changed(SemanticExpression& expression, Entity& binding) -> bool {
+	if (expression.kind() == semantic_kind::variable && expression.entity() && expression.entity()->type()->kind() == type_kind::reference && reference_dispatch_mentions(expression, binding)) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::call && expression.size() > 1) {
+		usize argument = 0;
+		while (argument < expression.item(1)->size()) {
+			SemanticExpression& actual = *expression.item(1)->item(argument);
+			if (reference_dispatch_mentions(actual, binding)) {
+				return true;
+			};
+			@argument = argument + 1;
+		};
+	};
+	if (expression.kind() == semantic_kind::binary && (expression.operation() == token_kind::op_assign || expression.operation() == token_kind::op_copy) && expression.item(0)->owned_binding() == &binding) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::address && expression.size() && expression.item(0)->owned_binding() == &binding) {
+		return true;
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_dispatch_changed(*expression.item(child), binding)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn reference_dispatch_callable(SemanticExpression& expression, SemanticExpression* body, usize depth) -> var Entity* {
+	if (depth > 16) {
+		return nullptr;
+	};
+	if ((expression.kind() == semantic_kind::address || expression.kind() == semantic_kind::access || expression.kind() == semantic_kind::cast) && expression.size()) {
+		return reference_dispatch_callable(*expression.item(0), body, depth + 1);
+	};
+	if (expression.kind() != semantic_kind::name || !expression.entity()) {
+		return nullptr;
+	};
+	var Entity* entity = expression.entity();
+	if (entity->kind() == entity_kind::function) {
+		return entity->canonical();
+	};
+	if (entity->kind() != entity_kind::local || !body || reference_dispatch_changed(*body, *entity)) {
+		return nullptr;
+	};
+	SemanticExpression* initial = reference_capture_initializer(*body, *entity);
+	if (initial) {
+		return reference_dispatch_callable(*initial, body, depth + 1);
+	};
+	return nullptr;
+};
+
+fn reference_dispatch_compatible(Entity& concrete, Entity& owner, usize depth) -> bool {
+	if (&concrete == &owner) {
+		return true;
+	};
+	if (depth > 16) {
+		return false;
+	};
+	usize base = 0;
+	while (base < concrete.bases().size()) {
+		if (reference_dispatch_compatible(*concrete.bases().data()[base]->entity(), owner, depth + 1)) {
+			return true;
+		};
+		@base = base + 1;
+	};
+	return false;
+};
+
+// Ordinary helper bodies may change a receiver's dynamic layout through a
+// reference parameter. Cyclic or excessive expansion cannot establish stability.
+fn reference_dispatch_layout_change(SemanticExpression& expression, usize depth) -> bool {
+	if (depth > 24) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::construction && !fact_default_record(&expression)) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::call && expression.entity()) {
+		Entity* callee = expression.entity()->canonical();
+		if (callee->role() == function_role::assignment && callee->definition() == function_definition::defaulted && callee->parameters().size() == 2 && callee->parameters().data()[1]->type()->kind() != type_kind::reference) {
+			return true;
+		};
+		if (callee->dispatch() == function_dispatch::ordinary && callee->body() && reference_dispatch_layout_change(*callee->body(), depth + 1)) {
+			return true;
+		};
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_dispatch_layout_change(*expression.item(child), depth + 1)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn reference_dispatch_reconstruction(SemanticExpression& expression) -> bool {
+	return reference_dispatch_layout_change(expression, 0);
+};
+
+fn reference_dispatch_body_captures(SemanticExpression& expression, Entity& target, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body, rt::buffer<var Entity*>& raw_functions, var rt::buffer<var Entity*>& stack, usize depth) -> bool;
+
+fn reference_dispatch_call_captures(SemanticExpression& call, Entity& target, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body, rt::buffer<var Entity*>& raw_functions, var rt::buffer<var Entity*>& stack, usize depth) -> bool {
+	if (depth > 24 || call.size() < 2) {
+		return true;
+	};
+	var Entity* callee = call.entity();
+	if (callee) {
+		@callee = callee->canonical();
+	}
+	else {
+		@callee = reference_dispatch_callable(*call.item(0), body, 0);
+	};
+	if (callee && callee->dispatch() != function_dispatch::ordinary) {
+		var Entity* receiver = nullptr;
+		if (call.item(1)->size()) {
+			@receiver = reference_dispatch_origin(*call.item(1)->item(0), bindings, body, 0);
+		};
+		if (!receiver || receiver->kind() != entity_kind::local || receiver->type()->kind() != type_kind::named || receiver->type()->entity()->kind() != entity_kind::record || !callee->scope() || !callee->scope()->owner() || !reference_dispatch_compatible(*receiver->type()->entity(), *callee->scope()->owner(), 0) || callee->virtual_slot() >= receiver->type()->entity()->virtual_functions().size()) {
+			@callee = nullptr;
+		}
+		else {
+			@callee = receiver->type()->entity()->virtual_functions().data()[callee->virtual_slot()]->canonical();
+		};
+	};
+	if (!callee || !callee->body() && callee->definition() != function_definition::defaulted) {
+		usize argument = 0;
+		while (argument < call.item(1)->size()) {
+			var Entity* root = reference_dispatch_origin(*call.item(1)->item(argument), bindings, body, 0);
+			if (!root || root == &target) {
+				return true;
+			};
+			@argument = argument + 1;
+		};
+		return false;
+	};
+	if (callee->definition() == function_definition::defaulted) {
+		return callee->role() == function_role::constructor || callee->role() == function_role::destructor || callee->role() == function_role::assignment;
+	};
+	usize parameter = 0;
+	while (parameter < callee->parameters().size()) {
+		Type* type = callee->parameters().data()[parameter]->type();
+		if (type->kind() != type_kind::reference && (type->kind() == type_kind::array || type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record)) {
+			return true;
+		};
+		@parameter = parameter + 1;
+	};
+	if (reference_raw_effects(*callee->body(), raw_functions) || reference_dispatch_reconstruction(*callee->body())) {
+		return true;
+	};
+	usize existing = 0;
+	while (existing < stack.size()) {
+		if (stack.data()[existing] == callee) {
+			return true;
+		};
+		@existing = existing + 1;
+	};
+	rt::buffer<ReferenceDispatchBinding> nested;
+	usize argument = 0;
+	while (argument < callee->parameters().size() && argument < call.item(1)->size()) {
+		ReferenceDispatchBinding binding;
+		@binding.parameter = callee->parameters().data()[argument];
+		@binding.root = reference_dispatch_origin(*call.item(1)->item(argument), bindings, body, 0);
+		if (!@nested.push_back($binding)) {
+			return true;
+		};
+		@argument = argument + 1;
+	};
+	if (!@stack.push_back(callee)) {
+		return true;
+	};
+	bool result = reference_dispatch_body_captures(*callee->body(), target, nested, callee->body(), raw_functions, @stack, depth + 1);
+	@stack.pop_back();
+	return result;
+};
+
+fn reference_dispatch_body_captures(SemanticExpression& expression, Entity& target, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body, rt::buffer<var Entity*>& raw_functions, var rt::buffer<var Entity*>& stack, usize depth) -> bool {
+	// This refinement does not summarize generated initialization or cleanup.
+	// Preserve the generic capture result whenever those operations occur.
+	if (expression.kind() == semantic_kind::construction || expression.kind() == semantic_kind::destruction) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::variable && expression.entity()) {
+		Type* type = expression.entity()->type();
+		if (type->kind() == type_kind::array || type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
+			return true;
+		};
+	};
+	if (expression.kind() == semantic_kind::call && reference_dispatch_call_captures(expression, target, bindings, body, raw_functions, @stack, depth)) {
+		return true;
+	};
+	usize child = 0;
+	while (child < expression.size()) {
+		if (reference_dispatch_body_captures(*expression.item(child), target, bindings, body, raw_functions, @stack, depth)) {
+			return true;
+		};
+		@child = child + 1;
+	};
+	return false;
+};
+
+fn ReferenceLoanAnalyzer::contextual_capture(var ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool {
+	if (!this.capture_mode(call, argument, contents)) {
+		return false;
+	};
+	if (argument >= call.item(1)->size()) {
+		return true;
+	};
+	rt::buffer<ReferenceDispatchBinding> bindings;
+	var Entity* target = reference_dispatch_origin(*call.item(1)->item(argument), bindings, this.function_body, 0);
+	if (!target || target->kind() != entity_kind::local) {
+		return true;
+	};
+	// A reachable raw memory effect can change a receiver's dispatch header.
+	usize operation = this.position(call);
+	usize index = 0;
+	while (index < this.expressions.size()) {
+		SemanticExpression& candidate = *this.expressions.data()[index];
+		usize point = this.position(candidate);
+		if (&candidate != &call && (candidate.kind() == semantic_kind::call || candidate.kind() == semantic_kind::binary || candidate.kind() == semantic_kind::construction || candidate.kind() == semantic_kind::destruction || candidate.kind() == semantic_kind::relocation) && (reference_raw_effects(candidate, this.raw_functions) || reference_dispatch_reconstruction(candidate)) && @this.reachable(this.graph.entry, point, fact_no_node(), nullptr) && @this.reachable(point, operation, fact_no_node(), nullptr)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	rt::buffer<var Entity*> stack;
+	return reference_dispatch_call_captures(call, *target, bindings, this.function_body, this.raw_functions, @stack, 0);
+};

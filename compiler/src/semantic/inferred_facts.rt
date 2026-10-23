@@ -153,6 +153,7 @@ struct FactState {
 	bool reachable;
 	rt::buffer<FactValue> places;
 	rt::buffer<FactEvaluation> evaluated;
+	rt::buffer<FactAggregateEvaluation> aggregate_evaluated;
 	rt::buffer<FactRelation> relations;
 	rt::buffer<ConditionalFact> conditional;
 	rt::buffer<ConditionalRelation> conditional_relations;
@@ -160,12 +161,15 @@ struct FactState {
 	fn value(FactState& this, SemanticExpression* expression) -> FactValue;
 	fn record(var FactState& this, var SemanticExpression* expression, FactValue value) -> bool;
 	fn join(var FactState& this, FactState& incoming, bool widen, var bool& changed) -> bool;
+	fn aggregate_value(FactState& this, SemanticExpression* expression, usize place) -> FactValue;
+	fn record_aggregate(var FactState& this, SemanticExpression* expression, usize place, FactValue value) -> bool;
 };
 
 fn FactState::copy_from(var FactState& this, FactState& other) -> bool {
 	@this.reachable = other.reachable;
 	@this.places.clear();
 	@this.evaluated.clear();
+	@this.aggregate_evaluated.clear();
 	@this.relations.clear();
 	@this.conditional.clear();
 	@this.conditional_relations.clear();
@@ -179,6 +183,13 @@ fn FactState::copy_from(var FactState& this, FactState& other) -> bool {
 	@index = 0;
 	while (index < other.evaluated.size()) {
 		if (!@this.evaluated.push_back(FactEvaluation(other.evaluated.data()[index]))) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < other.aggregate_evaluated.size()) {
+		if (!@this.aggregate_evaluated.push_back(FactAggregateEvaluation(other.aggregate_evaluated.data()[index]))) {
 			return false;
 		};
 		@index = index + 1;
@@ -285,6 +296,15 @@ fn FactState::join(var FactState& this, FactState& incoming, bool widen, var boo
 	while (index < this.evaluated.size()) {
 		var FactEvaluation& entry = @((@this.evaluated).data()[index]);
 		FactValue other = incoming.value(entry.expression);
+		if (fact_join_value(@entry.value, other, widen)) {
+			@changed = true;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.aggregate_evaluated.size()) {
+		var FactAggregateEvaluation& entry = @((@this.aggregate_evaluated).data()[index]);
+		FactValue other = incoming.aggregate_value(entry.expression, entry.place);
 		if (fact_join_value(@entry.value, other, widen)) {
 			@changed = true;
 		};
@@ -484,6 +504,12 @@ struct InferredFacts {
 	fn end_lifetime(var InferredFacts& this, var FactState& state, Entity* owner);
 	fn seed_default_members(var InferredFacts& this, Type* type, Entity* owner, usize parent, var FactState& state, usize version, usize depth);
 	fn seed_default_record(var InferredFacts& this, Entity* owner, SemanticExpression* initializer, var FactState& state, usize version);
+	fn collect_aggregate_moves(var InferredFacts& this, SemanticExpression* body) -> bool;
+	fn collect_aggregate_move_nodes(var InferredFacts& this, SemanticExpression* expression) -> bool;
+	fn project_aggregate_place(var InferredFacts& this, usize place, usize source, usize destination, usize depth) -> usize;
+	fn capture_aggregate(var InferredFacts& this, SemanticExpression* expression, var FactState& state) -> bool;
+	fn apply_aggregate_move(var InferredFacts& this, SemanticExpression* initializer, var FactState& state) -> bool;
+	fn aggregate_move(InferredFacts& this, SemanticExpression* initializer) -> FactAggregateMove*;
 	fn collect(var InferredFacts& this, SemanticExpression* expression) -> bool;
 	fn summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize;
 	fn summary_value(var InferredFacts& this, FunctionFactSummary& summary, usize expression, SemanticExpression& call, FactState& state, usize depth) -> FactValue;
@@ -498,6 +524,7 @@ struct InferredFacts {
 	fn context_override(var InferredFacts& this, var SemanticExpression& expression, inferred_override_kind kind, u64 value) -> bool;
 	var Diagnostics* diagnostics;
 	rt::buffer<FactPlace> places;
+	rt::buffer<rt::unique<FactAggregateMove>> aggregate_moves;
 	rt::buffer<rt::unique<FactState>> incoming;
 	FunctionFactSummaries summaries;
 	FunctionFactSummaries* summary_source;
@@ -1672,6 +1699,9 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 		return true;
 	};
 	@version = version * (this.places.size() + 1);
+	if (expression->kind() == semantic_kind::relocation && !@this.capture_aggregate(expression, @state)) {
+		return false;
+	};
 	FactValue value = @this.evaluate(expression, state);
 	if (expression->kind() == semantic_kind::call && expression->entity() && @this.apply_summary(@*expression, @state, @value, version)) {
 		if (!value.version) {
@@ -1681,6 +1711,12 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 	};
 	if (!value.version) {
 		@value.version = version;
+	};
+	if (expression->kind() == semantic_kind::construction && this.aggregate_move(expression)) {
+		if (expression->size() > 1 && !@this.apply_aggregate_move(expression, @state)) {
+			return false;
+		};
+		return @state.record(expression, $value);
 	};
 	if (expression->kind() == semantic_kind::construction && fact_default_record(expression)) {
 		if (expression->size() == 1) {
@@ -1694,6 +1730,9 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 		};
 	};
 	if (expression->kind() == semantic_kind::variable) {
+		if (!@this.apply_aggregate_move(expression->item(0), @state)) {
+			return false;
+		};
 		@this.seed_default_record(expression->entity(), expression->item(0), @state, version);
 		usize index = 0;
 		while (index < this.places.size()) {
@@ -1740,6 +1779,7 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 		@state.conditional.clear();
 		@state.conditional_relations.clear();
 		@state.evaluated.clear();
+		@state.aggregate_evaluated.clear();
 	};
 	if (expression->kind() == semantic_kind::relocation || expression->kind() == semantic_kind::destruction) {
 		@this.invalidate(@state, @this.place(expression->item(0)));
@@ -1758,6 +1798,9 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	@this.incoming.clear();
 	@this.constants.clear();
 	if (!@this.collect(body)) {
+		return false;
+	};
+	if (!@this.collect_aggregate_moves(body)) {
 		return false;
 	};
 	FactGraph graph;
@@ -1824,6 +1867,7 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 				if (graph.nodes.data()[link.source].kind == fact_node_kind::opaque) {
 					@this.invalidate(@outgoing, 0);
 					@outgoing.evaluated.clear();
+					@outgoing.aggregate_evaluated.clear();
 					@outgoing.relations.clear();
 					@outgoing.conditional.clear();
 					@outgoing.conditional_relations.clear();
@@ -1844,6 +1888,7 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 						@this.invalidate(@outgoing, 0);
 					};
 					@outgoing.evaluated.clear();
+					@outgoing.aggregate_evaluated.clear();
 					@outgoing.relations.clear();
 					@outgoing.conditional.clear();
 					@outgoing.conditional_relations.clear();

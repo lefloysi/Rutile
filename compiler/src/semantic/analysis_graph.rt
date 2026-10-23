@@ -44,6 +44,30 @@ fn fact_no_node() -> usize {
 	return 18446744073709551615;
 };
 
+// Subsequent semantic passes may consume generic facts after numeric analysis
+// has converged. Numeric worklists must use their own current abstract state.
+fn fact_semantic_edge_feasible(FactEdge& edge) -> bool {
+	if (!edge.condition || edge.kind != fact_edge_kind::when_true && edge.kind != fact_edge_kind::when_false) {
+		return true;
+	};
+	bool truth = false;
+	bool known = edge.condition->constant_truth(@truth);
+	if (!known) {
+		@known = edge.condition->inferred_condition(@truth);
+	};
+	if (!known) {
+		u64 value = 0;
+		if (edge.condition->inferred_integer(@value)) {
+			@truth = value != 0;
+			@known = true;
+		};
+	};
+	if (!known) {
+		return true;
+	};
+	return (edge.kind == fact_edge_kind::when_true) == truth;
+};
+
 fn fact_cleanup_effects(Type* type, usize depth) -> bool {
 	if (!type || depth > 32) {
 		return true;

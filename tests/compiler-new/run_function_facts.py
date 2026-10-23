@@ -11,6 +11,18 @@ from run import run_case
 ROOT = Path(__file__).resolve().parents[2]
 BOUNDS = "array index is provably outside the array bounds"
 CASES = [
+	('aggregate-move-nonzero', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = $source; return data[read(destination)]; };', True),
+	('aggregate-move-destination-only', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; Counter destination = $source; return data[read(destination) + 2]; };', True),
+	('aggregate-move-nested', 'struct Inner { usize length; }; struct Outer { Inner child; }; fn read(Outer& c) -> usize { return c.child.length; }; fn main() -> i32 { i32[2] data {}; Outer source; @source.child.length = 3; Outer destination = $source; return data[read(destination)]; };', True),
+	('aggregate-move-chain', 'struct Counter { usize length = 3; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; Counter first = $source; Counter second = $first; Counter destination = $second; return data[read(destination)]; };', True),
+	('aggregate-move-source-reconstructed', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = $source; @source.Counter(); @source.length = 0; return data[read(destination)]; };', True),
+	('aggregate-move-custom-constructor', 'struct Counter { usize length; fn Counter(var Counter& this) : [default]; fn Counter(var Counter& this, Counter other) { @this.length = 0; }; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = $source; return data[read(destination)]; };', False),
+	('aggregate-copy-custom-constructor', 'struct Counter { usize length; fn Counter(var Counter& this) : [default]; fn Counter(var Counter& this, Counter& other) { @this.length = 0; }; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = source; return data[read(destination)]; };', False),
+	('aggregate-move-raw-write', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = $source; var usize* pointer = &@destination.length; @*pointer = 0; return data[read(destination)]; };', False),
+	('aggregate-move-variant-boundary', 'using Choice = i32 | i64; struct Counter { Choice choice; usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; Counter source; @source.length = 3; Counter destination = $source; return data[read(destination)]; };', False),
+	('aggregate-move-reference-boundary', 'struct Counter { usize& reference; usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn main() -> i32 { i32[2] data {}; usize value = 0; Counter source = Counter(value, 3); Counter destination = $source; return data[read(destination)]; };', False),
+	('aggregate-move-merge-unknown', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn inspect(bool choice) -> i32 { i32[2] data {}; Counter source; if (choice) { @source.length = 3; }; Counter destination = $source; return data[read(destination)]; };', False),
+	('aggregate-move-merge-invalid', 'struct Counter { usize length; }; fn read(Counter& c) -> usize { return c.length; }; fn inspect(bool choice) -> i32 { i32[2] data {}; Counter source; if (choice) { @source.length = 3; } else { @source.length = 4; }; Counter destination = $source; return data[read(destination)]; };', True),
 	('default-record-narrow-widen', 'struct Counter { usize length = usize(u08(257)); }; fn main() -> i32 { i32[2] data {}; Counter c; return data[c.length]; };', False),
 	('default-record-narrow-invalid', 'struct Counter { u08 length = u08(258); }; fn main() -> i32 { i32[2] data {}; Counter c; return data[c.length]; };', True),
 	('default-record-many-fields', 'struct Counter { usize field0; usize field1; usize field2; usize field3; usize field4; usize field5; usize field6; usize field7; usize field8; usize field9; usize field10; usize field11; usize field12; usize field13; usize field14; usize field15; usize field16; usize field17; usize field18; usize field19; usize field20; usize field21; usize field22; usize field23; usize field24; usize field25; usize field26; usize field27; usize field28; usize field29; usize field30; usize field31; usize field32; usize field33; usize field34; usize field35; usize field36; usize field37; usize field38; usize field39; usize field40; usize field41; usize field42; usize field43; usize field44; usize field45; usize field46; usize field47; usize field48; usize field49; usize field50; usize field51; usize field52; usize field53; usize field54; usize field55; usize field56; usize field57; usize field58; usize field59; usize field60; usize field61; usize field62; usize field63; }; fn read(Counter& c) -> usize { c.field0; c.field1; c.field2; c.field3; c.field4; c.field5; c.field6; c.field7; c.field8; c.field9; c.field10; c.field11; c.field12; c.field13; c.field14; c.field15; c.field16; c.field17; c.field18; c.field19; c.field20; c.field21; c.field22; c.field23; c.field24; c.field25; c.field26; c.field27; c.field28; c.field29; c.field30; c.field31; c.field32; c.field33; c.field34; c.field35; c.field36; c.field37; c.field38; c.field39; c.field40; c.field41; c.field42; c.field43; c.field44; c.field45; c.field46; c.field47; c.field48; c.field49; c.field50; c.field51; c.field52; c.field53; c.field54; c.field55; c.field56; c.field57; c.field58; c.field59; c.field60; c.field61; c.field62; return c.field63; }; fn main() -> i32 { i32[2] data {}; Counter c; return data[read(c) + 2]; };', True),
@@ -178,6 +190,32 @@ fn initialized_siblings(usize value) -> bool {
 	@fields.first = value;
 	return fields.second == 2;
 };
+fn moved_reinitialized(usize value) -> bool {
+	Counter source;
+	@source.length = value;
+	usize before = source.length;
+	Counter destination = $source;
+	@source.Counter();
+	@source.length = 0;
+	if (read(destination) == before) { return true; };
+	return false;
+};
+fn moved_chain(usize value) -> bool {
+	Counter source;
+	@source.length = value;
+	Counter middle = $source;
+	Counter destination = $middle;
+	if (read(destination) == value) { return true; };
+	return false;
+};
+fn moved_getter(usize value) -> bool {
+	Counter source;
+	@source.length = value;
+	usize before = source.length;
+	Counter destination = $source;
+	if (read(destination) == before) { return true; };
+	return false;
+};
 fn default_getter() -> bool {
 	Counter counter;
 	if (read(counter) == 0) { return true; };
@@ -214,6 +252,9 @@ fn main() -> i32 {
 	if (!verify(0) || !verify(usize::max - 1) || !verify(usize::max)) { return 1; };
 	if (!composed_verify(0) || !composed_verify(usize::max - 1) || !composed_verify(usize::max)) { return 10; };
 	if (!default_getter()) { return 11; };
+	if (!moved_getter(0) || !moved_getter(3) || !moved_getter(usize::max)) { return 13; };
+	if (!moved_reinitialized(0) || !moved_reinitialized(3) || !moved_reinitialized(usize::max)) { return 14; };
+	if (!moved_chain(0) || !moved_chain(3) || !moved_chain(usize::max)) { return 15; };
 	if (!initialized_siblings(0) || !initialized_siblings(2) || !initialized_siblings(usize::max)) { return 12; };
 	if (!local(0) || !local(99) || !local(100)) { return 2; };
 	if (uncertain(usize::max)) { return 3; };
@@ -251,6 +292,8 @@ def check_affine_codegen(compiler, directory, function, expected):
 		raise RuntimeError(f"expected {expected} comparisons in {function} at optimization 0, found {comparisons}\n{body}")
 	if function == "composed_verify" and not re.search(r"\bcall\s+grow_wrapper\b", body):
 		raise RuntimeError("composed proof check lost the required wrapper call at optimization 0")
+	if function in ("default_getter", "moved_getter", "moved_reinitialized", "moved_chain") and not re.search(r"\bcall\s+read\b", body):
+		raise RuntimeError("getter proof check lost its required function call at optimization 0")
 	print(f"affine-{function}-codegen: PASS")
 
 
@@ -291,7 +334,7 @@ def main():
 		print(f"runtime-mutation: FAIL: {error}")
 	for function, expected in [("verify", 0), ("local", 1), ("uncertain", 1),
 		("guard", 0), ("guard_loose", 1), ("guard_changed", 1),
-		("getter_identity", 0), ("getter_growth", 0), ("getter_shrink", 0), ("composed_verify", 0), ("default_getter", 0), ("initialized_siblings", 0)]:
+		("getter_identity", 0), ("getter_growth", 0), ("getter_shrink", 0), ("composed_verify", 0), ("default_getter", 0), ("initialized_siblings", 0), ("moved_getter", 0), ("moved_reinitialized", 0), ("moved_chain", 0)]:
 		try:
 			check_affine_codegen(compiler, directory, function, expected)
 		except (OSError, RuntimeError, subprocess.SubprocessError) as error:
@@ -392,7 +435,9 @@ fn main() -> i32 {
 	path = directory / "default-buffer-runtime.rt"
 	path.write_text("fn emptyverify() -> i32 { rt::buffer<i32> buffer; "
 		"if (buffer.size() != 0) { return 1; }; return 42; }; "
-		"fn main() -> i32 { return emptyverify(); };\n", encoding="utf-8")
+		"fn moveverify() -> i32 { rt::buffer<i32> source; rt::buffer<i32> destination = $source; "
+		"if (destination.size() != 0) { return 1; }; return 42; }; "
+		"fn main() -> i32 { if (emptyverify() != 42) { return 1; }; return moveverify(); };\n", encoding="utf-8")
 	try:
 		output = directory / "default-buffer.obj"
 		subprocess.run([str(compiler), str(ROOT / "compiler/std/buffer.rt"), str(path),
@@ -410,11 +455,58 @@ fn main() -> i32 {
 		body = re.split(r"(?m)^[^\s:]+:\s*$|^\s+Summary\s*$", disassembly[match.end():], maxsplit=1)[0]
 		if re.search(r"\b(?:cmp|set[a-z]+)\s", body):
 			raise RuntimeError("default buffer size comparison remains at optimization 0\n" + body)
+		if not re.search(r"\bcall\s+size\b", body):
+			raise RuntimeError("default buffer check lost the required size call")
 		print("default-buffer-codegen: PASS")
+		match = re.search(r"(?m)^moveverify:\s*\n", disassembly)
+		if not match:
+			raise RuntimeError("missing disassembly for moveverify")
+		body = re.split(r"(?m)^[^\s:]+:\s*$|^\s+Summary\s*$", disassembly[match.end():], maxsplit=1)[0]
+		if re.search(r"\b(?:cmp|set[a-z]+)\s", body):
+			raise RuntimeError("moved buffer size comparison remains at optimization 0\n" + body)
+		if not re.search(r"\bcall\s+size\b", body):
+			raise RuntimeError("moved buffer check lost the required size call")
+		print("moved-buffer-codegen: PASS")
 		run_case("facts-default-buffer-runtime", ["compiler/std/buffer.rt", path.relative_to(ROOT).as_posix()], compiler=str(compiler))
 	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
 		failures.append("default-buffer-runtime")
 		print(f"default-buffer-runtime: FAIL: {error}")
+	path = directory / "aggregate-move-runtime.rt"
+	path.write_text("""
+i32 destructions;
+struct Counter {
+	usize length;
+	fn ~Counter(var Counter& this) { @destructions = destructions + 1; };
+};
+fn mutate(var usize* pointer) { @*pointer = 0; };
+fn main() -> i32 {
+	{
+		Counter source;
+		@source.length = 3;
+		Counter destination = $source;
+		@source.Counter();
+		if (destination.length != 3 || source.length != 0 || destructions != 0) { return 1; };
+		mutate(&@destination.length);
+		if (destination.length != 0) { return 2; };
+	};
+	if (destructions != 2) { return 3; };
+	usize index = 0;
+	while (index < 3) {
+		Counter source;
+		@source.length = index;
+		Counter destination = $source;
+		if (destination.length != index) { return 4; };
+		@index = index + 1;
+	};
+	if (destructions != 5) { return 5; };
+	return 42;
+};
+""", encoding="utf-8")
+	try:
+		run_case("facts-aggregate-move-runtime", [path.relative_to(ROOT).as_posix()], compiler=str(compiler))
+	except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+		failures.append("aggregate-move-runtime")
+		print(f"aggregate-move-runtime: FAIL: {error}")
 	if failures:
 		raise SystemExit(f"{len(failures)} function-facts case(s) failed: {', '.join(failures)}")
 

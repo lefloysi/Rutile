@@ -6,6 +6,29 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = [
+    ("virtual-constructor-base-replacement", "CustomLayoutDerived object; object.value(); return 0;", False),
+    ("virtual-wrapper-constructor-capture", "SafeDerived object; ctor_capture_dispatch(object); return 0;", False),
+    ("virtual-wrapper-destructor-capture", "SafeDerived object; dtor_capture_dispatch(object); return 0;", False),
+    ("virtual-nested-wrapper-destructor", "SafeDerived object; nested_dtor_dispatch(object); return 0;", False),
+    ("virtual-base-replacement", "LayoutDerived object; var LayoutBase& alias = static_cast<var LayoutBase&>(@object); LayoutBase replacement; @alias = $replacement; object.value(); return 0;", False),
+    ("virtual-before-base-replacement", "LayoutDerived object; object.value(); return 0;", True),
+    ("virtual-helper-base-replacement", "LayoutDerived object; replace_layout(@object); object.value(); return 0;", False),
+    ("virtual-wrapper-base-replacement", "LayoutDerived object; replace_then_dispatch(@object); return 0;", False),
+    ("proven-unreachable-store", "Holder holder = Holder(shared_value); { i32 local = 4; bool known = false; if (known) { write_holder(@holder, local); }; }; return holder.reference;", True),
+    ("unknown-conditional-local-return", "i32 value = 4; if (condition) { return value; }; return shared_value;", False),
+    ("virtual-static-base-cast", "SafeDerived object; const SafeBase& alias = static_cast<const SafeBase&>(object); dispatch_safe(alias); return 0;", True),
+    ("virtual-recursive-wrapper", "SafeDerived object; recursive_dispatch(condition, object); return 0;", False),
+    ("virtual-capturing-target", "CaptureDerived object; dispatch_capture(object); return 0;", False),
+    ("virtual-base-alias-known", "SafeDerived object; const SafeBase& alias = object; dispatch_safe(alias); return 0;", True),
+    ("virtual-unknown-parameter", "i32 value = 4; condition.choose(@value); return 0;", False),
+    ("virtual-raw-receiver", "SafeDerived object; change_receiver(&@object); dispatch_safe(object); return 0;", False),
+    ("callback-stable-known", "SafeDerived object; var callback = &SafeBase::value; callback(object); return 0;", True),
+    ("callback-replaced", "SafeDerived object; var callback = &SafeBase::value; @callback = &opaque_value; callback(object); return 0;", False),
+    ("callback-helper-replaced", "SafeDerived object; var callback = &SafeBase::value; replace_callback(@callback); callback(object); return 0;", False),
+    ("callback-alias-replaced", "SafeDerived object; var callback = &SafeBase::value; var alias = &@callback; @*alias = &opaque_value; callback(object); return 0;", False),
+    ("proven-unreachable-write", "i32 value = 4; const i32& reference = value; bool known = false; if (known) { @value = 5; }; return reference;", True),
+    ("proven-unreachable-local-return", "i32 value = 4; bool known = false; if (known) { return value; }; return shared_value;", True),
+    ("proven-unreachable-raw", "Holder holder = Holder(shared_value); bool known = false; if (known) { overwrite_raw(&@holder); }; return holder.reference;", True),
     ("raw-helper-publication", "Holder holder = Holder(shared_value); publish_holder(&@holder); overwrite_escaped(); return holder.reference;", False),
     ("raw-wrapper-publication", "Holder holder = Holder(shared_value); publish_wrapper(&@holder); @holder = Holder(shared_value); overwrite_escaped(); return holder.reference;", False),
     ("cast-base-overlap", "BorrowDerived object; var BorrowBase& reference = static_cast<var BorrowBase&>(@object); const BorrowBase& view = object; return reference.value + view.value;", False),
@@ -54,7 +77,7 @@ CASES = [
     ("array-same", "i32[2] values; var i32& first = @values[0]; var i32& second = @values[0]; return first + second;", False),
     ("array-dynamic", "i32[2] values; usize index = unknown_index(); var i32& first = @values[0]; var i32& second = @values[index]; return first + second;", False),
     ("array-reborrow-disjoint", "i32[2] values; var i32& first = @values[0]; var i32& child = @first; var i32& second = @values[1]; return child + second;", True),
-    ("virtual-call-opaque", "i32 value = 4; VirtualBorrow receiver; receiver.choose(@value); @value = 5; return value;", False),
+    ("virtual-known-noescape", "i32 value = 4; VirtualBorrow receiver; receiver.choose(@value); @value = 5; return value;", True),
     ("destructor-retains-reference", "i32 value = 4; ReadHolder holder = ReadHolder(value); var i32& exclusive = @value; return exclusive;", False),
     ("destructor-retains-write", "i32 value = 4; ReadHolder holder = ReadHolder(value); @value = 5; return value;", False),
     ("destructor-scope-end", "i32 value = 4; { ReadHolder holder = ReadHolder(value); }; @value = 5; return value;", True),
@@ -184,6 +207,26 @@ def main():
         path = directory / (name + ".rt")
         source = (
             "struct Pair { i32 first; i32 second; };\n"
+            "fn retain_layout(const LayoutBase& object);\n"
+            "struct LayoutBase { fn value(const LayoutBase& this) -> i32 : [virtual] { retain_layout(this); return 1; }; };\n"
+            "struct LayoutDerived : [LayoutBase] { fn value(const LayoutDerived& this) -> i32 : [override] { return 0; }; };\n"
+            "struct CustomLayoutDerived : [LayoutBase] { fn CustomLayoutDerived(var CustomLayoutDerived& this) { LayoutBase replacement; @static_cast<var LayoutBase&>(@this) = $replacement; }; fn value(const CustomLayoutDerived& this) -> i32 : [override] { return 0; }; };\n"
+            "fn replace_layout(var LayoutBase& object) { LayoutBase replacement; @object = $replacement; };\n"
+            "fn replace_then_dispatch(var LayoutBase& object) { replace_layout(@object); object.value(); };\n"
+            "struct SafeBase { fn value(const SafeBase& this) -> i32 : [virtual] { return 0; }; };\n"
+            "struct SafeDerived : [SafeBase] { fn value(const SafeDerived& this) -> i32 : [override] { return 1; }; };\n"
+            "struct CaptureDerived : [SafeBase] { fn value(const CaptureDerived& this) -> i32 : [override] { retain_base(this); return 1; }; };\n"
+            "fn retain_base(const SafeBase& object); fn change_receiver(var SafeDerived* object);\n"
+            "fn opaque_value(const SafeBase& object) -> i32;\n"
+            "using SafeCallback = ((const SafeBase& object) -> i32)*; fn replace_callback(var SafeCallback& callback) { @callback = &opaque_value; };\n"
+            "fn dispatch_safe(const SafeBase& object) -> i32 { return object.value(); };\n"
+            "struct ContextCtorProbe { fn ContextCtorProbe(var ContextCtorProbe& this, const SafeBase& object) { retain_base(object); }; };\n"
+            "struct ContextDtorProbe { const SafeBase& object; fn ~ContextDtorProbe(var ContextDtorProbe& this) { retain_base(this.object); }; };\n"
+            "fn ctor_capture_dispatch(const SafeBase& object) -> i32 { ContextCtorProbe probe = ContextCtorProbe(object); return object.value(); };\n"
+            "fn dtor_capture_dispatch(const SafeBase& object) -> i32 { ContextDtorProbe probe = ContextDtorProbe(object); return object.value(); };\n"
+            "fn nested_dtor_dispatch(const SafeBase& object) -> i32 { return dtor_capture_dispatch(object); };\n"
+            "fn recursive_dispatch(bool condition, const SafeBase& object) -> i32 { if (condition) { return recursive_dispatch(condition, object); }; return object.value(); };\n"
+            "fn dispatch_capture(const SafeBase& object) -> i32 { return object.value(); };\n"
             "struct BorrowBase { i32 value; }; struct BorrowDerived : [BorrowBase] {};\n"
             "struct BorrowAliases { i32 value; using reference = var i32&; using const_reference = const i32&; };\n"
             "fn overwrite_variadic(i32 tag, ...);\n"
@@ -262,6 +305,10 @@ def main():
             source += "fn return_deep_0(const i32& value) -> const i32& { return value; };\n"
             for level in range(1, 21):
                 source += f"fn return_deep_{level}(const i32& value) -> const i32& {{ return return_deep_{level - 1}(value); }};\n"
+        if name == "virtual-unknown-parameter":
+            source = source.replace("fn inspect(bool condition)", "fn inspect(const VirtualBorrow& condition)")
+        if name in ("proven-unreachable-local-return", "unknown-conditional-local-return"):
+            source = source.replace("fn inspect(bool condition) -> i32", "fn inspect(bool condition) -> const i32&")
         path.write_text(source, encoding="utf-8")
         result = subprocess.run(
             [str(compiler), *([str(ROOT / "compiler/std/variant.rt")] if name.startswith("union-") else []), str(path), "--output", str(directory / (name + ".obj"))],

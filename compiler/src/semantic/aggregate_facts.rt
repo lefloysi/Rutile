@@ -1,0 +1,314 @@
+// Field values loaded by a relocation are immutable after the source lifetime
+// ends. They belong to the path state, rather than a shared mutable cache.
+struct FactAggregateEvaluation {
+	SemanticExpression* expression;
+	usize place;
+	FactValue value;
+};
+
+struct FactAggregateProjection {
+	usize source;
+	usize destination;
+};
+
+struct FactAggregateMove {
+	SemanticExpression* initializer;
+	SemanticExpression* relocation;
+	usize source;
+	usize destination;
+	rt::buffer<FactAggregateProjection> projections;
+};
+
+fn FactState::aggregate_value(FactState& this, SemanticExpression* expression, usize place) -> FactValue {
+	usize index = this.aggregate_evaluated.size();
+	while (index) {
+		@index = index - 1;
+		FactAggregateEvaluation& entry = this.aggregate_evaluated.data()[index];
+		if (entry.expression == expression && entry.place == place) {
+			return FactValue(entry.value);
+		};
+	};
+	return FactValue();
+};
+
+fn FactState::record_aggregate(var FactState& this, SemanticExpression* expression, usize place, FactValue value) -> bool {
+	usize index = 0;
+	while (index < this.aggregate_evaluated.size()) {
+		var FactAggregateEvaluation& entry = @((@this.aggregate_evaluated).data()[index]);
+		if (entry.expression == expression && entry.place == place) {
+			@entry.value = $value;
+			return true;
+		};
+		@index = index + 1;
+	};
+	if (!value.version && !value.origin && !value.alternative && value.range.available == fact_truth::unknown) {
+		return true;
+	};
+	// Missing snapshots only lose precision; applying a move invalidates the
+	// destination first, so the bounded cache never restores stale fields.
+	if (this.aggregate_evaluated.size() >= 1024) {
+		return true;
+	};
+	FactAggregateEvaluation entry;
+	@entry.expression = expression;
+	@entry.place = place;
+	@entry.value = $value;
+	return @this.aggregate_evaluated.push_back($entry);
+};
+
+fn fact_aggregate_shape(Type* type, usize depth, var usize& budget) -> bool {
+	if (!budget || depth > 32 || type->kind() == type_kind::reference) {
+		return false;
+	};
+	@budget = budget - 1;
+	if (type->kind() == type_kind::array) {
+		return fact_aggregate_shape(type->element(), depth + 1, @budget);
+	};
+	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
+		return true;
+	};
+	var Entity* record = type->entity();
+	if (record->layout() == record_layout::overlapping || aggregate_access_kind(type) == 2) {
+		return false;
+	};
+	usize index = 0;
+	while (index < record->bases().size()) {
+		if (!fact_aggregate_shape(record->bases().data()[index], depth + 1, @budget)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < record->fields().size()) {
+		if (!fact_aggregate_shape(record->fields().data()[index]->type(), depth + 1, @budget)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn fact_aggregate_relocation(SemanticExpression* initializer) -> SemanticExpression* {
+	if (!initializer || initializer->type()->kind() != type_kind::named || initializer->type()->entity()->kind() != entity_kind::record) {
+		return nullptr;
+	};
+	usize budget = 1024;
+	if (!fact_aggregate_shape(initializer->type(), 0, @budget)) {
+		return nullptr;
+	};
+	SemanticExpression* value = initializer;
+	if (initializer->kind() == semantic_kind::construction) {
+		if (initializer->integer() || !initializer->size() || initializer->item(0)->kind() != semantic_kind::brace || initializer->item(0)->size() != 1) {
+			return nullptr;
+		};
+		var Entity* selected = initializer->entity();
+		if (selected) {
+			@selected = selected->canonical();
+			if (selected->definition() != function_definition::defaulted || selected->role() != function_role::constructor || selected->parameters().size() != 2 || selected->parameters().data()[1]->type()->kind() == type_kind::reference || !selected->parameters().data()[1]->type()->same_shape(*initializer->type())) {
+				return nullptr;
+			};
+		};
+		@value = initializer->item(0)->item(0);
+	}
+	else {
+		// initialize_value_body invokes the selected move constructor when
+		// the initializer itself is an already evaluated aggregate value.
+		var Entity* selected = initializer->type()->entity()->move_constructor();
+		if (selected && selected->canonical()->definition() != function_definition::defaulted) {
+			return nullptr;
+		};
+	};
+	while (value->kind() == semantic_kind::cast && value->size() == 1 && value->type()->same_shape(*value->item(0)->type())) {
+		@value = value->item(0);
+	};
+	if (value->kind() != semantic_kind::relocation || value->size() != 1 || !value->type()->same_shape(*initializer->type())) {
+		return nullptr;
+	};
+	return value;
+};
+
+fn fact_aggregate_descendant(rt::buffer<FactPlace>& places, usize place, usize ancestor) -> bool {
+	while (place && place != ancestor) {
+		@place = places.data()[place - 1].parent;
+	};
+	return place != 0;
+};
+
+fn InferredFacts::aggregate_move(InferredFacts& this, SemanticExpression* initializer) -> FactAggregateMove* {
+	usize index = 0;
+	while (index < this.aggregate_moves.size()) {
+		if (this.aggregate_moves.data()[index].get()->initializer == initializer) {
+			return this.aggregate_moves.data()[index].get();
+		};
+		@index = index + 1;
+	};
+	return nullptr;
+};
+
+fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, SemanticExpression* expression) -> bool {
+	if (!expression) {
+		return true;
+	};
+	SemanticExpression* initializer = nullptr;
+	usize destination = 0;
+	if (expression->kind() == semantic_kind::variable && expression->entity() && expression->entity()->kind() == entity_kind::local && expression->entity()->type()->kind() != type_kind::reference && expression->size()) {
+		@initializer = expression->item(0);
+		if (fact_aggregate_relocation(initializer)) {
+			usize index = 0;
+			while (index < this.places.size()) {
+				if (this.places.data()[index].root == expression->entity() && !this.places.data()[index].parent) {
+					@destination = index + 1;
+				};
+				@index = index + 1;
+			};
+			if (!destination) {
+				FactPlace root;
+				@root.root = expression->entity();
+				if (!@this.places.push_back($root)) {
+					return false;
+				};
+				@destination = this.places.size();
+			};
+		};
+	}
+	else if (expression->kind() == semantic_kind::construction && expression->size() > 1) {
+		@initializer = expression;
+		@destination = @this.place(expression->item(1));
+	};
+	SemanticExpression* relocation = fact_aggregate_relocation(initializer);
+	if (relocation && destination && !this.aggregate_move(initializer) && this.aggregate_moves.size() < 128) {
+		usize source = @this.place(relocation->item(0));
+		if (source && this.places.data()[source - 1].root->kind() == entity_kind::local && this.places.data()[destination - 1].root->kind() == entity_kind::local && !fact_aggregate_descendant(this.places, source, destination) && !fact_aggregate_descendant(this.places, destination, source)) {
+			var move = rt::unique<FactAggregateMove>::make();
+			if (!move.get()) {
+				return false;
+			};
+			@move.get()->initializer = initializer;
+			@move.get()->relocation = relocation;
+			@move.get()->source = source;
+			@move.get()->destination = destination;
+			if (!@this.aggregate_moves.push_back($move)) {
+				return false;
+			};
+		};
+	};
+	usize child = 0;
+	while (child < expression->size()) {
+		if (!@this.collect_aggregate_move_nodes(expression->item(child))) {
+			return false;
+		};
+		@child = child + 1;
+	};
+	return true;
+};
+
+fn InferredFacts::project_aggregate_place(var InferredFacts& this, usize place, usize source, usize destination, usize depth) -> usize {
+	if (place == source) {
+		return destination;
+	};
+	if (!place || depth > 32 || !this.places.data()[place - 1].parent || !this.places.data()[place - 1].field) {
+		return 0;
+	};
+	var Entity* field = this.places.data()[place - 1].field;
+	usize parent = @this.project_aggregate_place(this.places.data()[place - 1].parent, source, destination, depth + 1);
+	if (!parent) {
+		return 0;
+	};
+	usize index = 0;
+	while (index < this.places.size()) {
+		FactPlace& candidate = this.places.data()[index];
+		if (candidate.root == this.places.data()[destination - 1].root && candidate.parent == parent && candidate.field == field) {
+			return index + 1;
+		};
+		@index = index + 1;
+	};
+	if (this.places.size() >= 1024) {
+		return 0;
+	};
+	FactPlace projected;
+	@projected.root = this.places.data()[destination - 1].root;
+	@projected.parent = parent;
+	@projected.field = field;
+	if (!@this.places.push_back($projected)) {
+		return 0;
+	};
+	return this.places.size();
+};
+
+fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpression* body) -> bool {
+	@this.aggregate_moves.clear();
+	if (!@this.collect_aggregate_move_nodes(body)) {
+		return false;
+	};
+	usize iteration = 0;
+	while (iteration < 128) {
+		usize before = this.places.size();
+		usize move_index = 0;
+		while (move_index < this.aggregate_moves.size()) {
+			var FactAggregateMove& move = @*(@this.aggregate_moves).data()[move_index].get();
+			usize place = 1;
+			while (place <= this.places.size()) {
+				var Entity* field = this.places.data()[place - 1].field;
+				if (place != move.destination && field && field->type()->representation()->kind().is_integer() && fact_aggregate_descendant(this.places, place, move.destination)) {
+					usize source = @this.project_aggregate_place(place, move.destination, move.source, 0);
+					if (source) {
+						usize entry = 0;
+						while (entry < move.projections.size() && move.projections.data()[entry].destination != place) {
+							@entry = entry + 1;
+						};
+						if (entry == move.projections.size()) {
+							FactAggregateProjection projection;
+							@projection.source = source;
+							@projection.destination = place;
+							if (!@move.projections.push_back($projection)) {
+								return false;
+							};
+						};
+					};
+				};
+				@place = place + 1;
+			};
+			@move_index = move_index + 1;
+		};
+		if (this.places.size() == before) {
+			return true;
+		};
+		@iteration = iteration + 1;
+	};
+	@this.aggregate_moves.clear();
+	return true;
+};
+
+fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression* expression, var FactState& state) -> bool {
+	usize index = 0;
+	while (index < this.aggregate_moves.size()) {
+		FactAggregateMove& move = *this.aggregate_moves.data()[index].get();
+		if (move.relocation == expression) {
+			usize field = 0;
+			while (field < move.projections.size()) {
+				usize source = move.projections.data()[field].source;
+				if (!@state.record_aggregate(expression, source, FactValue(state.places.data()[source - 1]))) {
+					return false;
+				};
+				@field = field + 1;
+			};
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpression* initializer, var FactState& state) -> bool {
+	FactAggregateMove* move = this.aggregate_move(initializer);
+	if (!move) {
+		return true;
+	};
+	@this.invalidate(@state, move->destination);
+	usize field = 0;
+	while (field < move->projections.size()) {
+		FactAggregateProjection& projection = move->projections.data()[field];
+		@((@state.places).data()[projection.destination - 1]) = state.aggregate_value(move->relocation, projection.source);
+		@field = field + 1;
+	};
+	return true;
+};
