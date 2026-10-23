@@ -35,10 +35,12 @@ public static partial class EditorObservations {
 		var root = Path.Combine(Path.GetTempPath(), "rutile-editor-watch-" + Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(Path.Combine(root, "model"));
 		Directory.CreateDirectory(Path.Combine(root, "subject"));
+		Directory.CreateDirectory(Path.Combine(root, "support"));
 		var source = "[[test]]\nfn label_uses_imported_view() {\n\tLabel label;\n\t@label.value = 1;\n\trt::string_view view = \"view\";\n\trt::test::expect(label.value == 1 && view == \"view\");\n};\n";
 		File.WriteAllText(Path.Combine(root, "checks.rt"), source, new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "model", "model.rt"), "export struct Label {\n\ti32 value;\n};\n", new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "model", "native.cpp"), "static_assert(sizeof(void*) == 8);\n", new UTF8Encoding(false));
+		File.WriteAllText(Path.Combine(root, "support", "record.cpp"), "struct Record {\n\tint value;\n};\nstatic_assert(sizeof(Record) == sizeof(int));\n", new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "subject", "main.cpp"), "int main() {\n\treturn 0;\n}\n", new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "subject", "subject.rt"), "export fn application_view() -> rt::string_view {\n\treturn rt::string_view(\"view\");\n};\n", new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "unrelated.rt"), "struct Label {\n\ti32 unrelated;\n};\n", new UTF8Encoding(false));
@@ -47,18 +49,24 @@ public static partial class EditorObservations {
 	@model.compiler(""cpp"");
 	@model.option(""runtime"", ""MT"");
 	@model.sources.add(""model"");
+	var support = kiln::add_target(""support"");
+	@support.compiler(""cpp"");
+	@support.option(""runtime"", ""MT"");
+	@support.sources.add(""support"");
 	var subject = kiln::add_target(""subject"", kiln::TargetType::executable);
 	@subject.compiler(""cpp"");
 	@subject.option(""runtime"", ""MT"");
 	@subject.sources.add(""subject"");
 	@subject.depends_on(""model"");
+	@subject.depends_on(""support"");
 	@subject.import(""std"");
 	var unrelated = kiln::add_target(""unrelated"");
 	@unrelated.sources.add(""unrelated.rt"");
-	var checks = kiln::add_tests(""checks"", subject);
+	var checks = kiln::add_tests(subject);
 	@checks.sources.add(""checks.rt"");
 };
 ", new UTF8Encoding(false));
+		Exception? failure = null;
 		try {
 			await KilnAsync(root, "build subject").ConfigureAwait(false);
 			await KilnAsync(root, "configure --profile debug").ConfigureAwait(false);
@@ -67,16 +75,21 @@ public static partial class EditorObservations {
 				JObject status;
 				JObject? watch;
 				int compiling;
+				int nativeWatchSessions;
 				do {
 					status = JObject.Parse(await RunAsync(compiler, root, "request hello").ConfigureAwait(false));
 					watch = null;
 					compiling = 0;
+					nativeWatchSessions = 0;
 					foreach (JObject session in status["sessions"] ?? new JArray()) {
-						if (session.Value<string>("target") == "checks" && session.Value<string>("profile") == "debug") {
+						if (session.Value<string>("target") == "subject" && session.Value<string>("kind") == "test" && session.Value<string>("profile") == "debug") {
 							watch = session;
 						}
 						if (session.Value<bool>("compiling")) {
 							++compiling;
+						}
+						if (session.Value<string>("target") == "support") {
+							++nativeWatchSessions;
 						}
 					}
 					if (watch == null || compiling > 0) {
@@ -118,12 +131,22 @@ public static partial class EditorObservations {
 					foreach (var token in RutileSemanticDecoder.Decode(source, (JArray)tokens["data"]!, legend)) {
 						colors.Add(new JObject { ["text"] = source.Substring(token.Start, token.Length), ["classification"] = token.Classification });
 					}
-					return new JObject { ["watch"] = watch, ["progress"] = progress, ["diagnostics"] = diagnostics.For(uri), ["colors"] = colors }.ToString();
+					return new JObject { ["watch"] = watch, ["native_watch_sessions"] = nativeWatchSessions,
+						["progress"] = progress, ["diagnostics"] = diagnostics.For(uri), ["colors"] = colors }.ToString();
 				}
 			}
 		}
+		catch (Exception error) {
+			failure = error;
+			throw;
+		}
 		finally {
-			await StopCompilerAsync(root).ConfigureAwait(false);
+			try {
+				await StopCompilerAsync(root).ConfigureAwait(false);
+			}
+			catch (Exception cleanupError) when (failure != null) {
+				Console.Error.WriteLine("Compiler cleanup also failed: " + cleanupError);
+			}
 		}
 	}
 }

@@ -51,6 +51,7 @@ public static partial class EditorObservations {
 		File.WriteAllText(sourcePath, source, new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "kiln.rt"), "fn build(kiln::Options& options) {\n\tvar target = kiln::add_target(\"fixture\");\n\t@target.sources.add(\"source.rt\");\n\t@target.import(\"std\");\n};\n", new UTF8Encoding(false));
 		var stopped = false;
+		Exception? failure = null;
 		try {
 			await KilnAsync(root, "configure").ConfigureAwait(false);
 			var build = await KilnAsync(root, "build fixture").ConfigureAwait(false);
@@ -121,9 +122,18 @@ public static partial class EditorObservations {
 				}
 			}
 		}
+		catch (Exception error) {
+			failure = error;
+			throw;
+		}
 		finally {
 			if (!stopped) {
-				await StopCompilerAsync(root).ConfigureAwait(false);
+				try {
+					await StopCompilerAsync(root).ConfigureAwait(false);
+				}
+				catch (Exception cleanupError) when (failure != null) {
+					Console.Error.WriteLine("Compiler cleanup also failed: " + cleanupError);
+				}
 			}
 		}
 	}

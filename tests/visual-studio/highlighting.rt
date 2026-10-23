@@ -1,8 +1,15 @@
+fn puts(char* text) -> i32;
+
 fn editor_observation(rt::string_view method) -> rt::process::Result {
-	var command = rt::process::Command(rt::environment("KILN_TESTED_TARGET"));
+	var command = rt::process::Command(rt::environment("KILN_TEST_DRIVER"));
 	@command.argument(method);
 	@command.timeout_ms = 90000;
-	return rt::process::run(command);
+	var result = rt::process::run(command);
+	if (result.state != rt::process::status::completed || result.exit_code) {
+		puts(result.output.c_str());
+		puts(result.error.c_str());
+	};
+	return $result;
 };
 
 [[test]]
@@ -101,26 +108,20 @@ fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 	};
 	var root = document.value();
 	var accepted = root->member("accepted");
-	usize index = 0;
-	while (index < accepted->size()) {
+	for (usize index = 0; index < accepted->size(); @index = index + 1) {
 		rt::test::expect(accepted->item(index)->boolean());
-		@index = index + 1;
 	};
 	var rejected = root->member("rejected");
-	@index = 0;
-	while (index < rejected->size()) {
+	for (usize index = 0; index < rejected->size(); @index = index + 1) {
 		rt::test::expect(!rejected->item(index)->boolean());
-		@index = index + 1;
 	};
 	rt::test::expect(!root->member("angle_brackets")->boolean());
 	rt::test::expect(root->member("escaped")->boolean());
 	var pairs = root->member("pairs");
 	var defaults = root->member("default_pairs");
 	rt::test::expect(pairs->size() == 5 && defaults->size() == 5);
-	@index = 0;
-	while (index < pairs->size()) {
+	for (usize index = 0; index < pairs->size(); @index = index + 1) {
 		rt::test::expect(pairs->item(index)->text() == defaults->item(index)->text());
-		@index = index + 1;
 	};
 	rt::test::expect(pairs->item(0)->text() == "\"\"");
 	rt::test::expect(pairs->item(1)->text() == "''");
