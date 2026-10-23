@@ -1,0 +1,62 @@
+[[test]]
+fn persistent_editor_service_supplies_project_sources_imported_types_colors_and_navigation() {
+	var result = editor_observation("Service");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	rt::test::expect(root->member("disposed")->boolean());
+	rt::test::expect(root->member("cancelled_disposed")->boolean());
+	rt::test::expect(root->member("unexpected_disposed")->boolean());
+	rt::test::expect(root->member("unexpected_notification")->boolean());
+	i64 notifications = -1;
+	rt::test::expect(root->member("disposal_notifications")->integer(@notifications) && !notifications);
+	var locations = root->member("definitions");
+	if (!rt::test::expect(locations->size() == 1)) {
+		return;
+	};
+	rt::test::expect(locations->item(0)->member("uri")->text() == root->member("uri")->text());
+	var start = locations->item(0)->member("range")->member("start");
+	i64 position = -1;
+	rt::test::expect(start->member("line")->integer(@position) && !position);
+	rt::test::expect(start->member("character")->integer(@position) && position == 3);
+	var colors = root->member("colors");
+	bool function_declaration = false;
+	bool function_reference = false;
+	bool control = false;
+	bool imported_type = false;
+	bool integer_literal = false;
+	usize index = 0;
+	while (index < colors->size()) {
+		var color = colors->item(index);
+		var text = color->member("text")->text();
+		var classification = color->member("classification")->text();
+		i64 offset = -1;
+		rt::test::expect(color->member("start")->integer(@offset));
+		if (text == "answer" && classification == "rutile.function" && offset == 3) {
+			@function_declaration = true;
+		};
+		if (text == "answer" && classification == "rutile.function" && offset == 62) {
+			@function_reference = true;
+		};
+		if (text == "return" && classification == "rutile.control") {
+			@control = true;
+		};
+		if (text == "string" && classification == "rutile.type") {
+			@imported_type = true;
+		};
+		if (text == "42" && classification == "number") {
+			@integer_literal = true;
+		};
+		@index = index + 1;
+	};
+	rt::test::expect(function_declaration);
+	rt::test::expect(function_reference);
+	rt::test::expect(control);
+	rt::test::expect(imported_type);
+	rt::test::expect(integer_literal);
+};

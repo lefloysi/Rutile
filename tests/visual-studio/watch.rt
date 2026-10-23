@@ -1,0 +1,47 @@
+[[test]]
+fn configured_test_watches_import_mixed_library_interfaces_in_their_target_context() {
+	var result = editor_observation("WatchDependencies");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	var watch = root->member("watch");
+	rt::test::expect(watch->member("target")->text() == "checks");
+	rt::test::expect(watch->member("profile")->text() == "debug");
+	rt::test::expect(!watch->member("compiling")->boolean());
+	rt::test::expect(watch->member("artifacts_current")->boolean());
+	i64 source_revision = -1;
+	i64 artifact_revision = -2;
+	rt::test::expect(watch->member("source_revision")->integer(@source_revision));
+	rt::test::expect(watch->member("artifact_revision")->integer(@artifact_revision));
+	rt::test::expect(source_revision == artifact_revision);
+	rt::test::expect(root->member("progress")->member("state")->text() == "succeeded");
+	rt::test::expect(root->member("diagnostics")->size() == 0);
+	var colors = root->member("colors");
+	bool imported_label = false;
+	bool imported_view = false;
+	bool test_function = false;
+	usize index = 0;
+	while (index < colors->size()) {
+		var color = colors->item(index);
+		var text = color->member("text")->text();
+		var classification = color->member("classification")->text();
+		if (text == "Label" && classification == "rutile.type") {
+			@imported_label = true;
+		};
+		if (text == "string_view" && classification == "rutile.type") {
+			@imported_view = true;
+		};
+		if (text == "label_uses_imported_view" && classification == "rutile.function") {
+			@test_function = true;
+		};
+		@index = index + 1;
+	};
+	rt::test::expect(imported_label);
+	rt::test::expect(imported_view);
+	rt::test::expect(test_function);
+};

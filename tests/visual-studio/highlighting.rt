@@ -1,0 +1,178 @@
+fn editor_observation(rt::string_view method) -> rt::process::Result {
+	var command = rt::process::Command(rt::environment("KILN_TESTED_TARGET"));
+	@command.argument(method);
+	@command.timeout_ms = 90000;
+	return rt::process::run(command);
+};
+
+[[test]]
+fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers() {
+	var result = editor_observation("Lexical");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	i64 count = -1;
+	rt::test::expect(root->member("identifier_tokens")->integer(@count) && !count);
+	var tokens = root->member("tokens");
+	rt::test::expect(tokens->size() == 5);
+	rt::test::expect(tokens->item(0)->member("kind")->text() == "Comment");
+	rt::test::expect(tokens->item(0)->member("text")->text() == "// return if");
+	rt::test::expect(tokens->item(1)->member("kind")->text() == "Comment");
+	rt::test::expect(tokens->item(2)->member("kind")->text() == "String");
+	rt::test::expect(tokens->item(3)->member("text")->text() == "42.5e-2");
+	rt::test::expect(tokens->item(4)->member("kind")->text() == "String");
+	rt::test::expect(root->member("unicode_length")->integer(@count) && count == 10);
+	rt::test::expect(root->member("unterminated_length")->integer(@count) && count == 12);
+	rt::test::expect(root->member("escaped_tokens")->integer(@count) && count == 1);
+};
+
+[[test]]
+fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
+	var result = editor_observation("Decoder");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	rt::test::expect(root->member("classification")->text() == "rutile.control");
+	var roles = root->member("roles");
+	rt::test::expect(roles->size() == 6);
+	rt::test::expect(roles->item(0)->text() == "rutile.control");
+	rt::test::expect(roles->item(1)->text() == "comment");
+	rt::test::expect(roles->item(2)->text() == "string");
+	rt::test::expect(roles->item(3)->text() == "number");
+	rt::test::expect(roles->item(4)->text() == "operator");
+	rt::test::expect(roles->item(5)->text() == "rutile.keyword");
+	var bindings = root->member("bindings");
+	rt::test::expect(bindings->size() == 6);
+	rt::test::expect(bindings->item(0)->text() == "rutile.namespace");
+	rt::test::expect(bindings->item(1)->text() == "rutile.type");
+	rt::test::expect(bindings->item(2)->text() == "rutile.function");
+	rt::test::expect(bindings->item(3)->text() == "rutile.function");
+	rt::test::expect(bindings->item(4)->text() == "rutile.function");
+	rt::test::expect(bindings->item(5)->text() == "rutile.keyword");
+	i64 value = 0;
+	rt::test::expect(root->member("unicode_start")->integer(@value) && value == 4);
+	rt::test::expect(root->member("unicode_length")->integer(@value) && value == 4);
+	rt::test::expect(root->member("modified")->text() == "x\r\nItem");
+	rt::test::expect(root->member("replaced")->text() == "new");
+	rt::test::expect(root->member("malformed_count")->integer(@value) && !value);
+	rt::test::expect(root->member("out_of_range_count")->integer(@value) && !value);
+};
+
+[[test]]
+fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
+	var result = editor_observation("MiddleLayer");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	rt::test::expect(root->member("open_handled")->boolean());
+	rt::test::expect(root->member("change_handled")->boolean());
+	rt::test::expect(!root->member("initialize_handled")->boolean());
+	rt::test::expect(!root->member("hover_handled")->boolean());
+	rt::test::expect(root->member("events")->item(0)->text() == "forward");
+	rt::test::expect(root->member("events")->item(1)->text() == "textDocument/didOpen");
+	i64 answer = 0;
+	rt::test::expect(root->member("forwarded")->integer(@answer) && answer == 42);
+};
+
+[[test]]
+fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
+	var result = editor_observation("BraceEligibility");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	var accepted = root->member("accepted");
+	usize index = 0;
+	while (index < accepted->size()) {
+		rt::test::expect(accepted->item(index)->boolean());
+		@index = index + 1;
+	};
+	var rejected = root->member("rejected");
+	@index = 0;
+	while (index < rejected->size()) {
+		rt::test::expect(!rejected->item(index)->boolean());
+		@index = index + 1;
+	};
+	rt::test::expect(!root->member("angle_brackets")->boolean());
+	rt::test::expect(root->member("escaped")->boolean());
+	var pairs = root->member("pairs");
+	var defaults = root->member("default_pairs");
+	rt::test::expect(pairs->size() == 5 && defaults->size() == 5);
+	@index = 0;
+	while (index < pairs->size()) {
+		rt::test::expect(pairs->item(index)->text() == defaults->item(index)->text());
+		@index = index + 1;
+	};
+	rt::test::expect(pairs->item(0)->text() == "\"\"");
+	rt::test::expect(pairs->item(1)->text() == "''");
+	rt::test::expect(pairs->item(2)->text() == "()");
+	rt::test::expect(pairs->item(3)->text() == "[]");
+	rt::test::expect(pairs->item(4)->text() == "{}");
+	rt::test::expect(root->member("tab_indent")->text() == "\t\t");
+	rt::test::expect(root->member("space_indent")->text() == "    ");
+	rt::test::expect(root->member("partial_tab_indent")->text() == "    ");
+};
+
+[[test]]
+fn classifier_attaches_once_when_its_document_becomes_available() {
+	var result = editor_observation("ClassifierLifetime");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	rt::test::expect(!root->member("before")->boolean());
+	rt::test::expect(!root->member("unrelated")->boolean());
+	rt::test::expect(root->member("attached")->boolean());
+	rt::test::expect(root->member("same_classifier")->boolean());
+	rt::test::expect(root->member("retained")->boolean());
+	i64 subscriptions = 0;
+	rt::test::expect(root->member("subscriptions")->integer(@subscriptions) && subscriptions == 1);
+	rt::test::expect(root->member("uri")->text() == root->member("expected_uri")->text());
+};
+
+[[test]]
+fn semantic_client_reconnect_rejects_late_replies_and_preserves_authoritative_colors() {
+	var result = editor_observation("SemanticLifecycle");
+	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+		return;
+	};
+	var document = rt::json_parse(result.output);
+	if (!rt::test::expect(document.value())) {
+		return;
+	};
+	var root = document.value();
+	rt::test::expect(root->member("initial")->item(0)->text() == "rutile.function");
+	var replacement = root->member("after_late_reply");
+	rt::test::expect(replacement->size() == 2);
+	rt::test::expect(replacement->item(0)->text() == "rutile.keyword");
+	rt::test::expect(replacement->item(1)->text() == "rutile.function");
+	rt::test::expect(root->member("replacement_retained")->boolean());
+	rt::test::expect(root->member("changed")->size() == 1);
+	rt::test::expect(root->member("changed")->item(0)->text() == "rutile.function");
+	i64 legends = 0;
+	rt::test::expect(root->member("initial_legends")->integer(@legends) && legends == 1);
+	rt::test::expect(root->member("replacement_legends")->integer(@legends) && legends == 1);
+};
