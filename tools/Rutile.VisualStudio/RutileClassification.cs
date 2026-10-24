@@ -15,6 +15,8 @@ namespace Rutile.VisualStudio {
 		internal static ClassificationTypeDefinition FunctionDefinition = null!;
 		[Export(typeof(ClassificationTypeDefinition)), Name(RutileClassification.Namespace), BaseDefinition("identifier")]
 		internal static ClassificationTypeDefinition NamespaceDefinition = null!;
+		[Export(typeof(ClassificationTypeDefinition)), Name(RutileClassification.Attribute), BaseDefinition("identifier")]
+		internal static ClassificationTypeDefinition AttributeDefinition = null!;
 	}
 
 	[Export(typeof(EditorFormatDefinition)), Name(RutileClassification.Keyword), ClassificationType(ClassificationTypeNames = RutileClassification.Keyword), UserVisible(true), Order(After = Priority.Default, Before = Priority.High)]
@@ -53,6 +55,13 @@ namespace Rutile.VisualStudio {
 	internal sealed class RutileNamespaceFormat : ClassificationFormatDefinition {
 		public RutileNamespaceFormat() {
 			DisplayName = "Rutile namespace";
+		}
+	}
+
+	[Export(typeof(EditorFormatDefinition)), Name(RutileClassification.Attribute), ClassificationType(ClassificationTypeNames = RutileClassification.Attribute), UserVisible(true), Order(After = Priority.Default, Before = Priority.High)]
+	internal sealed class RutileAttributeFormat : ClassificationFormatDefinition {
+		public RutileAttributeFormat() {
+			DisplayName = "Rutile attribute";
 			ForegroundColor = Color.FromRgb(144, 144, 144);
 		}
 	}

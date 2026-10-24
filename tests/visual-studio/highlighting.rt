@@ -1,11 +1,11 @@
 fn puts(char* text) -> i32;
 
-fn editor_observation(rt::string_view method) -> rt::process::Result {
-	var command = rt::process::Command(rt::environment("KILN_TEST_DRIVER"));
+fn editor_observation(rt::string_view method) -> rt::sys::Result {
+	var command = rt::sys::Command(rt::environment("KILN_TEST_DRIVER"));
 	@command.argument(method);
 	@command.timeout_ms = 90000;
-	var result = rt::process::run(command);
-	if (result.state != rt::process::status::completed || result.exit_code) {
+	var result = rt::sys::cmd(command);
+	if (result.state != rt::sys::status::completed || result.exit_code) {
 		puts(result.output.c_str());
 		puts(result.error.c_str());
 	};
@@ -15,7 +15,7 @@ fn editor_observation(rt::string_view method) -> rt::process::Result {
 [[test]]
 fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers() {
 	var result = editor_observation("Lexical");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);
@@ -41,7 +41,7 @@ fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers()
 [[test]]
 fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 	var result = editor_observation("Decoder");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);
@@ -50,6 +50,9 @@ fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 	};
 	var root = document.value();
 	rt::test::expect(root->member("classification")->text() == "rutile.control");
+	rt::test::expect(root->member("attribute_classification")->text() == "rutile.attribute");
+	rt::test::expect(!root->member("namespace_has_foreground")->boolean());
+	rt::test::expect(root->member("attribute_foreground")->text() == "#FF909090");
 	var roles = root->member("roles");
 	rt::test::expect(roles->size() == 6);
 	rt::test::expect(roles->item(0)->text() == "rutile.control");
@@ -78,7 +81,7 @@ fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 [[test]]
 fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 	var result = editor_observation("MiddleLayer");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);
@@ -99,7 +102,7 @@ fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 [[test]]
 fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 	var result = editor_observation("BraceEligibility");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);
@@ -136,7 +139,7 @@ fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 [[test]]
 fn classifier_attaches_once_when_its_document_becomes_available() {
 	var result = editor_observation("ClassifierLifetime");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);
@@ -157,7 +160,7 @@ fn classifier_attaches_once_when_its_document_becomes_available() {
 [[test]]
 fn semantic_client_reconnect_rejects_late_replies_and_preserves_authoritative_colors() {
 	var result = editor_observation("SemanticLifecycle");
-	if (!rt::test::expect(result.state == rt::process::status::completed && !result.exit_code)) {
+	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
 		return;
 	};
 	var document = rt::json_parse(result.output);

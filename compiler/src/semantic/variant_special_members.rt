@@ -6,14 +6,14 @@ fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -
 			return false;
 		};
 		Type* first = alternatives.elements.data()[0].type;
-		return first->kind() == type_kind::null_type || @this.prepare_default(first);
+		return first->kind() == type_kind::null_type || first->kind() == type_kind::void_type || @this.prepare_default(first);
 	};
 	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
 	usize index = 0;
 	while (index < alternatives.elements.size()) {
 		Type* type = alternatives.elements.data()[index].type;
 		@index = index + 1;
-		if (type->kind() == type_kind::null_type) {
+		if (type->kind() == type_kind::null_type || type->kind() == type_kind::void_type) {
 			continue;
 		};
 		if (!@this.prepare_lifetime(type)) {
@@ -37,7 +37,7 @@ fn variant_special_nonthrowing(Entity& function) -> bool {
 			return false;
 		};
 		Type* first = alternatives.elements.data()[0].type;
-		return first->kind() == type_kind::null_type || exception_operation_nonthrowing(*first, exception_operation::initialize);
+		return first->kind() == type_kind::null_type || first->kind() == type_kind::void_type || exception_operation_nonthrowing(*first, exception_operation::initialize);
 	};
 	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
 	bool destroys = function.role() == function_role::destructor || function.role() == function_role::assignment;
@@ -46,7 +46,7 @@ fn variant_special_nonthrowing(Entity& function) -> bool {
 	while (index < alternatives.elements.size()) {
 		Type* type = alternatives.elements.data()[index].type;
 		@index = index + 1;
-		if (type->kind() == type_kind::null_type) {
+		if (type->kind() == type_kind::null_type || type->kind() == type_kind::void_type) {
 			continue;
 		};
 		if (destroys && !exception_type_nonthrowing(*type)) {

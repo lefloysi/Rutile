@@ -1,0 +1,74 @@
+struct ConstantHash {
+	fn hash(ConstantHash& this, i32& key) -> usize {
+		return 7;
+	};
+};
+
+[[test]]
+fn maps_reject_duplicates_and_keep_value_addresses_during_growth() {
+	rt::unordered_map<rt::string_view, i32> values;
+	var first = "alpha";
+	var second = "beta";
+	rt::test::expect(values.empty());
+	rt::test::expect(!values.find(first));
+	rt::test::expect(!@values.erase(first));
+	rt::test::expect(@values.insert("alpha", 20));
+	rt::test::expect(@values.insert("beta", 22));
+	rt::test::expect(!@values.insert("alpha", 99));
+	rt::test::expect(values.size() == 2);
+	var i32* stable = @values.find(first);
+	if (!rt::test::expect(stable)) {
+		return;
+	};
+	rt::test::expect(*stable == 20);
+	rt::test::expect(@values.reserve(1024));
+	rt::test::expect(values.find(first) == stable);
+	var moved = $values;
+	rt::test::expect(moved.find(first) == stable);
+	rt::test::expect(moved.find(second) && *moved.find(second) == 22);
+	rt::test::expect(@moved.erase(second));
+	rt::test::expect(!@moved.erase(second));
+	rt::test::expect(moved.size() == 1);
+	@moved.clear();
+	rt::test::expect(moved.empty());
+	rt::test::expect(!moved.find(first));
+};
+
+[[test]]
+fn map_collision_chains_support_head_middle_and_tail_removal() {
+	rt::unordered_map<i32, i32, ConstantHash> values;
+	for (i32 index = 0; index < 64; @index = index + 1) {
+		rt::test::expect(@values.insert(i32(index), i32(index + 100)));
+	};
+	i32 head = 63;
+	i32 middle = 31;
+	i32 tail = 0;
+	rt::test::expect(@values.erase(head));
+	rt::test::expect(@values.erase(middle));
+	rt::test::expect(@values.erase(tail));
+	rt::test::expect(!values.find(head));
+	rt::test::expect(!values.find(middle));
+	rt::test::expect(!values.find(tail));
+	rt::test::expect(values.size() == 61);
+	i32 remaining = 42;
+	rt::test::expect(values.find(remaining) && *values.find(remaining) == 142);
+	rt::test::expect(!@values.reserve(usize::max));
+	rt::test::expect(values.find(remaining) && *values.find(remaining) == 142);
+};
+
+[[test]]
+fn default_hashes_agree_for_equal_binary_text_and_signed_zero() {
+	rt::default_hash<f32> floats;
+	f32 positive = 0.0;
+	f32 negative = -0.0;
+	rt::test::expect(floats.hash(positive) == floats.hash(negative));
+	rt::default_hash<rt::string_view> texts;
+	var owned = rt::string("a\0b");
+	rt::string_view view = owned;
+	var literal = "a\0b";
+	rt::test::expect(texts.hash(view) == texts.hash(literal));
+	rt::unordered_map<rt::string_view, i32> values;
+	rt::test::expect(@values.insert(view, 42));
+	rt::test::expect(!@values.insert(literal, 9));
+	rt::test::expect(values.find(literal) && *values.find(literal) == 42);
+};

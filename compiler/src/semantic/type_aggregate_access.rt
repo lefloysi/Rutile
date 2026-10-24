@@ -104,6 +104,13 @@ fn Analyzer::aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& 
 		};
 		return @this.convert($result, expected, @syntax);
 	};
+	if (requested->kind() == type_kind::void_type) {
+		var result = @this.node(semantic_kind::sequence, requested, &@syntax);
+		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, requested, &@syntax))) {
+			return rt::unique<SemanticExpression>();
+		};
+		return @this.convert($result, expected, @syntax);
+	};
 	if (requested->kind() == type_kind::null_type) {
 		Type* null_type = @this.types->pointer(@this.types->qualified(*requested, type_qualifier::immutable));
 		var result = @this.node(semantic_kind::sequence, null_type, &@syntax);

@@ -68,6 +68,8 @@ namespace Rutile.VisualStudio {
 				case "interface":
 				case "typeParameter":
 					return RutileClassification.Type;
+				case "decorator":
+					return RutileClassification.Attribute;
 				case "namespace":
 					return RutileClassification.Namespace;
 				case "function":

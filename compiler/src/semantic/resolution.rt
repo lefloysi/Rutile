@@ -528,6 +528,18 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> bool {
 
 		while (index < names.size() && names.data()[index] != entity) {
 			var Entity* previous = names.data()[index]->canonical();
+			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && same_source_module(previous->token().source, entity->token().source) && (previous->linkage() == function_linkage::c || entity->linkage() == function_linkage::c)) {
+				if (previous->linkage() != entity->linkage()) {
+					@this.error(source, "function redeclaration has incompatible language linkage");
+					@this.diagnostics->note(previous->token(), "previous declaration is here");
+					return false;
+				};
+				if (!previous->type()->signature().matches(entity->type()->signature())) {
+					@this.error(source, "C linkage functions cannot be overloaded");
+					@this.diagnostics->note(previous->token(), "previous declaration is here");
+					return false;
+				};
+			};
 
 			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type()->signature().matches(entity->type()->signature()) && (same_source_module(previous->token().source, entity->token().source) || previous->declaration()->function_body()->kind() == syntax_kind::noop && source->function_body()->kind() == syntax_kind::noop)) {
 				if (previous->nonthrowing() != entity->nonthrowing()) {

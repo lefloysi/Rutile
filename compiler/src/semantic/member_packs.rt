@@ -39,8 +39,8 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> boo
 			return false;
 		};
 		Type* type = argument.type;
-		if (type->kind() == type_kind::null_type && owner->layout() == record_layout::overlapping) {
-			// A null union alternative retains its pack position without occupying storage.
+		if ((type->kind() == type_kind::null_type || type->kind() == type_kind::void_type && owner->scope() && owner->scope()->owner() && variant_instance(*owner->scope()->owner())) && owner->layout() == record_layout::overlapping) {
+			// Storage-free alternatives retain their pack position and discriminant.
 			if (!@members.add_field(nullptr)) {
 				return false;
 			};

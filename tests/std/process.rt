@@ -1,0 +1,32 @@
+[[test]]
+fn processes_capture_standard_output() {
+	var command = rt::sys::Command(rt::environment("ComSpec"));
+	rt::test::expect(@command.argument("/c"));
+	rt::test::expect(@command.argument("echo rutile-process-output"));
+	var result = rt::sys::cmd(command);
+	rt::test::expect(result.state == rt::sys::status::completed);
+	rt::test::expect(!result.exit_code);
+	rt::test::expect(result.output.trim() == "rutile-process-output");
+	rt::test::expect(result.error.empty());
+};
+
+[[test]]
+fn process_launch_failures_are_distinct_from_exit_codes() {
+	var command = rt::sys::Command("this-executable-does-not-exist-rutile-test.exe");
+	var result = rt::sys::cmd(command);
+	rt::test::expect(result.state == rt::sys::status::launch_failed);
+};
+
+[[test]]
+fn interactive_processes_time_out_and_terminate() {
+	var command = rt::sys::Command(rt::environment("ComSpec"));
+	rt::test::expect(@command.argument("/c"));
+	rt::test::expect(@command.argument("ping -n 6 127.0.0.1 >nul"));
+	var session = rt::sys::start(command);
+	if (!rt::test::expect(session.valid())) {
+		return;
+	};
+	var result = @session.wait(20);
+	rt::test::expect(result.state == rt::sys::status::timed_out);
+};
+

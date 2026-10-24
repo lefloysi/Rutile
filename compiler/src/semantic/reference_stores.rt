@@ -231,10 +231,7 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, SemanticExpres
 	return $slot;
 };
 
-fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool {
-	if (depth > 16) {
-		return @this.error(expression, "reference store summary exceeds the analysis depth limit");
-	};
+fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool {
 	if (expression.kind() == semantic_kind::call && expression.entity() && expression.entity()->dispatch() == function_dispatch::ordinary) {
 		var Entity* callee = expression.entity();
 		var SemanticExpression* arguments = expression.item(1);
@@ -298,13 +295,6 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 				@candidate = candidate + 1;
 			};
 			if (candidate == this.store_functions.size()) {
-				usize child = 0;
-				while (child < expression.size()) {
-					if (!@this.store_walk(@*expression.item(child), @substitutions, @bindings, context, site, definite, depth)) {
-						return false;
-					};
-					@child = child + 1;
-				};
 				return true;
 			};
 			usize boundary = substitutions.size();
@@ -345,12 +335,32 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 			};
 		};
 	};
-	usize child = 0;
-	while (child < expression.size()) {
-		if (!@this.store_walk(@*expression.item(child), @substitutions, @bindings, context, site, definite, depth)) {
+	return true;
+};
+
+fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool {
+	if (depth > 16) {
+		return @this.error(expression, "reference store summary exceeds the analysis depth limit");
+	};
+	// Expression depth must not consume the native stack. Only bounded call-summary
+	// expansion recurses, with each call restoring its substitutions before children.
+	rt::buffer<var SemanticExpression*> pending;
+	if (!@pending.push_back(&@expression)) {
+		return false;
+	};
+	while (pending.size()) {
+		var SemanticExpression* current = pending.data()[pending.size() - 1];
+		@pending.pop_back();
+		if (!@this.store_expression(@*current, @substitutions, @bindings, context, site, definite, depth)) {
 			return false;
 		};
-		@child = child + 1;
+		usize child = current->size();
+		while (child) {
+			@child = child - 1;
+			if (!@pending.push_back(current->item(child))) {
+				return false;
+			};
+		};
 	};
 	return true;
 };

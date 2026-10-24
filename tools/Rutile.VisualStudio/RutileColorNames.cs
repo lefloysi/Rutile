@@ -5,6 +5,7 @@ namespace Rutile.VisualStudio {
 		internal const string Type = "rutile.type";
 		internal const string Function = "rutile.function";
 		internal const string Namespace = "rutile.namespace";
+		internal const string Attribute = "rutile.attribute";
 
 	}
 }

@@ -1,3 +1,4 @@
+#include "module_interface.hpp"
 #include "service.hpp"
 
 #include <nlohmann/json.hpp>
@@ -128,18 +129,11 @@ extern "C" int kiln_project_sources(const char* root, int (*add)(void*, const ch
 				if (!file) {
 					continue;
 				}
-				const auto interface = nlohmann::json::parse(file);
-				if (interface.value("format", 0) != 1 || interface.value("compiler", std::string{}) != software_version || interface.value("pointer_bits", 0) != sizeof(void*) * 8) {
-					if (diagnostic) {
-						diagnostic(context, "An imported interface does not match the running compiler.");
-					}
-					return 0;
-				}
-				const auto tested = kind == 4 ? interface.at("module").get<std::string>() : std::string{};
-				for (const auto& record : interface.at("declarations")) {
+				const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+				for (const auto& record : rutile_interface_sources(bytes, kind == 4)) {
 					const auto owner = record.at("module").get<std::string>();
 					const auto original = record.at("path").get<std::string>();
-					const auto access = !tested.empty() && owner == tested ? 2 : 1;
+					const auto access = record.at("access").get<int>();
 					const auto virtual_path = "rti://" + group + "/" + owner + "/" + original;
 					const auto first = imported.insert(virtual_path).second;
 					RutileProjectInterfaceSource embedded{ virtual_path, record.at("text").get<std::string>(), owner, access };

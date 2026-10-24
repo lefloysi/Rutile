@@ -59,6 +59,11 @@ enum function_role : [u08] {
 	conversion;
 };
 
+enum function_linkage : [u08] {
+	rutile;
+	c;
+};
+
 enum conversion_mode : [u08] {
 	explicit_only;
 	implicit_allowed;
@@ -171,6 +176,7 @@ struct Entity {
 	fn require_dispatch(var Entity& this);
 
 	fn definition(Entity& this) -> function_definition;
+	fn linkage(Entity& this) -> function_linkage;
 	fn set_definition(var Entity& this, function_definition definition);
 	fn role(Entity& this) -> function_role;
 	fn set_role(var Entity& this, function_role role);
@@ -572,6 +578,13 @@ fn Entity::set_move_constructor(var Entity& this, var Entity* function) {
 
 fn Entity::definition(Entity& this) -> function_definition {
 	return function_definition(this.body_kind);
+};
+
+fn Entity::linkage(Entity& this) -> function_linkage {
+	if (this.kind() == entity_kind::function && this.declaration() && !this.declaration()->function_linkage().text().empty()) {
+		return function_linkage::c;
+	};
+	return function_linkage::rutile;
 };
 
 fn Entity::role(Entity& this) -> function_role {

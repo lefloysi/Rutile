@@ -1,0 +1,130 @@
+[[test]]
+fn empty_strings_have_a_terminator() {
+	rt::string text;
+	rt::test::expect(text.empty());
+	rt::test::expect(!text.size());
+	rt::test::expect(text.data());
+	rt::test::expect(!text.data()[0]);
+	rt::test::expect(@text.append(""));
+	@text.clear();
+	rt::test::expect(!text.data()[0]);
+};
+
+[[test]]
+fn strings_convert_to_views_and_concatenate() {
+	var first = rt::string("hello");
+	var second = rt::string(" world");
+	rt::string_view view = first;
+	rt::test::expect(view == "hello");
+	var joined = first + second;
+	rt::test::expect(joined == "hello world");
+	rt::test::expect(first == "hello");
+	rt::test::expect(second == " world");
+	var prefixed = "say " + joined;
+	var suffixed = joined + "!";
+	rt::test::expect(prefixed == "say hello world");
+	rt::test::expect(suffixed == "hello world!");
+};
+
+[[test]]
+fn string_copies_own_independent_storage() {
+	var original = rt::string("abc");
+	rt::string copied := original;
+	rt::test::expect(copied == "abc");
+	rt::test::expect(copied.data() != original.data());
+	var char* writable = @original.data();
+	@writable[0] = 'A';
+	rt::test::expect(original == "Abc");
+	rt::test::expect(copied == "abc");
+	@copied := original;
+	@copied := copied;
+	rt::test::expect(copied == "Abc");
+	var moved = $original;
+	@copied = $moved;
+	rt::test::expect(copied == "Abc");
+};
+
+[[test]]
+fn appending_overlapping_views_survives_growth() {
+	var text = rt::string("123456789abcdef");
+	rt::test::expect(@text.append(text));
+	rt::test::expect(text == "123456789abcdef123456789abcdef");
+	var middle = rt::string_view(text.data() + 2, 3);
+	rt::test::expect(@text.append(middle));
+	rt::test::expect(text == "123456789abcdef123456789abcdef345");
+	rt::test::expect(!text.data()[text.size()]);
+};
+
+[[test]]
+fn string_capacity_failures_preserve_text() {
+	var text = rt::string("preserved");
+	rt::test::expect(@text.reserve(128));
+	usize capacity = text.capacity();
+	char* storage = text.data();
+	rt::test::expect(capacity >= 128);
+	rt::test::expect(@text.reserve(16));
+	rt::test::expect(text.capacity() == capacity);
+	rt::test::expect(!@text.reserve(usize::max));
+	rt::test::expect(!@text.append(rt::string_view("x".data(), usize::max)));
+	rt::test::expect(text.data() == storage);
+	rt::test::expect(text == "preserved");
+	@text.clear();
+	rt::test::expect(text.empty());
+	rt::test::expect(text.capacity() == capacity);
+	rt::test::expect(@text.append("reused"));
+	rt::test::expect(text == "reused");
+};
+
+[[test]]
+fn string_comparisons_include_embedded_zeroes_and_unsigned_bytes() {
+	var binary = rt::string("a\0b");
+	rt::test::expect(binary.size() == 3);
+	rt::test::expect(binary == "a\0b");
+	rt::test::expect(binary != "a");
+	rt::test::expect(binary > "a");
+	rt::test::expect(binary < "a\0c");
+	rt::test::expect(binary <= "a\0b");
+	rt::test::expect(binary >= "a\0b");
+	var joined = binary + "c";
+	rt::test::expect(joined.size() == 4);
+	rt::test::expect(joined == "a\0bc");
+	char[1] high;
+	char[1] low;
+	@high[0] = char(255);
+	@low[0] = char(127);
+	var high_text = rt::string(rt::string_view(&high[0], 1));
+	var low_text = rt::string(rt::string_view(&low[0], 1));
+	rt::test::expect(high_text > low_text);
+};
+
+[[test]]
+fn substring_search_checks_boundaries_and_binary_text() {
+	var owned = rt::string("compiler output");
+	rt::test::expect(owned.contains("output"));
+	rt::test::expect(!owned.contains("missing"));
+	rt::string_view text = "compiler output";
+	rt::test::expect(text.contains("compiler"));
+	rt::test::expect(text.contains("output"));
+	rt::test::expect(text.contains("compiler output"));
+	rt::test::expect(text.contains(""));
+	rt::test::expect(!text.contains("compiler outputs"));
+	rt::test::expect(!text.contains("Output"));
+	rt::string_view empty;
+	rt::test::expect(empty.contains(""));
+	rt::test::expect(!empty.contains("x"));
+	rt::string_view binary = "a\0b";
+	rt::test::expect(binary.contains("\0b"));
+	rt::test::expect(!binary.contains("ab"));
+};
+
+[[test]]
+fn trimming_returns_a_view_without_changing_the_text() {
+	var source = rt::string(" \t0.0.113\r\n");
+	var trimmed = source.trim();
+	rt::test::expect(trimmed == "0.0.113");
+	rt::test::expect(source == " \t0.0.113\r\n");
+	rt::test::expect(trimmed.data() == source.data() + 2);
+	rt::test::expect(rt::string_view("\r\n\t ").trim().empty());
+	rt::test::expect(rt::string_view().trim().empty());
+	rt::test::expect(rt::string_view("a b").trim() == "a b");
+};

@@ -1,0 +1,145 @@
+struct NativeProcess;
+struct ProcessBuffer {
+	char* data;
+	usize size;
+};
+struct ProcessOutput {
+	i32 state;
+	i32 exit_code;
+	ProcessBuffer output;
+	ProcessBuffer error;
+};
+fn rutile_process_start(char** arguments, usize count, char* directory, char** environment, usize environment_count) -> var NativeProcess*;
+fn rutile_process_write(var NativeProcess* process, char* bytes, usize size) -> bool;
+fn rutile_process_close_input(var NativeProcess* process);
+fn rutile_process_read(var NativeProcess* process, u32 timeout_ms) -> ProcessBuffer*;
+fn rutile_process_wait(var NativeProcess* process, u32 timeout_ms) -> ProcessOutput*;
+fn rutile_process_dispose(var NativeProcess* process);
+
+namespace rt::sys {
+	export enum status : [i32] {
+		completed;
+		launch_failed;
+		timed_out;
+	};
+
+	export struct Command {
+		rt::buffer<rt::string> arguments;
+		rt::string working_directory;
+		rt::string input;
+		u32 timeout_ms = 30000;
+		rt::buffer<rt::string> environment_overrides;
+
+		fn Command(var Command& this, rt::string_view executable);
+		fn argument(var Command& this, rt::string_view value) -> bool;
+		fn environment(var Command& this, rt::string_view name, rt::string_view value) -> bool;
+	};
+
+	export struct Result {
+		status state = status::launch_failed;
+		i32 exit_code = -1;
+		rt::string output;
+		rt::string error;
+	};
+
+	export struct Session {
+		fn Session(var Session& this) : [default];
+		fn Session(var Session& this, var NativeProcess* process);
+		fn Session(var Session& this, Session& other) : [delete];
+		fn ~Session(var Session& this);
+		fn valid(Session& this) -> bool;
+		fn write(var Session& this, rt::string_view input) -> bool;
+		fn close_input(var Session& this);
+		fn read(var Session& this, u32 timeout_ms) -> rt::string;
+		fn wait(var Session& this, u32 timeout_ms) -> Result;
+
+	private:
+		var NativeProcess* handle;
+	};
+
+	export fn Command::Command(var Command& this, rt::string_view executable) {
+		@this.arguments.push_back(rt::string(executable));
+	};
+
+	export fn Command::argument(var Command& this, rt::string_view value) -> bool {
+		return @this.arguments.push_back(rt::string(value));
+	};
+
+	export fn Command::environment(var Command& this, rt::string_view name, rt::string_view value) -> bool {
+		if (name.empty() || name.contains("=") || name.contains("\0") || value.contains("\0")) {
+			return false;
+		};
+		return @this.environment_overrides.push_back(name + "=" + value);
+	};
+
+	export fn Session::Session(var Session& this, var NativeProcess* process) {
+		@this.handle = $process;
+	};
+
+	export fn Session::~Session(var Session& this) {
+		rutile_process_dispose(this.handle);
+	};
+
+	export fn Session::valid(Session& this) -> bool {
+		return this.handle != nullptr;
+	};
+
+	export fn Session::write(var Session& this, rt::string_view input) -> bool {
+		return this.handle && rutile_process_write(this.handle, input.data(), input.size());
+	};
+
+	export fn Session::close_input(var Session& this) {
+		if (this.handle) {
+			rutile_process_close_input(this.handle);
+		};
+	};
+
+	export fn Session::read(var Session& this, u32 timeout_ms) -> rt::string {
+		if (!this.handle) {
+			return rt::string();
+		};
+		var output = rutile_process_read(this.handle, timeout_ms);
+		return rt::string(rt::string_view(output->data, output->size));
+	};
+
+	export fn Session::wait(var Session& this, u32 timeout_ms) -> Result {
+		Result result;
+		if (!this.handle) {
+			return $result;
+		};
+		var output = rutile_process_wait(this.handle, timeout_ms);
+		@result.state = static_cast<status>(output->state);
+		@result.exit_code = output->exit_code;
+		@result.output = rt::string(rt::string_view(output->output.data, output->output.size));
+		@result.error = rt::string(rt::string_view(output->error.data, output->error.size));
+		return $result;
+	};
+
+	export fn start(Command& command) -> Session {
+		rt::buffer<char*> pointers;
+		for (usize index = 0; index < command.arguments.size(); @index = index + 1) {
+			if (!@pointers.push_back(command.arguments.data()[index].c_str())) {
+				return Session();
+			};
+		};
+		rt::buffer<char*> environment;
+		for (usize index = 0; index < command.environment_overrides.size(); @index = index + 1) {
+			if (!@environment.push_back(command.environment_overrides.data()[index].c_str())) {
+				return Session();
+			};
+		};
+		return Session(rutile_process_start(pointers.data(), pointers.size(), command.working_directory.c_str(), environment.data(), environment.size()));
+	};
+
+	export fn cmd(Command& command) -> Result {
+		var session = start(command);
+		if (!session.valid()) {
+			return Result();
+		};
+		if (!@session.write(command.input)) {
+			return Result();
+		};
+		@session.close_input();
+		return @session.wait(command.timeout_ms);
+	};
+};

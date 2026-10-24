@@ -23,28 +23,36 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 		@this.error(&@syntax, "variant construction requires exactly one alternative value");
 		return rt::unique<SemanticExpression>();
 	};
-	if (raw.data()[0].get()->kind() == semantic_kind::null_pointer) {
+	if (raw.data()[0].get()->kind() == semantic_kind::null_pointer || raw.data()[0].get()->type()->kind() == type_kind::void_type) {
+		bool void_value = raw.data()[0].get()->type()->kind() == type_kind::void_type;
 		TemplateInstantiation* instance = type->entity()->template_arguments();
 		var TemplatePack* elements = instance->arguments.data()[0].pack;
-		usize null_position = elements->elements.size();
+		usize empty_position = elements->elements.size();
 		usize position = 0;
 		while (position < elements->elements.size()) {
-			if (elements->elements.data()[position].type && elements->elements.data()[position].type->kind() == type_kind::null_type) {
-				if (null_position != elements->elements.size()) {
+			if (elements->elements.data()[position].type && (void_value && elements->elements.data()[position].type->kind() == type_kind::void_type || !void_value && elements->elements.data()[position].type->kind() == type_kind::null_type)) {
+				if (empty_position != elements->elements.size()) {
 					@this.error(&@syntax, "variant construction type matches more than one alternative");
 					return rt::unique<SemanticExpression>();
 				};
-				@null_position = position;
+				@empty_position = position;
 			};
 			@position = position + 1;
 		};
-		if (null_position != elements->elements.size()) {
+		if (empty_position != elements->elements.size()) {
 			var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 			var result = @this.node(semantic_kind::construction, type, &@syntax);
 			if (!arguments.get() || !result.get() || !@result.get()->append($arguments)) {
 				return rt::unique<SemanticExpression>();
 			};
-			@result.get()->set_integer(u64(null_position + 1));
+			@result.get()->set_integer(u64(empty_position + 1));
+			if (void_value) {
+				var sequence = @this.node(semantic_kind::sequence, type, &@syntax);
+				if (!sequence.get() || !@sequence.get()->append(rt::unique<SemanticExpression>(@raw.data()[0].release())) || !@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@sequence.get()->append($result)) {
+					return rt::unique<SemanticExpression>();
+				};
+				return $sequence;
+			};
 			return $result;
 		};
 	};

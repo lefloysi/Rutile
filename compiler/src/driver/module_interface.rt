@@ -1,0 +1,156 @@
+fn rutile_compiler_version() -> char*;
+
+struct InterfaceSource {
+	rt::string path;
+	rt::string text;
+	rt::string module;
+	i32 access;
+};
+
+struct interface_error {
+	rt::string_view message;
+};
+
+using InterfaceResult = rt::buffer<InterfaceSource> | interface_error | rt::allocation_error;
+
+fn invalid_interface(rt::string_view message) -> InterfaceResult {
+	interface_error error;
+	@error.message = message;
+	return InterfaceResult($error);
+};
+
+fn interface_allocation_failure(usize bytes) -> InterfaceResult {
+	rt::allocation_error error;
+	@error.requested_bytes = bytes;
+	return InterfaceResult($error);
+};
+
+fn decode_interface(rt::string_view bytes, rt::string_view compiler_version, u32 pointer_bits, bool test_access) -> InterfaceResult {
+	var document = rt::json_parse(bytes);
+	var root = document.value();
+	if (!root) {
+		if (document.error().contains("allocate")) {
+			return interface_allocation_failure(bytes.size());
+		};
+		return invalid_interface("Malformed Rutile interface JSON.");
+	};
+	var format = root->member("format");
+	var version = root->member("compiler");
+	var bits = root->member("pointer_bits");
+	var module = root->member("module");
+	var declarations = root->member("declarations");
+	i64 format_value = 0;
+	i64 bits_value = 0;
+	if (!format || !format->integer(@format_value) || format_value != 1 || !version || version->kind() != rt::json_kind::string || version->text() != compiler_version || !bits || !bits->integer(@bits_value) || bits_value != static_cast<i64>(pointer_bits)) {
+		return invalid_interface("Interface compiler version and target must match.");
+	};
+	if (!module || module->kind() != rt::json_kind::string || !declarations || declarations->kind() != rt::json_kind::array) {
+		return invalid_interface("Interface module and declarations are required.");
+	};
+	rt::buffer<InterfaceSource> sources;
+	for (usize index = 0; index < declarations->size(); @index = index + 1) {
+		var record = declarations->item(index);
+		var owner = record->member("module");
+		var path = record->member("path");
+		var text = record->member("text");
+		if (!owner || owner->kind() != rt::json_kind::string || !path || path->kind() != rt::json_kind::string || !text || text->kind() != rt::json_kind::string) {
+			return invalid_interface("Interface declarations require module, path, and text strings.");
+		};
+		i32 access = 1;
+		if (test_access && !module->text().empty() && owner->text() == module->text()) {
+			@access = 2;
+		};
+		bool duplicate = false;
+		for (usize previous = 0; previous < sources.size(); @previous = previous + 1) {
+			var InterfaceSource& existing = @((@sources).data()[previous]);
+			if (existing.module == owner->text() && existing.path == path->text()) {
+				if (existing.text != text->text()) {
+					return invalid_interface("Conflicting versions of imported module.");
+				};
+				if (access > existing.access) {
+					@existing.access = access;
+				};
+				@duplicate = true;
+				break;
+			};
+		};
+		if (duplicate) {
+			continue;
+		};
+		InterfaceSource source;
+		if (!@source.path.append(path->text()) || !@source.text.append(text->text()) || !@source.module.append(owner->text())) {
+			return interface_allocation_failure(bytes.size());
+		};
+		@source.access = access;
+		if (!@sources.push_back($source)) {
+			return interface_allocation_failure(bytes.size());
+		};
+	};
+	return InterfaceResult($sources);
+};
+
+fn "C" rutile_decode_interface(char* bytes, usize size, char* version, u32 pointer_bits, bool test_access, ((var void*, char*, char*, usize, char*, i32) -> i32)* append, var void* context) -> i32 {
+	var result = decode_interface(rt::string_view(bytes, size), rt::from_c_string(version), pointer_bits, test_access);
+	if (result.has<interface_error>()) {
+		return 1;
+	};
+	if (result.has<rt::allocation_error>()) {
+		return 2;
+	};
+	rt::buffer<InterfaceSource>& sources = result.get<rt::buffer<InterfaceSource>>();
+	for (usize index = 0; index < sources.size(); @index = index + 1) {
+		InterfaceSource& source = sources.data()[index];
+		if (!append(context, source.path.c_str(), source.text.c_str(), source.text.size(), source.module.c_str(), source.access)) {
+			return 2;
+		};
+	};
+	return 0;
+};
+
+using InterfaceEncoding = rt::string | interface_error | rt::allocation_error;
+
+fn encode_interface(rt::string_view module, rt::buffer<InterfaceSource>& sources, rt::string_view compiler_version, u32 pointer_bits) -> InterfaceEncoding {
+	var root = rt::json_value::make_object();
+	var declarations = rt::json_value::make_array();
+	rt::allocation_error failure;
+	if (!root.get() || !declarations.get()) {
+		return InterfaceEncoding($failure);
+	};
+	for (usize index = 0; index < sources.size(); @index = index + 1) {
+		InterfaceSource& source = sources.data()[index];
+		var record = rt::json_value::make_object();
+		if (!record.get() || !@record.get()->set("path", rt::json_value::make_string(source.path)) || !@record.get()->set("text", rt::json_value::make_string(source.text)) || !@record.get()->set("module", rt::json_value::make_string(source.module)) || !@declarations.get()->append($record)) {
+			return InterfaceEncoding($failure);
+		};
+	};
+	if (!@root.get()->set("format", rt::json_value::make_integer(1)) || !@root.get()->set("compiler", rt::json_value::make_string(compiler_version)) || !@root.get()->set("pointer_bits", rt::json_value::make_unsigned(u64(pointer_bits))) || !@root.get()->set("module", rt::json_value::make_string(module)) || !@root.get()->set("declarations", $declarations)) {
+		return InterfaceEncoding($failure);
+	};
+	rt::string output;
+	if (!rt::json_write(*root.get(), @output)) {
+		return InterfaceEncoding($failure);
+	};
+	return InterfaceEncoding($output);
+};
+
+fn "C" rutile_encode_interface(char* module, char** paths, char** texts, usize* lengths, char** owners, usize count, char* version, u32 pointer_bits, ((var void*, char*, usize) -> i32)* write, var void* context) -> i32 {
+	rt::buffer<InterfaceSource> sources;
+	for (usize index = 0; index < count; @index = index + 1) {
+		InterfaceSource source;
+		if (!@source.path.append(rt::from_c_string(paths[index])) || !@source.text.append(rt::string_view(texts[index], lengths[index])) || !@source.module.append(rt::from_c_string(owners[index])) || !@sources.push_back($source)) {
+			return 2;
+		};
+	};
+	var result = encode_interface(rt::from_c_string(module), sources, rt::from_c_string(version), pointer_bits);
+	if (result.has<interface_error>()) {
+		return 1;
+	};
+	if (result.has<rt::allocation_error>()) {
+		return 2;
+	};
+	rt::string& bytes = result.get<rt::string>();
+	if (!write(context, bytes.c_str(), bytes.size())) {
+		return 2;
+	};
+	return 0;
+};

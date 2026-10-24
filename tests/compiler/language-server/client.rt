@@ -1,0 +1,61 @@
+fn tmpfile() -> var NativeFile*;
+fn rewind(var NativeFile* file);
+
+struct LspFiles {
+	var NativeFile* input;
+	var NativeFile* output;
+
+	fn LspFiles(var LspFiles& this) {
+		@this.input = tmpfile();
+		@this.output = tmpfile();
+	};
+
+	fn ~LspFiles(var LspFiles& this) {
+		if (this.input) {
+			fclose(this.input);
+		};
+		if (this.output) {
+			fclose(this.output);
+		};
+	};
+
+	fn execute(var LspFiles& this, rt::string_view requests) -> i32 | rt::fs::file_io_error {
+		using Result = i32 | rt::fs::file_io_error;
+		if (!this.input || !this.output || fwrite(requests.data(), 1, requests.size(), this.input) != requests.size()) {
+			rt::fs::file_io_error error;
+			return Result($error);
+		};
+		rewind(this.input);
+		Compiler compiler;
+		var protocol = LanguageProtocol(@*this.input, @*this.output);
+		var workspace = LanguageWorkspace(@compiler, @protocol, ".");
+		var server = LanguageServer(@protocol, @workspace);
+		return Result(@server.run());
+	};
+};
+
+fn lsp_frame(rt::string_view body) -> rt::string {
+	var length = rt::json_value::make_unsigned(u64(body.size()));
+	if (!rt::test::expect(length.get())) {
+		return rt::string();
+	};
+	return "Content-Length: " + length.get()->text() + "\r\n\r\n" + body;
+};
+
+fn lsp_response(var LanguageProtocol& protocol, i64 expected) -> rt::json_document {
+	while (true) {
+		rt::string body;
+		if (@protocol.read(@body) != language_frame_status::message) {
+			return rt::json_parse("");
+		};
+		var message = rt::json_parse(body);
+		if (!message.value()) {
+			return $message;
+		};
+		var id = message.value()->member("id");
+		i64 value = 0;
+		if (id && id->integer(@value) && value == expected) {
+			return $message;
+		};
+	};
+};

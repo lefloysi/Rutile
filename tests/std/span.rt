@@ -1,0 +1,22 @@
+[[test]]
+fn spans_copy_the_view_without_copying_elements() {
+	i32[2] values;
+	@values[0] = 20;
+	@values[1] = 22;
+	var view = rt::span<i32>(&values[0], 2);
+	var copied = rt::span<i32>(view);
+	rt::test::expect(!view.empty());
+	rt::test::expect(copied.size() == 2);
+	rt::test::expect(copied.data() == view.data());
+	rt::test::expect(copied.data()[0] + copied.data()[1] == 42);
+	@values[0] = 7;
+	rt::test::expect(copied.data()[0] == 7);
+};
+
+[[test]]
+fn empty_spans_have_no_elements() {
+	var view = rt::span<i32>(nullptr, 0);
+	rt::test::expect(view.empty());
+	rt::test::expect(!view.size());
+	rt::test::expect(!view.data());
+};

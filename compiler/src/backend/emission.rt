@@ -21,6 +21,9 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> bool {
 		@parameter_count = 2;
 	};
 	var LLVMOpaqueType* type = LLVMFunctionType((var LLVMOpaqueType*(integer)), &@parameters[0], parameter_count, 0);
+	if (LLVMGetNamedFunction(this.module(), "main\0".data()) || LLVMGetNamedGlobal(this.module(), "main\0".data())) {
+		return @this.error(entity->token(), "generated executable entry conflicts with the native symbol 'main'");
+	};
 	var LLVMOpaqueValue* main = LLVMAddFunction(this.module(), "main\0".data(), type);
 	LLVMPositionBuilderAtEnd(this.builder(), LLVMAppendBasicBlockInContext(this.context(), main, "entry\0".data()));
 	var LLVMOpaqueValue*[2] arguments {};

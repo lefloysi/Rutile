@@ -1,0 +1,45 @@
+[[test]]
+fn filesystem_round_trips_binary_contents() {
+	var created = rt::fs::create_directories("build/tests/filesystem");
+	rt::test::expect(created.has<void>());
+	var written = rt::fs::write("build/tests/filesystem/binary.dat", "first\0second\n");
+	rt::test::expect(written.has<void>());
+	var read = rt::fs::read("build/tests/filesystem/binary.dat");
+	if (!rt::test::expect(read.has<rt::string>())) {
+		return;
+	};
+	rt::test::expect(read.get<rt::string>() == "first\0second\n");
+};
+
+[[test]]
+fn filesystem_reads_report_missing_files_as_errors() {
+	var result = rt::fs::read("build/tests/filesystem/this-file-does-not-exist.dat");
+	rt::test::expect(result.has<rt::fs::file_not_found_error>());
+	if (result.has<rt::fs::file_not_found_error>()) {
+		rt::test::expect(result.get<rt::fs::file_not_found_error>().native_code != 0);
+	};
+};
+
+[[test]]
+fn filesystem_writes_report_unavailable_parent_directories() {
+	var result = rt::fs::write("build/tests/filesystem/no-such-parent/file.dat", "contents");
+	rt::test::expect(result.has<rt::fs::file_not_found_error>());
+	if (result.has<rt::fs::file_not_found_error>()) {
+		rt::test::expect(result.get<rt::fs::file_not_found_error>().native_code != 0);
+	};
+};
+
+[[test]]
+fn filesystem_directory_creation_is_idempotent() {
+	rt::test::expect(rt::fs::create_directories("build/tests/filesystem/existing").has<void>());
+	rt::test::expect(rt::fs::create_directories("build/tests/filesystem/existing").has<void>());
+};
+
+[[test]]
+fn filesystem_temporary_directory_is_available() {
+	var result = rt::fs::temporary_directory();
+	if (!rt::test::expect(result.has<rt::string>())) {
+		return;
+	};
+	rt::test::expect(!result.get<rt::string>().empty());
+};

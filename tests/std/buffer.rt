@@ -1,0 +1,77 @@
+[[test]]
+fn buffer_growth_preserves_elements() {
+	rt::buffer<i32> values;
+	rt::test::expect(!values.size());
+	rt::test::expect(!values.capacity());
+	rt::test::expect(!values.data());
+	for (i32 index = 0; index < 100; @index = index + 1) {
+		rt::test::expect(@values.push_back(i32(index)));
+	};
+	if (!rt::test::expect(values.size() == 100 && values.data())) {
+		return;
+	};
+	rt::test::expect(values.capacity() >= values.size());
+	for (i32 index = 0; index < 100; @index = index + 1) {
+		rt::test::expect(values.data()[index] == index);
+	};
+	var i32* writable = @values.data();
+	@writable[0] = 42;
+	rt::test::expect(values.data()[0] == 42);
+};
+
+[[test]]
+fn buffer_copies_and_aliasing_insertions_preserve_values() {
+	rt::buffer<i32> original;
+	rt::test::expect(@original.reserve(1));
+	if (!rt::test::expect(@original.push_back(42))) {
+		return;
+	};
+	if (!rt::test::expect(@original.push_back(i32(original.data()[0])))) {
+		return;
+	};
+	if (!rt::test::expect(original.size() == 2 && original.data())) {
+		return;
+	};
+	rt::test::expect(original.data()[1] == 42);
+	rt::buffer<i32> copied := original;
+	if (!rt::test::expect(copied.size() == original.size() && copied.data() && copied.data() != original.data())) {
+		return;
+	};
+	var i32* writable = @copied.data();
+	@writable[0] = 9;
+	rt::test::expect(original.data()[0] == 42);
+	@copied := original;
+	@copied := copied;
+	if (!rt::test::expect(copied.size() == 2 && copied.data())) {
+		return;
+	};
+	rt::test::expect(copied.data()[0] == 42);
+	var moved = $copied;
+	if (!rt::test::expect(moved.size() == 2 && moved.data())) {
+		return;
+	};
+	rt::test::expect(moved.data()[1] == 42);
+};
+
+[[test]]
+fn buffer_clear_retains_storage_and_failed_reserve_preserves_elements() {
+	rt::buffer<i32> values;
+	rt::test::expect(@values.push_back(42));
+	usize capacity = values.capacity();
+	i32* storage = values.data();
+	rt::test::expect(!@values.reserve(usize::max));
+	rt::test::expect(values.data() == storage);
+	if (!rt::test::expect(values.size() == 1 && values.data())) {
+		return;
+	};
+	rt::test::expect(values.data()[0] == 42);
+	@values.clear();
+	@values.clear();
+	rt::test::expect(!values.size());
+	rt::test::expect(values.capacity() == capacity);
+	rt::test::expect(values.data() == storage);
+	rt::test::expect(!@values.pop_back());
+	rt::test::expect(@values.push_back(7));
+	rt::test::expect(@values.pop_back());
+	rt::test::expect(!values.size());
+};

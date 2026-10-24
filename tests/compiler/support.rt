@@ -1,0 +1,58 @@
+fn puts(char* text) -> i32;
+
+fn standard_interface() -> rt::string {
+	var context = rt::environment("KILN_TEST_INTERFACES");
+	var document = rt::json_parse(context);
+	if (!rt::test::expect(document.value())) {
+		return rt::string();
+	};
+	var standard = document.value()->member("std");
+	if (!rt::test::expect(standard && standard->kind() == rt::json_kind::string)) {
+		return rt::string();
+	};
+	return rt::string(standard->text());
+};
+
+fn compiler_directory(rt::string_view name) -> rt::string {
+	var directory = "build/tests/compiler/" + name;
+	rt::test::expect(rt::fs::create_directories(directory).has<void>());
+	return $directory;
+};
+
+fn standard_sources() -> InterfaceResult {
+	var bytes = rt::fs::read(standard_interface());
+	if (!rt::test::expect(bytes.has<rt::string>())) {
+		return invalid_interface("The standard-library interface could not be read.");
+	};
+	return decode_interface(bytes.get<rt::string>(), rt::from_c_string(rutile_compiler_version()), static_cast<u32>(sizeof(usize) * 8), false);
+};
+
+fn append_import(var Compiler& compiler, rt::buffer<InterfaceSource>& imported, var rt::buffer<rt::string_view>& paths, var rt::buffer<rt::string_view>& sources) -> void | rt::allocation_error {
+	using Result = void | rt::allocation_error;
+	for (usize index = 0; index < imported.size(); @index = index + 1) {
+		InterfaceSource& source = imported.data()[index];
+		if (!@paths.push_back(source.path) || !@sources.push_back(source.text) || !@compiler.add_module_source(source.path, source.module, source.access)) {
+			rt::allocation_error error;
+			return Result($error);
+		};
+	};
+	return Result();
+};
+
+fn fixture_command(rt::string_view directory, rt::string_view objects) -> rt::sys::Command {
+	var configuration = "fn build(kiln::Options& options) {\n"
+		+ "\tvar fixture = kiln::add_target(\"fixture\", kiln::TargetType::executable);\n"
+		+ "\t@fixture.sources.add(\"case.obj\");\n"
+		+ "\t@fixture.import(\"std\");\n"
+		+ "\t@fixture.option(\"runtime\", \"MT\");\n"
+		+ "\t@fixture.option(\"objects\", \"" + objects + "\");\n"
+		+ "};\n";
+	rt::test::expect(rt::fs::write(directory + "/kiln.rt", configuration).has<void>());
+	var command = rt::sys::Command(rt::environment("KILN_EXECUTABLE"));
+	rt::test::expect(@command.argument("run"));
+	rt::test::expect(@command.argument("fixture"));
+	rt::test::expect(@command.environment("RUTILE_MODULE_PATH", rt::environment("KILN_TEST_MODULE_PATH")));
+	@command.working_directory = rt::string(directory);
+	@command.timeout_ms = 120000;
+	return $command;
+};

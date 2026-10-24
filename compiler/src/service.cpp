@@ -1,6 +1,8 @@
 #include "service.hpp"
+#include "module_interface.hpp"
 
 #include "platform.hpp"
+#include "editor_sources.hpp"
 #include "version.hpp"
 
 #include <nlohmann/json.hpp>
@@ -33,7 +35,7 @@ extern "C" void rutile_compiler_set_progress(Compiler* compiler, RutileProgressC
 extern "C" int rutile_compile_sources(Compiler* compiler, const char* const* paths, const char* const* texts, const std::size_t* lengths, std::size_t count, const char* output, std::FILE* (*opener)(const char*, const char*), const char* entry, int optimization, std::FILE* diagnostics, int library);
 extern "C" void rutile_compiler_clear_modules(Compiler* compiler);
 extern "C" int rutile_compiler_add_module_source(Compiler* compiler, const char* path, const char* name, int access);
-extern "C" int kiln_language_server(Compiler* compiler, std::FILE* input, std::FILE* output, const char* root);
+extern "C" int rutile_language_server_main(Compiler* compiler, std::FILE* input, std::FILE* output, const char* root);
 
 std::string rutile_service_path(const std::filesystem::path& path) {
 	auto text = path.generic_u8string();
@@ -159,15 +161,10 @@ int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, con
 	}
 	for (const auto& path : request.value("interfaces", std::vector<std::string>{})) {
 		const auto canonical = rutile_service_path(std::filesystem::absolute(std::filesystem::u8path(path)).lexically_normal());
-		const auto interface = nlohmann::json::parse(rutile_service_read(std::filesystem::u8path(path)));
-		if (interface.value("format", 0) != 1 || interface.value("compiler", std::string{}) != software_version || interface.value("pointer_bits", 0) != sizeof(void*) * 8) {
-			throw std::runtime_error("Incompatible Rutile interface '" + path + "': compiler version and target must match.");
-		}
-		const auto tested_module = private_interfaces.contains(canonical) ? interface.at("module").get<std::string>() : std::string{};
-		for (auto record : interface.at("declarations")) {
+		for (auto record : rutile_interface_sources(rutile_service_read(std::filesystem::u8path(path)), private_interfaces.contains(canonical))) {
 			const auto owner = record.at("module").get<std::string>();
 			const auto identity = owner + "|" + record.at("path").get<std::string>();
-			const int access = !tested_module.empty() && tested_module == owner ? 2 : 1;
+			const int access = record.at("access").get<int>();
 			auto [position, inserted] = identities.emplace(identity, records.size());
 			if (!inserted) {
 				if (records[position->second].at("text") != record.at("text")) {
@@ -234,12 +231,9 @@ int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, con
 		}
 	}
 	if (request.contains("interface_output")) {
-		for (auto& record : records) {
-			record.erase("access");
-		}
 		const auto target = std::filesystem::u8path(request.at("interface_output").get<std::string>());
 		std::filesystem::create_directories(target.parent_path());
-		rutile_service_write(target, nlohmann::json{ { "format", 1 }, { "compiler", software_version }, { "pointer_bits", sizeof(void*) * 8 }, { "module", module }, { "declarations", std::move(records) } }.dump());
+		rutile_service_write(target, rutile_interface_encode(module, records));
 	}
 	return 0;
 }
@@ -419,9 +413,13 @@ nlohmann::json rutile_service_compile(Compiler* compiler, const nlohmann::json& 
 	rutile_service_progress(&progress, "combining", 0, names.size(), "Combining source files into one mapped input");
 	for (std::size_t index = 0; index < names.size(); ++index) {
 		const auto& name = names[index];
+		const auto editor = rutile_editor_source(name);
 		std::string text;
 		if (overlays.contains(name)) {
 			text = overlays.at(name).get<std::string>();
+		}
+		else if (editor) {
+			text = *editor;
 		}
 		else if (!incremental || changed_sources.contains(name) || !source_snapshot.contains(name)) {
 			text = rutile_service_read(std::filesystem::u8path(name));
@@ -429,7 +427,7 @@ nlohmann::json rutile_service_compile(Compiler* compiler, const nlohmann::json& 
 		else {
 			text = source_snapshot.at(name);
 		}
-		if (!overlays.contains(name)) {
+		if (!overlays.contains(name) && !editor) {
 			source_snapshot.insert_or_assign(name, text);
 		}
 		bundle += "// source " + nlohmann::json(name).dump() + "\n";
@@ -499,6 +497,7 @@ struct RutileServiceFileStamp {
 	bool exists = false;
 	std::filesystem::file_time_type modified{};
 	std::uintmax_t size = 0;
+	std::optional<std::string> editor_source;
 	bool operator==(const RutileServiceFileStamp&) const = default;
 };
 
@@ -536,6 +535,7 @@ RutileServiceFileStamp rutile_service_stamp(const std::string& name) {
 	auto path = std::filesystem::u8path(name);
 	std::error_code error;
 	RutileServiceFileStamp stamp;
+	stamp.editor_source = rutile_editor_source(name);
 	stamp.exists = std::filesystem::is_regular_file(path, error) && !error;
 	if (stamp.exists) {
 		stamp.modified = std::filesystem::last_write_time(path, error);
@@ -574,7 +574,10 @@ bool rutile_service_configure_watch(const nlohmann::json& request, RutileService
 	}
 	const bool changed_configuration = !previous_configuration.is_object() || previous_configuration != configuration;
 	const bool newly_activated = activate && !watch.build_requested;
-	watch.build_requested = watch.build_requested || activate;
+	watch.build_requested = activate;
+	if (!activate) {
+		watch.initial_pending = false;
+	}
 	watch.request = request;
 	watch.request.erase("overlays_path");
 	if (changed_configuration || !watch.source_revision) {
@@ -767,7 +770,7 @@ int rutile_service_serve(const char* endpoint) {
 			}
 			std::unique_ptr<PlatformStream, decltype(&platform_stream_close)> client{ connection, platform_stream_close };
 			try {
-				kiln_language_server(compiler.get(), platform_stream_input(client.get()), platform_stream_output(client.get()), root_text.c_str());
+				rutile_language_server_main(compiler.get(), platform_stream_input(client.get()), platform_stream_output(client.get()), root_text.c_str());
 			}
 			catch (...) {
 				// A disconnected or malformed editor client must not stop Rutilec.
@@ -922,7 +925,7 @@ int rutile_service_serve(const char* endpoint) {
 					auto request_id = request.at("request_id").get<std::string>();
 					auto session = rutile_service_session(request);
 					auto& watch = watches[session];
-					const bool changed_configuration = rutile_service_configure_watch(request, watch, true);
+					const bool changed_configuration = rutile_service_configure_watch(request, watch, watch.build_requested);
 					auto changed_sources = changed_configuration ? std::vector<std::string>{} : rutile_service_changed_sources_now(watch);
 					if (!changed_configuration && !changed_sources.empty()) {
 						++watch.source_revision;
@@ -972,8 +975,21 @@ int rutile_service_serve(const char* endpoint) {
 					response = nlohmann::json{ { "accepted", true }, { "request_id", request_id }, { "worker_request_id", job->request.value("request_id", request_id) }, { "session", session }, { "source_revision", watch.source_revision }, { "pid", platform_process_id() } }.dump();
 				}
 				catch (const std::exception& error) {
-					rutile_service_watch_failure(directory, request, error.what());
-					response = nlohmann::json{ { "accepted", false }, { "request_id", request.value("request_id", std::string{}) }, { "diagnostics", std::string(error.what()) + "\n" }, { "pid", platform_process_id() } }.dump();
+					auto failure = nlohmann::json::object();
+					if (request.is_object()) {
+						for (const auto* key : { "request_id", "session", "target", "profile" }) {
+							if (request.contains(key) && request.at(key).is_string()) {
+								failure[key] = request.at(key);
+							}
+						}
+						for (const auto* key : { "source_revision", "artifact_revision" }) {
+							if (request.contains(key) && request.at(key).is_number_unsigned()) {
+								failure[key] = request.at(key);
+							}
+						}
+					}
+					rutile_service_watch_failure(directory, failure, error.what());
+					response = nlohmann::json{ { "accepted", false }, { "request_id", failure.value("request_id", std::string{}) }, { "diagnostics", std::string(error.what()) + "\n" }, { "pid", platform_process_id() } }.dump();
 				}
 			}
 			else if (text.starts_with("result ")) {

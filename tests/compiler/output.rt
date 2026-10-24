@@ -1,0 +1,90 @@
+[[test]]
+fn library_output_is_a_native_x64_object() {
+	var directory = compiler_directory("native-object");
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("export fn exported_answer() -> i32 { return 42; };\n"))) {
+		return;
+	};
+
+	var compiled = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library);
+	if (!rt::test::expect(!compiled)) {
+		return;
+	};
+	var object = rt::fs::read(directory + "/case.obj");
+	if (!rt::test::expect(object.has<rt::string>())) {
+		return;
+	};
+	if (!rt::test::expect(object.get<rt::string>().size() >= 20)) {
+		return;
+	};
+	rt::test::expect(static_cast<u08>(object.get<rt::string>().data()[0]) == 100);
+	rt::test::expect(static_cast<u08>(object.get<rt::string>().data()[1]) == 134);
+
+	rt::test::expect(object.get<rt::string>().contains("exported_answer"));
+};
+
+[[test]]
+fn templates_compile_link_and_execute() {
+	var directory = compiler_directory("template-execution");
+	var subject = "template<typename T> fn twice(T value) -> T { return value + value; };\n";
+	var source = "[[test]] fn instantiate() {\n"
+		+ "\trt::test::expect(twice<i32>(21) == 42);\n"
+		+ "\trt::test::expect(twice<i64>(21) == 42);\n"
+		+ "};\n";
+	var imported = standard_sources();
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
+		return;
+	};
+	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+
+	var executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (!rt::test::expect(!executed.exit_code)) {
+		puts((executed.output + executed.error).c_str());
+	};
+};
+
+[[test]]
+fn failed_expectations_preserve_following_tests() {
+	var directory = compiler_directory("nonfatal-expectations");
+	var subject = "fn puts(char* text) -> i32;\n";
+	var source = "[[test]] fn first() {\n"
+		+ "\trt::test::expect(false);\n"
+		+ "\tputs(\"continued after failure\\0\".data());\n"
+		+ "};\n"
+		+ "[[test]] fn second() { puts(\"subsequent test ran\\0\".data()); };\n";
+	var imported = standard_sources();
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
+		return;
+	};
+	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+
+	var executed = rt::sys::cmd(fixture_command(directory, ""));
+	rt::test::expect(executed.exit_code == 1);
+	rt::test::expect(executed.output.contains("continued after failure"));
+	rt::test::expect(executed.output.contains("subsequent test ran"));
+};
+

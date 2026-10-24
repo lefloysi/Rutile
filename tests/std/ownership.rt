@@ -1,0 +1,160 @@
+struct LifetimeCounts {
+	i32 live;
+	i32 destroyed;
+	i32 order;
+	i32 custom_disposals;
+};
+
+struct TrackedValue {
+	fn TrackedValue(var TrackedValue& this, var LifetimeCounts* counts, i32 value) {
+		@this.counts = $counts;
+		@this.value = $value;
+		@this.counts->live = this.counts->live + 1;
+	};
+	fn TrackedValue(var TrackedValue& this, TrackedValue& other) : [delete];
+	fn TrackedValue(var TrackedValue& this, TrackedValue other) : [default];
+	fn ~TrackedValue(var TrackedValue& this) {
+		@this.counts->live = this.counts->live - 1;
+		@this.counts->destroyed = this.counts->destroyed + 1;
+		@this.counts->order = this.counts->order * 10 + this.value;
+	};
+	var LifetimeCounts* counts;
+	i32 value;
+};
+
+struct LifetimeDelete {
+	fn dispose(var TrackedValue* pointer) {
+		if (!pointer) {
+			return;
+		};
+		@pointer->counts->custom_disposals = pointer->counts->custom_disposals + 1;
+		delete pointer;
+	};
+};
+
+[[test]]
+fn unique_custom_deleters_run_on_reset_and_scope_exit() {
+	LifetimeCounts counts;
+	{
+		var number = rt::unique<i32>::make();
+		rt::test::expect(number.get());
+		rt::test::expect(number.get() && !*number.get());
+		var owner = rt::unique<TrackedValue, LifetimeDelete>(new var TrackedValue(&@counts, 1));
+		@owner.reset(new var TrackedValue(&@counts, 2));
+		rt::test::expect(counts.custom_disposals == 1);
+		rt::test::expect(counts.destroyed == 1);
+	};
+	rt::test::expect(counts.custom_disposals == 2);
+	rt::test::expect(counts.destroyed == 2);
+	rt::test::expect(!counts.live);
+};
+
+[[test]]
+fn buffer_relocation_does_not_destroy_live_elements() {
+	LifetimeCounts counts;
+	{
+		rt::buffer<TrackedValue> values;
+		rt::test::expect(@values.push_back(TrackedValue(&@counts, 1)));
+		rt::test::expect(@values.push_back(TrackedValue(&@counts, 2)));
+		rt::test::expect(counts.live == 2);
+		rt::test::expect(!counts.destroyed);
+		rt::test::expect(@values.reserve(64));
+		rt::test::expect(counts.live == 2);
+		rt::test::expect(!counts.destroyed);
+		var moved = $values;
+		@moved.clear();
+		rt::test::expect(!counts.live);
+		rt::test::expect(counts.destroyed == 2);
+		rt::test::expect(counts.order == 12);
+		rt::test::expect(@moved.push_back(TrackedValue(&@counts, 3)));
+	};
+	rt::test::expect(!counts.live);
+	rt::test::expect(counts.destroyed == 3);
+	rt::test::expect(counts.order == 123);
+};
+
+[[test]]
+fn unique_transfer_release_and_reset_destroy_each_owner_once() {
+	LifetimeCounts counts;
+	{
+		rt::unique<TrackedValue> empty;
+		rt::test::expect(!empty.get());
+		@empty.reset(nullptr);
+		var first = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 1));
+		var second = $first;
+		var destination = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 2));
+		@destination = $second;
+		rt::test::expect(counts.destroyed == 1);
+		rt::test::expect(destination.get() && destination.get()->value == 1);
+		var pointer = @destination.release();
+		rt::test::expect(!destination.get());
+		rt::test::expect(counts.live == 1);
+		delete pointer;
+		rt::test::expect(!counts.live);
+		@destination.reset(new var TrackedValue(&@counts, 3));
+		@destination.reset(new var TrackedValue(&@counts, 4));
+		rt::test::expect(counts.destroyed == 3);
+	};
+	rt::test::expect(!counts.live);
+	rt::test::expect(counts.destroyed == 4);
+	rt::test::expect(counts.order == 2134);
+};
+
+[[test]]
+fn optional_reset_and_move_preserve_lifetimes() {
+	LifetimeCounts counts;
+	{
+		rt::optional<TrackedValue> value;
+		rt::test::expect(!value.has_value());
+		rt::test::expect(!value.get());
+		@value.emplace(TrackedValue(&@counts, 1));
+		rt::test::expect(value.has_value());
+		rt::test::expect(value.has_value() && value.value().value == 1);
+		var moved = rt::optional<TrackedValue>($value);
+		rt::test::expect(counts.live == 1);
+		rt::test::expect(!counts.destroyed);
+		@moved.reset();
+		@moved.reset();
+		rt::test::expect(!moved.has_value());
+		rt::test::expect(counts.destroyed == 1);
+		@moved.emplace(TrackedValue(&@counts, 2));
+	};
+	rt::test::expect(!counts.live);
+	rt::test::expect(counts.destroyed == 2);
+};
+
+[[test]]
+fn optional_references_borrow_without_destroying_values() {
+	i32 number = 42;
+	var borrowed = rt::optional_ref<i32>(@number);
+	rt::test::expect(borrowed.has_value());
+	rt::test::expect(borrowed.has_value() && borrowed.value() == 42);
+	var copied = rt::optional_ref<i32>(borrowed);
+	@borrowed.reset();
+	rt::test::expect(!borrowed.has_value());
+	if (!rt::test::expect(copied.has_value())) {
+		return;
+	};
+	var i32& writable = copied.value();
+	@writable = 9;
+	rt::test::expect(number == 9);
+	@copied.reset();
+	rt::test::expect(number == 9);
+};
+
+[[test]]
+fn swap_exchanges_ownership_without_destruction() {
+	LifetimeCounts counts;
+	{
+		var first = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 1));
+		var second = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 2));
+		rt::swap<rt::unique<TrackedValue>>(@first, @second);
+		rt::test::expect(first.get() && first.get()->value == 2);
+		rt::test::expect(second.get() && second.get()->value == 1);
+		rt::test::expect(!counts.destroyed);
+		rt::swap<rt::unique<TrackedValue>>(@first, @first);
+		rt::test::expect(first.get() && first.get()->value == 2);
+		rt::test::expect(!counts.destroyed);
+	};
+	rt::test::expect(counts.destroyed == 2);
+};

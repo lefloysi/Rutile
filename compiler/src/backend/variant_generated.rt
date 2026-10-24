@@ -27,7 +27,7 @@ fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var 
 	TemplatePack& alternatives = *record->template_arguments()->arguments.data()[0].pack;
 	usize index = 0;
 	while (index < alternatives.elements.size()) {
-		if (alternatives.elements.data()[index].type->kind() == type_kind::null_type) {
+		if (alternatives.elements.data()[index].type->kind() == type_kind::null_type || alternatives.elements.data()[index].type->kind() == type_kind::void_type) {
 			LLVMAddCase(dispatch, LLVMConstInt(tag_type, u64(index + 1), 0), after);
 		};
 		@index = index + 1;
@@ -82,7 +82,7 @@ fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* fun
 			return false;
 		};
 		Type* first = alternatives.elements.data()[0].type;
-		if (first->kind() != type_kind::null_type) {
+		if (first->kind() != type_kind::null_type && first->kind() != type_kind::void_type) {
 			var LLVMOpaqueValue* payload = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, storage_field->index()), "variant.default.payload\0".data());
 			if (!@this.initialize(first, payload)) {
 				return false;

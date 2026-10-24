@@ -1,0 +1,90 @@
+[[test]]
+fn json_roundtrip_preserves_arrays_unicode_and_number_spelling() {
+	var document = rt::json_parse("{\"items\":[null,true,false,-42,1.5e+2],\"text\":\"\\uD83D\\uDE00\\u0000\"}");
+	rt::test::expect(document.value());
+	rt::test::expect(document.error().empty());
+	var root = document.value();
+	rt::test::expect(root->kind() == rt::json_kind::object);
+	rt::test::expect(root->size() == 2);
+	var items = root->member("items");
+	rt::test::expect(items);
+	rt::test::expect(items->size() == 5);
+	rt::test::expect(items->item(0)->kind() == rt::json_kind::null_value);
+	rt::test::expect(items->item(1)->boolean());
+	rt::test::expect(!items->item(2)->boolean());
+	i64 number = 0;
+	rt::test::expect(items->item(3)->integer(@number));
+	rt::test::expect(number == -42);
+	rt::test::expect(items->item(4)->text() == "1.5e+2");
+	var unicode = root->member("text")->text();
+	rt::test::expect(unicode.size() == 5);
+	rt::test::expect(u08(unicode.data()[0]) == 240);
+	rt::test::expect(!unicode.data()[4]);
+	rt::string encoded;
+	rt::test::expect(rt::json_write(*root, @encoded));
+	var decoded = rt::json_parse(encoded);
+	rt::test::expect(decoded.value());
+	rt::test::expect(decoded.value()->member("text")->text() == unicode);
+	rt::test::expect(decoded.value()->member("items")->item(4)->text() == "1.5e+2");
+};
+
+[[test]]
+fn json_duplicate_members_keep_the_last_value_and_clones_are_independent() {
+	var document = rt::json_parse("{\"answer\":1,\"answer\":42}");
+	rt::test::expect(document.value());
+	rt::test::expect(document.value()->size() == 1);
+	i64 number = 0;
+	rt::test::expect(document.value()->member("answer")->integer(@number));
+	rt::test::expect(number == 42);
+	var copy = document.value()->clone();
+	rt::test::expect(copy.get());
+	var original = @document.release();
+	@original.reset(nullptr);
+	rt::test::expect(!document.value());
+	rt::test::expect(copy.get()->member("answer")->integer(@number));
+	rt::test::expect(number == 42);
+};
+
+[[test]]
+fn json_rejects_invalid_numbers_escapes_and_excessive_nesting() {
+	rt::string_view[6] invalid;
+	@invalid[0] = "01";
+	@invalid[1] = "1e";
+	@invalid[2] = "[1,]";
+	@invalid[3] = "true false";
+	@invalid[4] = "\"\\uD800\"";
+	@invalid[5] = "\"\\q\"";
+	for (usize index = 0; index < 6; @index = index + 1) {
+		var document = rt::json_parse(invalid[index]);
+		rt::test::expect(!document.value());
+		rt::test::expect(!document.error().empty());
+	};
+	rt::string deep;
+	for (usize index = 0; index < 130; @index = index + 1) {
+		rt::test::expect(@deep.append("["));
+	};
+	rt::test::expect(@deep.append("0"));
+	for (usize index = 0; index < 130; @index = index + 1) {
+		rt::test::expect(@deep.append("]"));
+	};
+	var nested = rt::json_parse(deep);
+	rt::test::expect(!nested.value());
+	rt::test::expect(!nested.error().empty());
+};
+
+[[test]]
+fn json_integer_bounds_are_checked_without_losing_number_text() {
+	var minimum = rt::json_parse("-9223372036854775808");
+	var maximum = rt::json_parse("9223372036854775807");
+	var overflow = rt::json_parse("9223372036854775808");
+	rt::test::expect(minimum.value());
+	rt::test::expect(maximum.value());
+	rt::test::expect(overflow.value());
+	i64 number = 0;
+	rt::test::expect(minimum.value()->integer(@number));
+	rt::test::expect(number == (-9223372036854775807 - 1));
+	rt::test::expect(maximum.value()->integer(@number));
+	rt::test::expect(number == i64::max);
+	rt::test::expect(!overflow.value()->integer(@number));
+	rt::test::expect(overflow.value()->text() == "9223372036854775808");
+};

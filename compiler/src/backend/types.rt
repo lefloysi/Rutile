@@ -270,14 +270,14 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 		return @this.error(entity->token(), "native declaration has no resolved type");
 	};
 
-	if (entity->kind() == entity_kind::function && entity->definition() == function_definition::declaration && !@this.external_signature(entity)) {
+	if (entity->kind() == entity_kind::function && (entity->definition() == function_definition::declaration || entity->linkage() == function_linkage::c) && !@this.external_signature(entity)) {
 		return false;
 	};
 
 	rt::string name;
 	var spelling = entity->name();
 
-	if (this.selected_entry && spelling == "main") {
+	if (this.selected_entry && spelling == "main" && entity->linkage() != function_linkage::c) {
 		@spelling = "rt.user.main";
 
 		if (entity == this.selected_entry) {
@@ -289,7 +289,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 		return @this.error(entity->token(), "cannot allocate native symbol name");
 	};
 	Token module_token = entity->token();
-	if (module_token.source && !module_token.source->module_name().empty() && (entity->kind() == entity_kind::global || entity->definition() != function_definition::declaration)) {
+	if (module_token.source && !module_token.source->module_name().empty() && entity->linkage() != function_linkage::c && (entity->kind() == entity_kind::global || entity->definition() != function_definition::declaration)) {
 		DiagnosticMessage identity;
 		@identity.text("rt.module.");
 		@identity.text(module_token.source->module_name());
@@ -321,7 +321,10 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 	var LLVMOpaqueValue* value;
 
 	if (entity->kind() == entity_kind::function) {
-		if (entity->definition() == function_definition::declaration) {
+		if (entity->linkage() == function_linkage::c && LLVMGetNamedGlobal(this.module(), name.c_str())) {
+			return @this.error(entity->token(), "C linkage function conflicts with an existing native global symbol");
+		};
+		if (entity->linkage() == function_linkage::c || entity->definition() == function_definition::declaration) {
 			@value = LLVMGetNamedFunction(this.module(), name.c_str());
 			if (value) {
 				usize previous = 0;
@@ -330,6 +333,9 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 					var LLVMOpaqueValue* previous_value = this.entities.data()[previous].value;
 					if (previous_value == value && @this.type(previous_source->type()) != type) {
 						return @this.error(entity->token(), "external symbol has incompatible native signatures");
+					};
+					if (previous_value == value && previous_source->canonical() != entity->canonical() && previous_source->definition() != function_definition::declaration && entity->definition() != function_definition::declaration) {
+						return @this.error(entity->token(), "C linkage function conflicts with an existing native definition");
 					};
 					@previous = previous + 1;
 				};
@@ -340,6 +346,14 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> bool {
 		};
 	}
 	else {
+		var LLVMOpaqueValue* function = LLVMGetNamedFunction(this.module(), name.c_str());
+		if (function) {
+			for (usize index = 0; index < this.entities.size(); @index = index + 1) {
+				if (this.entities.data()[index].value == function && this.entities.data()[index].source->linkage() == function_linkage::c) {
+					return @this.error(entity->token(), "native global symbol conflicts with a C linkage function");
+				};
+			};
+		};
 		@value = LLVMAddGlobal(this.module(), (var LLVMOpaqueType*(type)), name.c_str());
 		if (!entity->imported_definition()) {
 			LLVMSetInitializer((var LLVMOpaqueValue*(value)), LLVMConstNull(type));

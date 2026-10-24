@@ -1,0 +1,289 @@
+enum language_server_state : [u08] {
+	uninitialized;
+	running;
+	shutdown;
+	exited_clean;
+	exited_unclean;
+};
+
+struct LanguageServer {
+	fn LanguageServer(var LanguageServer& this, var LanguageProtocol& protocol, var LanguageWorkspace& workspace);
+	fn run(var LanguageServer& this) -> i32;
+
+private:
+	fn dispatch(var LanguageServer& this, rt::json_value& message) -> bool;
+	fn send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool;
+	fn error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view text) -> bool;
+	fn initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool;
+	fn description() -> rt::json_document;
+
+	var LanguageProtocol* protocol;
+	var LanguageWorkspace* workspace;
+	language_server_state state;
+};
+
+fn LanguageServer::LanguageServer(var LanguageServer& this, var LanguageProtocol& protocol, var LanguageWorkspace& workspace) {
+	@this.protocol = &@protocol;
+	@this.workspace = &@workspace;
+};
+
+fn LanguageServer::send(var LanguageServer& this, rt::unique<rt::json_value> message) -> bool {
+	rt::string text;
+	return message.get() && rt::json_write(*message.get(), @text) && @this.protocol->send(text.view());
+};
+
+fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view text) -> bool {
+	return @this.send(LanguageJson::failure(id, $code, text));
+};
+
+fn LanguageServer::description() -> rt::json_document {
+	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\",\"controlKeyword\",\"decorator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\",\"_\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
+};
+
+fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) -> bool {
+	if (this.state != language_server_state::uninitialized) {
+		return @this.error(id, -32600, "language server is already initialized");
+	};
+	if (!@this.workspace->configure(parameters)) {
+		return @this.error(id, -32602, "initialize requires a valid project file URI");
+	};
+
+	var description = LanguageServer::description();
+	if (!description.value()) {
+		return false;
+	};
+	var result = @description.release();
+	rt::json_value* options = parameters.member("initializationOptions");
+	rt::json_value* custom_colors = nullptr;
+	if (options) {
+		@custom_colors = options->member("rutileSemanticColors");
+	};
+	if (custom_colors && custom_colors->boolean()) {
+		var filtered = rt::json_value::make_object();
+		if (!filtered.get()) {
+			return false;
+		};
+
+		rt::json_value* capabilities = result.get()->member("capabilities");
+		usize index = 0;
+		while (index < capabilities->size()) {
+			var key = capabilities->key(index);
+			if (key != "semanticTokensProvider" && !@filtered.get()->set(key, capabilities->member(key)->clone())) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		if (!@result.get()->set("capabilities", $filtered)) {
+			return false;
+		};
+	};
+	@this.state = language_server_state::running;
+	return @this.send(LanguageJson::response(id, $result));
+};
+
+fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) -> bool {
+	if (this.state == language_server_state::running && !@this.workspace->refresh_sources()) {
+		return false;
+	};
+	var absent = rt::json_value::make_null();
+	if (!absent.get()) {
+		return false;
+	};
+	rt::json_value* supplied_id = message.member("id");
+	rt::json_value* id = supplied_id;
+	if (!id) {
+		@id = absent.get();
+	};
+	var method = LanguageJson::text(message, "method");
+	if (message.kind() != rt::json_kind::object || LanguageJson::text(message, "jsonrpc") != "2.0" || method.empty() || id->kind() != rt::json_kind::number && id->kind() != rt::json_kind::string && id->kind() != rt::json_kind::null_value) {
+		return @this.error(*absent.get(), -32600, "invalid JSON-RPC request");
+	};
+	var empty = rt::json_value::make_object();
+	rt::json_value* parameters = message.member("params");
+	if (!parameters) {
+		@parameters = empty.get();
+	};
+	if (!parameters) {
+		return false;
+	};
+
+	if (method == "exit") {
+		if (this.state == language_server_state::shutdown) {
+			@this.state = language_server_state::exited_clean;
+		}
+		else {
+			@this.state = language_server_state::exited_unclean;
+		};
+		@this.workspace->cancel();
+		return true;
+	};
+	if (method == "$/cancelRequest") {
+		// Indexed requests finish on this dispatch thread; obsolete analysis is
+		// cancelled separately through its generation callback.
+		return true;
+	};
+	if (this.state == language_server_state::shutdown) {
+		return !supplied_id || @this.error(*id, -32600, "language server has shut down");
+	};
+	if (method == "initialize") {
+		return @this.initialize(*id, *parameters);
+	};
+	if (this.state == language_server_state::uninitialized) {
+		return !supplied_id || @this.error(*id, -32002, "language server is not initialized");
+	};
+	if (method == "shutdown") {
+		@this.state = language_server_state::shutdown;
+		@this.workspace->cancel();
+		return @this.send(LanguageJson::response(*id, rt::json_value::make_null()));
+	};
+
+	if (method == "textDocument/didOpen" || method == "textDocument/didChange" || method == "textDocument/didClose") {
+		bool accepted = false;
+		if (method == "textDocument/didOpen") {
+			@accepted = @this.workspace->open(*parameters);
+		}
+		else if (method == "textDocument/didChange") {
+			@accepted = @this.workspace->change(*parameters);
+		}
+		else {
+			@accepted = @this.workspace->close(*parameters);
+		};
+		if (!accepted && supplied_id) {
+			return @this.error(*id, -32602, "invalid document update parameters or unavailable workspace storage");
+		};
+		return true;
+	};
+	if (method == "textDocument/didSave" || method == "workspace/didChangeWatchedFiles") {
+		return @this.workspace->refresh();
+	};
+	if (method == "rutile/semanticTokensLegend") {
+		var description = LanguageServer::description();
+		if (!description.value()) {
+			return false;
+		};
+		rt::json_value* legend = description.value()->member("capabilities")->member("semanticTokensProvider")->member("legend");
+		return @this.send(LanguageJson::response(*id, legend->clone()));
+	};
+	if (method == "rutile/indexStatus") {
+		return @this.send(LanguageJson::response(*id, @this.workspace->status()));
+	};
+	if (method == "rutile/templateContexts" || method == "rutile/selectTemplateContext" || method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range" || method == "textDocument/typeDefinition" || method == "textDocument/completion" || method == "textDocument/signatureHelp" || method == "textDocument/definition" || method == "textDocument/declaration" || method == "textDocument/references" || method == "textDocument/hover" || method == "textDocument/documentSymbol" || method == "workspace/symbol") {
+		var result = @this.workspace->query(method, *parameters);
+		if (!result.get()) {
+			return @this.error(*id, -32602, "navigation requires a valid document URI and position");
+		};
+		if (!@this.send(LanguageJson::response(*id, $result))) {
+			return false;
+		};
+		var status = @this.workspace->status();
+		if (status.get()) {
+			rt::json_value* current = status.get()->member("generation");
+			rt::json_value* indexed = status.get()->member("indexedGeneration");
+			if (current && indexed && current->text() != indexed->text()) {
+				return @this.send(LanguageJson::notification("rutile/indexStatus", $status));
+			};
+		};
+		return true;
+	};
+	return !supplied_id || @this.error(*id, -32601, "method is not implemented");
+};
+
+fn LanguageServer::run(var LanguageServer& this) -> i32 {
+	while (this.state != language_server_state::exited_clean && this.state != language_server_state::exited_unclean) {
+		rt::string body;
+		language_frame_status status = @this.protocol->read(@body);
+		if (status == language_frame_status::end_of_stream) {
+			break;
+		};
+		if (status == language_frame_status::error) {
+			var id = rt::json_value::make_null();
+			if (id.get()) {
+				@this.error(*id.get(), -32700, this.protocol->error());
+			};
+			return 1;
+		};
+
+		var document = rt::json_parse(body.view());
+		if (!document.value()) {
+			var id = rt::json_value::make_null();
+			if (!id.get() || !@this.error(*id.get(), -32700, document.error())) {
+				return 1;
+			};
+			continue;
+		};
+		if (!@this.dispatch(*document.value())) {
+			return 1;
+		};
+	};
+	@this.workspace->cancel();
+	if (this.state == language_server_state::shutdown || this.state == language_server_state::exited_clean) {
+		return 0;
+	};
+	return 1;
+};
+
+fn "C" rutile_language_server_main(var Compiler* compiler, var NativeFile* input, var NativeFile* output, char* root) -> i32 {
+	if (!compiler || !input || !output || !root) {
+		return 1;
+	};
+	var protocol = rt::unique<LanguageProtocol>(new var LanguageProtocol(@*input, @*output));
+	if (!protocol.get() || !protocol.get()->ready()) {
+		return 1;
+	};
+	var workspace = rt::unique<LanguageWorkspace>(new var LanguageWorkspace(@*compiler, @*protocol.get(), rt::from_c_string(root)));
+	if (!workspace.get() || !workspace.get()->ready()) {
+		return 1;
+	};
+	var server = LanguageServer(@*protocol.get(), @*workspace.get());
+	return @server.run();
+};
+
+fn kiln_emit_target(var Compiler* compiler, char* root, char* name, var char* output, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
+	if (!compiler || !root || !name) {
+		return 1;
+	};
+	LanguageGroup group;
+	@group.kind = language_group_kind::target;
+	rt::string key;
+	if (!@group.name.append(rt::from_c_string(name)) || !LanguageWorkspace::target_key(rt::from_c_string(root), group, @key)) {
+		return 1;
+	};
+	rt::string_view entry_name = "main";
+	if (entry) {
+		@entry_name = rt::from_c_string(entry);
+	};
+	return @compiler->emit_target(key.view(), rt::from_c_string(output), entry_name, $optimization, $diagnostics, output_kind::executable);
+};
+
+using TargetSourceCallback = ((var void*, char*, char*, usize) -> void)*;
+
+fn kiln_target_sources(var Compiler* compiler, char* root, char* name, TargetSourceCallback callback, var void* context, var NativeFile* diagnostics) -> i32 {
+	if (!compiler || !root || !name || !callback) {
+		return 1;
+	};
+	LanguageGroup group;
+	@group.kind = language_group_kind::target;
+	rt::string key;
+	if (!@group.name.append(rt::from_c_string(name)) || !LanguageWorkspace::target_key(rt::from_c_string(root), group, @key)) {
+		return 1;
+	};
+	var lease = @compiler->acquire_current_target(key.view());
+	if (!lease.get()) {
+		var errors = Diagnostics(diagnostics);
+		Token location;
+		@errors.error(location, "no current target analysis is available for native emission");
+		return 1;
+	};
+	if (lease.value().diagnostics().failed()) {
+		lease.value().diagnostics().replay(diagnostics);
+		return 1;
+	};
+	usize index = 0;
+	while (index < lease.value().source_count()) {
+		var path = rt::string(lease.value().source_path(index));
+		rt::string_view text = lease.value().source_text(index);
+		callback(context, path.c_str(), text.data(), text.size());
+		@index = index + 1;
+	};
+	return 0;
+};

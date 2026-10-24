@@ -2,16 +2,16 @@ fn fopen(char* path, char* mode) -> var NativeFile*;
 
 fn platform_standard_error() -> var NativeFile*;
 
-fn rutile_compiler_create() -> var Compiler* {
+fn "C" rutile_compiler_create() -> var Compiler* {
 	var compiler = rt::unique<Compiler>::make();
 	return @compiler.release();
 };
 
-fn rutile_compiler_destroy(var Compiler* compiler) {
+fn "C" rutile_compiler_destroy(var Compiler* compiler) {
 	delete compiler;
 };
 
-fn rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var void* data) -> i32 {
+fn "C" rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var void* data) -> i32 {
 	var compiler = rt::unique<Compiler>::make();
 
 	if (!compiler.get()) {
@@ -21,7 +21,7 @@ fn rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var vo
 	return callback(compiler.get(), $data);
 };
 
-fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
+fn "C" rutile_compile(var Compiler* compiler, var char var** paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	if (!compiler) {
 		return 1;
 	};
@@ -53,11 +53,11 @@ fn rutile_compile(var Compiler* compiler, var char var** paths, usize count, var
 	return @compiler->compile(source_paths, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, output_kind::executable);
 };
 
-fn rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
+fn "C" rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
 	return rutile_compile_library_progress($paths, $count, $output_path, $opener, $optimization, $diagnostics, nullptr, nullptr);
 };
 
-fn rutile_compile_library_progress(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics, ProgressCallback callback, var void* context) -> i32 {
+fn "C" rutile_compile_library_progress(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics, ProgressCallback callback, var void* context) -> i32 {
 	Compiler compiler;
 	rutile_compiler_set_progress(&@compiler, $callback, $context);
 
@@ -82,7 +82,7 @@ fn rutile_compile_library_progress(var char var** paths, usize count, var char* 
 	return @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, $diagnostics, output_kind::library);
 };
 
-fn rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callback, var void* context) {
+fn "C" rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callback, var void* context) {
 	if (!compiler) {
 		return;
 	};
@@ -92,7 +92,7 @@ fn rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callbac
 	@compiler->set_progress($progress);
 };
 
-fn rutile_compile_sources(var Compiler* compiler, var char var** paths, var char var** texts, usize* lengths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, i32 library) -> i32 {
+fn "C" rutile_compile_sources(var Compiler* compiler, var char var** paths, var char var** texts, usize* lengths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, i32 library) -> i32 {
 	if (!compiler || !paths || !texts || !lengths || !count) {
 		return 1;
 	};
@@ -128,13 +128,13 @@ fn rutile_compile_sources(var Compiler* compiler, var char var** paths, var char
 	return @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, $kind);
 };
 
-fn rutile_compiler_clear_modules(var Compiler* compiler) {
+fn "C" rutile_compiler_clear_modules(var Compiler* compiler) {
 	if (compiler) {
 		@compiler->clear_modules();
 	};
 };
 
-fn rutile_compiler_add_module_source(var Compiler* compiler, char* path, char* name, i32 access) -> i32 {
+fn "C" rutile_compiler_add_module_source(var Compiler* compiler, char* path, char* name, i32 access) -> i32 {
 	if (!compiler || !path || !name) {
 		return 1;
 	};

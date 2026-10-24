@@ -104,6 +104,8 @@ struct Syntax {
 	fn take_declaration_attribute(var Syntax& this, usize index) -> rt::unique<Syntax>;
 	fn exported(Syntax& this) -> bool;
 	fn mark_exported(var Syntax& this);
+	fn function_linkage(Syntax& this) -> Token;
+	fn set_function_linkage(var Syntax& this, Token& linkage);
 	fn kind(Syntax& this) -> syntax_kind;
 	fn explicitly_qualified(Syntax& this) -> bool;
 	fn token(Syntax& this) -> Token;
@@ -116,6 +118,7 @@ private:
 	syntax_kind category;
 	Token location;
 	bool is_exported;
+	Token linkage;
 	rt::buffer<rt::unique<Syntax>> metadata;
 	rt::buffer<rt::unique<Syntax>> children;
 };
@@ -135,7 +138,7 @@ fn Syntax::add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attrib
 };
 
 fn Syntax::same_declaration_metadata(Syntax& this, Syntax& other) -> bool {
-	if (this.exported() != other.exported() || this.metadata.size() != other.metadata.size()) {
+	if (this.exported() != other.exported() || this.linkage.text() != other.linkage.text() || this.metadata.size() != other.metadata.size()) {
 		return false;
 	};
 	usize index = 0;
@@ -161,6 +164,14 @@ fn Syntax::exported(Syntax& this) -> bool {
 
 fn Syntax::mark_exported(var Syntax& this) {
 	@this.is_exported = true;
+};
+
+fn Syntax::function_linkage(Syntax& this) -> Token {
+	return Token(this.linkage);
+};
+
+fn Syntax::set_function_linkage(var Syntax& this, Token& linkage) {
+	@this.linkage := linkage;
 };
 
 fn Syntax::kind(Syntax& this) -> syntax_kind {
@@ -427,7 +438,7 @@ fn Syntax::qualifier_condition(Syntax& this) -> var Syntax* {
 };
 
 fn Syntax::same_tree(Syntax& this, Syntax& other) -> bool {
-	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size() || this.exported() != other.exported() || this.metadata.size() != other.metadata.size()) {
+	if (this.kind() != other.kind() || this.token().source != other.token().source || this.token().begin != other.token().begin || this.token().length != other.token().length || this.size() != other.size() || this.exported() != other.exported() || this.linkage.text() != other.linkage.text() || this.metadata.size() != other.metadata.size()) {
 		return false;
 	};
 

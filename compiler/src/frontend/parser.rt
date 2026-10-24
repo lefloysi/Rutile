@@ -1629,6 +1629,14 @@ fn Parser::exception_spec(var Parser& this) -> rt::unique<Syntax> {
 fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 	Token start = @this.take();
 	var result = @this.node(syntax_kind::function, start);
+	if (this.peek().kind == token_kind::literal_string) {
+		if (!this.peek().is("\"C\"")) {
+			@this.fail("unsupported function linkage; only \"C\" is supported");
+			return rt::unique<Syntax>();
+		};
+		Token linkage = @this.take();
+		@result.get()->set_function_linkage(linkage);
+	};
 	@this.add(@*result.get(), @this.name());
 
 	if (!@this.require(token_kind::punct_left_paren, "expected function parameter list")) {
@@ -2423,6 +2431,8 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 
 	if (compatible && difference != usize::max) {
 		var result = @this.node(first->kind(), first->token());
+		Token linkage = first->function_linkage();
+		@result.get()->set_function_linkage(linkage);
 		if (first->exported()) {
 			@result.get()->mark_exported();
 		};

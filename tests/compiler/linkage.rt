@@ -1,0 +1,144 @@
+[[test]]
+fn c_linkage_definitions_keep_raw_symbols_inside_modules() {
+	var directory = compiler_directory("c-linkage-symbols");
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn \"C\" c_answer() -> i32 { return 42; }; fn ordinary_answer() -> i32 { return 42; };")) || !rt::test::expect(@compiler.add_module_source("source.rt", "abi", 0))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library))) {
+		return;
+	};
+	var object = rt::fs::read(directory + "/case.obj");
+	if (!rt::test::expect(object.has<rt::string>())) {
+		return;
+	};
+	rt::test::expect(object.get<rt::string>().contains("c_answer"));
+	rt::test::expect(!object.get<rt::string>().contains("rt.module.abi.c_answer"));
+	rt::test::expect(object.get<rt::string>().contains("rt.module.abi.ordinary_answer:"));
+};
+
+[[test]]
+fn c_linkage_declarations_merge_with_matching_definitions() {
+	var directory = compiler_directory("c-linkage-redeclaration");
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("namespace api { fn \"C\" c_total(i32 value) -> i32; fn \"C\" c_total(i32 value) -> i32 { return value + 1; }; }; fn use_total() -> i32 { return api::c_total(41); };")) || !rt::test::expect(@compiler.add_module_source("source.rt", "abi", 0))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library))) {
+		return;
+	};
+	var object = rt::fs::read(directory + "/case.obj");
+	if (!rt::test::expect(object.has<rt::string>())) {
+		return;
+	};
+	rt::test::expect(object.get<rt::string>().contains("c_total"));
+	rt::test::expect(!object.get<rt::string>().contains("rt.module.abi.api::c_total"));
+};
+
+[[test]]
+fn function_linkage_rejects_unknown_abis_overloads_and_mixed_redeclarations() {
+	rt::string_view[3] inputs;
+	@inputs[0] = "fn \"C++\" unsupported();";
+	@inputs[1] = "fn \"C\" overloaded(i32 value); fn \"C\" overloaded(i64 value);";
+	@inputs[2] = "fn \"C\" mixed(); fn mixed();";
+	rt::string_view[3] expected;
+	@expected[0] = "unsupported function linkage";
+	@expected[1] = "C linkage functions cannot be overloaded";
+	@expected[2] = "incompatible language linkage";
+	for (usize index = 0; index < 3; @index = index + 1) {
+		Compiler compiler;
+		rt::buffer<rt::string_view> paths;
+		rt::buffer<rt::string_view> sources;
+		if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(inputs[index]))) {
+			return;
+		};
+		rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+		var analysis = @compiler.acquire_analysis();
+		if (!rt::test::expect(analysis.get())) {
+			return;
+		};
+		rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+		if (!rt::test::expect(records.size())) {
+			return;
+		};
+		rt::test::expect(records.data()[0].message.contains(expected[index]));
+	};
+};
+
+[[test]]
+fn c_linkage_checks_native_signatures_and_symbol_collisions() {
+	rt::string_view[5] inputs;
+	@inputs[0] = "struct Value { i32 number; }; fn \"C\" consume(Value value) {};";
+	@inputs[1] = "struct Value { i32 number; }; fn \"C\" produce() -> Value { return Value(42); };";
+	@inputs[2] = "namespace first { fn \"C\" collision() -> i32 { return 1; }; }; namespace second { fn \"C\" collision() -> i32 { return 2; }; };";
+	@inputs[3] = "i32 collision; namespace api { fn \"C\" collision() -> i32 { return 1; }; };";
+	@inputs[4] = "fn \"C\" main() -> i32 { return 0; };";
+	rt::string_view[5] expected;
+	@expected[0] = "external aggregate parameter";
+	@expected[1] = "external aggregate return";
+	@expected[2] = "conflicts with an existing native definition";
+	@expected[3] = "conflicts with an existing native global symbol";
+	@expected[4] = "generated executable entry conflicts";
+	for (usize index = 0; index < 5; @index = index + 1) {
+		Compiler compiler;
+		rt::buffer<rt::string_view> paths;
+		rt::buffer<rt::string_view> sources;
+		if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(inputs[index]))) {
+			return;
+		};
+		var diagnostics = rt::unique<NativeFile, FileCloser>(tmpfile());
+		if (!rt::test::expect(diagnostics.get())) {
+			return;
+		};
+		output_kind kind = output_kind::library;
+		if (index == 4) {
+			@kind = output_kind::executable;
+		};
+		rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "main", 0, diagnostics.get(), kind) == 1);
+		rewind(diagnostics.get());
+		char[2048] bytes;
+		var size = fread(&@bytes[0], 1, sizeof(bytes), diagnostics.get());
+		rt::test::expect(rt::string_view(&bytes[0], size).contains(expected[index]));
+	};
+};
+
+[[test]]
+fn c_linkage_survives_interface_encoding_and_import() {
+	var directory = compiler_directory("c-linkage-interface");
+	InterfaceSource declaration;
+	@declaration.path = rt::string("library.rt");
+	@declaration.text = rt::string("export fn \"C\" c_import() -> i32 { return 42; };");
+	@declaration.module = rt::string("abi");
+	rt::buffer<InterfaceSource> declarations;
+	if (!rt::test::expect(@declarations.push_back($declaration))) {
+		return;
+	};
+	var version = rt::from_c_string(rutile_compiler_version());
+	var encoded = encode_interface("abi", declarations, version, static_cast<u32>(sizeof(usize) * 8));
+	if (!rt::test::expect(encoded.has<rt::string>())) {
+		return;
+	};
+	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>()) || !rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn use_import() -> i32 { return c_import(); };"))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library))) {
+		return;
+	};
+	var object = rt::fs::read(directory + "/case.obj");
+	if (!rt::test::expect(object.has<rt::string>())) {
+		return;
+	};
+	rt::test::expect(object.get<rt::string>().contains("c_import"));
+	rt::test::expect(!object.get<rt::string>().contains("rt.module.abi.c_import"));
+};

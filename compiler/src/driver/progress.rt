@@ -1,0 +1,21 @@
+using ProgressCallback = ((var void*, char*, usize, usize, char*) -> void)*;
+
+struct CompilerProgress {
+	fn CompilerProgress(var CompilerProgress& this) : [default];
+	fn CompilerProgress(var CompilerProgress& this, CompilerProgress& other) : [implicit, default];
+	fn report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail);
+
+	ProgressCallback callback;
+	var void* context;
+};
+
+fn CompilerProgress::report(CompilerProgress& this, rt::string_view phase, usize completed, usize total, rt::string_view detail) {
+	if (!this.callback) {
+		return;
+	};
+	var phase_text = rt::string(phase);
+	var detail_text = rt::string(detail);
+	this.callback(this.context, phase_text.c_str(), $completed, $total, detail_text.c_str());
+};
+
+

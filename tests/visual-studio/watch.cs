@@ -46,15 +46,12 @@ public static partial class EditorObservations {
 		File.WriteAllText(Path.Combine(root, "unrelated.rt"), "struct Label {\n\ti32 unrelated;\n};\n", new UTF8Encoding(false));
 		File.WriteAllText(Path.Combine(root, "kiln.rt"), @"fn build(kiln::Options& options) {
 	var model = kiln::add_target(""model"");
-	@model.compiler(""cpp"");
 	@model.option(""runtime"", ""MT"");
 	@model.sources.add(""model"");
 	var support = kiln::add_target(""support"");
-	@support.compiler(""cpp"");
 	@support.option(""runtime"", ""MT"");
 	@support.sources.add(""support"");
 	var subject = kiln::add_target(""subject"", kiln::TargetType::executable);
-	@subject.compiler(""cpp"");
 	@subject.option(""runtime"", ""MT"");
 	@subject.sources.add(""subject"");
 	@subject.depends_on(""model"");

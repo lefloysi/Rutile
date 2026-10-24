@@ -1,0 +1,217 @@
+[[test]]
+fn relocated_objects_cannot_be_used() {
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn broken() -> i32 { i32 value = 42; $value; return value; };\n"))) {
+		return;
+	};
+	rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+	var analysis = @compiler.acquire_analysis();
+	if (!rt::test::expect(analysis.get())) {
+		return;
+	};
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	if (!rt::test::expect(records.size())) {
+		return;
+	};
+	rt::test::expect(records.data()[0].message.contains("object has been relocated"));
+};
+
+[[test]]
+fn references_cannot_escape_local_storage() {
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn broken() -> i32& { i32 value = 42; return value; };\n"))) {
+		return;
+	};
+	rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+	var analysis = @compiler.acquire_analysis();
+	if (!rt::test::expect(analysis.get())) {
+		return;
+	};
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	if (!rt::test::expect(records.size())) {
+		return;
+	};
+	rt::test::expect(records.data()[0].message.contains("local storage"));
+};
+
+[[test]]
+fn reconstruction_starts_a_new_object_lifetime() {
+	var directory = compiler_directory("reconstruction");
+	var subject = "struct Counter { i32 value = 42; };\n";
+	var source = "[[test]] fn reconstruct() {\n"
+		+ "\tCounter counter;\n"
+		+ "\tCounter moved = $counter;\n"
+		+ "\t@counter.Counter();\n"
+		+ "\trt::test::expect(moved.value == 42);\n"
+		+ "\trt::test::expect(counter.value == 42);\n"
+		+ "};\n";
+	var imported = standard_sources();
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
+		return;
+	};
+	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+
+	var executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (!rt::test::expect(!executed.exit_code)) {
+		puts((executed.output + executed.error).c_str());
+	};
+};
+[[test]]
+fn void_alternatives_preserve_lifetimes_through_copy_and_move() {
+	var directory = compiler_directory("void-variant-lifetimes");
+	var subject = "i32 copies;\ni32 destructions;\n"
+		+ "struct Payload {\n"
+		+ "\ti32 value;\n"
+		+ "\tfn Payload(var Payload& this, i32 value) { @this.value = value; };\n"
+		+ "\tfn Payload(var Payload& this, Payload& other) { @this.value = other.value; @copies = copies + 1; };\n"
+		+ "\tfn ~Payload(var Payload& this) { @destructions = destructions + 1; };\n"
+		+ "};\n"
+		+ "using Result = void | Payload | i32;\n"
+		+ "using Later = Payload | void | i32;\n"
+		+ "i32 completions;\nfn complete() { @completions = completions + 1; };\n";
+	var source = "[[test]] fn lifecycle() {\n"
+		+ "\t{\n"
+		+ "\t\tResult empty;\n"
+		+ "\t\trt::test::expect(empty.has<void>());\n"
+		+ "\t\tempty.get<void>();\n"
+		+ "\t\tResult copied = Result(empty);\n"
+		+ "\t\tResult moved = $copied;\n"
+		+ "\t\trt::test::expect(moved.has<void>());\n"
+		+ "\t\trt::test::expect(!copies && !destructions);\n"
+		+ "\t\tResult payload = Result(Payload(42));\n"
+		+ "\t\trt::test::expect(payload.has<Payload>());\n"
+		+ "\t\t@payload = Result();\n"
+		+ "\t\trt::test::expect(payload.has<void>());\n"
+		+ "\t\trt::test::expect(destructions == 1);\n"
+		+ "\t\t@empty := payload;\n"
+		+ "\t\trt::test::expect(empty.has<void>());\n"
+		+ "\t\t@empty = Result(i32(7));\n"
+		+ "\t\trt::test::expect(empty.has<i32>() && empty.get<i32>() == 7);\n"
+		+ "\t\t@empty = Result();\n"
+		+ "\t\trt::test::expect(empty.has<void>());\n"
+		+ "\t};\n"
+		+ "\trt::test::expect(!copies && destructions == 1);\n"
+		+ "};\n"
+		+ "[[test]] fn nonfirst_void() {\n"
+		+ "\t@copies = 0; @destructions = 0; @completions = 0;\n"
+		+ "\t{\n"
+		+ "\t\tLater empty = Later(complete());\n"
+		+ "\t\trt::test::expect(completions == 1 && empty.has<void>());\n"
+		+ "\t\tLater copied = Later(empty);\n"
+		+ "\t\tLater moved = $copied;\n"
+		+ "\t\trt::test::expect(moved.has<void>());\n"
+		+ "\t\tLater payload = Later(Payload(42));\n"
+		+ "\t\tLater payload_copy = Later(payload);\n"
+		+ "\t\tLater payload_move = $payload_copy;\n"
+		+ "\t\trt::test::expect(copies == 1 && payload_move.get<Payload>().value == 42);\n"
+		+ "\t\t@payload_move = Later(complete());\n"
+		+ "\t\trt::test::expect(payload_move.has<void>() && destructions == 1);\n"
+		+ "\t\t@payload = Later(i32(7));\n"
+		+ "\t\trt::test::expect(payload.get<i32>() == 7 && destructions == 2);\n"
+		+ "\t\t@payload := empty;\n"
+		+ "\t\trt::test::expect(payload.has<void>());\n"
+		+ "\t};\n"
+		+ "\trt::test::expect(copies == 1 && destructions == 2 && completions == 2);\n"
+		+ "};\n";
+	var imported = standard_sources();
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
+		return;
+	};
+	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+
+	var executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (!rt::test::expect(!executed.exit_code)) {
+		puts((executed.output + executed.error).c_str());
+	};
+};
+
+[[test]]
+fn nested_reference_stores_reject_escaping_local_referents() {
+	var directory = compiler_directory("nested-reference-store-escape");
+	var source = "i32 shared;\nstruct Holder { i32& reference; };\n"
+		+ "fn write_holder(var Holder& destination, i32& value) { @destination = Holder(value); };\n"
+		+ "fn write_wrapper(var Holder& destination, i32& value) { write_holder(@destination, value); };\n"
+		+ "fn read_holder() -> i32 {\n"
+		+ "\tHolder holder = Holder(shared);\n"
+		+ "\t{\n"
+		+ "\t\ti32 local = 42;\n"
+		+ "\t\twrite_wrapper(@holder, local);\n"
+		+ "\t};\n"
+		+ "\treturn holder.reference;\n"
+		+ "};\n";
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+
+	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
+	rt::test::expect(result == 1);
+	var analysis = @compiler.acquire_analysis();
+	if (!rt::test::expect(analysis.get())) {
+		return;
+	};
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	if (!rt::test::expect(records.size())) {
+		return;
+	};
+	rt::test::expect(records.data()[0].message.contains("stored reference may outlive its referent"));
+};
+
+[[test]]
+fn nested_reference_stores_accept_overwrites_before_scope_exit() {
+	var directory = compiler_directory("nested-reference-store-overwrite");
+	var source = "i32 shared;\nstruct Holder { i32& reference; };\n"
+		+ "fn write_holder(var Holder& destination, i32& value) { @destination = Holder(value); };\n"
+		+ "fn write_wrapper(var Holder& destination, i32& value) { write_holder(@destination, value); };\n"
+		+ "fn read_holder() -> i32 {\n"
+		+ "\tHolder holder = Holder(shared);\n"
+		+ "\t{\n"
+		+ "\t\ti32 local = 42;\n"
+		+ "\t\twrite_wrapper(@holder, local);\n"
+		+ "\t\twrite_wrapper(@holder, shared);\n"
+		+ "\t};\n"
+		+ "\treturn holder.reference;\n"
+		+ "};\n";
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+
+	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
+	rt::test::expect(!result);
+	var analysis = @compiler.acquire_analysis();
+	if (!rt::test::expect(analysis.get())) {
+		return;
+	};
+	rt::test::expect(!analysis.value().diagnostics().failed());
+};

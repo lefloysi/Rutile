@@ -1,0 +1,158 @@
+[[test]]
+fn exported_functions_round_trip_through_an_interface() {
+	var directory = compiler_directory("interface-round-trip");
+	var library = "fn abort();\nexport fn answer() -> i32 { return 42; };\n"
+		+ "[[test]] fn imported_tests_do_not_run() { abort(); };\n";
+	Compiler exporter;
+	rt::buffer<rt::string_view> library_paths;
+	rt::buffer<rt::string_view> library_sources;
+	if (!rt::test::expect(@library_paths.push_back("library.rt")) || !rt::test::expect(@library_sources.push_back(library)) || !rt::test::expect(@exporter.add_module_source("library.rt", "arithmetic", 0))) {
+		return;
+	};
+	if (!rt::test::expect(!@exporter.compile_sources(library_paths, library_sources, directory + "/library.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library))) {
+		return;
+	};
+	InterfaceSource declaration;
+	@declaration.path = rt::string("library.rt");
+	@declaration.text = rt::string(library);
+	@declaration.module = rt::string("arithmetic");
+	rt::buffer<InterfaceSource> declarations;
+	if (!rt::test::expect(@declarations.push_back($declaration))) {
+		return;
+	};
+	var version = rt::from_c_string(rutile_compiler_version());
+	var encoded = encode_interface("arithmetic", declarations, version, static_cast<u32>(sizeof(usize) * 8));
+	if (!rt::test::expect(encoded.has<rt::string>())) {
+		return;
+	};
+	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	var standard = standard_sources();
+	if (!rt::test::expect(standard.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler consumer;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@consumer, standard.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>()) || !rt::test::expect(append_import(@consumer, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
+		return;
+	};
+	if (!rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back("[[test]] fn use_import() { rt::test::expect(answer() == 42); };\n"))) {
+		return;
+	};
+	if (!rt::test::expect(!@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+	var executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
+	if (!rt::test::expect(!executed.exit_code)) {
+		puts((executed.output + executed.error).c_str());
+	};
+};
+
+[[test]]
+fn interface_imports_hide_private_declarations() {
+	InterfaceSource declaration;
+	@declaration.path = rt::string("library.rt");
+	@declaration.text = rt::string("fn secret() -> i32 { return 42; }; export fn answer() -> i32 { return secret(); };\n");
+	@declaration.module = rt::string("visibility");
+	rt::buffer<InterfaceSource> declarations;
+	if (!rt::test::expect(@declarations.push_back($declaration))) {
+		return;
+	};
+	var version = rt::from_c_string(rutile_compiler_version());
+	var encoded = encode_interface("visibility", declarations, version, static_cast<u32>(sizeof(usize) * 8));
+	if (!rt::test::expect(encoded.has<rt::string>())) {
+		return;
+	};
+	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler consumer;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@consumer, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>()) || !rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn forbidden() -> i32 { return secret(); };\n"))) {
+		return;
+	};
+	rt::test::expect(@consumer.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+	var analysis = @consumer.acquire_analysis();
+	if (!rt::test::expect(analysis.get())) {
+		return;
+	};
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	if (!rt::test::expect(records.size())) {
+		return;
+	};
+	rt::test::expect(records.data()[0].message.contains("secret"));
+};
+
+[[test]]
+fn malformed_interfaces_report_an_error() {
+	var result = decode_interface("not a Rutile interface\n", rt::from_c_string(rutile_compiler_version()), static_cast<u32>(sizeof(usize) * 8), false);
+	if (!rt::test::expect(result.has<interface_error>())) {
+		return;
+	};
+	rt::test::expect(result.get<interface_error>().message.contains("Malformed"));
+};
+
+[[test]]
+fn void_alternatives_cross_module_function_boundaries() {
+	var directory = compiler_directory("void-variant-interface");
+	var library = "using Status = void | i32;\n"
+		+ "export fn succeed() -> Status { return Status(); };\n"
+		+ "export fn fail() -> Status { return Status(i32(5)); };\n"
+		+ "fn complete() {};\nusing Later = i32 | void;\n"
+		+ "export fn succeed_later() -> Later { return Later(complete()); };\n";
+	var standard = standard_sources();
+	if (!rt::test::expect(standard.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	Compiler exporter;
+	rt::buffer<rt::string_view> library_paths;
+	rt::buffer<rt::string_view> library_sources;
+	if (!rt::test::expect(append_import(@exporter, standard.get<rt::buffer<InterfaceSource>>(), @library_paths, @library_sources).has<void>()) || !rt::test::expect(@library_paths.push_back("library.rt")) || !rt::test::expect(@library_sources.push_back(library)) || !rt::test::expect(@exporter.add_module_source("library.rt", "status", 0))) {
+		return;
+	};
+	if (!rt::test::expect(!@exporter.compile_sources(library_paths, library_sources, directory + "/library.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library))) {
+		return;
+	};
+	InterfaceSource declaration;
+	@declaration.path = rt::string("library.rt");
+	@declaration.text = rt::string(library);
+	@declaration.module = rt::string("status");
+	rt::buffer<InterfaceSource> declarations;
+	if (!rt::test::expect(@declarations.push_back($declaration))) {
+		return;
+	};
+	var version = rt::from_c_string(rutile_compiler_version());
+	var encoded = encode_interface("status", declarations, version, static_cast<u32>(sizeof(usize) * 8));
+	if (!rt::test::expect(encoded.has<rt::string>())) {
+		return;
+	};
+	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
+	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
+		return;
+	};
+	var source = "[[test]] fn imported_status() {\n"
+		+ "\trt::test::expect(succeed().has<void>());\n"
+		+ "\trt::test::expect(succeed_later().has<void>());\n"
+		+ "\tvar error = fail();\n"
+		+ "\trt::test::expect(error.has<i32>());\n"
+		+ "\tif (error.has<i32>()) { rt::test::expect(error.get<i32>() == 5); };\n"
+		+ "};\n";
+	Compiler consumer;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	if (!rt::test::expect(append_import(@consumer, standard.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>()) || !rt::test::expect(append_import(@consumer, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>()) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
+		return;
+	};
+	if (!rt::test::expect(!@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
+		return;
+	};
+	var executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
+	if (!rt::test::expect(!executed.exit_code)) {
+		puts((executed.output + executed.error).c_str());
+	};
+};

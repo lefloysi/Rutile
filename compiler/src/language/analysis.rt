@@ -92,6 +92,19 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			return false;
 		};
 		var SourceFile* file = @this.sources.at(this.sources.count() - 1);
+		rt::string_view module = "__rutile_test_runtime";
+		usize source = 0;
+		while (source + 1 < this.sources.count()) {
+			SourceFile& input = *this.sources.at(source);
+			if (!input.imported() && !input.module_name().empty()) {
+				@module = input.module_name();
+				break;
+			};
+			@source = source + 1;
+		};
+		if (!@file->set_module(module, 0)) {
+			return false;
+		};
 		@file->mark_compiler_generated();
 		var lexer = Lexer(@*file);
 		if (!@lexer.scan()) {
