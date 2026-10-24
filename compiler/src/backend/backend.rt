@@ -20,9 +20,9 @@ struct Backend {
 	fn ~Backend(var Backend& this);
 
 	fn set_progress(var Backend& this, CompilerProgress progress);
-	fn initialize(var Backend& this, i32 optimization) -> bool;
-	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> bool;
-	fn write(var Backend& this, var File& output) -> bool;
+	fn initialize(var Backend& this, i32 optimization) -> CompilationResult;
+	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult;
+	fn write(var Backend& this, var File& output) -> CompilationResult;
 
 	fn pointer_bits(Backend& this) -> u32;
 	fn type(var Backend& this, Type* source) -> var LLVMOpaqueType*;
@@ -39,26 +39,26 @@ struct Backend {
 	fn builder(Backend& this) -> var LLVMOpaqueBuilder*;
 	fn layout(Backend& this) -> var LLVMOpaqueTargetData*;
 
-	fn error(var Backend& this, Token& token, rt::string_view message) -> bool;
+	fn error(var Backend& this, Token& token, rt::string_view message) -> CompilationResult;
 	fn note(var Backend& this, Token& token, rt::string_view message);
 	fn failed(Backend& this) -> bool;
-	fn declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> bool;
-	fn emit_fact_contexts(var Backend& this) -> bool;
+	fn declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> CompilationResult;
+	fn emit_fact_contexts(var Backend& this) -> CompilationResult;
 	fn fact_context(Backend& this, usize context) -> var InferredFunctionContext*;
 	fn fact_symbol(Backend& this, usize context) -> var LLVMOpaqueValue*;
 	fn redirected_call(Backend& this, SemanticExpression& call, InferredFunctionContext* context) -> var LLVMOpaqueValue*;
 
 private:
-	fn verify(var Backend& this) -> bool;
-	fn optimize(var Backend& this) -> bool;
+	fn verify(var Backend& this);
+	fn optimize(var Backend& this);
 
-	fn declare(var Backend& this, var Entity* entity) -> bool;
+	fn declare(var Backend& this, var Entity* entity) -> CompilationResult;
 	fn required(Backend& this, var Entity* entity) -> bool;
-	fn external_signature(var Backend& this, var Entity* entity) -> bool;
+	fn external_signature(var Backend& this, var Entity* entity) -> CompilationResult;
 
-	fn emit_dispatch(var Backend& this, var Entity* entity) -> bool;
+	fn emit_dispatch(var Backend& this, var Entity* entity) -> CompilationResult;
 	fn dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqueValue* receiver) -> var LLVMOpaqueValue*;
-	fn entry(var Backend& this, var Entity* entity) -> bool;
+	fn entry(var Backend& this, var Entity* entity) -> CompilationResult;
 	fn register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, rt::string_view name);
 
 	var Diagnostics* diagnostics;
@@ -109,9 +109,9 @@ fn Backend::failed(Backend& this) -> bool {
 	return this.diagnostics->failed();
 };
 
-fn Backend::error(var Backend& this, Token& token, rt::string_view message) -> bool {
+fn Backend::error(var Backend& this, Token& token, rt::string_view message) -> CompilationResult {
 	@this.diagnostics->error(token, message);
-	return false;
+	return CompilationResult(compilation_error());
 };
 
 fn Backend::pointer_bits(Backend& this) -> u32 {
@@ -122,7 +122,7 @@ fn Backend::pointer_bits(Backend& this) -> u32 {
 	return LLVMPointerSize(this.native_layout.get()) * 8;
 };
 
-fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
+fn Backend::initialize(var Backend& this, i32 optimization) -> CompilationResult {
 	Token location;
 
 	if (optimization < 0 || optimization > 3) {
@@ -136,7 +136,7 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	LLVMGetVersion(&@major, &@minor, &@patch);
 
 	if (major != 21 || minor != 1 || patch != 0) {
-		return @this.error(location, "LLVM runtime version must be 21.1.0");
+		compiler_panic("LLVM runtime version must be 21.1.0");
 	};
 
 	LLVMInitializeX86TargetInfo();
@@ -146,20 +146,20 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	@this.native_context.reset(LLVMContextCreate());
 
 	if (!this.context()) {
-		return @this.error(location, "cannot create LLVM context");
+		compiler_panic("cannot create LLVM context");
 	};
 
 	@this.native_module.reset(LLVMModuleCreateWithNameInContext("rutile\0".data(), this.context()));
 	@this.native_builder.reset(LLVMCreateBuilderInContext(this.context()));
 
 	if (!this.module() || !this.builder()) {
-		return @this.error(location, "cannot create LLVM module or builder");
+		compiler_panic("cannot create LLVM module or builder");
 	};
 
 	var triple = rt::unique<char, MessageDisposer>(LLVMGetDefaultTargetTriple());
 
 	if (!triple.get()) {
-		return @this.error(location, "cannot obtain target triple");
+		compiler_panic("cannot obtain target triple");
 	};
 
 	var LLVMTarget* target;
@@ -168,58 +168,54 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> bool {
 	if (LLVMGetTargetFromTriple(triple.get(), &@target, &@failure)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
-		return @this.error(location, rt::from_c_string(message.get()));
+		compiler_panic(rt::from_c_string(message.get()));
 	};
 
 	@this.native_machine.reset(LLVMCreateTargetMachine(target, triple.get(), "generic\0".data(), "\0".data(), i32(this.optimization), 2, 0));
 
 	if (!this.native_machine.get()) {
-		return @this.error(location, "cannot create target machine");
+		compiler_panic("cannot create target machine");
 	};
 
 	@this.native_layout.reset(LLVMCreateTargetDataLayout(this.native_machine.get()));
 
 	if (!this.layout()) {
-		return @this.error(location, "cannot create target layout");
+		compiler_panic("cannot create target layout");
 	};
 
 	var layout = rt::unique<char, MessageDisposer>(LLVMCopyStringRepOfTargetData(this.layout()));
 
 	if (!layout.get()) {
-		return @this.error(location, "cannot describe target layout");
+		compiler_panic("cannot describe target layout");
 	};
 
 	LLVMSetTarget(this.module(), triple.get());
 	LLVMSetDataLayout(this.module(), layout.get());
 
-	return true;
+	return CompilationResult();
 };
 
-fn Backend::verify(var Backend& this) -> bool {
+fn Backend::verify(var Backend& this) {
 	var char* failure;
 
 	if (!LLVMVerifyModule(this.module(), 2, &@failure)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
-		return true;
+		return;
 	};
 
 	var message = rt::unique<char, MessageDisposer>(failure);
-	Token location;
 
-	return @this.error(location, rt::from_c_string(message.get()));
+	compiler_panic(rt::from_c_string(message.get()));
 };
 
-fn Backend::optimize(var Backend& this) -> bool {
-	if (!@this.verify()) {
-		return false;
-	};
+fn Backend::optimize(var Backend& this) {
+	@this.verify();
 
 	var options = rt::unique<LLVMOpaquePassBuilderOptions, PassOptionsDisposer>(LLVMCreatePassBuilderOptions());
-	Token location;
 
 	if (!options.get()) {
-		return @this.error(location, "cannot create optimization options");
+		compiler_panic("cannot create optimization options");
 	};
 
 	LLVMPassBuilderOptionsSetVerifyEach(options.get(), 0);
@@ -244,17 +240,19 @@ fn Backend::optimize(var Backend& this) -> bool {
 	if (error) {
 		var message = rt::unique<char, ErrorMessageDisposer>(LLVMGetErrorMessage(error));
 
-		return @this.error(location, rt::from_c_string(message.get()));
+		compiler_panic(rt::from_c_string(message.get()));
 	};
 
 	this.progress.report("optimizing", 1, 1, pipeline);
-	return @this.verify();
+	@this.verify();
 };
 
-fn Backend::write(var Backend& this, var File& output) -> bool {
-	if (this.failed() || !@this.optimize()) {
-		return false;
+fn Backend::write(var Backend& this, var File& output) -> CompilationResult {
+	if (this.failed()) {
+		return CompilationResult(compilation_error());
 	};
+
+	@this.optimize();
 
 	var LLVMOpaqueMemoryBuffer* bytes;
 	var char* failure;
@@ -264,7 +262,7 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	if (LLVMTargetMachineEmitToMemoryBuffer(this.native_machine.get(), this.module(), 1, &@failure, &@bytes)) {
 		var message = rt::unique<char, MessageDisposer>(failure);
 
-		return @this.error(location, rt::from_c_string(message.get()));
+		compiler_panic(rt::from_c_string(message.get()));
 	};
 
 	this.progress.report("object", 1, 1, "");
@@ -272,12 +270,12 @@ fn Backend::write(var Backend& this, var File& output) -> bool {
 	usize byte_count = LLVMGetBufferSize(buffer.get());
 	this.progress.report("writing", 0, byte_count, "");
 
-	if (!@output.write(rt::string_view(LLVMGetBufferStart(buffer.get()), LLVMGetBufferSize(buffer.get())))) {
+	if (!(@output.write(rt::string_view(LLVMGetBufferStart(buffer.get()), LLVMGetBufferSize(buffer.get())))).has<void>()) {
 		return @this.error(location, "cannot write native object output");
 	};
 
 	this.progress.report("writing", byte_count, byte_count, "");
-	return true;
+	return CompilationResult();
 };
 
 fn Backend::note(var Backend& this, Token& token, rt::string_view message) {

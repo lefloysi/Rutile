@@ -16,7 +16,7 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 		return rt::unique<SemanticExpression>();
 	};
 	@handled = true;
-	if (!@this.resolve(type->entity())) {
+	if (!(@this.resolve(type->entity())).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	if (raw.size() != 1) {
@@ -42,13 +42,13 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 		if (empty_position != elements->elements.size()) {
 			var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 			var result = @this.node(semantic_kind::construction, type, &@syntax);
-			if (!arguments.get() || !result.get() || !@result.get()->append($arguments)) {
+			if (!arguments.get() || !result.get() || !(@result.get()->append($arguments)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 			@result.get()->set_integer(u64(empty_position + 1));
 			if (void_value) {
 				var sequence = @this.node(semantic_kind::sequence, type, &@syntax);
-				if (!sequence.get() || !@sequence.get()->append(rt::unique<SemanticExpression>(@raw.data()[0].release())) || !@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@sequence.get()->append($result)) {
+				if (!sequence.get() || !(@sequence.get()->append(rt::unique<SemanticExpression>(@raw.data()[0].release()))).has<void>() || !(@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>() || !(@sequence.get()->append($result)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 				return $sequence;
@@ -58,7 +58,7 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 	};
 
 	var Entity* storage = type->entity()->find_member("_storage");
-	if (!storage || !@this.resolve(storage) || storage->type()->kind() != type_kind::named || !@this.resolve(storage->type()->entity())) {
+	if (!storage || !(@this.resolve(storage)).has<void>() || storage->type()->kind() != type_kind::named || !(@this.resolve(storage->type()->entity())).has<void>()) {
 		@this.error(&@syntax, "rt::variant requires its standard alternative storage declaration");
 		return rt::unique<SemanticExpression>();
 	};
@@ -81,17 +81,15 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 	};
 
 	Type* alternative = alternatives->fields().data()[selected]->type();
-	if (raw.data()[0].get()->category() == value_category::place && !@this.prepare_copy(alternative)) {
+	if (raw.data()[0].get()->category() == value_category::place && !(@this.prepare_copy(alternative)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	rt::buffer<rt::unique<SemanticExpression>> payload_arguments;
-	if (!@payload_arguments.push_back(rt::unique<SemanticExpression>(@raw.data()[0].release()))) {
-		return rt::unique<SemanticExpression>();
-	};
+	@payload_arguments.push_back(rt::unique<SemanticExpression>(@raw.data()[0].release()));
 	var payload = @this.construct_values(@syntax, alternative, $payload_arguments);
 	var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 	var result = @this.node(semantic_kind::construction, type, &@syntax);
-	if (!payload.get() || !arguments.get() || !result.get() || !@arguments.get()->append($payload) || !@result.get()->append($arguments)) {
+	if (!payload.get() || !arguments.get() || !result.get() || !(@arguments.get()->append($payload)).has<void>() || !(@result.get()->append($arguments)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	@result.get()->set_integer(alternatives->fields().data()[selected]->integer() + 1);

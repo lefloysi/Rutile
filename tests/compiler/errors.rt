@@ -1,0 +1,178 @@
+[[test]]
+fn duplicate_navigation_sources_report_an_internal_failure() {
+	NavigationIndex index;
+	SourceFile source;
+	@source.assign("source.rt", "");
+	@index.register_source(@source, 0);
+	var caught = false;
+	try {
+		@index.register_source(@source, 1);
+	} catch (compiler_internal_error& error) {
+		@caught = error.message.contains("source is already registered");
+	};
+	rt::test::expect(caught);
+};
+
+[[test]]
+fn ordinary_results_cannot_be_ignored() {
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	if (!imported.has<rt::buffer<InterfaceSource>>()) {
+		return;
+	};
+	rt::buffer<rt::string_view> inputs;
+	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { size(); };");
+	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { if (true) size(); };");
+	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { for (; false; size()) {}; };");
+	@inputs.push_back("struct Error {}; fn result() -> i32 | Error { return (i32 | Error)(3); }; fn ignored() { result(); };");
+	@inputs.push_back("struct Foo {}; fn ignored() { Foo(); };");
+	for (usize index = 0; index < 5; @index = index + 1) {
+		Compiler compiler;
+		rt::buffer<rt::string_view> paths;
+		rt::buffer<rt::string_view> texts;
+		append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @texts);
+		@paths.push_back("source.rt");
+		@texts.push_back(inputs.data()[index]);
+		rt::test::expect((@compiler.compile_sources(paths, texts, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
+		var analysis = @compiler.acquire_analysis();
+		rt::test::expect(analysis.get());
+		if (analysis.get()) {
+			rt::test::expect(analysis.value().diagnostics().records().size());
+			if (analysis.value().diagnostics().records().size()) {
+				rt::test::expect(analysis.value().diagnostics().records().data()[0].message.contains("result must be used"));
+			};
+		};
+	};
+};
+
+[[test]]
+fn implicit_union_extraction_continues_or_throws_the_other_alternative() {
+	var directory = compiler_directory("implicit-errors");
+	var subject = """
+struct Failure { i32 code; }; i32 alive;
+struct Payload { i32 value; fn Payload(var Payload& this, i32 value) { @this.value = value; @alive = alive + 1; }; fn Payload(var Payload& this, Payload& other) { @this.value = other.value; @alive = alive + 1; }; fn ~Payload(var Payload& this) { @alive = alive - 1; }; };
+using Number = i32 | Failure; using Done = void | Failure;
+using Object = Payload | Failure; fn payload() -> Object { return Object(Payload(9)); };
+using Decision = bool | Failure; fn decision(bool value, bool fail) -> Decision { if (fail) { Failure error; @error.code = 31; return Decision($error); }; return Decision(value); };
+fn number(bool fail) -> Number { if (fail) { Failure error; @error.code = 17; return Number($error); }; return Number(42); };
+fn done(bool fail) -> Done { if (fail) { Failure error; @error.code = 23; return Done($error); }; return Done(); };
+fn accept(i32 value) -> i32 { return value; };
+i32 failures_alive;
+struct MoveFailure {
+	i32 code;
+	fn MoveFailure(var MoveFailure& this, i32 code) {
+		@this.code = code;
+		@failures_alive = failures_alive + 1;
+	};
+	fn MoveFailure(var MoveFailure& this, MoveFailure& other) : [delete];
+	fn MoveFailure(var MoveFailure& this, MoveFailure other) : [default];
+	fn ~MoveFailure(var MoveFailure& this) {
+		@failures_alive = failures_alive - 1;
+	};
+};
+fn move_failure() -> i32 | MoveFailure {
+	return (i32 | MoveFailure)(MoveFailure(37));
+};
+""";
+	var source = """
+[[test]] fn extract() {
+i32 value = number(false); rt::test::expect(value == 42);
+rt::test::expect(accept(number(false)) == 42);
+done(false);
+var changed = i32(0); @changed = 1; (@changed = changed + 1); for (; false;) {}; rt::test::expect(changed == 2);
+{ Payload value = payload(); rt::test::expect(value.value == 9); rt::test::expect(alive == 1); }; rt::test::expect(alive == 0);
+{ var value = Payload(5); @value.~Payload(); @value.Payload(6); rt::test::expect(value.value == 6); }; rt::test::expect(alive == 0);
+rt::test::expect(!decision(false, false)); rt::test::expect(decision(true, false) && decision(true, false)); rt::test::expect(decision(false, false) || decision(true, false));
+rt::test::expect(!(false && decision(true, true))); rt::test::expect(true || decision(true, true));
+var caught = false; try { i32 ignored = number(true); } catch (Failure& error) { @caught = error.code == 17; }; rt::test::expect(caught);
+@caught = false; try { done(true); } catch (Failure& error) { @caught = error.code == 23; }; rt::test::expect(caught);
+@caught = false; try { bool ignored = !decision(false, true); } catch (Failure& error) { @caught = error.code == 31; }; rt::test::expect(caught);
+@caught = false; try { bool ignored = decision(true, false) && decision(false, true); } catch (Failure& error) { @caught = error.code == 31; }; rt::test::expect(caught);
+};
+[[test]] fn captured_unions_remain_available_for_explicit_matching() {
+	var caught = false;
+	try {
+		var raw = number(true);
+		rt::test::expect(raw.has<Failure>());
+		rt::test::expect(!raw.has<i32>());
+		if (raw.has<Failure>()) {
+			rt::test::expect(raw.get<Failure>().code == 17);
+		};
+		Number typed = number(false);
+		rt::test::expect(typed.has<i32>());
+		if (typed.has<i32>()) {
+			rt::test::expect(typed.get<i32>() == 42);
+		};
+		var completion = done(true);
+		rt::test::expect(completion.has<Failure>());
+		if (completion.has<Failure>()) {
+			rt::test::expect(completion.get<Failure>().code == 23);
+		};
+	} catch (Failure& error) {
+		@caught = true;
+	};
+	rt::test::expect(!caught);
+};
+
+[[test]] fn an_unmatched_use_of_a_captured_union_throws() {
+	var raw = number(true);
+	rt::test::expect(raw.has<Failure>());
+	var caught = false;
+	try {
+		i32 value = raw;
+		rt::test::expect(false);
+	} catch (Failure& error) {
+		@caught = error.code == 17;
+	};
+	rt::test::expect(caught);
+};
+
+[[test]] fn unmatched_temporary_payload_is_transferred_into_the_exception() {
+	rt::test::expect(failures_alive == 0);
+	var caught = false;
+	try {
+		i32 value = move_failure();
+		rt::test::expect(false);
+	} catch (MoveFailure& error) {
+		@caught = error.code == 37;
+		rt::test::expect(failures_alive == 1);
+	};
+	rt::test::expect(caught);
+	rt::test::expect(failures_alive == 0);
+};
+
+[[test]] fn an_explicitly_consumed_named_union_transfers_its_unmatched_payload() {
+	rt::test::expect(failures_alive == 0);
+	var caught = false;
+	try {
+		var raw = move_failure();
+		rt::test::expect(failures_alive == 1);
+		i32 value = $raw;
+		rt::test::expect(false);
+	} catch (MoveFailure& error) {
+		@caught = error.code == 37;
+		rt::test::expect(failures_alive == 1);
+	};
+	rt::test::expect(caught);
+	rt::test::expect(failures_alive == 0);
+};
+""";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	if (!imported.has<rt::buffer<InterfaceSource>>()) {
+		return;
+	};
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("subject.rt");
+	@sources.push_back(subject);
+	@paths.push_back("tests.rt");
+	@sources.push_back(source);
+	var compiled = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests);
+	rt::test::expect(compiled.has<void>());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	rt::test::expect(executed.exit_code == 0);
+	rt::test::expect(executed.output.contains("[PASS]"));
+};

@@ -12,16 +12,21 @@ fn maps_reject_duplicates_and_keep_value_addresses_during_growth() {
 	rt::test::expect(values.empty());
 	rt::test::expect(!values.find(first));
 	rt::test::expect(!@values.erase(first));
-	rt::test::expect(@values.insert("alpha", 20));
-	rt::test::expect(@values.insert("beta", 22));
-	rt::test::expect(!@values.insert("alpha", 99));
+	var inserted = @values.insert("alpha", 20);
+	rt::test::expect(inserted.get<bool>());
+	var beta_inserted = @values.insert("beta", 22);
+	rt::test::expect(beta_inserted.get<bool>());
+	var duplicate_inserted = @values.insert("alpha", 99);
+	rt::test::expect(!duplicate_inserted.get<bool>());
 	rt::test::expect(values.size() == 2);
 	var i32* stable = @values.find(first);
-	if (!rt::test::expect(stable)) {
+	rt::test::expect(stable);
+	if (!stable) {
 		return;
 	};
 	rt::test::expect(*stable == 20);
-	rt::test::expect(@values.reserve(1024));
+	var reserved = @values.reserve(1024);
+	rt::test::expect(reserved.has<void>());
 	rt::test::expect(values.find(first) == stable);
 	var moved = $values;
 	rt::test::expect(moved.find(first) == stable);
@@ -38,7 +43,8 @@ fn maps_reject_duplicates_and_keep_value_addresses_during_growth() {
 fn map_collision_chains_support_head_middle_and_tail_removal() {
 	rt::unordered_map<i32, i32, ConstantHash> values;
 	for (i32 index = 0; index < 64; @index = index + 1) {
-		rt::test::expect(@values.insert(i32(index), i32(index + 100)));
+		var inserted = @values.insert(i32(index), i32(index + 100));
+		rt::test::expect(inserted.get<bool>());
 	};
 	i32 head = 63;
 	i32 middle = 31;
@@ -52,7 +58,8 @@ fn map_collision_chains_support_head_middle_and_tail_removal() {
 	rt::test::expect(values.size() == 61);
 	i32 remaining = 42;
 	rt::test::expect(values.find(remaining) && *values.find(remaining) == 142);
-	rt::test::expect(!@values.reserve(usize::max));
+	var reserved = @values.reserve(usize::max);
+	rt::test::expect(reserved.has<rt::allocation_error>());
 	rt::test::expect(values.find(remaining) && *values.find(remaining) == 142);
 };
 
@@ -68,7 +75,30 @@ fn default_hashes_agree_for_equal_binary_text_and_signed_zero() {
 	var literal = "a\0b";
 	rt::test::expect(texts.hash(view) == texts.hash(literal));
 	rt::unordered_map<rt::string_view, i32> values;
-	rt::test::expect(@values.insert(view, 42));
-	rt::test::expect(!@values.insert(literal, 9));
+	var inserted = @values.insert(view, 42);
+	rt::test::expect(inserted.get<bool>());
+	var duplicate_inserted = @values.insert(literal, 9);
+	rt::test::expect(!duplicate_inserted.get<bool>());
 	rt::test::expect(values.find(literal) && *values.find(literal) == 42);
+
+	rt::unordered_map<rt::string, i32> owned_keys;
+	for (i32 index = 0; index < 96; @index = index + 1) {
+		char[2] bytes;
+		@bytes[0] = static_cast<char>(65 + index / 26);
+		@bytes[1] = static_cast<char>(97 + index % 26);
+		var key = rt::string(rt::string_view(&bytes[0], 2));
+		var added = @owned_keys.insert($key, i32(index));
+		rt::test::expect(added.get<bool>());
+	};
+	var grown = @owned_keys.reserve(1024);
+	rt::test::expect(grown.has<void>());
+	var moved = $owned_keys;
+	for (i32 index = 0; index < 96; @index = index + 1) {
+		char[2] bytes;
+		@bytes[0] = static_cast<char>(65 + index / 26);
+		@bytes[1] = static_cast<char>(97 + index % 26);
+		var key = rt::string(rt::string_view(&bytes[0], 2));
+		var found = moved.find(key);
+		rt::test::expect(found && *found == index);
+	};
 };

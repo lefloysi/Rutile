@@ -9,9 +9,7 @@ fn ReferenceLoanAnalyzer::owner_live_at(var ReferenceLoanAnalyzer& this, var Ent
 	rt::buffer<ReferenceLifetimeVisit> visited;
 	ReferenceLifetimeVisit initial;
 	@initial.node = this.graph.entry;
-	if (!@pending.push_back($initial)) {
-		return true;
-	};
+	@pending.push_back($initial);
 	usize cursor = 0;
 	while (cursor < pending.size()) {
 		ReferenceLifetimeVisit state = pending.data()[cursor];
@@ -32,9 +30,7 @@ fn ReferenceLoanAnalyzer::owner_live_at(var ReferenceLoanAnalyzer& this, var Ent
 		if (seen) {
 			continue;
 		};
-		if (!@visited.push_back(ReferenceLifetimeVisit(state))) {
-			return true;
-		};
+		@visited.push_back(ReferenceLifetimeVisit(state));
 		FactNode& node = this.graph.nodes.data()[state.node];
 		if (node.owner == owner) {
 			if (node.kind == fact_node_kind::lifetime_begin) {
@@ -52,9 +48,7 @@ fn ReferenceLoanAnalyzer::owner_live_at(var ReferenceLoanAnalyzer& this, var Ent
 				ReferenceLifetimeVisit next;
 				@next.node = edge.target;
 				@next.live = state.live;
-				if (!@pending.push_back($next)) {
-					return true;
-				};
+				@pending.push_back($next);
 			};
 			@index = index + 1;
 		};
@@ -71,14 +65,14 @@ fn ReferenceLoanAnalyzer::loan_store_path(var ReferenceLoanAnalyzer& this, usize
 	@effect.slot.root = loan.binding;
 	reference_slot_copy(loan.holding, @effect.slot.path);
 	if (!effect.slot.path.size && loan.stored_field) {
-		if (!reference_slot_field(@effect.slot.path, loan.stored_field)) {
+		if (!reference_slot_field(@effect.slot.path, loan.stored_field).has<void>()) {
 			return true;
 		};
 	};
 	return @this.store_path(source, target, effect);
 };
 
-fn ReferenceLoanAnalyzer::validate_ends(var ReferenceLoanAnalyzer& this) -> bool {
+fn ReferenceLoanAnalyzer::validate_ends(var ReferenceLoanAnalyzer& this) -> CompilationResult {
 	usize index = 0;
 	while (index < this.graph.nodes.size()) {
 		FactNode& node = this.graph.nodes.data()[index];
@@ -98,5 +92,5 @@ fn ReferenceLoanAnalyzer::validate_ends(var ReferenceLoanAnalyzer& this) -> bool
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };

@@ -18,7 +18,10 @@ fn SemanticUnit::canonical_use(var SemanticUnit& this, Type& type) -> TypeUse* {
 	while (index < type.signature().parameters().size()) {
 		TypeUse* element = @this.canonical_use(*type.signature().parameters().data()[index]);
 
-		if (!element || !@parameters.push_back(ParameterUse(rt::optional<ParameterLabel>(), *element))) {
+		if (element) {
+			@parameters.push_back(ParameterUse(rt::optional<ParameterLabel>(), *element));
+		}
+		else {
 			return nullptr;
 		};
 
@@ -63,7 +66,10 @@ fn SemanticUnit::retype_use(var SemanticUnit& this, TypeUse& source, Type& type)
 		ParameterUse& previous = source.callable().parameters().data()[index];
 		TypeUse* element = @this.retype_use(previous.type(), *type.signature().parameters().data()[index]);
 
-		if (!element || !@parameters.push_back(ParameterUse(rt::optional<ParameterLabel>(previous.name()), *element))) {
+		if (element) {
+			@parameters.push_back(ParameterUse(rt::optional<ParameterLabel>(previous.name()), *element));
+		}
+		else {
 			return nullptr;
 		};
 
@@ -133,9 +139,7 @@ fn SemanticUnit::describe_type(var SemanticUnit& this, var Analyzer& analyzer, v
 			@name = rt::optional<ParameterLabel>(ParameterLabel(location, location.text()));
 		};
 
-		if (!@parameters.push_back(ParameterUse($name, *element))) {
-			return nullptr;
-		};
+		@parameters.push_back(ParameterUse($name, *element));
 
 		@index = index + 1;
 	};
@@ -149,9 +153,9 @@ fn SemanticUnit::describe_type(var SemanticUnit& this, var Analyzer& analyzer, v
 	return @this.function_use(type, $parameters, *result);
 };
 
-fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer, var Entity& entity) -> bool {
+fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer, var Entity& entity) -> CompilationResult {
 	if (!entity.type() || entity.type_use().has_value() || entity.kind() == entity_kind::template_pattern) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Syntax* source = entity.declaration();
@@ -163,8 +167,8 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 		while (index < entity.parameters().size()) {
 			var Entity* parameter = entity.parameters().data()[index];
 
-			if (!@this.describe_entity(@analyzer, @*parameter) || !parameter->type_use().has_value()) {
-				return false;
+			if (!(@this.describe_entity(@analyzer, @*parameter)).has<void>() || !parameter->type_use().has_value()) {
+				return CompilationResult(compilation_error());
 			};
 
 			rt::optional<ParameterLabel> name;
@@ -173,9 +177,7 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 				@name = rt::optional<ParameterLabel>(ParameterLabel(parameter->token(), parameter->name()));
 			};
 
-			if (!@parameters.push_back(ParameterUse($name, parameter->type_use().value()))) {
-				return false;
-			};
+			@parameters.push_back(ParameterUse($name, parameter->type_use().value()));
 
 			@index = index + 1;
 		};
@@ -196,7 +198,7 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 		};
 
 		if (!result) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		@use = @this.function_use(*entity.type(), $parameters, *result);
@@ -219,12 +221,12 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 	};
 
 	if (!use) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@entity.set_type_use(*use);
 
-	return true;
+	return CompilationResult();
 };
 
 fn SemanticUnit::available_use(SemanticUnit& this, SemanticExpression& expression) -> TypeUse* {
@@ -241,9 +243,9 @@ fn SemanticUnit::available_use(SemanticUnit& this, SemanticExpression& expressio
 	return nullptr;
 };
 
-fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analyzer, var Scope& scope, Syntax& syntax, var SemanticExpression& expression) -> bool {
+fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analyzer, var Scope& scope, Syntax& syntax, var SemanticExpression& expression) -> CompilationResult {
 	if (expression.type_use().has_value()) {
-		return true;
+		return CompilationResult();
 	};
 
 	semantic_kind kind = expression.kind();
@@ -264,11 +266,11 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 			@entity->set_type_use(*use);
 		};
 
-		return true;
+		return CompilationResult();
 	};
 
 	if (expression.type()->kind() == type_kind::void_type) {
-		return true;
+		return CompilationResult();
 	};
 
 	TypeUse* use = this.available_use(expression);
@@ -303,7 +305,7 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 			Type* target = @analyzer.type(@scope, @*syntax.cast_type());
 
 			if (!target) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 
 			@use = @this.describe_type(@analyzer, @scope, *syntax.cast_type(), *target);
@@ -352,34 +354,32 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 	};
 
 	if (!use) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@expression.set_type_use(*use);
 
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::resolve(var Analyzer& this, var Entity* entity) -> bool {
-	if (!@this.resolve_impl(entity)) {
-		return false;
+fn Analyzer::resolve(var Analyzer& this, var Entity* entity) -> CompilationResult {
+	if (!(@this.resolve_impl(entity)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	return @this.unit->describe_entity(@this, @*entity);
 };
 
 fn Analyzer::expression(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
-	if (!@this.unit->record_scope(@scope, @syntax)) {
-		@this.error(&@syntax, "semantic scope metadata storage is unavailable");
-		return rt::unique<SemanticExpression>();
-	};
+	@this.unit->record_scope(@scope, @syntax);
 	var result = @this.expression_impl(@scope, @syntax, expected);
 
 	if (!result.get()) {
 		return $result;
 	};
 
-	if (!@this.unit->record_call(@scope, @syntax, *result.get()) || !@this.unit->describe_expression(@this, @scope, syntax, @*result.get())) {
+	@this.unit->record_call(@scope, @syntax, *result.get());
+	if (!((@this.unit->describe_expression(@this, @scope, syntax, @*result.get())).has<void>())) {
 		@this.error(&@syntax, "could not describe the expression's type use");
 
 		return rt::unique<SemanticExpression>();

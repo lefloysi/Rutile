@@ -5,7 +5,8 @@ fn empty_strings_have_a_terminator() {
 	rt::test::expect(!text.size());
 	rt::test::expect(text.data());
 	rt::test::expect(!text.data()[0]);
-	rt::test::expect(@text.append(""));
+	var appended = @text.append("");
+	rt::test::expect(appended.has<void>());
 	@text.clear();
 	rt::test::expect(!text.data()[0]);
 };
@@ -47,10 +48,12 @@ fn string_copies_own_independent_storage() {
 [[test]]
 fn appending_overlapping_views_survives_growth() {
 	var text = rt::string("123456789abcdef");
-	rt::test::expect(@text.append(text));
+	var appended = @text.append(text);
+	rt::test::expect(appended.has<void>());
 	rt::test::expect(text == "123456789abcdef123456789abcdef");
 	var middle = rt::string_view(text.data() + 2, 3);
-	rt::test::expect(@text.append(middle));
+	var middle_appended = @text.append(middle);
+	rt::test::expect(middle_appended.has<void>());
 	rt::test::expect(text == "123456789abcdef123456789abcdef345");
 	rt::test::expect(!text.data()[text.size()]);
 };
@@ -58,20 +61,39 @@ fn appending_overlapping_views_survives_growth() {
 [[test]]
 fn string_capacity_failures_preserve_text() {
 	var text = rt::string("preserved");
-	rt::test::expect(@text.reserve(128));
+	var reserved = @text.reserve(128);
+	rt::test::expect(reserved.has<void>());
 	usize capacity = text.capacity();
 	char* storage = text.data();
 	rt::test::expect(capacity >= 128);
-	rt::test::expect(@text.reserve(16));
+	var existing_capacity = @text.reserve(16);
+	rt::test::expect(existing_capacity.has<void>());
 	rt::test::expect(text.capacity() == capacity);
-	rt::test::expect(!@text.reserve(usize::max));
-	rt::test::expect(!@text.append(rt::string_view("x".data(), usize::max)));
+	var overflow_reserve = @text.reserve(usize::max);
+	rt::test::expect(overflow_reserve.has<rt::allocation_error>());
+	var appended = @text.append(rt::string_view("x".data(), usize::max));
+	rt::test::expect(appended.has<rt::allocation_error>());
 	rt::test::expect(text.data() == storage);
 	rt::test::expect(text == "preserved");
+	try {
+		var oversized = rt::string(rt::string_view("x".data(), usize::max));
+		rt::test::expect(false);
+	}
+	catch (rt::allocation_error error) {
+		rt::test::expect(error.requested_bytes == usize::max);
+	};
+	try {
+		var oversized = rt::string_view("x".data(), usize::max) + "x";
+		rt::test::expect(false);
+	}
+	catch (rt::allocation_error error) {
+		rt::test::expect(error.requested_bytes == usize::max);
+	};
 	@text.clear();
 	rt::test::expect(text.empty());
 	rt::test::expect(text.capacity() == capacity);
-	rt::test::expect(@text.append("reused"));
+	var reused = @text.append("reused");
+	rt::test::expect(reused.has<void>());
 	rt::test::expect(text == "reused");
 };
 

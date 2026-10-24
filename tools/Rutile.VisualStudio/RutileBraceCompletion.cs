@@ -57,6 +57,9 @@ namespace Rutile.VisualStudio {
 			if (last.Kind != LexicalKind.String) {
 				return true;
 			}
+			if (last.Length >= 3 && prefix.Substring(last.Start, 3) == "\"\"\"") {
+				return last.Length >= 6 && prefix.EndsWith("\"\"\"", StringComparison.Ordinal);
+			}
 			var end = prefix.Length - 1;
 			if (prefix[end] == '\r' || prefix[end] == '\n') {
 				return true;

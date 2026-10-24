@@ -2,6 +2,9 @@ fn malloc(usize size) -> var void*;
 fn free(void* memory);
 
 namespace rt {
+	export struct empty_buffer_error {
+	};
+
 	template<typename T>
 	export struct buffer {
 		fn buffer(var buffer& this) : [default];
@@ -10,9 +13,9 @@ namespace rt {
 
 		fn operator=(var buffer& this, buffer& other) -> var buffer&;
 		fn operator:=(var buffer& this, buffer& other) -> var buffer&;
-		fn reserve(var buffer& this, usize required) -> bool;
-		fn push_back(var buffer& this, T value) -> bool;
-		fn pop_back(var buffer& this) -> bool;
+		fn reserve(var buffer& this, usize required) -> void | allocation_error;
+		fn push_back(var buffer& this, T value) -> void | allocation_error;
+		fn pop_back(var buffer& this) -> void | empty_buffer_error;
 		fn clear(var buffer& this);
 
 		fn data(auto buffer& this) -> const[this] T*;
@@ -20,7 +23,7 @@ namespace rt {
 		fn capacity(buffer& this) -> usize;
 
 	private:
-		fn copy_from(var buffer& this, buffer& other) -> bool;
+		fn copy_from(var buffer& this, buffer& other) -> void | allocation_error;
 
 		var T* _storage;
 		usize _size;
@@ -29,14 +32,18 @@ namespace rt {
 
 	template<typename T>
 	export fn buffer<T>::buffer(var buffer& this, buffer& other) {
-		@this.copy_from(other);
+		var result = @this.copy_from(other);
+		if (result.has<allocation_error>()) {
+			throw allocation_error(result.get<allocation_error>());
+		};
 	};
 
 	template<typename T>
 	export fn buffer<T>::operator=(var buffer& this, buffer& other) -> var buffer& {
 		buffer replacement;
-		if (!@replacement.copy_from(other)) {
-			return @this;
+		var copied = @replacement.copy_from(other);
+		if (copied.has<allocation_error>()) {
+			throw allocation_error(copied.get<allocation_error>());
 		};
 
 		@this = $replacement;
@@ -45,9 +52,11 @@ namespace rt {
 	};
 
 	template<typename T>
-	export fn buffer<T>::copy_from(var buffer& this, buffer& other) -> bool {
-		if (!@this.reserve(other._size)) {
-			return false;
+	export fn buffer<T>::copy_from(var buffer& this, buffer& other) -> void | allocation_error {
+		using Result = void | allocation_error;
+		var reserved = @this.reserve(other._size);
+		if (reserved.has<allocation_error>()) {
+			return $reserved;
 		};
 
 		while (this._size < other._size) {
@@ -55,7 +64,7 @@ namespace rt {
 			@this._size = this._size + 1;
 		};
 
-		return true;
+		return Result();
 	};
 
 	template<typename T>
@@ -70,14 +79,17 @@ namespace rt {
 	};
 
 	template<typename T>
-	export fn buffer<T>::reserve(var buffer& this, usize required) -> bool {
+	export fn buffer<T>::reserve(var buffer& this, usize required) -> void | allocation_error {
+		using Result = void | allocation_error;
 		if (required <= this._capacity) {
-			return true;
+			return Result();
 		};
 
 		const usize element_size = sizeof(T);
 		if (element_size && required > usize::max / element_size) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			return Result($error);
 		};
 
 		usize count = $required;
@@ -93,9 +105,11 @@ namespace rt {
 			@bytes = 1;
 		};
 
-		var T* replacement = static_cast<var T*>(malloc($bytes));
+		var T* replacement = static_cast<var T*>(malloc(bytes));
 		if (!replacement) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = bytes;
+			return Result($error);
 		};
 
 		usize index = 0;
@@ -108,31 +122,40 @@ namespace rt {
 		@this._storage = $replacement;
 		@this._capacity = $count;
 
-		return true;
+		return Result();
 	};
 
 	template<typename T>
-	export fn buffer<T>::push_back(var buffer& this, T value) -> bool {
-		if (this._size == usize::max || !@this.reserve(this._size + 1)) {
-			return false;
+	export fn buffer<T>::push_back(var buffer& this, T value) -> void | allocation_error {
+		using Result = void | allocation_error;
+		if (this._size == usize::max) {
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			return Result($error);
+		};
+
+		var reserved = @this.reserve(this._size + 1);
+		if (reserved.has<allocation_error>()) {
+			return $reserved;
 		};
 
 		@this._storage[this._size].T($value);
 		@this._size = this._size + 1;
 
-		return true;
+		return Result();
 	};
 
 	template<typename T>
-	export fn buffer<T>::pop_back(var buffer& this) -> bool {
+	export fn buffer<T>::pop_back(var buffer& this) -> void | empty_buffer_error {
+		using Result = void | empty_buffer_error;
 		if (!this._size) {
-			return false;
+			return Result(empty_buffer_error());
 		};
 
 		@this._size = this._size - 1;
 		@this._storage[this._size].~T();
 
-		return true;
+		return Result();
 	};
 
 	template<typename T>

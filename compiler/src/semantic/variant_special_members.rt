@@ -1,12 +1,15 @@
-fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -> bool {
+fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -> CompilationResult {
 	var Entity* owner = function.scope()->owner();
 	TemplatePack& alternatives = *owner->template_arguments()->arguments.data()[0].pack;
 	if (function.role() == function_role::constructor && function.parameters().size() == 1) {
 		if (!alternatives.elements.size()) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		Type* first = alternatives.elements.data()[0].type;
-		return first->kind() == type_kind::null_type || first->kind() == type_kind::void_type || @this.prepare_default(first);
+		if (first->kind() == type_kind::null_type || first->kind() == type_kind::void_type || (@this.prepare_default(first)).has<void>()) {
+			return CompilationResult();
+		};
+		return CompilationResult(compilation_error());
 	};
 	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
 	usize index = 0;
@@ -16,17 +19,17 @@ fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -
 		if (type->kind() == type_kind::null_type || type->kind() == type_kind::void_type) {
 			continue;
 		};
-		if (!@this.prepare_lifetime(type)) {
-			return false;
+		if (!(@this.prepare_lifetime(type)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
-		if (copy && !@this.prepare_copy(type)) {
-			return false;
+		if (copy && !(@this.prepare_copy(type)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
-		if (copy && function.role() == function_role::assignment && !@this.prepare_copy_assignment(type)) {
-			return false;
+		if (copy && function.role() == function_role::assignment && !(@this.prepare_copy_assignment(type)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
 fn variant_special_nonthrowing(Entity& function) -> bool {

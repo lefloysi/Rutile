@@ -1,5 +1,12 @@
 struct NativeFile;
 
+struct file_io_error {
+	rt::string_view operation;
+};
+
+using FileResult = void | file_io_error;
+using FileReadResult = usize | file_io_error;
+
 fn platform_open_utf8_file(const char* path, const char* mode) -> var NativeFile*;
 fn fclose(var NativeFile* file) -> i32;
 fn fread(var void* destination, usize size, usize count, var NativeFile* file) -> usize;
@@ -19,9 +26,9 @@ struct File {
 
 	fn operator=(var File& this, const File& other) -> var File& : [delete];
 	fn operator=(var File& this, File other) -> var File& : [default];
-	fn read(var File& this, var char* destination, usize capacity) -> usize;
-	fn write(var File& this, rt::string_view bytes) -> bool;
-	fn close(var File& this) -> bool;
+	fn read(var File& this, var char* destination, usize capacity) -> FileReadResult;
+	fn write(var File& this, rt::string_view bytes) -> FileResult;
+	fn close(var File& this) -> FileResult;
 
 	fn is_open(const File& this) -> bool;
 	fn failed(const File& this) -> bool;
@@ -32,7 +39,7 @@ private:
 
 fn FileCloser::dispose(var NativeFile* file) {
 	if (file) {
-		fclose($file);
+		discard fclose($file);
 	};
 };
 
@@ -48,20 +55,33 @@ fn File::failed(const File& this) -> bool {
 	return !this.handle.get() || ferror(this.handle.get());
 };
 
-fn File::read(var File& this, var char* destination, usize capacity) -> usize {
-	return fread($destination, 1, $capacity, this.handle.get());
+fn File::read(var File& this, var char* destination, usize capacity) -> FileReadResult {
+	if (!this.handle.get()) {
+		return FileReadResult(file_io_error("cannot read a closed file"));
+	};
+	usize count = fread($destination, 1, $capacity, this.handle.get());
+	if (ferror(this.handle.get())) {
+		return FileReadResult(file_io_error("cannot read"));
+	};
+	return FileReadResult($count);
 };
 
-fn File::write(var File& this, rt::string_view bytes) -> bool {
-	return fwrite(bytes.data(), 1, bytes.size(), this.handle.get()) == bytes.size();
+fn File::write(var File& this, rt::string_view bytes) -> FileResult {
+	if (!this.handle.get() || fwrite(bytes.data(), 1, bytes.size(), this.handle.get()) != bytes.size()) {
+		return FileResult(file_io_error("cannot write"));
+	};
+	return FileResult();
 };
 
-fn File::close(var File& this) -> bool {
+fn File::close(var File& this) -> FileResult {
 	var NativeFile* handle = @this.handle.release();
 
 	if (!handle) {
-		return true;
+		return FileResult();
 	};
 
-	return !fclose($handle);
+	if (fclose($handle)) {
+		return FileResult(file_io_error("cannot close"));
+	};
+	return FileResult();
 };

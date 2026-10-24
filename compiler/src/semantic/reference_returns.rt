@@ -21,7 +21,7 @@ fn reference_returns_local(SemanticExpression& expression) -> bool {
 // A returned local carries its reaching contents, including stores performed
 // after its initializer. Reuse the same graph/store analysis in a separate state
 // so a callee's slots never become slots in the caller's current object state.
-fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this, var Entity& function, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this, var Entity& function, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, usize depth) -> CompilationResult {
 	if (depth > 16) {
 		return @this.error(*function.body(), "reference provenance analysis limit exceeded");
 	};
@@ -35,35 +35,31 @@ fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this,
 	var local = ReferenceLoanAnalyzer(@*this.diagnostics);
 	@index = 0;
 	while (index < this.return_functions.size()) {
-		if (!@local.return_functions.push_back(this.return_functions.data()[index])) {
-			return false;
-		};
+		@local.return_functions.push_back(this.return_functions.data()[index]);
 		@index = index + 1;
 	};
-	if (!@local.return_functions.push_back(&@function)) {
-		return false;
-	};
+	@local.return_functions.push_back(&@function);
 	@index = 0;
 	while (index < this.store_functions.size()) {
-		if (!@local.store_functions.push_back(this.store_functions.data()[index])) {
-			return false;
-		};
+		@local.store_functions.push_back(this.store_functions.data()[index]);
 		@index = index + 1;
 	};
 	@local.function_body = function.body();
 	@local.return_type = function.type()->signature().result();
 	@local.phase = reference_loan_phase::collect;
-	if (!@local.build_graph(function) || !@local.collect(function.body()) || !@local.walk(function.body(), reference_loan_access::read)) {
-		return false;
+	@local.build_graph(function);
+	@local.collect(function.body());
+	if (!(@local.walk(function.body(), reference_loan_access::read)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	@local.phase = reference_loan_phase::validate;
-	if (!@local.retain_stores(@*function.body()) || !@local.refresh_array_aliases()) {
-		return false;
+	if (!(@local.retain_stores(@*function.body())).has<void>() || !(@local.refresh_array_aliases()).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	rt::buffer<ReferenceLoanPlace> roots;
 	rt::buffer<ReferenceLoanSubstitution> none;
-	if (!@local.returned_places(*function.body(), @roots, @none, nullptr, depth + 1)) {
-		return false;
+	if (!(@local.returned_places(*function.body(), @roots, @none, nullptr, depth + 1)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	@index = 0;
 	while (index < roots.size()) {
@@ -87,9 +83,7 @@ fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this,
 					if (!result.element) {
 						@result.element = root.element;
 					};
-					if (!@output.push_back($result)) {
-						return false;
-					};
+					@output.push_back($result);
 					@candidate = candidate + 1;
 				};
 				@mapped = true;
@@ -103,11 +97,9 @@ fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this,
 			@result.field = root.field;
 			@result.element = root.element;
 			@result.through = root.through;
-			if (!@output.push_back($result)) {
-				return false;
-			};
+			@output.push_back($result);
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };

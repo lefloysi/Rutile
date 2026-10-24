@@ -56,15 +56,16 @@ enum semantic_kind : [u08] {
 
 struct SemanticExpression {
 	fn SemanticExpression(var SemanticExpression& this, semantic_kind kind, Type* type, Token& token);
+	fn make(semantic_kind kind, Type* type, Token& token) -> rt::unique<SemanticExpression>;
 
 	fn set_type_use(var SemanticExpression& this, TypeUse& use);
 	fn set_mutable_access(var SemanticExpression& this, bool permitted);
-	fn append(var SemanticExpression& this, rt::unique<SemanticExpression> child) -> bool;
+	fn append(var SemanticExpression& this, rt::unique<SemanticExpression> child) -> CompilationResult;
 	fn bind(var SemanticExpression& this, var Entity* entity, value_category category);
 	fn set_category(var SemanticExpression& this, value_category category);
 	fn set_integer(var SemanticExpression& this, u64 value);
 	fn set_real(var SemanticExpression& this, f64 value);
-	fn set_text(var SemanticExpression& this, rt::string_view value) -> bool;
+	fn set_text(var SemanticExpression& this, rt::string_view value);
 	fn set_inferred_integer(var SemanticExpression& this, u64 value);
 	fn inferred_integer(SemanticExpression& this, var u64& value) -> bool;
 	fn set_inferred_condition(var SemanticExpression& this, bool value);
@@ -144,6 +145,16 @@ fn SemanticExpression::indirect_storage(SemanticExpression& this) -> bool {
 		default:
 			return false;
 	};
+};
+
+fn SemanticExpression::make(semantic_kind kind, Type* type, Token& token) -> rt::unique<SemanticExpression> {
+	var result = rt::unique<SemanticExpression>(new var SemanticExpression($kind, type, token));
+	if (!result.get()) {
+		rt::allocation_error error;
+		@error.requested_bytes = sizeof(SemanticExpression);
+		throw $error;
+	};
+	return $result;
 };
 
 fn SemanticExpression::SemanticExpression(var SemanticExpression& this, semantic_kind kind, Type* type, Token& token) {
@@ -228,12 +239,13 @@ fn SemanticExpression::item(SemanticExpression& this, usize index) -> var Semant
 	return this.children.data()[index].get();
 };
 
-fn SemanticExpression::append(var SemanticExpression& this, rt::unique<SemanticExpression> child) -> bool {
+fn SemanticExpression::append(var SemanticExpression& this, rt::unique<SemanticExpression> child) -> CompilationResult {
 	if (!child.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	return @this.children.push_back($child);
+	@this.children.push_back($child);
+	return CompilationResult();
 };
 
 fn SemanticExpression::bind(var SemanticExpression& this, var Entity* entity, value_category category) {
@@ -283,8 +295,9 @@ fn SemanticExpression::set_real(var SemanticExpression& this, f64 value) {
 	@this.real_value = $value;
 };
 
-fn SemanticExpression::set_text(var SemanticExpression& this, rt::string_view value) -> bool {
-	return @this.text_value.append(value);
+fn SemanticExpression::set_text(var SemanticExpression& this, rt::string_view value) {
+	@this.text_value.append(value);
+	return;
 };
 
 enum inferred_override_kind : [u08] {

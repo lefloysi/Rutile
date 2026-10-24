@@ -42,9 +42,7 @@ fn reference_capture_depends(SemanticExpression& expression, Entity& binding, Re
 			};
 			@index = index + 1;
 		};
-		if (!@visited.push_back(name)) {
-			return true;
-		};
+		@visited.push_back(name);
 		var SemanticExpression* source = reference_capture_initializer(*function.body(), *name);
 		return source && reference_capture_depends(*source, binding, analyzer, function, @visited);
 	};
@@ -112,7 +110,7 @@ fn ReferenceLoanAnalyzer::capture_mode(ReferenceLoanAnalyzer& this, SemanticExpr
 	return false;
 };
 
-fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> bool {
+fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> CompilationResult {
 	if (expression.kind() == semantic_kind::call && expression.size() >= 2) {
 		Type* signature = expression.item(0)->type();
 		if (signature->kind() == type_kind::pointer) {
@@ -132,8 +130,8 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 						};
 						rt::buffer<ReferenceLoanPlace> roots;
 						rt::buffer<ReferenceLoanSubstitution> substitutions;
-						if (!@this.places(*expression.item(1)->item(argument), @roots, @substitutions, &@function, 0)) {
-							return false;
+						if (!(@this.places(*expression.item(1)->item(argument), @roots, @substitutions, &@function, 0)).has<void>()) {
+							return CompilationResult(compilation_error());
 						};
 						usize formal = 0;
 						while (formal < function.parameters().size()) {
@@ -171,9 +169,7 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 								@capture.function = &@function;
 								@capture.parameter = binding;
 								@capture.contents = captured_contents;
-								if (!@this.captures_summary.push_back($capture)) {
-									return false;
-								};
+								@this.captures_summary.push_back($capture);
 							};
 						};
 					};
@@ -184,15 +180,15 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 	};
 	usize child = 0;
 	while (child < expression.size()) {
-		if (!@this.capture_walk(*expression.item(child), @function)) {
-			return false;
+		if (!(@this.capture_walk(*expression.item(child), @function)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@child = child + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool {
+fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	@this.captures_summary.clear();
 	while (true) {
 		usize previous = this.captures_summary.size();
@@ -200,13 +196,13 @@ fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, Sema
 		while (index < unit.entities().size()) {
 			var Entity* function = unit.entities().data()[index].get();
 			@index = index + 1;
-			if (function->kind() == entity_kind::function && function->body() && function->dispatch() == function_dispatch::ordinary && !@this.capture_walk(*function->body(), @*function)) {
-				return @this.error(*function->body(), "reference capture summary storage is unavailable");
+			if (function->kind() == entity_kind::function && function->body() && function->dispatch() == function_dispatch::ordinary && !(@this.capture_walk(*function->body(), @*function)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		if (previous == this.captures_summary.size()) {
 			break;
 		};
 	};
-	return true;
+	return CompilationResult();
 };

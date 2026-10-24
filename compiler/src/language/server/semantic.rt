@@ -23,7 +23,7 @@ fn language_lexical_type(Analysis* analysis, Token& input) -> u32 {
 	return 17;
 };
 
-fn language_lexical_tokens(Analysis* analysis, rt::buffer<Token>& tokens, rt::buffer<Token>& comments, usize target, var LanguageIndexedSource& source) -> bool {
+fn language_lexical_tokens(Analysis* analysis, rt::buffer<Token>& tokens, rt::buffer<Token>& comments, usize target, var LanguageIndexedSource& source) {
 	usize index = 0;
 	usize comment = 0;
 	while (index < tokens.size() || comment < comments.size()) {
@@ -49,35 +49,37 @@ fn language_lexical_tokens(Analysis* analysis, rt::buffer<Token>& tokens, rt::bu
 		if (classification != 14) {
 			@token.type = language_lexical_type(analysis, *input);
 		};
-		if (!@source.token_offsets.insert(usize(input->begin), source.tokens.size()) || !@source.tokens.push_back($token)) {
-			return false;
+		if (!@source.token_offsets.insert(usize(input->begin), source.tokens.size())) {
+			compiler_panic("language server language_lexical_tokens invariant failed");
 		};
+		@source.tokens.push_back($token);
 	};
-	return true;
+	return;
 };
 
-fn LanguageIndex::classify_source(var LanguageIndex& this, Analysis& analysis, usize original, usize target) -> bool {
+fn LanguageIndex::classify_source(var LanguageIndex& this, Analysis& analysis, usize original, usize target) {
 	var LanguageIndexedSource& source = @(@this.sources).data()[target];
 	if (source.tokens.size()) {
-		return true;
+		return;
 	};
 	rt::buffer<Token>* tokens = analysis.source_tokens(usize(original));
 	rt::buffer<Token>* comments = analysis.source_comments(usize(original));
 	if (!tokens || !comments) {
-		return true;
+		return;
 	};
-	return language_lexical_tokens(&@analysis, *tokens, *comments, target, @source);
+	language_lexical_tokens(&@analysis, *tokens, *comments, target, @source);
+	return;
 };
 
-fn language_classify_template_names(var LanguageIndex& index, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax, var rt::buffer<Token>& parameters, bool unqualified) -> bool {
+fn language_classify_template_names(var LanguageIndex& index, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax, var rt::buffer<Token>& parameters, bool unqualified) {
 	usize checkpoint = parameters.size();
 	if (syntax.kind() == syntax_kind::template_declaration) {
 		Syntax& list = *syntax.template_parameters();
 		usize parameter = 0;
 		while (parameter < list.size()) {
 			Syntax& declaration = *list.item(parameter);
-			if ((declaration.template_parameter_type()->kind() == syntax_kind::absent || declaration.template_parameter_type()->kind() == syntax_kind::pack_signature) && !@parameters.push_back(declaration.template_parameter_name()->token())) {
-				return false;
+			if ((declaration.template_parameter_type()->kind() == syntax_kind::absent || declaration.template_parameter_type()->kind() == syntax_kind::pack_signature)) {
+				@parameters.push_back(declaration.template_parameter_name()->token());
 			};
 			@parameter = parameter + 1;
 		};
@@ -105,24 +107,20 @@ fn language_classify_template_names(var LanguageIndex& index, Analysis& analysis
 		if ((syntax.kind() == syntax_kind::variable && syntax.item(child) == syntax.variable_name()) || (syntax.kind() == syntax_kind::parameter && syntax.item(child) == syntax.parameter_name())) {
 			@child_unqualified = false;
 		};
-		if (!language_classify_template_names(@index, analysis, mapping, *syntax.item(child), @parameters, $child_unqualified)) {
-			return false;
-		};
+		language_classify_template_names(@index, analysis, mapping, *syntax.item(child), @parameters, $child_unqualified);
 		@child = child + 1;
 	};
 	while (parameters.size() > checkpoint) {
 		@parameters.pop_back();
 	};
-	return true;
+	return;
 };
 
-fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool {
+fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) {
 	rt::buffer<rt::unique<Syntax>>& roots = analysis.syntax_roots();
 	usize root = 0;
 	while (root < roots.size()) {
-		if (!@this.classify_syntax(analysis, mapping, *roots.data()[root].get())) {
-			return false;
-		};
+		@this.classify_syntax(analysis, mapping, *roots.data()[root].get());
 		@root = root + 1;
 	};
 	usize classification = 0;
@@ -169,19 +167,16 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 	rt::buffer<Token> parameters;
 	@root = 0;
 	while (root < roots.size()) {
-		if (!@this.classify_syntax(analysis, mapping, *roots.data()[root].get())) {
-			return false;
-		};
-		if (!language_classify_template_names(@this, analysis, mapping, *roots.data()[root].get(), @parameters, true)) {
-			return false;
-		};
+		@this.classify_syntax(analysis, mapping, *roots.data()[root].get());
+		language_classify_template_names(@this, analysis, mapping, *roots.data()[root].get(), @parameters, true);
 		@root = root + 1;
 	};
-	return true;
+	return;
 };
 
 fn LanguageWorkspace::overlay_token(var LanguageWorkspace& this, LanguageIndex& index, rt::string_view key, SourceRange& current, LanguageText& text, var u32& type, var u32& modifiers) -> bool {
-	var found = index.source_ids.find(key);
+	var owned_key = rt::string(key);
+	var found = index.source_ids.find(owned_key);
 	if (!found) {
 		return false;
 	};
@@ -221,13 +216,13 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 	};
 	rt::string path;
 	rt::string key;
-	if (!LanguageUri::decode(LanguageJson::text(*document, "uri"), @path) || !LanguageUri::key(path.view(), @key)) {
+	if (!LanguageUri::decode(LanguageJson::text(*document, "uri"), @path).has<void>()) {
 		return rt::unique<rt::json_value>();
 	};
-	var found = index.source_ids.find(key.view());
+	LanguageUri::key(path.view(), @key);
+	var found = index.source_ids.find(key);
 	if (!found) {
-		@response.get()->set("data", $data);
-		return $response;
+		return rt::json_value::make_null();
 	};
 	usize source_number = *found;
 	LanguageIndexedSource& source = index.sources.data()[source_number];
@@ -241,14 +236,11 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 	bool live = open && open->revision != source.revision;
 	rt::buffer<LanguageSemanticToken>* colors = &@source.tokens;
 	if (live) {
-		if (!@live_source.assign(open->path.view(), text->view())) {
-			return rt::unique<rt::json_value>();
-		};
+		@live_source.assign(open->path.view(), text->view());
 		var lexer = Lexer(@live_source);
-		@lexer.scan();
-		if (!language_lexical_tokens(nullptr, live_source.tokens(), live_source.comments(), source_number, @live_colors)) {
-			return rt::unique<rt::json_value>();
-		};
+		// An unfinished edit can still provide a valid lexical prefix.
+		discard @lexer.scan();
+		language_lexical_tokens(nullptr, live_source.tokens(), live_source.comments(), source_number, @live_colors);
 		@colors = &@live_colors.tokens;
 	};
 	usize first = 0;
@@ -280,10 +272,10 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 		u32 type = token.type;
 		u32 modifiers = token.modifiers;
 		if (type == u32::max && live) {
-			@this.overlay_token(index, source.key.view(), current, *text, @type, @modifiers);
+			discard @this.overlay_token(index, source.key.view(), current, *text, @type, @modifiers);
 		};
 		if (type == u32::max && index.semantic_failed && this.highlight_fallback.get()) {
-			@this.overlay_token(*this.highlight_fallback.get(), source.key.view(), current, *text, @type, @modifiers);
+			discard @this.overlay_token(*this.highlight_fallback.get(), source.key.view(), current, *text, @type, @modifiers);
 		};
 		if (type == u32::max) {
 			continue;
@@ -308,9 +300,11 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 				if (position.line == previous_line) {
 					@delta_character = delta_character - previous_character;
 				};
-				if (!@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(position.line - previous_line))) || !@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(delta_character))) || !@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(ending.character - position.character))) || !@data.get()->append(rt::json_value::make_unsigned(u64(type))) || !@data.get()->append(rt::json_value::make_unsigned(u64(modifiers)))) {
-					return rt::unique<rt::json_value>();
-				};
+				@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(position.line - previous_line)));
+				@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(delta_character)));
+				@data.get()->append(rt::json_value::make_unsigned(static_cast<u64>(ending.character - position.character)));
+				@data.get()->append(rt::json_value::make_unsigned(u64(type)));
+				@data.get()->append(rt::json_value::make_unsigned(u64(modifiers)));
 				@previous_line = position.line;
 				@previous_character = position.character;
 			};
@@ -320,15 +314,13 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 			};
 		};
 	};
-	if (!@response.get()->set("data", $data)) {
-		return rt::unique<rt::json_value>();
-	};
+	@response.get()->set("data", $data);
 	return $response;
 };
 
-fn LanguageIndex::classify_syntax(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax) -> bool {
+fn LanguageIndex::classify_syntax(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax) {
 	if (syntax.kind() == syntax_kind::ambiguity) {
-		return true;
+		return;
 	};
 	if (syntax.kind() == syntax_kind::pack_signature_declaration) {
 		SourceRange range = analysis.navigation().range(syntax.pack_signature_name()->token());
@@ -363,9 +355,7 @@ fn LanguageIndex::classify_syntax(var LanguageIndex& this, Analysis& analysis, r
 		};
 	};
 	for (usize attribute = 0; attribute < syntax.declaration_attributes().size(); @attribute = attribute + 1) {
-		if (!@this.classify_syntax(analysis, mapping, *syntax.declaration_attributes().data()[attribute].get())) {
-			return false;
-		};
+		@this.classify_syntax(analysis, mapping, *syntax.declaration_attributes().data()[attribute].get());
 	};
 	bool contextual = syntax.kind() == syntax_kind::type_auto || syntax.kind() == syntax_kind::access_label || syntax.kind() == syntax_kind::cast || syntax.kind() == syntax_kind::operator_name || syntax.kind() == syntax_kind::conversion_name || syntax.kind() == syntax_kind::null_pointer || syntax.kind() == syntax_kind::name && (syntax.token().is("true") || syntax.token().is("false"));
 	if (contextual) {
@@ -380,10 +370,8 @@ fn LanguageIndex::classify_syntax(var LanguageIndex& this, Analysis& analysis, r
 	};
 	usize child = 0;
 	while (child < syntax.size()) {
-		if (!@this.classify_syntax(analysis, mapping, *syntax.item(child))) {
-			return false;
-		};
+		@this.classify_syntax(analysis, mapping, *syntax.item(child));
 		@child = child + 1;
 	};
-	return true;
+	return;
 };

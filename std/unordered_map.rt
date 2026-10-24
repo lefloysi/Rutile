@@ -22,7 +22,7 @@ namespace rt {
 	// Equal must define an equivalence relation; equivalent keys must have equal hashes.
 	// Hash and Equal are called through const references and must remain stable while keys are stored.
 	// Key storage borrowed by a key (such as string_view bytes) must remain valid and unchanged.
-	// Insert consumes both arguments, returning false on duplicate or allocation failure.
+	// Insert consumes both arguments, returning false for an existing key and allocation_error on storage failure.
 	// Pointers returned by find survive insert/reserve and moves of their owning map.
 	// Erase invalidates only the erased value; clear and destruction invalidate all values.
 	template<typename K, typename V, typename Hash = default_hash<K>, typename Equal = default_equal<K>>
@@ -34,10 +34,10 @@ namespace rt {
 		fn operator:=(var unordered_map& this, unordered_map& other) -> var unordered_map& : [delete];
 		fn ~unordered_map(var unordered_map& this);
 
-		fn insert(var unordered_map& this, K key, V value) -> bool;
+		fn insert(var unordered_map& this, K key, V value) -> bool | allocation_error;
 		fn erase(var unordered_map& this, K& key) -> bool;
 		fn clear(var unordered_map& this);
-		fn reserve(var unordered_map& this, usize required) -> bool;
+		fn reserve(var unordered_map& this, usize required) -> void | allocation_error;
 
 		fn size(unordered_map& this) -> usize;
 		fn empty(unordered_map& this) -> bool;
@@ -117,20 +117,30 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	export fn unordered_map<K, V, Hash, Equal>::insert(var unordered_map& this, K key, V value) -> bool {
-		if (this.find(key) || this.length == usize::max) {
-			return false;
+	export fn unordered_map<K, V, Hash, Equal>::insert(var unordered_map& this, K key, V value) -> bool | allocation_error {
+		using Result = bool | allocation_error;
+		if (this.find(key)) {
+			return Result(false);
+		};
+
+		if (this.length == usize::max) {
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			return Result($error);
 		};
 
 		usize code = this.hasher.object.hash(key);
-		if (!@this.reserve(this.length + 1)) {
-			return false;
+		var reserved = @this.reserve(this.length + 1);
+		if (reserved.has<allocation_error>()) {
+			return Result(reserved.get<allocation_error>());
 		};
 
 		using Node = unordered_node<K, V>;
 		var Node* node = static_cast<var Node*>(malloc(sizeof(Node)));
 		if (!node) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = sizeof(Node);
+			return Result($error);
 		};
 
 		@node->Node($key, $value, $code);
@@ -141,7 +151,7 @@ namespace rt {
 		@(@this.buckets).data()[index] = node;
 		@this.length = this.length + 1;
 
-		return true;
+		return Result(true);
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
@@ -195,14 +205,17 @@ namespace rt {
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
-	export fn unordered_map<K, V, Hash, Equal>::reserve(var unordered_map& this, usize required) -> bool {
+	export fn unordered_map<K, V, Hash, Equal>::reserve(var unordered_map& this, usize required) -> void | allocation_error {
+		using Result = void | allocation_error;
 		if (required <= this.buckets.size()) {
-			return true;
+			return Result();
 		};
 
 		usize maximum = usize::max / sizeof(var unordered_node<K, V>*);
 		if (required > maximum) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			return Result($error);
 		};
 
 		usize count = $required;
@@ -218,14 +231,16 @@ namespace rt {
 		};
 
 		buffer<var unordered_node<K, V>*> replacement;
-		if (!@replacement.reserve(count)) {
-			return false;
+		var reserved = @replacement.reserve(count);
+		if (reserved.has<allocation_error>()) {
+			return $reserved;
 		};
 
 		usize index = 0;
 		while (index < count) {
-			if (!@replacement.push_back(nullptr)) {
-				return false;
+			var appended = @replacement.push_back(nullptr);
+			if (appended.has<allocation_error>()) {
+				return $appended;
 			};
 
 			@index = index + 1;
@@ -248,6 +263,6 @@ namespace rt {
 
 		@this.buckets = $replacement;
 
-		return true;
+		return Result();
 	};
 };

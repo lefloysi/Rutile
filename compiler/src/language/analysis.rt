@@ -14,46 +14,43 @@ fn AnalysisCancellationScope::~AnalysisCancellationScope(var AnalysisCancellatio
 	@this.diagnostics->set_cancellation(nullptr, nullptr);
 };
 
-fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool {
+fn Analysis::analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> AnalysisResult {
 	return @this.analyze_impl($pointer_bits, $cancelled, $context, false);
 };
 
-fn Analysis::analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool {
+fn Analysis::analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> AnalysisResult {
 	return @this.analyze_impl($pointer_bits, $cancelled, $context, true);
 };
 
-fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool {
+fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> AnalysisResult {
 	@this.messages.set_cancellation(cancelled, context);
 	var cancellation_scope = AnalysisCancellationScope(@this.messages);
 	@this.target_pointer_bits = pointer_bits;
 	@this.semantic_unit = rt::unique<SemanticUnit>::make();
-	if (!this.semantic_unit.get()) {
-		return false;
-	};
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
 		@this.messages.error(location, "language analysis requires a 32-bit or 64-bit target");
-		return true;
+		return AnalysisResult(compilation_error());
 	};
 	Diagnostics parse_errors;
 	this.progress.report("parsing", 0, this.sources.count(), "");
 	usize index = 0;
 	while (index < this.sources.count()) {
 		if (this.messages.cancelled()) {
-			return false;
+			return AnalysisResult(analysis_cancelled_error());
 		};
 		var SourceFile* file = @this.sources.at(index);
 		var lexer = Lexer(@*file);
-		if (!@lexer.scan()) {
+		if (!(@lexer.scan()).has<void>()) {
 			@parse_errors.syntax_error(lexer.error_token(), lexer.error());
 			@index = index + 1;
 			continue;
 		};
 		var parser = Parser(file->tokens());
 		@parser.set_cancellation(cancelled, context);
-		rt::unique<Syntax> syntax;
+		ParseResult parsed;
 		if (editor) {
-			@syntax = @parser.parse_editor();
+			@parsed = @parser.parse_editor();
 			usize issue = 0;
 			while (issue < parser.issues().size()) {
 				@parse_errors.syntax_error(parser.issues().data()[issue].location, parser.issues().data()[issue].message.view());
@@ -61,16 +58,17 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			};
 		}
 		else {
-			@syntax = @parser.parse();
+			@parsed = @parser.parse();
 		};
-		if (!syntax.get()) {
+		if (parsed.has<compilation_error>()) {
 			if (this.messages.cancelled()) {
-				return false;
+				return AnalysisResult(analysis_cancelled_error());
 			};
 			@parse_errors.syntax_error(parser.error_token(), parser.error());
 		}
-		else if (!@this.syntax.push_back($syntax)) {
-			return false;
+		else {
+			var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+			@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 		};
 		@index = index + 1;
 		this.progress.report("parsing", index, this.sources.count(), file->path());
@@ -81,16 +79,13 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		while (root < this.syntax.size()) {
 			Syntax& syntax = *this.syntax.data()[root].get();
 			if (!syntax.token().source || !syntax.token().source->imported()) {
-				if (!@runner.collect(syntax, "", @this.messages)) {
-					return false;
-				};
+				@runner.collect(syntax, "", @this.messages);
 			};
 			@root = root + 1;
 		};
 		var generated = rt::string();
-		if (!runner.generate(@generated) || !@this.add_source("<generated-test-runner>", generated.view())) {
-			return false;
-		};
+		runner.generate(@generated);
+		@this.add_source("<generated-test-runner>", generated.view());
 		var SourceFile* file = @this.sources.at(this.sources.count() - 1);
 		rt::string_view module = "__rutile_test_runtime";
 		usize source = 0;
@@ -102,33 +97,30 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			};
 			@source = source + 1;
 		};
-		if (!@file->set_module(module, 0)) {
-			return false;
-		};
+		@file->set_module(module, 0);
 		@file->mark_compiler_generated();
 		var lexer = Lexer(@*file);
-		if (!@lexer.scan()) {
+		if (!(@lexer.scan()).has<void>()) {
 			@this.messages.syntax_error(lexer.error_token(), lexer.error());
-			return true;
+			return AnalysisResult(compilation_error());
 		};
 		var parser = Parser(file->tokens());
-		var syntax = @parser.parse();
-		if (!syntax.get()) {
+		var parsed = @parser.parse();
+		if (parsed.has<compilation_error>()) {
 			@this.messages.syntax_error(parser.error_token(), parser.error());
-			return true;
+			return AnalysisResult(compilation_error());
 		};
-		if (!@this.syntax.push_back($syntax)) {
-			return false;
-		};
+		var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+		@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
 	@analyzer.set_progress(this.progress);
 	@analyzer.set_editor($editor);
-	bool analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
-	if (!analyzed && !this.messages.failed()) {
-		@this.messages.error(location, "internal compiler error: semantic analysis failed without a diagnostic");
+	var analyzed = @analyzer.analyze_into(@*this.semantic_unit.get(), this.syntax);
+	if (!analyzed.has<void>() && !this.messages.failed() && !this.messages.cancelled()) {
+		compiler_panic("semantic analysis failed without a diagnostic");
 	};
-	if (analyzed && this.template_selection.get()) {
+	if (analyzed.has<void>() && this.template_selection.get()) {
 		var EditorTemplateSelection& selection = @*this.template_selection.get();
 		rt::string input;
 		@input.append("using __context = __arguments<");
@@ -136,21 +128,25 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		@input.append(">;");
 		@selection.input.assign(selection.path.view(), input.view());
 		var lexer = Lexer(@selection.input);
-		if (!@lexer.scan()) {
+		if (!(@lexer.scan()).has<void>()) {
 			@this.messages.syntax_error(lexer.error_token(), lexer.error());
-			@analyzed = false;
+			@analyzed = CompilationResult(compilation_error());
 		}
 		else {
 			var parser = Parser(selection.input.tokens());
 			@parser.set_cancellation(cancelled, context);
-			@selection.syntax = @parser.parse();
-			if (!selection.syntax.get()) {
+			var parsed = @parser.parse();
+			if (parsed.has<rt::unique<Syntax>>()) {
+				var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+				@selection.syntax = rt::unique<Syntax>(@tree.release());
+			};
+			if (parsed.has<compilation_error>()) {
 				@this.messages.syntax_error(parser.error_token(), parser.error());
-				@analyzed = false;
+				@analyzed = CompilationResult(compilation_error());
 			}
 			else if (selection.syntax.get()->size() != 1 || selection.syntax.get()->item(0)->kind() != syntax_kind::using_alias) {
 				@this.messages.error(location, "enter only template arguments, without declarations or statements");
-				@analyzed = false;
+				@analyzed = CompilationResult(compilation_error());
 			}
 			else {
 				usize source = 0;
@@ -163,7 +159,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 				};
 				if (source == this.sources.count() || applied->kind() != syntax_kind::template_apply) {
 					@this.messages.error(location, "cannot read the template argument list");
-					@analyzed = false;
+					@analyzed = CompilationResult(compilation_error());
 				}
 				else {
 					@analyzed = @analyzer.editor_template_context(@*this.semantic_unit.get(), @*(@this.sources).at(source), selection.anchor, @*applied->arguments(), @selection.label);
@@ -171,28 +167,28 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			};
 		};
 	};
-	if (analyzed) {
+	if (analyzed.has<void>()) {
 		var facts = InferredFacts(@this.messages);
-		if (!@facts.validate(@*this.semantic_unit.get()) && !this.messages.failed()) {
-			@this.messages.error(location, "internal compiler error: inferred fact analysis failed without a diagnostic");
+		if (!(@facts.validate(@*this.semantic_unit.get())).has<void>() && !this.messages.failed() && !this.messages.cancelled()) {
+			compiler_panic("inferred fact analysis failed without a diagnostic");
 		};
 		this.progress.report("lifetimes", 0, 1, "");
 		var lifetimes = LifetimeAnalyzer(@this.messages);
-		if (!@lifetimes.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
-			@this.messages.error(location, "internal compiler error: lifetime analysis failed without a diagnostic");
+		if (!(@lifetimes.validate(*this.semantic_unit.get())).has<void>() && !this.messages.failed() && !this.messages.cancelled()) {
+			compiler_panic("lifetime analysis failed without a diagnostic");
 		};
 		this.progress.report("lifetimes", 1, 1, "");
 		if (!this.messages.failed()) {
 			this.progress.report("reference-loans", 0, 1, "");
 			var loans = ReferenceLoanAnalyzer(@this.messages);
-			if (!@loans.validate(*this.semantic_unit.get()) && !this.messages.failed()) {
-				@this.messages.error(location, "internal compiler error: reference loan analysis failed without a diagnostic");
+			if (!(@loans.validate(*this.semantic_unit.get())).has<void>() && !this.messages.failed() && !this.messages.cancelled()) {
+				compiler_panic("reference loan analysis failed without a diagnostic");
 			};
 			this.progress.report("reference-loans", 1, 1, "");
 		};
 	};
 	if (this.messages.cancelled()) {
-		return false;
+		return AnalysisResult(analysis_cancelled_error());
 	};
 	rt::buffer<DiagnosticRecord>& records = parse_errors.records();
 	@index = 0;
@@ -206,7 +202,11 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 		@index = index + 1;
 	};
-	return @this.index.build(*this.semantic_unit.get());
+	@this.index.build(*this.semantic_unit.get());
+	if (this.messages.failed()) {
+		return AnalysisResult(compilation_error());
+	};
+	return AnalysisResult();
 };
 
 

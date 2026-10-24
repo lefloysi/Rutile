@@ -4,10 +4,10 @@ fn editor_observation(rt::string_view method) -> rt::sys::Result {
 	var command = rt::sys::Command(rt::environment("KILN_TEST_DRIVER"));
 	@command.argument(method);
 	@command.timeout_ms = 90000;
-	var result = rt::sys::cmd(command);
-	if (result.state != rt::sys::status::completed || result.exit_code) {
-		puts(result.output.c_str());
-		puts(result.error.c_str());
+	rt::sys::Result result = rt::sys::cmd(command);
+	if (result.exit_code) {
+		discard puts(result.output.c_str());
+		discard puts(result.error.c_str());
 	};
 	return $result;
 };
@@ -15,16 +15,26 @@ fn editor_observation(rt::string_view method) -> rt::sys::Result {
 [[test]]
 fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers() {
 	var result = editor_observation("Lexical");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	i64 count = -1;
-	rt::test::expect(root->member("identifier_tokens")->integer(@count) && !count);
+	@count = root->member("identifier_tokens")->integer();
+	rt::test::expect(!count);
+	var reserved = root->member("reserved_tokens");
+	rt::test::expect(reserved->size() == 35);
+	for (usize index = 0; index < reserved->size(); @index = index + 1) {
+		var kind = reserved->item(index)->member("kind")->text();
+		if (index >= 20 && index <= 33) {
+			rt::test::expect(kind == "ControlKeyword");
+		}
+		else {
+			rt::test::expect(kind == "Keyword");
+		};
+	};
+	rt::test::expect(reserved->item(20)->member("text")->text() == "return");
+	rt::test::expect(reserved->item(34)->member("text")->text() == "sizeof");
 	var tokens = root->member("tokens");
 	rt::test::expect(tokens->size() == 5);
 	rt::test::expect(tokens->item(0)->member("kind")->text() == "Comment");
@@ -33,25 +43,30 @@ fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers()
 	rt::test::expect(tokens->item(2)->member("kind")->text() == "String");
 	rt::test::expect(tokens->item(3)->member("text")->text() == "42.5e-2");
 	rt::test::expect(tokens->item(4)->member("kind")->text() == "String");
-	rt::test::expect(root->member("unicode_length")->integer(@count) && count == 10);
-	rt::test::expect(root->member("unterminated_length")->integer(@count) && count == 12);
-	rt::test::expect(root->member("escaped_tokens")->integer(@count) && count == 1);
+	@count = root->member("unicode_length")->integer();
+	rt::test::expect(count == 10);
+	@count = root->member("unterminated_length")->integer();
+	rt::test::expect(count == 12);
+	@count = root->member("escaped_tokens")->integer();
+	rt::test::expect(count == 2);
+	@count = root->member("raw_tokens")->integer();
+	rt::test::expect(count == 2);
+	rt::test::expect(root->member("raw_kind")->text() == "String");
+	rt::test::expect(root->member("raw_text")->text() == "\"\"\"\r\n  return \\n // literal\r\n\"\"\"");
+	@count = root->member("raw_unterminated_length")->integer();
+	rt::test::expect(count == 16);
 };
 
 [[test]]
 fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 	var result = editor_observation("Decoder");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("classification")->text() == "rutile.control");
 	rt::test::expect(root->member("attribute_classification")->text() == "rutile.attribute");
-	rt::test::expect(!root->member("namespace_has_foreground")->boolean());
+	rt::test::expect(root->member("namespace_foreground")->text() == "#FF4EC9B0");
 	rt::test::expect(root->member("attribute_foreground")->text() == "#FF909090");
 	var roles = root->member("roles");
 	rt::test::expect(roles->size() == 6);
@@ -70,25 +85,25 @@ fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 	rt::test::expect(bindings->item(4)->text() == "rutile.function");
 	rt::test::expect(bindings->item(5)->text() == "rutile.keyword");
 	i64 value = 0;
-	rt::test::expect(root->member("unicode_start")->integer(@value) && value == 4);
-	rt::test::expect(root->member("unicode_length")->integer(@value) && value == 4);
+	@value = root->member("unicode_start")->integer();
+	rt::test::expect(value == 4);
+	@value = root->member("unicode_length")->integer();
+	rt::test::expect(value == 4);
 	rt::test::expect(root->member("modified")->text() == "x\r\nItem");
 	rt::test::expect(root->member("replaced")->text() == "new");
-	rt::test::expect(root->member("malformed_count")->integer(@value) && !value);
-	rt::test::expect(root->member("out_of_range_count")->integer(@value) && !value);
+	@value = root->member("malformed_count")->integer();
+	rt::test::expect(!value);
+	@value = root->member("out_of_range_count")->integer();
+	rt::test::expect(!value);
 };
 
 [[test]]
 fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 	var result = editor_observation("MiddleLayer");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("open_handled")->boolean());
 	rt::test::expect(root->member("change_handled")->boolean());
 	rt::test::expect(!root->member("initialize_handled")->boolean());
@@ -96,20 +111,17 @@ fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 	rt::test::expect(root->member("events")->item(0)->text() == "forward");
 	rt::test::expect(root->member("events")->item(1)->text() == "textDocument/didOpen");
 	i64 answer = 0;
-	rt::test::expect(root->member("forwarded")->integer(@answer) && answer == 42);
+	@answer = root->member("forwarded")->integer();
+	rt::test::expect(answer == 42);
 };
 
 [[test]]
 fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 	var result = editor_observation("BraceEligibility");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	var accepted = root->member("accepted");
 	for (usize index = 0; index < accepted->size(); @index = index + 1) {
 		rt::test::expect(accepted->item(index)->boolean());
@@ -139,35 +151,41 @@ fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 [[test]]
 fn classifier_attaches_once_when_its_document_becomes_available() {
 	var result = editor_observation("ClassifierLifetime");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(!root->member("before")->boolean());
 	rt::test::expect(!root->member("unrelated")->boolean());
 	rt::test::expect(root->member("attached")->boolean());
 	rt::test::expect(root->member("same_classifier")->boolean());
 	rt::test::expect(root->member("retained")->boolean());
 	i64 subscriptions = 0;
-	rt::test::expect(root->member("subscriptions")->integer(@subscriptions) && subscriptions == 1);
+	@subscriptions = root->member("subscriptions")->integer();
+	rt::test::expect(subscriptions == 1);
 	rt::test::expect(root->member("uri")->text() == root->member("expected_uri")->text());
 };
 
 [[test]]
 fn semantic_client_reconnect_rejects_late_replies_and_preserves_authoritative_colors() {
 	var result = editor_observation("SemanticLifecycle");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(!root->member("unavailable_authoritative")->boolean());
+	rt::test::expect(root->member("unavailable_colors")->size() > 0);
+	var provisional = root->member("unavailable_colors");
+	bool provisional_keyword = false;
+	for (usize index = 0; index < provisional->size(); @index = index + 1) {
+		if (provisional->item(index)->text() == "rutile.keyword") {
+			@provisional_keyword = true;
+		};
 	};
-	var root = document.value();
+	rt::test::expect(provisional_keyword);
+	i64 indexed_empty_colors = -1;
+	@indexed_empty_colors = root->member("indexed_empty_colors")->integer();
+	rt::test::expect(!indexed_empty_colors);
 	rt::test::expect(root->member("initial")->item(0)->text() == "rutile.function");
 	var replacement = root->member("after_late_reply");
 	rt::test::expect(replacement->size() == 2);
@@ -177,6 +195,8 @@ fn semantic_client_reconnect_rejects_late_replies_and_preserves_authoritative_co
 	rt::test::expect(root->member("changed")->size() == 1);
 	rt::test::expect(root->member("changed")->item(0)->text() == "rutile.function");
 	i64 legends = 0;
-	rt::test::expect(root->member("initial_legends")->integer(@legends) && legends == 1);
-	rt::test::expect(root->member("replacement_legends")->integer(@legends) && legends == 1);
+	@legends = root->member("initial_legends")->integer();
+	rt::test::expect(legends == 1);
+	@legends = root->member("replacement_legends")->integer();
+	rt::test::expect(legends == 1);
 };

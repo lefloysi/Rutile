@@ -10,18 +10,19 @@ fn SemanticUnit::inline_record(SemanticUnit& this, Syntax& syntax, Scope& scope)
 	return nullptr;
 };
 
-fn SemanticUnit::retain_inline_record(var SemanticUnit& this, var Syntax& syntax, var Scope& scope, var Entity& entity) -> bool {
+fn SemanticUnit::retain_inline_record(var SemanticUnit& this, var Syntax& syntax, var Scope& scope, var Entity& entity) {
 	InlineRecord record;
 	@record.syntax = &@syntax;
 	@record.scope = &@scope;
 	@record.entity = &@entity;
-	return @this.inline_records.push_back($record);
+	@this.inline_records.push_back($record);
+	return;
 };
 
 fn Analyzer::inline_record_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> Type* {
 	var Entity* record = this.unit->inline_record(syntax, scope);
 	if (record) {
-		if (!@this.resolve(record)) {
+		if (!(@this.resolve(record)).has<void>()) {
 			return nullptr;
 		};
 		return record->type();
@@ -32,10 +33,13 @@ fn Analyzer::inline_record_type(var Analyzer& this, var Scope& scope, var Syntax
 			@this.error(name, "inline record requires an unqualified name");
 			return nullptr;
 		};
-		if (!@this.collect(@scope, @syntax)) {
+		if (!(@this.collect(@scope, @syntax)).has<void>()) {
 			return nullptr;
 		};
 		@record = scope.local(name->token().text());
+		if (!record) {
+			compiler_panic("collected inline record is missing from its scope");
+		};
 	}
 	else {
 		if (syntax.record_members()->kind() == syntax_kind::noop) {
@@ -47,26 +51,16 @@ fn Analyzer::inline_record_type(var Analyzer& this, var Scope& scope, var Syntax
 		@identity.number(u64(this.unit->entities().size()));
 		@identity.text("]");
 		@record = @this.unit->create_entity(entity_kind::record, syntax.token(), &@syntax, &@scope);
-		if (!record || !@record->set_name(identity.view())) {
-			@this.error(&@syntax, "cannot store anonymous record identity");
-			return nullptr;
-		};
+		@record->set_name(identity.view());
 		@record->set_origin(declaration_origin::compiler_supplied);
 		var Scope* members = @this.unit->create_scope(&@scope, record);
-		if (!members) {
-			@this.error(&@syntax, "cannot store anonymous record scope");
-			return nullptr;
-		};
 		@record->set_members(members);
 	};
-	if (!record || !@this.unit->retain_inline_record(@syntax, @scope, @*record)) {
-		@this.error(&@syntax, "cannot store inline record identity");
+	@this.unit->retain_inline_record(@syntax, @scope, @*record);
+	if (name->kind() == syntax_kind::absent && !(@this.collect(@*record->members(), @*syntax.record_members())).has<void>()) {
 		return nullptr;
 	};
-	if (name->kind() == syntax_kind::absent && !@this.collect(@*record->members(), @*syntax.record_members())) {
-		return nullptr;
-	};
-	if (!@this.resolve(record)) {
+	if (!(@this.resolve(record)).has<void>()) {
 		return nullptr;
 	};
 	return record->type();

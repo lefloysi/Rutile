@@ -33,8 +33,8 @@ fn aggregate_element(var Analyzer& analyzer, var Syntax& syntax, rt::unique<Sema
 	};
 	Token location = syntax.token();
 	bool mutable_access = object.get()->mutable_access();
-	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::member, type, location));
-	if (!result.get() || !@result.get()->append($object)) {
+	var result = SemanticExpression::make(semantic_kind::member, type, location);
+	if (!result.get() || !(@result.get()->append($object)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	@result.get()->bind(field, value_category::place);
@@ -94,19 +94,19 @@ fn Analyzer::aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& 
 		var number = @this.node(semantic_kind::literal_integer, this.types->find_primitive("usize"), &@syntax);
 		Token operation = syntax.token();
 		@operation.kind = token_kind::op_equal;
-		var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::binary, this.types->find_primitive("bool"), operation));
+		var result = SemanticExpression::make(semantic_kind::binary, this.types->find_primitive("bool"), operation);
 		if (!tag.get() || !number.get() || !result.get()) {
 			return rt::unique<SemanticExpression>();
 		};
 		@number.get()->set_integer(u64(position + 1));
-		if (!@result.get()->append($tag) || !@result.get()->append($number)) {
+		if (!(@result.get()->append($tag)).has<void>() || !(@result.get()->append($number)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 		return @this.convert($result, expected, @syntax);
 	};
 	if (requested->kind() == type_kind::void_type) {
 		var result = @this.node(semantic_kind::sequence, requested, &@syntax);
-		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, requested, &@syntax))) {
+		if (!result.get() || !(@result.get()->append($receiver)).has<void>() || !(@result.get()->append(@this.node(semantic_kind::noop, requested, &@syntax))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 		return @this.convert($result, expected, @syntax);
@@ -114,7 +114,7 @@ fn Analyzer::aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& 
 	if (requested->kind() == type_kind::null_type) {
 		Type* null_type = @this.types->pointer(@this.types->qualified(*requested, type_qualifier::immutable));
 		var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
-		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+		if (!result.get() || !(@result.get()->append($receiver)).has<void>() || !(@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>() || !(@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 		return @this.convert($result, expected, @syntax);

@@ -29,17 +29,29 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 			LLVMAddCase(dispatch, LLVMConstInt(tag_type, u64(index), 0), mismatch);
 			LLVMPositionBuilderAtEnd(this.backend->builder(), mismatch);
 			var LLVMOpaqueValue* previous = this.variant_payload_address;
+			var LLVMOpaqueValue* previous_live = this.variant_payload_live;
 			@this.variant_payload_address = storage;
-			bool emitted = @this.exception_throw(expression->item(index));
+			@this.variant_payload_live = nullptr;
+			if (receiver->category() == value_category::consumable) {
+				for (usize temporary_index = this.temporaries.size(); temporary_index; @temporary_index = temporary_index - 1) {
+					NativeTemporary& temporary = this.temporaries.data()[temporary_index - 1];
+					if (temporary.expression == receiver) {
+						@this.variant_payload_live = temporary.live;
+						break;
+					};
+				};
+			};
+			var emitted = @this.exception_throw(expression->item(index));
 			@this.variant_payload_address = previous;
-			if (!emitted) {
+			@this.variant_payload_live = previous_live;
+			if (emitted.has<compilation_error>()) {
 				return nullptr;
 			};
 		};
 		@index = index + 1;
 	};
 	LLVMPositionBuilderAtEnd(this.backend->builder(), invalid);
-	LLVMBuildUnreachable(this.backend->builder());
+	discard LLVMBuildUnreachable(this.backend->builder());
 	LLVMPositionBuilderAtEnd(this.backend->builder(), success);
 	return storage;
 };

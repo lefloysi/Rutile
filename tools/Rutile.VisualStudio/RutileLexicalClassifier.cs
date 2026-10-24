@@ -147,6 +147,10 @@ namespace Rutile.VisualStudio {
 					return types.GetClassificationType("string");
 				case LexicalKind.Number:
 					return types.GetClassificationType("number");
+				case LexicalKind.Keyword:
+					return types.GetClassificationType(RutileClassification.Keyword);
+				case LexicalKind.ControlKeyword:
+					return types.GetClassificationType(RutileClassification.Control);
 				case LexicalKind.Operator:
 					return types.GetClassificationType("operator");
 				default:

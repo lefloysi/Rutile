@@ -48,11 +48,11 @@ fn LifetimeAnalyzer::storage_owner(LifetimeAnalyzer& this, SemanticExpression& e
 	return rt::optional_ref<Entity>();
 };
 
-fn LifetimeAnalyzer::sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> bool {
+fn LifetimeAnalyzer::sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> CompilationResult {
 	usize boundary = state.size();
 
-	if (!@this.walk(expression.item(0), @state) || !@this.walk(expression.item(1), @state) || !@this.walk(expression.item(2), @state)) {
-		return false;
+	if (!(@this.walk(expression.item(0), @state)).has<void>() || !(@this.walk(expression.item(1), @state)).has<void>() || !(@this.walk(expression.item(2), @state)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (!state.exited() && expression.category() == value_category::place) {
@@ -74,5 +74,5 @@ fn LifetimeAnalyzer::sequence(var LifetimeAnalyzer& this, var SemanticExpression
 
 	@state.truncate(boundary);
 
-	return true;
+	return CompilationResult();
 };

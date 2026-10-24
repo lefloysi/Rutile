@@ -27,9 +27,7 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@raw.push_back($value)) {
-			return rt::unique<SemanticExpression>();
-		};
+		@raw.push_back($value);
 
 		@index = index + 1;
 	};
@@ -56,7 +54,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		var Entity* owner = type->entity();
 
-		if (!@this.resolve((var Entity*(owner)))) {
+		if (!(@this.resolve((var Entity*(owner)))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -148,7 +146,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 		var value = rt::unique<SemanticExpression>(@owned[index].release());
 
 		if (transfer) {
-			if (value.get()->category() == value_category::place && !@this.prepare_copy(type)) {
+			if (value.get()->category() == value_category::place && !(@this.prepare_copy(type)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 		}
@@ -159,7 +157,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 				return rt::unique<SemanticExpression>();
 			};
 
-			if (!@conversion.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+			if (!(@conversion.get()->append(rt::unique<SemanticExpression>(@value.release()))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -173,7 +171,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@values.get()->append($value)) {
+		if (!(@values.get()->append($value)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -186,7 +184,7 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($values)) {
+	if (!(@result.get()->append($values)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -203,9 +201,7 @@ fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::
 	bool explicit_copy = syntax.kind() == syntax_kind::variable && syntax.variable_initializer()->kind() == syntax_kind::unary && syntax.variable_initializer()->token().kind == token_kind::op_copy;
 	if (explicit_copy && value.get()->kind() != semantic_kind::noop) {
 		rt::buffer<rt::unique<SemanticExpression>> arguments;
-		if (!@arguments.push_back(rt::unique<SemanticExpression>(@value.release()))) {
-			return rt::unique<SemanticExpression>();
-		};
+		@arguments.push_back(rt::unique<SemanticExpression>(@value.release()));
 		return @this.construct_values(@syntax, type, $arguments);
 	};
 
@@ -230,9 +226,7 @@ fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::
 	rt::buffer<rt::unique<SemanticExpression>> arguments;
 
 	if (value.get()->kind() != semantic_kind::noop) {
-		if (!@arguments.push_back(rt::unique<SemanticExpression>(@value.release()))) {
-			return rt::unique<SemanticExpression>();
-		};
+		@arguments.push_back(rt::unique<SemanticExpression>(@value.release()));
 	};
 
 	return @this.construct_values(@syntax, type, $arguments);
@@ -326,7 +320,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 				return rt::unique<SemanticExpression>();
 			};
 
-			if (!@dereference.get()->append(rt::unique<SemanticExpression>(@receiver.release()))) {
+			if (!(@dereference.get()->append(rt::unique<SemanticExpression>(@receiver.release()))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -378,7 +372,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			};
 
 			if (alias && alias->denotes_type()) {
-				if (!@this.resolve((var Entity*(alias)))) {
+				if (!(@this.resolve((var Entity*(alias)))).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 
@@ -434,7 +428,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 
 				@result.get()->bind(finalizer, value_category::consumable);
 
-				if (!@result.get()->append($receiver)) {
+				if (!(@result.get()->append($receiver)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 
@@ -447,7 +441,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 				return rt::unique<SemanticExpression>();
 			};
 
-			if (!@result.get()->append($receiver)) {
+			if (!(@result.get()->append($receiver)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -483,9 +477,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@this.unit->record_receiver(@scope, @*source, @*owner->entity())) {
-			return rt::unique<SemanticExpression>();
-		};
+		@this.unit->record_receiver(@scope, @*source, @*owner->entity());
 
 		@group = owner->entity()->find_member(source->member_name()->token().text());
 
@@ -506,7 +498,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 				return rt::unique<SemanticExpression>();
 			};
 
-			if (!@access.get()->append(rt::unique<SemanticExpression>(@receiver.release()))) {
+			if (!(@access.get()->append(rt::unique<SemanticExpression>(@receiver.release()))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -532,13 +524,11 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			while (candidate < candidates.size()) {
 				var Entity* function = candidates.data()[candidate];
 				@candidate = candidate + 1;
-				if (function->kind() == entity_kind::function && function->name() == group->name() && !@this.resolve(function)) {
+				if (function->kind() == entity_kind::function && function->name() == group->name() && !(@this.resolve(function)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 			};
-			if (!@this.unit->record_incomplete_call(@scope, @syntax, @*group, receiver.get() != nullptr)) {
-				return rt::unique<SemanticExpression>();
-			};
+			@this.unit->record_incomplete_call(@scope, @syntax, @*group, receiver.get() != nullptr);
 			return @this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax);
 		};
 	};
@@ -546,9 +536,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 	rt::buffer<rt::unique<SemanticExpression>> values;
 
 	if (receiver.get()) {
-		if (!@values.push_back(rt::unique<SemanticExpression>(@receiver.release()))) {
-			return rt::unique<SemanticExpression>();
-		};
+		@values.push_back(rt::unique<SemanticExpression>(@receiver.release()));
 	};
 
 	usize index = 0;
@@ -557,7 +545,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 		if (arguments->item(index)->kind() == syntax_kind::pack_expansion) {
 			var Syntax* pattern = arguments->item(index)->pack_operand();
 			var Entity* binding = nullptr;
-			if (!@this.fold_binding(@scope, @*pattern, @binding)) {
+			if (!(@this.fold_binding(@scope, @*pattern, @binding)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 			if (binding && binding->kind() == entity_kind::field_pack) {
@@ -570,7 +558,10 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 					var expanded = @this.expression(@scope, @*pattern, rt::optional_ref<const Type>());
 					@this.folded_field_pack = previous;
 					@this.folded_field_index = previous_index;
-					if (!expanded.get() || !@values.push_back($expanded)) {
+					if (expanded.get()) {
+						@values.push_back($expanded);
+					}
+					else {
 						return rt::unique<SemanticExpression>();
 					};
 					@element = element + 1;
@@ -585,7 +576,10 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			usize element = 0;
 			while (element < pack->elements.size()) {
 				var expanded = @this.templates.pack_value(@this, pack->elements.data()[element], @*arguments->item(index));
-				if (!expanded.get() || !@values.push_back($expanded)) {
+				if (expanded.get()) {
+					@values.push_back($expanded);
+				}
+				else {
 					return rt::unique<SemanticExpression>();
 				};
 				@element = element + 1;
@@ -605,9 +599,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@values.push_back($value)) {
-			return rt::unique<SemanticExpression>();
-		};
+		@values.push_back($value);
 
 		@index = index + 1;
 	};
@@ -670,7 +662,7 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 		@callable = @this.expression(@scope, @*source, rt::optional_ref<const Type>());
 	};
 
-	if (callable.get() && !@this.contextual_arguments(@scope, @syntax, @*callable.get(), @values)) {
+	if (callable.get() && !(@this.contextual_arguments(@scope, @syntax, @*callable.get(), @values)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -751,7 +743,7 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@converted.get()->append($value)) {
+		if (!(@converted.get()->append($value)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -775,17 +767,20 @@ fn Analyzer::invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($callable)) {
+	if (!(@result.get()->append($callable)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($converted)) {
+	if (!(@result.get()->append($converted)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (selected && this.function && this.function->members() && !@this.unit->record_name(@this, @*this.function->members(), @syntax, @*selected, 16)) {
-		@this.error(&@syntax, "navigation index storage is unavailable");
-		return rt::unique<SemanticExpression>();
+	if (selected) {
+		if (this.function) {
+			if (this.function->members()) {
+				@this.unit->record_name(@this, @*this.function->members(), @syntax, @*selected, 16);
+			};
+		};
 	};
 	@result.get()->bind(selected, $category);
 

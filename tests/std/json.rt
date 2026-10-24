@@ -1,9 +1,9 @@
 [[test]]
 fn json_roundtrip_preserves_arrays_unicode_and_number_spelling() {
 	var document = rt::json_parse("{\"items\":[null,true,false,-42,1.5e+2],\"text\":\"\\uD83D\\uDE00\\u0000\"}");
-	rt::test::expect(document.value());
-	rt::test::expect(document.error().empty());
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	rt::test::expect(!document.has<rt::json_error>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->kind() == rt::json_kind::object);
 	rt::test::expect(root->size() == 2);
 	var items = root->member("items");
@@ -13,7 +13,7 @@ fn json_roundtrip_preserves_arrays_unicode_and_number_spelling() {
 	rt::test::expect(items->item(1)->boolean());
 	rt::test::expect(!items->item(2)->boolean());
 	i64 number = 0;
-	rt::test::expect(items->item(3)->integer(@number));
+	@number = items->item(3)->integer();
 	rt::test::expect(number == -42);
 	rt::test::expect(items->item(4)->text() == "1.5e+2");
 	var unicode = root->member("text")->text();
@@ -21,27 +21,36 @@ fn json_roundtrip_preserves_arrays_unicode_and_number_spelling() {
 	rt::test::expect(u08(unicode.data()[0]) == 240);
 	rt::test::expect(!unicode.data()[4]);
 	rt::string encoded;
-	rt::test::expect(rt::json_write(*root, @encoded));
+	rt::test::expect(rt::json_write(*root, @encoded).has<void>());
 	var decoded = rt::json_parse(encoded);
-	rt::test::expect(decoded.value());
-	rt::test::expect(decoded.value()->member("text")->text() == unicode);
-	rt::test::expect(decoded.value()->member("items")->item(4)->text() == "1.5e+2");
+	rt::test::expect(decoded.has<rt::unique<rt::json_value>>());
+	rt::test::expect(decoded.get<rt::unique<rt::json_value>>().get()->member("text")->text() == unicode);
+	rt::test::expect(decoded.get<rt::unique<rt::json_value>>().get()->member("items")->item(4)->text() == "1.5e+2");
+	var array = rt::json_value::make_array();
+	var invalid_append = @array.get()->append(rt::unique<rt::json_value>());
+	rt::test::expect(invalid_append.has<rt::json_error>());
+	var invalid_set = @array.get()->set("key", rt::json_value::make_null());
+	rt::test::expect(invalid_set.has<rt::json_error>());
+	char[1] invalid_utf8;
+	@invalid_utf8[0] = static_cast<char>(255);
+	var invalid_write = rt::json_write_string(rt::string_view(&invalid_utf8[0], 1), @encoded);
+	rt::test::expect(invalid_write.has<rt::json_error>());
 };
 
 [[test]]
 fn json_duplicate_members_keep_the_last_value_and_clones_are_independent() {
 	var document = rt::json_parse("{\"answer\":1,\"answer\":42}");
-	rt::test::expect(document.value());
-	rt::test::expect(document.value()->size() == 1);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	rt::test::expect(document.get<rt::unique<rt::json_value>>().get()->size() == 1);
 	i64 number = 0;
-	rt::test::expect(document.value()->member("answer")->integer(@number));
+	@number = document.get<rt::unique<rt::json_value>>().get()->member("answer")->integer();
 	rt::test::expect(number == 42);
-	var copy = document.value()->clone();
+	var copy = document.get<rt::unique<rt::json_value>>().get()->clone();
 	rt::test::expect(copy.get());
-	var original = @document.release();
+	rt::unique<rt::json_value> original = $document;
 	@original.reset(nullptr);
-	rt::test::expect(!document.value());
-	rt::test::expect(copy.get()->member("answer")->integer(@number));
+
+	@number = copy.get()->member("answer")->integer();
 	rt::test::expect(number == 42);
 };
 
@@ -56,20 +65,24 @@ fn json_rejects_invalid_numbers_escapes_and_excessive_nesting() {
 	@invalid[5] = "\"\\q\"";
 	for (usize index = 0; index < 6; @index = index + 1) {
 		var document = rt::json_parse(invalid[index]);
-		rt::test::expect(!document.value());
-		rt::test::expect(!document.error().empty());
+		rt::test::expect(document.has<rt::json_error>());
+		rt::test::expect(!document.get<rt::json_error>().message.empty());
+		rt::test::expect(document.get<rt::json_error>().offset <= invalid[index].size());
 	};
 	rt::string deep;
 	for (usize index = 0; index < 130; @index = index + 1) {
-		rt::test::expect(@deep.append("["));
+		var appended = @deep.append("[");
+		rt::test::expect(appended.has<void>());
 	};
-	rt::test::expect(@deep.append("0"));
+	var number_appended = @deep.append("0");
+	rt::test::expect(number_appended.has<void>());
 	for (usize index = 0; index < 130; @index = index + 1) {
-		rt::test::expect(@deep.append("]"));
+		var closing_appended = @deep.append("]");
+		rt::test::expect(closing_appended.has<void>());
 	};
 	var nested = rt::json_parse(deep);
-	rt::test::expect(!nested.value());
-	rt::test::expect(!nested.error().empty());
+	rt::test::expect(nested.has<rt::json_error>());
+	rt::test::expect(!nested.get<rt::json_error>().message.empty());
 };
 
 [[test]]
@@ -77,14 +90,36 @@ fn json_integer_bounds_are_checked_without_losing_number_text() {
 	var minimum = rt::json_parse("-9223372036854775808");
 	var maximum = rt::json_parse("9223372036854775807");
 	var overflow = rt::json_parse("9223372036854775808");
-	rt::test::expect(minimum.value());
-	rt::test::expect(maximum.value());
-	rt::test::expect(overflow.value());
+	rt::test::expect(minimum.has<rt::unique<rt::json_value>>());
+	rt::test::expect(maximum.has<rt::unique<rt::json_value>>());
+	rt::test::expect(overflow.has<rt::unique<rt::json_value>>());
 	i64 number = 0;
-	rt::test::expect(minimum.value()->integer(@number));
+	@number = minimum.get<rt::unique<rt::json_value>>().get()->integer();
 	rt::test::expect(number == (-9223372036854775807 - 1));
-	rt::test::expect(maximum.value()->integer(@number));
+	@number = maximum.get<rt::unique<rt::json_value>>().get()->integer();
 	rt::test::expect(number == i64::max);
-	rt::test::expect(!overflow.value()->integer(@number));
-	rt::test::expect(overflow.value()->text() == "9223372036854775808");
+	rt::test::expect(overflow.get<rt::unique<rt::json_value>>().get()->integer().has<rt::json_error>());
+	rt::test::expect(overflow.get<rt::unique<rt::json_value>>().get()->text() == "9223372036854775808");
+	var wrong_kind = rt::json_value::make_string("12");
+	var wrong_kind_result = wrong_kind.get()->integer();
+	rt::test::expect(wrong_kind_result.has<rt::json_error>());
+	rt::test::expect(wrong_kind_result.get<rt::json_error>().message == "JSON value is not a number");
+	rt::unique<rt::json_value> fractional = rt::json_value::make_number("1.5");
+	var fractional_result = fractional.get()->integer();
+	rt::test::expect(fractional_result.has<rt::json_error>());
+	rt::test::expect(fractional_result.get<rt::json_error>().offset == 1);
+	var empty = rt::json_value::make_number("");
+	rt::test::expect(empty.has<rt::json_error>());
+	rt::test::expect(empty.get<rt::json_error>().message == "Invalid JSON number.");
+	var sign = rt::json_value::make_number("-");
+	rt::test::expect(sign.has<rt::json_error>());
+	rt::test::expect(sign.get<rt::json_error>().message == "Invalid JSON number.");
+};
+
+[[test]]
+fn json_parse_errors_own_their_message_after_parser_and_input_are_destroyed() {
+	var parsed = rt::json_parse(rt::string("[1,"));
+	rt::test::expect(parsed.has<rt::json_error>());
+	rt::test::expect(!parsed.get<rt::json_error>().message.empty());
+	rt::test::expect(parsed.get<rt::json_error>().offset == 3);
 };

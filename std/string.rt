@@ -23,9 +23,9 @@ namespace rt {
 
 		fn operator:=(var string& this, string& other) -> var string&;
 		fn clear(var string& this);
-		fn append(var string& this, string_view text) -> bool;
+		fn append(var string& this, string_view text) -> void | allocation_error;
 		// The requested capacity excludes the terminating NUL byte.
-		fn reserve(var string& this, usize required) -> bool;
+		fn reserve(var string& this, usize required) -> void | allocation_error;
 
 		fn size(string& this) -> usize;
 		fn capacity(string& this) -> usize;
@@ -50,22 +50,31 @@ namespace rt {
 
 	export fn operator+(string_view first, string_view second) -> string {
 		string result;
-		if (second.size() > usize::max - first.size() || !@result.reserve(first.size() + second.size())) {
-			return $result;
+		if (second.size() > usize::max - first.size()) {
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			throw $error;
+		};
+		var reserved = @result.reserve(first.size() + second.size());
+		if (reserved.has<allocation_error>()) {
+			throw allocation_error(reserved.get<allocation_error>());
 		};
 		@result.append(first);
 		@result.append(second);
 		return $result;
 	};
 
-	export fn string::reserve(var string& this, usize required) -> bool {
+	export fn string::reserve(var string& this, usize required) -> void | allocation_error {
+		using Result = void | allocation_error;
 		if (required <= this.capacity()) {
-			return true;
+			return Result();
 		};
 
 		usize maximum = usize::max - 1;
 		if (required > maximum) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = required;
+			return Result($error);
 		};
 
 		usize count = $required;
@@ -80,10 +89,12 @@ namespace rt {
 
 		var char* replacement = static_cast<var char*>(malloc(count + 1));
 		if (!replacement) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = count + 1;
+			return Result($error);
 		};
 
-		memcpy(replacement, this.data(), this.length + 1);
+		@replacement = static_cast<var char*>(memcpy(replacement, this.data(), this.length + 1));
 		if (this.heap_capacity) {
 			free(this.storage.heap);
 		};
@@ -91,16 +102,19 @@ namespace rt {
 		@this.storage.heap = $replacement;
 		@this.heap_capacity = $count;
 
-		return true;
+		return Result();
 	};
 
-	export fn string::append(var string& this, string_view text) -> bool {
+	export fn string::append(var string& this, string_view text) -> void | allocation_error {
+		using Result = void | allocation_error;
 		if (text.empty()) {
-			return true;
+			return Result();
 		};
 
 		if (text.size() > usize::max - this.length - 1) {
-			return false;
+			allocation_error error;
+			@error.requested_bytes = usize::max;
+			return Result($error);
 		};
 
 		char* source = text.data();
@@ -113,8 +127,9 @@ namespace rt {
 		};
 
 		usize length = this.length + text.size();
-		if (!@this.reserve(length)) {
-			return false;
+		var reserved = @this.reserve(length);
+		if (reserved.has<allocation_error>()) {
+			return $reserved;
 		};
 
 		var char* destination = (@this).data();
@@ -122,19 +137,25 @@ namespace rt {
 			@source = destination + offset;
 		};
 
-		memmove(destination + this.length, source, text.size());
-		@destination[length] = '\0';
+		var char* appended = static_cast<var char*>(memmove(destination + this.length, source, text.size()));
+		@appended[text.size()] = '\0';
 		@this.length = $length;
 
-		return true;
+		return Result();
 	};
 
 	export fn string::string(var string& this, string& other) {
-		@this.append(other.view());
+		var appended = @this.append(other.view());
+		if (appended.has<allocation_error>()) {
+			throw allocation_error(appended.get<allocation_error>());
+		};
 	};
 
 	export fn string::string(var string& this, string_view text) {
-		@this.append(text);
+		var appended = @this.append(text);
+		if (appended.has<allocation_error>()) {
+			throw allocation_error(appended.get<allocation_error>());
+		};
 	};
 
 	export fn string::~string(var string& this) {
@@ -145,8 +166,9 @@ namespace rt {
 
 	export fn string::operator:=(var string& this, string& other) -> var string& {
 		string replacement;
-		if (!@replacement.append(other.view())) {
-			return @this;
+		var appended = @replacement.append(other.view());
+		if (appended.has<allocation_error>()) {
+			throw allocation_error(appended.get<allocation_error>());
 		};
 
 		@this = $replacement;

@@ -1,15 +1,32 @@
 [[test]]
-fn configured_test_watches_import_mixed_library_interfaces_in_their_target_context() {
+fn configured_analysis_stays_idle_and_explicit_tests_import_mixed_library_interfaces() {
 	var result = editor_observation("WatchDependencies");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	var before_configure = root->member("before_configure");
+	var after_configure = root->member("after_configure");
+	var after_edit = root->member("after_edit");
+	i64 before_count = -1;
+	i64 configured_count = -2;
+	i64 edited_count = -3;
+	@before_count = before_configure->member("compilations")->integer();
+	@configured_count = after_configure->member("compilations")->integer();
+	@edited_count = after_edit->member("compilations")->integer();
+	rt::test::expect(before_count == configured_count && before_count == edited_count);
+	var configured_sessions = after_configure->member("sessions");
+	for (usize index = 0; index < configured_sessions->size(); @index = index + 1) {
+		rt::test::expect(!configured_sessions->item(index)->member("compiling")->boolean());
 	};
-	var root = document.value();
+	var edited_sessions = after_edit->member("sessions");
+	for (usize index = 0; index < edited_sessions->size(); @index = index + 1) {
+		rt::test::expect(!edited_sessions->item(index)->member("compiling")->boolean());
+	};
 	var watch = root->member("watch");
+	i64 current_test_sessions = 0;
+	@current_test_sessions = root->member("current_test_sessions")->integer();
+	rt::test::expect(current_test_sessions == 1);
 	rt::test::expect(watch->member("target")->text() == "subject");
 	rt::test::expect(watch->member("kind")->text() == "test");
 	rt::test::expect(watch->member("profile")->text() == "debug");
@@ -17,11 +34,11 @@ fn configured_test_watches_import_mixed_library_interfaces_in_their_target_conte
 	rt::test::expect(watch->member("artifacts_current")->boolean());
 	i64 source_revision = -1;
 	i64 artifact_revision = -2;
-	rt::test::expect(watch->member("source_revision")->integer(@source_revision));
-	rt::test::expect(watch->member("artifact_revision")->integer(@artifact_revision));
+	@source_revision = watch->member("source_revision")->integer();
+	@artifact_revision = watch->member("artifact_revision")->integer();
 	rt::test::expect(source_revision == artifact_revision);
 	i64 native_watch_sessions = -1;
-	rt::test::expect(root->member("native_watch_sessions")->integer(@native_watch_sessions));
+	@native_watch_sessions = root->member("native_watch_sessions")->integer();
 	rt::test::expect(!native_watch_sessions);
 	rt::test::expect(root->member("progress")->member("state")->text() == "succeeded");
 	rt::test::expect(root->member("diagnostics")->size() == 0);

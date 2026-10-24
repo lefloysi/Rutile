@@ -43,6 +43,7 @@ fn Analyzer::selection(var Analyzer& this, var Scope& scope, var Syntax& syntax)
 	@analysis.source_type = condition.get()->type();
 	var context = SwitchAnalysisScope(@this.active_switch, @analysis);
 	var body = @this.expression(@scope, @*syntax.item(1), rt::optional_ref<const Type>());
+	@body = @this.discarded(@scope, @*syntax.item(1), rt::unique<SemanticExpression>(@body.release()));
 
 	if (!body.get()) {
 		return rt::unique<SemanticExpression>();
@@ -54,11 +55,11 @@ fn Analyzer::selection(var Analyzer& this, var Scope& scope, var Syntax& syntax)
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($condition)) {
+	if (!(@result.get()->append($condition)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($body)) {
+	if (!(@result.get()->append($body)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -147,11 +148,7 @@ fn Analyzer::label(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> 
 	SwitchCase current;
 	@current.value = value;
 	@current.declaration = &@syntax;
-	if (!@this.active_switch->cases.push_back($current)) {
-		@this.error(&@syntax, "switch label storage is unavailable");
-
-		return rt::unique<SemanticExpression>();
-	};
+	@this.active_switch->cases.push_back($current);
 
 	@result.get()->set_integer(value);
 

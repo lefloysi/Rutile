@@ -3,19 +3,34 @@ fn relocated_objects_cannot_be_used() {
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn broken() -> i32 { i32 value = 42; $value; return value; };\n"))) {
-		return;
-	};
-	rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+	@paths.push_back("source.rt");
+	@sources.push_back("fn broken() -> i32 { i32 value = 42; i32 moved = $value; return value; };\n");
+	rt::test::expect((@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
 	var analysis = @compiler.acquire_analysis();
-	if (!rt::test::expect(analysis.get())) {
-		return;
-	};
+	rt::test::expect(analysis.get());
 	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
-	if (!rt::test::expect(records.size())) {
-		return;
-	};
+	rt::test::expect(records.size());
 	rt::test::expect(records.data()[0].message.contains("object has been relocated"));
+};
+
+[[test]]
+fn reference_analysis_accepts_long_left_associated_expressions() {
+	var directory = compiler_directory("reference-worklist");
+	var source = rt::string("fn sum(i32 value) -> i32 { return value");
+	for (usize index = 0; index < 256; @index = index + 1) {
+		@source.append(" + value");
+	};
+	@source.append("; };\n");
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	@paths.push_back("left-associated.rt");
+	@sources.push_back(source);
+	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
+	rt::test::expect(result.has<void>());
+	var analysis = @compiler.acquire_analysis();
+	rt::test::expect(analysis.get());
+	rt::test::expect(!analysis.value().diagnostics().failed());
 };
 
 [[test]]
@@ -23,18 +38,13 @@ fn references_cannot_escape_local_storage() {
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back("fn broken() -> i32& { i32 value = 42; return value; };\n"))) {
-		return;
-	};
-	rt::test::expect(@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library) == 1);
+	@paths.push_back("source.rt");
+	@sources.push_back("fn broken() -> i32& { i32 value = 42; return value; };\n");
+	rt::test::expect((@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
 	var analysis = @compiler.acquire_analysis();
-	if (!rt::test::expect(analysis.get())) {
-		return;
-	};
+	rt::test::expect(analysis.get());
 	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
-	if (!rt::test::expect(records.size())) {
-		return;
-	};
+	rt::test::expect(records.size());
 	rt::test::expect(records.data()[0].message.contains("local storage"));
 };
 
@@ -50,26 +60,22 @@ fn reconstruction_starts_a_new_object_lifetime() {
 		+ "\trt::test::expect(counter.value == 42);\n"
 		+ "};\n";
 	var imported = standard_sources();
-	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
-		return;
-	};
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
-		return;
-	};
-	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
-		return;
-	};
-	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
-		return;
-	};
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("subject.rt");
+	@sources.push_back(subject);
+	@paths.push_back("tests.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
 
-	var executed = rt::sys::cmd(fixture_command(directory, ""));
-	if (!rt::test::expect(!executed.exit_code)) {
-		puts((executed.output + executed.error).c_str());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts((executed.output + executed.error).c_str());
 	};
+	rt::test::expect(!executed.exit_code);
 };
 [[test]]
 fn void_alternatives_preserve_lifetimes_through_copy_and_move() {
@@ -129,26 +135,22 @@ fn void_alternatives_preserve_lifetimes_through_copy_and_move() {
 		+ "\trt::test::expect(copies == 1 && destructions == 2 && completions == 2);\n"
 		+ "};\n";
 	var imported = standard_sources();
-	if (!rt::test::expect(imported.has<rt::buffer<InterfaceSource>>())) {
-		return;
-	};
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources).has<void>())) {
-		return;
-	};
-	if (!rt::test::expect(@paths.push_back("subject.rt")) || !rt::test::expect(@sources.push_back(subject)) || !rt::test::expect(@paths.push_back("tests.rt")) || !rt::test::expect(@sources.push_back(source))) {
-		return;
-	};
-	if (!rt::test::expect(!@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests))) {
-		return;
-	};
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("subject.rt");
+	@sources.push_back(subject);
+	@paths.push_back("tests.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
 
-	var executed = rt::sys::cmd(fixture_command(directory, ""));
-	if (!rt::test::expect(!executed.exit_code)) {
-		puts((executed.output + executed.error).c_str());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts((executed.output + executed.error).c_str());
 	};
+	rt::test::expect(!executed.exit_code);
 };
 
 [[test]]
@@ -168,20 +170,15 @@ fn nested_reference_stores_reject_escaping_local_referents() {
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(source))) {
-		return;
-	};
+	@paths.push_back("source.rt");
+	@sources.push_back(source);
 
 	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
-	rt::test::expect(result == 1);
+	rt::test::expect(result.has<compilation_error>());
 	var analysis = @compiler.acquire_analysis();
-	if (!rt::test::expect(analysis.get())) {
-		return;
-	};
+	rt::test::expect(analysis.get());
 	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
-	if (!rt::test::expect(records.size())) {
-		return;
-	};
+	rt::test::expect(records.size());
 	rt::test::expect(records.data()[0].message.contains("stored reference may outlive its referent"));
 };
 
@@ -203,15 +200,12 @@ fn nested_reference_stores_accept_overwrites_before_scope_exit() {
 	Compiler compiler;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
-	if (!rt::test::expect(@paths.push_back("source.rt")) || !rt::test::expect(@sources.push_back(source))) {
-		return;
-	};
+	@paths.push_back("source.rt");
+	@sources.push_back(source);
 
 	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
-	rt::test::expect(!result);
+	rt::test::expect(result.has<void>());
 	var analysis = @compiler.acquire_analysis();
-	if (!rt::test::expect(analysis.get())) {
-		return;
-	};
+	rt::test::expect(analysis.get());
 	rt::test::expect(!analysis.value().diagnostics().failed());
 };

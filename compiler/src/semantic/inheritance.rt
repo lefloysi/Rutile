@@ -1,9 +1,9 @@
-fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
+fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	var Syntax* declaration = entity->declaration();
 	var Syntax* bases = declaration->record_bases();
 
 	if (!bases->size()) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (entity->layout() == record_layout::overlapping) {
@@ -12,7 +12,7 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 		diagnostic_entity(@message, *entity);
 		@message.text("' cannot contain a base subobject");
 		@this.report(entity->token(), message.view());
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	if (bases->size() != 1) {
@@ -23,13 +23,13 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 		@message.number(u64(bases->size()));
 		@message.text(" base types; multiple base analysis is not implemented");
 		@this.report(entity->token(), message.view());
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	Type* base = @this.type(@*entity->resolution_scope(), @*bases->item(0));
 
 	if (!base) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	if (base->kind() != type_kind::named || base->entity()->kind() != entity_kind::record || base->qualifier() != type_qualifier::mutable || base->entity()->layout() != record_layout::sequential) {
 		var message = DiagnosticMessage();
@@ -48,7 +48,7 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 			@message.text("base type shall not be a union");
 		};
 		@this.report(bases->item(0)->token(), message.view());
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var Entity* owner = base->entity();
@@ -62,11 +62,11 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 		@message.text("'");
 		@this.report(bases->item(0)->token(), message.view());
 		@this.note(owner->token(), "base record is declared here");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@this.resolve(owner)) {
-		return false;
+	if (!(@this.resolve(owner)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (owner->declaration()->record_members()->kind() == syntax_kind::noop) {
@@ -78,13 +78,10 @@ fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> bool {
 		@message.text("'");
 		@this.report(bases->item(0)->token(), message.view());
 		@this.note(owner->token(), "base record is declared here");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@entity->add_base(base)) {
-		@this.error(declaration, "base subobject metadata storage is unavailable");
-		return false;
-	};
+	@entity->add_base(base);
 
-	return true;
+	return CompilationResult();
 };

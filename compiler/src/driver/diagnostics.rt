@@ -1,5 +1,20 @@
 fn fprintf(var NativeFile* file, char* format, ...) -> i32;
 
+struct compilation_error {
+};
+
+using CompilationResult = void | compilation_error;
+
+struct compiler_internal_error {
+	rt::string message;
+};
+
+fn compiler_panic(rt::string_view message) {
+	compiler_internal_error error;
+	@error.message = rt::string(message);
+	throw $error;
+};
+
 enum diagnostic_state : [u08] {
 	clean;
 	failed;
@@ -57,8 +72,8 @@ private:
 };
 
 fn DiagnosticMessage::text(var DiagnosticMessage& this, rt::string_view value) {
-	if (this.state == diagnostic_message_state::complete && !@this.contents.append(value)) {
-		@this.state = diagnostic_message_state::unavailable;
+	if (this.state == diagnostic_message_state::complete) {
+		@this.contents.append(value);
 	};
 };
 
@@ -178,7 +193,7 @@ fn Diagnostics::write(Diagnostics& this, var NativeFile* output, Token& location
 		@message_size = static_cast<usize>(i32::max);
 	};
 
-	fprintf(output, "%.*s:%llu:%llu: %.*s: %.*s\n\0".data(), static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>(severity.size()), severity.data(), static_cast<i32>($message_size), message.data());
+	discard fprintf(output, "%.*s:%llu:%llu: %.*s: %.*s\n\0".data(), static_cast<i32>($path_size), path.data(), u64(location.line), u64(location.column), static_cast<i32>(severity.size()), severity.data(), static_cast<i32>($message_size), message.data());
 };
 
 fn Diagnostics::replay(Diagnostics& this, var NativeFile* output) {

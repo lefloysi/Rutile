@@ -1,22 +1,30 @@
+struct source_io_error {
+	rt::string path;
+	rt::string_view operation;
+};
+
+using SourceReadResult = var SourceFile* | source_io_error;
+
 struct SourceReader {
 	fn SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics);
 
-	fn load(var SourceReader& this, rt::string_view path) -> var SourceFile*;
+	fn load(var SourceReader& this, rt::string_view path) -> SourceReadResult;
 
 private:
-	fn error(var SourceReader& this, rt::string_view path, rt::string_view operation);
+	fn error(var SourceReader& this, rt::string_view path, rt::string_view operation) -> source_io_error;
 	FileOpener opener;
 	var SourceManager* sources;
 	var Diagnostics* diagnostics;
 };
 
-fn SourceReader::error(var SourceReader& this, rt::string_view path, rt::string_view operation) {
+fn SourceReader::error(var SourceReader& this, rt::string_view path, rt::string_view operation) -> source_io_error {
 	var message = DiagnosticMessage();
 	@message.text(operation);
 	@message.text(" source file ");
 	@message.quoted(path);
 	Token location;
 	@this.diagnostics->error(location, message.view());
+	return source_io_error(rt::string(path), operation);
 };
 
 fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var SourceManager& sources, var Diagnostics& diagnostics) {
@@ -25,46 +33,37 @@ fn SourceReader::SourceReader(var SourceReader& this, FileOpener opener, var Sou
 	@this.diagnostics = &@diagnostics;
 };
 
-fn SourceReader::load(var SourceReader& this, rt::string_view path) -> var SourceFile* {
+fn SourceReader::load(var SourceReader& this, rt::string_view path) -> SourceReadResult {
 	var native_path = rt::string(path);
 	var file = File(this.opener(native_path.c_str(), "rb\0".data()));
 
 	if (!file.is_open()) {
-		@this.error(path, "cannot open");
-		return nullptr;
+		return SourceReadResult(@this.error(path, "cannot open"));
 	};
 
 	rt::string contents;
 	char[4096] chunk {};
 
 	while (true) {
-		usize count = @file.read(&@chunk[0], sizeof(chunk));
+		var read = @file.read(&@chunk[0], sizeof(chunk));
+		if (read.has<file_io_error>()) {
+			return SourceReadResult(@this.error(path, read.get<file_io_error>().operation));
+		};
+		usize count = read.get<usize>();
 
 		if (!count) {
 			break;
 		};
 
-		if (!@contents.append(rt::string_view(&@chunk[0], $count))) {
-			@this.error(path, "cannot buffer");
-			return nullptr;
-		};
+		@contents.append(rt::string_view(&@chunk[0], $count));
 	};
 
-	if (file.failed()) {
-		@this.error(path, "cannot read");
-		return nullptr;
-	};
-
-	if (!@file.close()) {
-		@this.error(path, "cannot close");
-		return nullptr;
+	var closed = @file.close();
+	if (closed.has<file_io_error>()) {
+		return SourceReadResult(@this.error(path, closed.get<file_io_error>().operation));
 	};
 
 	var SourceFile* source = @this.sources->add(path, contents.view());
 
-	if (!source) {
-		@this.error(path, "cannot retain");
-	};
-
-	return $source;
+	return SourceReadResult($source);
 };

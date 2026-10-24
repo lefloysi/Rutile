@@ -2,7 +2,7 @@ fn TemplateEngine::editor_context(var TemplateEngine& this, var Analyzer& analyz
 	return @this.instantiate(@analyzer, @*pattern.resolution_scope(), @pattern, TemplateInput(@arguments));
 };
 
-fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> bool {
+fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit, var SourceFile& source, usize anchor, var Syntax& arguments, var rt::string& label) -> CompilationResult {
 	@this.unit = &@unit;
 	var Entity* pattern = nullptr;
 	usize index = 0;
@@ -19,12 +19,12 @@ fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit,
 		@this.unit = nullptr;
 		Token token;
 		@this.report(token, "the selected template declaration is no longer available");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	var Entity* instance = @this.templates.editor_context(@this, @*pattern, @arguments);
 	if (!instance) {
 		@this.unit = nullptr;
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	@index = 0;
 	while (index < unit.entities().size() && !this.failed()) {
@@ -37,10 +37,10 @@ fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit,
 		if (entity != instance && !scope) {
 			continue;
 		};
-		if (!@this.resolve(entity)) {
+		if (!(@this.resolve(entity)).has<void>()) {
 			break;
 		};
-		if (entity->kind() == entity_kind::function && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !@this.function_body(entity)) {
+		if (entity->kind() == entity_kind::function && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted && !(@this.function_body(entity)).has<void>()) {
 			break;
 		};
 	};
@@ -50,5 +50,8 @@ fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit,
 		@label = rt::string(detail.view());
 	};
 	@this.unit = nullptr;
-	return !this.failed();
+	if (!this.failed()) {
+		return CompilationResult();
+	};
+	return CompilationResult(compilation_error());
 };

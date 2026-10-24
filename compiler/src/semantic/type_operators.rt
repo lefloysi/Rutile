@@ -17,7 +17,9 @@ fn aggregate_arguments(var Analyzer& analyzer, var Scope& scope, var Syntax& syn
 	};
 	PackElementSignature signature;
 	@signature.kind = template_argument_kind::type;
-	return @pack.signature.push_back($signature) && @pack.elements.push_back($argument);
+	@pack.signature.push_back($signature);
+	@pack.elements.push_back($argument);
+	return true;
 };
 
 fn TemplateEngine::aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> Type* {
@@ -46,9 +48,7 @@ fn TemplateEngine::aggregate_type(var TemplateEngine& this, var Analyzer& analyz
 	TemplateArgument argument;
 	@argument.kind = template_argument_kind::pack;
 	@argument.pack = pack;
-	if (!@arguments.push_back($argument)) {
-		return nullptr;
-	};
+	@arguments.push_back($argument);
 	var Entity* instance = @this.instantiate(@analyzer, @scope, @*pattern, TemplateInput(arguments, syntax.token()));
 	if (!instance) {
 		return nullptr;

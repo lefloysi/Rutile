@@ -104,7 +104,7 @@ fn FunctionEmitter::logical(var FunctionEmitter& this, var SemanticExpression* e
 		return nullptr;
 	};
 
-	if (!@this.cleanup_temporaries(temporary_boundary)) {
+	if (!(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
 		return nullptr;
 	};
 
@@ -115,11 +115,11 @@ fn FunctionEmitter::logical(var FunctionEmitter& this, var SemanticExpression* e
 	u64 immediate = 0;
 
 	if (expression->operation() == token_kind::op_and) {
-		LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(right)), (var LLVMOpaqueBasicBlock*(after)));
+		discard LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(right)), (var LLVMOpaqueBasicBlock*(after)));
 	}
 	else {
 		@immediate = 1;
-		LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(after)), (var LLVMOpaqueBasicBlock*(right)));
+		discard LLVMBuildCondBr(this.backend->builder(), first, (var LLVMOpaqueBasicBlock*(after)), (var LLVMOpaqueBasicBlock*(right)));
 	};
 
 	LLVMPositionBuilderAtEnd(this.backend->builder(), right);
@@ -130,13 +130,13 @@ fn FunctionEmitter::logical(var FunctionEmitter& this, var SemanticExpression* e
 		return nullptr;
 	};
 
-	if (!@this.cleanup_temporaries(temporary_boundary)) {
+	if (!(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
 		return nullptr;
 	};
 
 	@this.forget_temporaries(temporary_boundary);
 	var LLVMOpaqueBasicBlock* last = LLVMGetInsertBlock(this.backend->builder());
-	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
+	discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 	var LLVMOpaqueType* boolean = LLVMIntTypeInContext(this.backend->context(), 1);
 	var LLVMOpaqueValue* phi = LLVMBuildPhi(this.backend->builder(), (var LLVMOpaqueType*(boolean)), "logical\0".data());
@@ -197,7 +197,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 		};
 
 		if (pointer_type->element()->kind() == type_kind::void_type || pointer_type->element()->kind() == type_kind::null_type || pointer_type->element()->kind() == type_kind::function) {
-			@this.backend->error(expression->token(), "pointer arithmetic requires an object element type");
+			discard @this.backend->error(expression->token(), "pointer arithmetic requires an object element type");
 			return nullptr;
 		};
 
@@ -329,7 +329,7 @@ fn FunctionEmitter::binary(var FunctionEmitter& this, var SemanticExpression* ex
 	};
 
 	if (predicate < 0) {
-		@this.backend->error(expression->token(), "operator has no native lowering");
+		discard @this.backend->error(expression->token(), "operator has no native lowering");
 		return nullptr;
 	};
 
@@ -361,7 +361,7 @@ fn FunctionEmitter::assign(var FunctionEmitter& this, var SemanticExpression* ex
 		return $result;
 	};
 
-	LLVMBuildStore(this.backend->builder(), value, address);
+	discard LLVMBuildStore(this.backend->builder(), value, address);
 	@result.value = value;
 	@result.address = address;
 

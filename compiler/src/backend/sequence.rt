@@ -1,9 +1,9 @@
-fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* expression, native_evaluation form, var LLVMOpaqueValue var*& result) -> bool {
+fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* expression, native_evaluation form, var LLVMOpaqueValue var*& result) -> CompilationResult {
 	usize bindings = this.bindings.size();
 	usize temporaries = this.temporaries.size();
 
-	if (!@this.statement(expression->item(0)) || !@this.statement(expression->item(1))) {
-		return false;
+	if (!(@this.statement(expression->item(0))).has<void>() || !(@this.statement(expression->item(1))).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (this.terminated()) {
@@ -13,8 +13,8 @@ fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* 
 	var SemanticExpression* yielded = expression->item(2);
 
 	if (expression->type()->kind() == type_kind::void_type) {
-		if (!@this.statement(yielded)) {
-			return false;
+		if (!(@this.statement(yielded)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	}
 	else if (form == native_evaluation::address) {
@@ -32,14 +32,14 @@ fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* 
 	};
 
 	if (expression->type()->kind() != type_kind::void_type && !result) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@this.cleanup_temporaries(temporaries) || !@this.leave_scope(bindings)) {
-		return false;
+	if (!(@this.cleanup_temporaries(temporaries)).has<void>() || !(@this.leave_scope(bindings)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	@this.forget_temporaries(temporaries);
 
-	return true;
+	return CompilationResult();
 };

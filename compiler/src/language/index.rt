@@ -99,7 +99,7 @@ fn NavigationIndex::symbol_kind(NavigationIndex& this, Entity& entity) -> u32 {
 	return 13;
 };
 
-fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) {
 	rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
 	usize index = 0;
 	while (index < entities.size()) {
@@ -109,26 +109,19 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 			continue;
 		};
 		var entry = rt::unique<NavigationEntry>::make();
-		if (!entry.get()) {
-			return false;
-		};
 		@entry.get()->entity = entity;
 		@entry.get()->value.id = static_cast<u64>(this.symbols.size()) + 1;
 		@entry.get()->value.kind = this.symbol_kind(*entity);
 		@entry.get()->value.declaration = this.range(entity->token());
 		@entry.get()->value.definition.source = usize::max;
-		if (!@entry.get()->name.append(entity->name())) {
-			return false;
-		};
+		@entry.get()->name.append(entity->name());
 		var detail = DiagnosticMessage();
 		diagnostic_entity(@detail, *entity);
 		if (entity->type()) {
 			@detail.text(": ");
 			diagnostic_type(@detail, *entity->type());
 		};
-		if (!@entry.get()->detail.append(detail.view())) {
-			return false;
-		};
+		@entry.get()->detail.append(detail.view());
 		@entry.get()->value.name = entry.get()->name.view();
 		@entry.get()->value.detail = entry.get()->detail.view();
 		usize parameter_index = 0;
@@ -136,23 +129,16 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 			var Entity* parameter = entity->parameters().data()[parameter_index];
 			@parameter_index = parameter_index + 1;
 			var parameter_entry = rt::unique<NavigationParameterEntry>::make();
-			if (!parameter_entry.get()) {
-				return false;
-			};
 			var parameter_detail = DiagnosticMessage();
 			@parameter_detail.text(parameter->name());
 			@parameter_detail.text(": ");
 			if (parameter->type()) {
 				diagnostic_type(@parameter_detail, *parameter->type());
 			};
-			if (!@parameter_entry.get()->detail.append(parameter_detail.view())) {
-				return false;
-			};
+			@parameter_entry.get()->detail.append(parameter_detail.view());
 			@parameter_entry.get()->value.name = parameter->name();
 			@parameter_entry.get()->value.detail = parameter_entry.get()->detail.view();
-			if (!@entry.get()->parameters.push_back($parameter_entry)) {
-				return false;
-			};
+			@entry.get()->parameters.push_back($parameter_entry);
 		};
 		var Syntax* declaration = entity->declaration();
 		if (declaration) {
@@ -178,9 +164,11 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 			@entry.get()->value.flags = entry.get()->value.flags | 4;
 		};
 		Entity* key = entity;
-		if (!@this.ids.insert($key, u64(entry.get()->value.id)) || !@this.symbols.push_back($entry)) {
-			return false;
+		bool inserted = @this.ids.insert($key, u64(entry.get()->value.id));
+		if (!inserted) {
+			compiler_panic("symbol is already registered");
 		};
+		@this.symbols.push_back($entry);
 	};
 
 	@index = 0;
@@ -202,17 +190,15 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 		if (entity->scope()) {
 			@occurrence.context = this.symbol_id(semantics.reference_context(@*entity->scope()));
 		};
-		if (occurrence.range.source != usize::max && !@this.occurrences.push_back($occurrence)) {
-			return false;
+		if (occurrence.range.source != usize::max) {
+			@this.occurrences.push_back($occurrence);
 		};
 		if (entry->value.definition.source != usize::max && (entry->value.definition.source != entry->value.declaration.source || entry->value.definition.begin != entry->value.declaration.begin)) {
 			NavigationOccurrence definition;
 			@definition.range = entry->value.definition;
 			@definition.symbol = entry->value.id;
 			@definition.roles = 1;
-			if (!@this.occurrences.push_back($definition)) {
-				return false;
-			};
+			@this.occurrences.push_back($definition);
 		};
 		@index = index + 1;
 	};
@@ -226,8 +212,8 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 		@occurrence.symbol = this.symbol_id(reference.target);
 		@occurrence.context = this.symbol_id(reference.context);
 		@occurrence.roles = reference.roles;
-		if (occurrence.symbol && occurrence.range.source != usize::max && !@this.occurrences.push_back($occurrence)) {
-			return false;
+		if (occurrence.symbol && occurrence.range.source != usize::max) {
+			@this.occurrences.push_back($occurrence);
 		};
 		@index = index + 1;
 	};
@@ -238,17 +224,19 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) ->
 		@classification.range = this.range(source.location);
 		@classification.type = source.type;
 		@classification.modifiers = source.modifiers;
-		if (!@this.classifications.push_back($classification)) {
-			return false;
-		};
+		@this.classifications.push_back($classification);
 		@index = index + 1;
 	};
-	return @this.build_contexts(semantics) && @this.build_receivers(semantics);
+	@this.build_contexts(semantics);
+	@this.build_receivers(semantics);
 };
 
-fn NavigationIndex::register_source(var NavigationIndex& this, var SourceFile& source, usize index) -> bool {
+fn NavigationIndex::register_source(var NavigationIndex& this, var SourceFile& source, usize index) {
 	SourceFile* key = &@source;
-	return @this.source_ids.insert($key, $index);
+	bool inserted = @this.source_ids.insert($key, $index);
+	if (!inserted) {
+		compiler_panic("source is already registered");
+	};
 };
 
 fn NavigationIndex::symbol_count(NavigationIndex& this) -> usize {
@@ -334,9 +322,6 @@ fn NavigationIndex::scope_id(var NavigationIndex& this, Scope& scope) -> u64 {
 	@descriptor.range.source = usize::max;
 	if (scope.parent()) {
 		@descriptor.parent = @this.scope_id(*scope.parent());
-		if (!descriptor.parent) {
-			return 0;
-		};
 	};
 	Scope* cursor = &@scope;
 	while (cursor) {
@@ -352,13 +337,16 @@ fn NavigationIndex::scope_id(var NavigationIndex& this, Scope& scope) -> u64 {
 	u64 id = u64(this.scope_ids.size()) + 1;
 	@descriptor.id = id;
 	Scope* retained_scope = &@scope;
-	if (!@this.scope_ids.insert($key, u64(id)) || !@this.scope_locations.push_back($descriptor) || !@this.scope_records.push_back($retained_scope)) {
-		return 0;
+	bool inserted = @this.scope_ids.insert($key, u64(id));
+	if (!inserted) {
+		compiler_panic("scope is already registered");
 	};
+	@this.scope_locations.push_back($descriptor);
+	@this.scope_records.push_back($retained_scope);
 	return $id;
 };
 
-fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& semantics) {
 	rt::buffer<SemanticScopeRegion>& regions = semantics.scope_regions();
 	usize index = 0;
 	while (index < regions.size()) {
@@ -370,9 +358,7 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		};
 		@region.context = this.symbol_id(semantics.reference_context(@*source.scope));
 		@region.range = this.syntax_range(*source.syntax);
-		if (!region.id || !@this.scope_locations.push_back($region)) {
-			return false;
-		};
+		@this.scope_locations.push_back($region);
 		@index = index + 1;
 	};
 	rt::buffer<rt::unique<Entity>>& entities = semantics.entities();
@@ -386,9 +372,7 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		NavigationBinding binding;
 		@binding.scope = @this.scope_id(*entity->scope());
 		@binding.symbol = this.symbol_id(entity);
-		if (!binding.scope || !@this.bindings.push_back($binding)) {
-			return false;
-		};
+		@this.bindings.push_back($binding);
 	};
 	@index = 0;
 	while (index < this.symbols.size()) {
@@ -409,9 +393,6 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		};
 		if (owner && owner->members()) {
 			@entry->member_scope = @this.scope_id(*owner->members());
-			if (!entry->member_scope) {
-				return false;
-			};
 		};
 	};
 	rt::buffer<SemanticCallSite>& sites = semantics.call_sites();
@@ -420,9 +401,6 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		SemanticCallSite& source = sites.data()[index];
 		@index = index + 1;
 		var call = rt::unique<NavigationCall>::make();
-		if (!call.get()) {
-			return false;
-		};
 		@call.get()->symbol = this.symbol_id(source.selected);
 		@call.get()->bound_receiver = source.bound_receiver;
 		if (source.candidates && source.candidates->scope()) {
@@ -435,8 +413,8 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 					continue;
 				};
 				u64 symbol = this.symbol_id(&@function);
-				if (symbol && !@call.get()->candidates.push_back($symbol)) {
-					return false;
+				if (symbol) {
+					@call.get()->candidates.push_back($symbol);
 				};
 			};
 		};
@@ -447,16 +425,12 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		var Syntax* arguments = source.syntax->arguments();
 		usize argument = 0;
 		while (argument < arguments->size()) {
-			if (!@call.get()->arguments.push_back(this.syntax_range(*arguments->item(argument)))) {
-				return false;
-			};
+			@call.get()->arguments.push_back(this.syntax_range(*arguments->item(argument)));
 			@argument = argument + 1;
 		};
-		if (!@this.calls.push_back($call)) {
-			return false;
-		};
+		@this.calls.push_back($call);
 	};
-	return true;
+	return;
 };
 
 fn NavigationIndex::scope_count(NavigationIndex& this) -> usize {
@@ -520,9 +494,9 @@ fn NavigationIndex::accessible(NavigationIndex& this, u64 symbol, u64 scope) -> 
 	return this.symbols.data()[symbol - 1].get()->entity->accessible_from(*this.scope_records.data()[scope - 1]);
 };
 
-fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, Entity& owner, Entity& visible_owner, Scope& scope) -> bool {
+fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var NavigationReceiver& site, Entity& owner, Entity& visible_owner, Scope& scope) {
 	if (!owner.members()) {
-		return true;
+		return;
 	};
 
 	rt::buffer<var Entity*>& members = owner.members()->bindings();
@@ -542,27 +516,24 @@ fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var Navigatio
 		while (previous < site.candidates.size() && site.candidates.data()[previous] != symbol) {
 			@previous = previous + 1;
 		};
-		if (previous == site.candidates.size() && !@site.candidates.push_back($symbol)) {
-			return false;
+		if (previous == site.candidates.size()) {
+			@site.candidates.push_back($symbol);
 		};
 	};
 
 	if (owner.bases().size() == 1) {
-		return @this.receiver_candidates(@site, *owner.bases().data()[0]->entity(), visible_owner, scope);
+		@this.receiver_candidates(@site, *owner.bases().data()[0]->entity(), visible_owner, scope);
 	};
-	return true;
+	return;
 };
 
-fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& semantics) -> bool {
+fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& semantics) {
 	rt::buffer<SemanticReceiverSite>& sites = semantics.receiver_sites();
 	usize index = 0;
 	while (index < sites.size()) {
 		SemanticReceiverSite& source = sites.data()[index];
 		@index = index + 1;
 		var receiver = rt::unique<NavigationReceiver>::make();
-		if (!receiver.get()) {
-			return false;
-		};
 		@receiver.get()->scope = @this.scope_id(*source.scope);
 		@receiver.get()->context = this.symbol_id(semantics.reference_context(@*source.scope));
 		@receiver.get()->range = this.syntax_range(*source.syntax->left());
@@ -579,11 +550,10 @@ fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& sem
 		if (member.source == receiver.get()->selector.source && member.end > receiver.get()->selector.end) {
 			@receiver.get()->selector.end = member.end;
 		};
-		if (!@this.receiver_candidates(@*receiver.get(), *source.owner, *source.owner, *source.scope) || !@this.receivers.push_back($receiver)) {
-			return false;
-		};
+		@this.receiver_candidates(@*receiver.get(), *source.owner, *source.owner, *source.scope);
+		@this.receivers.push_back($receiver);
 	};
-	return true;
+	return;
 };
 
 fn NavigationIndex::receiver_count(NavigationIndex& this) -> usize {

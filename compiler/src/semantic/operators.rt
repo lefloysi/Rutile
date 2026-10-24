@@ -29,23 +29,30 @@ fn diagnostic_binary_operands(var Diagnostics& diagnostics, var Syntax& syntax, 
 };
 
 fn numeric_literal_expression(Syntax& syntax) -> bool {
-	if (syntax.kind() == syntax_kind::number) {
-		return true;
+	rt::buffer<Syntax*> pending;
+	@pending.push_back(&syntax);
+	while (pending.size()) {
+		Syntax* current = pending.data()[pending.size() - 1];
+		@pending.pop_back();
+		if (current->kind() == syntax_kind::number) {
+			continue;
+		};
+		if (current->kind() == syntax_kind::grouping) {
+			@pending.push_back(current->operand());
+			continue;
+		};
+		if (current->kind() == syntax_kind::unary && (current->token().kind == token_kind::op_plus || current->token().kind == token_kind::op_minus)) {
+			@pending.push_back(current->operand());
+			continue;
+		};
+		if (current->kind() == syntax_kind::binary && current->token().kind != token_kind::op_assign && current->token().kind != token_kind::op_copy) {
+			@pending.push_back(current->right());
+			@pending.push_back(current->left());
+			continue;
+		};
+		return false;
 	};
-
-	if (syntax.kind() == syntax_kind::grouping) {
-		return numeric_literal_expression(*syntax.operand());
-	};
-
-	if (syntax.kind() == syntax_kind::unary && (syntax.token().kind == token_kind::op_plus || syntax.token().kind == token_kind::op_minus)) {
-		return numeric_literal_expression(*syntax.operand());
-	};
-
-	if (syntax.kind() == syntax_kind::binary && syntax.token().kind != token_kind::op_assign && syntax.token().kind != token_kind::op_copy) {
-		return numeric_literal_expression(*syntax.left()) && numeric_literal_expression(*syntax.right());
-	};
-
-	return false;
+	return true;
 };
 
 fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
@@ -65,6 +72,12 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 
 	if (!operand.get()) {
 		return rt::unique<SemanticExpression>();
+	};
+	if (operation.kind == token_kind::op_bang && variant_alternative(operand.get()->type(), this.types->find_primitive("bool"))) {
+		@operand = @this.convert(rt::unique<SemanticExpression>(@operand.release()), rt::optional_ref<const Type>(*this.types->find_primitive("bool")), @syntax);
+		if (!operand.get()) {
+			return rt::unique<SemanticExpression>();
+		};
 	};
 
 	if (operation.kind != token_kind::op_access && operation.kind != token_kind::op_relocate && operation.kind != token_kind::op_ampersand && operation.kind != token_kind::kw_sizeof) {
@@ -176,7 +189,7 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 		@result.get()->bind(binding, value_category::consumable);
 	};
 
-	if (!@result.get()->append($operand)) {
+	if (!(@result.get()->append($operand)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -214,6 +227,12 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 
 	if (!left.get()) {
 		return rt::unique<SemanticExpression>();
+	};
+	if (logical && variant_alternative(left.get()->type(), this.types->find_primitive("bool"))) {
+		@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), rt::optional_ref<const Type>(*this.types->find_primitive("bool")), @*syntax.left());
+		if (!left.get()) {
+			return rt::unique<SemanticExpression>();
+		};
 	};
 
 	if (!assignment) {
@@ -273,13 +292,27 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 
 fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> left, rt::unique<SemanticExpression> right, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	Token operation = syntax.token();
+	if (operation.kind == token_kind::op_and || operation.kind == token_kind::op_or) {
+		Type* boolean = this.types->find_primitive("bool");
+		if (variant_alternative(left.get()->type(), boolean)) {
+			@left = @this.convert(rt::unique<SemanticExpression>(@left.release()), rt::optional_ref<const Type>(*boolean), @syntax);
+		};
+		if (variant_alternative(right.get()->type(), boolean)) {
+			@right = @this.convert(rt::unique<SemanticExpression>(@right.release()), rt::optional_ref<const Type>(*boolean), @syntax);
+		};
+		if (!left.get() || !right.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+	};
 	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
 	if (assignment) {
 		Type* alternative = variant_flow_known(this.variant_facts, *right.get());
 		var Entity* binding = variant_flow_binding(*left.get());
 		@this.variant_facts.clear();
-		if (binding && alternative && !@this.variant_facts.establish(@*binding, alternative)) {
-			return rt::unique<SemanticExpression>();
+		if (binding) {
+			if (alternative) {
+				@this.variant_facts.establish(@*binding, alternative);
+			};
 		};
 	};
 	if (!assignment) {
@@ -337,13 +370,9 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record || other->kind() == type_kind::named && other->entity()->kind() == entity_kind::record) {
 		rt::buffer<rt::unique<SemanticExpression>> arguments;
 
-		if (!@arguments.push_back($left)) {
-			return rt::unique<SemanticExpression>();
-		};
+		@arguments.push_back($left);
 
-		if (!@arguments.push_back($right)) {
-			return rt::unique<SemanticExpression>();
-		};
+		@arguments.push_back($right);
 
 		return @this.overloaded(@scope, @syntax, $arguments, expected);
 	};
@@ -397,11 +426,11 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($left)) {
+	if (!(@result.get()->append($left)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($right)) {
+	if (!(@result.get()->append($right)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -497,9 +526,7 @@ fn Analyzer::cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 
 			rt::buffer<rt::unique<SemanticExpression>> arguments;
 
-			if (!@arguments.push_back(rt::unique<SemanticExpression>(@value.release()))) {
-				return rt::unique<SemanticExpression>();
-			};
+			@arguments.push_back(rt::unique<SemanticExpression>(@value.release()));
 
 			var callable = @this.node(semantic_kind::name, conversion->type(), &@syntax);
 
@@ -553,7 +580,7 @@ fn Analyzer::cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($value)) {
+	if (!(@result.get()->append($value)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -609,11 +636,11 @@ fn Analyzer::component(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@result.get()->append($object)) {
+		if (!(@result.get()->append($object)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@result.get()->append($index)) {
+		if (!(@result.get()->append($index)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -636,7 +663,7 @@ fn Analyzer::component(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@dereference.get()->append(rt::unique<SemanticExpression>(@object.release()))) {
+		if (!(@dereference.get()->append(rt::unique<SemanticExpression>(@object.release()))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -662,9 +689,7 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@this.unit->record_receiver(@scope, @syntax, @*type->entity())) {
-		return rt::unique<SemanticExpression>();
-	};
+	@this.unit->record_receiver(@scope, @syntax, @*type->entity());
 
 	if (this.editor && syntax.member_name()->kind() == syntax_kind::absent) {
 		return @this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax);
@@ -700,7 +725,7 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@this.resolve((var Entity*(field)))) {
+	if (!(@this.resolve((var Entity*(field)))).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	if (!this.accessible_at(*field, @scope, syntax.token())) {
@@ -731,14 +756,11 @@ fn Analyzer::member_value(var Analyzer& this, var Scope& scope, var Syntax& synt
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($object)) {
+	if (!(@result.get()->append($object)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@this.unit->record_name(@this, @scope, @syntax, @*field, 4)) {
-		@this.error(&@syntax, "navigation index storage is unavailable");
-		return rt::unique<SemanticExpression>();
-	};
+	@this.unit->record_name(@this, @scope, @syntax, @*field, 4);
 	@result.get()->bind(field, value_category::place);
 
 	return @this.convert($result, expected, @syntax);

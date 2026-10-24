@@ -66,20 +66,31 @@ public static partial class EditorObservations {
 		Exception? failure = null;
 		try {
 			await KilnAsync(root, "build subject").ConfigureAwait(false);
+			var compilerPath = Environment.GetEnvironmentVariable("RUTILE_COMPILER") ?? "rutilec";
+			var beforeConfigure = JObject.Parse(await RunAsync(compilerPath, root, "request hello").ConfigureAwait(false));
 			await KilnAsync(root, "configure --profile debug").ConfigureAwait(false);
+			var afterConfigure = JObject.Parse(await RunAsync(compilerPath, root, "request hello").ConfigureAwait(false));
+			source += "// Ordinary document edit after configuration.\n";
+			File.WriteAllText(Path.Combine(root, "checks.rt"), source, new UTF8Encoding(false));
+			await Task.Delay(500).ConfigureAwait(false);
+			var afterEdit = JObject.Parse(await RunAsync(compilerPath, root, "request hello").ConfigureAwait(false));
+			await KilnAsync(root, "test subject --profile debug").ConfigureAwait(false);
 			using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30))) {
 				var compiler = Environment.GetEnvironmentVariable("RUTILE_COMPILER") ?? "rutilec";
 				JObject status;
 				JObject? watch;
 				int compiling;
 				int nativeWatchSessions;
+				int currentTestSessions;
 				do {
 					status = JObject.Parse(await RunAsync(compiler, root, "request hello").ConfigureAwait(false));
 					watch = null;
 					compiling = 0;
 					nativeWatchSessions = 0;
+					currentTestSessions = 0;
 					foreach (JObject session in status["sessions"] ?? new JArray()) {
-						if (session.Value<string>("target") == "subject" && session.Value<string>("kind") == "test" && session.Value<string>("profile") == "debug") {
+						if (session.Value<string>("target") == "subject" && session.Value<string>("kind") == "test" && session.Value<string>("profile") == "debug" && session.Value<bool>("artifacts_current")) {
+							++currentTestSessions;
 							watch = session;
 						}
 						if (session.Value<bool>("compiling")) {
@@ -129,6 +140,8 @@ public static partial class EditorObservations {
 						colors.Add(new JObject { ["text"] = source.Substring(token.Start, token.Length), ["classification"] = token.Classification });
 					}
 					return new JObject { ["watch"] = watch, ["native_watch_sessions"] = nativeWatchSessions,
+						["current_test_sessions"] = currentTestSessions,
+						["before_configure"] = beforeConfigure, ["after_configure"] = afterConfigure, ["after_edit"] = afterEdit,
 						["progress"] = progress, ["diagnostics"] = diagnostics.For(uri), ["colors"] = colors }.ToString();
 				}
 			}

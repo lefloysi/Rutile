@@ -861,7 +861,7 @@ int rutile_service_serve(const char* endpoint) {
 			if (text == "hello") {
 				auto sessions = nlohmann::json::array();
 				for (const auto& [session, watch] : watches) {
-						sessions.push_back({ { "session", session }, { "target", watch.request.value("target", std::string{}) }, { "profile", watch.request.value("profile", std::string{}) }, { "source_revision", watch.source_revision }, { "artifact_revision", watch.artifact_revision }, { "artifacts_current", watch.source_revision == watch.artifact_revision && !watch.compile_failed && rutile_service_artifacts_exist(watch.request) }, { "compiling", static_cast<bool>(watch.active_job) || watch.initial_pending } });
+						sessions.push_back({ { "session", session }, { "target", watch.request.value("target", std::string{}) }, { "profile", watch.request.value("profile", std::string{}) }, { "kind", watch.request.value("kind", std::string{}) }, { "source_revision", watch.source_revision }, { "artifact_revision", watch.artifact_revision }, { "artifacts_current", watch.source_revision == watch.artifact_revision && !watch.compile_failed && rutile_service_artifacts_exist(watch.request) }, { "compiling", static_cast<bool>(watch.active_job) || watch.initial_pending } });
 				}
 				response = nlohmann::json{ { "service", "rutile" }, { "protocol", 2 }, { "pid", platform_process_id() }, { "version", software_version }, { "compilations", compilations.load() }, { "executable", rutile_service_path(executable) }, { "binary_stamp", binary_stamp }, { "language_endpoint", language_endpoint }, { "sessions", std::move(sessions) } }.dump();
 			}

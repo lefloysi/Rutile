@@ -1,6 +1,6 @@
-fn LanguageIndex::append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool {
+fn LanguageIndex::append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) {
 	if (!analysis.semantics()) {
-		return true;
+		return;
 	};
 	usize index = 0;
 	while (index < analysis.semantics()->entities().size()) {
@@ -22,16 +22,12 @@ fn LanguageIndex::append_templates(var LanguageIndex& this, Analysis& analysis, 
 		usize parameter = 0;
 		while (parameter < wrapper->template_parameters()->size()) {
 			var Syntax* name = wrapper->template_parameters()->item(parameter)->item(1);
-			if (!@item.parameters.push_back(rt::string(name->token().text()))) {
-				return false;
-			};
+			@item.parameters.push_back(rt::string(name->token().text()));
 			@parameter = parameter + 1;
 		};
-		if (!@this.templates.push_back($item)) {
-			return false;
-		};
+		@this.templates.push_back($item);
 	};
-	return true;
+	return;
 };
 
 fn LanguageIndex::template_owner(LanguageIndex& this, u64 context) -> u64 {
@@ -54,7 +50,7 @@ fn LanguageIndex::template_owner(LanguageIndex& this, u64 context) -> u64 {
 fn LanguageWorkspace::template_context(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> u64 {
 	usize source = 0;
 	usize offset = 0;
-	if (!@this.cursor(index, parameters, @source, @offset)) {
+	if (!(@this.cursor(index, parameters, @source, @offset)).has<void>()) {
 		return 0;
 	};
 	return @this.template_context(index, source, offset);
@@ -103,7 +99,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 	var items = rt::json_value::make_array();
 	usize source = 0;
 	usize offset = 0;
-	if (!result.get() || !items.get() || !@this.cursor(index, parameters, @source, @offset)) {
+	if (!result.get() || !items.get() || !(@this.cursor(index, parameters, @source, @offset)).has<void>()) {
 		return rt::json_value::make_null();
 	};
 	var LanguageDocument* document = @this.document_key(index.sources.data()[source].key.view());
@@ -131,9 +127,7 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		@document->template_anchor = rt::optional<usize>(usize(declaration->anchor.begin));
 		@document->template_arguments = rt::string(LanguageJson::text(parameters, "arguments"));
 		@document->template_context.clear();
-		if (!@this.schedule()) {
-			return rt::unique<rt::json_value>();
-		};
+		@this.schedule();
 	};
 	if (declaration) {
 		var description = rt::json_value::make_object();
@@ -190,9 +184,15 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		};
 		LanguageIndexedSymbol& symbol = index.symbols.data()[*found];
 		var item = rt::json_value::make_object();
-		if (!@seen.insert(u64(context), true) || !item.get() || !@item.get()->set("key", rt::json_value::make_string(symbol.detail.view())) || !@item.get()->set("label", rt::json_value::make_string(symbol.detail.view())) || !@items.get()->append($item)) {
+		if (!@seen.insert(u64(context), true)) {
 			return rt::unique<rt::json_value>();
 		};
+		if (!item.get()) {
+			return rt::unique<rt::json_value>();
+		};
+		@item.get()->set("key", rt::json_value::make_string(symbol.detail.view()));
+		@item.get()->set("label", rt::json_value::make_string(symbol.detail.view()));
+		@items.get()->append($item);
 		if (symbol.detail.view() == requested) {
 			@accepted = true;
 		};
@@ -202,13 +202,12 @@ fn LanguageWorkspace::template_contexts(var LanguageWorkspace& this, LanguageInd
 		@document->template_anchor.reset();
 		@document->template_arguments.clear();
 		@document->template_context = rt::string(requested);
-		if (typed_context && !@this.schedule()) {
-			return rt::unique<rt::json_value>();
+		if (typed_context) {
+			@this.schedule();
 		};
 	};
-	if (!@result.get()->set("items", $items) || !@result.get()->set("selected", rt::json_value::make_string(document->template_context.view()))) {
-		return rt::unique<rt::json_value>();
-	};
+	@result.get()->set("items", $items);
+	@result.get()->set("selected", rt::json_value::make_string(document->template_context.view()));
 	return $result;
 };
 
@@ -250,8 +249,14 @@ fn LanguageWorkspace::hover(var LanguageWorkspace& this, LanguageIndex& index, r
 
 	var content = rt::json_value::make_object();
 	var result = rt::json_value::make_object();
-	if (!content.get() || !result.get() || !@content.get()->set("kind", rt::json_value::make_string("plaintext")) || !@content.get()->set("value", rt::json_value::make_string(text.view())) || !@result.get()->set("contents", $content)) {
+	if (!content.get()) {
 		return rt::unique<rt::json_value>();
 	};
+	if (!result.get()) {
+		return rt::unique<rt::json_value>();
+	};
+	@content.get()->set("kind", rt::json_value::make_string("plaintext"));
+	@content.get()->set("value", rt::json_value::make_string(text.view()));
+	@result.get()->set("contents", $content);
 	return $result;
 };

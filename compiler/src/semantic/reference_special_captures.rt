@@ -5,7 +5,7 @@ enum reference_initialization_kind : [u08] {
 };
 
 // Special members have implicit receivers rather than ordinary call arguments.
-fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> bool {
+fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> CompilationResult {
 	var Entity* implementation = function.canonical();
 	if (implementation != &function) {
 		return @this.retain_effect_capture(@*implementation, owner, arguments, position, location);
@@ -58,35 +58,31 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 						@target.reference_contents = loan.place.reference_contents;
 						@target.field = loan.place.field;
 						@target.element = loan.place.element;
-						if (!@targets.push_back($target)) {
-							return false;
-						};
+						@targets.push_back($target);
 					};
 					@loan_index = loan_index + 1;
 				};
 			}
 			else {
 				if (function.role() == function_role::constructor && (owner->kind() == entity_kind::local || owner->kind() == entity_kind::parameter)) {
-					@this.error(location, "constructor reference capture may outlive local storage");
+					discard @this.error(location, "constructor reference capture may outlive local storage");
 					if (opaque) {
 						@this.diagnostics->note(function.token(), "constructor body is unavailable to reference analysis");
 					}
 					else {
 						@this.diagnostics->note(function.token(), "constructor receiver may escape through this function");
 					};
-					return false;
+					return CompilationResult(compilation_error());
 				};
 				ReferenceLoanPlace target;
 				@target.root = owner;
-				if (!@targets.push_back($target)) {
-					return false;
-				};
+				@targets.push_back($target);
 			};
 		}
 		else if (parameter && arguments && parameter - 1 < arguments->size()) {
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
-			if (!@this.places(*arguments->item(parameter - 1), @targets, @substitutions, nullptr, 0)) {
-				return false;
+			if (!(@this.places(*arguments->item(parameter - 1), @targets, @substitutions, nullptr, 0)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		usize candidate = 0;
@@ -99,16 +95,15 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 			@escaped.place.field = target.field;
 			@escaped.place.element = target.element;
 			@escaped.permission = reference_loan_permission(*capture.parameter->type(), 0);
-			if (!@escaped.escapes.push_back(usize(position)) || !@this.loans.push_back($escaped)) {
-				return @this.error(location, "special member capture storage is unavailable");
-			};
+			@escaped.escapes.push_back(usize(position));
+			@this.loans.push_back($escaped);
 			@candidate = candidate + 1;
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this) -> bool {
+fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this) -> CompilationResult {
 	usize index = 0;
 	while (index < this.expressions.size()) {
 		var SemanticExpression* expression = this.expressions.data()[index];
@@ -122,11 +117,11 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 		else if (expression->kind() == semantic_kind::construction && expression->size() > 1) {
 			@owner = expression->item(1)->owned_binding();
 		};
-		if (owner && construction->kind() == semantic_kind::construction && construction->entity() && !@this.retain_effect_capture(@*construction->entity(), owner, construction->item(0), this.position(*construction), *expression)) {
-			return false;
+		if (owner && construction->kind() == semantic_kind::construction && construction->entity() && !(@this.retain_effect_capture(@*construction->entity(), owner, construction->item(0), this.position(*construction), *expression)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
-		if (owner && construction->kind() == semantic_kind::construction && !@this.retain_constructor_captures(owner->type(), owner, this.position(*construction), *expression, 0, reference_initialization_kind::initialize, construction)) {
-			return false;
+		if (owner && construction->kind() == semantic_kind::construction && !(@this.retain_constructor_captures(owner->type(), owner, this.position(*construction), *expression, 0, reference_initialization_kind::initialize, construction)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 	};
@@ -138,59 +133,59 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 			if (!location) {
 				@location = this.function_body;
 			};
-			if (!@this.retain_destructor_captures(node.owner->type(), node.owner, index, *location, 0)) {
-				return false;
+			if (!(@this.retain_destructor_captures(node.owner->type(), node.owner, index, *location, 0)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth) -> CompilationResult {
 	if (depth > 32) {
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
 	if (type->kind() == type_kind::reference) {
-		return true;
+		return CompilationResult();
 	};
 	if (type->kind() == type_kind::array) {
 		return @this.retain_destructor_captures(type->element(), owner, position, location, depth + 1);
 	};
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return true;
+		return CompilationResult();
 	};
 	var Entity* record = type->entity();
-	if (record->destructor() && !@this.retain_effect_capture(@*record->destructor(), owner, nullptr, position, location)) {
-		return false;
+	if (record->destructor() && !(@this.retain_effect_capture(@*record->destructor(), owner, nullptr, position, location)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	usize index = 0;
 	while (index < record->bases().size()) {
-		if (!@this.retain_destructor_captures(record->bases().data()[index], owner, position, location, depth + 1)) {
-			return false;
+		if (!(@this.retain_destructor_captures(record->bases().data()[index], owner, position, location, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@index = index + 1;
 	};
 	@index = 0;
 	while (index < record->fields().size()) {
-		if (!@this.retain_destructor_captures(record->fields().data()[index]->type(), owner, position, location, depth + 1)) {
-			return false;
+		if (!(@this.retain_destructor_captures(record->fields().data()[index]->type(), owner, position, location, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
 
 // Follow the same selected initialization path as backend initialize_members and
 // copy_members. Generated relocation transfers representation without invoking
 // member constructors; a custom constructor initializes its members normally.
-fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> bool {
+fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> CompilationResult {
 	if (depth > 32) {
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
 	if (type->kind() == type_kind::reference) {
-		return true;
+		return CompilationResult();
 	};
 	if (initialization && initialization->kind() == semantic_kind::construction) {
 		var Entity* selected = initialization->entity();
@@ -214,13 +209,13 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 		};
 	};
 	if (mode == reference_initialization_kind::relocate) {
-		return true;
+		return CompilationResult();
 	};
 	if (type->kind() == type_kind::array) {
 		return @this.retain_constructor_captures(type->element(), owner, position, location, depth + 1, mode, nullptr);
 	};
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record || type->entity()->layout() == record_layout::overlapping) {
-		return true;
+		return CompilationResult();
 	};
 	var Entity* record = type->entity();
 	usize member = 0;
@@ -281,16 +276,16 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 					};
 					@capture_index = capture_index + 1;
 				};
-				if (!@this.retain_effect_capture(@*constructor, owner, arguments, position, location)) {
-					return false;
+				if (!(@this.retain_effect_capture(@*constructor, owner, arguments, position, location)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 				@child_mode = reference_initialization_kind::initialize;
 				@value = nullptr;
 			};
 		};
-		if (!@this.retain_constructor_captures(child, owner, position, location, depth + 1, child_mode, value)) {
-			return false;
+		if (!(@this.retain_constructor_captures(child, owner, position, location, depth + 1, child_mode, value)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
-	return true;
+	return CompilationResult();
 };

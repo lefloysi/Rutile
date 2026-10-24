@@ -17,7 +17,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		case semantic_kind::sequence: {
 			var LLVMOpaqueValue* result;
 
-			if (!@this.sequence(expression, native_evaluation::value, @result)) {
+			if (!(@this.sequence(expression, native_evaluation::value, @result)).has<void>()) {
 				return nullptr;
 			};
 
@@ -28,7 +28,7 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			Type* queried = expression->item(0)->type();
 
 			if (queried->kind() == type_kind::void_type || queried->kind() == type_kind::null_type || queried->kind() == type_kind::function) {
-				@this.backend->error(expression->token(), "size query requires an object type");
+				discard @this.backend->error(expression->token(), "size query requires an object type");
 				return nullptr;
 			};
 
@@ -58,10 +58,8 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 				return nullptr;
 			};
 			rt::buffer<var LLVMOpaqueValue*> fields;
-			if (!@fields.push_back(global) || !@fields.push_back(LLVMConstInt(length_type, text.size(), 0))) {
-				@this.backend->error(expression->token(), "cannot allocate string literal value");
-				return nullptr;
-			};
+			@fields.push_back(global);
+			@fields.push_back(LLVMConstInt(length_type, text.size(), 0));
 			return LLVMConstNamedStruct(type, (@fields).data(), 2);
 		};
 
@@ -109,7 +107,11 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			if (expression->type()->kind() == type_kind::pointer && expression->type()->element()->kind() == type_kind::null_type) {
 				return LLVMConstNull(type);
 			};
-			return LLVMBuildLoad2(this.backend->builder(), type, address, "variant.cast.read\0".data());
+			var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), type, address, "variant.cast.read\0".data());
+			if (expression->category() == value_category::consumable) {
+				@this.consume(expression->item(0));
+			};
+			return value;
 		};
 		case semantic_kind::relocation: {
 			var LLVMOpaqueValue* storage = @this.address(expression->item(0));
@@ -210,20 +212,18 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			if (FunctionEmitter::needs_destruction(element)) {
 				var LLVMOpaqueBasicBlock* destroy = @this.block("delete.destroy");
 				var LLVMOpaqueBasicBlock* after = @this.block("delete.after");
-				LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
+				discard LLVMBuildCondBr(this.backend->builder(), @this.truth(pointer, expression->item(0)->type()), destroy, after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), destroy);
 				usize unwind_begin = this.unwinds.size();
-				if (!@this.retain_unwind(element, nullptr, nullptr, pointer)) {
-					return nullptr;
-				};
+				@this.retain_unwind(element, nullptr, nullptr, pointer);
 
-				if (!@this.destroy(element, pointer)) {
+				if (!(@this.destroy(element, pointer)).has<void>()) {
 					return nullptr;
 				};
 
 				@this.forget_unwinds(unwind_begin);
 				var LLVMOpaqueValue* disposed = @this.native_free(pointer);
-				LLVMBuildBr(this.backend->builder(), after);
+				discard LLVMBuildBr(this.backend->builder(), after);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 				return disposed;
@@ -240,6 +240,6 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			return LLVMConstNull(type);
 	};
 
-	@this.backend->error(expression->token(), "expression has no implemented native lowering");
+	discard @this.backend->error(expression->token(), "expression has no implemented native lowering");
 	return nullptr;
 };

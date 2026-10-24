@@ -18,17 +18,16 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 	};
 	Type* known = variant_flow_known(this.variant_facts, *receiver.get());
 	var Entity* binding = variant_flow_binding(*receiver.get());
-	if (binding && !@this.variant_facts.establish(@*binding, elements->elements.data()[selected].type)) {
-		@this.error(&@syntax, "variant access proof storage is unavailable");
-		return rt::unique<SemanticExpression>();
+	if (binding) {
+		@this.variant_facts.establish(@*binding, elements->elements.data()[selected].type);
 	};
-	if (known && known->same_shape(*target) && target->kind() != type_kind::null_type) {
+	if (known && known->same_shape(*target) && target->kind() != type_kind::null_type && target->kind() != type_kind::void_type && receiver.get()->category() == value_category::place) {
 		return @this.convert(variant_flow_extract(@this, @syntax, $receiver, known), expected, @syntax);
 	};
 	if (known && known->same_shape(*target) && target->kind() == type_kind::null_type) {
 		Type* null_type = @this.types->pointer(@this.types->qualified(*target, type_qualifier::immutable));
 		var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
-		if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+		if (!result.get() || !(@result.get()->append($receiver)).has<void>() || !(@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>() || !(@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 		return @this.convert($result, expected, @syntax);
@@ -38,23 +37,24 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 	if (null_result) {
 		@result_type = @this.types->pointer(@this.types->qualified(*result_type, type_qualifier::immutable));
 	};
-	if (owner->qualifier() == type_qualifier::immutable) {
+	if (owner->qualifier() == type_qualifier::immutable && result_type->kind() != type_kind::void_type) {
 		@result_type = @this.types->qualified(*result_type, type_qualifier::immutable);
 	};
 	bool mutable_access = receiver.get()->mutable_access();
+	value_category category = receiver.get()->category();
 	var result = @this.node(semantic_kind::variant_cast, result_type, &@syntax);
-	if (!result.get() || !@result.get()->append($receiver)) {
+	if (!result.get() || !(@result.get()->append($receiver)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	@result.get()->set_integer(u64(selected + 1));
 	@result.get()->set_mutable_access(mutable_access);
-	if (!null_result) {
-		@result.get()->set_category(value_category::place);
+	if (!null_result && result_type->kind() != type_kind::void_type) {
+		@result.get()->set_category(category);
 	};
 	@index = 0;
 	while (index < elements->elements.size()) {
 		if (index == selected) {
-			if (!@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))) {
+			if (!(@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 		}
@@ -63,7 +63,7 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 			if (alternative->kind() == type_kind::null_type) {
 				Type* null_type = @this.types->pointer(@this.types->qualified(*alternative, type_qualifier::immutable));
 				var failure = @this.node(semantic_kind::exception_throw, this.types->find_primitive("void"), &@syntax);
-				if (!failure.get() || !@failure.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax)) || !@result.get()->append($failure)) {
+				if (!failure.get() || !(@failure.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))).has<void>() || !(@result.get()->append($failure)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 				@index = index + 1;
@@ -73,7 +73,7 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 			if (owner->qualifier() == type_qualifier::immutable) {
 				@payload_type = @this.types->qualified(*payload_type, type_qualifier::immutable);
 			};
-			if (!@this.prepare_copy(alternative)) {
+			if (category == value_category::place && !(@this.prepare_copy(alternative)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 			if (alternative->kind() == type_kind::named && alternative->entity()->kind() == entity_kind::record && !exception_member_access(@this, alternative->entity()->destructor(), @scope, syntax.token())) {
@@ -83,7 +83,7 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 			if (!payload.get()) {
 				return rt::unique<SemanticExpression>();
 			};
-			@payload.get()->set_category(value_category::place);
+			@payload.get()->set_category(category);
 			var value = @this.initialize(@syntax, alternative, $payload);
 			if (!value.get()) {
 				return rt::unique<SemanticExpression>();
@@ -92,7 +92,7 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 				return rt::unique<SemanticExpression>();
 			};
 			var failure = @this.node(semantic_kind::exception_throw, this.types->find_primitive("void"), &@syntax);
-			if (!failure.get() || !@failure.get()->append($value) || !@result.get()->append($failure)) {
+			if (!failure.get() || !(@failure.get()->append($value)).has<void>() || !(@result.get()->append($failure)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 		};

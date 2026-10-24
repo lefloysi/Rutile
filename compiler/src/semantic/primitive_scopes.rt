@@ -13,12 +13,13 @@ fn SemanticUnit::associated_owner(SemanticUnit& this, Type& type) -> var Entity*
 	return nullptr;
 };
 
-fn SemanticUnit::associate(var SemanticUnit& this, Type& type, var Entity& owner) -> bool {
+fn SemanticUnit::associate(var SemanticUnit& this, Type& type, var Entity& owner) {
 	AssociatedScope association;
 	@association.type = &@type;
 	@association.owner = &@owner;
 
-	return @this.associated_scopes.push_back($association);
+	@this.associated_scopes.push_back($association);
+	return;
 };
 
 fn Analyzer::primitive_scope(var Analyzer& this, Type& type, Token& location) -> var Entity* {
@@ -60,23 +61,24 @@ fn Analyzer::primitive_scope(var Analyzer& this, Type& type, Token& location) ->
 
 	@owner->set_members((var Scope*(members)));
 
-	if (!@this.unit->associate(*canonical, @*owner) || !@this.primitive_constants(@*owner)) {
+	@this.unit->associate(*canonical, @*owner);
+	if (!((@this.primitive_constants(@*owner)).has<void>())) {
 		return nullptr;
 	};
 
 	return owner;
 };
 
-fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool {
+fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> CompilationResult {
 	Type* type = owner.type();
 
 	if (!type->kind().is_numeric()) {
-		return true;
+		return CompilationResult();
 	};
 
 	Type* value_type = @this.types->qualified(*type, type_qualifier::immutable);
 	if (!value_type) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	semantic_kind kind = semantic_kind::literal_integer;
@@ -85,10 +87,10 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool 
 		@kind = semantic_kind::literal_real;
 	};
 
-	var value = rt::unique<SemanticExpression>(new var SemanticExpression($kind, value_type, owner.token()));
+	var value = SemanticExpression::make($kind, value_type, owner.token());
 
 	if (!value.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	if (type->kind() == type_kind::floating_point) {
@@ -118,8 +120,11 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool 
 
 	var Entity* constant = @this.unit->create_entity(entity_kind::constant, owner.token(), nullptr, owner.members());
 
-	if (!constant || !@constant->set_name("max")) {
-		return false;
+	if (constant) {
+		@constant->set_name("max");
+	}
+	else {
+		return CompilationResult(compilation_error());
 	};
 
 	@constant->set_origin(declaration_origin::compiler_supplied);
@@ -128,5 +133,5 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> bool 
 	@constant->set_state(entity_state::ready);
 	@constant->set_body_state(entity_state::ready);
 
-	return true;
+	return CompilationResult();
 };

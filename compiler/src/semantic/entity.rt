@@ -104,11 +104,11 @@ struct Entity {
 	fn canonical(Entity& this) -> var Entity*;
 	fn token(Entity& this) -> Token;
 	fn name(Entity& this) -> rt::string_view;
-	fn set_name(var Entity& this, rt::string_view name) -> bool;
+	fn set_name(var Entity& this, rt::string_view name);
 	fn origin(Entity& this) -> declaration_origin;
 	fn set_origin(var Entity& this, declaration_origin origin);
 	fn merge_into(var Entity& this, var Entity* canonical);
-	fn adopt_definition(var Entity& this, Entity& source) -> bool;
+	fn adopt_definition(var Entity& this, Entity& source);
 
 	fn type(Entity& this) -> Type*;
 	fn set_type(var Entity& this, Type* type);
@@ -123,7 +123,7 @@ struct Entity {
 	fn imported_definition(Entity& this) -> bool;
 	fn module_exported(Entity& this) -> bool;
 	fn bases(Entity& this) -> rt::buffer<Type*>&;
-	fn add_base(var Entity& this, Type* type) -> bool;
+	fn add_base(var Entity& this, Type* type);
 
 	fn declaration(Entity& this) -> var Syntax*;
 	fn replace_declaration(var Entity& this, var Syntax* syntax);
@@ -135,9 +135,9 @@ struct Entity {
 	fn find_member(Entity& this, rt::string_view name) -> var Entity*;
 
 	fn parameters(Entity& this) -> rt::buffer<var Entity*>&;
-	fn add_parameter(var Entity& this, var Entity* parameter) -> bool;
+	fn add_parameter(var Entity& this, var Entity* parameter);
 	fn fields(Entity& this) -> rt::buffer<var Entity*>&;
-	fn add_field(var Entity& this, var Entity* field) -> bool;
+	fn add_field(var Entity& this, var Entity* field);
 	fn set_fields(var Entity& this, rt::buffer<var Entity*> fields);
 	fn index(Entity& this) -> usize;
 	fn set_index(var Entity& this, usize index);
@@ -162,7 +162,7 @@ struct Entity {
 	fn virtual_owner(Entity& this) -> var Entity*;
 	fn owns_dispatch(Entity& this) -> bool;
 	fn virtual_functions(Entity& this) -> rt::buffer<var Entity*>&;
-	fn add_virtual(var Entity& this, var Entity* function) -> bool;
+	fn add_virtual(var Entity& this, var Entity* function);
 	fn replace_virtual(var Entity& this, usize index, var Entity& function);
 	fn dispatch(Entity& this) -> function_dispatch;
 	fn set_dispatch(var Entity& this, function_dispatch dispatch);
@@ -289,8 +289,9 @@ fn Entity::virtual_functions(Entity& this) -> rt::buffer<var Entity*>& {
 	return this.dispatch_table;
 };
 
-fn Entity::add_virtual(var Entity& this, var Entity* function) -> bool {
-	return @this.dispatch_table.push_back($function);
+fn Entity::add_virtual(var Entity& this, var Entity* function) {
+	@this.dispatch_table.push_back($function);
+	return;
 };
 
 fn Entity::replace_virtual(var Entity& this, usize index, var Entity& function) {
@@ -366,8 +367,9 @@ fn Entity::bases(Entity& this) -> rt::buffer<Type*>& {
 	return this.base_types;
 };
 
-fn Entity::add_base(var Entity& this, Type* type) -> bool {
-	return @this.base_types.push_back($type);
+fn Entity::add_base(var Entity& this, Type* type) {
+	@this.base_types.push_back($type);
+	return;
 };
 
 fn Entity::Entity(var Entity& this, entity_kind kind, Token& token, var Syntax* source, var Scope* scope) {
@@ -464,8 +466,9 @@ fn Entity::name(Entity& this) -> rt::string_view {
 	return this.location.text();
 };
 
-fn Entity::set_name(var Entity& this, rt::string_view name) -> bool {
-	return @this.generated_name.append(name);
+fn Entity::set_name(var Entity& this, rt::string_view name) {
+	@this.generated_name.append(name);
+	return;
 };
 
 fn Entity::origin(Entity& this) -> declaration_origin {
@@ -804,7 +807,7 @@ fn Entity::replace_declaration(var Entity& this, var Syntax* syntax) {
 	@this.source = $syntax;
 };
 
-fn Entity::adopt_definition(var Entity& this, Entity& source) -> bool {
+fn Entity::adopt_definition(var Entity& this, Entity& source) {
 	if (this.declaration() && this.declaration()->exported() && source.declaration()) {
 		@source.declaration()->mark_exported();
 	};
@@ -821,14 +824,12 @@ fn Entity::adopt_definition(var Entity& this, Entity& source) -> bool {
 	@this.arguments.clear();
 	usize index = 0;
 	while (index < source.parameters().size()) {
-		if (!@this.arguments.push_back(source.parameters().data()[index])) {
-			return false;
-		};
+		@this.arguments.push_back(source.parameters().data()[index]);
 
 		@index = index + 1;
 	};
 
-	return true;
+	return;
 };
 
 fn Entity::set_members(var Entity& this, var Scope* scope) {
@@ -860,12 +861,14 @@ fn Entity::set_index(var Entity& this, usize index) {
 	@this.position = $index;
 };
 
-fn Entity::add_parameter(var Entity& this, var Entity* parameter) -> bool {
-	return @this.arguments.push_back($parameter);
+fn Entity::add_parameter(var Entity& this, var Entity* parameter) {
+	@this.arguments.push_back($parameter);
+	return;
 };
 
-fn Entity::add_field(var Entity& this, var Entity* field) -> bool {
-	return @this.member_fields.push_back($field);
+fn Entity::add_field(var Entity& this, var Entity* field) {
+	@this.member_fields.push_back($field);
+	return;
 };
 
 fn Entity::set_fields(var Entity& this, rt::buffer<var Entity*> fields) {

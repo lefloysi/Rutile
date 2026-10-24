@@ -18,31 +18,34 @@ fn Analyzer::null_member_pack(var Analyzer& this, var Scope& scope, var Syntax& 
 	Type* marker = pack->pack()->elements.data()[this.folded_field_index].type;
 	Type* null_type = @this.types->pointer(@this.types->qualified(*marker, type_qualifier::immutable));
 	var result = @this.node(semantic_kind::sequence, null_type, &@syntax);
-	if (!result.get() || !@result.get()->append($receiver) || !@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))) {
+	if (!result.get() || !(@result.get()->append($receiver)).has<void>() || !(@result.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>() || !(@result.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	return @this.convert($result, expected, @syntax);
 };
 
-fn Analyzer::pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> bool {
+fn Analyzer::pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> CompilationResult {
 	var Syntax* signature = @this.templates.signature(@this, @scope, @*syntax.variable_type());
 	var Syntax* initializer = syntax.variable_initializer();
 	if (!signature || initializer->kind() != syntax_kind::unary || initializer->token().kind != token_kind::op_assign) {
 		@this.error(&@syntax, "a compile-time pack binding requires a signature and '= <arguments>' initializer");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	@pack = @this.templates.pack(@this, @scope, @*initializer->operand());
-	return pack && @this.templates.validate_pack(@this, @scope, @*signature, @*pack);
+	if (pack && (@this.templates.validate_pack(@this, @scope, @*signature, @*pack)).has<void>()) {
+		return CompilationResult();
+	};
+	return CompilationResult(compilation_error());
 };
 
-fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> bool {
+fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> CompilationResult {
 	if (syntax.kind() == syntax_kind::pack_fold) {
-		return true;
+		return CompilationResult();
 	};
 	if (syntax.kind() == syntax_kind::member) {
 		var receiver = @this.expression(@scope, @*syntax.member_object(), rt::optional_ref<const Type>());
 		if (!receiver.get()) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		Type* owner = receiver.get()->type();
 		if (syntax.token().kind == token_kind::op_arrow && owner->kind() == type_kind::pointer) {
@@ -54,14 +57,14 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 				if (!this.accessible_at(*member, @scope, syntax.token())) {
 					@this.error(&@syntax, "member pack is not accessible from this scope");
 					@this.note(member->token(), "member pack is declared here");
-					return false;
+					return CompilationResult(compilation_error());
 				};
 				if (binding && binding != member) {
 					@this.error(&@syntax, "a fold pattern must reference one pack");
-					return false;
+					return CompilationResult(compilation_error());
 				};
 				@binding = member;
-				return true;
+				return CompilationResult();
 			};
 		};
 	};
@@ -71,27 +74,27 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 			if (entity->kind() == entity_kind::field_pack && !this.accessible_at(*entity, @scope, syntax.token())) {
 				@this.error(&@syntax, "member pack is not accessible from this scope");
 				@this.note(entity->token(), "member pack is declared here");
-				return false;
+				return CompilationResult(compilation_error());
 			};
 			if (binding && binding != entity) {
 				@this.error(&@syntax, "a fold pattern must reference one pack");
-				return false;
+				return CompilationResult(compilation_error());
 			};
-			if (!@this.resolve(entity)) {
-				return false;
+			if (!(@this.resolve(entity)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			@binding = entity;
-			return true;
+			return CompilationResult();
 		};
 	};
 	usize child = 0;
 	while (child < syntax.size()) {
-		if (!@this.fold_binding(@scope, @*syntax.item(child), @binding)) {
-			return false;
+		if (!(@this.fold_binding(@scope, @*syntax.item(child), @binding)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@child = child + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
 fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
@@ -104,7 +107,7 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 	if (pattern->kind() == syntax_kind::pack_literal) {
 		@pack = @this.templates.pack(@this, @scope, @*pattern);
 	}
-	else if (@this.fold_binding(@scope, @*pattern, @binding) && binding) {
+	else if ((@this.fold_binding(@scope, @*pattern, @binding)).has<void>() && binding) {
 		@pack = binding->pack();
 	};
 	if (!pack) {
@@ -137,7 +140,10 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			var value = @this.expression(@scope, @*pattern, rt::optional_ref<const Type>());
 			@this.folded_field_pack = previous;
 			@this.folded_field_index = previous_index;
-			if (!value.get() || !@values.push_back($value)) {
+			if (value.get()) {
+				@values.push_back($value);
+			}
+			else {
 				return rt::unique<SemanticExpression>();
 			};
 			@index = index + 1;
@@ -145,7 +151,10 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		};
 		if (!binding) {
 			var value = @this.templates.pack_value(@this, pack->elements.data()[index], @syntax);
-			if (!value.get() || !@values.push_back($value)) {
+			if (value.get()) {
+				@values.push_back($value);
+			}
+			else {
 				return rt::unique<SemanticExpression>();
 			};
 			@index = index + 1;
@@ -161,7 +170,10 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			@kind = entity_kind::type_parameter;
 		};
 		var Entity* element = @this.unit->create_entity($kind, binding->token(), &@syntax, iteration);
-		if (!element || !@element->set_name(binding->name())) {
+		if (element) {
+			@element->set_name(binding->name());
+		}
+		else {
 			return rt::unique<SemanticExpression>();
 		};
 		@element->set_type(argument.type);
@@ -183,7 +195,10 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		var value = @this.expression(@*iteration, @*pattern, rt::optional_ref<const Type>());
 		@this.folded_pack = $previous_pack;
 		@this.folded_argument = $previous_argument;
-		if (!value.get() || !@values.push_back($value)) {
+		if (value.get()) {
+			@values.push_back($value);
+		}
+		else {
 			return rt::unique<SemanticExpression>();
 		};
 		@index = index + 1;
@@ -199,7 +214,7 @@ fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 			};
 			@sequence.get()->set_category(result.get()->category());
 			@sequence.get()->set_mutable_access(result.get()->mutable_access());
-			if (!@sequence.get()->append(rt::unique<SemanticExpression>(@(@values).data()[index].release())) || !@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax)) || !@sequence.get()->append(rt::unique<SemanticExpression>(@result.release()))) {
+			if (!(@sequence.get()->append(rt::unique<SemanticExpression>(@(@values).data()[index].release()))).has<void>() || !(@sequence.get()->append(@this.node(semantic_kind::noop, this.types->find_primitive("void"), &@syntax))).has<void>() || !(@sequence.get()->append(rt::unique<SemanticExpression>(@result.release()))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 			@result = $sequence;

@@ -18,20 +18,22 @@ internal sealed class SemanticReplies {
 	internal readonly TaskCompletionSource<bool> Waiting = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 	internal TaskCompletionSource<bool> Completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 	internal int Legends;
+	internal bool Unavailable;
 	[JsonRpcMethod("rutile/semanticTokensLegend", UseSingleObjectParameterDeserialization = true)]
 	public JObject Legend(JToken parameters) {
 		Interlocked.Increment(ref Legends);
 		return new JObject { ["tokenTypes"] = Types, ["tokenModifiers"] = new JArray() };
 	}
 	[JsonRpcMethod("textDocument/semanticTokens/full", UseSingleObjectParameterDeserialization = true)]
-	public async Task<JObject> Tokens(JToken parameters) {
+	public async Task<JObject?> Tokens(JToken parameters) {
 		var data = (JArray)Data.DeepClone();
+		var unavailable = Unavailable;
 		if (Delay != null) {
 			Waiting.TrySetResult(true);
 			await Delay.Task.ConfigureAwait(false);
 		}
 		Completed.TrySetResult(true);
-		return new JObject { ["data"] = data };
+		return unavailable ? null : new JObject { ["data"] = data };
 	}
 }
 
@@ -101,11 +103,20 @@ public static partial class EditorObservations {
 			SynchronizationContext.SetSynchronizationContext(previousContext);
 			var document = new JObject { ["textDocument"] = new JObject { ["uri"] = uri, ["text"] = text } };
 			RutileSemanticStore.Instance.DocumentChanged("textDocument/didOpen", document);
-			var replies = new SemanticReplies { Data = new JArray(0, 7, 1, 0, 0) };
+			var replies = new SemanticReplies { Unavailable = true, Data = new JArray(0, 7, 1, 0, 0) };
 			using (var first = new SemanticPeer(replies)) {
 				var client = new RutileLanguageClient();
 				await client.OnServerInitializedAsync().ConfigureAwait(false);
 				await ((ILanguageClientCustomMessage2)client).AttachForCustomMessageAsync(first.Rpc).ConfigureAwait(false);
+				await Until(() => replies.Completed.Task.IsCompleted, timeout.Token).ConfigureAwait(false);
+				await Task.Delay(100, timeout.Token).ConfigureAwait(false);
+				state.Current(snapshot, out var unavailableAuthoritative);
+				var registryBeforePublication = new EditorInterface<IClassificationTypeRegistryService>((method, values) => method.Name == "GetClassificationType"
+					? new EditorInterface<IClassificationType>((member, arguments) => member.Name == "get_Classification" ? values[0] : null).Value : null).Value;
+				var provisionalClassifier = new RutileLexicalClassifier(buffer, registryBeforePublication, state);
+				var unavailableColors = provisionalClassifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, text.Length)).Select(span => span.ClassificationType.Classification).ToArray();
+				replies.Unavailable = false;
+				RutileSemanticStore.Instance.DocumentChanged("textDocument/didSave", document);
 				await Until(() => state.Current(snapshot, out _).Any(span => span.Classification == "rutile.function"), timeout.Token).ConfigureAwait(false);
 				var initial = state.Current(snapshot, out _).Select(span => span.Classification).ToArray();
 				replies.Delay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,9 +144,15 @@ public static partial class EditorObservations {
 						? new EditorInterface<IClassificationType>((member, arguments) => member.Name == "get_Classification" ? values[0] : null).Value : null).Value;
 					var classifier = new RutileLexicalClassifier(buffer, registry, state);
 					var changed = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, text.Length)).Select(span => span.ClassificationType.Classification).ToArray();
+					replacement.Data = new JArray();
+					RutileSemanticStore.Instance.DocumentChanged("textDocument/didSave", document);
+					await Until(() => state.Current(snapshot, out var authoritative).Count == 0 && authoritative, timeout.Token).ConfigureAwait(false);
+					var indexedEmptyColors = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, text.Length)).Count;
 					RutileSemanticStore.Instance.DocumentChanged("textDocument/didClose", document);
 					return JsonConvert.SerializeObject(new { initial, after_late_reply = afterLateReply, replacement_retained = replacementRetained,
-						changed, initial_legends = replies.Legends, replacement_legends = replacement.Legends });
+						changed, unavailable_authoritative = unavailableAuthoritative, unavailable_colors = unavailableColors,
+						indexed_empty_colors = indexedEmptyColors,
+						initial_legends = replies.Legends, replacement_legends = replacement.Legends });
 				}
 			}
 		}

@@ -669,11 +669,29 @@ provide a terminator explicitly or use an owning string's `c_str()`.
 > var empty = "";    // rt::string_view with size 0
 > ```
 
+<sup>4</sup> A raw string literal begins with `"""` and ends with the first following `"""`.
+Its value contains exactly the bytes between these delimiters. Indentation, spaces, line
+endings, and backslashes are preserved. Escape sequences are not interpreted. The delimiters
+can occur on the same line or on different lines; opening and trailing line endings inside
+the delimiters are part of the value. The contents need no continuation markers. A raw string
+literal without a closing delimiter is ill-formed.
+
 **To define:** complete escape grammar; literal storage identity; and encoding guarantees.
 
 <a id="stmt"></a>
 
 # 8 Statements [stmt]
+
+<sup>1</sup> An expression used as a statement shall have type `void`, except for a variable
+declaration, an assignment expression, or explicit construction into an existing destination.
+An unused ordinary return value is ill-formed.
+Parentheses around an assignment do not change its eligibility as a statement.
+
+<sup>2</sup> A signed-union result with a unique `void` alternative can be used as a statement.
+If that alternative is active, execution continues. Otherwise, its active non-void alternative
+is thrown using the ordinary exception mechanism. The result is evaluated once.
+Capturing the signed union with an inferred declaration preserves all its alternatives;
+that declaration does not select `void` or throw the captured alternative.
 
 **To define:** statement grammar and its relationship to expressions and declarations; expression
 statement termination; and statement-end cleanup.
@@ -899,6 +917,12 @@ remains implicit when no better candidate is available. This ordering also appli
 type. The copy produces a consumable value and preserves the source. This applies to value
 initialization, by-value arguments, and return values; explicit primitive construction also
 accepts the read-only source.
+
+<sup>7</sup> When a destination type uniquely identifies an alternative of a signed-union
+source, implicit conversion selects that alternative. If it is active, initialization or
+argument binding proceeds from its value. Otherwise, the active alternative is thrown.
+Each non-selected alternative shall be a valid exception type; `void` is not an exception
+type. Alternative selection does not infer a destination through numeric conversions.
 
 **To define:** complete declaration syntax, including constructor return spelling; eligible
 conversion contexts; candidate selection and ranking; permitted conversion chains; and the

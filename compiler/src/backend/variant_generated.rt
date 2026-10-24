@@ -1,5 +1,5 @@
 // A null source destroys the active payload; otherwise it copy constructs that payload.
-fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, bool assign) -> bool {
+fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, bool assign) -> CompilationResult {
 	var Entity* record = type->entity();
 	var Entity* storage_field = record->find_member("_storage");
 	var Entity* tag_field = record->find_member("_index");
@@ -9,7 +9,7 @@ fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var 
 	var LLVMOpaqueType* native = @this.backend->type(type, record->token());
 	var LLVMOpaqueType* tag_type = @this.backend->type(tag_field->type(), tag_field->token());
 	if (!native || !tag_type) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	var LLVMOpaqueValue* output = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, storage_field->index()), "variant.payload\0".data());
 	var LLVMOpaqueValue* output_tag = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, tag_field->index()), "variant.tag.address\0".data());
@@ -40,34 +40,34 @@ fn FunctionEmitter::variant_transfer(var FunctionEmitter& this, Type* type, var 
 		LLVMPositionBuilderAtEnd(this.backend->builder(), active);
 		if (source) {
 			if (assign) {
-				if (!@this.copy_assign(alternative->type(), output, input)) {
-					return false;
+				if (!(@this.copy_assign(alternative->type(), output, input)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 			}
 			else {
-				if (!@this.copy_initialize(alternative->type(), output, input)) {
-					return false;
+				if (!(@this.copy_initialize(alternative->type(), output, input)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 			};
 		}
 		else {
-			if (!@this.destroy(alternative->type(), output)) {
-				return false;
+			if (!(@this.destroy(alternative->type(), output)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
-		LLVMBuildBr(this.backend->builder(), after);
+		discard LLVMBuildBr(this.backend->builder(), after);
 		@index = index + 1;
 	};
 	LLVMPositionBuilderAtEnd(this.backend->builder(), invalid);
-	LLVMBuildUnreachable(this.backend->builder());
+	discard LLVMBuildUnreachable(this.backend->builder());
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 	if (source && !assign) {
-		LLVMBuildStore(this.backend->builder(), tag, output_tag);
+		discard LLVMBuildStore(this.backend->builder(), tag, output_tag);
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* function, Type* type, var LLVMOpaqueValue* destination) -> bool {
+fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* function, Type* type, var LLVMOpaqueValue* destination) -> CompilationResult {
 	if (function->role() == function_role::constructor && function->parameters().size() == 1) {
 		var Entity* record = type->entity();
 		TemplatePack& alternatives = *record->template_arguments()->arguments.data()[0].pack;
@@ -79,21 +79,21 @@ fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* fun
 		var LLVMOpaqueType* native = @this.backend->type(type, function->token());
 		var LLVMOpaqueType* tag_type = @this.backend->type(tag_field->type(), tag_field->token());
 		if (!native || !tag_type) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		Type* first = alternatives.elements.data()[0].type;
 		if (first->kind() != type_kind::null_type && first->kind() != type_kind::void_type) {
 			var LLVMOpaqueValue* payload = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, storage_field->index()), "variant.default.payload\0".data());
-			if (!@this.initialize(first, payload)) {
-				return false;
+			if (!(@this.initialize(first, payload)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		var LLVMOpaqueValue* tag = LLVMBuildStructGEP2(this.backend->builder(), native, destination, this.backend->field_index(record, tag_field->index()), "variant.default.tag\0".data());
-		LLVMBuildStore(this.backend->builder(), LLVMConstInt(tag_type, 1, 0), tag);
+		discard LLVMBuildStore(this.backend->builder(), LLVMConstInt(tag_type, 1, 0), tag);
 	}
 	else if (function->role() == function_role::destructor) {
-		if (!@this.variant_transfer(type, destination, nullptr, false)) {
-			return false;
+		if (!(@this.variant_transfer(type, destination, nullptr, false)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	}
 	else {
@@ -113,10 +113,10 @@ fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* fun
 			var LLVMOpaqueBasicBlock* replace = @this.block("variant.assign.replace");
 			@complete = @this.block("variant.assign.complete");
 			if (copy) {
-				LLVMBuildBr(this.backend->builder(), replace);
+				discard LLVMBuildBr(this.backend->builder(), replace);
 			}
 			else {
-				LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, destination, source, "variant.same.object\0".data()), complete, replace);
+				discard LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, destination, source, "variant.same.object\0".data()), complete, replace);
 			};
 			LLVMPositionBuilderAtEnd(this.backend->builder(), replace);
 			if (copy) {
@@ -130,58 +130,56 @@ fn FunctionEmitter::generated_variant(var FunctionEmitter& this, var Entity* fun
 				var LLVMOpaqueValue* right = LLVMBuildLoad2(this.backend->builder(), tag_type, input_tag, "variant.assign.source.tag\0".data());
 				var LLVMOpaqueBasicBlock* assign = @this.block("variant.assign.active");
 				var LLVMOpaqueBasicBlock* reconstruct = @this.block("variant.assign.reconstruct");
-				LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, left, right, "variant.same.alternative\0".data()), assign, reconstruct);
+				discard LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 32, left, right, "variant.same.alternative\0".data()), assign, reconstruct);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), assign);
-				if (!@this.variant_transfer(type, destination, source, true)) {
-					return false;
+				if (!(@this.variant_transfer(type, destination, source, true)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
-				LLVMBuildBr(this.backend->builder(), complete);
+				discard LLVMBuildBr(this.backend->builder(), complete);
 				LLVMPositionBuilderAtEnd(this.backend->builder(), reconstruct);
 				@replacement = @this.slot(type);
-				if (!replacement || !@this.variant_transfer(type, replacement, source, false)) {
-					return false;
+				if (!replacement || !(@this.variant_transfer(type, replacement, source, false)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
-				if (!@this.retain_unwind(type, replacement, nullptr, nullptr)) {
-					return false;
-				};
+				@this.retain_unwind(type, replacement, nullptr, nullptr);
 			};
-			if (!@this.variant_transfer(type, destination, nullptr, false)) {
-				return false;
+			if (!(@this.variant_transfer(type, destination, nullptr, false)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		if (replacement) {
-			if (!@this.copy_representation(type, destination, replacement)) {
-				return false;
+			if (!(@this.copy_representation(type, destination, replacement)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			@this.forget_unwinds(unwind_begin);
 		}
 		else if (copy) {
-			if (!@this.variant_transfer(type, destination, source, false)) {
-				return false;
+			if (!(@this.variant_transfer(type, destination, source, false)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		}
 		else {
-			if (!@this.copy_representation(type, destination, source)) {
-				return false;
+			if (!(@this.copy_representation(type, destination, source)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			@this.binding_live(parameter, false);
 		};
 		if (complete) {
-			LLVMBuildBr(this.backend->builder(), complete);
+			discard LLVMBuildBr(this.backend->builder(), complete);
 			LLVMPositionBuilderAtEnd(this.backend->builder(), complete);
 		};
 	};
-	if (!@this.cleanup_bindings(0)) {
-		return false;
+	if (!(@this.cleanup_bindings(0)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	if (this.result->kind() == type_kind::void_type) {
-		LLVMBuildRetVoid(this.backend->builder());
+		discard LLVMBuildRetVoid(this.backend->builder());
 	}
 	else if (this.result->kind() == type_kind::reference) {
-		LLVMBuildRet(this.backend->builder(), destination);
+		discard LLVMBuildRet(this.backend->builder(), destination);
 	}
 	else {
-		LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result, function->token()), destination, "variant.result\0".data()));
+		discard LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result, function->token()), destination, "variant.result\0".data()));
 	};
-	return true;
+	return CompilationResult();
 };

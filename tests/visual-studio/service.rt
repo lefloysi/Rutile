@@ -1,29 +1,26 @@
 [[test]]
 fn persistent_editor_service_supplies_project_sources_imported_types_colors_and_navigation() {
 	var result = editor_observation("Service");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("disposed")->boolean());
 	rt::test::expect(root->member("cancelled_disposed")->boolean());
 	rt::test::expect(root->member("unexpected_disposed")->boolean());
 	rt::test::expect(root->member("unexpected_notification")->boolean());
 	i64 notifications = -1;
-	rt::test::expect(root->member("disposal_notifications")->integer(@notifications) && !notifications);
+	@notifications = root->member("disposal_notifications")->integer();
+	rt::test::expect(!notifications);
 	var locations = root->member("definitions");
-	if (!rt::test::expect(locations->size() == 1)) {
-		return;
-	};
+	rt::test::expect(locations->size() == 1);
 	rt::test::expect(locations->item(0)->member("uri")->text() == root->member("uri")->text());
 	var start = locations->item(0)->member("range")->member("start");
 	i64 position = -1;
-	rt::test::expect(start->member("line")->integer(@position) && !position);
-	rt::test::expect(start->member("character")->integer(@position) && position == 3);
+	@position = start->member("line")->integer();
+	rt::test::expect(!position);
+	@position = start->member("character")->integer();
+	rt::test::expect(position == 3);
 	var colors = root->member("colors");
 	bool function_declaration = false;
 	bool function_reference = false;
@@ -35,7 +32,7 @@ fn persistent_editor_service_supplies_project_sources_imported_types_colors_and_
 		var text = color->member("text")->text();
 		var classification = color->member("classification")->text();
 		i64 offset = -1;
-		rt::test::expect(color->member("start")->integer(@offset));
+		@offset = color->member("start")->integer();
 		if (text == "answer" && classification == "rutile.function" && offset == 3) {
 			@function_declaration = true;
 		};

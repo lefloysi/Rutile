@@ -1,17 +1,17 @@
-fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	var SemanticExpression* condition = expression->item(0);
 	var SemanticExpression* body = expression->item(1);
 	usize temporary_boundary = this.temporaries.size();
 	var LLVMOpaqueValue* value = @this.value(condition);
 
-	if (!value || !@this.cleanup_temporaries(temporary_boundary)) {
-		return false;
+	if (!value || !(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	@this.forget_temporaries(temporary_boundary);
 
 	if (!body) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (body->kind() != semantic_kind::brace) {
@@ -38,13 +38,11 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 				@count = count + 1;
 			};
 		}
-		else if (!@this.validate_switch_item(item)) {
-			return false;
+		else if (!(@this.validate_switch_item(item)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
-		if (!@labels.push_back(destination)) {
-			return @this.backend->error(item->token(), "cannot retain native switch labels");
-		};
+		@labels.push_back(destination);
 
 		@index = index + 1;
 	};
@@ -84,15 +82,15 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 
 		if (item->kind() == semantic_kind::case_label) {
 			if (!this.terminated()) {
-				LLVMBuildBr(this.backend->builder(), labels.data()[index]);
+				discard LLVMBuildBr(this.backend->builder(), labels.data()[index]);
 			};
 
 			LLVMPositionBuilderAtEnd(this.backend->builder(), labels.data()[index]);
 		}
-		else if (!@this.statement(item)) {
+		else if (!(@this.statement(item)).has<void>()) {
 			@this.active_control = control.parent;
 
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
@@ -102,21 +100,21 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 
 	if (!this.terminated()) {
 		@control.leave_edges = control.leave_edges + 1;
-		LLVMBuildBr(this.backend->builder(), after);
+		discard LLVMBuildBr(this.backend->builder(), after);
 	};
 
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 	if (!control.leave_edges) {
-		LLVMBuildUnreachable(this.backend->builder());
+		discard LLVMBuildUnreachable(this.backend->builder());
 	};
 
 	return @this.leave_scope(scope_boundary);
 };
 
-fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	if (expression->kind() == semantic_kind::switch_expression) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (expression->kind() == semantic_kind::case_label) {
@@ -126,12 +124,12 @@ fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var Semantic
 	usize index = 0;
 
 	while (index < expression->size()) {
-		if (!@this.validate_switch_item(expression->item(index))) {
-			return false;
+		if (!(@this.validate_switch_item(expression->item(index))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };

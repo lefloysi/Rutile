@@ -54,11 +54,14 @@ fn buffer_relocation_does_not_destroy_live_elements() {
 	LifetimeCounts counts;
 	{
 		rt::buffer<TrackedValue> values;
-		rt::test::expect(@values.push_back(TrackedValue(&@counts, 1)));
-		rt::test::expect(@values.push_back(TrackedValue(&@counts, 2)));
+		var inserted = @values.push_back(TrackedValue(&@counts, 1));
+		rt::test::expect(inserted.has<void>());
+		var second_inserted = @values.push_back(TrackedValue(&@counts, 2));
+		rt::test::expect(second_inserted.has<void>());
 		rt::test::expect(counts.live == 2);
 		rt::test::expect(!counts.destroyed);
-		rt::test::expect(@values.reserve(64));
+		var reserved = @values.reserve(64);
+		rt::test::expect(reserved.has<void>());
 		rt::test::expect(counts.live == 2);
 		rt::test::expect(!counts.destroyed);
 		var moved = $values;
@@ -66,7 +69,8 @@ fn buffer_relocation_does_not_destroy_live_elements() {
 		rt::test::expect(!counts.live);
 		rt::test::expect(counts.destroyed == 2);
 		rt::test::expect(counts.order == 12);
-		rt::test::expect(@moved.push_back(TrackedValue(&@counts, 3)));
+		var moved_inserted = @moved.push_back(TrackedValue(&@counts, 3));
+		rt::test::expect(moved_inserted.has<void>());
 	};
 	rt::test::expect(!counts.live);
 	rt::test::expect(counts.destroyed == 3);
@@ -107,7 +111,8 @@ fn optional_reset_and_move_preserve_lifetimes() {
 		rt::optional<TrackedValue> value;
 		rt::test::expect(!value.has_value());
 		rt::test::expect(!value.get());
-		@value.emplace(TrackedValue(&@counts, 1));
+		TrackedValue& first = @value.emplace(TrackedValue(&@counts, 1));
+		rt::test::expect(first.value == 1);
 		rt::test::expect(value.has_value());
 		rt::test::expect(value.has_value() && value.value().value == 1);
 		var moved = rt::optional<TrackedValue>($value);
@@ -117,7 +122,8 @@ fn optional_reset_and_move_preserve_lifetimes() {
 		@moved.reset();
 		rt::test::expect(!moved.has_value());
 		rt::test::expect(counts.destroyed == 1);
-		@moved.emplace(TrackedValue(&@counts, 2));
+		TrackedValue& second = @moved.emplace(TrackedValue(&@counts, 2));
+		rt::test::expect(second.value == 2);
 	};
 	rt::test::expect(!counts.live);
 	rt::test::expect(counts.destroyed == 2);
@@ -132,7 +138,8 @@ fn optional_references_borrow_without_destroying_values() {
 	var copied = rt::optional_ref<i32>(borrowed);
 	@borrowed.reset();
 	rt::test::expect(!borrowed.has_value());
-	if (!rt::test::expect(copied.has_value())) {
+	rt::test::expect(copied.has_value());
+	if (!copied.has_value()) {
 		return;
 	};
 	var i32& writable = copied.value();

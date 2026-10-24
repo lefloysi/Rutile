@@ -11,7 +11,7 @@ struct TypeStore {
 	fn operator=(var TypeStore& this, TypeStore& other) -> var TypeStore& : [delete];
 	fn operator=(var TypeStore& this, TypeStore other) -> var TypeStore& : [default];
 	fn primitive(var TypeStore& this, type_kind kind, u32 bits) -> Type*;
-	fn initialize_primitives(var TypeStore& this, u32 pointer_bits) -> bool;
+	fn initialize_primitives(var TypeStore& this, u32 pointer_bits);
 	fn primitive_spelling(usize index) -> rt::string_view;
 	fn named(var TypeStore& this, type_kind kind, var Entity* entity) -> Type*;
 	fn pointer(var TypeStore& this, Type* element) -> Type*;
@@ -25,9 +25,9 @@ struct TypeStore {
 	fn find_primitive(TypeStore& this, rt::string_view name) -> Type*;
 
 private:
-	fn register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool;
+	fn register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, Type*>& names, rt::string_view name, type_kind kind, u32 bits);
 	fn intern(var TypeStore& this, Type key) -> Type*;
-	fn rehash(var TypeStore& this, usize count) -> bool;
+	fn rehash(var TypeStore& this, usize count);
 
 	fn find(TypeStore& this, Type& key) -> Type*;
 
@@ -55,18 +55,14 @@ fn TypeStore::find(TypeStore& this, Type& key) -> Type* {
 	return nullptr;
 };
 
-fn TypeStore::rehash(var TypeStore& this, usize count) -> bool {
+fn TypeStore::rehash(var TypeStore& this, usize count) {
 	rt::buffer<var TypeEntry*> replacement;
 
-	if (!@replacement.reserve(usize(count))) {
-		return false;
-	};
+	@replacement.reserve(usize(count));
 
 	usize index = 0;
 	while (index < count) {
-		if (!@replacement.push_back(nullptr)) {
-			return false;
-		};
+		@replacement.push_back(nullptr);
 
 		@index = index + 1;
 	};
@@ -84,7 +80,7 @@ fn TypeStore::rehash(var TypeStore& this, usize count) -> bool {
 
 	@this.buckets = $replacement;
 
-	return true;
+	return;
 };
 
 fn TypeStore::intern(var TypeStore& this, Type key) -> Type* {
@@ -95,28 +91,25 @@ fn TypeStore::intern(var TypeStore& this, Type key) -> Type* {
 	};
 
 	if (!this.buckets.size()) {
-		if (!@this.rehash(64)) {
-			return nullptr;
-		};
+		@this.rehash(64);
 	}
 	else if (this.entries.size() >= this.buckets.size()) {
-		if (this.buckets.size() > usize::max / 2 || !@this.rehash(this.buckets.size() * 2)) {
-			return nullptr;
+		if (this.buckets.size() > usize::max / 2) {
+			rt::allocation_error error;
+			@error.requested_bytes = usize::max;
+			throw $error;
+		}
+		else {
+			@this.rehash(this.buckets.size() * 2);
 		};
 	};
 
 	var owner = rt::unique<TypeEntry>::make();
 
-	if (!owner.get()) {
-		return nullptr;
-	};
-
 	var TypeEntry* entry = owner.get();
 	@entry->value = $key;
 
-	if (!@this.entries.push_back($owner)) {
-		return nullptr;
-	};
+	@this.entries.push_back($owner);
 
 	usize bucket = entry->value.hash() % this.buckets.size();
 	var TypeEntry var** buckets = (@this.buckets).data();
@@ -170,7 +163,9 @@ fn TypeStore::function(var TypeStore& this, Type* result, rt::buffer<Type*> para
 	var signature = rt::unique<FunctionSignature>(new var FunctionSignature($result, $parameters, $arity, $nonthrowing));
 
 	if (!signature.get()) {
-		return nullptr;
+		rt::allocation_error error;
+		@error.requested_bytes = sizeof(FunctionSignature);
+		throw $error;
 	};
 
 	TypeShape shape;
@@ -182,9 +177,7 @@ fn TypeStore::function(var TypeStore& this, Type* result, rt::buffer<Type*> para
 		return $found;
 	};
 
-	if (!@this.signatures.push_back($signature)) {
-		return nullptr;
-	};
+	@this.signatures.push_back($signature);
 
 	return @this.intern($key);
 };

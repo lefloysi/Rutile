@@ -70,15 +70,14 @@ fn Backend::redirected_call(Backend& this, SemanticExpression& call, InferredFun
 	return nullptr;
 };
 
-fn Backend::declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> bool {
+fn Backend::declare_fact_contexts(var Backend& this, InferredContextSet& contexts) -> CompilationResult {
 	@this.fact_context_set = &contexts;
 	@this.fact_symbols.clear();
 	usize index = 0;
 	while (index < contexts.contexts.size()) {
 		var InferredFunctionContext* context = contexts.contexts.data()[index].get();
 		if (!context || !context->function || context->function->dispatch() != function_dispatch::ordinary || !context->function->body()) {
-			Token token;
-			return @this.error(token, "invalid inferred function context");
+			compiler_panic("invalid inferred function context");
 		};
 		DiagnosticMessage name;
 		@name.text("rt.fact.");
@@ -86,33 +85,31 @@ fn Backend::declare_fact_contexts(var Backend& this, InferredContextSet& context
 		var spelling = rt::string(name.view());
 		var LLVMOpaqueType* signature = @this.type(context->function->type(), context->function->token());
 		if (!signature) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		var LLVMOpaqueValue* symbol = LLVMAddFunction(this.module(), spelling.c_str(), signature);
 		LLVMSetLinkage(symbol, 9);
-		if (!@this.fact_symbols.push_back(symbol)) {
-			return @this.error(context->function->token(), "cannot retain inferred context symbol");
-		};
+		@this.fact_symbols.push_back(symbol);
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn Backend::emit_fact_contexts(var Backend& this) -> bool {
+fn Backend::emit_fact_contexts(var Backend& this) -> CompilationResult {
 	if (!this.fact_context_set) {
-		return true;
+		return CompilationResult();
 	};
 	usize index = 0;
 	while (index < this.fact_context_set->contexts.size()) {
 		var InferredFunctionContext* context = this.fact_context(index + 1);
 		var emitter = FunctionEmitter(@this, this.fact_symbol(index + 1), context->function->type()->signature().result());
 		@emitter.set_fact_context(context);
-		if (!@emitter.emit(context->function)) {
-			return false;
+		if (!(@emitter.emit(context->function)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
 fn FunctionEmitter::condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool {

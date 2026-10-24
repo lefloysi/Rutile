@@ -31,29 +31,30 @@ fn FactState::aggregate_value(FactState& this, SemanticExpression* expression, u
 	return FactValue();
 };
 
-fn FactState::record_aggregate(var FactState& this, SemanticExpression* expression, usize place, FactValue value) -> bool {
+fn FactState::record_aggregate(var FactState& this, SemanticExpression* expression, usize place, FactValue value) {
 	usize index = 0;
 	while (index < this.aggregate_evaluated.size()) {
 		var FactAggregateEvaluation& entry = @((@this.aggregate_evaluated).data()[index]);
 		if (entry.expression == expression && entry.place == place) {
 			@entry.value = $value;
-			return true;
+			return;
 		};
 		@index = index + 1;
 	};
 	if (!value.version && !value.origin && !value.alternative && value.range.available == fact_truth::unknown) {
-		return true;
+		return;
 	};
 	// Missing snapshots only lose precision; applying a move invalidates the
 	// destination first, so the bounded cache never restores stale fields.
 	if (this.aggregate_evaluated.size() >= 1024) {
-		return true;
+		return;
 	};
 	FactAggregateEvaluation entry;
 	@entry.expression = expression;
 	@entry.place = place;
 	@entry.value = $value;
-	return @this.aggregate_evaluated.push_back($entry);
+	@this.aggregate_evaluated.push_back($entry);
+	return;
 };
 
 fn fact_aggregate_shape(Type* type, usize depth, var usize& budget) -> bool {
@@ -145,9 +146,9 @@ fn InferredFacts::aggregate_move(InferredFacts& this, SemanticExpression* initia
 	return nullptr;
 };
 
-fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, SemanticExpression* expression) -> bool {
+fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, SemanticExpression* expression) {
 	if (!expression) {
-		return true;
+		return;
 	};
 	SemanticExpression* initializer = nullptr;
 	usize destination = 0;
@@ -164,9 +165,7 @@ fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, Semantic
 			if (!destination) {
 				FactPlace root;
 				@root.root = expression->entity();
-				if (!@this.places.push_back($root)) {
-					return false;
-				};
+				@this.places.push_back($root);
 				@destination = this.places.size();
 			};
 		};
@@ -180,26 +179,19 @@ fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, Semantic
 		usize source = @this.place(relocation->item(0));
 		if (source && this.places.data()[source - 1].root->kind() == entity_kind::local && this.places.data()[destination - 1].root->kind() == entity_kind::local && !fact_aggregate_descendant(this.places, source, destination) && !fact_aggregate_descendant(this.places, destination, source)) {
 			var move = rt::unique<FactAggregateMove>::make();
-			if (!move.get()) {
-				return false;
-			};
 			@move.get()->initializer = initializer;
 			@move.get()->relocation = relocation;
 			@move.get()->source = source;
 			@move.get()->destination = destination;
-			if (!@this.aggregate_moves.push_back($move)) {
-				return false;
-			};
+			@this.aggregate_moves.push_back($move);
 		};
 	};
 	usize child = 0;
 	while (child < expression->size()) {
-		if (!@this.collect_aggregate_move_nodes(expression->item(child))) {
-			return false;
-		};
+		@this.collect_aggregate_move_nodes(expression->item(child));
 		@child = child + 1;
 	};
-	return true;
+	return;
 };
 
 fn InferredFacts::project_aggregate_place(var InferredFacts& this, usize place, usize source, usize destination, usize depth) -> usize {
@@ -229,17 +221,13 @@ fn InferredFacts::project_aggregate_place(var InferredFacts& this, usize place, 
 	@projected.root = this.places.data()[destination - 1].root;
 	@projected.parent = parent;
 	@projected.field = field;
-	if (!@this.places.push_back($projected)) {
-		return 0;
-	};
+	@this.places.push_back($projected);
 	return this.places.size();
 };
 
-fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpression* body) -> bool {
+fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpression* body) {
 	@this.aggregate_moves.clear();
-	if (!@this.collect_aggregate_move_nodes(body)) {
-		return false;
-	};
+	@this.collect_aggregate_move_nodes(body);
 	usize iteration = 0;
 	while (iteration < 128) {
 		usize before = this.places.size();
@@ -260,9 +248,7 @@ fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpre
 							FactAggregateProjection projection;
 							@projection.source = source;
 							@projection.destination = place;
-							if (!@move.projections.push_back($projection)) {
-								return false;
-							};
+							@move.projections.push_back($projection);
 						};
 					};
 				};
@@ -271,15 +257,15 @@ fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpre
 			@move_index = move_index + 1;
 		};
 		if (this.places.size() == before) {
-			return true;
+			return;
 		};
 		@iteration = iteration + 1;
 	};
 	@this.aggregate_moves.clear();
-	return true;
+	return;
 };
 
-fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression* expression, var FactState& state) -> bool {
+fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression* expression, var FactState& state) {
 	usize index = 0;
 	while (index < this.aggregate_moves.size()) {
 		FactAggregateMove& move = *this.aggregate_moves.data()[index].get();
@@ -287,21 +273,19 @@ fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression*
 			usize field = 0;
 			while (field < move.projections.size()) {
 				usize source = move.projections.data()[field].source;
-				if (!@state.record_aggregate(expression, source, FactValue(state.places.data()[source - 1]))) {
-					return false;
-				};
+				@state.record_aggregate(expression, source, FactValue(state.places.data()[source - 1]));
 				@field = field + 1;
 			};
 		};
 		@index = index + 1;
 	};
-	return true;
+	return;
 };
 
-fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpression* initializer, var FactState& state) -> bool {
+fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpression* initializer, var FactState& state) {
 	FactAggregateMove* move = this.aggregate_move(initializer);
 	if (!move) {
-		return true;
+		return;
 	};
 	@this.invalidate(@state, move->destination);
 	usize field = 0;
@@ -310,5 +294,5 @@ fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpressi
 		@((@state.places).data()[projection.destination - 1]) = state.aggregate_value(move->relocation, projection.source);
 		@field = field + 1;
 	};
-	return true;
+	return;
 };

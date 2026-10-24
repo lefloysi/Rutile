@@ -1,21 +1,31 @@
 fn numeric_literal_expression(SemanticExpression& expression) -> bool {
-	if (expression.kind() == semantic_kind::literal_integer || expression.kind() == semantic_kind::literal_real) {
-		return expression.token().kind == token_kind::literal_number;
+	rt::buffer<SemanticExpression*> pending;
+	@pending.push_back(&expression);
+	while (pending.size()) {
+		SemanticExpression* current = pending.data()[pending.size() - 1];
+		@pending.pop_back();
+		if (current->kind() == semantic_kind::literal_integer || current->kind() == semantic_kind::literal_real) {
+			if (current->token().kind != token_kind::literal_number) {
+				return false;
+			};
+			continue;
+		};
+		if (current->kind() == semantic_kind::unary && (current->operation() == token_kind::op_plus || current->operation() == token_kind::op_minus)) {
+			@pending.push_back(current->item(0));
+			continue;
+		};
+		if (current->kind() == semantic_kind::binary && current->operation() != token_kind::op_assign && current->operation() != token_kind::op_copy) {
+			@pending.push_back(current->item(1));
+			@pending.push_back(current->item(0));
+			continue;
+		};
+		if (current->kind() == semantic_kind::cast && current->token().kind == token_kind::literal_number) {
+			@pending.push_back(current->item(0));
+			continue;
+		};
+		return false;
 	};
-
-	if (expression.kind() == semantic_kind::unary && (expression.operation() == token_kind::op_plus || expression.operation() == token_kind::op_minus)) {
-		return numeric_literal_expression(*expression.item(0));
-	};
-
-	if (expression.kind() == semantic_kind::binary && expression.operation() != token_kind::op_assign && expression.operation() != token_kind::op_copy) {
-		return numeric_literal_expression(*expression.item(0)) && numeric_literal_expression(*expression.item(1));
-	};
-
-	if (expression.kind() == semantic_kind::cast && expression.token().kind == token_kind::literal_number) {
-		return numeric_literal_expression(*expression.item(0));
-	};
-
-	return false;
+	return true;
 };
 
 fn Analyzer::compatible(Analyzer& this, Type* source, Type* target) -> bool {
@@ -78,6 +88,16 @@ fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expec
 		@target = target->element();
 	};
 	Type* known = variant_flow_known(this.variant_facts, value);
+	if (!value.type()->same_shape(*target) && variant_alternative(value.type(), target)) {
+		var extracted = SemanticExpression(semantic_kind::name, target, value.token());
+		@extracted.set_category(value.category());
+		@extracted.set_mutable_access(value.mutable_access());
+		i32 rank = this.builtin_rank(extracted, expected);
+		if (rank < 0) {
+			return rank;
+		};
+		return rank + 4;
+	};
 	if (known && !value.type()->same_shape(*target)) {
 		Token token = value.token();
 		Type* representation = known;
@@ -165,6 +185,18 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 	if (requested->kind() == type_kind::reference) {
 		@requested = requested->element();
 	};
+	if (!value.get()->type()->same_shape(*requested) && variant_alternative(value.get()->type(), requested)) {
+		var Scope* scope = this.unit->root_scope();
+		rt::buffer<SemanticScopeRegion>& regions = this.unit->scope_regions();
+		for (usize index = regions.size(); index; @index = index - 1) {
+			SemanticScopeRegion& region = regions.data()[index - 1];
+			if (region.syntax == &@syntax) {
+				@scope = region.scope;
+				break;
+			};
+		};
+		return @this.variant_cast(@*scope, @syntax, requested, $value, expected);
+	};
 	Type* known = variant_flow_known(this.variant_facts, *value.get());
 	if (known && !value.get()->type()->same_shape(*requested)) {
 		@value = variant_flow_extract(@this, @syntax, rt::unique<SemanticExpression>(@value.release()), known);
@@ -219,7 +251,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 	if (expected.value().kind() == type_kind::reference && expected.value().element()->qualifier() == type_qualifier::immutable && expected.value().element()->kind().is_numeric() && !value.get()->type()->same_shape(*expected.value().element()) && numeric_literal_expression(*value.get())) {
 		var converted = @this.node(semantic_kind::cast, expected.value().element(), &@syntax);
 
-		if (!converted.get() || !@converted.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+		if (!converted.get() || !(@converted.get()->append(rt::unique<SemanticExpression>(@value.release()))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -281,7 +313,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 			return rt::unique<SemanticExpression>();
 		};
 
-		if (!@arguments.get()->append(rt::unique<SemanticExpression>(@value.release()))) {
+		if (!(@arguments.get()->append(rt::unique<SemanticExpression>(@value.release()))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
@@ -294,7 +326,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 
 			@construction.get()->bind(constructor, value_category::consumable);
 
-			if (!@construction.get()->append($arguments)) {
+			if (!(@construction.get()->append($arguments)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -316,11 +348,11 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 
 			@call.get()->bind(conversion, value_category::consumable);
 
-			if (!@call.get()->append($callable)) {
+			if (!(@call.get()->append($callable)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
-			if (!@call.get()->append($arguments)) {
+			if (!(@call.get()->append($arguments)).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 
@@ -338,7 +370,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 		return rt::unique<SemanticExpression>();
 	};
 
-	if (!@result.get()->append($value)) {
+	if (!(@result.get()->append($value)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 

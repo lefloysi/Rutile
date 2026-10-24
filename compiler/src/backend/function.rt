@@ -71,31 +71,31 @@ enum native_evaluation : [u08] {
 struct FunctionEmitter {
 	fn FunctionEmitter(var FunctionEmitter& this, var Backend& backend, var LLVMOpaqueValue* function, Type* result);
 
-	fn emit(var FunctionEmitter& this, var Entity* function) -> bool;
+	fn emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
 	fn set_fact_context(var FunctionEmitter& this, InferredFunctionContext* context);
 	fn integer_fact(FunctionEmitter& this, SemanticExpression& expression, var u64& value) -> bool;
 	fn condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool;
 	fn alternative_fact(FunctionEmitter& this, SemanticExpression& expression) -> u64;
-	fn statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
+	fn statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
 	fn value(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn variant_cast_address(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
-	fn bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address) -> bool;
-	fn destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
-	fn destroy_exception(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
+	fn bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address);
+	fn destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn destroy_exception(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
 	fn needs_destruction(Type* type) -> bool;
 
 	fn take(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
-	fn construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
-	fn construct_variant_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
-	fn initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
-	fn initialize_value(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> bool;
+	fn construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn construct_variant_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn initialize_value(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> CompilationResult;
 
-	fn finish_expression(var FunctionEmitter& this) -> bool;
-	fn copy_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
-	fn move_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
-	fn copy_representation(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
+	fn finish_expression(var FunctionEmitter& this) -> CompilationResult;
+	fn copy_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
+	fn move_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
+	fn copy_representation(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
 
 private:
 	fn storage(FunctionEmitter& this, var Entity* entity) -> var LLVMOpaqueValue*;
@@ -108,40 +108,40 @@ private:
 	fn live_flag(var FunctionEmitter& this) -> var LLVMOpaqueValue*;
 	fn set_live(var FunctionEmitter& this, var SemanticExpression* expression, bool live);
 	fn consume(var FunctionEmitter& this, var SemanticExpression* expression);
-	fn remember(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
+	fn remember(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address);
 	fn temporary(FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
-	fn cleanup_temporaries(var FunctionEmitter& this, usize begin) -> bool;
-	fn cleanup_bindings(var FunctionEmitter& this, usize begin) -> bool;
-	fn guarded_destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> bool;
+	fn cleanup_temporaries(var FunctionEmitter& this, usize begin) -> CompilationResult;
+	fn cleanup_bindings(var FunctionEmitter& this, usize begin) -> CompilationResult;
+	fn guarded_destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> CompilationResult;
 	fn forget_temporaries(var FunctionEmitter& this, usize begin);
-	fn leave_scope(var FunctionEmitter& this, usize begin) -> bool;
+	fn leave_scope(var FunctionEmitter& this, usize begin) -> CompilationResult;
 	fn native_call(var FunctionEmitter& this, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var LLVMOpaqueValue var** arguments, u32 count) -> var LLVMOpaqueValue*;
 	fn native_allocate(var FunctionEmitter& this, var LLVMOpaqueValue* bytes) -> var LLVMOpaqueValue*;
 	fn native_free(var FunctionEmitter& this, var LLVMOpaqueValue* address) -> var LLVMOpaqueValue*;
 	fn unwind_destination(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock*;
-	fn unwind_cleanup(var FunctionEmitter& this, usize bindings, usize temporaries, usize unwinds) -> bool;
-	fn retain_unwind(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* count, var LLVMOpaqueValue* allocation) -> bool;
+	fn unwind_cleanup(var FunctionEmitter& this, usize bindings, usize temporaries, usize unwinds) -> CompilationResult;
+	fn retain_unwind(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* count, var LLVMOpaqueValue* allocation);
 	fn forget_unwinds(var FunctionEmitter& this, usize begin);
-	fn exception_try(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn catch_handler(var FunctionEmitter& this, var SemanticExpression* source, var LLVMOpaqueValue* dispatch, var LLVMOpaqueBasicBlock* after, var LLVMOpaqueBasicBlock* unwind, var LLVMOpaqueValue* descriptor) -> bool;
-	fn exception_throw(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn exit_cleanup(var FunctionEmitter& this, usize bindings, var NativeCatch* catches, var NativeHandler* handlers) -> bool;
+	fn exception_try(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn catch_handler(var FunctionEmitter& this, var SemanticExpression* source, var LLVMOpaqueValue* dispatch, var LLVMOpaqueBasicBlock* after, var LLVMOpaqueBasicBlock* unwind, var LLVMOpaqueValue* descriptor) -> CompilationResult;
+	fn exception_throw(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn exit_cleanup(var FunctionEmitter& this, usize bindings, var NativeCatch* catches, var NativeHandler* handlers) -> CompilationResult;
 	fn terminate_handler(var FunctionEmitter& this) -> var LLVMOpaqueBasicBlock*;
-	fn retain_components(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
+	fn retain_components(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address);
 
-	fn scoped_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn lower_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
+	fn scoped_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn lower_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
 
-	fn generated(var FunctionEmitter& this, var Entity* function) -> bool;
-	fn generated_variant(var FunctionEmitter& this, var Entity* function, Type* type, var LLVMOpaqueValue* destination) -> bool;
-	fn variant_transfer(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, bool assign) -> bool;
-	fn initialize_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
-	fn initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
-	fn copy_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
-	fn transfer_elements(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> bool;
-	fn copy_assign(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
-	fn copy_assign_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
+	fn generated(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
+	fn generated_variant(var FunctionEmitter& this, var Entity* function, Type* type, var LLVMOpaqueValue* destination) -> CompilationResult;
+	fn variant_transfer(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, bool assign) -> CompilationResult;
+	fn initialize_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn copy_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
+	fn transfer_elements(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> CompilationResult;
+	fn copy_assign(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
+	fn copy_assign_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
 
 	fn binding_live(var FunctionEmitter& this, var Entity* entity, bool live);
 
@@ -153,23 +153,23 @@ private:
 	fn assign(var FunctionEmitter& this, var SemanticExpression* expression) -> NativeAssignment;
 	fn logical(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
-	fn conditional(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn loop(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn selection(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
-	fn sequence(var FunctionEmitter& this, var SemanticExpression* expression, native_evaluation form, var LLVMOpaqueValue var*& result) -> bool;
-	fn validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> bool;
+	fn conditional(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn loop(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn selection(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
+	fn sequence(var FunctionEmitter& this, var SemanticExpression* expression, native_evaluation form, var LLVMOpaqueValue var*& result) -> CompilationResult;
+	fn validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult;
 
 	fn construct(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
-	fn construct_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> bool;
-	fn initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool;
-	fn copy_initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> bool;
-	fn initialize_value_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> bool;
+	fn construct_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult;
+	fn copy_initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult;
+	fn initialize_value_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> CompilationResult;
 
 	fn allocate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn allocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn deallocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
-	fn destroy_range(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* memory, var LLVMOpaqueValue* count) -> bool;
+	fn destroy_range(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* memory, var LLVMOpaqueValue* count) -> CompilationResult;
 	fn allocation_prefix(var FunctionEmitter& this, Type* type) -> u64;
 
 	fn representation(Type* type) -> Type*;
@@ -178,6 +178,7 @@ private:
 	InferredFunctionContext* fact_context;
 	var LLVMOpaqueValue* function;
 	var LLVMOpaqueValue* variant_payload_address;
+	var LLVMOpaqueValue* variant_payload_live;
 	Type* result;
 	var NativeControl* active_control;
 	var NativeHandler* active_handler;
@@ -210,7 +211,7 @@ fn FunctionEmitter::block(var FunctionEmitter& this, rt::string_view name) -> va
 	return LLVMAppendBasicBlockInContext(this.backend->context(), this.function, native_name.c_str());
 };
 
-fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVMOpaqueValue* address) {
 	NativeBinding binding;
 	@binding.entity = entity;
 	@binding.address = address;
@@ -221,20 +222,16 @@ fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVM
 		@binding.live = @this.live_flag();
 
 		if (!binding.live) {
-			return false;
+			compiler_panic("cannot create a native binding lifetime flag");
 		};
 
-		LLVMBuildStore(this.backend->builder(), LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), 1, 0), binding.live);
+		discard LLVMBuildStore(this.backend->builder(), LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 1), 1, 0), binding.live);
 	};
 
-	if (!@this.bindings.push_back($binding)) {
-		Token location;
-
-		return @this.backend->error(location, "cannot retain native local storage");
-	};
+	@this.bindings.push_back($binding);
 	@this.lifetime_revision = this.lifetime_revision + 1;
 
-	return true;
+	return;
 };
 
 fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LLVMOpaqueValue* {
@@ -251,7 +248,7 @@ fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LL
 	return this.backend->symbol(entity);
 };
 
-fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> bool {
+fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult {
 	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("entry"));
 	NativeHandler boundary;
 	if (function->nonthrowing() && native_windows_exceptions(*this.backend)) {
@@ -268,14 +265,12 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> boo
 		var LLVMOpaqueValue* slot = @this.slot(parameter->type());
 
 		if (!slot) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
-		LLVMBuildStore(this.backend->builder(), LLVMGetParam(this.function, static_cast<u32>(index)), (var LLVMOpaqueValue*(slot)));
+		discard LLVMBuildStore(this.backend->builder(), LLVMGetParam(this.function, static_cast<u32>(index)), (var LLVMOpaqueValue*(slot)));
 
-		if (!@this.bind(parameter, slot)) {
-			return false;
-		};
+		@this.bind(parameter, slot);
 
 		@index = index + 1;
 	};
@@ -285,41 +280,39 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> boo
 	};
 	if (function->role() == function_role::destructor && function->nonthrowing()) {
 		Type* type = function->parameters().data()[0]->type()->element();
-		if (!@this.retain_components(type, LLVMGetParam(this.function, 0))) {
-			return false;
-		};
+		@this.retain_components(type, LLVMGetParam(this.function, 0));
 	};
 
 	if (function->role() == function_role::constructor) {
 		Type* type = function->parameters().data()[0]->type()->element();
 
-		if (!@this.initialize_members(type, LLVMGetParam(this.function, 0))) {
-			return false;
+		if (!(@this.initialize_members(type, LLVMGetParam(this.function, 0))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
 
-	if (!@this.statement(function->body())) {
-		return false;
+	if (!(@this.statement(function->body())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (this.terminated()) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (function->completion() == function_completion::no_fallthrough) {
-		LLVMBuildUnreachable(this.backend->builder());
+		discard LLVMBuildUnreachable(this.backend->builder());
 
-		return true;
+		return CompilationResult();
 	};
 
 	if (this.result->kind() == type_kind::void_type) {
-		if (!@this.cleanup_bindings(0)) {
-			return false;
+		if (!(@this.cleanup_bindings(0)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
-		LLVMBuildRetVoid(this.backend->builder());
+		discard LLVMBuildRetVoid(this.backend->builder());
 
-		return true;
+		return CompilationResult();
 	};
 
 	var message = DiagnosticMessage();
@@ -346,7 +339,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			var LLVMOpaqueValue* address = this.storage((var Entity*(entity)));
 
 			if (!address) {
-				@this.backend->error(expression->token(), "entity has no native storage");
+				discard @this.backend->error(expression->token(), "entity has no native storage");
 				return nullptr;
 			};
 
@@ -428,10 +421,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			if (element->kind() == type_kind::array) {
 				@base = @this.address(object);
 
-				if (!@indices.push_back(LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), 0, 0))) {
-					@this.backend->error(expression->token(), "cannot allocate native array indices");
-					return nullptr;
-				};
+				@indices.push_back(LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 32), 0, 0));
 			}
 			else {
 				@base = @this.value(object);
@@ -442,10 +432,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 				return nullptr;
 			};
 
-			if (!@indices.push_back(index)) {
-				@this.backend->error(expression->token(), "cannot allocate native array indices");
-				return nullptr;
-			};
+			@indices.push_back(index);
 
 			var LLVMOpaqueType* native = @this.backend->type(element, expression->token());
 			if (!native) {
@@ -464,7 +451,7 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			if (expression->size() > 1) {
 				var LLVMOpaqueValue* storage = @this.address(expression->item(1));
 
-				if (!storage || !@this.construct_into(expression, storage)) {
+				if (!storage || !(@this.construct_into(expression, storage)).has<void>()) {
 					return nullptr;
 				};
 
@@ -473,14 +460,14 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 				return storage;
 			};
 
-			@this.value(expression);
+			discard @this.value(expression);
 
 			return this.temporary(expression);
 		case semantic_kind::sequence:
 			if (expression->category() == value_category::place) {
 				var LLVMOpaqueValue* result;
 
-				if (!@this.sequence(expression, native_evaluation::address, @result)) {
+				if (!(@this.sequence(expression, native_evaluation::address, @result)).has<void>()) {
 					return nullptr;
 				};
 
@@ -509,16 +496,14 @@ fn FunctionEmitter::address(var FunctionEmitter& this, var SemanticExpression* e
 			return nullptr;
 		};
 
-		LLVMBuildStore(this.backend->builder(), value, storage);
+		discard LLVMBuildStore(this.backend->builder(), value, storage);
 
-		if (!@this.remember(expression, storage)) {
-			return nullptr;
-		};
+		@this.remember(expression, storage);
 
 		return storage;
 	};
 
-	@this.backend->error(expression->token(), "expression does not designate native storage");
+	discard @this.backend->error(expression->token(), "expression does not designate native storage");
 	return nullptr;
 };
 
@@ -531,7 +516,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 	};
 
 	if (type->kind() != type_kind::function) {
-		@this.backend->error(expression->token(), "call target has no native function signature");
+		discard @this.backend->error(expression->token(), "call target has no native function signature");
 		return nullptr;
 	};
 
@@ -563,7 +548,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 				diagnostic_type(@message, *type);
 			};
 			@message.text("'");
-			@this.backend->error(source->token(), message.view());
+			discard @this.backend->error(source->token(), message.view());
 			return nullptr;
 		};
 
@@ -592,10 +577,7 @@ fn FunctionEmitter::call(var FunctionEmitter& this, var SemanticExpression* expr
 			return nullptr;
 		};
 
-		if (!@arguments.push_back(argument)) {
-			@this.backend->error(expression->token(), "cannot allocate native call arguments");
-			return nullptr;
-		};
+		@arguments.push_back(argument);
 
 		@index = index + 1;
 	};
@@ -622,9 +604,7 @@ fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* n
 	var builder = rt::unique<LLVMOpaqueBuilder, BuilderDisposer>(LLVMCreateBuilderInContext(this.backend->context()));
 
 	if (!builder.get()) {
-		Token location;
-		@this.backend->error(location, "cannot create storage builder");
-		return nullptr;
+		compiler_panic("cannot create a native storage builder");
 	};
 
 	var LLVMOpaqueBasicBlock* entry = LLVMGetEntryBasicBlock(this.function);
@@ -637,5 +617,9 @@ fn FunctionEmitter::native_slot(var FunctionEmitter& this, var LLVMOpaqueType* n
 		LLVMPositionBuilderAtEnd(builder.get(), entry);
 	};
 
-	return LLVMBuildAlloca(builder.get(), native, "storage\0".data());
+	var LLVMOpaqueValue* storage = LLVMBuildAlloca(builder.get(), native, "storage\0".data());
+	if (!storage) {
+		compiler_panic("cannot allocate native storage");
+	};
+	return storage;
 };

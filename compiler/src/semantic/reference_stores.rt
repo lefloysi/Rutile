@@ -44,7 +44,7 @@ fn reference_store_calls(SemanticExpression& expression, rt::buffer<var Entity*>
 	return false;
 };
 
-fn ReferenceLoanAnalyzer::prepare_stores(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool {
+fn ReferenceLoanAnalyzer::prepare_stores(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) {
 	@this.store_functions.clear();
 	while (true) {
 		usize previous = this.store_functions.size();
@@ -59,15 +59,17 @@ fn ReferenceLoanAnalyzer::prepare_stores(var ReferenceLoanAnalyzer& this, Semant
 			while (existing < this.store_functions.size() && this.store_functions.data()[existing] != function) {
 				@existing = existing + 1;
 			};
-			if (existing == this.store_functions.size() && reference_store_calls(*function->body(), this.store_functions) && !@this.store_functions.push_back(function)) {
-				return @this.error(*function->body(), "reference store call graph storage is unavailable");
+			if (existing == this.store_functions.size()) {
+				if (reference_store_calls(*function->body(), this.store_functions)) {
+					@this.store_functions.push_back(function);
+				};
 			};
 		};
 		if (previous == this.store_functions.size()) {
 			break;
 		};
 	};
-	return true;
+	return;
 };
 
 fn reference_store_contains(SemanticExpression& scope, SemanticExpression& expression) -> bool {
@@ -109,9 +111,7 @@ fn reference_store_same(ReferenceStoreSlot& first, ReferenceStoreSlot& second) -
 fn reference_store_graph_path(FactGraph& graph, usize source, usize target, usize avoid) -> bool {
 	rt::buffer<usize> pending;
 	rt::buffer<usize> visited;
-	if (!@pending.push_back(source)) {
-		return true;
-	};
+	@pending.push_back(source);
 	usize cursor = 0;
 	while (cursor < pending.size()) {
 		usize node = pending.data()[cursor];
@@ -131,9 +131,7 @@ fn reference_store_graph_path(FactGraph& graph, usize source, usize target, usiz
 		if (seen) {
 			continue;
 		};
-		if (!@visited.push_back(node)) {
-			return true;
-		};
+		@visited.push_back(node);
 		@index = 0;
 		while (index < graph.edges.size()) {
 			FactEdge& edge = graph.edges.data()[index];
@@ -141,8 +139,10 @@ fn reference_store_graph_path(FactGraph& graph, usize source, usize target, usiz
 			if (node == avoid && edge.kind != fact_edge_kind::exceptional) {
 				@feasible = false;
 			};
-			if (edge.source == node && feasible && !@pending.push_back(usize(edge.target))) {
-				return true;
+			if (edge.source == node) {
+				if (feasible) {
+					@pending.push_back(usize(edge.target));
+				};
 			};
 			@index = index + 1;
 		};
@@ -155,9 +155,7 @@ fn reference_store_required(Entity& function, SemanticExpression& operation) -> 
 		return false;
 	};
 	FactGraph graph;
-	if (!@graph.build(function.body())) {
-		return false;
-	};
+	@graph.build(function.body());
 	usize node = fact_no_node();
 	usize index = 0;
 	while (index < graph.nodes.size()) {
@@ -215,14 +213,14 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, SemanticExpres
 			@slot.field = expression.entity();
 		};
 		@slot.expression = &expression;
-		if (!reference_slot_field(@slot.path, expression.entity())) {
+		if (!reference_slot_field(@slot.path, expression.entity()).has<void>()) {
 			@slot.path.imprecise = true;
 		};
 		return $slot;
 	};
 	if (expression.kind() == semantic_kind::index && expression.item(0)->type()->kind() == type_kind::array) {
 		@slot = this.store_slot(@*expression.item(0), bindings, context, depth + 1);
-		if (!reference_slot_index(@slot.path, expression.item(1))) {
+		if (!reference_slot_index(@slot.path, expression.item(1)).has<void>()) {
 			@slot.path.imprecise = true;
 		};
 		@slot.expression = &expression;
@@ -231,7 +229,7 @@ fn ReferenceLoanAnalyzer::store_slot(ReferenceLoanAnalyzer& this, SemanticExpres
 	return $slot;
 };
 
-fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> CompilationResult {
 	if (expression.kind() == semantic_kind::call && expression.entity() && expression.entity()->dispatch() == function_dispatch::ordinary) {
 		var Entity* callee = expression.entity();
 		var SemanticExpression* arguments = expression.item(1);
@@ -247,8 +245,8 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 			var slot = this.store_slot(@*arguments->item(0), bindings, context, 0);
 			if (slot.root) {
 				rt::buffer<ReferenceLoanPlace> targets;
-				if (!@this.places(*arguments->item(1), @targets, @substitutions, context, 0)) {
-					return false;
+				if (!(@this.places(*arguments->item(1), @targets, @substitutions, context, 0)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 				usize field_index = 0;
 				while (field_index < arguments->item(0)->type()->entity()->fields().size()) {
@@ -281,8 +279,8 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 							};
 							@existing = existing + 1;
 						};
-						if (existing == this.stores.size() && !@this.stores.push_back($effect)) {
-							return false;
+						if (existing == this.stores.size()) {
+							@this.stores.push_back($effect);
 						};
 						@target = target + 1;
 					};
@@ -295,7 +293,7 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 				@candidate = candidate + 1;
 			};
 			if (candidate == this.store_functions.size()) {
-				return true;
+				return CompilationResult();
 			};
 			usize boundary = substitutions.size();
 			usize slot_boundary = bindings.size();
@@ -306,26 +304,23 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 				ReferenceStoreBinding binding;
 				@binding.parameter = substitution.parameter;
 				if (substitution.parameter->type()->kind() == type_kind::reference) {
-					if (!@this.places(*arguments->item(parameter), @substitution.places, @substitutions, context, 0)) {
-						return false;
+					if (!(@this.places(*arguments->item(parameter), @substitution.places, @substitutions, context, 0)).has<void>()) {
+						return CompilationResult(compilation_error());
 					};
 					@binding.slot = this.store_slot(@*arguments->item(parameter), bindings, context, 0);
 				}
 				else {
 					ReferenceLoanPlace owned;
 					@owned.root = substitution.parameter;
-					if (!@substitution.places.push_back($owned)) {
-						return false;
-					};
+					@substitution.places.push_back($owned);
 					@binding.slot.root = substitution.parameter;
 				};
-				if (!@substitutions.push_back($substitution) || !@bindings.push_back($binding)) {
-					return false;
-				};
+				@substitutions.push_back($substitution);
+				@bindings.push_back($binding);
 				@parameter = parameter + 1;
 			};
-			if (!@this.store_walk(@*callee->body(), @substitutions, @bindings, callee, event, required, depth + 1)) {
-				return false;
+			if (!(@this.store_walk(@*callee->body(), @substitutions, @bindings, callee, event, required, depth + 1)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			while (substitutions.size() > boundary) {
 				@substitutions.pop_back();
@@ -335,43 +330,39 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 			};
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> CompilationResult {
 	if (depth > 16) {
 		return @this.error(expression, "reference store summary exceeds the analysis depth limit");
 	};
 	// Expression depth must not consume the native stack. Only bounded call-summary
 	// expansion recurses, with each call restoring its substitutions before children.
 	rt::buffer<var SemanticExpression*> pending;
-	if (!@pending.push_back(&@expression)) {
-		return false;
-	};
+	@pending.push_back(&@expression);
 	while (pending.size()) {
 		var SemanticExpression* current = pending.data()[pending.size() - 1];
 		@pending.pop_back();
-		if (!@this.store_expression(@*current, @substitutions, @bindings, context, site, definite, depth)) {
-			return false;
+		if (!(@this.store_expression(@*current, @substitutions, @bindings, context, site, definite, depth)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		usize child = current->size();
 		while (child) {
 			@child = child - 1;
-			if (!@pending.push_back(current->item(child))) {
-				return false;
-			};
+			@pending.push_back(current->item(child));
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var SemanticExpression& body) -> bool {
+fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var SemanticExpression& body) -> CompilationResult {
 	usize iteration = 0;
 	while (iteration < 16) {
 		usize previous = this.stores.size();
 		rt::buffer<ReferenceLoanSubstitution> substitutions;
 		rt::buffer<ReferenceStoreBinding> bindings;
-		if (!@this.store_walk(@body, @substitutions, @bindings, nullptr, nullptr, true, 0)) {
+		if (!(@this.store_walk(@body, @substitutions, @bindings, nullptr, nullptr, true, 0)).has<void>()) {
 			return @this.error(body, "reference store summary storage is unavailable");
 		};
 		usize index = previous;
@@ -380,7 +371,7 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			ReferenceLoan loan;
 			@loan.binding = effect.slot.root;
 			reference_slot_copy(effect.slot.path, @loan.holding);
-			if (!reference_slot_field(@loan.holding, effect.field)) {
+			if (!reference_slot_field(@loan.holding, effect.field).has<void>()) {
 				return @this.error(*effect.site, "reference holding projection exceeds the analysis depth limit");
 			};
 			@loan.stored_field = effect.field;
@@ -394,13 +385,15 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			@loan.place.through = effect.referent.through;
 			@loan.place.element = effect.referent.element;
 			@loan.permission = effect.permission;
-			if (loan.binding && loan.place.root && !@this.loans.push_back($loan)) {
-				return @this.error(*effect.site, "reference store loan storage is unavailable");
+			if (loan.binding) {
+				if (loan.place.root) {
+					@this.loans.push_back($loan);
+				};
 			};
 			@index = index + 1;
 		};
 		if (previous == this.stores.size()) {
-			return true;
+			return CompilationResult();
 		};
 		@iteration = iteration + 1;
 	};
@@ -410,8 +403,16 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize source, usize target, ReferenceStoreEffect& effect) -> bool {
 	rt::buffer<usize> pending;
 	rt::buffer<usize> visited;
-	if (source == fact_no_node() || target == fact_no_node() || !@pending.push_back(source)) {
+	if (source == fact_no_node()) {
 		return true;
+	}
+	else {
+		if (target == fact_no_node()) {
+			return true;
+		}
+		else {
+			@pending.push_back(source);
+		};
 	};
 	usize cursor = 0;
 	while (cursor < pending.size()) {
@@ -445,9 +446,7 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 		if (seen) {
 			continue;
 		};
-		if (!@visited.push_back(node)) {
-			return true;
-		};
+		@visited.push_back(node);
 		@index = 0;
 		while (index < this.graph.edges.size()) {
 			FactEdge& edge = this.graph.edges.data()[index];
@@ -457,8 +456,10 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 			if (killed && edge.kind != fact_edge_kind::exceptional) {
 				@feasible = false;
 			};
-			if (edge.source == node && feasible && !@pending.push_back(usize(edge.target))) {
-				return true;
+			if (edge.source == node) {
+				if (feasible) {
+					@pending.push_back(usize(edge.target));
+				};
 			};
 			@index = index + 1;
 		};
@@ -466,7 +467,7 @@ fn ReferenceLoanAnalyzer::store_path(var ReferenceLoanAnalyzer& this, usize sour
 	return false;
 };
 
-fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> bool {
+fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> CompilationResult {
 	usize index = 0;
 	while (index < this.stores.size()) {
 		ReferenceStoreEffect& effect = this.stores.data()[index];
@@ -514,5 +515,5 @@ fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> bo
 			@node_index = node_index + 1;
 		};
 	};
-	return true;
+	return CompilationResult();
 };

@@ -36,14 +36,11 @@ fn Backend::table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*
 		var LLVMOpaqueValue* implementation = this.implementation(function);
 
 		if (!implementation) {
-			@this.error(function->token(), "virtual implementation has no prepared native declaration");
+			discard @this.error(function->token(), "virtual implementation has no prepared native declaration");
 			return nullptr;
 		};
 
-		if (!@functions.push_back(implementation)) {
-			@this.error(function->token(), "cannot retain native virtual implementations");
-			return nullptr;
-		};
+		@functions.push_back(implementation);
 
 		@index = index + 1;
 	};
@@ -58,10 +55,7 @@ fn Backend::table(var Backend& this, var Entity* entity) -> var LLVMOpaqueValue*
 	@table.source = entity;
 	@table.value = value;
 
-	if (!@this.tables.push_back($table)) {
-		@this.error(entity->token(), "cannot retain native virtual table");
-		return nullptr;
-	};
+	@this.tables.push_back($table);
 
 	return value;
 };
@@ -70,7 +64,7 @@ fn Backend::dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqu
 	var Entity* owner = entity->scope()->owner()->virtual_owner();
 
 	if (!owner || !receiver) {
-		@this.error(entity->token(), "virtual dispatch has no owning receiver layout");
+		discard @this.error(entity->token(), "virtual dispatch has no owning receiver layout");
 		return nullptr;
 	};
 
@@ -83,7 +77,7 @@ fn Backend::dispatch_target(var Backend& this, var Entity* entity, var LLVMOpaqu
 	return LLVMBuildLoad2(this.builder(), pointer, slot, "dispatch.target\0".data());
 };
 
-fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
+fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> CompilationResult {
 	FunctionSignature& signature = entity->type()->signature();
 
 	if (!signature.parameters().size() || signature.parameters().data()[0]->kind() != type_kind::reference || signature.arity() == parameter_arity::variadic) {
@@ -96,9 +90,7 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
 	usize index = 0;
 
 	while (index < signature.parameters().size()) {
-		if (!@arguments.push_back(LLVMGetParam(function, static_cast<u32>(index)))) {
-			return @this.error(entity->token(), "cannot retain virtual call arguments");
-		};
+		@arguments.push_back(LLVMGetParam(function, static_cast<u32>(index)));
 
 		@index = index + 1;
 	};
@@ -106,37 +98,37 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> bool {
 	var LLVMOpaqueValue* target = @this.dispatch_target(entity, arguments.data()[0]);
 
 	if (!target) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), target, (@arguments).data(), static_cast<u32>(arguments.size()), "\0".data());
 
 	if (signature.result()->kind() == type_kind::void_type) {
-		LLVMBuildRetVoid(this.builder());
+		discard LLVMBuildRetVoid(this.builder());
 	}
 	else {
-		LLVMBuildRet(this.builder(), result);
+		discard LLVMBuildRet(this.builder(), result);
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> bool {
+fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
 	var Entity* record = type->entity();
 	var Entity* owner = record->virtual_owner();
 
 	if (!owner) {
-		return true;
+		return CompilationResult();
 	};
 
 	var LLVMOpaqueValue* table = @this.backend->table(record);
 
 	if (!table) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner->type()), address, static_cast<u32>(owner->bases().size()), "initialize.dispatch\0".data());
-	LLVMBuildStore(this.backend->builder(), table, header);
+	discard LLVMBuildStore(this.backend->builder(), table, header);
 
-	return true;
+	return CompilationResult();
 };

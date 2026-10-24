@@ -16,11 +16,7 @@ fn Analyzer::select(var Analyzer& this, var Entity* group, rt::buffer<rt::unique
 				@index = index + 1;
 				continue;
 			};
-			if (!@candidates.push_back((var Entity*(candidate)))) {
-				@this.error(&@syntax, "out of memory collecting function candidates");
-
-				return nullptr;
-			};
+			@candidates.push_back((var Entity*(candidate)));
 		};
 
 		@index = index + 1;
@@ -44,7 +40,7 @@ fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bind
 			continue;
 		};
 
-		if (!@this.resolve((var Entity*(candidate)))) {
+		if (!(@this.resolve((var Entity*(candidate)))).has<void>()) {
 			return nullptr;
 		};
 
@@ -59,11 +55,7 @@ fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bind
 			continue;
 		};
 
-		if (!@seen.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory ranking overload candidates");
-
-			return nullptr;
-		};
+		@seen.push_back((var Entity*(candidate)));
 
 		if (mode == conversion_mode::implicit_allowed && candidate->conversion() != conversion_mode::implicit_allowed) {
 			continue;
@@ -113,10 +105,7 @@ fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bind
 		if (rank != best || origin != best_origin) {
 			@best_matches.clear();
 		};
-		if (!@best_matches.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory retaining equally ranked overload candidates");
-			return nullptr;
-		};
+		@best_matches.push_back((var Entity*(candidate)));
 		if (rank == best && origin == best_origin) {
 			continue;
 		};
@@ -233,11 +222,7 @@ fn Analyzer::overloaded(var Analyzer& this, var Scope& scope, var Syntax& syntax
 			};
 		};
 
-		if (!@candidates.push_back((var Entity*(candidate)))) {
-			@this.error(&@syntax, "out of memory collecting operator candidates");
-
-			return rt::unique<SemanticExpression>();
-		};
+		@candidates.push_back((var Entity*(candidate)));
 	};
 
 	var Entity* selected = @this.select_candidates(candidates, arguments, 0, conversion_mode::explicit_only, @syntax);

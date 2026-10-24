@@ -1,7 +1,7 @@
 struct Lexer {
 	fn Lexer(var Lexer& this, var SourceFile& source);
 
-	fn scan(var Lexer& this) -> bool;
+	fn scan(var Lexer& this) -> CompilationResult;
 	fn keyword_spelling(token_kind kind) -> rt::string_view;
 
 	fn error(Lexer& this) -> rt::string_view;
@@ -16,11 +16,11 @@ private:
 	Token failure_token;
 
 	fn advance(var Lexer& this) -> char;
-	fn fail(var Lexer& this, Token& token, rt::string_view message) -> bool;
-	fn trivia(var Lexer& this) -> bool;
-	fn number(var Lexer& this, Token& token) -> bool;
-	fn quoted(var Lexer& this, Token& token, char quote) -> bool;
-	fn symbol(var Lexer& this, var Token& token) -> bool;
+	fn fail(var Lexer& this, Token& token, rt::string_view message) -> CompilationResult;
+	fn trivia(var Lexer& this) -> CompilationResult;
+	fn number(var Lexer& this, Token& token) -> CompilationResult;
+	fn quoted(var Lexer& this, Token& token, char quote) -> CompilationResult;
+	fn symbol(var Lexer& this, var Token& token) -> CompilationResult;
 	fn identifier_kind(rt::string_view spelling) -> token_kind;
 	fn identifier_start(char value) -> bool;
 	fn digit(char value) -> bool;
@@ -75,7 +75,7 @@ fn Lexer::location(Lexer& this) -> Token {
 	return $token;
 };
 
-fn Lexer::fail(var Lexer& this, Token& token, rt::string_view message) -> bool {
+fn Lexer::fail(var Lexer& this, Token& token, rt::string_view message) -> CompilationResult {
 	@this.failure = rt::string_view(message);
 	@this.failure_token = Token(token);
 	usize size = this.source->text().size();
@@ -98,7 +98,7 @@ fn Lexer::fail(var Lexer& this, Token& token, rt::string_view message) -> bool {
 		};
 	};
 
-	return false;
+	return CompilationResult(compilation_error());
 };
 
 fn Lexer::error(Lexer& this) -> rt::string_view {
@@ -206,12 +206,12 @@ fn Lexer::identifier_kind(rt::string_view spelling) -> token_kind {
 	return token_kind::identifier;
 };
 
-fn Lexer::trivia(var Lexer& this) -> bool {
+fn Lexer::trivia(var Lexer& this) -> CompilationResult {
 	while (true) {
 		char value = this.peek(0);
 
 		if (value == ' ' || value == '\t' || value == '\r' || value == '\n') {
-			@this.advance();
+			discard @this.advance();
 			continue;
 		};
 
@@ -222,12 +222,10 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 		if (this.peek(1) == '/') {
 			var start = this.location();
 			while (this.peek(0) && this.peek(0) != '\n') {
-				@this.advance();
+				discard @this.advance();
 			};
 			@start.length = this.offset - start.begin;
-			if (!@this.source->append_comment(Token(start))) {
-				return @this.fail(start, "comment storage allocation failed");
-			};
+			@this.source->append_comment(Token(start));
 
 			continue;
 		};
@@ -237,56 +235,52 @@ fn Lexer::trivia(var Lexer& this) -> bool {
 		};
 
 		var start = this.location();
-		@this.advance();
-		@this.advance();
+		discard @this.advance();
+		discard @this.advance();
 
 		while (true) {
 			if (!this.peek(0)) {
 				@start.length = this.offset - start.begin;
-				if (!@this.source->append_comment(Token(start))) {
-					return @this.fail(start, "comment storage allocation failed");
-				};
+				@this.source->append_comment(Token(start));
 				return @this.fail(start, "unterminated comment");
 			};
 
 			if (this.peek(0) == '*' && this.peek(1) == '/') {
-				@this.advance();
-				@this.advance();
+				discard @this.advance();
+				discard @this.advance();
 				break;
 			};
 
-			@this.advance();
+			discard @this.advance();
 		};
 		@start.length = this.offset - start.begin;
-		if (!@this.source->append_comment(Token(start))) {
-			return @this.fail(start, "comment storage allocation failed");
-		};
+		@this.source->append_comment(Token(start));
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Lexer::number(var Lexer& this, Token& token) -> bool {
+fn Lexer::number(var Lexer& this, Token& token) -> CompilationResult {
 	while (Lexer::digit(this.peek(0))) {
-		@this.advance();
+		discard @this.advance();
 	};
 
 	if (this.peek(0) == '.' && Lexer::digit(this.peek(1))) {
-		@this.advance();
+		discard @this.advance();
 
 		while (Lexer::digit(this.peek(0))) {
-			@this.advance();
+			discard @this.advance();
 		};
 	};
 
 	if (this.peek(0) != 'e' && this.peek(0) != 'E') {
-		return true;
+		return CompilationResult();
 	};
 
-	@this.advance();
+	discard @this.advance();
 
 	if (this.peek(0) == '+' || this.peek(0) == '-') {
-		@this.advance();
+		discard @this.advance();
 	};
 
 	if (!Lexer::digit(this.peek(0))) {
@@ -294,14 +288,30 @@ fn Lexer::number(var Lexer& this, Token& token) -> bool {
 	};
 
 	while (Lexer::digit(this.peek(0))) {
-		@this.advance();
+		discard @this.advance();
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> bool {
-	@this.advance();
+fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> CompilationResult {
+	discard @this.advance();
+	if (quote == '"' && this.peek(0) == '"' && this.peek(1) == '"') {
+		discard @this.advance();
+		discard @this.advance();
+		while (true) {
+			if (!this.peek(0)) {
+				return @this.fail(token, "unterminated raw string literal");
+			};
+			if (this.peek(0) == '"' && this.peek(1) == '"' && this.peek(2) == '"') {
+				discard @this.advance();
+				discard @this.advance();
+				discard @this.advance();
+				return CompilationResult();
+			};
+			discard @this.advance();
+		};
+	};
 
 	if (quote == '\'') {
 		char value = @this.advance();
@@ -322,7 +332,7 @@ fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> bool {
 			return @this.fail(token, "expected closing quote after character");
 		};
 
-		return true;
+		return CompilationResult();
 	};
 
 	while (this.peek(0) != '"') {
@@ -335,16 +345,16 @@ fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> bool {
 		};
 
 		if (@this.advance() == '\\' && this.peek(0)) {
-			@this.advance();
+			discard @this.advance();
 		};
 	};
 
-	@this.advance();
+	discard @this.advance();
 
-	return true;
+	return CompilationResult();
 };
 
-fn Lexer::symbol(var Lexer& this, var Token& token) -> bool {
+fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
 	usize width = 1;
 	char next = this.peek(1);
 
@@ -500,14 +510,14 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> bool {
 	usize consumed = 0;
 
 	while (consumed < width) {
-		@this.advance();
+		discard @this.advance();
 		@consumed = consumed + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Lexer::scan(var Lexer& this) -> bool {
+fn Lexer::scan(var Lexer& this) -> CompilationResult {
 	@this.offset = 0;
 	@this.line = 1;
 	@this.column = 1;
@@ -516,8 +526,8 @@ fn Lexer::scan(var Lexer& this) -> bool {
 	@this.source->clear_tokens();
 
 	while (true) {
-		if (!@this.trivia()) {
-			return false;
+		if (!(@this.trivia()).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		var token = this.location();
@@ -532,7 +542,7 @@ fn Lexer::scan(var Lexer& this) -> bool {
 		}
 		else if (Lexer::identifier_start(value)) {
 			while (Lexer::identifier_start(this.peek(0)) || Lexer::digit(this.peek(0))) {
-				@this.advance();
+				discard @this.advance();
 			};
 
 			@token.length = this.offset - token.begin;
@@ -541,8 +551,8 @@ fn Lexer::scan(var Lexer& this) -> bool {
 		else if (Lexer::digit(value)) {
 			@token.kind = token_kind::literal_number;
 
-			if (!@this.number(token)) {
-				return false;
+			if (!(@this.number(token)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		}
 		else if (value == '"' || value == '\'') {
@@ -552,30 +562,28 @@ fn Lexer::scan(var Lexer& this) -> bool {
 				@token.kind = token_kind::literal_number;
 			};
 
-			if (!@this.quoted(token, value)) {
+			if (!(@this.quoted(token, value)).has<void>()) {
 				@token.length = this.offset - token.begin;
-				if (token.length && !@this.source->append_token(Token(token))) {
-					return @this.fail(token, "token storage allocation failed");
+				if (token.length) {
+					@this.source->append_token(Token(token));
 				};
-				return false;
+				return CompilationResult(compilation_error());
 			};
 		}
 		else {
-			if (!@this.symbol(@token)) {
-				return false;
+			if (!(@this.symbol(@token)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 
 		@token.length = this.offset - token.begin;
 
-		if (!@this.source->append_token(Token(token))) {
-			return @this.fail(token, "token storage allocation failed");
-		};
+		@this.source->append_token(Token(token));
 
 		if (token.kind == token_kind::eof) {
 			break;
 		};
 	};
 
-	return true;
+	return CompilationResult();
 };

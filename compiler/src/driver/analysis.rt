@@ -1,3 +1,8 @@
+struct analysis_cancelled_error {};
+
+using AnalysisResult = void | compilation_error | analysis_cancelled_error;
+
+
 struct EditorTemplateSelection {
 	rt::string path;
 	usize anchor;
@@ -13,13 +18,13 @@ struct Analysis {
 
 	fn set_progress(var Analysis& this, CompilerProgress progress);
 	fn enable_tests(var Analysis& this);
-	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool;
-	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool;
-	fn set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access) -> bool;
-	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
-	fn request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments) -> bool;
+	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text);
+	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> CompilationResult;
+	fn set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access);
+	fn analyze(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> AnalysisResult;
+	fn request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments);
 	fn template_context_label(Analysis& this) -> rt::string_view;
-	fn analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> bool;
+	fn analyze_editor(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> AnalysisResult;
 
 	fn source_count(Analysis& this) -> usize;
 	fn source_path(Analysis& this, usize index) -> rt::string_view;
@@ -34,7 +39,7 @@ struct Analysis {
 	fn pointer_bits(Analysis& this) -> u32;
 
 private:
-	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> bool;
+	fn analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context, bool editor) -> AnalysisResult;
 
 	rt::unique<EditorTemplateSelection> template_selection;
 	CompilerProgress progress;
@@ -52,20 +57,28 @@ fn Analysis::Analysis(var Analysis& this, var NativeFile* output) {
 	@this.messages = Diagnostics($output);
 };
 
-fn Analysis::add_source(var Analysis& this, rt::string_view path, rt::string_view text) -> bool {
+fn Analysis::add_source(var Analysis& this, rt::string_view path, rt::string_view text) {
 	var SourceFile* source = @this.sources.add(path, text);
-	return source && @this.index.register_source(@*source, this.sources.count() - 1);
+	@this.index.register_source(@*source, this.sources.count() - 1);
 };
 
-fn Analysis::set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access) -> bool {
+fn Analysis::set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access) {
 	var SourceFile* source = @this.sources.at(index);
-	return source && @source->set_module(name, $access);
+	if (!source) {
+		compiler_panic("source module references an invalid source index");
+	};
+	@source->set_module(name, $access);
 };
 
-fn Analysis::load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> bool {
+fn Analysis::load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> CompilationResult {
 	var reader = SourceReader($opener, @this.sources, @this.messages);
-	var SourceFile* source = @reader.load(path);
-	return source && @this.index.register_source(@*source, this.sources.count() - 1);
+	var read = @reader.load(path);
+	if (read.has<source_io_error>()) {
+		return CompilationResult(compilation_error());
+	};
+	var SourceFile* source = read.get<var SourceFile*>();
+	@this.index.register_source(@*source, this.sources.count() - 1);
+	return CompilationResult();
 };
 
 fn Analysis::source_count(Analysis& this) -> usize {
@@ -128,16 +141,12 @@ fn Analysis::syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>& {
 	return this.syntax;
 };
 
-fn Analysis::request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments) -> bool {
+fn Analysis::request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments) {
 	var selection = rt::unique<EditorTemplateSelection>::make();
-	if (!selection.get()) {
-		return false;
-	};
 	@selection.get()->path = rt::string(path);
 	@selection.get()->anchor = $anchor;
 	@selection.get()->arguments = rt::string(arguments);
 	@this.template_selection = $selection;
-	return true;
 };
 
 fn Analysis::template_context_label(Analysis& this) -> rt::string_view {

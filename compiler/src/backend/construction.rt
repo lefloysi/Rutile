@@ -11,23 +11,24 @@ fn FunctionEmitter::construct(var FunctionEmitter& this, var SemanticExpression*
 
 	var LLVMOpaqueValue* storage = @this.slot(expression->type());
 
-	if (!storage || !@this.construct_into(expression, storage) || !@this.remember(expression, storage)) {
+	if (!storage || !(@this.construct_into(expression, storage)).has<void>()) {
 		return nullptr;
 	};
+	@this.remember(expression, storage);
 
 	return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), storage, "constructed\0".data());
 };
 
-fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
+fn FunctionEmitter::construct_into(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> CompilationResult {
 	usize begin = this.unwinds.size();
-	if (!@this.construct_body(expression, storage)) {
-		return false;
+	if (!(@this.construct_body(expression, storage)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	@this.forget_unwinds(begin);
-	return true;
+	return CompilationResult();
 };
 
-fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> bool {
+fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* storage) -> CompilationResult {
 	if (expression->integer()) {
 		return @this.construct_variant_body(expression, storage);
 	};
@@ -36,7 +37,7 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 
 	if (!native) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var SemanticExpression* arguments = expression->item(0);
@@ -45,14 +46,12 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 
 	if (constructor) {
 		if (constructor->definition() != function_definition::defaulted || constructor->parameters().size() != 2) {
-			LLVMBuildStore(this.backend->builder(), value, storage);
+			discard LLVMBuildStore(this.backend->builder(), value, storage);
 		};
 
 		rt::buffer<var LLVMOpaqueValue*> inputs;
 
-		if (!@inputs.push_back(storage)) {
-			return @this.backend->error(expression->token(), "cannot allocate constructor arguments");
-		};
+		@inputs.push_back(storage);
 
 		usize index = 0;
 
@@ -67,12 +66,10 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 			};
 
 			if (!argument) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 
-			if (!@inputs.push_back(argument)) {
-				return @this.backend->error(expression->token(), "cannot allocate constructor arguments");
-			};
+			@inputs.push_back(argument);
 
 			@index = index + 1;
 		};
@@ -85,10 +82,10 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 			@index = index + 1;
 		};
 		if (!@this.native_call(@this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), (@inputs).data(), static_cast<u32>(inputs.size()))) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
-		return true;
+		return CompilationResult();
 	};
 
 	if (!arguments || !arguments->size()) {
@@ -100,7 +97,7 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 			var LLVMOpaqueValue* source = @this.address(arguments->item(0));
 
 			if (!source) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 
 			return @this.copy_initialize(type, storage, source);
@@ -109,15 +106,15 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 		@value = @this.take(arguments->item(0));
 
 		if (!value) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
-		LLVMBuildStore(this.backend->builder(), value, storage);
+		discard LLVMBuildStore(this.backend->builder(), value, storage);
 
-		return true;
+		return CompilationResult();
 	};
 
-	LLVMBuildStore(this.backend->builder(), value, storage);
+	discard LLVMBuildStore(this.backend->builder(), value, storage);
 	usize index = 0;
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
@@ -155,38 +152,39 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 			return @this.backend->error(expression->token(), message.view());
 		};
 
-		if (!@this.initialize_dispatch(type, storage)) {
-			return false;
+		if (!(@this.initialize_dispatch(type, storage)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		while (index < type->entity()->fields().size()) {
 			var Entity* field = type->entity()->fields().data()[index];
 			var LLVMOpaqueValue* destination = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(type->entity(), index), "aggregate.field\0".data());
 
-			if (!@this.initialize_value(field->type(), destination, arguments->item(index)) || !@this.retain_unwind(field->type(), destination, nullptr, nullptr)) {
-				return false;
+			if (!(@this.initialize_value(field->type(), destination, arguments->item(index))).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
+			@this.retain_unwind(field->type(), destination, nullptr, nullptr);
 
 			@index = index + 1;
 		};
 
-		return true;
+		return CompilationResult();
 	};
 
 	while (index < arguments->size()) {
 		var LLVMOpaqueValue* element = @this.take(arguments->item(index));
 
 		if (!element) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		@value = LLVMBuildInsertValue(this.backend->builder(), value, element, static_cast<u32>(index), "aggregate\0".data());
 		@index = index + 1;
 	};
 
-	LLVMBuildStore(this.backend->builder(), value, storage);
+	discard LLVMBuildStore(this.backend->builder(), value, storage);
 
-	return true;
+	return CompilationResult();
 };
 
 fn FunctionEmitter::allocate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
@@ -205,19 +203,17 @@ fn FunctionEmitter::allocate(var FunctionEmitter& this, var SemanticExpression* 
 	var LLVMOpaqueValue* exists = @this.truth((var LLVMOpaqueValue*(pointer)), expression->type());
 	var LLVMOpaqueBasicBlock* initialize = @this.block("new.initialize");
 	var LLVMOpaqueBasicBlock* after = @this.block("new.after");
-	LLVMBuildCondBr(this.backend->builder(), exists, (var LLVMOpaqueBasicBlock*(initialize)), (var LLVMOpaqueBasicBlock*(after)));
+	discard LLVMBuildCondBr(this.backend->builder(), exists, (var LLVMOpaqueBasicBlock*(initialize)), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
 	usize unwind_begin = this.unwinds.size();
-	if (!@this.retain_unwind(element, nullptr, nullptr, pointer)) {
-		return nullptr;
-	};
+	@this.retain_unwind(element, nullptr, nullptr, pointer);
 
-	if (!@this.construct_into(expression->item(0), pointer)) {
+	if (!(@this.construct_into(expression->item(0), pointer)).has<void>()) {
 		return nullptr;
 	};
 	@this.forget_unwinds(unwind_begin);
 
-	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
+	discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 	return pointer;

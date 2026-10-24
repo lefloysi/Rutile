@@ -35,8 +35,8 @@ struct ConstantFrame {
 	fn set_result_type(var ConstantFrame& this, Type& type);
 	fn leave(var ConstantFrame& this, ConstantCheckpoint& checkpoint);
 	fn return_reference(var ConstantFrame& this, var ConstantCell* cell);
-	fn bind(var ConstantFrame& this, var Entity* entity, var ConstantCell* cell) -> bool;
-	fn store(var ConstantFrame& this, var Entity* entity, rt::unique<SemanticExpression> value) -> bool;
+	fn bind(var ConstantFrame& this, var Entity* entity, var ConstantCell* cell);
+	fn store(var ConstantFrame& this, var Entity* entity, rt::unique<SemanticExpression> value);
 
 	fn returns_reference(ConstantFrame& this) -> bool;
 	fn checkpoint(ConstantFrame& this) -> ConstantCheckpoint;
@@ -124,7 +124,8 @@ fn ConstantEvaluator::bind_reference(var ConstantEvaluator& this, var Analyzer& 
 			return false;
 		};
 
-		return @target.bind(&@binding, cell);
+		@target.bind(&@binding, cell);
+		return true;
 	};
 
 	if (kind != constant_reference_kind::temporary || binding.type()->element()->qualifier() != type_qualifier::immutable) {
@@ -137,7 +138,8 @@ fn ConstantEvaluator::bind_reference(var ConstantEvaluator& this, var Analyzer& 
 		return false;
 	};
 
-	return @target.store(&@binding, $temporary);
+	@target.store(&@binding, $temporary);
+	return true;
 };
 
 fn ConstantEvaluator::execute_children(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source, var rt::unique<SemanticExpression>& returned) -> constant_flow {
@@ -166,11 +168,9 @@ fn ConstantEvaluator::initialize_sequence(var ConstantEvaluator& this, var Analy
 };
 
 fn ConstantEvaluator::literal(ConstantEvaluator& this, SemanticExpression& source, u64 value) -> rt::unique<SemanticExpression> {
-	var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_integer, source.type(), source.token()));
+	var result = SemanticExpression::make(semantic_kind::literal_integer, source.type(), source.token());
 
-	if (result.get()) {
-		@result.get()->set_integer(source.type()->normalize_integer(value));
-	};
+	@result.get()->set_integer(source.type()->normalize_integer(value));
 
 	return $result;
 };
@@ -210,7 +210,7 @@ fn ConstantEvaluator::global_cell(var ConstantEvaluator& this, var Analyzer& ana
 		return cell;
 	};
 
-	if (this.depth >= 128 || !@analyzer.global_initializer(@entity) || !entity.body()) {
+	if (this.depth >= 128 || !(@analyzer.global_initializer(@entity)).has<void>() || !entity.body()) {
 		return nullptr;
 	};
 
@@ -222,9 +222,7 @@ fn ConstantEvaluator::global_cell(var ConstantEvaluator& this, var Analyzer& ana
 		return nullptr;
 	};
 
-	if (!@this.constants.store(&@entity, $value)) {
-		return nullptr;
-	};
+	@this.constants.store(&@entity, $value);
 
 	return this.constants.find(&@entity);
 };
@@ -285,7 +283,7 @@ fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer,
 	semantic_kind kind = source.kind();
 
 	if (kind == semantic_kind::noop) {
-		return rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::noop, source.type(), source.token()));
+		return SemanticExpression::make(semantic_kind::noop, source.type(), source.token());
 	};
 
 	if (kind == semantic_kind::sequence) {
@@ -348,7 +346,7 @@ fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer,
 
 		if (!arguments->size()) {
 			if (source.type()->representation()->kind() == type_kind::floating_point) {
-				return rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::literal_real, source.type(), source.token()));
+				return SemanticExpression::make(semantic_kind::literal_real, source.type(), source.token());
 			};
 
 			return this.literal(source, 0);
@@ -398,16 +396,16 @@ fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer,
 			};
 		};
 
-		var operation = rt::unique<SemanticExpression>(new var SemanticExpression($kind, source.type(), source.token()));
+		var operation = SemanticExpression::make($kind, source.type(), source.token());
 
-		if (!operation.get() || !@operation.get()->append(rt::unique<SemanticExpression>(@first.release()))) {
+		if (!(@operation.get()->append(rt::unique<SemanticExpression>(@first.release()))).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
 		if (source.size() == 2) {
 			var second = @this.value(@analyzer, @frame, *source.item(1));
 
-			if (!second.get() || !@operation.get()->append(rt::unique<SemanticExpression>(@second.release()))) {
+			if (!second.get() || !(@operation.get()->append(rt::unique<SemanticExpression>(@second.release()))).has<void>()) {
 				return rt::unique<SemanticExpression>();
 			};
 		};
@@ -428,7 +426,7 @@ fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, 
 
 	@function = function->canonical();
 
-	if (!@analyzer.function_body(function)) {
+	if (!(@analyzer.function_body(function)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -451,9 +449,10 @@ fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, 
 		else {
 			var value = @this.value(@analyzer, @frame, *argument);
 
-			if (!value.get() || !@invocation.store(parameter, rt::unique<SemanticExpression>(@value.release()))) {
+			if (!value.get()) {
 				return rt::unique<SemanticExpression>();
 			};
+			@invocation.store(parameter, rt::unique<SemanticExpression>(@value.release()));
 		};
 
 		@index = index + 1;
@@ -465,7 +464,7 @@ fn ConstantEvaluator::call(var ConstantEvaluator& this, var Analyzer& analyzer, 
 	@this.depth = this.depth - 1;
 
 	if (flow == constant_flow::next && source.type()->kind() == type_kind::void_type) {
-		return rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::noop, source.type(), source.token()));
+		return SemanticExpression::make(semantic_kind::noop, source.type(), source.token());
 	};
 
 	if (flow != constant_flow::returned) {
@@ -523,15 +522,16 @@ fn ConstantEvaluator::execute(var ConstantEvaluator& this, var Analyzer& analyze
 						@kind = semantic_kind::literal_real;
 					};
 
-					@value = rt::unique<SemanticExpression>(new var SemanticExpression($kind, entity->type(), source.token()));
+					@value = SemanticExpression::make($kind, entity->type(), source.token());
 				}
 				else {
 					@value = @this.value(@analyzer, @frame, *source.item(0));
 				};
 
-				if (!value.get() || !@frame.store(entity, rt::unique<SemanticExpression>(@value.release()))) {
+				if (!value.get()) {
 					return constant_flow::failed;
 				};
+				@frame.store(entity, rt::unique<SemanticExpression>(@value.release()));
 			};
 
 			return constant_flow::next;
@@ -806,29 +806,24 @@ fn ConstantFrame::owns(ConstantFrame& this, ConstantCell& cell) -> bool {
 	return false;
 };
 
-fn ConstantFrame::bind(var ConstantFrame& this, var Entity* entity, var ConstantCell* cell) -> bool {
+fn ConstantFrame::bind(var ConstantFrame& this, var Entity* entity, var ConstantCell* cell) {
 	ConstantBinding binding;
 	@binding.entity = $entity;
 	@binding.cell = $cell;
 
-	return @this.bindings.push_back($binding);
+	@this.bindings.push_back($binding);
+	return;
 };
 
-fn ConstantFrame::store(var ConstantFrame& this, var Entity* entity, rt::unique<SemanticExpression> value) -> bool {
+fn ConstantFrame::store(var ConstantFrame& this, var Entity* entity, rt::unique<SemanticExpression> value) {
 	var cell = rt::unique<ConstantCell>::make();
-
-	if (!cell.get()) {
-		return false;
-	};
 
 	@cell.get()->value = $value;
 	var ConstantCell* borrowed = cell.get();
 
-	if (!@this.cells.push_back($cell)) {
-		return false;
-	};
+	@this.cells.push_back($cell);
 
-	return @this.bind($entity, $borrowed);
+	@this.bind($entity, $borrowed);
 };
 
 fn ConstantRegion::ConstantRegion(var ConstantRegion& this, var ConstantFrame& frame) {

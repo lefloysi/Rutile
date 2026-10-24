@@ -12,10 +12,10 @@ struct LspFiles {
 
 	fn ~LspFiles(var LspFiles& this) {
 		if (this.input) {
-			fclose(this.input);
+			discard fclose(this.input);
 		};
 		if (this.output) {
-			fclose(this.output);
+			discard fclose(this.output);
 		};
 	};
 
@@ -36,9 +36,7 @@ struct LspFiles {
 
 fn lsp_frame(rt::string_view body) -> rt::string {
 	var length = rt::json_value::make_unsigned(u64(body.size()));
-	if (!rt::test::expect(length.get())) {
-		return rt::string();
-	};
+	rt::test::expect(length.get());
 	return "Content-Length: " + length.get()->text() + "\r\n\r\n" + body;
 };
 
@@ -49,13 +47,15 @@ fn lsp_response(var LanguageProtocol& protocol, i64 expected) -> rt::json_docume
 			return rt::json_parse("");
 		};
 		var message = rt::json_parse(body);
-		if (!message.value()) {
+		if (!message.has<rt::unique<rt::json_value>>()) {
 			return $message;
 		};
-		var id = message.value()->member("id");
-		i64 value = 0;
-		if (id && id->integer(@value) && value == expected) {
-			return $message;
+		var id = message.get<rt::unique<rt::json_value>>().get()->member("id");
+		if (id) {
+			var value = id->integer();
+			if (value.has<i64>() && value.get<i64>() == expected) {
+				return $message;
+			};
 		};
 	};
 };

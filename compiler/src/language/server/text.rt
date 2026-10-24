@@ -6,7 +6,7 @@ struct LanguagePosition {
 };
 
 struct LanguageText {
-	fn assign(var LanguageText& this, rt::string_view text) -> bool;
+	fn assign(var LanguageText& this, rt::string_view text);
 	fn view(LanguageText& this) -> rt::string_view;
 	fn offset(LanguageText& this, usize line, usize character) -> usize;
 	fn position(LanguageText& this, usize offset) -> LanguagePosition;
@@ -18,9 +18,9 @@ private:
 };
 
 struct LanguageUri {
-	fn decode(rt::string_view uri, var rt::string& path) -> bool;
-	fn encode(rt::string_view path, var rt::string& uri) -> bool;
-	fn key(rt::string_view path, var rt::string& result) -> bool;
+	fn decode(rt::string_view uri, var rt::string& path) -> LanguageRequestResult;
+	fn encode(rt::string_view path, var rt::string& uri);
+	fn key(rt::string_view path, var rt::string& result);
 
 private:
 	fn hexadecimal(char value) -> i32;
@@ -31,24 +31,23 @@ fn LanguagePosition::LanguagePosition(var LanguagePosition& this, usize line, us
 	@this.character = $character;
 };
 
-fn LanguageText::assign(var LanguageText& this, rt::string_view text) -> bool {
+fn LanguageText::assign(var LanguageText& this, rt::string_view text) {
 	rt::string contents;
 	rt::buffer<usize> offsets;
-	if (!@contents.append(text) || !@offsets.push_back(0)) {
-		return false;
-	};
+	@contents.append(text);
+	@offsets.push_back(0);
 
 	usize index = 0;
 	while (index < text.size()) {
-		if (text.data()[index] == '\n' && !@offsets.push_back(index + 1)) {
-			return false;
+		if (text.data()[index] == '\n') {
+			@offsets.push_back(index + 1);
 		};
 		@index = index + 1;
 	};
 
 	@this.text = $contents;
 	@this.lines = $offsets;
-	return true;
+	return;
 };
 
 fn LanguageText::view(LanguageText& this) -> rt::string_view {
@@ -154,9 +153,9 @@ fn LanguageUri::hexadecimal(char value) -> i32 {
 	return -1;
 };
 
-fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> bool {
+fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> LanguageRequestResult {
 	if (uri.size() < 7 || rt::string_view(uri.data(), 7) != "file://") {
-		return false;
+		return LanguageRequestResult(language_request_error());
 	};
 
 	rt::string result;
@@ -164,8 +163,8 @@ fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> bool {
 	if (uri.size() >= 17 && rt::string_view(uri.data() + 7, 10) == "localhost/") {
 		@cursor = 16;
 	};
-	if (cursor < uri.size() && uri.data()[cursor] != '/' && !@result.append("//")) {
-		return false;
+	if (cursor < uri.size() && uri.data()[cursor] != '/') {
+		@result.append("//");
 	};
 	if (cursor + 2 < uri.size() && uri.data()[cursor] == '/' && uri.data()[cursor + 2] == ':') {
 		@cursor = cursor + 1;
@@ -175,26 +174,24 @@ fn LanguageUri::decode(rt::string_view uri, var rt::string& path) -> bool {
 		char byte = uri.data()[cursor];
 		if (byte == '%') {
 			if (cursor + 2 >= uri.size()) {
-				return false;
+				return LanguageRequestResult(language_request_error());
 			};
 			i32 high = LanguageUri::hexadecimal(uri.data()[cursor + 1]);
 			i32 low = LanguageUri::hexadecimal(uri.data()[cursor + 2]);
 			if (high < 0 || low < 0 || !(high * 16 + low)) {
-				return false;
+				return LanguageRequestResult(language_request_error());
 			};
 			@byte = static_cast<char>(high * 16 + low);
 			@cursor = cursor + 2;
 		};
-		if (!@result.append(rt::string_view(&@byte, 1))) {
-			return false;
-		};
+		@result.append(rt::string_view(&@byte, 1));
 		@cursor = cursor + 1;
 	};
 	@path = $result;
-	return true;
+	return LanguageRequestResult();
 };
 
-fn LanguageUri::encode(rt::string_view path, var rt::string& uri) -> bool {
+fn LanguageUri::encode(rt::string_view path, var rt::string& uri) {
 	rt::string result;
 	var prefix = "file:///";
 	if (path.size() >= 2 && (path.data()[0] == '/' || path.data()[0] == '\\') && (path.data()[1] == '/' || path.data()[1] == '\\')) {
@@ -203,9 +200,7 @@ fn LanguageUri::encode(rt::string_view path, var rt::string& uri) -> bool {
 	else if (path.size() && path.data()[0] == '/') {
 		@prefix = "file://";
 	};
-	if (!@result.append(prefix)) {
-		return false;
-	};
+	@result.append(prefix);
 
 	var digits = "0123456789ABCDEF";
 	usize cursor = 0;
@@ -215,9 +210,7 @@ fn LanguageUri::encode(rt::string_view path, var rt::string& uri) -> bool {
 			@byte = '/';
 		};
 		if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '/' || byte == ':' || byte == '-' || byte == '_' || byte == '.' || byte == '~') {
-			if (!@result.append(rt::string_view(&@byte, 1))) {
-				return false;
-			};
+			@result.append(rt::string_view(&@byte, 1));
 		}
 		else {
 			u08 value = static_cast<u08>(byte);
@@ -225,17 +218,15 @@ fn LanguageUri::encode(rt::string_view path, var rt::string& uri) -> bool {
 			@encoded[0] = '%';
 			@encoded[1] = digits.data()[static_cast<usize>(value >> 4)];
 			@encoded[2] = digits.data()[static_cast<usize>(value & 15)];
-			if (!@result.append(rt::string_view(&@encoded[0], 3))) {
-				return false;
-			};
+			@result.append(rt::string_view(&@encoded[0], 3));
 		};
 		@cursor = cursor + 1;
 	};
 	@uri = $result;
-	return true;
+	return;
 };
 
-fn LanguageUri::key(rt::string_view path, var rt::string& result) -> bool {
+fn LanguageUri::key(rt::string_view path, var rt::string& result) {
 	rt::string key;
 	usize index = 0;
 	while (index < path.size()) {
@@ -246,11 +237,9 @@ fn LanguageUri::key(rt::string_view path, var rt::string& result) -> bool {
 		if (byte >= 'A' && byte <= 'Z') {
 			@byte = static_cast<char>(static_cast<i32>(byte) + 32);
 		};
-		if (!@key.append(rt::string_view(&@byte, 1))) {
-			return false;
-		};
+		@key.append(rt::string_view(&@byte, 1));
 		@index = index + 1;
 	};
 	@result = $key;
-	return true;
+	return;
 };

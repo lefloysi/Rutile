@@ -1,0 +1,36 @@
+fn variant_alternative(Type* source, Type* target) -> Type* {
+	if (!source || source->kind() != type_kind::named || !variant_instance(*source->entity())) {
+		return nullptr;
+	};
+	TemplateInstantiation* instance = source->entity()->template_arguments();
+	TemplatePack* elements = instance->arguments.data()[0].pack;
+	Type* selected = nullptr;
+	for (usize index = 0; index < elements->elements.size(); @index = index + 1) {
+		Type* alternative = elements->elements.data()[index].type;
+		if (alternative->same_shape(*target)) {
+			if (selected) {
+				return nullptr;
+			};
+			@selected = alternative;
+		};
+	};
+	return selected;
+};
+
+fn Analyzer::discarded(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
+	if (syntax.kind() == syntax_kind::grouping) {
+		return @this.discarded(@scope, @*syntax.operand(), $value);
+	};
+	if (!value.get() || value.get()->type()->kind() == type_kind::void_type || value.get()->kind() == semantic_kind::noop || value.get()->kind() == semantic_kind::variable || value.get()->kind() == semantic_kind::construction && value.get()->category() == value_category::place) {
+		return $value;
+	};
+	if (syntax.kind() == syntax_kind::binary && (syntax.token().kind == token_kind::op_assign || syntax.token().kind == token_kind::op_copy)) {
+		return $value;
+	};
+	Type* nothing = this.types->find_primitive("void");
+	if (variant_alternative(value.get()->type(), nothing)) {
+		return @this.variant_cast(@scope, @syntax, nothing, $value, rt::optional_ref<const Type>());
+	};
+	@this.error(&@syntax, "expression result must be used");
+	return rt::unique<SemanticExpression>();
+};

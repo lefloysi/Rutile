@@ -17,19 +17,19 @@ fn Analyzer::constant_integer(var Analyzer& this, SemanticExpression& expression
 	return @evaluator.integer(@this, expression, @result);
 };
 
-fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> bool {
+fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> CompilationResult {
 	if (type->kind() == type_kind::array) {
 		return @this.prepare_lifetime(type->element());
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Entity* owner = type->entity();
 
-	if (!@this.resolve((var Entity*(owner)))) {
-		return false;
+	if (!(@this.resolve((var Entity*(owner)))).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (owner->virtual_functions().size()) {
@@ -37,8 +37,8 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> bool {
 		usize slot = 0;
 
 		while (slot < owner->virtual_functions().size()) {
-			if (!@this.function_body(owner->virtual_functions().data()[slot])) {
-				return false;
+			if (!(@this.function_body(owner->virtual_functions().data()[slot])).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 
 			@slot = slot + 1;
@@ -47,18 +47,18 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> bool {
 
 	var Entity* destructor = owner->destructor();
 
-	if (destructor && !@this.function_body((var Entity*(destructor)))) {
-		return false;
+	if (destructor && !(@this.function_body((var Entity*(destructor)))).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return true;
+		return CompilationResult();
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
-		if (!@this.prepare_lifetime(owner->bases().data()[index])) {
-			return false;
+		if (!(@this.prepare_lifetime(owner->bases().data()[index])).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
@@ -67,19 +67,19 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> bool {
 	@index = 0;
 
 	while (index < owner->fields().size()) {
-		if (!@this.prepare_lifetime(owner->fields().data()[index]->type())) {
-			return false;
+		if (!(@this.prepare_lifetime(owner->fields().data()[index]->type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
-	if (!@this.prepare_lifetime(type)) {
-		return false;
+fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResult {
+	if (!(@this.prepare_lifetime(type)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -87,7 +87,7 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Entity* owner = type->entity();
@@ -107,11 +107,11 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 				@this.report(owner->token(), message.view());
 				diagnostic_candidates(@*this.diagnostics, *group);
 			};
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		if (constructor->definition() == function_definition::deleted) {
 			@this.deleted_function(owner->token(), *constructor);
-			return false;
+			return CompilationResult(compilation_error());
 		};
 	};
 
@@ -120,13 +120,13 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return true;
+		return CompilationResult();
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
-		if (!@this.prepare_default(owner->bases().data()[index])) {
-			return false;
+		if (!(@this.prepare_default(owner->bases().data()[index])).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
@@ -137,55 +137,53 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> bool {
 	while (index < owner->fields().size()) {
 		var Entity* field = owner->fields().data()[index];
 
-		if (!@this.field_initializer((var Entity*(field)))) {
-			return false;
+		if (!(@this.field_initializer((var Entity*(field)))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		if (field->body()) {
-			if (!@this.prepare_expression(field->body())) {
-				return false;
+			if (!(@this.prepare_expression(field->body())).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		}
-		else if (!@this.prepare_default(field->type())) {
-			return false;
+		else if (!(@this.prepare_default(field->type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::prepare_function_exception(var Analyzer& this, var Entity& entity) -> bool {
+fn Analyzer::prepare_function_exception(var Analyzer& this, var Entity& entity) -> CompilationResult {
 	if (entity.kind() != entity_kind::function || entity.exception_contract() != exception_specification::inferred || entity.exception_state() != entity_state::declared || entity.definition() == function_definition::deleted) {
-		return true;
+		return CompilationResult();
 	};
 	if (entity.role() != function_role::destructor && entity.definition() != function_definition::defaulted) {
-		return true;
+		return CompilationResult();
 	};
 	var Entity* owner = entity.scope()->owner();
 	if (owner && owner->kind() == entity_kind::record && owner->state() != entity_state::ready) {
-		return true;
+		return CompilationResult();
 	};
 	@entity.set_exception_state(entity_state::resolving);
-	if (entity.definition() == function_definition::defaulted && !@this.function_body(&@entity)) {
-		return false;
+	if (entity.definition() == function_definition::defaulted && !(@this.function_body(&@entity)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	rt::buffer<Type*> parameters;
 	usize index = 0;
 	while (index < entity.type()->signature().parameters().size()) {
-		if (!@parameters.push_back(entity.type()->signature().parameters().data()[index])) {
-			return false;
-		};
+		@parameters.push_back(entity.type()->signature().parameters().data()[index]);
 		@index = index + 1;
 	};
 	Type* type = @this.types->function(entity.type()->signature().result(), $parameters, entity.type()->signature().arity(), entity.nonthrowing());
 	if (!type) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	@entity.set_type(type);
 	@entity.set_exception_state(entity_state::ready);
-	return true;
+	return CompilationResult();
 };
 
 fn exception_copyable(Type* type) -> bool {
@@ -220,33 +218,33 @@ fn exception_copyable(Type* type) -> bool {
 	return true;
 };
 
-fn Analyzer::prepare_exception_type(var Analyzer& this, Type* type) -> bool {
-	if (!@this.prepare_lifetime(type)) {
-		return false;
+fn Analyzer::prepare_exception_type(var Analyzer& this, Type* type) -> CompilationResult {
+	if (!(@this.prepare_lifetime(type)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
-	if (exception_copyable(type) && !@this.prepare_copy(type)) {
-		return false;
+	if (exception_copyable(type) && !(@this.prepare_copy(type)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		usize index = 0;
 		while (index < type->entity()->bases().size()) {
-			if (!@this.prepare_exception_type(type->entity()->bases().data()[index])) {
-				return false;
+			if (!(@this.prepare_exception_type(type->entity()->bases().data()[index])).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			@index = index + 1;
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expression) -> bool {
+fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expression) -> CompilationResult {
 	if (!expression) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Entity* selected = expression->entity();
 
-	if (selected && selected->kind() == entity_kind::function && !@this.function_body((var Entity*(selected)))) {
+	if (selected && selected->kind() == entity_kind::function && !(@this.function_body((var Entity*(selected)))).has<void>()) {
 		if (this.failed() && (selected->instantiated() || selected->scope() && this.unit->reference_context(@*selected->scope()))) {
 			var message = DiagnosticMessage();
 			@message.text("while instantiating function '");
@@ -254,34 +252,34 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 			@message.text("' requested here");
 			@this.note(expression->token(), message.view());
 		};
-		return false;
+		return CompilationResult(compilation_error());
 	};
-	if (selected && selected->kind() == entity_kind::function && !@this.prepare_function_exception(@*selected)) {
-		return false;
+	if (selected && selected->kind() == entity_kind::function && !(@this.prepare_function_exception(@*selected)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
-	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::exception_handler) && selected && !@this.prepare_lifetime(selected->type())) {
-		return false;
+	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::exception_handler) && selected && !(@this.prepare_lifetime(selected->type())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
-	if (expression->kind() == semantic_kind::variable && selected && expression->size() && expression->item(0)->kind() == semantic_kind::noop && !@this.prepare_default(selected->type())) {
-		return false;
+	if (expression->kind() == semantic_kind::variable && selected && expression->size() && expression->item(0)->kind() == semantic_kind::noop && !(@this.prepare_default(selected->type())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	if (expression->kind() == semantic_kind::exception_handler && selected && selected->type()->kind() != type_kind::reference) {
 		if (!exception_copyable(selected->type())) {
 			@this.report(expression->token(), "catch by value requires a copyable exception type");
-			return false;
+			return CompilationResult(compilation_error());
 		};
-		if (!@this.prepare_copy(selected->type())) {
-			return false;
+		if (!(@this.prepare_copy(selected->type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
-	if (expression->kind() == semantic_kind::exception_throw && !@this.prepare_exception_type(expression->item(0)->type())) {
-		return false;
+	if (expression->kind() == semantic_kind::exception_throw && !(@this.prepare_exception_type(expression->item(0)->type())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (expression->kind() == semantic_kind::construction) {
-		if (!@this.prepare_lifetime(expression->type())) {
-			return false;
+		if (!(@this.prepare_lifetime(expression->type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		if (!selected && expression->type()->kind() == type_kind::named && expression->type()->entity()->layout() != record_layout::overlapping) {
@@ -291,16 +289,16 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 			while (field < fields.size()) {
 				var Entity* member = fields.data()[field];
 
-				if (!@this.field_initializer((var Entity*(member)))) {
-					return false;
+				if (!(@this.field_initializer((var Entity*(member)))).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
-				if (!member->body() && !@this.prepare_default(member->type())) {
-					return false;
+				if (!member->body() && !(@this.prepare_default(member->type())).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
-				if (member->body() && !@this.prepare_expression(member->body())) {
-					return false;
+				if (member->body() && !(@this.prepare_expression(member->body())).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
 				@field = field + 1;
@@ -310,23 +308,23 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 
 	usize index = 0;
 	while (index < expression->size()) {
-		if (!@this.prepare_expression(expression->item(index))) {
-			return false;
+		if (!(@this.prepare_expression(expression->item(index))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool {
-	if (!@this.resolve(&@entity)) {
-		return false;
+fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> CompilationResult {
+	if (!(@this.resolve(&@entity)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (entity.body_state() == entity_state::ready) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (entity.body_state() == entity_state::resolving) {
@@ -337,17 +335,17 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool 
 		diagnostic_type(@message, *entity.type());
 		@message.text("' has a circular dependency");
 		@this.report(entity.token(), message.view());
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var Syntax* initializer = entity.declaration()->variable_initializer();
 
 	if (initializer->kind() == syntax_kind::absent) {
-		if (!@this.prepare_default(entity.type())) {
-			return false;
+		if (!(@this.prepare_default(entity.type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@entity.set_body_state(entity_state::ready);
-		return true;
+		return CompilationResult();
 	};
 
 	@entity.set_body_state(entity_state::resolving);
@@ -366,13 +364,13 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool 
 	var value = @this.expression(@*entity.scope(), @*initializer, expected);
 
 	if (!value.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@value = @this.initialize(@*initializer, entity.type(), rt::unique<SemanticExpression>(@value.release()));
 
 	if (!value.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@entity.set_body($value);
@@ -381,9 +379,9 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> bool 
 	return @this.prepare_expression(entity.body());
 };
 
-fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
+fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	if (entity->body_state() == entity_state::ready) {
-		return true;
+		return CompilationResult();
 	};
 
 	if (entity->body_state() == entity_state::resolving) {
@@ -394,7 +392,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 		diagnostic_type(@message, *entity->type());
 		@message.text("' has a circular dependency");
 		@this.report(entity->token(), message.view());
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var Syntax* initializer = entity->declaration()->variable_initializer();
@@ -402,7 +400,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 	if (initializer->kind() == syntax_kind::absent) {
 		@entity->set_body_state(entity_state::ready);
 
-		return true;
+		return CompilationResult();
 	};
 
 	if (entity->scope()->owner()->layout() == record_layout::overlapping) {
@@ -414,7 +412,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 		@message.text("' is not implemented");
 		@this.report(initializer->token(), message.view());
 		@this.note(entity->token(), "union member is declared here");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@entity->set_body_state(entity_state::resolving);
@@ -433,7 +431,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 	var value = @this.expression(@*entity->scope(), @*initializer, expected);
 
 	if (!value.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	if (entity->type()->kind() == type_kind::reference && value.get()->category() == value_category::consumable) {
@@ -447,13 +445,13 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 		@message.text("'");
 		@this.report(initializer->token(), message.view());
 		@this.note(entity->token(), "reference member is declared here");
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@value = @this.initialize(@*initializer, entity->type(), rt::unique<SemanticExpression>(@value.release()));
 
 	if (!value.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@entity->set_body($value);
@@ -462,13 +460,13 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> bool {
 	return @this.prepare_expression(entity->body());
 };
 
-fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> bool {
+fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 	if (type->kind() == type_kind::array) {
 		return @this.prepare_copy(type->element());
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Entity* owner = type->entity();
@@ -480,24 +478,22 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> bool {
 		var source = @this.node(semantic_kind::name, source_type, owner->declaration());
 
 		if (!source.get()) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		@source.get()->set_category(value_category::place);
 
-		if (!@arguments.push_back($source)) {
-			return false;
-		};
+		@arguments.push_back($source);
 
 		var Entity* constructor = @this.select(group, arguments, 1, conversion_mode::explicit_only, @*owner->declaration());
 
 		if (this.diagnostics->failed()) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		if (constructor && constructor->definition() == function_definition::deleted) {
 			@this.deleted_function(owner->token(), *constructor);
-			return false;
+			return CompilationResult(compilation_error());
 		};
 
 		if (constructor) {
@@ -506,13 +502,13 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> bool {
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return true;
+		return CompilationResult();
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
-		if (!@this.prepare_copy(owner->bases().data()[index])) {
-			return false;
+		if (!(@this.prepare_copy(owner->bases().data()[index])).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
@@ -521,17 +517,17 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> bool {
 	@index = 0;
 
 	while (index < owner->fields().size()) {
-		if (!@this.prepare_copy(owner->fields().data()[index]->type())) {
-			return false;
+		if (!(@this.prepare_copy(owner->fields().data()[index]->type())).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
+fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> CompilationResult {
 	if (type->qualifier() == type_qualifier::immutable || type->kind() == type_kind::reference) {
 		var message = DiagnosticMessage();
 		@message.text("generated assignment cannot replace component of type '");
@@ -551,7 +547,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 		};
 		@this.report(location, message.view());
 
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -559,7 +555,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return true;
+		return CompilationResult();
 	};
 
 	var Entity* owner = type->entity();
@@ -574,12 +570,14 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 			continue;
 		};
 
-		if (!@this.resolve((var Entity*(candidate)))) {
-			return false;
+		if (!(@this.resolve((var Entity*(candidate)))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
-		if (candidate->role() == function_role::assignment && candidate->operator_kind() == token_kind::op_copy && !@candidates.push_back((var Entity*(candidate)))) {
-			return false;
+		if (candidate->role() == function_role::assignment) {
+			if (candidate->operator_kind() == token_kind::op_copy) {
+				@candidates.push_back((var Entity*(candidate)));
+			};
 		};
 	};
 
@@ -587,19 +585,18 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	var Scope* bindings = @this.unit->create_scope(owner->members(), nullptr);
 
 	if (!bindings) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var Entity* destination_binding = @this.unit->create_entity(entity_kind::parameter, owner->token(), nullptr, bindings);
 	var Entity* source_binding = @this.unit->create_entity(entity_kind::parameter, owner->token(), nullptr, bindings);
 
 	if (!destination_binding || !source_binding) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@destination_binding->set_name("destination") || !@source_binding->set_name("source")) {
-		return false;
-	};
+	@destination_binding->set_name("destination");
+	@source_binding->set_name("source");
 
 	@destination_binding->set_origin(declaration_origin::compiler_supplied);
 	@source_binding->set_origin(declaration_origin::compiler_supplied);
@@ -611,7 +608,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	var source = @this.node(semantic_kind::name, immutable, owner->declaration());
 
 	if (!destination.get() || !source.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@destination.get()->bind((var Entity*(destination_binding)), value_category::place);
@@ -619,13 +616,9 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 	@source.get()->bind((var Entity*(source_binding)), value_category::place);
 	rt::buffer<rt::unique<SemanticExpression>> arguments;
 
-	if (!@arguments.push_back($destination)) {
-		return false;
-	};
+	@arguments.push_back($destination);
 
-	if (!@arguments.push_back($source)) {
-		return false;
-	};
+	@arguments.push_back($source);
 
 	var Entity* selected = @this.select_candidates(candidates, arguments, 0, conversion_mode::explicit_only, @*owner->declaration());
 
@@ -643,39 +636,41 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> bool {
 				@candidate_index = candidate_index + 1;
 			};
 		};
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	if (selected->definition() == function_definition::deleted) {
 		@this.deleted_function(owner->token(), *selected);
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	var callable = @this.node(semantic_kind::name, selected->type(), owner->declaration());
 
 	if (!callable.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	@callable.get()->bind((var Entity*(selected)), value_category::place);
 	var operation = @this.invoke(@*owner->declaration(), selected, $callable, $arguments, rt::optional_ref<const Type>());
 
-	if (!operation.get() || !@this.prepare_expression(operation.get())) {
-		return false;
+	if (!operation.get() || !(@this.prepare_expression(operation.get())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@this.prepare_lifetime(selected->type()->signature().result())) {
-		return false;
+	if (!(@this.prepare_lifetime(selected->type()->signature().result())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	var plan = rt::unique<CopyAssignmentPlan>(new var CopyAssignmentPlan(@*destination_binding, @*source_binding, $operation));
 
 	if (!plan.get()) {
-		return false;
+		rt::allocation_error error;
+		@error.requested_bytes = sizeof(CopyAssignmentPlan);
+		throw $error;
 	};
 
 	@owner->set_copy_assignment($plan);
 
-	return true;
+	return CompilationResult();
 };
 
 fn FunctionAnalysisScope::FunctionAnalysisScope(var FunctionAnalysisScope& this, var Entity var*& function, var usize& loop_depth, var SwitchAnalysis var*& selection, rt::optional_ref<Entity>& current) {

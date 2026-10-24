@@ -1,0 +1,57 @@
+[[test]]
+fn raw_strings_preserve_literal_bytes() {
+	var directory = compiler_directory("raw-strings");
+	var source = "[[test]] fn literal_bytes() {\n"
+		+ "\tvar text = \"\"\"\n\t  alpha\\n\r\n    >beta\n\"\"\";\n"
+		+ "\trt::test::expect(text == \"\\n\\t  alpha\\\\n\\r\\n    >beta\\n\");\n"
+		+ "\trt::test::expect(\"\"\"\"\"\".empty());\n"
+		+ "\trt::test::expect(\"\"\"one \" two \"\" three\\\"\"\" == \"one \\\" two \\\"\\\" three\\\\\");\n"
+		+ "\trt::test::expect(\"\"\"first\"\"\" + \"second\" == \"firstsecond\");\n"
+		+ "};\n";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("raw.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts((executed.output + executed.error).c_str());
+	};
+	rt::test::expect(!executed.exit_code);
+};
+
+[[test]]
+fn unterminated_raw_strings_report_the_opening_location() {
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	@paths.push_back("raw.rt");
+	@sources.push_back("fn broken() {\n\tvar text = \"\"\"unclosed\n  contents\n");
+	rt::test::expect((@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
+	var analysis = @compiler.acquire_analysis();
+	rt::test::expect(analysis.get());
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	rt::test::expect(records.size());
+	rt::test::expect(records.data()[0].message.contains("unterminated raw string literal"));
+	rt::test::expect(records.data()[0].location.line == 2 && records.data()[0].location.column == 13);
+};
+
+[[test]]
+fn raw_strings_preserve_following_source_locations() {
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	@paths.push_back("raw.rt");
+	@sources.push_back("fn broken() {\n\tvar text = \"\"\"first\n  second\"\"\";\n\t#\n};\n");
+	rt::test::expect((@compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
+	var analysis = @compiler.acquire_analysis();
+	rt::test::expect(analysis.get());
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	rt::test::expect(records.size());
+	rt::test::expect(records.data()[0].message.contains("unknown source character"));
+	rt::test::expect(records.data()[0].location.line == 4 && records.data()[0].location.column == 2);
+};

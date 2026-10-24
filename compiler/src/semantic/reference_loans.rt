@@ -93,67 +93,91 @@ fn reference_loan_permission(Type& type, usize depth) -> type_qualifier {
 	return type_qualifier::immutable;
 };
 
+enum reference_walk_task_kind : [u08] {
+	walk;
+	storage;
+	array_aggregate;
+	record_aggregate;
+	reference_binding;
+	call_post;
+};
+
+struct ReferenceWalkTask {
+	reference_walk_task_kind kind;
+	var SemanticExpression* expression;
+	reference_loan_access access;
+	fn ReferenceWalkTask(var ReferenceWalkTask& this, reference_walk_task_kind kind, var SemanticExpression* expression, reference_loan_access access);
+};
+
+fn ReferenceWalkTask::ReferenceWalkTask(var ReferenceWalkTask& this, reference_walk_task_kind kind, var SemanticExpression* expression, reference_loan_access access) {
+	@this.kind = $kind;
+	@this.expression = expression;
+	@this.access = $access;
+};
+
 struct ReferenceLoanAnalyzer {
 	fn ReferenceLoanAnalyzer(var ReferenceLoanAnalyzer& this, var Diagnostics& diagnostics);
-	fn validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool;
+	fn validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
 
 	private:
-	fn collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> bool;
+	fn collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression);
 	fn position(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> usize;
-	fn build_graph(var ReferenceLoanAnalyzer& this, Entity& function) -> bool;
+	fn build_graph(var ReferenceLoanAnalyzer& this, Entity& function);
 	fn reachable(var ReferenceLoanAnalyzer& this, usize source, usize target, usize kill, var Entity* cleanup_owner) -> bool;
 	fn active(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, SemanticExpression& expression) -> bool;
 	fn active_at(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, usize point) -> bool;
 	fn owner_live_at(var ReferenceLoanAnalyzer& this, var Entity* owner, usize target) -> bool;
-	fn validate_ends(var ReferenceLoanAnalyzer& this) -> bool;
+	fn validate_ends(var ReferenceLoanAnalyzer& this) -> CompilationResult;
 	fn loan_store_path(var ReferenceLoanAnalyzer& this, usize source, usize target, ReferenceLoan& loan, usize definition) -> bool;
-	fn retain_escapes(var ReferenceLoanAnalyzer& this) -> bool;
-	fn retain_special_escapes(var ReferenceLoanAnalyzer& this) -> bool;
-	fn retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> bool;
-	fn retain_destructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth) -> bool;
-	fn retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> bool;
-	fn prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool;
-	fn capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> bool;
+	fn retain_escapes(var ReferenceLoanAnalyzer& this) -> CompilationResult;
+	fn retain_special_escapes(var ReferenceLoanAnalyzer& this) -> CompilationResult;
+	fn retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> CompilationResult;
+	fn retain_destructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth) -> CompilationResult;
+	fn retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> CompilationResult;
+	fn prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> CompilationResult;
 	fn contextual_capture(var ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool;
 	fn captures(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument) -> bool;
 	fn capture_mode(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool;
 	fn place(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> ReferenceLoanPlace;
-	fn places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> bool;
-	fn returned_places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> bool;
+	fn places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> CompilationResult;
+	fn returned_places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> CompilationResult;
 	fn initializer(ReferenceLoanAnalyzer& this, SemanticExpression& expression, Entity& binding) -> var SemanticExpression*;
-	fn aggregate(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool;
-	fn array_aggregate(var ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> bool;
-	fn content_sources(var ReferenceLoanAnalyzer& this, Type& type, SemanticExpression* source, var rt::buffer<ReferenceContentRoot>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, ReferenceSlotPath& holding, var Entity* symbolic, usize depth) -> bool;
-	fn stored_contents(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var bool& found) -> bool;
+	fn aggregate(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> CompilationResult;
+	fn array_aggregate(var ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> CompilationResult;
+	fn content_sources(var ReferenceLoanAnalyzer& this, Type& type, SemanticExpression* source, var rt::buffer<ReferenceContentRoot>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, ReferenceSlotPath& holding, var Entity* symbolic, usize depth) -> CompilationResult;
+	fn stored_contents(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var bool& found) -> CompilationResult;
 	fn holding_use(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, var SemanticExpression& expression) -> bool;
 	fn loan_definition(ReferenceLoanAnalyzer& this, ReferenceLoan& loan) -> usize;
 	fn reaching_contents(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, SemanticExpression& use) -> bool;
-	fn append_array_loan(var ReferenceLoanAnalyzer& this, ReferenceLoan loan) -> bool;
-	fn refresh_array_aliases(var ReferenceLoanAnalyzer& this) -> bool;
-	fn returned_local_places(var ReferenceLoanAnalyzer& this, var Entity& function, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, usize depth) -> bool;
-	fn prepare_unknowns(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool;
-	fn collect_unknowns(var ReferenceLoanAnalyzer& this) -> bool;
-	fn unknown_event(var ReferenceLoanAnalyzer& this, var Entity* root, ReferenceSlotPath& holding, usize position) -> bool;
-	fn raw_targets(var ReferenceLoanAnalyzer& this, SemanticExpression& pointer, usize operation, usize depth) -> bool;
-	fn raw_write(var ReferenceLoanAnalyzer& this, SemanticExpression& destination, usize operation) -> bool;
-	fn visible_raw_targets(var ReferenceLoanAnalyzer& this, usize operation) -> bool;
+	fn append_array_loan(var ReferenceLoanAnalyzer& this, ReferenceLoan loan);
+	fn refresh_array_aliases(var ReferenceLoanAnalyzer& this) -> CompilationResult;
+	fn returned_local_places(var ReferenceLoanAnalyzer& this, var Entity& function, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, usize depth) -> CompilationResult;
+	fn prepare_unknowns(var ReferenceLoanAnalyzer& this, SemanticUnit& unit);
+	fn collect_unknowns(var ReferenceLoanAnalyzer& this) -> CompilationResult;
+	fn unknown_event(var ReferenceLoanAnalyzer& this, var Entity* root, ReferenceSlotPath& holding, usize position);
+	fn raw_targets(var ReferenceLoanAnalyzer& this, SemanticExpression& pointer, usize operation, usize depth) -> CompilationResult;
+	fn raw_write(var ReferenceLoanAnalyzer& this, SemanticExpression& destination, usize operation) -> CompilationResult;
+	fn visible_raw_targets(var ReferenceLoanAnalyzer& this, usize operation) -> CompilationResult;
 	fn unknown_path(var ReferenceLoanAnalyzer& this, ReferenceUnknownContent& event, ReferenceStoreSlot& slot, usize target) -> bool;
 	fn raw_address_context(ReferenceLoanAnalyzer& this, SemanticExpression& expression, usize depth) -> bool;
-	fn check_unknown(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, reference_loan_access access) -> bool;
-	fn assignment(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool;
+	fn check_unknown(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, reference_loan_access access) -> CompilationResult;
+	fn assignment(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> CompilationResult;
 	fn store_slot(ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, usize depth) -> ReferenceStoreSlot;
-	fn store_expression(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool;
-	fn store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> bool;
-	fn retain_stores(var ReferenceLoanAnalyzer& this, var SemanticExpression& body) -> bool;
-	fn prepare_stores(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool;
-	fn validate_stores(var ReferenceLoanAnalyzer& this) -> bool;
+	fn store_expression(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> CompilationResult;
+	fn store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> CompilationResult;
+	fn retain_stores(var ReferenceLoanAnalyzer& this, var SemanticExpression& body) -> CompilationResult;
+	fn prepare_stores(var ReferenceLoanAnalyzer& this, SemanticUnit& unit);
+	fn validate_stores(var ReferenceLoanAnalyzer& this) -> CompilationResult;
 	fn store_path(var ReferenceLoanAnalyzer& this, usize source, usize target, ReferenceStoreEffect& effect) -> bool;
-	fn defaults(var ReferenceLoanAnalyzer& this, Type& type, var rt::buffer<ReferenceLoanPlace>& output, usize depth) -> bool;
-	fn check_place(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, ReferenceLoanPlace& target, reference_loan_access access) -> bool;
-	fn check(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, reference_loan_access access) -> bool;
-	fn storage_children(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool;
-	fn walk(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> bool;
-	fn error(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::string_view message) -> bool;
+	fn defaults(var ReferenceLoanAnalyzer& this, Type& type, var rt::buffer<ReferenceLoanPlace>& output, usize depth) -> CompilationResult;
+	fn check_place(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, ReferenceLoanPlace& target, reference_loan_access access) -> CompilationResult;
+	fn check(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, reference_loan_access access) -> CompilationResult;
+	fn reference_binding(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> CompilationResult;
+	fn return_validation(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> CompilationResult;
+	fn call_post(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> CompilationResult;
+	fn walk(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> CompilationResult;
+	fn error(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::string_view message) -> CompilationResult;
 
 	var Diagnostics* diagnostics;
 	rt::buffer<var SemanticExpression*> expressions;
@@ -180,26 +204,22 @@ fn ReferenceLoanAnalyzer::ReferenceLoanAnalyzer(var ReferenceLoanAnalyzer& this,
 	@this.diagnostics = &@diagnostics;
 };
 
-fn ReferenceLoanAnalyzer::error(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::string_view message) -> bool {
+fn ReferenceLoanAnalyzer::error(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, rt::string_view message) -> CompilationResult {
 	@this.diagnostics->error(expression.token(), message);
-	return false;
+	return CompilationResult(compilation_error());
 };
 
-fn ReferenceLoanAnalyzer::collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> bool {
+fn ReferenceLoanAnalyzer::collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) {
 	if (!expression) {
-		return true;
+		return;
 	};
-	if (!@this.expressions.push_back(expression)) {
-		return @this.error(*expression, "reference analysis storage is unavailable");
-	};
+	@this.expressions.push_back(expression);
 	usize index = 0;
 	while (index < expression->size()) {
-		if (!@this.collect(expression->item(index))) {
-			return false;
-		};
+		@this.collect(expression->item(index));
 		@index = index + 1;
 	};
-	return true;
+	return;
 };
 
 fn ReferenceLoanAnalyzer::position(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> usize {
@@ -213,26 +233,21 @@ fn ReferenceLoanAnalyzer::position(ReferenceLoanAnalyzer& this, SemanticExpressi
 	return fact_no_node();
 };
 
-fn ReferenceLoanAnalyzer::build_graph(var ReferenceLoanAnalyzer& this, Entity& function) -> bool {
-	if (!@this.graph.build_function(function)) {
-		return false;
-	};
+fn ReferenceLoanAnalyzer::build_graph(var ReferenceLoanAnalyzer& this, Entity& function) {
+	@this.graph.build_function(function);
 	@this.first_edges.clear();
 	@this.next_edges.clear();
 	@this.visited.clear();
 	@this.visit_generation = 0;
 	usize index = 0;
 	while (index < this.graph.nodes.size()) {
-		if (!@this.first_edges.push_back(fact_no_node()) || !@this.visited.push_back(0)) {
-			return false;
-		};
+		@this.first_edges.push_back(fact_no_node());
+		@this.visited.push_back(0);
 		@index = index + 1;
 	};
 	@index = 0;
 	while (index < this.graph.edges.size()) {
-		if (!@this.next_edges.push_back(fact_no_node())) {
-			return false;
-		};
+		@this.next_edges.push_back(fact_no_node());
 		@index = index + 1;
 	};
 	@index = this.graph.edges.size();
@@ -242,7 +257,7 @@ fn ReferenceLoanAnalyzer::build_graph(var ReferenceLoanAnalyzer& this, Entity& f
 		@(@this.next_edges).data()[index] = this.first_edges.data()[edge.source];
 		@(@this.first_edges).data()[edge.source] = index;
 	};
-	return true;
+	return;
 };
 
 fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize source, usize target, usize kill, var Entity* cleanup_owner) -> bool {
@@ -260,9 +275,7 @@ fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize sourc
 		@this.visit_generation = 0;
 	};
 	@this.visit_generation = this.visit_generation + 1;
-	if (!@this.pending.push_back(source)) {
-		return true;
-	};
+	@this.pending.push_back(source);
 	usize next = 0;
 	while (next < this.pending.size()) {
 		usize node = this.pending.data()[next];
@@ -289,8 +302,8 @@ fn ReferenceLoanAnalyzer::reachable(var ReferenceLoanAnalyzer& this, usize sourc
 		usize index = this.first_edges.data()[node];
 		while (index != fact_no_node()) {
 			FactEdge& edge = this.graph.edges.data()[index];
-			if (fact_semantic_edge_feasible(edge) && !@this.pending.push_back(usize(edge.target))) {
-				return true;
+			if (fact_semantic_edge_feasible(edge)) {
+				@this.pending.push_back(usize(edge.target));
 			};
 			@index = this.next_edges.data()[index];
 		};
@@ -351,7 +364,7 @@ fn ReferenceLoanAnalyzer::active_at(var ReferenceLoanAnalyzer& this, ReferenceLo
 	return false;
 };
 
-fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> bool {
+fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> CompilationResult {
 	usize index = 0;
 	while (index < this.expressions.size()) {
 		var SemanticExpression* call = this.expressions.data()[index];
@@ -387,11 +400,9 @@ fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> boo
 				if (!contents && reference_capture_aggregate(parameter) && actual->owned_binding()) {
 					ReferenceLoanPlace owner;
 					@owner.root = actual->owned_binding();
-					if (!@targets.push_back($owner)) {
-						return false;
-					};
+					@targets.push_back($owner);
 				}
-				else if (!@this.places(*actual, @targets, @substitutions, nullptr, 0)) {
+				else if (!(@this.places(*actual, @targets, @substitutions, nullptr, 0)).has<void>()) {
 					return @this.error(*call, "reference escape provenance storage is unavailable");
 				};
 				usize candidate = 0;
@@ -408,16 +419,15 @@ fn ReferenceLoanAnalyzer::retain_escapes(var ReferenceLoanAnalyzer& this) -> boo
 						@escaped.place.element = target.element;
 						@escaped.place.through = target.through;
 						@escaped.permission = reference_loan_permission(*parameter, 0);
-						if (!@escaped.escapes.push_back(usize(escaped.creation)) || !@this.loans.push_back($escaped)) {
-							return @this.error(*call, "reference escape storage is unavailable");
-						};
+						@escaped.escapes.push_back(usize(escaped.creation));
+						@this.loans.push_back($escaped);
 					};
 					@candidate = candidate + 1;
 				};
 			};
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::place(ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> ReferenceLoanPlace {
@@ -487,32 +497,35 @@ fn ReferenceLoanAnalyzer::initializer(ReferenceLoanAnalyzer& this, SemanticExpre
 	return nullptr;
 };
 
-fn ReferenceLoanAnalyzer::returned_places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::returned_places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> CompilationResult {
 	if (expression.kind() == semantic_kind::return_value) {
-		return !expression.size() || @this.places(*expression.item(0), @output, @substitutions, context, depth + 1);
+		if (!expression.size()) {
+			return CompilationResult();
+		};
+		return @this.places(*expression.item(0), @output, @substitutions, context, depth + 1);
 	};
 	usize index = 0;
 	while (index < expression.size()) {
-		if (!@this.returned_places(*expression.item(index), @output, @substitutions, context, depth)) {
-			return false;
+		if (!(@this.returned_places(*expression.item(index), @output, @substitutions, context, depth)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var Entity* context, usize depth) -> CompilationResult {
 	if (depth > 16) {
 		return @this.error(expression, "reference provenance analysis limit exceeded");
 	};
 	semantic_kind kind = expression.kind();
 	if (kind == semantic_kind::name && reference_loan_members(*expression.type()) && (!context || context->body() == this.function_body)) {
 		bool found = false;
-		if (!@this.stored_contents(expression, @output, @found)) {
-			return false;
+		if (!(@this.stored_contents(expression, @output, @found)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		if (found) {
-			return true;
+			return CompilationResult();
 		};
 	};
 	if (kind == semantic_kind::name) {
@@ -530,17 +543,18 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 					@mapped.field = substitution.places.data()[candidate].field;
 					@mapped.element = substitution.places.data()[candidate].element;
 					@mapped.through = substitution.places.data()[candidate].through;
-					if (!@output.push_back($mapped)) {
-						return false;
-					};
+					@output.push_back($mapped);
 					@candidate = candidate + 1;
 				};
-				return true;
+				return CompilationResult();
 			};
 		};
 		if (context && binding && binding->kind() == entity_kind::local && (binding->type()->kind() == type_kind::reference || reference_loan_members(*binding->type()))) {
 			var SemanticExpression* source = this.initializer(*context->body(), *binding);
-			return !source || @this.places(*source, @output, @substitutions, context, depth + 1);
+			if (!source) {
+				return CompilationResult();
+			};
+			return @this.places(*source, @output, @substitutions, context, depth + 1);
 		};
 		bool found = false;
 		@index = 0;
@@ -553,15 +567,13 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 				@mapped.field = loan.place.field;
 				@mapped.element = loan.place.element;
 				@mapped.through = binding;
-				if (!@output.push_back($mapped)) {
-					return false;
-				};
+				@output.push_back($mapped);
 				@found = true;
 			};
 			@index = index + 1;
 		};
 		if (found) {
-			return true;
+			return CompilationResult();
 		};
 	};
 	if (kind == semantic_kind::access || kind == semantic_kind::cast || kind == semantic_kind::relocation || kind == semantic_kind::variant_payload || kind == semantic_kind::variant_cast) {
@@ -569,17 +581,17 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 	};
 	if (kind == semantic_kind::index && reference_loan_members(*expression.type()) || kind == semantic_kind::member && expression.entity() && (expression.entity()->type()->kind() == type_kind::reference || reference_loan_members(*expression.type()))) {
 		bool found = false;
-		if (!@this.stored_contents(@expression, @output, @found)) {
-			return false;
+		if (!(@this.stored_contents(@expression, @output, @found)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		if (found) {
-			return true;
+			return CompilationResult();
 		};
 	};
 	if (kind == semantic_kind::index && expression.item(0)->type()->kind() == type_kind::array) {
 		usize first = output.size();
-		if (!@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)) {
-			return false;
+		if (!(@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		var Entity* owner = expression.item(0)->owned_binding();
 		while (first < output.size()) {
@@ -589,7 +601,7 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 			};
 			@first = first + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	if (kind == semantic_kind::member && expression.item(0)->type()->kind() != type_kind::pointer) {
 		var Entity* aggregate_binding = expression.item(0)->owned_binding();
@@ -606,21 +618,19 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 					@mapped.field = loan.place.field;
 					@mapped.element = loan.place.element;
 					@mapped.through = aggregate_binding;
-					if (!@output.push_back($mapped)) {
-						return false;
-					};
+					@output.push_back($mapped);
 					@found = true;
 				};
 				@index = index + 1;
 			};
 			if (found) {
-				return true;
+				return CompilationResult();
 			};
 		};
 		if (selected && selected->type()->kind() == type_kind::reference) {
 			usize first = output.size();
-			if (!@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)) {
-				return false;
+			if (!(@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			while (first < output.size()) {
 				var ReferenceLoanPlace* target = (@output).data() + first;
@@ -629,11 +639,11 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 				};
 				@first = first + 1;
 			};
-			return true;
+			return CompilationResult();
 		};
 		usize first = output.size();
-		if (!@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)) {
-			return false;
+		if (!(@this.places(*expression.item(0), @output, @substitutions, context, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		var Entity* field = expression.entity();
 		var Entity* owner = nullptr;
@@ -647,13 +657,13 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 			};
 			@first = first + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	if (kind == semantic_kind::construction && expression.type()->kind() == type_kind::array && reference_loan_members(*expression.type())) {
 		rt::buffer<ReferenceContentRoot> roots;
 		ReferenceSlotPath path;
-		if (!@this.content_sources(*expression.type(), &expression, @roots, @substitutions, context, path, nullptr, depth + 1)) {
-			return false;
+		if (!(@this.content_sources(*expression.type(), &expression, @roots, @substitutions, context, path, nullptr, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		usize index = 0;
 		while (index < roots.size()) {
@@ -663,12 +673,10 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 			@root.field = roots.data()[index].referent.field;
 			@root.element = roots.data()[index].referent.element;
 			@root.through = roots.data()[index].referent.through;
-			if (!@output.push_back($root)) {
-				return false;
-			};
+			@output.push_back($root);
 			@index = index + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	if (kind == semantic_kind::construction && reference_loan_members(*expression.type()) && expression.size()) {
 		var SemanticExpression* arguments = expression.item(0);
@@ -688,17 +696,17 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 			};
 			if (field->type()->kind() == type_kind::reference || reference_loan_members(*field->type())) {
 				if (value) {
-					if (!@this.places(*value, @output, @substitutions, context, depth + 1)) {
-						return false;
+					if (!(@this.places(*value, @output, @substitutions, context, depth + 1)).has<void>()) {
+						return CompilationResult(compilation_error());
 					};
 				}
-				else if (!@this.defaults(*field->type(), @output, depth + 1)) {
-					return false;
+				else if (!(@this.defaults(*field->type(), @output, depth + 1)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 			};
 			@index = index + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	var Entity* returned_function = expression.entity();
 	if (returned_function && returned_function->kind() == entity_kind::function) {
@@ -712,39 +720,49 @@ fn ReferenceLoanAnalyzer::places(var ReferenceLoanAnalyzer& this, SemanticExpres
 		while (index < callee->parameters().size() && index < arguments->size()) {
 			ReferenceLoanSubstitution substitution;
 			@substitution.parameter = callee->parameters().data()[index];
-			if ((substitution.parameter->type()->kind() == type_kind::reference || reference_loan_members(*substitution.parameter->type())) && !@this.places(*arguments->item(index), @substitution.places, @substitutions, context, depth + 1)) {
-				return false;
+			if ((substitution.parameter->type()->kind() == type_kind::reference || reference_loan_members(*substitution.parameter->type())) && !(@this.places(*arguments->item(index), @substitution.places, @substitutions, context, depth + 1)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
-			if (!@substitutions.push_back($substitution)) {
-				return false;
-			};
+			@substitutions.push_back($substitution);
 			@index = index + 1;
 		};
 		bool valid = false;
 		if (reference_returns_local(*callee->body())) {
-			@valid = @this.returned_local_places(@*callee, @output, @substitutions, depth + 1);
+			@valid = (@this.returned_local_places(@*callee, @output, @substitutions, depth + 1)).has<void>();
 		}
 		else {
-			@valid = @this.returned_places(*callee->body(), @output, @substitutions, callee, depth + 1);
+			@valid = (@this.returned_places(*callee->body(), @output, @substitutions, callee, depth + 1)).has<void>();
 		};
 		while (substitutions.size() > boundary) {
 			@substitutions.pop_back();
 		};
-		return valid;
+		if (valid) {
+			return CompilationResult();
+		};
+		return CompilationResult(compilation_error());
 	};
 	var target = this.place(expression);
-	return !target.root || @output.push_back($target);
+	if (target.root) {
+		@output.push_back($target);
+		return CompilationResult();
+	}
+	else {
+		return CompilationResult();
+	};
 };
 
-fn ReferenceLoanAnalyzer::defaults(var ReferenceLoanAnalyzer& this, Type& type, var rt::buffer<ReferenceLoanPlace>& output, usize depth) -> bool {
+fn ReferenceLoanAnalyzer::defaults(var ReferenceLoanAnalyzer& this, Type& type, var rt::buffer<ReferenceLoanPlace>& output, usize depth) -> CompilationResult {
 	if (depth > 16) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	if (!reference_loan_members(type)) {
-		return true;
+		return CompilationResult();
 	};
 	if (type.kind() == type_kind::array) {
-		return !type.count() || @this.defaults(*type.element(), @output, depth + 1);
+		if (!type.count()) {
+			return CompilationResult();
+		};
+		return @this.defaults(*type.element(), @output, depth + 1);
 	};
 	usize index = 0;
 	while (index < type.entity()->fields().size()) {
@@ -755,22 +773,22 @@ fn ReferenceLoanAnalyzer::defaults(var ReferenceLoanAnalyzer& this, Type& type, 
 		};
 		if (field->body()) {
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
-			if (!@this.places(*field->body(), @output, @substitutions, nullptr, depth + 1)) {
-				return false;
+			if (!(@this.places(*field->body(), @output, @substitutions, nullptr, depth + 1)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		}
-		else if (!@this.defaults(*field->type(), @output, depth + 1)) {
-			return false;
+		else if (!(@this.defaults(*field->type(), @output, depth + 1)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool {
+fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> CompilationResult {
 	Type* type = expression.entity()->type();
 	var SemanticExpression* source = expression.item(0);
 	if (!source || source->kind() != semantic_kind::construction || !source->size()) {
-		return true;
+		return CompilationResult();
 	};
 	var SemanticExpression* arguments = source->item(0);
 	if (variant_instance(*type->entity())) {
@@ -779,8 +797,8 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 		};
 		rt::buffer<ReferenceLoanPlace> targets;
 		rt::buffer<ReferenceLoanSubstitution> substitutions;
-		if (!@this.places(*source, @targets, @substitutions, nullptr, 0)) {
-			return false;
+		if (!(@this.places(*source, @targets, @substitutions, nullptr, 0)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		var Entity* field = nullptr;
 		usize field_index = 0;
@@ -804,12 +822,10 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 			@loan.place.element = targets.data()[index].element;
 			@loan.place.through = targets.data()[index].through;
 			@loan.permission = reference_loan_permission(*type, 0);
-			if (!@this.loans.push_back($loan)) {
-				return false;
-			};
+			@this.loans.push_back($loan);
 			@index = index + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	bool custom = source->entity() && source->entity()->definition() != function_definition::defaulted;
 	// Compiler-generated aggregate transfer preserves reference member provenance.
@@ -819,12 +835,12 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 			@other = other->item(0);
 		};
 		if (this.phase != reference_loan_phase::collect) {
-			return true;
+			return CompilationResult();
 		};
 		if (other->kind() != semantic_kind::name) {
 			rt::buffer<ReferenceLoanPlace> targets;
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
-			if (!@this.places(*other, @targets, @substitutions, nullptr, 0)) {
+			if (!(@this.places(*other, @targets, @substitutions, nullptr, 0)).has<void>()) {
 				return @this.error(expression, "returned aggregate provenance storage is unavailable");
 			};
 			usize field_index = 0;
@@ -846,13 +862,11 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 					@loan.place.element = targets.data()[index].element;
 					@loan.place.through = targets.data()[index].through;
 					@loan.permission = reference_loan_permission(*field->type(), 0);
-					if (!@this.loans.push_back($loan)) {
-						return @this.error(expression, "returned aggregate loan storage is unavailable");
-					};
+					@this.loans.push_back($loan);
 					@index = index + 1;
 				};
 			};
-			return true;
+			return CompilationResult();
 		};
 		usize count = this.loans.size();
 		usize index = 0;
@@ -869,13 +883,11 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 				@loan.place.element = this.loans.data()[index].place.element;
 				@loan.place.through = this.loans.data()[index].place.through;
 				@loan.permission = this.loans.data()[index].permission;
-				if (!@this.loans.push_back($loan)) {
-					return @this.error(expression, "reference member loan storage is unavailable");
-				};
+				@this.loans.push_back($loan);
 			};
 			@index = index + 1;
 		};
-		return true;
+		return CompilationResult();
 	};
 	usize field_index = 0;
 	while (field_index < type->entity()->fields().size()) {
@@ -894,18 +906,18 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 			@required = reference_loan_access::write;
 		};
 		if (this.phase == reference_loan_phase::validate) {
-			if (argument && !@this.walk(argument, required)) {
-				return false;
+			if (argument && !(@this.walk(argument, required)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 		};
 		rt::buffer<ReferenceLoanPlace> targets;
 		rt::buffer<ReferenceLoanSubstitution> substitutions;
 		bool known = true;
 		if (argument) {
-			@known = @this.places(*argument, @targets, @substitutions, nullptr, 0);
+			@known = (@this.places(*argument, @targets, @substitutions, nullptr, 0)).has<void>();
 		}
 		else {
-			@known = @this.defaults(*field->type(), @targets, 0);
+			@known = (@this.defaults(*field->type(), @targets, 0)).has<void>();
 		};
 		if (!known) {
 			return @this.error(expression, "reference member provenance storage is unavailable");
@@ -935,30 +947,28 @@ fn ReferenceLoanAnalyzer::aggregate(var ReferenceLoanAnalyzer& this, var Semanti
 			@loan.place.element = targets.data()[index].element;
 			@loan.place.through = targets.data()[index].through;
 			@loan.permission = permission;
-			if (!@this.loans.push_back($loan)) {
-				return @this.error(expression, "reference member loan storage is unavailable");
-			};
+			@this.loans.push_back($loan);
 			@index = index + 1;
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::assignment(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool {
+fn ReferenceLoanAnalyzer::assignment(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> CompilationResult {
 	if (this.phase != reference_loan_phase::collect || !expression.entity() || expression.entity()->role() != function_role::assignment || expression.entity()->definition() != function_definition::defaulted) {
-		return true;
+		return CompilationResult();
 	};
 	var SemanticExpression* arguments = expression.item(1);
 	if (arguments->size() != 2 || !reference_loan_members(*arguments->item(0)->type())) {
-		return true;
+		return CompilationResult();
 	};
 	var Entity* destination = arguments->item(0)->owned_binding();
 	if (!destination) {
-		return true;
+		return CompilationResult();
 	};
 	rt::buffer<ReferenceLoanPlace> targets;
 	rt::buffer<ReferenceLoanSubstitution> substitutions;
-	if (!@this.places(*arguments->item(1), @targets, @substitutions, nullptr, 0)) {
+	if (!(@this.places(*arguments->item(1), @targets, @substitutions, nullptr, 0)).has<void>()) {
 		return @this.error(expression, "assigned reference provenance storage is unavailable");
 	};
 	usize field_index = 0;
@@ -980,35 +990,33 @@ fn ReferenceLoanAnalyzer::assignment(var ReferenceLoanAnalyzer& this, var Semant
 			@loan.place.element = targets.data()[index].element;
 			@loan.place.through = targets.data()[index].through;
 			@loan.permission = reference_loan_permission(*field->type(), 0);
-			if (!@this.loans.push_back($loan)) {
-				return @this.error(expression, "assigned reference loan storage is unavailable");
-			};
+			@this.loans.push_back($loan);
 			@index = index + 1;
 		};
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::check(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, reference_loan_access access) -> bool {
+fn ReferenceLoanAnalyzer::check(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, reference_loan_access access) -> CompilationResult {
 	if (this.phase == reference_loan_phase::collect) {
-		return true;
+		return CompilationResult();
 	};
 	rt::buffer<ReferenceLoanPlace> targets;
 	rt::buffer<ReferenceLoanSubstitution> substitutions;
-	if (!@this.places(expression, @targets, @substitutions, nullptr, 0)) {
+	if (!(@this.places(expression, @targets, @substitutions, nullptr, 0)).has<void>()) {
 		return @this.error(expression, "reference provenance storage is unavailable");
 	};
 	usize index = 0;
 	while (index < targets.size()) {
-		if (!@this.check_place(@expression, targets.data()[index], access)) {
-			return false;
+		if (!(@this.check_place(@expression, targets.data()[index], access)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::check_place(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, ReferenceLoanPlace& target, reference_loan_access access) -> bool {
+fn ReferenceLoanAnalyzer::check_place(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, ReferenceLoanPlace& target, reference_loan_access access) -> CompilationResult {
 	usize index = 0;
 	while (index < this.loans.size()) {
 		ReferenceLoan& loan = this.loans.data()[index];
@@ -1043,174 +1051,230 @@ fn ReferenceLoanAnalyzer::check_place(var ReferenceLoanAnalyzer& this, var Seman
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::storage_children(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression) -> bool {
-	semantic_kind kind = expression.kind();
-	if (kind == semantic_kind::name) {
-		return true;
+fn ReferenceLoanAnalyzer::reference_binding(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> CompilationResult {
+	var SemanticExpression* initializer = expression->item(0);
+	type_qualifier permission = expression->entity()->type()->element()->qualifier();
+	if (this.phase == reference_loan_phase::validate) {
+		return CompilationResult();
 	};
-	if (kind == semantic_kind::index) {
-		return @this.storage_children(@*expression.item(0)) && @this.walk(expression.item(1), reference_loan_access::read);
-	};
-	if (kind == semantic_kind::member || kind == semantic_kind::access || kind == semantic_kind::cast || kind == semantic_kind::variant_payload) {
-		return @this.storage_children(@*expression.item(0));
-	};
-	return @this.walk(&@expression, reference_loan_access::read);
-};
-
-fn ReferenceLoanAnalyzer::walk(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> bool {
-	if (!expression) {
-		return true;
-	};
-	semantic_kind operation_kind = expression->kind();
-	bool structural = operation_kind == semantic_kind::brace || operation_kind == semantic_kind::statements || operation_kind == semantic_kind::sequence || operation_kind == semantic_kind::conditional || operation_kind == semantic_kind::while_loop || operation_kind == semantic_kind::for_loop || operation_kind == semantic_kind::exception_try || operation_kind == semantic_kind::exception_handler || operation_kind == semantic_kind::switch_expression || operation_kind == semantic_kind::case_label;
-	if (!structural && this.phase == reference_loan_phase::validate && this.position(*expression) != fact_no_node() && !@this.reachable(this.graph.entry, this.position(*expression), fact_no_node(), nullptr)) {
-		return true;
-	};
-	if (this.phase == reference_loan_phase::validate && !@this.check_unknown(*expression, access)) {
-		return false;
-	};
-	semantic_kind kind = expression->kind();
-	if (kind == semantic_kind::variable && expression->entity() && reference_array_members(*expression->entity()->type(), 0)) {
-		return @this.walk(expression->item(0), reference_loan_access::read) && @this.array_aggregate(*expression);
-	};
-	if (kind == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() == type_kind::named && expression->entity()->type()->entity()->kind() == entity_kind::record) {
-		return @this.walk(expression->item(0), reference_loan_access::read) && @this.aggregate(@*expression);
-	};
-	if (kind == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() == type_kind::reference) {
-		var SemanticExpression* initializer = expression->item(0);
-		type_qualifier permission = expression->entity()->type()->element()->qualifier();
-		reference_loan_access required = reference_loan_access::read;
-		if (permission == type_qualifier::mutable) {
-			@required = reference_loan_access::write;
-		};
-		if (!@this.walk(initializer, required)) {
-			return false;
-		};
-		if (this.phase == reference_loan_phase::validate) {
-			return true;
-		};
-		rt::buffer<ReferenceLoanPlace> targets;
-		rt::buffer<ReferenceLoanSubstitution> substitutions;
-		bool object = false;
-		if (reference_loan_members(*expression->entity()->type()->element())) {
-			rt::buffer<ReferenceStoreBinding> bindings;
-			var slot = this.store_slot(*initializer, bindings, nullptr, 0);
-			if (slot.root && reference_array_members(*slot.root->type(), 0)) {
-				ReferenceLoanPlace target;
-				@target.root = slot.root;
-				usize projection = 0;
-				while (projection < slot.path.size) {
-					ReferenceSlotStep& step = slot.path.steps[projection];
-					if (step.kind == reference_slot_step_kind::field && !target.field) {
-						@target.field = step.field;
-					};
-					if (step.kind != reference_slot_step_kind::field && !target.element) {
-						@target.element = step.index;
-					};
-					@projection = projection + 1;
+	rt::buffer<ReferenceLoanPlace> targets;
+	rt::buffer<ReferenceLoanSubstitution> substitutions;
+	bool object = false;
+	if (reference_loan_members(*expression->entity()->type()->element())) {
+		rt::buffer<ReferenceStoreBinding> bindings;
+		var slot = this.store_slot(*initializer, bindings, nullptr, 0);
+		if (slot.root && reference_array_members(*slot.root->type(), 0)) {
+			ReferenceLoanPlace target;
+			@target.root = slot.root;
+			usize projection = 0;
+			while (projection < slot.path.size) {
+				ReferenceSlotStep& step = slot.path.steps[projection];
+				if (step.kind == reference_slot_step_kind::field && !target.field) {
+					@target.field = step.field;
 				};
-				if (!@targets.push_back($target)) {
-					return false;
+				if (step.kind != reference_slot_step_kind::field && !target.element) {
+					@target.element = step.index;
 				};
-				@object = true;
+				@projection = projection + 1;
 			};
-		};
-		if (!object && !@this.places(*initializer, @targets, @substitutions, nullptr, 0)) {
-			return @this.error(*expression, "reference provenance storage is unavailable");
-		};
-		usize index = 0;
-		while (index < targets.size()) {
-			ReferenceLoan loan;
-			@loan.binding = expression->entity();
-			@loan.creation = fact_no_node();
-			@loan.place.root = targets.data()[index].root;
-			@loan.place.reference_contents = targets.data()[index].reference_contents;
-			@loan.place.field = targets.data()[index].field;
-			@loan.place.element = targets.data()[index].element;
-			@loan.place.through = targets.data()[index].through;
-			@loan.permission = permission;
-			if (!@this.loans.push_back($loan)) {
-				return @this.error(*expression, "reference loan storage is unavailable");
-			};
-			@index = index + 1;
-		};
-		return true;
-	};
-	if (this.phase == reference_loan_phase::validate && kind == semantic_kind::return_value && (this.return_type->kind() == type_kind::reference || reference_loan_members(*this.return_type)) && expression->size()) {
-		rt::buffer<ReferenceLoanPlace> targets;
-		rt::buffer<ReferenceLoanSubstitution> substitutions;
-		if (!@this.places(*expression->item(0), @targets, @substitutions, nullptr, 0)) {
-			return @this.error(*expression, "reference provenance storage is unavailable");
-		};
-		usize index = 0;
-		while (index < targets.size()) {
-			var Entity* root = targets.data()[index].root;
-			if (root && (root->kind() == entity_kind::local || root->kind() == entity_kind::parameter && root->type()->kind() != type_kind::reference)) {
-				return @this.error(*expression, "returned reference refers to local storage");
-			};
-			@index = index + 1;
+			@targets.push_back($target);
+			@object = true;
 		};
 	};
-	if (kind == semantic_kind::relocation || kind == semantic_kind::destruction) {
-		return @this.walk(expression->item(0), reference_loan_access::write);
-	};
-	if (kind == semantic_kind::call && expression->size() >= 2) {
-		if (!@this.walk(expression->item(0), reference_loan_access::read)) {
-			return false;
-		};
-		Type* signature = expression->item(0)->type();
-		if (signature->kind() == type_kind::pointer) {
-			@signature = signature->element();
-		};
-		var SemanticExpression* arguments = expression->item(1);
-		usize argument = 0;
-		while (argument < arguments->size()) {
-			reference_loan_access required = reference_loan_access::read;
-			if (signature->kind() == type_kind::function && argument < signature->signature().parameters().size()) {
-				Type* parameter = signature->signature().parameters().data()[argument];
-				if (parameter->kind() == type_kind::reference && parameter->element()->qualifier() == type_qualifier::mutable) {
-					@required = reference_loan_access::write;
-				};
-			};
-			if (!@this.walk(arguments->item(argument), required)) {
-				return false;
-			};
-			@argument = argument + 1;
-		};
-		if (!@this.assignment(@*expression)) {
-			return false;
-		};
-		if (signature->kind() == type_kind::function && signature->signature().result()->kind() == type_kind::reference) {
-			return @this.check(@*expression, access);
-		};
-		return true;
-	};
-	if (kind == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
-		return @this.walk(expression->item(1), reference_loan_access::read) && @this.walk(expression->item(0), reference_loan_access::write);
-	};
-	if (kind == semantic_kind::name || kind == semantic_kind::member || kind == semantic_kind::index || kind == semantic_kind::access || kind == semantic_kind::variant_payload || kind == semantic_kind::cast && expression->category() == value_category::place) {
-		if (!@this.check(@*expression, access)) {
-			return false;
-		};
-		return @this.storage_children(@*expression);
+	if (!object && !(@this.places(*initializer, @targets, @substitutions, nullptr, 0)).has<void>()) {
+		return @this.error(*expression, "reference provenance storage is unavailable");
 	};
 	usize index = 0;
-	while (index < expression->size()) {
-		reference_loan_access child_access = reference_loan_access::read;
-		if (!@this.walk(expression->item(index), child_access)) {
-			return false;
+	while (index < targets.size()) {
+		ReferenceLoan loan;
+		@loan.binding = expression->entity();
+		@loan.creation = fact_no_node();
+		@loan.place.root = targets.data()[index].root;
+		@loan.place.reference_contents = targets.data()[index].reference_contents;
+		@loan.place.field = targets.data()[index].field;
+		@loan.place.element = targets.data()[index].element;
+		@loan.place.through = targets.data()[index].through;
+		@loan.permission = permission;
+		@this.loans.push_back($loan);
+		@index = index + 1;
+	};
+	return CompilationResult();
+};
+
+fn ReferenceLoanAnalyzer::return_validation(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression) -> CompilationResult {
+	rt::buffer<ReferenceLoanPlace> targets;
+	rt::buffer<ReferenceLoanSubstitution> substitutions;
+	if (!(@this.places(*expression->item(0), @targets, @substitutions, nullptr, 0)).has<void>()) {
+		return @this.error(*expression, "reference provenance storage is unavailable");
+	};
+	usize index = 0;
+	while (index < targets.size()) {
+		var Entity* root = targets.data()[index].root;
+		if (root && (root->kind() == entity_kind::local || root->kind() == entity_kind::parameter && root->type()->kind() != type_kind::reference)) {
+			return @this.error(*expression, "returned reference refers to local storage");
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };
 
-fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> bool {
-	if (!@this.prepare_stores(unit) || !@this.prepare_captures(unit) || !@this.prepare_unknowns(unit)) {
-		return false;
+fn ReferenceLoanAnalyzer::call_post(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> CompilationResult {
+	Type* signature = expression->item(0)->type();
+	if (signature->kind() == type_kind::pointer) {
+		@signature = signature->element();
+	};
+	if (!(@this.assignment(@*expression)).has<void>()) {
+		return CompilationResult(compilation_error());
+	};
+	if (signature->kind() == type_kind::function && signature->signature().result()->kind() == type_kind::reference) {
+		return @this.check(@*expression, access);
+	};
+	return CompilationResult();
+};
+
+fn ReferenceLoanAnalyzer::walk(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression, reference_loan_access access) -> CompilationResult {
+	rt::buffer<ReferenceWalkTask> pending;
+	@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, expression, access));
+	while (pending.size()) {
+		ReferenceWalkTask task = pending.data()[pending.size() - 1];
+		@pending.pop_back();
+		var SemanticExpression* current = task.expression;
+		if (!current) {
+			continue;
+		};
+		semantic_kind kind = current->kind();
+		if (task.kind == reference_walk_task_kind::array_aggregate) {
+			if (!(@this.array_aggregate(*current)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+			continue;
+		};
+		if (task.kind == reference_walk_task_kind::record_aggregate) {
+			if (!(@this.aggregate(@*current)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+			continue;
+		};
+		if (task.kind == reference_walk_task_kind::reference_binding) {
+			if (!(@this.reference_binding(current)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+			continue;
+		};
+		if (task.kind == reference_walk_task_kind::call_post) {
+			if (!(@this.call_post(current, task.access)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+			continue;
+		};
+		if (task.kind == reference_walk_task_kind::storage) {
+			if (kind == semantic_kind::name) {
+				continue;
+			};
+			if (kind == semantic_kind::index) {
+				@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(1), reference_loan_access::read));
+				@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::storage, current->item(0), reference_loan_access::read));
+				continue;
+			};
+			if (kind == semantic_kind::member || kind == semantic_kind::access || kind == semantic_kind::cast || kind == semantic_kind::variant_payload) {
+				@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::storage, current->item(0), reference_loan_access::read));
+				continue;
+			};
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current, reference_loan_access::read));
+			continue;
+		};
+		bool structural = kind == semantic_kind::brace || kind == semantic_kind::statements || kind == semantic_kind::sequence || kind == semantic_kind::conditional || kind == semantic_kind::while_loop || kind == semantic_kind::for_loop || kind == semantic_kind::exception_try || kind == semantic_kind::exception_handler || kind == semantic_kind::switch_expression || kind == semantic_kind::case_label;
+		if (!structural && this.phase == reference_loan_phase::validate && this.position(*current) != fact_no_node() && !@this.reachable(this.graph.entry, this.position(*current), fact_no_node(), nullptr)) {
+			continue;
+		};
+		if (this.phase == reference_loan_phase::validate && !(@this.check_unknown(*current, task.access)).has<void>()) {
+			return CompilationResult(compilation_error());
+		};
+		if (kind == semantic_kind::variant_cast) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), task.access));
+			continue;
+		};
+		if (kind == semantic_kind::variable && current->entity() && reference_array_members(*current->entity()->type(), 0)) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::array_aggregate, current, task.access));
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), reference_loan_access::read));
+			continue;
+		};
+		if (kind == semantic_kind::variable && current->entity() && current->entity()->type()->kind() == type_kind::named && current->entity()->type()->entity()->kind() == entity_kind::record) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::record_aggregate, current, task.access));
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), reference_loan_access::read));
+			continue;
+		};
+		if (kind == semantic_kind::variable && current->entity() && current->entity()->type()->kind() == type_kind::reference) {
+			reference_loan_access required = reference_loan_access::read;
+			if (current->entity()->type()->element()->qualifier() == type_qualifier::mutable) {
+				@required = reference_loan_access::write;
+			};
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::reference_binding, current, task.access));
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), required));
+			continue;
+		};
+		if (this.phase == reference_loan_phase::validate && kind == semantic_kind::return_value && (this.return_type->kind() == type_kind::reference || reference_loan_members(*this.return_type)) && current->size()) {
+			if (!(@this.return_validation(current)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+		};
+		if (kind == semantic_kind::relocation || kind == semantic_kind::destruction) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), reference_loan_access::write));
+			continue;
+		};
+		if (kind == semantic_kind::call && current->size() >= 2) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::call_post, current, task.access));
+			Type* signature = current->item(0)->type();
+			if (signature->kind() == type_kind::pointer) {
+				@signature = signature->element();
+			};
+			var SemanticExpression* arguments = current->item(1);
+			usize argument = arguments->size();
+			while (argument) {
+				@argument = argument - 1;
+				reference_loan_access required = reference_loan_access::read;
+				if (signature->kind() == type_kind::function && argument < signature->signature().parameters().size()) {
+					Type* parameter = signature->signature().parameters().data()[argument];
+					if (parameter->kind() == type_kind::reference && parameter->element()->qualifier() == type_qualifier::mutable) {
+						@required = reference_loan_access::write;
+					};
+				};
+				@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, arguments->item(argument), required));
+			};
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), reference_loan_access::read));
+			continue;
+		};
+		if (kind == semantic_kind::binary && (current->operation() == token_kind::op_assign || current->operation() == token_kind::op_copy)) {
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(0), reference_loan_access::write));
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(1), reference_loan_access::read));
+			continue;
+		};
+		if (kind == semantic_kind::name || kind == semantic_kind::member || kind == semantic_kind::index || kind == semantic_kind::access || kind == semantic_kind::variant_payload || kind == semantic_kind::cast && current->category() == value_category::place) {
+			if (!(@this.check(@*current, task.access)).has<void>()) {
+				return CompilationResult(compilation_error());
+			};
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::storage, current, reference_loan_access::read));
+			continue;
+		};
+		usize child = current->size();
+		while (child) {
+			@child = child - 1;
+			@pending.push_back(ReferenceWalkTask(reference_walk_task_kind::walk, current->item(child), reference_loan_access::read));
+		};
+	};
+	return CompilationResult();
+};
+
+fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+	@this.prepare_stores(unit);
+	if ((@this.prepare_captures(unit)).has<void>()) {
+		@this.prepare_unknowns(unit);
+	}
+	else {
+		return CompilationResult(compilation_error());
 	};
 	usize index = 0;
 	while (index < unit.entities().size()) {
@@ -1225,13 +1289,15 @@ fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit
 		@this.function_body = function->body();
 		@this.return_type = function->type()->signature().result();
 		@this.phase = reference_loan_phase::collect;
-		if (!@this.build_graph(*function) || !@this.collect(function->body()) || !@this.walk(function->body(), reference_loan_access::read)) {
-			return false;
+		@this.build_graph(*function);
+		@this.collect(function->body());
+		if (!(@this.walk(function->body(), reference_loan_access::read)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		@this.phase = reference_loan_phase::validate;
-		if (!@this.retain_stores(@*function->body()) || !@this.refresh_array_aliases() || !@this.collect_unknowns() || !@this.retain_escapes() || !@this.retain_special_escapes() || !@this.walk(function->body(), reference_loan_access::read) || !@this.validate_stores() || !@this.validate_ends()) {
-			return false;
+		if (!(@this.retain_stores(@*function->body())).has<void>() || !(@this.refresh_array_aliases()).has<void>() || !(@this.collect_unknowns()).has<void>() || !(@this.retain_escapes()).has<void>() || !(@this.retain_special_escapes()).has<void>() || !(@this.walk(function->body(), reference_loan_access::read)).has<void>() || !(@this.validate_stores()).has<void>() || !(@this.validate_ends()).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 	};
-	return true;
+	return CompilationResult();
 };

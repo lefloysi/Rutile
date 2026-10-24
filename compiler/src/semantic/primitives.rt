@@ -40,49 +40,46 @@ fn TypeStore::primitive_spelling(usize index) -> rt::string_view {
 			return rt::string_view();
 	};
 };
-fn TypeStore::register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, Type*>& names, rt::string_view name, type_kind kind, u32 bits) -> bool {
+fn TypeStore::register_primitive(var TypeStore& this, var rt::unordered_map<rt::string_view, Type*>& names, rt::string_view name, type_kind kind, u32 bits) {
 	Type* type = @this.primitive($kind, $bits);
 
 	if (!type) {
-		return false;
+		compiler_panic("Primitive type construction produced no type.");
 	};
 
-	return @names.insert($name, $type);
+	bool inserted = @names.insert($name, $type);
+	if (!inserted) {
+		compiler_panic("A primitive type name was registered twice.");
+	};
 };
 
-fn TypeStore::initialize_primitives(var TypeStore& this, u32 pointer_bits) -> bool {
+fn TypeStore::initialize_primitives(var TypeStore& this, u32 pointer_bits) {
 	rt::unordered_map<rt::string_view, Type*> names;
 
-	if (!@names.reserve(20)) {
-		return false;
-	};
+	@names.reserve(20);
 
-	if (false
-		|| !@this.register_primitive(@names, primitive_spelling(0), type_kind::void_type, 0)
-		|| !@this.register_primitive(@names, primitive_spelling(1), type_kind::null_type, 0)
-		|| !@this.register_primitive(@names, primitive_spelling(2), type_kind::boolean, 1)
-		|| !@this.register_primitive(@names, primitive_spelling(3), type_kind::character, 8)
-		|| !@this.register_primitive(@names, primitive_spelling(4), type_kind::unsigned_integer, pointer_bits)
-		|| !@this.register_primitive(@names, primitive_spelling(5), type_kind::signed_integer, pointer_bits)
-		|| !@this.register_primitive(@names, primitive_spelling(6), type_kind::signed_integer, 8)
-		|| !@this.register_primitive(@names, primitive_spelling(7), type_kind::signed_integer, 8)
-		|| !@this.register_primitive(@names, primitive_spelling(8), type_kind::signed_integer, 16)
-		|| !@this.register_primitive(@names, primitive_spelling(9), type_kind::signed_integer, 32)
-		|| !@this.register_primitive(@names, primitive_spelling(10), type_kind::signed_integer, 64)
-		|| !@this.register_primitive(@names, primitive_spelling(11), type_kind::unsigned_integer, 8)
-		|| !@this.register_primitive(@names, primitive_spelling(12), type_kind::unsigned_integer, 8)
-		|| !@this.register_primitive(@names, primitive_spelling(13), type_kind::unsigned_integer, 16)
-		|| !@this.register_primitive(@names, primitive_spelling(14), type_kind::unsigned_integer, 32)
-		|| !@this.register_primitive(@names, primitive_spelling(15), type_kind::unsigned_integer, 64)
-		|| !@this.register_primitive(@names, primitive_spelling(16), type_kind::floating_point, 32)
-		|| !@this.register_primitive(@names, primitive_spelling(17), type_kind::floating_point, 64)
-		) {
-		return false;
-	};
+	@this.register_primitive(@names, primitive_spelling(0), type_kind::void_type, 0);
+	@this.register_primitive(@names, primitive_spelling(1), type_kind::null_type, 0);
+	@this.register_primitive(@names, primitive_spelling(2), type_kind::boolean, 1);
+	@this.register_primitive(@names, primitive_spelling(3), type_kind::character, 8);
+	@this.register_primitive(@names, primitive_spelling(4), type_kind::unsigned_integer, pointer_bits);
+	@this.register_primitive(@names, primitive_spelling(5), type_kind::signed_integer, pointer_bits);
+	@this.register_primitive(@names, primitive_spelling(6), type_kind::signed_integer, 8);
+	@this.register_primitive(@names, primitive_spelling(7), type_kind::signed_integer, 8);
+	@this.register_primitive(@names, primitive_spelling(8), type_kind::signed_integer, 16);
+	@this.register_primitive(@names, primitive_spelling(9), type_kind::signed_integer, 32);
+	@this.register_primitive(@names, primitive_spelling(10), type_kind::signed_integer, 64);
+	@this.register_primitive(@names, primitive_spelling(11), type_kind::unsigned_integer, 8);
+	@this.register_primitive(@names, primitive_spelling(12), type_kind::unsigned_integer, 8);
+	@this.register_primitive(@names, primitive_spelling(13), type_kind::unsigned_integer, 16);
+	@this.register_primitive(@names, primitive_spelling(14), type_kind::unsigned_integer, 32);
+	@this.register_primitive(@names, primitive_spelling(15), type_kind::unsigned_integer, 64);
+	@this.register_primitive(@names, primitive_spelling(16), type_kind::floating_point, 32);
+	@this.register_primitive(@names, primitive_spelling(17), type_kind::floating_point, 64);
 
 	@this.primitive_names = $names;
 
-	return true;
+
 };
 
 fn TypeStore::find_primitive(TypeStore& this, rt::string_view name) -> Type* {

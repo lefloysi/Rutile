@@ -1,12 +1,12 @@
-fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> bool {
-	if (!@this.walk(expression->item(0), @state)) {
-		return false;
+fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
+	if (!(@this.walk(expression->item(0), @state)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	var SemanticExpression* body = expression->item(1);
 
 	if (body->kind() != semantic_kind::brace) {
-		return true;
+		return CompilationResult();
 	};
 
 	usize boundary = state.size();
@@ -36,9 +36,7 @@ fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpressio
 
 	FlowState combined;
 
-	if (!@combined.copy_from(state)) {
-		return @this.error(expression, "lifetime state storage is unavailable");
-	};
+	@combined.copy_from(state);
 
 	if (fallback < body->size() || known && selected < body->size()) {
 		@combined.leave(flow_exit::unreachable);
@@ -59,22 +57,20 @@ fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpressio
 
 		FlowState path;
 
-		if (!@path.copy_from(state)) {
-			return @this.error(expression, "lifetime state storage is unavailable");
-		};
+		@path.copy_from(state);
 
 		usize next = index + 1;
 
 		while (next < body->size() && !path.exited()) {
-			if (body->item(next)->kind() != semantic_kind::case_label && !@this.walk(body->item(next), @path)) {
-				return false;
+			if (body->item(next)->kind() != semantic_kind::case_label && !(@this.walk(body->item(next), @path)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 
 			@next = next + 1;
 		};
 
-		if (!path.exited() && !@this.save(@selection.breaks, @path, boundary, expression)) {
-			return false;
+		if (!path.exited() && !(@this.save(@selection.breaks, @path, boundary, expression)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
@@ -85,12 +81,14 @@ fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpressio
 	while (index < selection.breaks.size()) {
 		FlowState previous;
 
-		if (!@previous.copy_from(combined) || !@this.merge(@combined, @previous, @*selection.breaks.data()[index].get(), expression)) {
-			return false;
+		@previous.copy_from(combined);
+		if (!((@this.merge(@combined, @previous, @*selection.breaks.data()[index].get(), expression)).has<void>())) {
+			return CompilationResult(compilation_error());
 		};
 
 		@index = index + 1;
 	};
 
-	return @state.copy_from(combined);
+	@state.copy_from(combined);
+	return CompilationResult();
 };

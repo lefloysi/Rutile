@@ -16,8 +16,17 @@ public static partial class EditorObservations {
 			text = text.Substring(token.Start, token.Length)
 		}).ToArray();
 		var unicode = RutileLexicalScanner.Scan("\"emoji \U0001F600\" return");
+		var raw = "\"\"\"\r\n  return \\n // literal\r\n\"\"\" 42";
+		var rawTokens = RutileLexicalScanner.Scan(raw);
 		return JsonConvert.SerializeObject(new {
-			identifier_tokens = RutileLexicalScanner.Scan("fn var namespace return i32 SomeType variable").Count,
+			raw_tokens = rawTokens.Count,
+			raw_kind = rawTokens[0].Kind.ToString(),
+			raw_text = raw.Substring(rawTokens[0].Start, rawTokens[0].Length),
+			raw_unterminated_length = RutileLexicalScanner.Scan("\"\"\"\n  unfinished")[0].Length,
+			reserved_tokens = RutileLexicalScanner.Scan("fn using const discard delete new implicit nullptr export template typename class var struct union enum namespace virtual override final return try catch throw noexcept if else while for switch case default break continue sizeof").Select(token => new {
+				kind = token.Kind.ToString(), text = "fn using const discard delete new implicit nullptr export template typename class var struct union enum namespace virtual override final return try catch throw noexcept if else while for switch case default break continue sizeof".Substring(token.Start, token.Length)
+			}).ToArray(),
+			identifier_tokens = RutileLexicalScanner.Scan("i32 SomeType variable fn_name return_value Namespace").Count,
 			tokens,
 			unicode_length = unicode[0].Length,
 			unterminated_length = RutileLexicalScanner.Scan("/* if return")[0].Length,
@@ -38,7 +47,7 @@ public static partial class EditorObservations {
 			bindings = bindings.Select(span => span.Classification).ToArray(),
 			classification = reordered[0].Classification,
 			attribute_classification = RutileSemanticDecoder.Decode("test", new JArray(0, 0, 4, 0, 0), new[] { "decorator" })[0].Classification,
-			namespace_has_foreground = new RutileNamespaceFormat().ForegroundColor.HasValue,
+			namespace_foreground = new RutileNamespaceFormat().ForegroundColor.ToString(),
 			attribute_foreground = new RutileAttributeFormat().ForegroundColor.ToString(),
 			unicode_start = decoded[0].Start,
 			unicode_length = decoded[0].Length,
@@ -76,8 +85,8 @@ public static partial class EditorObservations {
 	}
 
 	public static string BraceEligibility() {
-		var accepted = new[] { "", "fn f", "/* closed */", "// comment\n", "\"closed\"", "'x'" };
-		var rejected = new[] { "// comment", "/* comment", "\"literal", "'literal", "\"escaped\\\"" };
+		var accepted = new[] { "", "fn f", "/* closed */", "// comment\n", "\"closed\"", "'x'", "\"\"\"\n  closed\n\"\"\"", "\"\"\"\\\"\"\"" };
+		var rejected = new[] { "// comment", "/* comment", "\"literal", "'literal", "\"escaped\\\"", "\"\"\"", "\"\"\"\n", "\"\"\"\n  literal\n", "\"\"\"ends with one\"", "\"\"\"ends with two\"\"" };
 		return JsonConvert.SerializeObject(new {
 			accepted = accepted.Select(prefix => RutileBraceCompletionProvider.CanStart(prefix, '(', ')')).ToArray(),
 			rejected = rejected.Select(prefix => RutileBraceCompletionProvider.CanStart(prefix, '(', ')')).ToArray(),

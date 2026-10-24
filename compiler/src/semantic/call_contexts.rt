@@ -47,7 +47,8 @@ fn fact_context_check_walk(SemanticExpression* expression, usize depth, usize ca
 		while (prior < visited.size() && visited.data()[prior] != target) {
 			@prior = prior + 1;
 		};
-		if (prior == visited.size() && @visited.push_back(target)) {
+		if (prior == visited.size()) {
+			@visited.push_back(target);
 			bool found = fact_context_check_walk(target->body(), 0, calls + 1, @budget, @visited);
 			@visited.pop_back();
 			if (found) {
@@ -100,7 +101,7 @@ fn fact_context_comparison(token_kind operation, FactValue& left, FactValue& rig
 	return result;
 };
 
-fn InferredFacts::context_seed(var InferredFacts& this, var FactState& state) -> bool {
+fn InferredFacts::context_seed(var InferredFacts& this, var FactState& state) {
 	usize input = 0;
 	while (input < this.context_inputs.size()) {
 		FactContextInput& seed = this.context_inputs.data()[input];
@@ -134,34 +135,34 @@ fn InferredFacts::context_seed(var InferredFacts& this, var FactState& state) ->
 			};
 			@place = place + 1;
 		};
-		if (relation.left && relation.right && !@state.relations.push_back($relation)) {
-			return false;
+		if (relation.left) {
+			if (relation.right) {
+				@state.relations.push_back($relation);
+			};
 		};
 		@index = index + 1;
 	};
-	return true;
+	return;
 };
 
-fn InferredFacts::context_override(var InferredFacts& this, var SemanticExpression& expression, inferred_override_kind kind, u64 value) -> bool {
+fn InferredFacts::context_override(var InferredFacts& this, var SemanticExpression& expression, inferred_override_kind kind, u64 value) {
 	InferredExpressionFact fact;
 	@fact.expression = &@expression;
 	@fact.kind = $kind;
 	@fact.value = $value;
-	return @this.context_output->overrides.push_back($fact);
+	@this.context_output->overrides.push_back($fact);
+	return;
 };
 
-fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpression& call, FactState& state) -> bool {
+fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpression& call, FactState& state) {
 	var Entity* function = call.entity();
 	if (function) {
 		@function = function->canonical();
 	};
 	if (this.context_requests.size() >= 512 || !function || function == this.analyzed_function || function->dispatch() != function_dispatch::ordinary || function->role() != function_role::ordinary || function->definition() != function_definition::user_defined || !function->body() || function->parameters().size() > 16 || call.size() != 2 || call.item(0)->kind() != semantic_kind::name || (!call.item(0)->entity() || call.item(0)->entity()->canonical() != function) || call.item(1)->size() != function->parameters().size() || !fact_context_has_check(function->body(), 0)) {
-		return true;
+		return;
 	};
 	var request = rt::unique<FactContextRequest>::make();
-	if (!request.get()) {
-		return false;
-	};
 	@request.get()->call = &@call;
 	@request.get()->function = function;
 	bool useful = false;
@@ -172,7 +173,7 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 		// Reference-field seeding needs an alias partition. Until then, keep
 		// reference-receiver and reference-parameter calls on their original ABI.
 		if (type->kind() == type_kind::reference) {
-			return true;
+			return;
 		};
 		if (type->representation()->kind().is_integer() || aggregate_access_kind(type) == 2) {
 			FactContextInput input;
@@ -181,9 +182,7 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 			if (input.value.alternative || input.value.range.available != fact_truth::unknown && (input.value.range.lower || input.value.range.upper != fact_limit(type) || input.value.range.sign == integer_range_sign::negative)) {
 				@useful = true;
 			};
-			if (!@request.get()->inputs.push_back($input)) {
-				return false;
-			};
+			@request.get()->inputs.push_back($input);
 		};
 		@parameter = parameter + 1;
 	};
@@ -200,9 +199,7 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 						@relation.left = left;
 						@relation.right = right;
 						@relation.operation = predicate;
-						if (!@request.get()->relations.push_back($relation)) {
-							return false;
-						};
+						@request.get()->relations.push_back($relation);
 						@useful = true;
 					};
 					@operation = operation + 1;
@@ -213,9 +210,10 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 		@left = left + 1;
 	};
 	if (!useful) {
-		return true;
+		return;
 	};
-	return @this.context_requests.push_back($request);
+	@this.context_requests.push_back($request);
+	return;
 };
 
 fn fact_context_equal(InferredFunctionContext& left, InferredFunctionContext& right) -> bool {
@@ -246,18 +244,18 @@ struct FactContextPlanner {
 	var InferredContextSet* output;
 	rt::buffer<var Entity*> active;
 	usize attempts;
-	fn plan(var FactContextPlanner& this, FactContextRequest& request, var usize& result) -> bool;
+	fn plan(var FactContextPlanner& this, FactContextRequest& request, var usize& result) -> CompilationResult;
 };
 
-fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& request, var usize& result) -> bool {
+fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& request, var usize& result) -> CompilationResult {
 	@result = 0;
 	if (this.attempts >= 512 || this.output->contexts.size() >= 256 || this.active.size() >= 32) {
-		return true;
+		return CompilationResult();
 	};
 	usize index = 0;
 	while (index < this.active.size()) {
 		if (this.active.data()[index] == request.function) {
-			return true;
+			return CompilationResult();
 		};
 		@index = index + 1;
 	};
@@ -270,13 +268,11 @@ fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& re
 		@index = index + 1;
 	};
 	if (count >= 16) {
-		return true;
+		return CompilationResult();
 	};
 	@this.attempts = this.attempts + 1;
 	var context = rt::unique<InferredFunctionContext>::make();
-	if (!context.get() || !@this.active.push_back(request.function)) {
-		return false;
-	};
+	@this.active.push_back(request.function);
 	@context.get()->function = request.function;
 	var worker = InferredFacts(@*this.root->diagnostics);
 	@worker.summary_source = &this.root->summary_cache();
@@ -284,61 +280,53 @@ fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& re
 	@worker.context_output = context.get();
 	@index = 0;
 	while (index < request.inputs.size()) {
-		if (!@worker.context_inputs.push_back(FactContextInput(request.inputs.data()[index]))) {
-			return false;
-		};
+		@worker.context_inputs.push_back(FactContextInput(request.inputs.data()[index]));
 		@index = index + 1;
 	};
 	@index = 0;
 	while (index < request.relations.size()) {
-		if (!@worker.context_relations.push_back(FactContextRelation(request.relations.data()[index]))) {
-			return false;
-		};
+		@worker.context_relations.push_back(FactContextRelation(request.relations.data()[index]));
 		@index = index + 1;
 	};
-	if (!@worker.analyze(request.function->body())) {
-		return false;
+	if (!(@worker.analyze(request.function->body())).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 	@index = 0;
 	while (index < worker.context_requests.size()) {
 		usize nested = 0;
-		if (!@this.plan(*worker.context_requests.data()[index].get(), @nested)) {
-			return false;
+		if (!(@this.plan(*worker.context_requests.data()[index].get(), @nested)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		if (nested) {
 			InferredCallBinding binding;
 			@binding.expression = worker.context_requests.data()[index].get()->call;
 			@binding.context = nested;
-			if (!@context.get()->calls.push_back($binding)) {
-				return false;
-			};
+			@context.get()->calls.push_back($binding);
 		};
 		@index = index + 1;
 	};
 	@this.active.pop_back();
 	if (!context.get()->overrides.size() && !context.get()->calls.size()) {
-		return true;
+		return CompilationResult();
 	};
 	@index = 0;
 	while (index < this.output->contexts.size()) {
 		if (fact_context_equal(*this.output->contexts.data()[index].get(), *context.get())) {
 			@result = index + 1;
-			return true;
+			return CompilationResult();
 		};
 		@index = index + 1;
 	};
 	// Nested planning may have filled the budget while this parent was pending.
 	if (this.output->contexts.size() >= 256) {
-		return true;
+		return CompilationResult();
 	};
-	if (!@this.output->contexts.push_back($context)) {
-		return false;
-	};
+	@this.output->contexts.push_back($context);
 	@result = this.output->contexts.size();
-	return true;
+	return CompilationResult();
 };
 
-fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) -> bool {
+fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) -> CompilationResult {
 	@output.calls.clear();
 	@output.contexts.clear();
 	FactContextPlanner planner;
@@ -348,18 +336,16 @@ fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) 
 	while (index < root.context_requests.size()) {
 		FactContextRequest& request = *root.context_requests.data()[index].get();
 		usize context = 0;
-		if (!@planner.plan(request, @context)) {
-			return false;
+		if (!(@planner.plan(request, @context)).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 		if (context) {
 			InferredCallBinding binding;
 			@binding.expression = request.call;
 			@binding.context = context;
-			if (!@output.calls.push_back($binding)) {
-				return false;
-			};
+			@output.calls.push_back($binding);
 		};
 		@index = index + 1;
 	};
-	return true;
+	return CompilationResult();
 };

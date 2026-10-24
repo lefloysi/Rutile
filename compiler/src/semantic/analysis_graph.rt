@@ -100,23 +100,22 @@ fn fact_cleanup_effects(Type* type, usize depth) -> bool {
 	return false;
 };
 
-fn fact_collect_cleanup(var SemanticExpression* expression, var rt::buffer<var SemanticExpression*>& owners) -> bool {
+fn fact_collect_cleanup(var SemanticExpression* expression, var rt::buffer<var SemanticExpression*>& owners) {
 	if (!expression) {
-		return true;
+		return;
 	};
 	if (expression->kind() == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() != type_kind::reference) {
-		return @owners.push_back(expression);
+		@owners.push_back(expression);
+		return;
 	};
 	if (expression->kind() == semantic_kind::statements) {
 		usize index = 0;
 		while (index < expression->size()) {
-			if (!fact_collect_cleanup(expression->item(index), @owners)) {
-				return false;
-			};
+			fact_collect_cleanup(expression->item(index), @owners);
 			@index = index + 1;
 		};
 	};
-	return true;
+	return;
 };
 
 fn fact_temporary_source(var SemanticExpression* expression, bool nested) -> var SemanticExpression* {
@@ -167,58 +166,58 @@ struct FactGraph {
 	usize fallthrough_exit;
 	usize return_target;
 
-	fn build(var FactGraph& this, var SemanticExpression* body) -> bool;
-	fn build_function(var FactGraph& this, Entity& function) -> bool;
-	fn add_node(var FactGraph& this, fact_node_kind kind, var SemanticExpression* expression, var usize& result) -> bool;
-	fn add_lifetime(var FactGraph& this, fact_node_kind kind, var Entity* owner, var SemanticExpression* expression, var usize& result) -> bool;
-	fn owner_cleanup(var FactGraph& this, var Entity* owner, var SemanticExpression* expression, usize target, usize exception_target, var usize& result) -> bool;
-	fn connect(var FactGraph& this, usize source, usize target, fact_edge_kind kind, var SemanticExpression* condition) -> bool;
-	fn lower(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool;
-	fn lower_contents(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool;
-	fn lower_scope(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool;
-	fn full_expression(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool;
-	fn cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result) -> bool;
+	fn build(var FactGraph& this, var SemanticExpression* body);
+	fn build_function(var FactGraph& this, Entity& function);
+	fn add_node(var FactGraph& this, fact_node_kind kind, var SemanticExpression* expression, var usize& result);
+	fn add_lifetime(var FactGraph& this, fact_node_kind kind, var Entity* owner, var SemanticExpression* expression, var usize& result);
+	fn owner_cleanup(var FactGraph& this, var Entity* owner, var SemanticExpression* expression, usize target, usize exception_target, var usize& result);
+	fn connect(var FactGraph& this, usize source, usize target, fact_edge_kind kind, var SemanticExpression* condition);
+	fn lower(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target);
+	fn lower_contents(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target);
+	fn lower_scope(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target);
+	fn full_expression(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target);
+	fn cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result);
 };
 
-fn FactGraph::add_node(var FactGraph& this, fact_node_kind kind, var SemanticExpression* expression, var usize& result) -> bool {
+fn FactGraph::add_node(var FactGraph& this, fact_node_kind kind, var SemanticExpression* expression, var usize& result) {
 	@result = this.nodes.size();
 	FactNode node;
 	@node.kind = $kind;
 	@node.expression = $expression;
-	return @this.nodes.push_back($node);
+	@this.nodes.push_back($node);
+	return;
 };
 
-fn FactGraph::add_lifetime(var FactGraph& this, fact_node_kind kind, var Entity* owner, var SemanticExpression* expression, var usize& result) -> bool {
-	if (!@this.add_node(kind, expression, @result)) {
-		return false;
-	};
+fn FactGraph::add_lifetime(var FactGraph& this, fact_node_kind kind, var Entity* owner, var SemanticExpression* expression, var usize& result) {
+	@this.add_node(kind, expression, @result);
 	@(@this.nodes).data()[result].owner = owner;
-	return true;
+	return;
 };
 
-fn FactGraph::owner_cleanup(var FactGraph& this, var Entity* owner, var SemanticExpression* expression, usize target, usize exception_target, var usize& result) -> bool {
+fn FactGraph::owner_cleanup(var FactGraph& this, var Entity* owner, var SemanticExpression* expression, usize target, usize exception_target, var usize& result) {
 	if (target == fact_no_node()) {
 		@result = fact_no_node();
-		return true;
+		return;
 	};
-	if (!@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @result) || !@this.connect(result, target, fact_edge_kind::next, nullptr)) {
-		return false;
-	};
+	@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @result);
+	@this.connect(result, target, fact_edge_kind::next, nullptr);
 	if (!fact_cleanup_effects(owner->type(), 0)) {
-		return true;
+		return;
 	};
 	usize normal = result;
 	usize exceptional = 0;
-	if (!@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @exceptional) || !@this.connect(exceptional, exception_target, fact_edge_kind::exceptional, nullptr) || !@this.add_node(fact_node_kind::opaque, expression, @result)) {
-		return false;
-	};
+	@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @exceptional);
+	@this.connect(exceptional, exception_target, fact_edge_kind::exceptional, nullptr);
+	@this.add_node(fact_node_kind::opaque, expression, @result);
 	@(@this.nodes).data()[result].owner = owner;
-	return @this.connect(result, normal, fact_edge_kind::next, nullptr) && @this.connect(result, exceptional, fact_edge_kind::exceptional, nullptr);
+	@this.connect(result, normal, fact_edge_kind::next, nullptr);
+	@this.connect(result, exceptional, fact_edge_kind::exceptional, nullptr);
+	return;
 };
 
-fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge_kind kind, var SemanticExpression* condition) -> bool {
+fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge_kind kind, var SemanticExpression* condition) {
 	if (source == fact_no_node() || target == fact_no_node()) {
-		return true;
+		return;
 	};
 	FactEdge edge;
 	@edge.source = $source;
@@ -231,31 +230,31 @@ fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge
 		@edge.kind = fact_edge_kind::backedge;
 	};
 	@edge.condition = $condition;
-	return @this.edges.push_back($edge);
+	@this.edges.push_back($edge);
+	return;
 };
 
-fn FactGraph::build(var FactGraph& this, var SemanticExpression* body) -> bool {
+fn FactGraph::build(var FactGraph& this, var SemanticExpression* body) {
 	@this.nodes.clear();
 	@this.edges.clear();
-	if (!@this.add_node(fact_node_kind::entry, nullptr, @this.entry)
-		|| !@this.add_node(fact_node_kind::normal_exit, nullptr, @this.normal_exit)
-		|| !@this.add_node(fact_node_kind::exceptional_exit, nullptr, @this.exceptional_exit)) {
-		return false;
-	};
+	@this.add_node(fact_node_kind::entry, nullptr, @this.entry);
+	@this.add_node(fact_node_kind::normal_exit, nullptr, @this.normal_exit);
+	@this.add_node(fact_node_kind::exceptional_exit, nullptr, @this.exceptional_exit);
 	usize current = this.entry;
 	@this.return_target = this.normal_exit;
-	if (!@this.lower(body, @current, fact_no_node(), fact_no_node(), this.exceptional_exit)) {
-		return false;
-	};
-	return @this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit) && @this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr) && @this.connect(this.fallthrough_exit, this.normal_exit, fact_edge_kind::next, nullptr);
+	@this.lower(body, @current, fact_no_node(), fact_no_node(), this.exceptional_exit);
+	@this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit);
+	@this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr);
+	@this.connect(this.fallthrough_exit, this.normal_exit, fact_edge_kind::next, nullptr);
+	return;
 };
 
-fn FactGraph::build_function(var FactGraph& this, Entity& function) -> bool {
+fn FactGraph::build_function(var FactGraph& this, Entity& function) {
 	@this.nodes.clear();
 	@this.edges.clear();
-	if (!@this.add_node(fact_node_kind::entry, nullptr, @this.entry) || !@this.add_node(fact_node_kind::normal_exit, nullptr, @this.normal_exit) || !@this.add_node(fact_node_kind::exceptional_exit, nullptr, @this.exceptional_exit)) {
-		return false;
-	};
+	@this.add_node(fact_node_kind::entry, nullptr, @this.entry);
+	@this.add_node(fact_node_kind::normal_exit, nullptr, @this.normal_exit);
+	@this.add_node(fact_node_kind::exceptional_exit, nullptr, @this.exceptional_exit);
 	usize normal = this.normal_exit;
 	usize exceptional = this.exceptional_exit;
 	usize current = this.entry;
@@ -267,55 +266,61 @@ fn FactGraph::build_function(var FactGraph& this, Entity& function) -> bool {
 			continue;
 		};
 		usize begin = 0;
-		if (!@this.add_lifetime(fact_node_kind::lifetime_begin, parameter, nullptr, @begin) || !@this.connect(current, begin, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.add_lifetime(fact_node_kind::lifetime_begin, parameter, nullptr, @begin);
+		@this.connect(current, begin, fact_edge_kind::next, nullptr);
 		@current = begin;
-		if (!@this.owner_cleanup(parameter, nullptr, normal, exceptional, @normal) || !@this.owner_cleanup(parameter, nullptr, exceptional, exceptional, @exceptional)) {
-			return false;
-		};
+		@this.owner_cleanup(parameter, nullptr, normal, exceptional, @normal);
+		@this.owner_cleanup(parameter, nullptr, exceptional, exceptional, @exceptional);
 	};
 	@this.return_target = normal;
-	return @this.lower(function.body(), @current, fact_no_node(), fact_no_node(), exceptional) && @this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit) && @this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr) && @this.connect(this.fallthrough_exit, normal, fact_edge_kind::next, nullptr);
+	@this.lower(function.body(), @current, fact_no_node(), fact_no_node(), exceptional);
+	@this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit);
+	@this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr);
+	@this.connect(this.fallthrough_exit, normal, fact_edge_kind::next, nullptr);
+	return;
 };
 
-fn FactGraph::cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result) -> bool {
+fn FactGraph::cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result) {
 	if (target == fact_no_node()) {
 		@result = fact_no_node();
-		return true;
+		return;
 	};
 	if (handler && handler->kind() == semantic_kind::variable && handler->entity() && handler->entity()->type()->kind() != type_kind::reference) {
-		return @this.owner_cleanup(handler->entity(), handler, target, exception_target, @result);
+		@this.owner_cleanup(handler->entity(), handler, target, exception_target, @result);
+		return;
 	};
-	return @this.add_node(fact_node_kind::opaque, handler, @result) && @this.connect(result, target, fact_edge_kind::next, nullptr) && @this.connect(result, exception_target, fact_edge_kind::exceptional, nullptr);
+	@this.add_node(fact_node_kind::opaque, handler, @result);
+	@this.connect(result, target, fact_edge_kind::next, nullptr);
+	@this.connect(result, exception_target, fact_edge_kind::exceptional, nullptr);
+	return;
 };
 
-fn FactGraph::lower(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool {
+fn FactGraph::lower(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
 	if (expression && (expression->kind() == semantic_kind::brace || expression->kind() == semantic_kind::sequence || expression->kind() == semantic_kind::for_loop || expression->kind() == semantic_kind::switch_expression)) {
-		return @this.lower_scope(expression, @current, break_target, continue_target, exception_target);
+		@this.lower_scope(expression, @current, break_target, continue_target, exception_target);
+		return;
 	};
-	return @this.lower_contents(expression, @current, break_target, continue_target, exception_target);
+	@this.lower_contents(expression, @current, break_target, continue_target, exception_target);
+	return;
 };
 
-fn FactGraph::full_expression(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool {
-	if (!@this.lower(expression, @current, break_target, continue_target, exception_target)) {
-		return false;
-	};
+fn FactGraph::full_expression(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
+	@this.lower(expression, @current, break_target, continue_target, exception_target);
 	var SemanticExpression* source = fact_temporary_source(expression, false);
 	if (!source || current == fact_no_node()) {
-		return true;
+		return;
 	};
 	usize cleanup = 0;
-	if (!@this.add_node(fact_node_kind::opaque, source, @cleanup) || !@this.connect(current, cleanup, fact_edge_kind::next, nullptr) || !@this.connect(cleanup, exception_target, fact_edge_kind::exceptional, nullptr)) {
-		return false;
-	};
+	@this.add_node(fact_node_kind::opaque, source, @cleanup);
+	@this.connect(current, cleanup, fact_edge_kind::next, nullptr);
+	@this.connect(cleanup, exception_target, fact_edge_kind::exceptional, nullptr);
 	@current = cleanup;
-	return true;
+	return;
 };
 
-fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool {
+fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
 	if (!expression || current == fact_no_node()) {
-		return true;
+		return;
 	};
 	rt::buffer<var SemanticExpression*> owners;
 	var SemanticExpression* declarations = expression;
@@ -323,41 +328,33 @@ fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expressio
 		@declarations = expression->item(1);
 	};
 	if (expression->kind() == semantic_kind::for_loop) {
-		if (!fact_collect_cleanup(expression->item(0), @owners)) {
-			return false;
-		};
+		fact_collect_cleanup(expression->item(0), @owners);
 	}
 	else if (declarations && (declarations->kind() == semantic_kind::brace || declarations->kind() == semantic_kind::sequence || declarations->kind() == semantic_kind::statements)) {
 		usize child = 0;
 		while (child < declarations->size()) {
-			if (!fact_collect_cleanup(declarations->item(child), @owners)) {
-				return false;
-			};
+			fact_collect_cleanup(declarations->item(child), @owners);
 			@child = child + 1;
 		};
 	}
-	else if (!fact_collect_cleanup(declarations, @owners)) {
-		return false;
+	else {
+		fact_collect_cleanup(declarations, @owners);
 	};
 	if (!owners.size()) {
-		if (!@this.lower_contents(expression, @current, break_target, continue_target, exception_target)) {
-			return false;
-		};
+		@this.lower_contents(expression, @current, break_target, continue_target, exception_target);
 		var SemanticExpression* temporary = fact_temporary_source(expression, false);
 		if (!temporary || current == fact_no_node()) {
-			return true;
+			return;
 		};
 		usize cleanup = 0;
-		if (!@this.add_node(fact_node_kind::opaque, temporary, @cleanup) || !@this.connect(current, cleanup, fact_edge_kind::next, nullptr) || !@this.connect(cleanup, exception_target, fact_edge_kind::exceptional, nullptr)) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::opaque, temporary, @cleanup);
+		@this.connect(current, cleanup, fact_edge_kind::next, nullptr);
+		@this.connect(cleanup, exception_target, fact_edge_kind::exceptional, nullptr);
 		@current = cleanup;
-		return true;
+		return;
 	};
 	usize after = 0;
-	if (!@this.add_node(fact_node_kind::merge, nullptr, @after)) {
-		return false;
-	};
+	@this.add_node(fact_node_kind::merge, nullptr, @after);
 	usize normal = after;
 	usize leaving = break_target;
 	usize continuing = continue_target;
@@ -366,84 +363,77 @@ fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expressio
 	usize owner = 0;
 	while (owner < owners.size()) {
 		var SemanticExpression* declaration = owners.data()[owner];
-		if (!@this.cleanup_target(declaration, normal, exceptional, @normal) || !@this.cleanup_target(declaration, leaving, exceptional, @leaving) || !@this.cleanup_target(declaration, continuing, exceptional, @continuing) || !@this.cleanup_target(declaration, this.return_target, exceptional, @this.return_target) || !@this.cleanup_target(declaration, exceptional, exceptional, @exceptional)) {
-			return false;
-		};
+		@this.cleanup_target(declaration, normal, exceptional, @normal);
+		@this.cleanup_target(declaration, leaving, exceptional, @leaving);
+		@this.cleanup_target(declaration, continuing, exceptional, @continuing);
+		@this.cleanup_target(declaration, this.return_target, exceptional, @this.return_target);
+		@this.cleanup_target(declaration, exceptional, exceptional, @exceptional);
 		@owner = owner + 1;
 	};
 	// Cleanup nodes are may-effects: declarations bypassed by a branch, or
 	// already relocated, can add conservative edges but never invent facts.
-	bool valid = @this.lower_contents(expression, @current, leaving, continuing, exceptional);
+	@this.lower_contents(expression, @current, leaving, continuing, exceptional);
 	@this.return_target = saved_return;
-	if (!valid || !@this.connect(current, normal, fact_edge_kind::next, nullptr)) {
-		return false;
-	};
+	@this.connect(current, normal, fact_edge_kind::next, nullptr);
 	@current = after;
-	return true;
+	return;
 };
 
-fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) -> bool {
+fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
 	if (!expression || current == fact_no_node()) {
-		return true;
+		return;
 	};
 	semantic_kind kind = expression->kind();
 	if (kind == semantic_kind::brace || kind == semantic_kind::statements || kind == semantic_kind::sequence) {
 		usize child = 0;
 		while (child < expression->size()) {
-			if (!@this.full_expression(expression->item(child), @current, break_target, continue_target, exception_target)) {
-				return false;
-			};
+			@this.full_expression(expression->item(child), @current, break_target, continue_target, exception_target);
 			@child = child + 1;
 		};
 		usize container = 0;
-		if (!@this.add_node(fact_node_kind::expression, expression, @container) || !@this.connect(current, container, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::expression, expression, @container);
+		@this.connect(current, container, fact_edge_kind::next, nullptr);
 		@current = container;
-		return true;
+		return;
 	};
 	if (kind == semantic_kind::conditional || kind == semantic_kind::binary && (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or)) {
-		if (!@this.full_expression(expression->item(0), @current, break_target, continue_target, exception_target)) {
-			return false;
-		};
+		@this.full_expression(expression->item(0), @current, break_target, continue_target, exception_target);
 		usize first = 0;
 		usize second = 0;
 		usize merge = 0;
-		if (!@this.add_node(fact_node_kind::merge, nullptr, @first) || !@this.add_node(fact_node_kind::merge, nullptr, @second) || !@this.add_node(fact_node_kind::merge, nullptr, @merge)
-			|| !@this.connect(current, first, fact_edge_kind::when_true, expression->item(0)) || !@this.connect(current, second, fact_edge_kind::when_false, expression->item(0))) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::merge, nullptr, @first);
+		@this.add_node(fact_node_kind::merge, nullptr, @second);
+		@this.add_node(fact_node_kind::merge, nullptr, @merge);
+		@this.connect(current, first, fact_edge_kind::when_true, expression->item(0));
+		@this.connect(current, second, fact_edge_kind::when_false, expression->item(0));
 		if (kind == semantic_kind::conditional || expression->operation() == token_kind::op_and) {
-			if (!@this.lower_scope(expression->item(1), @first, break_target, continue_target, exception_target)) {
-				return false;
-			};
+			@this.lower_scope(expression->item(1), @first, break_target, continue_target, exception_target);
 		};
 		if (kind == semantic_kind::conditional) {
-			if (!@this.lower_scope(expression->item(2), @second, break_target, continue_target, exception_target)) {
-				return false;
-			};
+			@this.lower_scope(expression->item(2), @second, break_target, continue_target, exception_target);
 		}
-		else if (expression->operation() == token_kind::op_or && !@this.full_expression(expression->item(1), @second, break_target, continue_target, exception_target)) {
-			return false;
+		else if (expression->operation() == token_kind::op_or) {
+			@this.full_expression(expression->item(1), @second, break_target, continue_target, exception_target);
 		};
-		if (!@this.connect(first, merge, fact_edge_kind::next, nullptr) || !@this.connect(second, merge, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.connect(first, merge, fact_edge_kind::next, nullptr);
+		@this.connect(second, merge, fact_edge_kind::next, nullptr);
 		@current = merge;
-		return true;
+		return;
 	};
 	if (kind == semantic_kind::while_loop || kind == semantic_kind::for_loop) {
 		bool is_for = kind == semantic_kind::for_loop;
-		if (is_for && !@this.full_expression(expression->item(0), @current, break_target, continue_target, exception_target)) {
-			return false;
+		if (is_for) {
+			@this.full_expression(expression->item(0), @current, break_target, continue_target, exception_target);
 		};
 		usize header = 0;
 		usize body = 0;
 		usize step = 0;
 		usize after = 0;
-		if (!@this.add_node(fact_node_kind::merge, nullptr, @header) || !@this.add_node(fact_node_kind::merge, nullptr, @body) || !@this.add_node(fact_node_kind::merge, nullptr, @step) || !@this.add_node(fact_node_kind::merge, nullptr, @after) || !@this.connect(current, header, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::merge, nullptr, @header);
+		@this.add_node(fact_node_kind::merge, nullptr, @body);
+		@this.add_node(fact_node_kind::merge, nullptr, @step);
+		@this.add_node(fact_node_kind::merge, nullptr, @after);
+		@this.connect(current, header, fact_edge_kind::next, nullptr);
 		@(@this.nodes).data()[header].region = expression;
 		usize test_index = 0;
 		usize body_index = 1;
@@ -453,40 +443,41 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		};
 		var SemanticExpression* test = expression->item(test_index);
 		@current = header;
-		if (!@this.full_expression(test, @current, break_target, continue_target, exception_target) || !@this.connect(current, body, fact_edge_kind::when_true, test)) {
-			return false;
-		};
-		if ((!is_for || test->kind() != semantic_kind::noop) && !@this.connect(current, after, fact_edge_kind::when_false, test)) {
-			return false;
+		@this.full_expression(test, @current, break_target, continue_target, exception_target);
+		@this.connect(current, body, fact_edge_kind::when_true, test);
+		if (is_for) {
+			if (test->kind() != semantic_kind::noop) {
+				@this.connect(current, after, fact_edge_kind::when_false, test);
+			};
+		}
+		else {
+			@this.connect(current, after, fact_edge_kind::when_false, test);
 		};
 		@current = body;
-		if (!@this.lower_scope(expression->item(body_index), @current, after, step, exception_target) || !@this.connect(current, step, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.lower_scope(expression->item(body_index), @current, after, step, exception_target);
+		@this.connect(current, step, fact_edge_kind::next, nullptr);
 		@current = step;
-		if (is_for && !@this.full_expression(expression->item(2), @current, after, header, exception_target)) {
-			return false;
+		if (is_for) {
+			@this.full_expression(expression->item(2), @current, after, header, exception_target);
 		};
-		if (!@this.connect(current, header, fact_edge_kind::backedge, nullptr)) {
-			return false;
-		};
+		@this.connect(current, header, fact_edge_kind::backedge, nullptr);
 		@current = after;
-		return true;
+		return;
 	};
 	if (kind == semantic_kind::exception_try) {
 		usize dispatch = 0;
 		usize after = 0;
-		if (!@this.add_node(fact_node_kind::merge, nullptr, @dispatch) || !@this.add_node(fact_node_kind::merge, nullptr, @after) || !@this.lower_scope(expression->item(0), @current, break_target, continue_target, dispatch) || !@this.connect(current, after, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::merge, nullptr, @dispatch);
+		@this.add_node(fact_node_kind::merge, nullptr, @after);
+		@this.lower_scope(expression->item(0), @current, break_target, continue_target, dispatch);
+		@this.connect(current, after, fact_edge_kind::next, nullptr);
 		usize catch_all = fact_no_node();
 		usize handler_index = 1;
 		while (handler_index < expression->size()) {
 			var SemanticExpression* handler = expression->item(handler_index);
 			usize handler_entry = 0;
-			if (!@this.add_node(fact_node_kind::expression, handler, @handler_entry) || !@this.connect(dispatch, handler_entry, fact_edge_kind::next, nullptr)) {
-				return false;
-			};
+			@this.add_node(fact_node_kind::expression, handler, @handler_entry);
+			@this.connect(dispatch, handler_entry, fact_edge_kind::next, nullptr);
 			if (handler->type()->kind() == type_kind::void_type) {
 				@catch_all = handler_index;
 			};
@@ -501,43 +492,36 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 			usize saved_return = this.return_target;
 			usize handler_after = after;
 			if (cleanup) {
-				if (!@this.cleanup_target(handler, after, exception_target, @handler_after) || !@this.cleanup_target(handler, break_target, exception_target, @handler_break) || !@this.cleanup_target(handler, continue_target, exception_target, @handler_continue) || !@this.cleanup_target(handler, saved_return, exception_target, @this.return_target)) {
-					return false;
-				};
+				@this.cleanup_target(handler, after, exception_target, @handler_after);
+				@this.cleanup_target(handler, break_target, exception_target, @handler_break);
+				@this.cleanup_target(handler, continue_target, exception_target, @handler_continue);
+				@this.cleanup_target(handler, saved_return, exception_target, @this.return_target);
 			};
 			// A handler's own exceptions belong to the enclosing try, never
 			// to another handler of the same dispatch.
-			if (!@this.lower_scope(handler->item(0), @current, handler_break, handler_continue, exception_target)) {
-				return false;
-			};
+			@this.lower_scope(handler->item(0), @current, handler_break, handler_continue, exception_target);
 			@this.return_target = saved_return;
 			// Catch completion can destroy an exception object. Without its
 			// dynamic type, a catch-all or record catch has opaque cleanup.
-			if (!@this.connect(current, handler_after, fact_edge_kind::next, nullptr)) {
-				return false;
-			};
+			@this.connect(current, handler_after, fact_edge_kind::next, nullptr);
 			@handler_index = handler_index + 1;
 		};
-		if (catch_all == fact_no_node() && !@this.connect(dispatch, exception_target, fact_edge_kind::exceptional, nullptr)) {
-			return false;
+		if (catch_all == fact_no_node()) {
+			@this.connect(dispatch, exception_target, fact_edge_kind::exceptional, nullptr);
 		};
 		@current = after;
-		return true;
+		return;
 	};
 	if (kind == semantic_kind::switch_expression) {
 		var SemanticExpression* selector = expression->item(0);
 		var SemanticExpression* body = expression->item(1);
-		if (!@this.full_expression(selector, @current, break_target, continue_target, exception_target)) {
-			return false;
-		};
+		@this.full_expression(selector, @current, break_target, continue_target, exception_target);
 		if (!body || body->kind() != semantic_kind::brace) {
-			return true;
+			return;
 		};
 		usize dispatch = current;
 		usize after = 0;
-		if (!@this.add_node(fact_node_kind::merge, nullptr, @after)) {
-			return false;
-		};
+		@this.add_node(fact_node_kind::merge, nullptr, @after);
 		rt::buffer<usize> labels;
 		usize fallback = fact_no_node();
 		usize selected = fact_no_node();
@@ -548,22 +532,18 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 			var SemanticExpression* source = body->item(item);
 			usize label = fact_no_node();
 			if (source->kind() == semantic_kind::case_label) {
-				if (!@this.add_node(fact_node_kind::merge, source, @label)) {
-					return false;
-				};
+				@this.add_node(fact_node_kind::merge, source, @label);
 				if (source->token().kind == token_kind::kw_default) {
 					@fallback = label;
 				}
 				else if (known && source->integer() == selector_value) {
 					@selected = label;
 				};
-				if (!known && !@this.connect(dispatch, label, fact_edge_kind::next, nullptr)) {
-					return false;
+				if (!known) {
+					@this.connect(dispatch, label, fact_edge_kind::next, nullptr);
 				};
 			};
-			if (!@labels.push_back($label)) {
-				return false;
-			};
+			@labels.push_back($label);
 			@item = item + 1;
 		};
 		if (known) {
@@ -573,33 +553,27 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 			if (selected == fact_no_node()) {
 				@selected = after;
 			};
-			if (!@this.connect(dispatch, selected, fact_edge_kind::next, nullptr)) {
-				return false;
-			};
+			@this.connect(dispatch, selected, fact_edge_kind::next, nullptr);
 		}
-		else if (fallback == fact_no_node() && !@this.connect(dispatch, after, fact_edge_kind::next, nullptr)) {
-			return false;
+		else if (fallback == fact_no_node()) {
+			@this.connect(dispatch, after, fact_edge_kind::next, nullptr);
 		};
 		@current = fact_no_node();
 		@item = 0;
 		while (item < body->size()) {
 			if (body->item(item)->kind() == semantic_kind::case_label) {
 				usize label = labels.data()[item];
-				if (!@this.connect(current, label, fact_edge_kind::next, nullptr)) {
-					return false;
-				};
+				@this.connect(current, label, fact_edge_kind::next, nullptr);
 				@current = label;
 			}
-			else if (!@this.full_expression(body->item(item), @current, after, continue_target, exception_target)) {
-				return false;
+			else {
+				@this.full_expression(body->item(item), @current, after, continue_target, exception_target);
 			};
 			@item = item + 1;
 		};
-		if (!@this.connect(current, after, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.connect(current, after, fact_edge_kind::next, nullptr);
 		@current = after;
-		return true;
+		return;
 	};
 	usize index = 0;
 	usize children = expression->size();
@@ -620,9 +594,7 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 			@child = 1 - index;
 		};
 		usize begin = this.nodes.size();
-		if (!@this.lower(expression->item(child), @current, break_target, continue_target, exception_target)) {
-			return false;
-		};
+		@this.lower(expression->item(child), @current, break_target, continue_target, exception_target);
 		if (kind == semantic_kind::construction && children > 1 && child == 1) {
 			var Entity* owner = expression->item(child)->owned_binding();
 			while (begin < this.nodes.size()) {
@@ -636,9 +608,8 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		@index = index + 1;
 	};
 	usize node = 0;
-	if (!@this.add_node(fact_node_kind::expression, expression, @node) || !@this.connect(current, node, fact_edge_kind::next, nullptr)) {
-		return false;
-	};
+	@this.add_node(fact_node_kind::expression, expression, @node);
+	@this.connect(current, node, fact_edge_kind::next, nullptr);
 	@current = node;
 	if (kind == semantic_kind::call || kind == semantic_kind::construction || kind == semantic_kind::allocation || kind == semantic_kind::destruction || kind == semantic_kind::variant_cast) {
 		usize exceptional = exception_target;
@@ -646,12 +617,11 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		if (kind == semantic_kind::destruction && expression->size()) {
 			@ending = expression->item(0)->owned_binding();
 		};
-		if (ending && (!@this.add_lifetime(fact_node_kind::lifetime_end, ending, expression, @exceptional) || !@this.connect(exceptional, exception_target, fact_edge_kind::exceptional, nullptr))) {
-			return false;
+		if (ending) {
+			@this.add_lifetime(fact_node_kind::lifetime_end, ending, expression, @exceptional);
+			@this.connect(exceptional, exception_target, fact_edge_kind::exceptional, nullptr);
 		};
-		if (!@this.connect(node, exceptional, fact_edge_kind::exceptional, nullptr)) {
-			return false;
-		};
+		@this.connect(node, exceptional, fact_edge_kind::exceptional, nullptr);
 	};
 	var Entity* owner = nullptr;
 	if (kind == semantic_kind::variable && expression->entity() && expression->entity()->type()->kind() != type_kind::reference) {
@@ -662,18 +632,16 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 	};
 	if (owner) {
 		usize begin = 0;
-		if (!@this.add_lifetime(fact_node_kind::lifetime_begin, owner, expression, @begin) || !@this.connect(current, begin, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.add_lifetime(fact_node_kind::lifetime_begin, owner, expression, @begin);
+		@this.connect(current, begin, fact_edge_kind::next, nullptr);
 		@current = begin;
 	};
 	if ((kind == semantic_kind::relocation || kind == semantic_kind::destruction) && expression->size()) {
 		@owner = expression->item(0)->owned_binding();
 		if (owner) {
 			usize end = 0;
-			if (!@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @end) || !@this.connect(current, end, fact_edge_kind::next, nullptr)) {
-				return false;
-			};
+			@this.add_lifetime(fact_node_kind::lifetime_end, owner, expression, @end);
+			@this.connect(current, end, fact_edge_kind::next, nullptr);
 			@current = end;
 		};
 	};
@@ -681,16 +649,14 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 	if (kind == semantic_kind::return_value) {
 		@target = this.return_target;
 		var SemanticExpression* temporary = fact_temporary_source(expression->item(0), true);
-		if (temporary && !@this.cleanup_target(temporary, target, exception_target, @target)) {
-			return false;
+		if (temporary) {
+			@this.cleanup_target(temporary, target, exception_target, @target);
 		};
 	}
 	else if (kind == semantic_kind::exception_throw || kind == semantic_kind::exception_rethrow) {
-		if (!@this.connect(node, exception_target, fact_edge_kind::exceptional, nullptr)) {
-			return false;
-		};
+		@this.connect(node, exception_target, fact_edge_kind::exceptional, nullptr);
 		@current = fact_no_node();
-		return true;
+		return;
 	}
 	else if (kind == semantic_kind::break_loop) {
 		@target = break_target;
@@ -699,10 +665,8 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		@target = continue_target;
 	};
 	if (target != fact_no_node()) {
-		if (!@this.connect(node, target, fact_edge_kind::next, nullptr)) {
-			return false;
-		};
+		@this.connect(node, target, fact_edge_kind::next, nullptr);
 		@current = fact_no_node();
 	};
-	return true;
+	return;
 };

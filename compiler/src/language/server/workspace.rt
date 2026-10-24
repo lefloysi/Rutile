@@ -110,12 +110,12 @@ struct LanguageTemplateResult {
 
 struct LanguageIndex {
 	fn source(var LanguageIndex& this, Analysis& analysis, usize source, LanguageJob& job) -> usize;
-	fn append(var LanguageIndex& this, Analysis& analysis, LanguageJob& job) -> bool;
-	fn finish(var LanguageIndex& this) -> bool;
-	fn append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool;
-	fn classify_source(var LanguageIndex& this, Analysis& analysis, usize original, usize target) -> bool;
-	fn classify_syntax(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax) -> bool;
-	fn classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping) -> bool;
+	fn append(var LanguageIndex& this, Analysis& analysis, LanguageJob& job);
+	fn finish(var LanguageIndex& this);
+	fn append_templates(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping);
+	fn classify_source(var LanguageIndex& this, Analysis& analysis, usize original, usize target);
+	fn classify_syntax(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping, Syntax& syntax);
+	fn classify_bindings(var LanguageIndex& this, Analysis& analysis, rt::buffer<usize>& mapping);
 	fn identity(LanguageIndex& this, u64 id) -> u64;
 	fn template_owner(LanguageIndex& this, u64 context) -> u64;
 	fn before(NavigationOccurrence& first, NavigationOccurrence& second) -> bool;
@@ -132,7 +132,7 @@ struct LanguageIndex {
 	rt::buffer<NavigationCall> calls;
 	rt::buffer<NavigationReceiver> receivers;
 	rt::buffer<LanguageIndexedSource> sources;
-	rt::unordered_map<rt::string_view, usize> source_ids;
+	rt::unordered_map<rt::string, usize> source_ids;
 	rt::buffer<LanguageIndexedSymbol> symbols;
 	rt::unordered_map<u64, usize> symbol_ids;
 	rt::buffer<NavigationOccurrence> occurrences;
@@ -156,29 +156,30 @@ struct LanguageWorkspace {
 	fn LanguageWorkspace(var LanguageWorkspace& this, LanguageWorkspace other) : [delete];
 	fn ~LanguageWorkspace(var LanguageWorkspace& this);
 	fn ready(LanguageWorkspace& this) -> bool;
-	fn configure(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
-	fn open(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
-	fn change(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
-	fn close(var LanguageWorkspace& this, rt::json_value& parameters) -> bool;
-	fn refresh(var LanguageWorkspace& this) -> bool;
-	fn refresh_sources(var LanguageWorkspace& this) -> bool;
+	fn configure(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult;
+	fn open(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult;
+	fn change(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult;
+	fn close(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult;
+	fn refresh(var LanguageWorkspace& this);
+	fn refresh_sources(var LanguageWorkspace& this);
 	fn cancel(var LanguageWorkspace& this);
 	fn query(var LanguageWorkspace& this, rt::string_view method, rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn status(var LanguageWorkspace& this) -> rt::unique<rt::json_value>;
 
-	fn target_key(rt::string_view root, LanguageGroup& group, var rt::string& key) -> bool;
+	fn target_key(rt::string_view root, LanguageGroup& group, var rt::string& key);
 
 private:
-	fn schedule(var LanguageWorkspace& this) -> bool;
+	fn schedule(var LanguageWorkspace& this);
 	fn run(var LanguageWorkspace& this) -> i32;
+	fn report_failure(var LanguageWorkspace& this, LanguageJob& job, rt::string_view message);
 	fn analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex>;
-	fn analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> bool;
+	fn analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> CompilationResult;
 	fn receive(var LanguageWorkspace& this);
 	fn retire(var LanguageWorkspace& this, rt::unique<LanguageIndex> index);
 	fn collect_retired(var LanguageWorkspace& this);
 	fn document(var LanguageWorkspace& this, rt::string_view uri) -> var LanguageDocument*;
 	fn document_key(var LanguageWorkspace& this, rt::string_view key) -> var LanguageDocument*;
-	fn cursor(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var usize& source, var usize& offset) -> bool;
+	fn cursor(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var usize& source, var usize& offset) -> LanguageRequestResult;
 	fn completion(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> rt::unique<rt::json_value>;
 	fn completion_visible(var LanguageWorkspace& this, LanguageIndex& index, NavigationSymbol& symbol) -> bool;
 	fn tokens(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool ranged) -> rt::unique<rt::json_value>;
@@ -188,15 +189,15 @@ private:
 	fn mapped(var LanguageWorkspace& this, LanguageIndex& index, SourceRange& input, var SourceRange& output) -> bool;
 	fn old_offset(var LanguageWorkspace& this, LanguageIndex& index, usize source, usize current, var usize& original) -> bool;
 	fn location(var LanguageWorkspace& this, LanguageIndex& index, SourceRange& range) -> rt::unique<rt::json_value>;
-	fn bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result) -> bool;
+	fn bindings(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, var rt::buffer<u64>& result) -> LanguageRequestResult;
 	fn template_contexts(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, bool select) -> rt::unique<rt::json_value>;
 	fn template_context(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters) -> u64;
 	fn template_context(var LanguageWorkspace& this, LanguageIndex& index, usize source, usize offset) -> u64;
 	fn hover(var LanguageWorkspace& this, LanguageIndex& index, rt::json_value& parameters, rt::buffer<u64>& bindings) -> rt::unique<rt::json_value>;
-	fn notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) -> bool;
+	fn notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters);
 	fn measured(var LanguageWorkspace& this, rt::unique<rt::json_value> result, u64 started) -> rt::unique<rt::json_value>;
 	fn contains(rt::string_view text, rt::string_view part) -> bool;
-	fn append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string_view, bool>& seen, var rt::buffer<rt::string>& keys) -> bool;
+	fn append_location(var rt::json_value& result, rt::unique<rt::json_value> location, var rt::unordered_map<rt::string, bool>& seen);
 	fn add_project(var void* context, char* group, char* path, i32 kind) -> i32;
 	fn project_error(var void* context, char* text);
 	fn worker(var void* context) -> i32;
@@ -291,7 +292,7 @@ fn LanguageWorkspace::cancel(var LanguageWorkspace& this) {
 		runtime_atomic_store(this.stopped, 1);
 	};
 	if (this.generation) {
-		runtime_atomic_fetch_add(this.generation, 1);
+		discard runtime_atomic_fetch_add(this.generation, 1);
 	};
 	if (this.wake) {
 		runtime_condition_notify(this.wake);
@@ -299,7 +300,30 @@ fn LanguageWorkspace::cancel(var LanguageWorkspace& this) {
 };
 
 fn LanguageWorkspace::worker(var void* context) -> i32 {
-	return @reinterpret_cast<var LanguageWorkspace*>(context)->run();
+	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
+	try {
+		return @workspace.run();
+	}
+	catch (rt::allocation_error& error) {
+		runtime_atomic_store(workspace.analysis_phase, 5);
+		discard fprintf(platform_standard_error(), "Language worker stopped because allocation failed.\n\0".data());
+		return 2;
+	}
+	catch (rt::json_error& error) {
+		runtime_atomic_store(workspace.analysis_phase, 5);
+		discard fprintf(platform_standard_error(), "Language worker stopped because JSON processing failed.\n\0".data());
+		return 1;
+	}
+	catch (compiler_internal_error& error) {
+		runtime_atomic_store(workspace.analysis_phase, 5);
+		discard fprintf(platform_standard_error(), "Language worker internal failure: %s\n\0".data(), error.message.c_str());
+		return 2;
+	}
+	catch (language_transport_error& error) {
+		runtime_atomic_store(workspace.analysis_phase, 5);
+		discard fprintf(platform_standard_error(), "Language worker transport failure: %.*s\n\0".data(), static_cast<i32>(error.message.size()), error.message.data());
+		return 1;
+	};
 };
 
 fn LanguageWorkspace::cancelled(var void* context) -> i32 {
@@ -312,7 +336,7 @@ fn LanguageWorkspace::run(var LanguageWorkspace& this) -> i32 {
 		@this.collect_retired();
 		runtime_mutex_lock(this.jobs_mutex);
 		while (!this.pending.get() && !runtime_atomic_load(this.stopped)) {
-			runtime_condition_wait(this.wake, this.jobs_mutex, 100);
+			discard runtime_condition_wait(this.wake, this.jobs_mutex, 100);
 			runtime_mutex_unlock(this.jobs_mutex);
 			@this.collect_retired();
 			runtime_mutex_lock(this.jobs_mutex);
@@ -324,37 +348,80 @@ fn LanguageWorkspace::run(var LanguageWorkspace& this) -> i32 {
 		var job = rt::unique<LanguageJob>(@this.pending.release());
 		runtime_mutex_unlock(this.jobs_mutex);
 
-		var index = @this.analyze(@*job.get());
-		if (!index.get() && !runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
-			runtime_atomic_store(this.analysis_phase, 5);
-		};
-		if (!index.get() || runtime_atomic_load(this.stopped) || runtime_atomic_load(this.generation) != job.get()->generation) {
-			continue;
-		};
-
-		if (index.get()->diagnostics.get()) {
-			usize item = 0;
-			while (item < index.get()->diagnostics.get()->size() && !runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
-				@this.notify("textDocument/publishDiagnostics", index.get()->diagnostics.get()->item(item)->clone());
-				@item = item + 1;
+		try {
+			var index = @this.analyze(@*job.get());
+			if (!index.get() && !runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
+				runtime_atomic_store(this.analysis_phase, 5);
 			};
-		};
-
-		rt::unique<LanguageIndex> obsolete;
-		runtime_mutex_lock(this.publication_mutex);
-		@obsolete = rt::unique<LanguageIndex>(@this.incoming.release());
-		runtime_atomic_store(this.analysis_phase, 0);
-		@this.incoming = $index;
-		runtime_mutex_unlock(this.publication_mutex);
-		if (!runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
-			var parameters = rt::json_value::make_object();
-			if (parameters.get() && @parameters.get()->set("generation", rt::json_value::make_unsigned(u64(job.get()->generation)))) {
-				@this.notify("rutile/semanticTokensChanged", $parameters);
+			if (!index.get() || runtime_atomic_load(this.stopped) || runtime_atomic_load(this.generation) != job.get()->generation) {
+				continue;
 			};
+
+			if (index.get()->diagnostics.get()) {
+				usize item = 0;
+				while (item < index.get()->diagnostics.get()->size() && !runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
+					@this.notify("textDocument/publishDiagnostics", index.get()->diagnostics.get()->item(item)->clone());
+					@item = item + 1;
+				};
+			};
+
+			rt::unique<LanguageIndex> obsolete;
+			runtime_mutex_lock(this.publication_mutex);
+			@obsolete = rt::unique<LanguageIndex>(@this.incoming.release());
+			runtime_atomic_store(this.analysis_phase, 0);
+			@this.incoming = $index;
+			runtime_mutex_unlock(this.publication_mutex);
+			if (!runtime_atomic_load(this.stopped) && runtime_atomic_load(this.generation) == job.get()->generation) {
+				var parameters = rt::json_value::make_object();
+				if (parameters.get()) {
+					@parameters.get()->set("generation", rt::json_value::make_unsigned(u64(job.get()->generation)));
+					@this.notify("rutile/semanticTokensChanged", $parameters);
+				};
+			};
+		}
+		catch (rt::allocation_error& error) {
+			@this.report_failure(*job.get(), "Language analysis failed: allocation could not be satisfied.");
+		}
+		catch (rt::json_error& error) {
+			@this.report_failure(*job.get(), error.message);
+		}
+		catch (compiler_internal_error& error) {
+			@this.report_failure(*job.get(), error.message.view());
 		};
 	};
 };
 
+fn LanguageWorkspace::report_failure(var LanguageWorkspace& this, LanguageJob& job, rt::string_view message) {
+	if (runtime_atomic_load(this.stopped) || runtime_atomic_load(this.generation) != job.generation) {
+		return;
+	};
+	runtime_atomic_store(this.analysis_phase, 5);
+	try {
+		var diagnostic = rt::json_value::make_object();
+		@diagnostic.get()->set("type", rt::json_value::make_unsigned(1));
+		@diagnostic.get()->set("message", rt::json_value::make_string(message));
+		@this.notify("window/logMessage", $diagnostic);
+		var completion = rt::json_value::make_object();
+		@completion.get()->set("generation", rt::json_value::make_unsigned(u64(job.generation)));
+		@this.notify("rutile/semanticTokensChanged", $completion);
+	}
+	catch (rt::allocation_error& error) {
+		discard fprintf(platform_standard_error(), "Language analysis failed; allocation prevented reporting the diagnostic.\n\0".data());
+		try {
+			@this.protocol->send("{\"jsonrpc\":\"2.0\",\"method\":\"window/logMessage\",\"params\":{\"type\":1,\"message\":\"Language analysis failed because allocation could not be satisfied.\"}}");
+			@this.protocol->send("{\"jsonrpc\":\"2.0\",\"method\":\"rutile/semanticTokensChanged\",\"params\":{}}");
+		}
+		catch (rt::allocation_error& failure) {
+			discard fprintf(platform_standard_error(), "Language analysis completion could not be sent because allocation failed.\n\0".data());
+		};
+	}
+	catch (rt::json_error& error) {
+		discard fprintf(platform_standard_error(), "Language analysis failed; diagnostic JSON could not be produced.\n\0".data());
+	}
+	catch (language_transport_error& error) {
+		discard fprintf(platform_standard_error(), "Language analysis diagnostic transport failed: %.*s\n\0".data(), static_cast<i32>(error.message.size()), error.message.data());
+	};
+};
 fn LanguageWorkspace::receive(var LanguageWorkspace& this) {
 	rt::unique<LanguageIndex> next;
 	runtime_mutex_lock(this.publication_mutex);
@@ -416,27 +483,31 @@ fn LanguageWorkspace::collect_retired(var LanguageWorkspace& this) {
 	};
 };
 
-fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
-	if (!this.ready() || runtime_atomic_load(this.stopped)) {
-		return false;
+fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
+	if (runtime_atomic_load(this.stopped)) {
+		return;
+	};
+	if (!this.ready()) {
+		compiler_panic("language worker is unavailable while scheduling analysis");
 	};
 	@this.receive();
 	var job = rt::unique<LanguageJob>::make();
-	if (!job.get() || !@job.get()->root.append(this.root.view())) {
-		return false;
+	if (!job.get()) {
+		compiler_panic("language server schedule invariant failed");
 	};
+	@job.get()->root.append(this.root.view());
 
 	u64 revision = @this.compiler->next_editor_revision();
 	if (!revision) {
-		return false;
+		compiler_panic("language server schedule invariant failed");
 	};
 	@job.get()->generation = revision;
 	runtime_atomic_store(this.generation, $revision);
 	@job.get()->configuration = this.configuration;
 	usize target = 0;
 	while (target < this.known_targets.size()) {
-		if (!@this.compiler->expect_target(this.known_targets.data()[target].view(), u64(job.get()->generation))) {
-			return false;
+		if (!(@this.compiler->expect_target(this.known_targets.data()[target].view(), u64(job.get()->generation))).has<void>()) {
+			return;
 		};
 		@target = target + 1;
 	};
@@ -444,11 +515,11 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 	while (index < this.documents.size()) {
 		if (this.published.get()) {
 			var LanguageDocument& document = @*(@this.documents).data()[index].get();
-			var source = this.published.get()->source_ids.find(document.key.view());
+			var source = this.published.get()->source_ids.find(document.key);
 			if (source) {
 				u64 revision = this.published.get()->sources.data()[*source].revision;
 				if (this.highlight_fallback.get()) {
-					var fallback = this.highlight_fallback.get()->source_ids.find(document.key.view());
+					var fallback = this.highlight_fallback.get()->source_ids.find(document.key);
 					if (fallback && this.highlight_fallback.get()->sources.data()[*fallback].revision < revision) {
 						@revision = this.highlight_fallback.get()->sources.data()[*fallback].revision;
 					};
@@ -468,9 +539,7 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 				};
 			};
 		};
-		if (!@job.get()->documents.push_back(LanguageDocument(*this.documents.data()[index].get()))) {
-			return false;
-		};
+		@job.get()->documents.push_back(LanguageDocument(*this.documents.data()[index].get()));
 		@index = index + 1;
 	};
 
@@ -480,21 +549,22 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) -> bool {
 	@this.pending = $job;
 	runtime_mutex_unlock(this.jobs_mutex);
 	runtime_condition_notify(this.wake);
-	return true;
+	return;
 };
 
-fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	var uri = LanguageJson::text(parameters, "rootUri");
 	if (!uri.empty()) {
 		rt::string path;
-		if (!LanguageUri::decode(uri, @path)) {
-			return false;
+		if (!LanguageUri::decode(uri, @path).has<void>()) {
+			return LanguageRequestResult(language_request_error());
 		};
 		@this.root = $path;
 	};
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
-	return @this.schedule();
+	@this.schedule();
+	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view key) -> var LanguageDocument* {
@@ -508,22 +578,29 @@ fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view 
 fn LanguageWorkspace::document(var LanguageWorkspace& this, rt::string_view uri) -> var LanguageDocument* {
 	rt::string path;
 	rt::string key;
-	if (!LanguageUri::decode(uri, @path) || !LanguageUri::key(path.view(), @key)) {
+	if (!LanguageUri::decode(uri, @path).has<void>()) {
 		return nullptr;
 	};
+	LanguageUri::key(path.view(), @key);
 	return @this.document_key(key.view());
 };
 
-fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
-		return false;
+		return LanguageRequestResult(language_request_error());
 	};
 	var uri = LanguageJson::text(*identity, "uri");
 	var document = rt::unique<LanguageDocument>::make();
-	if (!document.get() || !@document.get()->uri.append(uri) || !LanguageUri::decode(uri, @document.get()->path) || !LanguageUri::key(document.get()->path.view(), @document.get()->key) || !@document.get()->text.assign(LanguageJson::text(*identity, "text"))) {
-		return false;
+	if (!document.get()) {
+		compiler_panic("language document allocation returned no document");
 	};
+	@document.get()->uri.append(uri);
+	if (!LanguageUri::decode(uri, @document.get()->path).has<void>()) {
+		return LanguageRequestResult(language_request_error());
+	};
+	LanguageUri::key(document.get()->path.view(), @document.get()->key);
+	@document.get()->text.assign(LanguageJson::text(*identity, "text"));
 	@document.get()->version = LanguageJson::integer(*identity, "version", 0);
 	@this.revision = this.revision + 1;
 	@document.get()->revision = this.revision;
@@ -534,20 +611,18 @@ fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& paramete
 		@existing = existing + 1;
 	};
 	if (existing < this.documents.size()) {
-		@this.document_names.erase(this.documents.data()[existing].get()->key.view());
+		discard @this.document_names.erase(this.documents.data()[existing].get()->key.view());
 		if (!@this.document_names.insert(document.get()->key.view(), document.get())) {
-			return false;
+			compiler_panic("language document replacement could not be registered");
 		};
 		@(@this.documents).data()[existing] = $document;
 	}
 	else {
 		var LanguageDocument* added = document.get();
-		if (!@this.documents.push_back($document)) {
-			return false;
-		};
+		@this.documents.push_back($document);
 		if (!@this.document_names.insert(added->key.view(), (var LanguageDocument*(added)))) {
 			@this.documents.pop_back();
-			return false;
+			compiler_panic("new language document could not be registered");
 		};
 	};
 	var LanguageDocument* opened = @this.document(uri);
@@ -555,22 +630,23 @@ fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& paramete
 		rutile_editor_source_update(opened->path.c_str(), opened->text.view().data(), opened->text.view().size());
 	};
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
-	return @this.schedule();
+	@this.schedule();
+	return LanguageRequestResult();
 };
 
-fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	rt::json_value* changes = parameters.member("contentChanges");
 	if (!identity || !changes || changes->kind() != rt::json_kind::array) {
-		return false;
+		return LanguageRequestResult(language_request_error());
 	};
 	var LanguageDocument* document = @this.document(LanguageJson::text(*identity, "uri"));
 	i64 version = LanguageJson::integer(*identity, "version", -1);
 	if (!document) {
-		return false;
+		return LanguageRequestResult(language_request_error());
 	};
 	if (version <= document->version) {
-		return true;
+		return LanguageRequestResult();
 	};
 
 	usize index = 0;
@@ -583,13 +659,13 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 			rt::json_value* start = range->member("start");
 			rt::json_value* finish = range->member("end");
 			if (!start || !finish) {
-				return false;
+				return LanguageRequestResult(language_request_error());
 			};
 			@begin = document->text.offset(static_cast<usize>(LanguageJson::integer(*start, "line", 0)), static_cast<usize>(LanguageJson::integer(*start, "character", 0)));
 			@end = document->text.offset(static_cast<usize>(LanguageJson::integer(*finish, "line", 0)), static_cast<usize>(LanguageJson::integer(*finish, "character", 0)));
 		};
 		if (end < begin) {
-			return false;
+			return LanguageRequestResult(language_request_error());
 		};
 
 		var inserted = LanguageJson::text(*change, "text");
@@ -607,9 +683,9 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 		};
 
 		rt::string replacement;
-		if (!@replacement.append(rt::string_view(original.data(), usize(begin))) || !@replacement.append(inserted) || !@replacement.append(rt::string_view(original.data() + end, original.size() - end))) {
-			return false;
-		};
+		@replacement.append(rt::string_view(original.data(), usize(begin)));
+		@replacement.append(inserted);
+		@replacement.append(rt::string_view(original.data() + end, original.size() - end));
 		LanguageEdit edit;
 		@this.revision = this.revision + 1;
 		@edit.revision = this.revision;
@@ -627,20 +703,20 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 				@document->template_arguments.clear();
 			};
 		};
-		if (!@document->edits.push_back($edit) || !@document->text.assign(replacement.view())) {
-			return false;
-		};
+		@document->edits.push_back($edit);
+		@document->text.assign(replacement.view());
 		@index = index + 1;
 	};
 	@document->version = $version;
 	rutile_editor_source_update(document->path.c_str(), document->text.view().data(), document->text.view().size());
-	return @this.schedule();
+	@this.schedule();
+	return LanguageRequestResult();
 };
 
-fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& parameters) -> bool {
+fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
-		return false;
+		return LanguageRequestResult(language_request_error());
 	};
 	var uri = LanguageJson::text(*identity, "uri");
 	var LanguageDocument* document = @this.document(uri);
@@ -648,7 +724,7 @@ fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& paramet
 	while (index < this.documents.size()) {
 		if (this.documents.data()[index].get() == document) {
 			rutile_editor_source_update(document->path.c_str(), nullptr, 0);
-			@this.document_names.erase(document->key.view());
+			discard @this.document_names.erase(document->key.view());
 			usize last = this.documents.size() - 1;
 			if (index != last) {
 				@(@this.documents).data()[index] = rt::unique<LanguageDocument>(@(@this.documents).data()[last].release());
@@ -666,22 +742,32 @@ fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& paramet
 		@this.notify("textDocument/publishDiagnostics", $notification);
 	};
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
-	return @this.schedule();
+	@this.schedule();
+	return LanguageRequestResult();
 };
 
-fn LanguageWorkspace::refresh(var LanguageWorkspace& this) -> bool {
+fn LanguageWorkspace::refresh(var LanguageWorkspace& this) {
 	@this.sources_revision = kiln_project_sources_revision();
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
-	return @this.schedule();
+	@this.schedule();
+	return;
 };
 
-fn LanguageWorkspace::refresh_sources(var LanguageWorkspace& this) -> bool {
-	return this.sources_revision == kiln_project_sources_revision() || @this.refresh();
+fn LanguageWorkspace::refresh_sources(var LanguageWorkspace& this) {
+	if (!(this.sources_revision == kiln_project_sources_revision())) {
+		@this.refresh();
+	};
+	return;
 };
 
-fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) -> bool {
+fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) {
 	var message = LanguageJson::notification(method, $parameters);
 	rt::string output;
-	return message.get() && rt::json_write(*message.get(), @output) && @this.protocol->send(output.view());
+	if (!message.get()) {
+		compiler_panic("language server notify invariant failed");
+	};
+	rt::json_write(*message.get(), @output);
+	@this.protocol->send(output.view());
+	return;
 };

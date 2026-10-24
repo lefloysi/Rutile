@@ -6,6 +6,8 @@ namespace Rutile.VisualStudio {
 		Comment,
 		String,
 		Number,
+		Keyword,
+		ControlKeyword,
 		Operator
 	}
 
@@ -47,6 +49,18 @@ namespace Rutile.VisualStudio {
 					continue;
 				}
 				if (current == '"' || current == '\'') {
+					if (current == '"' && offset + 1 < text.Length && text[offset] == '"' && text[offset + 1] == '"') {
+						offset += 2;
+						while (offset < text.Length) {
+							if (offset + 2 < text.Length && text[offset] == '"' && text[offset + 1] == '"' && text[offset + 2] == '"') {
+								offset += 3;
+								break;
+							}
+							++offset;
+						}
+						result.Add(new LexicalSpan(start, offset - start, LexicalKind.String));
+						continue;
+					}
 					while (offset < text.Length) {
 						var value = text[offset++];
 						if (value == '\\' && offset < text.Length) {
@@ -63,6 +77,10 @@ namespace Rutile.VisualStudio {
 				if (IdentifierStart(current)) {
 					while (offset < text.Length && (IdentifierStart(text[offset]) || Digit(text[offset]))) {
 						++offset;
+					}
+					var keyword = KeywordKind(text.Substring(start, offset - start));
+					if (keyword.HasValue) {
+						result.Add(new LexicalSpan(start, offset - start, keyword.Value));
 					}
 					continue;
 				}
@@ -93,6 +111,52 @@ namespace Rutile.VisualStudio {
 				}
 			}
 			return result;
+		}
+
+		// Reserved spellings: compiler/src/frontend/lexer.rt, Lexer::keyword_spelling.
+		// Control range: language_lexical_type in compiler/src/language/server/semantic.rt.
+		private static LexicalKind? KeywordKind(string spelling) {
+			switch (spelling) {
+				case "fn":
+				case "using":
+				case "const":
+				case "discard":
+				case "delete":
+				case "new":
+				case "implicit":
+				case "nullptr":
+				case "export":
+				case "template":
+				case "typename":
+				case "class":
+				case "var":
+				case "struct":
+				case "union":
+				case "enum":
+				case "namespace":
+				case "virtual":
+				case "override":
+				case "final":
+				case "sizeof":
+					return LexicalKind.Keyword;
+				case "return":
+				case "try":
+				case "catch":
+				case "throw":
+				case "noexcept":
+				case "if":
+				case "else":
+				case "while":
+				case "for":
+				case "switch":
+				case "case":
+				case "default":
+				case "break":
+				case "continue":
+					return LexicalKind.ControlKeyword;
+				default:
+					return null;
+			}
 		}
 
 		private static bool IdentifierStart(char value) {

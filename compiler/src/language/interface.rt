@@ -1,23 +1,28 @@
 fn rutile_language_analyze(AnalysisSource* sources, usize count, u32 pointer_bits, ((var void*) -> i32)* cancelled, var void* context) -> var void* {
-	if (count && !sources || cancelled && cancelled(context)) {
-		return nullptr;
-	};
-	var analysis = rt::unique<Analysis>::make();
-	var compiler = rt::unique<Compiler>::make();
-	if (!analysis.get() || !compiler.get()) {
-		return nullptr;
-	};
-	usize index = 0;
-	while (index < count) {
-		if (!@analysis.get()->add_source(sources[index].path, sources[index].text)) {
+	try {
+		if (count && !sources || cancelled && cancelled(context)) {
 			return nullptr;
 		};
-		@index = index + 1;
-	};
-	if (!@analysis.get()->analyze($pointer_bits, $cancelled, $context) || !@compiler.get()->publish($analysis)) {
+		var analysis = rt::unique<Analysis>::make();
+		var compiler = rt::unique<Compiler>::make();
+		usize index = 0;
+		while (index < count) {
+			@analysis.get()->add_source(sources[index].path, sources[index].text);
+			@index = index + 1;
+		};
+		if (!(@analysis.get()->analyze($pointer_bits, $cancelled, $context)).has<void>()) {
+			return nullptr;
+		};
+		@compiler.get()->publish($analysis);
+		return @compiler.release();
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, nullptr);
+		return nullptr;
+	}
+	catch (rt::allocation_error& error) {
 		return nullptr;
 	};
-	return @compiler.release();
 };
 
 fn rutile_language_destroy(var void* snapshot) {

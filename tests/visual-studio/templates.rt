@@ -1,14 +1,10 @@
 [[test]]
 fn template_responses_reject_pending_and_stale_snapshots_and_preserve_arguments() {
 	var result = editor_observation("TemplateResponses");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("pending")->kind() == rt::json_kind::null_value);
 	rt::test::expect(root->member("stale")->kind() == rt::json_kind::null_value);
 	rt::test::expect(root->member("current")->member("name")->text() == "Box");
@@ -23,16 +19,13 @@ fn template_responses_reject_pending_and_stale_snapshots_and_preserve_arguments(
 [[test]]
 fn template_widget_keeps_inputs_compact_and_resets_selection_with_declaration_identity() {
 	var result = editor_observation("TemplateWidget");
-	if (!rt::test::expect(result.state == rt::sys::status::completed && !result.exit_code)) {
-		return;
-	};
+	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
-	if (!rt::test::expect(document.value())) {
-		return;
-	};
-	var root = document.value();
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
 	i64 height = 0;
-	rt::test::expect(root->member("height_pixels")->integer(@height) && height <= 32);
+	@height = root->member("height_pixels")->integer();
+	rt::test::expect(height <= 32);
 	rt::test::expect(!root->member("input_visible")->boolean());
 	var added = root->member("added");
 	bool found = false;

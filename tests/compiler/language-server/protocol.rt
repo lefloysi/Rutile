@@ -1,118 +1,136 @@
 [[test]]
 fn language_server_initialization_legend_and_shutdown_use_json_rpc_frames() {
 	LspFiles files;
-	if (!rt::test::expect(files.input && files.output)) {
-		return;
-	};
+	rt::test::expect(files.input && files.output);
 	var requests = lsp_frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")
 		+ lsp_frame("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"rutile/semanticTokensLegend\"}")
+		+ lsp_frame("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"textDocument/semanticTokens/full\",\"params\":{\"textDocument\":{\"uri\":\"file:///unavailable.rt\"}}}")
 		+ lsp_frame("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"shutdown\"}")
 		+ lsp_frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}");
 	var executed = @files.execute(requests);
-	if (!rt::test::expect(executed.has<i32>())) {
-		return;
-	};
+	rt::test::expect(executed.has<i32>());
 	rt::test::expect(!executed.get<i32>());
 	rewind(files.output);
 	var reader = LanguageProtocol(@*files.output, @*files.input);
 	var initialized = lsp_response(@reader, 1);
-	if (!rt::test::expect(initialized.value())) {
-		return;
-	};
-	var result = initialized.value()->member("result");
-	if (!rt::test::expect(result)) {
-		return;
-	};
+	rt::test::expect(initialized.has<rt::unique<rt::json_value>>());
+	var result = initialized.get<rt::unique<rt::json_value>>().get()->member("result");
+	rt::test::expect(result);
 	var capabilities = result->member("capabilities");
-	if (!rt::test::expect(capabilities)) {
-		return;
-	};
+	rt::test::expect(capabilities);
 	var encoding = capabilities->member("positionEncoding");
 	rt::test::expect(encoding && encoding->text() == "utf-16");
 	var definition = capabilities->member("definitionProvider");
 	rt::test::expect(definition && definition->boolean());
 	var provider = capabilities->member("semanticTokensProvider");
-	if (!rt::test::expect(provider)) {
-		return;
-	};
+	rt::test::expect(provider);
 	var legend = provider->member("legend");
-	if (!rt::test::expect(legend)) {
-		return;
-	};
+	rt::test::expect(legend);
 	var token_types = legend->member("tokenTypes");
-	if (!rt::test::expect(token_types && token_types->kind() == rt::json_kind::array && token_types->size() == 20)) {
-		return;
-	};
+	rt::test::expect(token_types && token_types->kind() == rt::json_kind::array && token_types->size() == 20);
 	rt::test::expect(token_types->item(11)->text() == "function");
 	rt::test::expect(token_types->item(18)->text() == "controlKeyword");
 	var custom = lsp_response(@reader, 2);
-	if (!rt::test::expect(custom.value())) {
-		return;
-	};
-	var custom_result = custom.value()->member("result");
-	if (!rt::test::expect(custom_result)) {
-		return;
-	};
+	rt::test::expect(custom.has<rt::unique<rt::json_value>>());
+	var custom_result = custom.get<rt::unique<rt::json_value>>().get()->member("result");
+	rt::test::expect(custom_result);
 	var custom_types = custom_result->member("tokenTypes");
-	if (!rt::test::expect(custom_types && custom_types->kind() == rt::json_kind::array && custom_types->size() > 13)) {
-		return;
-	};
+	rt::test::expect(custom_types && custom_types->kind() == rt::json_kind::array && custom_types->size() > 13);
 	rt::test::expect(custom_types->item(13)->text() == "keyword");
+	var unavailable = lsp_response(@reader, 4);
+	rt::test::expect(unavailable.has<rt::unique<rt::json_value>>());
+	var unavailable_result = unavailable.get<rt::unique<rt::json_value>>().get()->member("result");
+	rt::test::expect(unavailable_result && unavailable_result->kind() == rt::json_kind::null_value);
 	var shutdown = lsp_response(@reader, 3);
-	if (!rt::test::expect(shutdown.value())) {
-		return;
-	};
-	var shutdown_result = shutdown.value()->member("result");
+	rt::test::expect(shutdown.has<rt::unique<rt::json_value>>());
+	var shutdown_result = shutdown.get<rt::unique<rt::json_value>>().get()->member("result");
 	rt::test::expect(shutdown_result && shutdown_result->kind() == rt::json_kind::null_value);
 	rt::test::expect(token_types->item(19)->text() == "decorator");
 
 	Analysis analysis;
-	if (!rt::test::expect(@analysis.add_source("/semantic.rt", "namespace colors {\n\t[[test]]\n\tfn highlighted() {};\n};\n") && @analysis.analyze_editor(64, nullptr, nullptr))) {
-		return;
-	};
+	@analysis.add_source("/semantic.rt", "namespace colors {\n\t[[test]]\n\tfn highlighted() {};\n};\n");
+	rt::test::expect((@analysis.analyze_editor(64, nullptr, nullptr)).has<void>());
 	rt::test::expect(!analysis.diagnostics().failed());
 	LanguageIndex index;
 	LanguageJob job;
-	if (!rt::test::expect(@index.append(analysis, job) && index.sources.size() == 1)) {
-		return;
-	};
+	@index.append(analysis, job);
+	rt::test::expect(index.sources.size() == 1);
 	LanguageIndexedSource& source = index.sources.data()[0];
 	var namespace_token = source.token_offsets.find(10);
 	var attribute_token = source.token_offsets.find(22);
-	if (!rt::test::expect(namespace_token && attribute_token)) {
-		return;
-	};
+	rt::test::expect(namespace_token && attribute_token);
 	LanguageSemanticToken& namespace_color = source.tokens.data()[*namespace_token];
 	LanguageSemanticToken& attribute_color = source.tokens.data()[*attribute_token];
 	rt::test::expect(namespace_color.range.begin == 10 && namespace_color.range.end == 16 && namespace_color.type == 0);
 	rt::test::expect(attribute_color.range.begin == 22 && attribute_color.range.end == 26 && attribute_color.type == 19);
+
+
+};
+
+[[test]]
+fn language_server_semantic_tokens_return_null_for_document_missing_from_index() {
+	Analysis analysis;
+	@analysis.add_source("/indexed.rt", "fn indexed() {};\n");
+	rt::test::expect((@analysis.analyze_editor(64, nullptr, nullptr)).has<void>());
+	LanguageIndex index;
+	LanguageJob job;
+	@index.append(analysis, job);
+	rt::test::expect(index.sources.size() == 1);
+	LspFiles files;
+	rt::test::expect(files.input && files.output);
+	var protocol = LanguageProtocol(@*files.input, @*files.output);
+	Compiler compiler;
+	var workspace = LanguageWorkspace(@compiler, @protocol, "/");
+	var parameters = rt::json_value::make_object();
+	var document = rt::json_value::make_object();
+	@document.get()->set("uri", rt::json_value::make_string(index.sources.data()[0].uri + ".missing"));
+	@parameters.get()->set("textDocument", $document);
+	var tokens = @workspace.tokens(index, *parameters.get(), false);
+	rt::test::expect(tokens.get() && tokens.get()->kind() == rt::json_kind::null_value);
+};
+
+[[test]]
+fn language_server_semantic_tokens_publish_empty_array_for_indexed_empty_document() {
+	Analysis analysis;
+	@analysis.add_source("/empty.rt", "");
+	rt::test::expect((@analysis.analyze_editor(64, nullptr, nullptr)).has<void>());
+	LanguageIndex index;
+	LanguageJob job;
+	@index.append(analysis, job);
+	rt::test::expect(index.sources.size() == 1);
+	LspFiles files;
+	rt::test::expect(files.input && files.output);
+	var protocol = LanguageProtocol(@*files.input, @*files.output);
+	Compiler compiler;
+	var workspace = LanguageWorkspace(@compiler, @protocol, "/");
+	var parameters = rt::json_value::make_object();
+	var document = rt::json_value::make_object();
+	@document.get()->set("uri", rt::json_value::make_string(index.sources.data()[0].uri));
+	@parameters.get()->set("textDocument", $document);
+	var tokens = @workspace.tokens(index, *parameters.get(), false);
+	rt::test::expect(tokens.get() && tokens.get()->kind() == rt::json_kind::object);
+	var data = tokens.get()->member("data");
+	rt::test::expect(data && data->kind() == rt::json_kind::array && !data->size());
 };
 
 [[test]]
 fn language_server_rejects_requests_before_initialization_and_unclean_exit() {
 	LspFiles files;
-	if (!rt::test::expect(files.input && files.output)) {
-		return;
-	};
+	rt::test::expect(files.input && files.output);
 	var requests = lsp_frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/hover\",\"params\":{}}")
 		+ lsp_frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}");
 	var executed = @files.execute(requests);
-	if (!rt::test::expect(executed.has<i32>())) {
-		return;
-	};
+	rt::test::expect(executed.has<i32>());
 	rt::test::expect(executed.get<i32>() == 1);
 	rewind(files.output);
 	var reader = LanguageProtocol(@*files.output, @*files.input);
 	var response = lsp_response(@reader, 1);
-	if (!rt::test::expect(response.value() && response.value()->member("error"))) {
-		return;
-	};
-	var error = response.value()->member("error");
+	rt::test::expect(response.has<rt::unique<rt::json_value>>() && response.get<rt::unique<rt::json_value>>().get()->member("error"));
+	var error = response.get<rt::unique<rt::json_value>>().get()->member("error");
 	i64 code = 0;
 	var error_code = error->member("code");
-	if (!rt::test::expect(error_code && error_code->integer(@code))) {
-		return;
-	};
+	rt::test::expect(error_code);
+	@code = error_code->integer();
 	rt::test::expect(code == -32002);
 	var message = error->member("message");
 	rt::test::expect(message && message->text() == "language server is not initialized");

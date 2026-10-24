@@ -2,9 +2,8 @@ fn kiln_project_source_load(char* path, ((var void*, char*, char*, usize, char*,
 
 fn language_load_interface_source(var void* context, char* path, char* text, usize size, char* module, i32 access) -> i32 {
 	var Analysis& analysis = @*reinterpret_cast<var Analysis*>(context);
-	if (!@analysis.add_source(rt::from_c_string(path), rt::string_view(text, size)) || !@analysis.set_source_module(analysis.source_count() - 1, rt::from_c_string(module), access)) {
-		return 0;
-	};
+	@analysis.add_source(rt::from_c_string(path), rt::string_view(text, size));
+	@analysis.set_source_module(analysis.source_count() - 1, rt::from_c_string(module), access);
 	return 1;
 };
 
@@ -27,11 +26,12 @@ fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32
 	if (index == workspace.groups.size()) {
 		LanguageGroup group;
 		@group.kind = $category;
-		if (!@group.name.append(rt::from_c_string(name)) || !@workspace.groups.push_back($group)) {
-			return 0;
-		};
+		@group.name.append(rt::from_c_string(name));
+		@workspace.groups.push_back($group);
 	};
-	return static_cast<i32>(@(@workspace.groups).data()[index].paths.push_back(rt::string(rt::from_c_string(path))));
+	var LanguageGroup* groups = (@workspace.groups).data();
+	@groups[index].paths.push_back(rt::string(rt::from_c_string(path)));
+	return 1;
 };
 
 fn LanguageWorkspace::project_error(var void* context, char* text) {
@@ -69,7 +69,7 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 			@group = group + 1;
 			continue;
 		};
-		if (!@this.analyze_group(@input, @job, @*index.get())) {
+		if (!(@this.analyze_group(@input, @job, @*index.get())).has<void>()) {
 			return rt::unique<LanguageIndex>();
 		};
 		usize path = 0;
@@ -78,11 +78,10 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 			usize document = 0;
 			while (document < job.documents.size()) {
 				rt::string key;
-				if (!LanguageUri::key(current, @key)) {
-					return rt::unique<LanguageIndex>();
-				};
+				LanguageUri::key(current, @key);
 				if (job.documents.data()[document].key.view() == key.view() && !assigned.find(job.documents.data()[document].key.view())) {
-					@assigned.insert(job.documents.data()[document].key.view(), true);
+					bool inserted = @assigned.insert(job.documents.data()[document].key.view(), true);
+					discard $inserted;
 				};
 				@document = document + 1;
 			};
@@ -95,8 +94,8 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 	@loose.kind = language_group_kind::loose;
 	usize document = 0;
 	while (document < job.documents.size()) {
-		if (!assigned.find(job.documents.data()[document].key.view()) && !@loose.paths.push_back(rt::string(job.documents.data()[document].path))) {
-			return rt::unique<LanguageIndex>();
+		if (!assigned.find(job.documents.data()[document].key.view())) {
+			@loose.paths.push_back(rt::string(job.documents.data()[document].path));
 		};
 		@document = document + 1;
 	};
@@ -107,31 +106,27 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 			if (standard.kind == language_group_kind::standard) {
 				usize path = 0;
 				while (path < standard.paths.size()) {
-					if (!@loose.paths.push_back(rt::string(standard.paths.data()[path]))) {
-						return rt::unique<LanguageIndex>();
-					};
+					@loose.paths.push_back(rt::string(standard.paths.data()[path]));
 					@path = path + 1;
 				};
 			};
 			@group = group + 1;
 		};
-		if (!@this.analyze_group(@loose, @job, @*index.get())) {
+		if (!(@this.analyze_group(@loose, @job, @*index.get())).has<void>()) {
 			return rt::unique<LanguageIndex>();
 		};
 	};
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 4);
-	if (!@index.get()->finish()) {
-		return rt::unique<LanguageIndex>();
-	};
+	@index.get()->finish();
 	@index.get()->build_nanoseconds = runtime_clock_nanoseconds() - started;
 	return $index;
 };
 
-fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> bool {
+fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> CompilationResult {
 	var analysis = rt::unique<Analysis>::make();
 	if (!analysis.get()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 	if (group.kind == language_group_kind::test_target) {
 		@analysis.get()->enable_tests();
@@ -141,11 +136,14 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	@cancellation.stopped = this.stopped;
 	@cancellation.expected = job.generation;
 	rt::string key;
-	if (
-		LanguageWorkspace::cancelled(&@cancellation)
-		|| group.kind != language_group_kind::analysis && (!LanguageWorkspace::target_key(job.root.view(), group, @key) || !@this.compiler->expect_target(key.view(), u64(job.generation)))
-	) {
-		return false;
+	if (LanguageWorkspace::cancelled(&@cancellation)) {
+		return CompilationResult(compilation_error());
+	};
+	if (group.kind != language_group_kind::analysis) {
+		LanguageWorkspace::target_key(job.root.view(), group, @key);
+		if (!(@this.compiler->expect_target(key.view(), u64(job.generation))).has<void>()) {
+			return CompilationResult(compilation_error());
+		};
 	};
 
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
@@ -153,48 +151,45 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	usize source = 0;
 	while (source < group.paths.size()) {
 		if (LanguageWorkspace::cancelled(&@cancellation)) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		rt::string& path = group.paths.data()[source];
 		i32 imported = kiln_project_source_load(path.c_str(), &language_load_interface_source, analysis.get());
 		if (imported >= 0) {
 			if (!imported) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 			@source = source + 1;
 			continue;
 		};
 		rt::string key;
-		if (!LanguageUri::key(path.view(), @key)) {
-			return false;
-		};
+		LanguageUri::key(path.view(), @key);
 		usize document = 0;
 		while (document < job.documents.size() && job.documents.data()[document].key.view() != key.view()) {
 			@document = document + 1;
 		};
 		if (document < job.documents.size()) {
-			if (!@analysis.get()->add_source(path.view(), job.documents.data()[document].text.view())) {
-				return false;
-			};
+			@analysis.get()->add_source(path.view(), job.documents.data()[document].text.view());
 		}
-		else if (!@analysis.get()->load_source(path.view(), &platform_open_utf8_file)) {
+		else if (!(@analysis.get()->load_source(path.view(), &platform_open_utf8_file)).has<void>()) {
 			usize diagnostic = 0;
 			while (diagnostic < analysis.get()->diagnostics().records().size()) {
 				if (LanguageWorkspace::cancelled(&@cancellation)) {
-					return false;
+					return CompilationResult(compilation_error());
 				};
 				DiagnosticRecord& record = analysis.get()->diagnostics().records().data()[diagnostic];
 				var parameters = rt::json_value::make_object();
-				if (!parameters.get() || !@parameters.get()->set("type", rt::json_value::make_unsigned(1)) || !@parameters.get()->set("message", rt::json_value::make_string(record.message.view())) || !@this.notify("window/logMessage", $parameters)) {
-					return false;
+				if (!parameters.get()) {
+					return CompilationResult(compilation_error());
 				};
+				@parameters.get()->set("type", rt::json_value::make_unsigned(1));
+				@parameters.get()->set("message", rt::json_value::make_string(record.message.view()));
+				@this.notify("window/logMessage", $parameters);
 				@diagnostic = diagnostic + 1;
 			};
-			return false;
+			return CompilationResult(compilation_error());
 		};
-		if (!@analysis.get()->set_source_module(analysis.get()->source_count() - 1, group.name.view(), 0)) {
-			return false;
-		};
+		@analysis.get()->set_source_module(analysis.get()->source_count() - 1, group.name.view(), 0);
 		@source = source + 1;
 	};
 
@@ -224,9 +219,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 				usize current = 0;
 				while (current < group.paths.size()) {
 					rt::string source_key;
-					if (!LanguageUri::key(group.paths.data()[current].view(), @source_key)) {
-						return false;
-					};
+					LanguageUri::key(group.paths.data()[current].view(), @source_key);
 					if (source_key.view() == candidate.key.view()) {
 						@reusable = false;
 						break;
@@ -244,7 +237,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	runtime_atomic_store(this.phase_started, runtime_clock_nanoseconds());
 	runtime_atomic_store(this.analysis_phase, 2);
 	if (!reusable) {
-		@analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
+		discard @analysis.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
 	};
 	var contextual = rt::unique<Analysis>();
 	LanguageTemplateResult context_result;
@@ -258,9 +251,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		usize original = 0;
 		while (original < analysis.get()->source_count()) {
 			rt::string source_key;
-			if (!LanguageUri::key(analysis.get()->source_path(original), @source_key)) {
-				return false;
-			};
+			LanguageUri::key(analysis.get()->source_path(original), @source_key);
 			if (source_key.view() == document.key.view()) {
 				break;
 			};
@@ -275,18 +266,16 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@context_result.arguments = rt::string(document.template_arguments);
 		@contextual = rt::unique<Analysis>::make();
 		if (!contextual.get()) {
-			return false;
+			return CompilationResult(compilation_error());
 		};
 		usize source = 0;
 		while (source < analysis.get()->source_count()) {
-			if (!@contextual.get()->add_source(analysis.get()->source_path(source), analysis.get()->source_text(source))) {
-				return false;
-			};
+			@contextual.get()->add_source(analysis.get()->source_path(source), analysis.get()->source_text(source));
 			@source = source + 1;
 		};
-		if (!@contextual.get()->request_template_context(analysis.get()->source_path(original), document.template_anchor.value(), document.template_arguments.view()) || !@contextual.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation)) {
-			return false;
-		};
+		@contextual.get()->request_template_context(analysis.get()->source_path(original), document.template_anchor.value(), document.template_arguments.view());
+		// Expected diagnostics remain in the contextual analysis for publication.
+		discard @contextual.get()->analyze_editor(64, &LanguageWorkspace::cancelled, &@cancellation);
 		if (contextual.get()->diagnostics().failed()) {
 			rt::buffer<DiagnosticRecord>& errors = contextual.get()->diagnostics().records();
 			usize error = 0;
@@ -313,52 +302,49 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	if (contextual.get()) {
 		@indexed = contextual.get();
 	};
-	if (LanguageWorkspace::cancelled(&@cancellation) || !@index.append(*indexed, job)) {
-		return false;
+	if (LanguageWorkspace::cancelled(&@cancellation)) {
+		return CompilationResult(compilation_error());
 	};
-	if (!context_result.key.empty() && !@index.template_results.push_back($context_result)) {
-		return false;
+	@index.append(*indexed, job);
+	if (!context_result.key.empty()) {
+		@index.template_results.push_back($context_result);
 	};
 	if (group.kind == language_group_kind::analysis) {
-		return true;
+		return CompilationResult();
 	};
-	if (!@index.targets.push_back(rt::string(key))) {
-		return false;
-	};
-	analysis_publication publication = analysis_publication::unavailable;
+	@index.targets.push_back(rt::string(key));
+	analysis_publication publication = analysis_publication::obsolete;
 	if (reusable) {
 		@publication = @this.compiler->publish_target_alias(key.view(), u64(job.generation), @*build_analysis);
 	}
 	else {
 		@publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
 	};
-	return publication == analysis_publication::published && !LanguageWorkspace::cancelled(&@cancellation);
+	if (publication == analysis_publication::published && !LanguageWorkspace::cancelled(&@cancellation)) {
+		return CompilationResult();
+	};
+	return CompilationResult(compilation_error());
 };
 
-fn LanguageWorkspace::target_key(rt::string_view root, LanguageGroup& group, var rt::string& key) -> bool {
+fn LanguageWorkspace::target_key(rt::string_view root, LanguageGroup& group, var rt::string& key) {
 	rt::string result;
-	if (!LanguageUri::key(root, @result)) {
-		return false;
-	};
+	LanguageUri::key(root, @result);
 	if (group.kind == language_group_kind::loose) {
-		if (!@result.append("::editor::loose")) {
-			return false;
-		};
+		@result.append("::editor::loose");
 	}
-	else if (!@result.append("::target::") || !@result.append(group.name.view())) {
-		return false;
+	else {
+		@result.append("::target::");
+		@result.append(group.name.view());
 	};
 	@key = $result;
-	return true;
+	return;
 };
 
 fn LanguageIndex::source(var LanguageIndex& this, Analysis& analysis, usize number, LanguageJob& job) -> usize {
 	var path = analysis.source_path(usize(number));
 	rt::string key;
-	if (!LanguageUri::key(path, @key)) {
-		return usize::max;
-	};
-	var previous = this.source_ids.find(key.view());
+	LanguageUri::key(path, @key);
+	var previous = this.source_ids.find(key);
 	if (previous) {
 		return *previous;
 	};
@@ -366,23 +352,26 @@ fn LanguageIndex::source(var LanguageIndex& this, Analysis& analysis, usize numb
 	LanguageIndexedSource source;
 	@source.key = $key;
 	@source.diagnostics = rt::json_value::make_array();
-	if (!source.diagnostics.get() || !LanguageUri::encode(path, @source.uri) || !@source.text.assign(analysis.source_text(usize(number)))) {
-		return usize::max;
+	if (!source.diagnostics.get()) {
+		compiler_panic("language source index invariant failed");
 	};
+	LanguageUri::encode(path, @source.uri);
+	@source.text.assign(analysis.source_text(usize(number)));
 	usize document = 0;
 	while (document < job.documents.size()) {
 		if (job.documents.data()[document].key.view() == source.key.view()) {
 			@source.uri = rt::string(job.documents.data()[document].uri);
-			@source.version.emplace(i64(job.documents.data()[document].version));
+			@source.version = rt::optional<i64>(i64(job.documents.data()[document].version));
 			@source.revision = job.documents.data()[document].revision;
 			break;
 		};
 		@document = document + 1;
 	};
 	usize result = this.sources.size();
-	if (!@this.source_ids.insert(source.key.view(), usize(result)) || !@this.sources.push_back($source)) {
-		return usize::max;
+	if (!@this.source_ids.insert(rt::string(source.key), usize(result))) {
+		compiler_panic("language source index invariant failed");
 	};
+	@this.sources.push_back($source);
 	return $result;
 };
 
@@ -399,21 +388,21 @@ fn LanguageIndex::identity(LanguageIndex& this, u64 id) -> u64 {
 	return $id;
 };
 
-fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJob& job) -> bool {
+fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJob& job) {
 	@this.semantic_failed = this.semantic_failed || analysis.diagnostics().failed();
 	rt::buffer<usize> mapping;
 	usize source = 0;
 	while (source < analysis.source_count()) {
 		usize target = @this.source(analysis, usize(source), job);
-		if (target == usize::max || !@this.classify_source(analysis, usize(source), usize(target)) || !@mapping.push_back($target)) {
-			return false;
+		if (target == usize::max) {
+			compiler_panic("language server append invariant failed");
 		};
+		@this.classify_source(analysis, usize(source), usize(target));
+		@mapping.push_back($target);
 		@source = source + 1;
 	};
 
-	if (!@this.append_templates(analysis, mapping)) {
-		return false;
-	};
+	@this.append_templates(analysis, mapping);
 
 	u64 maximum = 0;
 	usize number = 0;
@@ -442,23 +431,23 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		if (input->definition.source < mapping.size()) {
 			@symbol.value.definition.source = mapping.data()[input->definition.source];
 		};
-		if (!@symbol.name.append(input->name) || !@symbol.detail.append(input->detail)) {
-			return false;
-		};
+		@symbol.name.append(input->name);
+		@symbol.detail.append(input->detail);
 		usize parameter = 0;
 		while (parameter < analysis.navigation().parameter_count(input->id)) {
 			NavigationParameter* input_parameter = analysis.navigation().parameter_at(input->id, parameter);
 			LanguageIndexedParameter copy;
-			if (!@copy.name.append(input_parameter->name) || !@copy.detail.append(input_parameter->detail) || !@symbol.parameters.push_back($copy)) {
-				return false;
-			};
+			@copy.name.append(input_parameter->name);
+			@copy.detail.append(input_parameter->detail);
+			@symbol.parameters.push_back($copy);
 			@parameter = parameter + 1;
 		};
 		@symbol.value.name = symbol.name.view();
 		@symbol.value.detail = symbol.detail.view();
-		if (!@this.symbol_ids.insert(u64(symbol.value.id), this.symbols.size()) || !@this.symbols.push_back($symbol)) {
-			return false;
+		if (!@this.symbol_ids.insert(u64(symbol.value.id), this.symbols.size())) {
+			compiler_panic("language server append invariant failed");
 		};
+		@this.symbols.push_back($symbol);
 		@number = number + 1;
 	};
 
@@ -472,9 +461,7 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 			if (input->context) {
 				@occurrence.context = input->context + this.symbol_base;
 			};
-			if (!@this.occurrences.push_back($occurrence)) {
-				return false;
-			};
+			@this.occurrences.push_back($occurrence);
 		};
 		@number = number + 1;
 	};
@@ -497,11 +484,9 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 			@copy.range.source = mapping.data()[copy.range.source];
 		};
 		if (!this.scope_ids.find(copy.id) && !@this.scope_ids.insert(u64(copy.id), this.scopes.size())) {
-			return false;
+			compiler_panic("language server append invariant failed");
 		};
-		if (!@this.scopes.push_back($copy)) {
-			return false;
-		};
+		@this.scopes.push_back($copy);
 		@number = number + 1;
 	};
 	@number = 0;
@@ -513,14 +498,16 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		if (!this.scope_members.find(copy.scope)) {
 			rt::buffer<usize> members;
 			if (!@this.scope_members.insert(u64(copy.scope), $members)) {
-				return false;
+				compiler_panic("language server append invariant failed");
 			};
 		};
 		var members = @this.scope_members.find(copy.scope);
 		var symbol = this.symbol_ids.find(copy.symbol);
-		if (!symbol || !@members->push_back(usize(*symbol)) || !@this.scope_bindings.push_back($copy)) {
-			return false;
+		if (!symbol) {
+			compiler_panic("language server append invariant failed");
 		};
+		@members->push_back(usize(*symbol));
+		@this.scope_bindings.push_back($copy);
 		@number = number + 1;
 	};
 	@number = 0;
@@ -537,9 +524,7 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		@copy.bound_receiver = bool(input->bound_receiver);
 		usize candidate = 0;
 		while (candidate < input->candidates.size()) {
-			if (!@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base)) {
-				return false;
-			};
+			@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base);
 			@candidate = candidate + 1;
 		};
 		@copy.range = SourceRange(input->range);
@@ -556,14 +541,10 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 			if (range.source < mapping.size()) {
 				@range.source = mapping.data()[range.source];
 			};
-			if (!@copy.arguments.push_back($range)) {
-				return false;
-			};
+			@copy.arguments.push_back($range);
 			@argument = argument + 1;
 		};
-		if (!@this.calls.push_back($copy)) {
-			return false;
-		};
+		@this.calls.push_back($copy);
 		@number = number + 1;
 	};
 	@number = 0;
@@ -588,19 +569,13 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		};
 		usize candidate = 0;
 		while (candidate < input->candidates.size()) {
-			if (!@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base)) {
-				return false;
-			};
+			@copy.candidates.push_back(input->candidates.data()[candidate] + this.symbol_base);
 			@candidate = candidate + 1;
 		};
-		if (!@this.receivers.push_back($copy)) {
-			return false;
-		};
+		@this.receivers.push_back($copy);
 		@number = number + 1;
 	};
-	if (!@this.classify_bindings(analysis, mapping)) {
-		return false;
-	};
+	@this.classify_bindings(analysis, mapping);
 	@this.scope_base = this.scope_base + maximum_scope + 1;
 	@this.symbol_base = this.symbol_base + maximum + 1;
 
@@ -611,9 +586,13 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		if (range.source < mapping.size()) {
 			var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
 			var diagnostic = rt::json_value::make_object();
-			if (!diagnostic.get() || !@diagnostic.get()->set("range", LanguageJson::range(source.text, usize(range.begin), usize(range.end))) || !@diagnostic.get()->set("severity", rt::json_value::make_unsigned(1)) || !@diagnostic.get()->set("source", rt::json_value::make_string("rutile")) || !@diagnostic.get()->set("message", rt::json_value::make_string(record.message.view()))) {
-				return false;
+			if (!diagnostic.get()) {
+				compiler_panic("language server append invariant failed");
 			};
+			@diagnostic.get()->set("range", LanguageJson::range(source.text, usize(range.begin), usize(range.end)));
+			@diagnostic.get()->set("severity", rt::json_value::make_unsigned(1));
+			@diagnostic.get()->set("source", rt::json_value::make_string("rutile"));
+			@diagnostic.get()->set("message", rt::json_value::make_string(record.message.view()));
 			var related = rt::json_value::make_array();
 			usize note = 0;
 			while (related.get() && note < record.notes.size()) {
@@ -622,22 +601,29 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 					LanguageIndexedSource& target = this.sources.data()[mapping.data()[note_range.source]];
 					var location = rt::json_value::make_object();
 					var information = rt::json_value::make_object();
-					if (!location.get() || !information.get() || !@location.get()->set("uri", rt::json_value::make_string(target.uri.view())) || !@location.get()->set("range", LanguageJson::range(target.text, usize(note_range.begin), usize(note_range.end)))) {
-						return false;
+					if (!location.get()) {
+						compiler_panic("language server append invariant failed");
 					};
-					if (!@information.get()->set("location", $location) || !@information.get()->set("message", rt::json_value::make_string(record.notes.data()[note].message.view())) || !@related.get()->append($information)) {
-						return false;
+					if (!information.get()) {
+						compiler_panic("language server append invariant failed");
 					};
+					@location.get()->set("uri", rt::json_value::make_string(target.uri.view()));
+					@location.get()->set("range", LanguageJson::range(target.text, usize(note_range.begin), usize(note_range.end)));
+					@information.get()->set("location", $location);
+					@information.get()->set("message", rt::json_value::make_string(record.notes.data()[note].message.view()));
+					@related.get()->append($information);
 				};
 				@note = note + 1;
 			};
-			if (!related.get() || !@diagnostic.get()->set("relatedInformation", $related) || !@source.diagnostics.get()->append($diagnostic)) {
-				return false;
+			if (!related.get()) {
+				compiler_panic("language server append invariant failed");
 			};
+			@diagnostic.get()->set("relatedInformation", $related);
+			@source.diagnostics.get()->append($diagnostic);
 		};
 		@number = number + 1;
 	};
-	return true;
+	return;
 };
 
 fn LanguageIndex::before(NavigationOccurrence& first, NavigationOccurrence& second) -> bool {
@@ -650,14 +636,12 @@ fn LanguageIndex::before(NavigationOccurrence& first, NavigationOccurrence& seco
 	return first.range.end < second.range.end;
 };
 
-fn LanguageIndex::finish(var LanguageIndex& this) -> bool {
+fn LanguageIndex::finish(var LanguageIndex& this) {
 	rt::buffer<NavigationOccurrence> scratch;
 	usize size = this.occurrences.size();
 	usize index = 0;
 	while (index < size) {
-		if (!@scratch.push_back(NavigationOccurrence())) {
-			return false;
-		};
+		@scratch.push_back(NavigationOccurrence());
 		@index = index + 1;
 	};
 	usize width = 1;
@@ -706,13 +690,14 @@ fn LanguageIndex::finish(var LanguageIndex& this) -> bool {
 		if (!list) {
 			rt::buffer<usize> positions;
 			if (!@this.references.insert(u64(symbol), $positions)) {
-				return false;
+				compiler_panic("language server finish invariant failed");
 			};
 			@list = @this.references.find(symbol);
 		};
-		if (!list || !@list->push_back(usize(index))) {
-			return false;
+		if (!list) {
+			compiler_panic("language server finish invariant failed");
 		};
+		@list->push_back(usize(index));
 		@index = index + 1;
 	};
 
@@ -721,16 +706,19 @@ fn LanguageIndex::finish(var LanguageIndex& this) -> bool {
 	while (this.diagnostics.get() && index < this.sources.size()) {
 		LanguageIndexedSource& source = this.sources.data()[index];
 		var parameters = rt::json_value::make_object();
-		if (!parameters.get() || !@parameters.get()->set("uri", rt::json_value::make_string(source.uri.view())) || !@parameters.get()->set("diagnostics", source.diagnostics.get()->clone())) {
-			return false;
+		if (!parameters.get()) {
+			compiler_panic("language server finish invariant failed");
 		};
-		if (source.version.has_value() && !@parameters.get()->set("version", rt::json_value::make_integer(i64(source.version.value())))) {
-			return false;
+		@parameters.get()->set("uri", rt::json_value::make_string(source.uri.view()));
+		@parameters.get()->set("diagnostics", source.diagnostics.get()->clone());
+		if (source.version.has_value()) {
+			@parameters.get()->set("version", rt::json_value::make_integer(i64(source.version.value())));
 		};
-		if (!@this.diagnostics.get()->append($parameters)) {
-			return false;
-		};
+		@this.diagnostics.get()->append($parameters);
 		@index = index + 1;
 	};
-	return this.diagnostics.get() != nullptr;
+	if (!this.diagnostics.get()) {
+		compiler_panic("language index diagnostics container is unavailable");
+	};
+	return;
 };

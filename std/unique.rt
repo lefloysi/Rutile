@@ -62,6 +62,12 @@ namespace rt {
 
 	template<typename T, typename D>
 	export fn unique<T, D>::make() -> unique {
-		return unique(new var T());
+		var pointer = new var T();
+		if (!pointer) {
+			allocation_error error;
+			@error.requested_bytes = sizeof(T);
+			throw $error;
+		};
+		return unique($pointer);
 	};
 };

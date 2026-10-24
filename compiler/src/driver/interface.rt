@@ -2,9 +2,25 @@ fn fopen(char* path, char* mode) -> var NativeFile*;
 
 fn platform_standard_error() -> var NativeFile*;
 
+fn report_compiler_internal_error(compiler_internal_error& error, var NativeFile* output) {
+	if (!output) {
+		@output = platform_standard_error();
+	};
+	discard fprintf(output, "internal compiler error: %s\n\0".data(), error.message.c_str());
+};
+
 fn "C" rutile_compiler_create() -> var Compiler* {
-	var compiler = rt::unique<Compiler>::make();
-	return @compiler.release();
+	try {
+		var compiler = rt::unique<Compiler>::make();
+		return @compiler.release();
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, nullptr);
+		return nullptr;
+	}
+	catch (rt::allocation_error& error) {
+		return nullptr;
+	};
 };
 
 fn "C" rutile_compiler_destroy(var Compiler* compiler) {
@@ -12,45 +28,62 @@ fn "C" rutile_compiler_destroy(var Compiler* compiler) {
 };
 
 fn "C" rutile_compiler_session(((var Compiler*, var void*) -> i32)* callback, var void* data) -> i32 {
-	var compiler = rt::unique<Compiler>::make();
+	try {
+		var compiler = rt::unique<Compiler>::make();
 
-	if (!compiler.get()) {
-		return 1;
+
+		return callback(compiler.get(), $data);
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, nullptr);
+		return 3;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
 	};
-
-	return callback(compiler.get(), $data);
 };
 
 fn "C" rutile_compile(var Compiler* compiler, var char var** paths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics) -> i32 {
-	if (!compiler) {
-		return 1;
-	};
-
-	if (!opener) {
-		@opener = &fopen;
-	};
-
-	if (!diagnostics) {
-		@diagnostics = platform_standard_error();
-	};
-
-	rt::buffer<rt::string_view> source_paths;
-	usize index = 0;
-
-	while (paths && index < count) {
-		if (!@source_paths.push_back(rt::from_c_string(paths[index]))) {
+	try {
+		if (!compiler) {
 			return 1;
 		};
-		@index = index + 1;
+
+		if (!opener) {
+			@opener = &fopen;
+		};
+
+		if (!diagnostics) {
+			@diagnostics = platform_standard_error();
+		};
+
+		rt::buffer<rt::string_view> source_paths;
+		usize index = 0;
+
+		while (paths && index < count) {
+			@source_paths.push_back(rt::from_c_string(paths[index]));
+			@index = index + 1;
+		};
+
+		rt::string_view entry_name = "main";
+
+		if (entry) {
+			@entry_name = rt::from_c_string(entry);
+		};
+
+		var result = @compiler->compile(source_paths, rt::from_c_string(output_path), $opener, entry_name, $optimization, diagnostics, output_kind::executable);
+		if (result.has<void>()) {
+			return 0;
+		};
+		return 1;
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, diagnostics);
+		return 3;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
 	};
-
-	rt::string_view entry_name = "main";
-
-	if (entry) {
-		@entry_name = rt::from_c_string(entry);
-	};
-
-	return @compiler->compile(source_paths, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, output_kind::executable);
 };
 
 fn "C" rutile_compile_library(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics) -> i32 {
@@ -58,28 +91,39 @@ fn "C" rutile_compile_library(var char var** paths, usize count, var char* outpu
 };
 
 fn "C" rutile_compile_library_progress(var char var** paths, usize count, var char* output_path, FileOpener opener, i32 optimization, var NativeFile* diagnostics, ProgressCallback callback, var void* context) -> i32 {
-	Compiler compiler;
-	rutile_compiler_set_progress(&@compiler, $callback, $context);
+	try {
+		Compiler compiler;
+		rutile_compiler_set_progress(&@compiler, $callback, $context);
 
-	if (!opener) {
-		@opener = &fopen;
-	};
-
-	if (!diagnostics) {
-		@diagnostics = platform_standard_error();
-	};
-
-	rt::buffer<rt::string_view> source_paths;
-	usize index = 0;
-
-	while (paths && index < count) {
-		if (!@source_paths.push_back(rt::from_c_string(paths[index]))) {
-			return 1;
+		if (!opener) {
+			@opener = &fopen;
 		};
-		@index = index + 1;
-	};
 
-	return @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, $diagnostics, output_kind::library);
+		if (!diagnostics) {
+			@diagnostics = platform_standard_error();
+		};
+
+		rt::buffer<rt::string_view> source_paths;
+		usize index = 0;
+
+		while (paths && index < count) {
+			@source_paths.push_back(rt::from_c_string(paths[index]));
+			@index = index + 1;
+		};
+
+		var result = @compiler.compile(source_paths, rt::from_c_string(output_path), $opener, "main", $optimization, diagnostics, output_kind::library);
+		if (result.has<void>()) {
+			return 0;
+		};
+		return 1;
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, diagnostics);
+		return 3;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
+	};
 };
 
 fn "C" rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback callback, var void* context) {
@@ -93,39 +137,51 @@ fn "C" rutile_compiler_set_progress(var Compiler* compiler, ProgressCallback cal
 };
 
 fn "C" rutile_compile_sources(var Compiler* compiler, var char var** paths, var char var** texts, usize* lengths, usize count, var char* output_path, FileOpener opener, var char* entry, i32 optimization, var NativeFile* diagnostics, i32 library) -> i32 {
-	if (!compiler || !paths || !texts || !lengths || !count) {
+	try {
+		if (!compiler || !paths || !texts || !lengths || !count) {
+			return 1;
+		};
+		if (!opener) {
+			@opener = &fopen;
+		};
+		if (!diagnostics) {
+			@diagnostics = platform_standard_error();
+		};
+		rt::buffer<rt::string_view> source_paths;
+		rt::buffer<rt::string_view> source_texts;
+		usize index = 0;
+		while (index < count) {
+			if (!paths[index] || (!texts[index] && lengths[index])) {
+				return 1;
+			};
+			@source_paths.push_back(rt::from_c_string(paths[index]));
+			@source_texts.push_back(rt::string_view(texts[index], lengths[index]));
+			@index = index + 1;
+		};
+		rt::string_view entry_name = "main";
+		if (entry) {
+			@entry_name = rt::from_c_string(entry);
+		};
+		output_kind kind = output_kind::executable;
+		if (library == 1) {
+			@kind = output_kind::library;
+		};
+		if (library == 2) {
+			@kind = output_kind::tests;
+		};
+		var result = @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, diagnostics, $kind);
+		if (result.has<void>()) {
+			return 0;
+		};
 		return 1;
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, diagnostics);
+		return 3;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
 	};
-	if (!opener) {
-		@opener = &fopen;
-	};
-	if (!diagnostics) {
-		@diagnostics = platform_standard_error();
-	};
-	rt::buffer<rt::string_view> source_paths;
-	rt::buffer<rt::string_view> source_texts;
-	usize index = 0;
-	while (index < count) {
-		if (!paths[index] || (!texts[index] && lengths[index])) {
-			return 1;
-		};
-		if (!@source_paths.push_back(rt::from_c_string(paths[index])) || !@source_texts.push_back(rt::string_view(texts[index], lengths[index]))) {
-			return 1;
-		};
-		@index = index + 1;
-	};
-	rt::string_view entry_name = "main";
-	if (entry) {
-		@entry_name = rt::from_c_string(entry);
-	};
-	output_kind kind = output_kind::executable;
-	if (library == 1) {
-		@kind = output_kind::library;
-	};
-	if (library == 2) {
-		@kind = output_kind::tests;
-	};
-	return @compiler->compile_sources(source_paths, source_texts, rt::from_c_string(output_path), $opener, entry_name, $optimization, $diagnostics, $kind);
 };
 
 fn "C" rutile_compiler_clear_modules(var Compiler* compiler) {
@@ -135,11 +191,18 @@ fn "C" rutile_compiler_clear_modules(var Compiler* compiler) {
 };
 
 fn "C" rutile_compiler_add_module_source(var Compiler* compiler, char* path, char* name, i32 access) -> i32 {
-	if (!compiler || !path || !name) {
-		return 1;
+	try {
+		if (!compiler || !path || !name) {
+			return 1;
+		};
+		@compiler->add_module_source(rt::from_c_string(path), rt::from_c_string(name), $access);
+		return 0;
+	}
+	catch (compiler_internal_error& error) {
+		report_compiler_internal_error(error, nullptr);
+		return 3;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
 	};
-	if (!@compiler->add_module_source(rt::from_c_string(path), rt::from_c_string(name), $access)) {
-		return 1;
-	};
-	return 0;
 };

@@ -1,9 +1,12 @@
 fn SemanticUnit::retain_use(var SemanticUnit& this, rt::unique<TypeUse> use) -> TypeUse* {
 	TypeUse* borrowed = use.get();
 
-	if (!borrowed || !@this.type_uses.push_back(rt::unique<TypeUse>(@use.release()))) {
-		return nullptr;
+	if (!borrowed) {
+		rt::allocation_error error;
+		@error.requested_bytes = sizeof(TypeUse);
+		throw $error;
 	};
+	@this.type_uses.push_back(rt::unique<TypeUse>(@use.release()));
 
 	return $borrowed;
 };
@@ -49,9 +52,12 @@ fn SemanticUnit::function_use(var SemanticUnit& this, Type& type, rt::buffer<Par
 	var function = rt::unique<FunctionUse>(new var FunctionUse($parameters, result));
 	var FunctionUse* borrowed = function.get();
 
-	if (!borrowed || !@this.function_uses.push_back(rt::unique<FunctionUse>(@function.release()))) {
-		return nullptr;
+	if (!borrowed) {
+		rt::allocation_error error;
+		@error.requested_bytes = sizeof(FunctionUse);
+		throw $error;
 	};
+	@this.function_uses.push_back(rt::unique<FunctionUse>(@function.release()));
 
 	return @this.retain_use(rt::unique<TypeUse>(new var TypeUse(type, *borrowed)));
 };

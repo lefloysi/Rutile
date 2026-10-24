@@ -13,7 +13,7 @@ struct VariantFlowFacts {
 	fn operator:=(var VariantFlowFacts& this, VariantFlowFacts& other) -> var VariantFlowFacts& : [default];
 
 	fn known(VariantFlowFacts& this, Entity& binding) -> Type*;
-	fn establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative) -> bool;
+	fn establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative);
 	fn invalidate(var VariantFlowFacts& this, Entity& binding);
 	fn clear(var VariantFlowFacts& this);
 	fn intersect(var VariantFlowFacts& this, VariantFlowFacts& other);
@@ -34,23 +34,24 @@ fn VariantFlowFacts::known(VariantFlowFacts& this, Entity& binding) -> Type* {
 	return nullptr;
 };
 
-fn VariantFlowFacts::establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative) -> bool {
+fn VariantFlowFacts::establish(var VariantFlowFacts& this, var Entity& binding, Type* alternative) {
 	usize index = 0;
 	while (index < this.entries.size()) {
 		var VariantFlowFact& entry = @((@this.entries).data()[index]);
 		if (entry.binding == &binding) {
 			@entry.alternative = alternative;
-			return true;
+			return;
 		};
 		@index = index + 1;
 	};
 	if (!alternative) {
-		return true;
+		return;
 	};
 	var entry = VariantFlowFact();
 	@entry.binding = &@binding;
 	@entry.alternative = alternative;
-	return @this.entries.push_back($entry);
+	@this.entries.push_back($entry);
+	return;
 };
 
 fn VariantFlowFacts::invalidate(var VariantFlowFacts& this, Entity& binding) {
@@ -183,17 +184,18 @@ fn variant_flow_condition(var VariantFlowFacts& facts, SemanticExpression& condi
 			@alternative = second;
 		};
 	};
-	return @facts.establish(@*binding, alternative);
+	@facts.establish(@*binding, alternative);
+	return true;
 };
 
 fn variant_flow_extract(var Analyzer& analyzer, var Syntax& syntax, rt::unique<SemanticExpression> value, Type* known) -> rt::unique<SemanticExpression> {
 	if (known->kind() == type_kind::null_type) {
 		Type* null_type = @analyzer.type_store()->pointer(@analyzer.type_store()->qualified(*known, type_qualifier::immutable));
 		Token location = syntax.token();
-		var result = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::sequence, null_type, location));
-		var null_value = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::null_pointer, null_type, location));
-		var noop = rt::unique<SemanticExpression>(new var SemanticExpression(semantic_kind::noop, analyzer.type_store()->find_primitive("void"), location));
-		if (!result.get() || !null_value.get() || !noop.get() || !@result.get()->append($value) || !@result.get()->append($noop) || !@result.get()->append($null_value)) {
+		var result = SemanticExpression::make(semantic_kind::sequence, null_type, location);
+		var null_value = SemanticExpression::make(semantic_kind::null_pointer, null_type, location);
+		var noop = SemanticExpression::make(semantic_kind::noop, analyzer.type_store()->find_primitive("void"), location);
+		if (!result.get() || !null_value.get() || !noop.get() || !(@result.get()->append($value)).has<void>() || !(@result.get()->append($noop)).has<void>() || !(@result.get()->append($null_value)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 		return $result;

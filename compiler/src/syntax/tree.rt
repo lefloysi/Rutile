@@ -96,10 +96,10 @@ struct Syntax {
 
 	fn operator=(var Syntax& this, Syntax& other) -> var Syntax& : [delete];
 	fn operator=(var Syntax& this, Syntax other) -> var Syntax& : [default];
-	fn append(var Syntax& this, rt::unique<Syntax> child) -> bool;
+	fn append(var Syntax& this, rt::unique<Syntax> child) -> CompilationResult;
 
 	fn declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>&;
-	fn add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute) -> bool;
+	fn add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute);
 	fn same_declaration_metadata(Syntax& this, Syntax& other) -> bool;
 	fn take_declaration_attribute(var Syntax& this, usize index) -> rt::unique<Syntax>;
 	fn exported(Syntax& this) -> bool;
@@ -133,8 +133,9 @@ fn Syntax::declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>
 	return this.metadata;
 };
 
-fn Syntax::add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute) -> bool {
-	return @this.metadata.push_back($attribute);
+fn Syntax::add_declaration_attribute(var Syntax& this, rt::unique<Syntax> attribute) {
+	@this.metadata.push_back($attribute);
+	return;
 };
 
 fn Syntax::same_declaration_metadata(Syntax& this, Syntax& other) -> bool {
@@ -198,12 +199,16 @@ fn Syntax::item(Syntax& this, usize index) -> var Syntax* {
 	return this.children.data()[index].get();
 };
 
-fn Syntax::append(var Syntax& this, rt::unique<Syntax> child) -> bool {
-	if (!child.get() || this.children.size() >= this.fixed_arity()) {
-		return false;
+fn Syntax::append(var Syntax& this, rt::unique<Syntax> child) -> CompilationResult {
+	if (!child.get()) {
+		return CompilationResult(compilation_error());
+	};
+	if (this.children.size() >= this.fixed_arity()) {
+		compiler_panic("syntax children exceed the fixed syntax shape");
 	};
 
-	return @this.children.push_back($child);
+	@this.children.push_back($child);
+	return CompilationResult();
 };
 
 fn Syntax::operand(Syntax& this) -> var Syntax* {

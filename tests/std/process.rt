@@ -1,32 +1,36 @@
 [[test]]
 fn processes_capture_standard_output() {
 	var command = rt::sys::Command(rt::environment("ComSpec"));
-	rt::test::expect(@command.argument("/c"));
-	rt::test::expect(@command.argument("echo rutile-process-output"));
-	var result = rt::sys::cmd(command);
-	rt::test::expect(result.state == rt::sys::status::completed);
+	@command.argument("/c");
+	@command.argument("echo rutile-process-output");
+	rt::sys::Result result = rt::sys::cmd(command);
 	rt::test::expect(!result.exit_code);
 	rt::test::expect(result.output.trim() == "rutile-process-output");
 	rt::test::expect(result.error.empty());
+	var environment = @command.environment("", "value");
+	rt::test::expect(environment.has<rt::sys::invalid_environment_error>());
+	var oversized_argument = @command.argument(rt::string_view("x".data(), usize::max));
+	rt::test::expect(oversized_argument.has<rt::allocation_error>());
 };
 
 [[test]]
 fn process_launch_failures_are_distinct_from_exit_codes() {
 	var command = rt::sys::Command("this-executable-does-not-exist-rutile-test.exe");
 	var result = rt::sys::cmd(command);
-	rt::test::expect(result.state == rt::sys::status::launch_failed);
+	rt::test::expect(result.has<rt::sys::launch_error>());
+	rt::sys::Session missing;
+	var read = @missing.read(0);
+	rt::test::expect(read.has<rt::sys::io_error>());
+	var written = @missing.write("input");
+	rt::test::expect(written.has<rt::sys::io_error>());
 };
 
 [[test]]
 fn interactive_processes_time_out_and_terminate() {
 	var command = rt::sys::Command(rt::environment("ComSpec"));
-	rt::test::expect(@command.argument("/c"));
-	rt::test::expect(@command.argument("ping -n 6 127.0.0.1 >nul"));
-	var session = rt::sys::start(command);
-	if (!rt::test::expect(session.valid())) {
-		return;
-	};
+	@command.argument("/c");
+	@command.argument("ping -n 6 127.0.0.1 >nul");
+	rt::sys::Session session = rt::sys::start(command);
 	var result = @session.wait(20);
-	rt::test::expect(result.state == rt::sys::status::timed_out);
+	rt::test::expect(result.has<rt::sys::timeout_error>());
 };
-

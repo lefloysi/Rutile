@@ -5,9 +5,11 @@ fn buffer_growth_preserves_elements() {
 	rt::test::expect(!values.capacity());
 	rt::test::expect(!values.data());
 	for (i32 index = 0; index < 100; @index = index + 1) {
-		rt::test::expect(@values.push_back(i32(index)));
+		var inserted = @values.push_back(i32(index));
+		rt::test::expect(inserted.has<void>());
 	};
-	if (!rt::test::expect(values.size() == 100 && values.data())) {
+	rt::test::expect(values.size() == 100 && values.data());
+	if (!(values.size() == 100 && values.data())) {
 		return;
 	};
 	rt::test::expect(values.capacity() >= values.size());
@@ -22,19 +24,26 @@ fn buffer_growth_preserves_elements() {
 [[test]]
 fn buffer_copies_and_aliasing_insertions_preserve_values() {
 	rt::buffer<i32> original;
-	rt::test::expect(@original.reserve(1));
-	if (!rt::test::expect(@original.push_back(42))) {
+	var reserved = @original.reserve(1);
+	rt::test::expect(reserved.has<void>());
+	var first_inserted = @original.push_back(42);
+	rt::test::expect(first_inserted.has<void>());
+	if (!first_inserted.has<void>()) {
 		return;
 	};
-	if (!rt::test::expect(@original.push_back(i32(original.data()[0])))) {
+	var alias_inserted = @original.push_back(i32(original.data()[0]));
+	rt::test::expect(alias_inserted.has<void>());
+	if (!alias_inserted.has<void>()) {
 		return;
 	};
-	if (!rt::test::expect(original.size() == 2 && original.data())) {
+	rt::test::expect(original.size() == 2 && original.data());
+	if (!(original.size() == 2 && original.data())) {
 		return;
 	};
 	rt::test::expect(original.data()[1] == 42);
 	rt::buffer<i32> copied := original;
-	if (!rt::test::expect(copied.size() == original.size() && copied.data() && copied.data() != original.data())) {
+	rt::test::expect(copied.size() == original.size() && copied.data() && copied.data() != original.data());
+	if (!(copied.size() == original.size() && copied.data() && copied.data() != original.data())) {
 		return;
 	};
 	var i32* writable = @copied.data();
@@ -42,12 +51,14 @@ fn buffer_copies_and_aliasing_insertions_preserve_values() {
 	rt::test::expect(original.data()[0] == 42);
 	@copied := original;
 	@copied := copied;
-	if (!rt::test::expect(copied.size() == 2 && copied.data())) {
+	rt::test::expect(copied.size() == 2 && copied.data());
+	if (!(copied.size() == 2 && copied.data())) {
 		return;
 	};
 	rt::test::expect(copied.data()[0] == 42);
 	var moved = $copied;
-	if (!rt::test::expect(moved.size() == 2 && moved.data())) {
+	rt::test::expect(moved.size() == 2 && moved.data());
+	if (!(moved.size() == 2 && moved.data())) {
 		return;
 	};
 	rt::test::expect(moved.data()[1] == 42);
@@ -56,12 +67,15 @@ fn buffer_copies_and_aliasing_insertions_preserve_values() {
 [[test]]
 fn buffer_clear_retains_storage_and_failed_reserve_preserves_elements() {
 	rt::buffer<i32> values;
-	rt::test::expect(@values.push_back(42));
+	var inserted = @values.push_back(42);
+	rt::test::expect(inserted.has<void>());
 	usize capacity = values.capacity();
 	i32* storage = values.data();
-	rt::test::expect(!@values.reserve(usize::max));
+	var reserved = @values.reserve(usize::max);
+	rt::test::expect(reserved.has<rt::allocation_error>());
 	rt::test::expect(values.data() == storage);
-	if (!rt::test::expect(values.size() == 1 && values.data())) {
+	rt::test::expect(values.size() == 1 && values.data());
+	if (!(values.size() == 1 && values.data())) {
 		return;
 	};
 	rt::test::expect(values.data()[0] == 42);
@@ -70,8 +84,19 @@ fn buffer_clear_retains_storage_and_failed_reserve_preserves_elements() {
 	rt::test::expect(!values.size());
 	rt::test::expect(values.capacity() == capacity);
 	rt::test::expect(values.data() == storage);
-	rt::test::expect(!@values.pop_back());
-	rt::test::expect(@values.push_back(7));
-	rt::test::expect(@values.pop_back());
+	var empty_pop = @values.pop_back();
+	rt::test::expect(empty_pop.has<rt::empty_buffer_error>());
+	try {
+		@values.pop_back();
+		rt::test::expect(false);
+	}
+	catch (rt::empty_buffer_error error) {
+		rt::test::expect(!values.size());
+	};
+	rt::test::expect(empty_pop.has<rt::empty_buffer_error>());
+	var reused = @values.push_back(7);
+	rt::test::expect(reused.has<void>());
+	var popped = @values.pop_back();
+	rt::test::expect(popped.has<void>());
 	rt::test::expect(!values.size());
 };

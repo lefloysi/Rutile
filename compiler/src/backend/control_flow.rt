@@ -1,62 +1,62 @@
-fn FunctionEmitter::conditional(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::conditional(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	var SemanticExpression* condition = expression->item(0);
 	usize temporary_boundary = this.temporaries.size();
 	var LLVMOpaqueValue* truth = @this.truth(@this.value(condition), condition->type());
 
 	if (!truth) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@this.cleanup_temporaries(temporary_boundary)) {
-		return false;
+	if (!(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	@this.forget_temporaries(temporary_boundary);
 	var LLVMOpaqueBasicBlock* yes = @this.block("if.yes");
 	var LLVMOpaqueBasicBlock* no = @this.block("if.no");
 	var LLVMOpaqueBasicBlock* after = @this.block("if.after");
-	LLVMBuildCondBr(this.backend->builder(), truth, (var LLVMOpaqueBasicBlock*(yes)), (var LLVMOpaqueBasicBlock*(no)));
+	discard LLVMBuildCondBr(this.backend->builder(), truth, (var LLVMOpaqueBasicBlock*(yes)), (var LLVMOpaqueBasicBlock*(no)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), yes);
 
-	if (!@this.scoped_statement(expression->item(1))) {
-		return false;
+	if (!(@this.scoped_statement(expression->item(1))).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	bool yes_returns = this.terminated();
 
 	if (!yes_returns) {
-		LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
+		discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	};
 
 	LLVMPositionBuilderAtEnd(this.backend->builder(), no);
 
-	if (!@this.scoped_statement(expression->item(2))) {
-		return false;
+	if (!(@this.scoped_statement(expression->item(2))).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	bool no_returns = this.terminated();
 
 	if (!no_returns) {
-		LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
+		discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(after)));
 	};
 
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
 	if (yes_returns && no_returns) {
-		LLVMBuildUnreachable(this.backend->builder());
+		discard LLVMBuildUnreachable(this.backend->builder());
 	};
 
-	return true;
+	return CompilationResult();
 };
 
-fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	usize scope_boundary = this.bindings.size();
 	usize condition_index = 0;
 	usize body_index = 1;
 
 	if (expression->kind() == semantic_kind::for_loop) {
-		if (!@this.statement(expression->item(0))) {
-			return false;
+		if (!(@this.statement(expression->item(0))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		@condition_index = 1;
@@ -72,7 +72,7 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 	};
 
 	var LLVMOpaqueBasicBlock* after = @this.block("loop.after");
-	LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
+	discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
 	var SemanticExpression* condition = expression->item(condition_index);
 	usize temporary_boundary = this.temporaries.size();
@@ -83,15 +83,15 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 	};
 
 	if (!truth) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
-	if (!@this.cleanup_temporaries(temporary_boundary)) {
-		return false;
+	if (!(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	@this.forget_temporaries(temporary_boundary);
-	LLVMBuildCondBr(this.backend->builder(), truth, (var LLVMOpaqueBasicBlock*(body)), (var LLVMOpaqueBasicBlock*(after)));
+	discard LLVMBuildCondBr(this.backend->builder(), truth, (var LLVMOpaqueBasicBlock*(body)), (var LLVMOpaqueBasicBlock*(after)));
 	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
 	NativeControl loop;
 	@loop.leave := after;
@@ -101,26 +101,26 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 	@loop.handlers = this.active_handler;
 	@loop.binding_boundary = this.bindings.size();
 	@this.active_control = &@loop;
-	bool emitted = @this.scoped_statement(expression->item(body_index));
+	var emitted = @this.scoped_statement(expression->item(body_index));
 	@this.active_control := loop.parent;
 
-	if (!emitted) {
-		return false;
+	if (emitted.has<compilation_error>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	if (!this.terminated()) {
-		LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(step)));
+		discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(step)));
 	};
 
 	if (expression->kind() == semantic_kind::for_loop) {
 		LLVMPositionBuilderAtEnd(this.backend->builder(), step);
 
-		if (!@this.statement(expression->item(2))) {
-			return false;
+		if (!(@this.statement(expression->item(2))).has<void>()) {
+			return CompilationResult(compilation_error());
 		};
 
 		if (!this.terminated()) {
-			LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
+			discard LLVMBuildBr(this.backend->builder(), (var LLVMOpaqueBasicBlock*(test)));
 		};
 	};
 
@@ -129,13 +129,19 @@ fn FunctionEmitter::loop(var FunctionEmitter& this, var SemanticExpression* expr
 	return @this.leave_scope(scope_boundary);
 };
 
-fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	if (!expression || expression->kind() == semantic_kind::noop || this.terminated()) {
-		return true;
+		return CompilationResult();
+	};
+	if (expression->kind() == semantic_kind::variant_cast && expression->type()->kind() == type_kind::void_type) {
+		if (@this.variant_cast_address(expression) != nullptr) {
+			return CompilationResult();
+		};
+		return CompilationResult(compilation_error());
 	};
 
 	if (this.backend->failed()) {
-		return false;
+		return CompilationResult(compilation_error());
 	};
 
 	switch (expression->kind()) {
@@ -143,14 +149,14 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			usize index = 0;
 
 			while (index < expression->size() && !this.terminated()) {
-				if (!@this.statement(expression->item(index))) {
-					return false;
+				if (!(@this.statement(expression->item(index))).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
 				@index = index + 1;
 			};
 
-			return true;
+			return CompilationResult();
 		};
 
 		case semantic_kind::sequence:
@@ -166,8 +172,8 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			usize index = 0;
 
 			while (index < expression->size() && !this.terminated()) {
-				if (!@this.statement(expression->item(index))) {
-					return false;
+				if (!(@this.statement(expression->item(index))).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
 				@index = index + 1;
@@ -181,43 +187,44 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			var LLVMOpaqueType* type = @this.backend->type(entity->type(), entity->token());
 
 			if (!type) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 
 			var LLVMOpaqueValue* slot = @this.slot(entity->type());
 
-			if (!slot || !@this.bind((var Entity*(entity)), (var LLVMOpaqueValue*(slot)))) {
-				return false;
+			if (!slot) {
+				return CompilationResult(compilation_error());
 			};
+			@this.bind((var Entity*(entity)), (var LLVMOpaqueValue*(slot)));
 
 			@this.binding_live(entity, false);
 
-			if (!@this.initialize_value(entity->type(), slot, expression->item(0))) {
-				return false;
+			if (!(@this.initialize_value(entity->type(), slot, expression->item(0))).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 
 			@this.binding_live(entity, true);
-			return true;
+			return CompilationResult();
 		};
 
 		case semantic_kind::return_value: {
 			if (this.result->kind() == type_kind::void_type) {
 				var SemanticExpression* operand = expression->item(0);
 
-				if (operand && operand->kind() != semantic_kind::noop && !@this.statement(operand)) {
-					return false;
+				if (operand && operand->kind() != semantic_kind::noop && !(@this.statement(operand)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 				if (this.terminated()) {
-					return true;
+					return CompilationResult();
 				};
 
-				if (!@this.exit_cleanup(0, nullptr, this.function_handler)) {
-					return false;
+				if (!(@this.exit_cleanup(0, nullptr, this.function_handler)).has<void>()) {
+					return CompilationResult(compilation_error());
 				};
 
-				LLVMBuildRetVoid(this.backend->builder());
+				discard LLVMBuildRetVoid(this.backend->builder());
 
-				return true;
+				return CompilationResult();
 			};
 
 			var LLVMOpaqueValue* value;
@@ -230,27 +237,25 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			};
 
 			if (!value) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 
 			usize unwind_begin = this.unwinds.size();
 			if (FunctionEmitter::needs_destruction(this.result)) {
 				var LLVMOpaqueValue* storage = @this.slot(this.result);
 				if (!storage) {
-					return false;
+					return CompilationResult(compilation_error());
 				};
-				LLVMBuildStore(this.backend->builder(), value, storage);
-				if (!@this.retain_unwind(this.result, storage, nullptr, nullptr)) {
-					return false;
-				};
+				discard LLVMBuildStore(this.backend->builder(), value, storage);
+				@this.retain_unwind(this.result, storage, nullptr, nullptr);
 			};
-			if (!@this.exit_cleanup(0, nullptr, this.function_handler)) {
-				return false;
+			if (!(@this.exit_cleanup(0, nullptr, this.function_handler)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 			@this.forget_unwinds(unwind_begin);
-			LLVMBuildRet(this.backend->builder(), value);
+			discard LLVMBuildRet(this.backend->builder(), value);
 
-			return true;
+			return CompilationResult();
 		};
 
 		case semantic_kind::conditional:
@@ -264,7 +269,7 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 			var SemanticExpression* object = expression->item(0);
 			var LLVMOpaqueValue* address = @this.address(object);
 			if (!address) {
-				return false;
+				return CompilationResult(compilation_error());
 			};
 			@this.set_live(object, false);
 			return @this.destroy(object->type(), address);
@@ -289,41 +294,44 @@ fn FunctionEmitter::lower_statement(var FunctionEmitter& this, var SemanticExpre
 				return @this.backend->error(expression->token(), "control transfer has no enclosing native destination");
 			};
 
-			if (!@this.exit_cleanup(target->binding_boundary, target->catches, target->handlers)) {
-				return false;
+			if (!(@this.exit_cleanup(target->binding_boundary, target->catches, target->handlers)).has<void>()) {
+				return CompilationResult(compilation_error());
 			};
 
 			if (expression->kind() == semantic_kind::break_loop) {
 				@target->leave_edges = target->leave_edges + 1;
-				LLVMBuildBr(this.backend->builder(), target->leave);
+				discard LLVMBuildBr(this.backend->builder(), target->leave);
 			}
 			else {
-				LLVMBuildBr(this.backend->builder(), target->resume);
+				discard LLVMBuildBr(this.backend->builder(), target->resume);
 			};
 
-			return true;
+			return CompilationResult();
 		};
 	};
 
-	return @this.value(expression) != nullptr;
+	if (@this.value(expression) != nullptr) {
+		return CompilationResult();
+	};
+	return CompilationResult(compilation_error());
 };
 
-fn FunctionEmitter::statement(var FunctionEmitter& this, var SemanticExpression* expression) -> bool {
+fn FunctionEmitter::statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	if (!expression || expression->kind() == semantic_kind::noop || this.terminated()) {
-		return true;
+		return CompilationResult();
 	};
 
 	usize begin = this.temporaries.size();
 
-	if (!@this.lower_statement(expression)) {
-		return false;
+	if (!(@this.lower_statement(expression)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
-	if (!this.terminated() && !@this.cleanup_temporaries(begin)) {
-		return false;
+	if (!this.terminated() && !(@this.cleanup_temporaries(begin)).has<void>()) {
+		return CompilationResult(compilation_error());
 	};
 
 	@this.forget_temporaries(begin);
 
-	return true;
+	return CompilationResult();
 };
