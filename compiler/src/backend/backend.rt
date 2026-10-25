@@ -111,7 +111,7 @@ fn Backend::failed(Backend& this) -> bool {
 
 fn Backend::error(var Backend& this, Token& token, rt::string_view message) -> CompilationResult {
 	@this.diagnostics->error(token, message);
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Backend::pointer_bits(Backend& this) -> u32 {
@@ -192,7 +192,6 @@ fn Backend::initialize(var Backend& this, i32 optimization) -> CompilationResult
 	LLVMSetTarget(this.module(), triple.get());
 	LLVMSetDataLayout(this.module(), layout.get());
 
-	return CompilationResult();
 };
 
 fn Backend::verify(var Backend& this) {
@@ -249,7 +248,7 @@ fn Backend::optimize(var Backend& this) {
 
 fn Backend::write(var Backend& this, var File& output) -> CompilationResult {
 	if (this.failed()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.optimize();
@@ -275,7 +274,6 @@ fn Backend::write(var Backend& this, var File& output) -> CompilationResult {
 	};
 
 	this.progress.report("writing", byte_count, byte_count, "");
-	return CompilationResult();
 };
 
 fn Backend::note(var Backend& this, Token& token, rt::string_view message) {

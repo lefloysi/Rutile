@@ -115,7 +115,6 @@ fn fact_collect_cleanup(var SemanticExpression* expression, var rt::buffer<var S
 			@index = index + 1;
 		};
 	};
-	return;
 };
 
 fn fact_temporary_source(var SemanticExpression* expression, bool nested) -> var SemanticExpression* {
@@ -185,13 +184,11 @@ fn FactGraph::add_node(var FactGraph& this, fact_node_kind kind, var SemanticExp
 	@node.kind = $kind;
 	@node.expression = $expression;
 	@this.nodes.push_back($node);
-	return;
 };
 
 fn FactGraph::add_lifetime(var FactGraph& this, fact_node_kind kind, var Entity* owner, var SemanticExpression* expression, var usize& result) {
 	@this.add_node(kind, expression, @result);
 	@(@this.nodes).data()[result].owner = owner;
-	return;
 };
 
 fn FactGraph::owner_cleanup(var FactGraph& this, var Entity* owner, var SemanticExpression* expression, usize target, usize exception_target, var usize& result) {
@@ -212,7 +209,6 @@ fn FactGraph::owner_cleanup(var FactGraph& this, var Entity* owner, var Semantic
 	@(@this.nodes).data()[result].owner = owner;
 	@this.connect(result, normal, fact_edge_kind::next, nullptr);
 	@this.connect(result, exceptional, fact_edge_kind::exceptional, nullptr);
-	return;
 };
 
 fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge_kind kind, var SemanticExpression* condition) {
@@ -231,7 +227,6 @@ fn FactGraph::connect(var FactGraph& this, usize source, usize target, fact_edge
 	};
 	@edge.condition = $condition;
 	@this.edges.push_back($edge);
-	return;
 };
 
 fn FactGraph::build(var FactGraph& this, var SemanticExpression* body) {
@@ -246,7 +241,6 @@ fn FactGraph::build(var FactGraph& this, var SemanticExpression* body) {
 	@this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit);
 	@this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr);
 	@this.connect(this.fallthrough_exit, this.normal_exit, fact_edge_kind::next, nullptr);
-	return;
 };
 
 fn FactGraph::build_function(var FactGraph& this, Entity& function) {
@@ -277,7 +271,6 @@ fn FactGraph::build_function(var FactGraph& this, Entity& function) {
 	@this.add_node(fact_node_kind::fallthrough_exit, nullptr, @this.fallthrough_exit);
 	@this.connect(current, this.fallthrough_exit, fact_edge_kind::next, nullptr);
 	@this.connect(this.fallthrough_exit, normal, fact_edge_kind::next, nullptr);
-	return;
 };
 
 fn FactGraph::cleanup_target(var FactGraph& this, var SemanticExpression* handler, usize target, usize exception_target, var usize& result) {
@@ -292,7 +285,6 @@ fn FactGraph::cleanup_target(var FactGraph& this, var SemanticExpression* handle
 	@this.add_node(fact_node_kind::opaque, handler, @result);
 	@this.connect(result, target, fact_edge_kind::next, nullptr);
 	@this.connect(result, exception_target, fact_edge_kind::exceptional, nullptr);
-	return;
 };
 
 fn FactGraph::lower(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
@@ -301,7 +293,6 @@ fn FactGraph::lower(var FactGraph& this, var SemanticExpression* expression, var
 		return;
 	};
 	@this.lower_contents(expression, @current, break_target, continue_target, exception_target);
-	return;
 };
 
 fn FactGraph::full_expression(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
@@ -315,7 +306,6 @@ fn FactGraph::full_expression(var FactGraph& this, var SemanticExpression* expre
 	@this.connect(current, cleanup, fact_edge_kind::next, nullptr);
 	@this.connect(cleanup, exception_target, fact_edge_kind::exceptional, nullptr);
 	@current = cleanup;
-	return;
 };
 
 fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
@@ -376,7 +366,6 @@ fn FactGraph::lower_scope(var FactGraph& this, var SemanticExpression* expressio
 	@this.return_target = saved_return;
 	@this.connect(current, normal, fact_edge_kind::next, nullptr);
 	@current = after;
-	return;
 };
 
 fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expression, var usize& current, usize break_target, usize continue_target, usize exception_target) {
@@ -668,5 +657,4 @@ fn FactGraph::lower_contents(var FactGraph& this, var SemanticExpression* expres
 		@this.connect(node, target, fact_edge_kind::next, nullptr);
 		@current = fact_no_node();
 	};
-	return;
 };

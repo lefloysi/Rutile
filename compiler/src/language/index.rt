@@ -108,7 +108,7 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) {
 		if (entity->origin() == declaration_origin::compiler_supplied || this.symbol_id(entity)) {
 			continue;
 		};
-		var entry = rt::unique<NavigationEntry>::make();
+		rt::unique<NavigationEntry> entry = rt::unique<NavigationEntry>::make();
 		@entry.get()->entity = entity;
 		@entry.get()->value.id = static_cast<u64>(this.symbols.size()) + 1;
 		@entry.get()->value.kind = this.symbol_kind(*entity);
@@ -128,7 +128,7 @@ fn NavigationIndex::build(var NavigationIndex& this, SemanticUnit& semantics) {
 		while (parameter_index < entity->parameters().size()) {
 			var Entity* parameter = entity->parameters().data()[parameter_index];
 			@parameter_index = parameter_index + 1;
-			var parameter_entry = rt::unique<NavigationParameterEntry>::make();
+			rt::unique<NavigationParameterEntry> parameter_entry = rt::unique<NavigationParameterEntry>::make();
 			var parameter_detail = DiagnosticMessage();
 			@parameter_detail.text(parameter->name());
 			@parameter_detail.text(": ");
@@ -400,7 +400,7 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 	while (index < sites.size()) {
 		SemanticCallSite& source = sites.data()[index];
 		@index = index + 1;
-		var call = rt::unique<NavigationCall>::make();
+		rt::unique<NavigationCall> call = rt::unique<NavigationCall>::make();
 		@call.get()->symbol = this.symbol_id(source.selected);
 		@call.get()->bound_receiver = source.bound_receiver;
 		if (source.candidates && source.candidates->scope()) {
@@ -430,7 +430,6 @@ fn NavigationIndex::build_contexts(var NavigationIndex& this, SemanticUnit& sema
 		};
 		@this.calls.push_back($call);
 	};
-	return;
 };
 
 fn NavigationIndex::scope_count(NavigationIndex& this) -> usize {
@@ -524,7 +523,6 @@ fn NavigationIndex::receiver_candidates(var NavigationIndex& this, var Navigatio
 	if (owner.bases().size() == 1) {
 		@this.receiver_candidates(@site, *owner.bases().data()[0]->entity(), visible_owner, scope);
 	};
-	return;
 };
 
 fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& semantics) {
@@ -533,7 +531,7 @@ fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& sem
 	while (index < sites.size()) {
 		SemanticReceiverSite& source = sites.data()[index];
 		@index = index + 1;
-		var receiver = rt::unique<NavigationReceiver>::make();
+		rt::unique<NavigationReceiver> receiver = rt::unique<NavigationReceiver>::make();
 		@receiver.get()->scope = @this.scope_id(*source.scope);
 		@receiver.get()->context = this.symbol_id(semantics.reference_context(@*source.scope));
 		@receiver.get()->range = this.syntax_range(*source.syntax->left());
@@ -553,7 +551,6 @@ fn NavigationIndex::build_receivers(var NavigationIndex& this, SemanticUnit& sem
 		@this.receiver_candidates(@*receiver.get(), *source.owner, *source.owner, *source.scope);
 		@this.receivers.push_back($receiver);
 	};
-	return;
 };
 
 fn NavigationIndex::receiver_count(NavigationIndex& this) -> usize {

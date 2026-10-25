@@ -74,11 +74,10 @@ fn Analysis::load_source(var Analysis& this, rt::string_view path, FileOpener op
 	var reader = SourceReader($opener, @this.sources, @this.messages);
 	var read = @reader.load(path);
 	if (read.has<source_io_error>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var SourceFile* source = read.get<var SourceFile*>();
 	@this.index.register_source(@*source, this.sources.count() - 1);
-	return CompilationResult();
 };
 
 fn Analysis::source_count(Analysis& this) -> usize {
@@ -142,7 +141,7 @@ fn Analysis::syntax_roots(Analysis& this) -> rt::buffer<rt::unique<Syntax>>& {
 };
 
 fn Analysis::request_template_context(var Analysis& this, rt::string_view path, usize anchor, rt::string_view arguments) {
-	var selection = rt::unique<EditorTemplateSelection>::make();
+	rt::unique<EditorTemplateSelection> selection = rt::unique<EditorTemplateSelection>::make();
 	@selection.get()->path = rt::string(path);
 	@selection.get()->anchor = $anchor;
 	@selection.get()->arguments = rt::string(arguments);

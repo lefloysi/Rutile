@@ -16,28 +16,39 @@
 #include <thread>
 #include <system_error>
 #include <vector>
+#include <variant>
+#include <stdexcept>
 
-struct ProcessBuffer {
-	const char* data;
-	std::size_t size;
-	int error;
+struct Process;
+extern "C" {
+void rutile_process_start_complete(void* result, Process* process);
+void rutile_process_start_launch_error(void* result);
+void rutile_process_start_allocation_error(void* result, std::size_t bytes);
+void rutile_process_write_complete(void* result);
+void rutile_process_write_io_error(void* result);
+void rutile_process_write_allocation_error(void* result, std::size_t bytes);
+std::size_t rutile_process_read_complete(void* result, const char* bytes, std::size_t size);
+void rutile_process_read_io_error(void* result);
+void rutile_process_read_allocation_error(void* result, std::size_t bytes);
+void rutile_process_wait_complete(void* result, int exit_code, const char* output, std::size_t output_size, const char* error, std::size_t error_size);
+void rutile_process_wait_timeout_error(void* result);
+void rutile_process_wait_io_error(void* result);
+void rutile_process_wait_allocation_error(void* result, std::size_t bytes);
+}
+
+struct AllocationFailure {
+	std::size_t requested_bytes;
 };
-
-struct NativeProcess;
-
-struct ProcessStart {
-	NativeProcess* handle;
-	int error;
+struct IoFailure {
 };
-
-struct ProcessOutput {
-	int state;
-	int exit_code;
-	ProcessBuffer output;
-	ProcessBuffer error;
+struct TimeoutFailure {
 };
+struct LaunchFailure {
+};
+using AsyncFailure = std::variant<std::monostate, AllocationFailure, IoFailure>;
+using Completion = std::variant<std::monostate, TimeoutFailure, IoFailure>;
 
-struct NativeProcess {
+struct Process {
 	HANDLE process = nullptr;
 	HANDLE job = nullptr;
 	HANDLE input = nullptr;
@@ -54,13 +65,10 @@ struct NativeProcess {
 	bool finished = false;
 	std::string output_bytes;
 	std::string error_bytes;
-	std::string read_bytes;
-	ProcessBuffer read_view {};
-	ProcessOutput result {};
 	std::size_t read_cursor = 0;
-	int state = 1;
-	int exit_code = -1;
-	int failure = 0;
+	int exit_code = 0;
+	AsyncFailure failure;
+	Completion completion;
 };
 
 struct ProcessHandle {
@@ -106,7 +114,7 @@ std::wstring process_quote(const std::wstring& argument) {
 	return result;
 }
 
-void process_read_pipe(NativeProcess* process, HANDLE pipe, bool standard_output) {
+void process_read_pipe(Process* process, HANDLE pipe, bool standard_output) {
 	char bytes[4096];
 	DWORD count = 0;
 	BOOL read = TRUE;
@@ -114,12 +122,15 @@ void process_read_pipe(NativeProcess* process, HANDLE pipe, bool standard_output
 		{
 			std::lock_guard lock(process->mutex);
 			auto& destination = standard_output ? process->output_bytes : process->error_bytes;
-			if (!process->failure) {
+			if (std::holds_alternative<std::monostate>(process->failure)) {
 				try {
 					destination.append(bytes, count);
 				}
 				catch (const std::bad_alloc&) {
-					process->failure = 3;
+					process->failure = AllocationFailure { destination.size() + count };
+				}
+				catch (const std::length_error&) {
+					process->failure = IoFailure {};
 				}
 			}
 		}
@@ -128,8 +139,8 @@ void process_read_pipe(NativeProcess* process, HANDLE pipe, bool standard_output
 	const auto error = GetLastError();
 	if (!read && error != ERROR_BROKEN_PIPE) {
 		std::lock_guard lock(process->mutex);
-		if (!process->failure) {
-			process->failure = 4;
+		if (std::holds_alternative<std::monostate>(process->failure)) {
+			process->failure = IoFailure {};
 		}
 	}
 	if (standard_output) {
@@ -141,7 +152,7 @@ void process_read_pipe(NativeProcess* process, HANDLE pipe, bool standard_output
 	}
 }
 
-void process_write_pipe(NativeProcess* process) {
+void process_write_pipe(Process* process) {
 	while (true) {
 		std::string bytes;
 		{
@@ -160,8 +171,8 @@ void process_write_pipe(NativeProcess* process) {
 			if (!WriteFile(process->input, bytes.data() + offset, requested, &count, nullptr) || !count) {
 				{
 					std::lock_guard lock(process->mutex);
-					if (!process->failure) {
-						process->failure = 4;
+					if (std::holds_alternative<std::monostate>(process->failure)) {
+						process->failure = IoFailure {};
 					}
 				}
 				CloseHandle(process->input);
@@ -175,7 +186,7 @@ void process_write_pipe(NativeProcess* process) {
 	process->input = nullptr;
 }
 
-void process_join(NativeProcess* process) {
+void process_join(Process* process) {
 	{
 		std::lock_guard lock(process->mutex);
 		process->input_closed = true;
@@ -192,7 +203,7 @@ void process_join(NativeProcess* process) {
 	}
 }
 
-extern "C" void rutile_process_dispose(NativeProcess* process) {
+extern "C" void rutile_process_dispose(Process* process) {
 	if (!process) {
 		return;
 	}
@@ -211,11 +222,14 @@ extern "C" void rutile_process_dispose(NativeProcess* process) {
 	delete process;
 }
 
-NativeProcess* process_start(const char* const* arguments, std::size_t count, const char* directory, const char* const* environment, std::size_t environment_count) {
+using ProcessOwner = std::unique_ptr<Process, decltype(&rutile_process_dispose)>;
+using StartOutcome = std::variant<ProcessOwner, LaunchFailure>;
+
+StartOutcome process_start(const char* const* arguments, std::size_t count, const char* directory, const char* const* environment, std::size_t environment_count) {
 	if (!count || !arguments || !arguments[0] || !*arguments[0]) {
-		return nullptr;
+		return LaunchFailure {};
 	}
-	std::unique_ptr<NativeProcess, decltype(&rutile_process_dispose)> owner(new NativeProcess, rutile_process_dispose);
+	ProcessOwner owner(new Process, rutile_process_dispose);
 	auto* process = owner.get();
 	std::wstring command;
 	for (std::size_t index = 0; index < count; ++index) {
@@ -235,7 +249,7 @@ NativeProcess* process_start(const char* const* arguments, std::size_t count, co
 		std::map<std::wstring, std::wstring, EnvironmentOrder> variables;
 		std::unique_ptr<wchar_t, decltype(&FreeEnvironmentStringsW)> inherited(GetEnvironmentStringsW(), FreeEnvironmentStringsW);
 		if (!inherited) {
-			return nullptr;
+			return LaunchFailure {};
 		}
 		for (const wchar_t* cursor = inherited.get(); *cursor;) {
 			std::wstring entry(cursor);
@@ -249,7 +263,7 @@ NativeProcess* process_start(const char* const* arguments, std::size_t count, co
 			auto entry = process_wide(environment[index]);
 			auto separator = entry.find(L'=');
 			if (separator == std::wstring::npos || !separator) {
-				return nullptr;
+				return LaunchFailure {};
 			}
 			variables[entry.substr(0, separator)] = entry.substr(separator + 1);
 		}
@@ -268,11 +282,13 @@ NativeProcess* process_start(const char* const* arguments, std::size_t count, co
 	if (!CreatePipe(&child_input.value, &process->input, &security, 0)
 		|| !CreatePipe(&process->output, &child_output.value, &security, 0)
 		|| !CreatePipe(&process->error, &child_error.value, &security, 0)) {
-		return nullptr;
+		return LaunchFailure {};
 	}
-	SetHandleInformation(process->input, HANDLE_FLAG_INHERIT, 0);
-	SetHandleInformation(process->output, HANDLE_FLAG_INHERIT, 0);
-	SetHandleInformation(process->error, HANDLE_FLAG_INHERIT, 0);
+	if (!SetHandleInformation(process->input, HANDLE_FLAG_INHERIT, 0)
+		|| !SetHandleInformation(process->output, HANDLE_FLAG_INHERIT, 0)
+		|| !SetHandleInformation(process->error, HANDLE_FLAG_INHERIT, 0)) {
+		return LaunchFailure {};
+	}
 	STARTUPINFOEXW startup {};
 	startup.StartupInfo.cb = sizeof(startup);
 	startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -301,7 +317,7 @@ NativeProcess* process_start(const char* const* arguments, std::size_t count, co
 	CloseHandle(child_error.value);
 	child_error.value = nullptr;
 	if (!started) {
-		return nullptr;
+		return LaunchFailure {};
 	}
 	ProcessHandle primary_thread;
 	primary_thread.value = information.hThread;
@@ -312,51 +328,65 @@ NativeProcess* process_start(const char* const* arguments, std::size_t count, co
 	if (!process->job || !SetInformationJobObject(process->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))
 		|| !AssignProcessToJobObject(process->job, process->process)) {
 		TerminateProcess(process->process, 1);
-		return nullptr;
+		return LaunchFailure {};
 	}
-	process->state = 0;
 	process->output_thread = std::thread(process_read_pipe, process, process->output, true);
 	process->error_thread = std::thread(process_read_pipe, process, process->error, false);
 	process->input_thread = std::thread(process_write_pipe, process);
-	ResumeThread(information.hThread);
-	return owner.release();
+	if (ResumeThread(information.hThread) == static_cast<DWORD>(-1)) {
+		return LaunchFailure {};
+	}
+	return StartOutcome(std::move(owner));
 }
 
-extern "C" void rutile_process_start(const char* const* arguments, std::size_t count, const char* directory, const char* const* environment, std::size_t environment_count, ProcessStart* result) {
-	*result = {};
+extern "C" void rutile_process_start(const char* const* arguments, std::size_t count, const char* directory, const char* const* environment, std::size_t environment_count, void* result) {
 	try {
-		result->handle = process_start(arguments, count, directory, environment, environment_count);
-		if (!result->handle) {
-			result->error = 1;
+		auto started = process_start(arguments, count, directory, environment, environment_count);
+		if (auto* owner = std::get_if<ProcessOwner>(&started)) {
+			rutile_process_start_complete(result, owner->get());
+			owner->release();
+		}
+		else {
+			rutile_process_start_launch_error(result);
 		}
 	}
 	catch (const std::bad_alloc&) {
-		result->error = 3;
+		rutile_process_start_allocation_error(result, 0);
 	}
 	catch (const std::system_error&) {
-		result->error = 1;
+		rutile_process_start_launch_error(result);
+	}
+	catch (const std::length_error&) {
+		rutile_process_start_launch_error(result);
 	}
 }
 
-extern "C" int rutile_process_write(NativeProcess* process, const char* bytes, std::size_t size) {
+extern "C" void rutile_process_write(Process* process, const char* bytes, std::size_t size, void* result) {
 	std::lock_guard lock(process->mutex);
-	if (process->failure) {
-		return process->failure;
+	if (auto* failure = std::get_if<AllocationFailure>(&process->failure)) {
+		rutile_process_write_allocation_error(result, failure->requested_bytes);
+		return;
 	}
-	if (process->input_closed || process->finished) {
-		return 4;
+	if (std::holds_alternative<IoFailure>(process->failure) || process->input_closed || process->finished) {
+		rutile_process_write_io_error(result);
+		return;
 	}
 	try {
-		process->pending_input.emplace_back(bytes, size);
+		process->pending_input.emplace_back(size ? bytes : "", size);
 	}
 	catch (const std::bad_alloc&) {
-		return 3;
+		rutile_process_write_allocation_error(result, size);
+		return;
+	}
+	catch (const std::length_error&) {
+		rutile_process_write_io_error(result);
+		return;
 	}
 	process->changed.notify_all();
-	return 0;
+	rutile_process_write_complete(result);
 }
 
-extern "C" void rutile_process_close_input(NativeProcess* process) {
+extern "C" void rutile_process_close_input(Process* process) {
 	{
 		std::lock_guard lock(process->mutex);
 		process->input_closed = true;
@@ -364,58 +394,62 @@ extern "C" void rutile_process_close_input(NativeProcess* process) {
 	process->changed.notify_all();
 }
 
-extern "C" const ProcessBuffer* rutile_process_read(NativeProcess* process, std::uint32_t timeout_ms) {
+extern "C" void rutile_process_read(Process* process, std::uint32_t timeout_ms, void* result) {
 	std::unique_lock lock(process->mutex);
 	process->changed.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] {
-		return process->failure || process->output_closed || process->read_cursor < process->output_bytes.size();
+		return !std::holds_alternative<std::monostate>(process->failure) || process->output_closed || process->read_cursor < process->output_bytes.size();
 	});
-	if (process->failure) {
-		process->read_view = { nullptr, 0, process->failure };
-		return &process->read_view;
+	if (auto* failure = std::get_if<AllocationFailure>(&process->failure)) {
+		rutile_process_read_allocation_error(result, failure->requested_bytes);
+		return;
 	}
-	try {
-		process->read_bytes = process->output_bytes.substr(process->read_cursor);
+	if (std::holds_alternative<IoFailure>(process->failure)) {
+		rutile_process_read_io_error(result);
+		return;
 	}
-	catch (const std::bad_alloc&) {
-		process->read_view = { nullptr, 0, 3 };
-		return &process->read_view;
-	}
-	process->read_cursor = process->output_bytes.size();
-	process->read_view = { process->read_bytes.data(), process->read_bytes.size(), 0 };
-	return &process->read_view;
+	const auto begin = process->read_cursor;
+	process->read_cursor += rutile_process_read_complete(result, process->output_bytes.data() + begin, process->output_bytes.size() - begin);
 }
 
-void process_wait(NativeProcess* process, std::uint32_t timeout_ms) {
+void process_wait(Process* process, std::uint32_t timeout_ms) {
 	if (process->finished) {
 		return;
 	}
 	DWORD waited = WaitForSingleObject(process->process, timeout_ms);
 	if (waited == WAIT_TIMEOUT) {
-		process->state = 2;
+		process->completion = TimeoutFailure {};
 		TerminateJobObject(process->job, 1);
 		WaitForSingleObject(process->process, INFINITE);
 	}
 	else if (waited != WAIT_OBJECT_0) {
-		process->state = 4;
+		process->completion = IoFailure {};
 		TerminateJobObject(process->job, 1);
 		WaitForSingleObject(process->process, INFINITE);
 	}
 	DWORD exit_code = 0;
-	GetExitCodeProcess(process->process, &exit_code);
-	process->exit_code = static_cast<int>(exit_code);
+	if (GetExitCodeProcess(process->process, &exit_code)) {
+		process->exit_code = static_cast<int>(exit_code);
+	}
+	else {
+		process->completion = IoFailure {};
+	}
 	TerminateJobObject(process->job, 1);
 	process_join(process);
 	process->finished = true;
-	return;
 }
 
-extern "C" const ProcessOutput* rutile_process_wait(NativeProcess* process, std::uint32_t timeout_ms) {
+extern "C" void rutile_process_wait(Process* process, std::uint32_t timeout_ms, void* result) {
 	process_wait(process, timeout_ms);
-	process->result = {
-		process->failure ? process->failure : process->state,
-		process->exit_code,
-		{ process->output_bytes.data(), process->output_bytes.size() },
-		{ process->error_bytes.data(), process->error_bytes.size() }
-	};
-	return &process->result;
+	if (auto* failure = std::get_if<AllocationFailure>(&process->failure)) {
+		rutile_process_wait_allocation_error(result, failure->requested_bytes);
+	}
+	else if (std::holds_alternative<IoFailure>(process->failure) || std::holds_alternative<IoFailure>(process->completion)) {
+		rutile_process_wait_io_error(result);
+	}
+	else if (std::holds_alternative<TimeoutFailure>(process->completion)) {
+		rutile_process_wait_timeout_error(result);
+	}
+	else {
+		rutile_process_wait_complete(result, process->exit_code, process->output_bytes.data(), process->output_bytes.size(), process->error_bytes.data(), process->error_bytes.size());
+	}
 }

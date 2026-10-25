@@ -1,8 +1,51 @@
 [[test]]
+fn compound_string_assignment_preserves_the_left_reference() {
+	var text = rt::string("hello");
+	var suffix = rt::string(" world");
+	var rt::string* original = &@text;
+	@text += suffix;
+	rt::test::expect(text == "hello world");
+	rt::test::expect(suffix == " world");
+	{
+		var result = (@text += rt::string_view("!"));
+		rt::test::expect(result.has<var rt::string&>());
+		var rt::string& reference = result.get<var rt::string&>();
+		rt::test::expect(&reference == original);
+		@reference.clear();
+	};
+	rt::test::expect(text.empty());
+	{
+		var rt::string& extracted = (@text += "again");
+		rt::test::expect(&extracted == original);
+		rt::test::expect(extracted == "again");
+	};
+	rt::test::expect(text == "again");
+};
+
+[[test]]
+fn compound_string_assignment_captures_allocation_failure() {
+	var text = rt::string("retained");
+	var too_large = rt::string_view(text.data(), usize::max);
+	var result = (@text += too_large);
+	rt::test::expect(result.has<rt::allocation_error>());
+	rt::test::expect(result.get<rt::allocation_error>().requested_bytes == usize::max);
+	rt::test::expect(text == "retained");
+	var caught = false;
+	try {
+		@text += too_large;
+	} catch (rt::allocation_error& error) {
+		@caught = error.requested_bytes == usize::max;
+	};
+	rt::test::expect(caught);
+	rt::test::expect(text == "retained");
+};
+
+[[test]]
 fn empty_strings_have_a_terminator() {
 	rt::string text;
 	rt::test::expect(text.empty());
 	rt::test::expect(!text.size());
+	rt::test::expect(text.capacity() == 15);
 	rt::test::expect(text.data());
 	rt::test::expect(!text.data()[0]);
 	var appended = @text.append("");
@@ -17,14 +60,37 @@ fn strings_convert_to_views_and_concatenate() {
 	var second = rt::string(" world");
 	rt::string_view view = first;
 	rt::test::expect(view == "hello");
-	var joined = first + second;
+	rt::string joined = first + second;
 	rt::test::expect(joined == "hello world");
 	rt::test::expect(first == "hello");
 	rt::test::expect(second == " world");
-	var prefixed = "say " + joined;
-	var suffixed = joined + "!";
+	rt::string literal_rhs = first + "!";
+	rt::test::expect(literal_rhs == "hello!");
+	rt::test::expect(first == "hello");
+	rt::string views = rt::string_view("hello") + rt::string_view(" world");
+	rt::test::expect(views == "hello world");
+	rt::string literals = "hello" + " world";
+	rt::test::expect(literals == "hello world");
+	rt::string prefixed = "say " + joined;
+	rt::string suffixed = joined + "!";
 	rt::test::expect(prefixed == "say hello world");
 	rt::test::expect(suffixed == "hello world!");
+};
+
+[[test]]
+fn concatenation_returns_reserve_failure_without_reading_the_input() {
+	var huge = rt::string_view("x".data(), usize::max - 1);
+	rt::string_view empty;
+	var result = huge + empty;
+	rt::test::expect(result.has<rt::allocation_error>());
+	rt::test::expect(result.get<rt::allocation_error>().requested_bytes == usize::max);
+	try {
+		rt::string extracted = huge + empty;
+		rt::test::expect(false);
+	}
+	catch (rt::allocation_error& error) {
+		rt::test::expect(error.requested_bytes == usize::max);
+	};
 };
 
 [[test]]
@@ -71,6 +137,13 @@ fn string_capacity_failures_preserve_text() {
 	rt::test::expect(text.capacity() == capacity);
 	var overflow_reserve = @text.reserve(usize::max);
 	rt::test::expect(overflow_reserve.has<rt::allocation_error>());
+	try {
+		@text.reserve(usize::max);
+		rt::test::expect(false);
+	}
+	catch (rt::allocation_error& error) {
+		rt::test::expect(error.requested_bytes == usize::max);
+	};
 	var appended = @text.append(rt::string_view("x".data(), usize::max));
 	rt::test::expect(appended.has<rt::allocation_error>());
 	rt::test::expect(text.data() == storage);
@@ -82,8 +155,12 @@ fn string_capacity_failures_preserve_text() {
 	catch (rt::allocation_error error) {
 		rt::test::expect(error.requested_bytes == usize::max);
 	};
+	var overflow = text + rt::string_view("x".data(), usize::max);
+	rt::test::expect(overflow.has<rt::allocation_error>());
+	rt::test::expect(overflow.get<rt::allocation_error>().requested_bytes == usize::max);
+	rt::test::expect(text == "preserved");
 	try {
-		var oversized = rt::string_view("x".data(), usize::max) + "x";
+		rt::string oversized = text + rt::string_view("x".data(), usize::max);
 		rt::test::expect(false);
 	}
 	catch (rt::allocation_error error) {
@@ -107,7 +184,7 @@ fn string_comparisons_include_embedded_zeroes_and_unsigned_bytes() {
 	rt::test::expect(binary < "a\0c");
 	rt::test::expect(binary <= "a\0b");
 	rt::test::expect(binary >= "a\0b");
-	var joined = binary + "c";
+	rt::string joined = binary + "c";
 	rt::test::expect(joined.size() == 4);
 	rt::test::expect(joined == "a\0bc");
 	char[1] high;

@@ -16,20 +16,20 @@ using InterfaceResult = rt::buffer<InterfaceSource> | interface_error | rt::allo
 fn invalid_interface(rt::string_view message) -> InterfaceResult {
 	interface_error error;
 	@error.message = message;
-	return InterfaceResult($error);
+	return $error;
 };
 
 fn interface_allocation_failure(usize bytes) -> InterfaceResult {
 	rt::allocation_error error;
 	@error.requested_bytes = bytes;
-	return InterfaceResult($error);
+	return $error;
 };
 
 fn decode_interface(rt::string_view bytes, rt::string_view compiler_version, u32 pointer_bits, bool test_access) -> InterfaceResult {
 	try {
 		var document = rt::json_parse(bytes);
 		if (document.has<rt::allocation_error>()) {
-			return InterfaceResult(document.get<rt::allocation_error>());
+			return document.get<rt::allocation_error>();
 		};
 		if (document.has<rt::json_error>()) {
 			return invalid_interface("Malformed Rutile interface JSON.");
@@ -88,10 +88,10 @@ fn decode_interface(rt::string_view bytes, rt::string_view compiler_version, u32
 			@source.access = access;
 			@sources.push_back($source);
 		};
-		return InterfaceResult($sources);
+		return $sources;
 	}
 	catch (rt::allocation_error& error) {
-		return InterfaceResult(error);
+		return error;
 	};
 };
 
@@ -140,15 +140,15 @@ fn encode_interface(rt::string_view module, rt::buffer<InterfaceSource>& sources
 		@root.get()->set("declarations", $declarations);
 		rt::string output;
 		rt::json_write(*root.get(), @output);
-		return InterfaceEncoding($output);
+		return $output;
 	}
 	catch (rt::allocation_error& error) {
-		return InterfaceEncoding(error);
+		return error;
 	}
 	catch (rt::json_error& error) {
 		interface_error failure;
 		@failure.message = error.message;
-		return InterfaceEncoding($failure);
+		return $failure;
 	};
 };
 

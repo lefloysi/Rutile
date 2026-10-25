@@ -50,16 +50,16 @@ fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this,
 	@local.build_graph(function);
 	@local.collect(function.body());
 	if (!(@local.walk(function.body(), reference_loan_access::read)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@local.phase = reference_loan_phase::validate;
 	if (!(@local.retain_stores(@*function.body())).has<void>() || !(@local.refresh_array_aliases()).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	rt::buffer<ReferenceLoanPlace> roots;
 	rt::buffer<ReferenceLoanSubstitution> none;
 	if (!(@local.returned_places(*function.body(), @roots, @none, nullptr, depth + 1)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@index = 0;
 	while (index < roots.size()) {
@@ -101,5 +101,4 @@ fn ReferenceLoanAnalyzer::returned_local_places(var ReferenceLoanAnalyzer& this,
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };

@@ -44,6 +44,7 @@ struct TemplateMemberDefinition {
 struct TemplateEngine {
 	fn argument_syntax(TemplateEngine& this, var Syntax& source, template_argument_kind kind) -> var Syntax*;
 	fn aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> Type*;
+	fn aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, syntax_kind operation, var TemplatePack& pack) -> Type*;
 	fn pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var TemplatePack*;
 	fn signature(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var Syntax*;
 	fn validate_pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& signature, TemplatePack& pack) -> CompilationResult;
@@ -183,7 +184,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 		@message.quoted(declaration->token().text());
 		@analyzer.report(declaration->token(), message.view());
 
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (source.kind() == syntax_kind::template_declaration && declaration->kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
@@ -196,7 +197,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 			@message.text("': qualified template member requires a declared owner template");
 			@analyzer.report(source.token(), message.view());
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@analyzer.semantic_unit()->record_name(@analyzer, @scope, @*name->left(), @*owner, 2);
@@ -207,14 +208,14 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 
 		@this.definitions.push_back($definition);
 
-		return CompilationResult();
+		return;
 	};
 
 	if (name->kind() != syntax_kind::name) {
 		if (source.kind() == syntax_kind::function && name->kind() == syntax_kind::qualified_name) {
 			var Entity* owner = @analyzer.lookup(@scope, @*name->left());
 			if (!owner || !(@analyzer.resolve((var Entity*(owner)))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@owner = owner->member_owner();
 			if (!owner || !owner->members()) {
@@ -223,7 +224,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 				diagnostic_name(@message, *name);
 				@message.text("': qualified function owner has no member scope");
 				@analyzer.report(source.token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@analyzer.semantic_unit()->record_name(@analyzer, @scope, @*name->left(), @*owner, 2);
 			return @this.auto_declaration(@analyzer, @*owner->members(), @*owner->members(), @source, scope.access());
@@ -235,7 +236,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 		@message.text("': requires an unqualified name");
 		@analyzer.report(source.token(), message.view());
 
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (source.kind() == syntax_kind::function) {
 		return @this.auto_declaration(@analyzer, @scope, @scope, @source, scope.access());
@@ -251,7 +252,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 		@analyzer.report(source.token(), message.view());
 		@analyzer.note(previous->token(), "conflicting declaration is here");
 
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (previous && declaration->kind() == syntax_kind::record) {
@@ -268,7 +269,7 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 			@analyzer.report(source.token(), message.view());
 			@analyzer.note(previous->token(), "previous template declaration is here");
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (declaration->record_members()->kind() != syntax_kind::noop) {
@@ -280,13 +281,13 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 				@analyzer.report(source.token(), message.view());
 				@analyzer.note(previous->token(), "previous template definition is here");
 
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@previous->replace_declaration(&@source);
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, name->token(), &@source, &@scope);
@@ -294,7 +295,6 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 
 	@pattern->set_state(entity_state::ready);
 
-	return CompilationResult();
 };
 
 fn TemplateEngine::same_parameter_expression(TemplateEngine& this, Syntax& first, Syntax& second, Syntax& first_parameters, Syntax& second_parameters) -> bool {
@@ -383,7 +383,7 @@ fn TemplateEngine::auto_declaration(var TemplateEngine& this, var Analyzer& anal
 			@message.text("': name conflicts with another declaration");
 			@analyzer.report(declaration.token(), message.view());
 			@analyzer.note(previous->token(), "previous declaration is here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!@this.same_auto_signature(@analyzer, @*previous->resolution_scope(), @*previous->declaration(), @bindings, @declaration)) {
 			continue;
@@ -396,21 +396,20 @@ fn TemplateEngine::auto_declaration(var TemplateEngine& this, var Analyzer& anal
 				@message.text("': duplicate function definition");
 				@analyzer.report(declaration.token(), message.view());
 				@analyzer.note(previous->token(), "previous declaration is here");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@previous->replace_declaration(&@declaration);
 			@previous->set_resolution_scope(&@bindings);
 		};
-		return CompilationResult();
+		return;
 	};
 	var Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, name->token(), &@declaration, &@scope);
 	if (!pattern) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@pattern->set_resolution_scope(&@bindings);
 	@pattern->set_access($access);
 	@pattern->set_state(entity_state::ready);
-	return CompilationResult();
 };
 
 fn TemplateEngine::argument_syntax(TemplateEngine& this, var Syntax& source, template_argument_kind kind) -> var Syntax* {
@@ -440,9 +439,9 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 		@result.kind = template_argument_kind::pack;
 		@result.pack = @this.pack(@analyzer, @scope, @input);
 		if (result.pack && (@this.validate_pack(@analyzer, @scope, @*signature, *result.pack)).has<void>()) {
-			return CompilationResult();
+			return;
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (parameter.token().kind == token_kind::kw_typename) {
 		@result.kind = template_argument_kind::type;
@@ -462,25 +461,25 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 			@analyzer.report(input.token(), message.view());
 			@analyzer.note(parameter.token(), "type parameter is declared here");
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@result.type = @analyzer.type(@scope, @*source);
 
 		if (!result.type) {
 			this.argument_context(@analyzer, @pattern, @parameter, usize(position));
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		TypeUse* use = @analyzer.semantic_unit()->describe_type(@analyzer, @scope, *source, *result.type);
 
 		if (!use) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@result.type_use.bind(*use);
 
-		return CompilationResult();
+		return;
 	};
 
 	@result.kind = template_argument_kind::value;
@@ -500,27 +499,27 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 		@message.text("'");
 		@analyzer.report(input.token(), message.view());
 		@analyzer.note(parameter.token(), "value parameter is declared here");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (!expected) {
 		this.argument_context(@analyzer, @pattern, @parameter, usize(position));
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var value = @analyzer.expression(@scope, @*source, rt::optional_ref<const Type>(*expected));
 
 	if (!value.get()) {
 		this.argument_context(@analyzer, @pattern, @parameter, usize(position));
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (expected->kind() == type_kind::floating_point) {
 		ConstantEvaluator evaluator;
 		if (!@evaluator.real(@analyzer, *value.get(), @result.real_value)) {
 			@analyzer.error(source, "template argument must be a compile-time floating-point value");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@result.type = expected;
-		return CompilationResult();
+		return;
 	};
 	if (!@analyzer.constant_integer(*value.get(), @result.value)) {
 		var message = DiagnosticMessage();
@@ -541,12 +540,11 @@ fn TemplateEngine::argument(var TemplateEngine& this, var Analyzer& analyzer, va
 		@analyzer.report(source->token(), message.view());
 		@analyzer.note(parameter.token(), "value parameter is declared here");
 
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@result.type = $expected;
 
-	return CompilationResult();
 };
 
 fn TemplateEngine::argument_context(TemplateEngine& this, var Analyzer& analyzer, var Entity& pattern, var Syntax& parameter, usize position) {
@@ -594,7 +592,6 @@ fn TemplateEngine::bind(var TemplateEngine& this, var Analyzer& analyzer, var Sc
 	@entity->set_integer(u64(argument.value));
 	@entity->set_state(entity_state::ready);
 
-	return CompilationResult();
 };
 
 fn TemplateEngine::apply(var TemplateEngine& this, var Analyzer& analyzer, var Scope& lookup_scope, var Scope& argument_scope, var Syntax& source) -> var Entity* {
@@ -672,7 +669,7 @@ fn TemplateEngine::instantiate(var TemplateEngine& this, var Analyzer& analyzer,
 	var Scope* bindings = @analyzer.semantic_unit()->create_scope(pattern.resolution_scope(), pattern.scope()->owner());
 
 
-	var instance = rt::unique<TemplateInstance>(new var TemplateInstance());
+	var instance = rt::unique<TemplateInstance>(new TemplateInstance());
 
 	if (!instance.get()) {
 		rt::allocation_error error;
@@ -862,7 +859,7 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 			@analyzer.report(definition.source->token(), message.view());
 			@analyzer.note(instance.pattern->token(), "owning template is declared here");
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var Scope* bindings = @analyzer.semantic_unit()->create_scope(instance.entity->members(), (var Entity*(instance.entity)));
@@ -872,7 +869,7 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 
 		while (parameter < parameters->size()) {
 			if (!(@this.bind(@analyzer, @*bindings, @*parameters->item(parameter), instance.arguments.data()[parameter])).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@parameter = parameter + 1;
@@ -884,7 +881,7 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 
 		if (this.qualifier_dependent(@*declaration)) {
 			if (!(@this.auto_declaration(@analyzer, @*instance.entity->members(), @*bindings, @*declaration, access_kind(definition.access))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			continue;
 		};
@@ -892,7 +889,7 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 		var Entity* function = @analyzer.semantic_unit()->create_entity($category, name->token(), declaration, instance.entity->members());
 
 		if (!function) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@function->set_access(access_kind(definition.access));
@@ -903,7 +900,6 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 		};
 	};
 
-	return CompilationResult();
 };
 
 fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual_use, var Syntax& parameters, var rt::buffer<TemplateArgument>& arguments) -> bool {
@@ -1253,13 +1249,13 @@ fn TemplateEngine::qualifications(var TemplateEngine& this, var Analyzer& analyz
 		};
 
 		if (!use) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@use = this.auto_argument(@*parameter->parameter_type(), *use);
 
 		if (!use) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		bool readonly = use->type().qualifier() == type_qualifier::immutable || parameter->parameter_type()->kind() == syntax_kind::type_reference && !value->mutable_access();
@@ -1278,11 +1274,10 @@ fn TemplateEngine::qualifications(var TemplateEngine& this, var Analyzer& analyz
 			@arguments.push_back($argument);
 		}
 		else {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
-	return CompilationResult();
 };
 
 fn TemplateEngine::deduce(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, rt::buffer<rt::unique<SemanticExpression>>& values, var Syntax& request) -> var Entity* {
@@ -1688,7 +1683,7 @@ fn TemplateEngine::collect_signature(var TemplateEngine& this, var Analyzer& ana
 		@message.text("'");
 		@analyzer.report(syntax.item(0)->token(), message.view());
 		@analyzer.note(previous->token(), "previous declaration is here");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var Syntax* signature = syntax.item(1);
 	usize index = 0;
@@ -1696,23 +1691,21 @@ fn TemplateEngine::collect_signature(var TemplateEngine& this, var Analyzer& ana
 		var Syntax* element = signature->item(index);
 		if (element->kind() == syntax_kind::pack_signature_variadic_element && index + 1 != signature->size()) {
 			@analyzer.error(element, "variadic pack signature element must be last");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (element->token().kind != token_kind::kw_typename && !@analyzer.type(@scope, @*element->item(0))) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
 	var Entity* entity = @analyzer.semantic_unit()->create_entity(entity_kind::pack_signature, syntax.item(0)->token(), &@syntax, &@scope);
 	@entity->set_state(entity_state::ready);
-	return CompilationResult();
 };
 
 fn TemplateEngine::bind_pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& name, var Syntax& source, var TemplatePack* pack) -> CompilationResult {
 	var Entity* entity = @analyzer.semantic_unit()->create_entity(entity_kind::pack_binding, name.token(), &@source, &@scope);
 	@entity->set_pack($pack);
 	@entity->set_state(entity_state::ready);
-	return CompilationResult();
 };
 
 fn TemplateEngine::pack_element(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, var TemplateArgument& result) -> CompilationResult {
@@ -1737,33 +1730,33 @@ fn TemplateEngine::pack_element(var TemplateEngine& this, var Analyzer& analyzer
 		};
 	};
 	if (!source) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (source->kind() == syntax_kind::record || source->kind() == syntax_kind::type_tuple || source->kind() == syntax_kind::type_variant || source->kind() == syntax_kind::type_grouping || source->kind() == syntax_kind::type_name || source->kind() == syntax_kind::type_pointer || source->kind() == syntax_kind::type_reference || source->kind() == syntax_kind::type_array || source->kind() == syntax_kind::type_const || source->kind() == syntax_kind::type_mutable || source->kind() == syntax_kind::type_function) {
 		@result.kind = template_argument_kind::type;
 		@result.type = @analyzer.type(@scope, @*source);
 		if (result.type != nullptr) {
-			return CompilationResult();
+			return;
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var value = @analyzer.expression(@scope, @*source, rt::optional_ref<const Type>());
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@result.kind = template_argument_kind::value;
 	@result.type = @analyzer.type_store()->qualified(*value.get()->type(), type_qualifier::mutable);
 	if (result.type->kind() == type_kind::floating_point) {
 		ConstantEvaluator evaluator;
 		if (@evaluator.real(@analyzer, *value.get(), @result.real_value)) {
-			return CompilationResult();
+			return;
 		};
 	}
 	else if (@analyzer.constant_integer(*value.get(), @result.value)) {
-		return CompilationResult();
+		return;
 	};
 	@analyzer.error(source, "pack element must be a compile-time type or scalar value");
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn TemplateEngine::pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> var TemplatePack* {
@@ -1826,7 +1819,7 @@ fn TemplateEngine::validate_pack(var TemplateEngine& this, var Analyzer& analyze
 		@message.text(" elements, received ");
 		@message.number(pack.elements.size());
 		@analyzer.report(signature.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	usize index = 0;
 	while (index < pack.elements.size()) {
@@ -1849,7 +1842,7 @@ fn TemplateEngine::validate_pack(var TemplateEngine& this, var Analyzer& analyze
 			@message.text(" at pack index ");
 			@message.number(index);
 			@analyzer.report(required->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!type) {
 			Type* expected = @analyzer.type(@scope, @*required->item(0));
@@ -1858,12 +1851,11 @@ fn TemplateEngine::validate_pack(var TemplateEngine& this, var Analyzer& analyze
 				@message.text("pack signature value type mismatch at pack index ");
 				@message.number(index);
 				@analyzer.report(required->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn TemplateEngine::pack_value(var TemplateEngine& this, var Analyzer& analyzer, TemplateArgument& argument, var Syntax& source) -> rt::unique<SemanticExpression> {
@@ -1890,23 +1882,22 @@ fn TemplateEngine::check_argument(var TemplateEngine& this, var Analyzer& analyz
 	if (signature) {
 		if (argument.kind != template_argument_kind::pack) {
 			@analyzer.error(&@parameter, "template parameter requires one complete pack argument");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		return @this.validate_pack(@analyzer, @scope, @*signature, *argument.pack);
 	};
 	if (parameter.token().kind == token_kind::kw_typename) {
 		if (argument.kind == template_argument_kind::type) {
-			return CompilationResult();
+			return;
 		};
 		@analyzer.error(&@parameter, "template parameter requires a type argument");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	Type* expected = @analyzer.type(@scope, @*parameter.template_parameter_type());
 	if (argument.kind != template_argument_kind::value || !expected || expected != argument.type) {
 		@analyzer.error(&@parameter, "template value argument type mismatch");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
-	return CompilationResult();
 };
 
 fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, var Syntax& source, var rt::buffer<TemplateArgument>& result) -> CompilationResult {
@@ -1920,7 +1911,7 @@ fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& anal
 	if (variadic) {
 		@trailing = @analyzer.semantic_unit()->create_pack();
 		if (!trailing) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	usize index = 0;
@@ -1941,7 +1932,7 @@ fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& anal
 		if (item->kind() == syntax_kind::pack_expansion) {
 			@expansion = @this.pack(@analyzer, @scope, @*item->item(0));
 			if (!expansion) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		usize count = 1;
@@ -1953,7 +1944,7 @@ fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& anal
 			usize position = result.size();
 			if (position >= fixed && !variadic) {
 				@analyzer.error(item, "too many template arguments");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (position >= fixed) {
 				@position = fixed;
@@ -1963,11 +1954,11 @@ fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& anal
 			if (expansion) {
 				@argument := expansion->elements.data()[offset];
 				if (!(@this.check_argument(@analyzer, @scope, @*parameter, argument)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			}
 			else if (!(@this.argument(@analyzer, @scope, @*item, @*parameter, @pattern, usize(position), @argument)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (variadic && result.size() >= fixed) {
 				PackElementSignature exact;
@@ -1993,7 +1984,6 @@ fn TemplateEngine::normalized_input(var TemplateEngine& this, var Analyzer& anal
 		@argument.kind = template_argument_kind::pack;
 		@argument.pack = trailing;
 		@result.push_back($argument);
-		return CompilationResult();
+		return;
 	};
-	return CompilationResult();
 };

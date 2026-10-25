@@ -1,0 +1,51 @@
+[[test]]
+fn standard_errors_dispatch_descriptions_through_base_references() {
+	rt::allocation_error allocation;
+	rt::test::expect(allocation.kind == rt::allocation_kind::unknown);
+	rt::error& allocation_base = allocation;
+	rt::test::expect(allocation_base.description() == "Memory allocation failed.");
+	rt::empty_buffer_error empty;
+	rt::error& empty_base = empty;
+	rt::test::expect(empty_base.description() == "Cannot remove an element from an empty buffer.");
+	rt::fs::permission_denied_error denied;
+	rt::error& denied_base = denied;
+	rt::test::expect(denied_base.description() == "Permission to access the file was denied.");
+	rt::sys::timeout_error timeout;
+	rt::error& timeout_base = timeout;
+	rt::test::expect(timeout_base.description() == "The process timed out.");
+	var json = rt::json_error("Invalid test document.", 7);
+	rt::error& json_base = json;
+	rt::test::expect(json_base.description() == "Invalid test document.");
+	rt::test::expect(json.offset == 7);
+};
+
+[[test]]
+fn standard_errors_can_be_caught_through_the_common_base() {
+	bool caught = false;
+	try {
+		throw rt::fs::file_not_found_error();
+	}
+	catch (rt::error& failure) {
+		@caught = true;
+		rt::test::expect(failure.description() == "The requested file was not found.");
+	};
+	rt::test::expect(caught);
+};
+
+[[test]]
+fn allocation_errors_preserve_array_kind_and_requested_size_when_thrown() {
+	rt::allocation_error failure;
+	@failure.requested_bytes = 123456;
+	@failure.kind = rt::allocation_kind::array;
+	bool caught = false;
+	try {
+		throw $failure;
+	}
+	catch (rt::allocation_error& received) {
+		@caught = true;
+		rt::test::expect(received.requested_bytes == 123456);
+		rt::test::expect(received.kind == rt::allocation_kind::array);
+		rt::test::expect(received.description() == "Memory allocation failed.");
+	};
+	rt::test::expect(caught);
+};

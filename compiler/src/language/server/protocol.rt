@@ -94,7 +94,7 @@ fn LanguageProtocol::header_name(rt::string_view name, rt::string_view expected)
 
 fn LanguageProtocol::length(rt::string_view text, var usize& result) -> LanguageRequestResult {
 	if (text.empty()) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 
 	usize value = 0;
@@ -102,12 +102,12 @@ fn LanguageProtocol::length(rt::string_view text, var usize& result) -> Language
 	while (index < text.size()) {
 		char character = text.data()[index];
 		if (character < '0' || character > '9') {
-			return LanguageRequestResult(language_request_error());
+			return language_request_error();
 		};
 
 		usize digit = static_cast<usize>(static_cast<i32>(character) - 48);
 		if (value > (usize::max - digit) / 10) {
-			return LanguageRequestResult(language_request_error());
+			return language_request_error();
 		};
 
 		@value = value * 10 + digit;
@@ -115,7 +115,6 @@ fn LanguageProtocol::length(rt::string_view text, var usize& result) -> Language
 	};
 
 	@result = $value;
-	return LanguageRequestResult();
 };
 
 fn LanguageProtocol::read(var LanguageProtocol& this, var rt::string& body) -> language_frame_status {
@@ -231,7 +230,6 @@ fn LanguageProtocol::decimal(var rt::string& output, u64 value) {
 		@count = count - 1;
 		@output.append(rt::string_view(&@digits[count], 1));
 	};
-	return;
 };
 
 fn LanguageProtocol::write(var LanguageProtocol& this, rt::string_view bytes) {
@@ -245,7 +243,6 @@ fn LanguageProtocol::write(var LanguageProtocol& this, rt::string_view bytes) {
 		};
 		@offset = offset + written;
 	};
-	return;
 };
 
 fn LanguageProtocol::send(var LanguageProtocol& this, rt::string_view body) {

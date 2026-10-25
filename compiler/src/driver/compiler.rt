@@ -189,7 +189,7 @@ fn Compiler::next_editor_revision(var Compiler& this) -> u64 {
 
 fn Compiler::expect_target(var Compiler& this, rt::string_view key, u64 revision) -> AnalysisExpectation {
 
-	var fresh = rt::unique<TargetAnalysis>::make();
+	rt::unique<TargetAnalysis> fresh = rt::unique<TargetAnalysis>::make();
 	@fresh.get()->key.append(key);
 	@fresh.get()->expected_revision = revision;
 
@@ -198,11 +198,11 @@ fn Compiler::expect_target(var Compiler& this, rt::string_view key, u64 revision
 	if (found) {
 		if (revision < found->get()->expected_revision) {
 			runtime_mutex_unlock(this.publication_mutex);
-			return AnalysisExpectation(stale_analysis_error());
+			return stale_analysis_error();
 		};
 		@found->get()->expected_revision = revision;
 		runtime_mutex_unlock(this.publication_mutex);
-		return AnalysisExpectation();
+		return;
 	};
 
 	var owned_key = fresh.get()->key.view();
@@ -218,7 +218,6 @@ fn Compiler::expect_target(var Compiler& this, rt::string_view key, u64 revision
 	if (!inserted) {
 		compiler_panic("target is already registered");
 	};
-	return AnalysisExpectation();
 };
 
 fn Compiler::publish_target(var Compiler& this, rt::string_view key, u64 revision, rt::unique<Analysis> analysis) -> analysis_publication {
@@ -226,7 +225,7 @@ fn Compiler::publish_target(var Compiler& this, rt::string_view key, u64 revisio
 		compiler_panic("cannot publish an empty analysis");
 	};
 
-	var next = rt::unique<PublishedAnalysis>::make();
+	rt::unique<PublishedAnalysis> next = rt::unique<PublishedAnalysis>::make();
 	@next.get()->analysis = $analysis;
 
 	runtime_mutex_lock(this.publication_mutex);
@@ -403,7 +402,7 @@ fn Compilation::failure(var Compilation& this, rt::string_view message) -> Compi
 		@this.diagnostics.error(location, message);
 	};
 
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Compilation::output_failure(var Compilation& this, rt::string_view operation, rt::string_view path) -> CompilationResult {
@@ -420,12 +419,12 @@ fn Compilation::output_failure(var Compilation& this, rt::string_view operation,
 		@this.diagnostics.error(location, message.view());
 	};
 
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::string_view entry, i32 optimization, output_kind kind) -> CompilationResult {
 	if (this.analysis->diagnostics().failed() || !this.analysis->semantics()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (output_path.empty()) {
@@ -435,7 +434,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 	if (optimization < 0 || optimization > 3) {
 		return @this.failure("optimization level must be between 0 and 3");
 	};
-	@this.backend = rt::unique<Backend>(new var Backend(@this.diagnostics));
+	@this.backend = rt::unique<Backend>(new Backend(@this.diagnostics));
 	if (!this.backend.get()) {
 		rt::allocation_error error;
 		@error.requested_bytes = sizeof(Backend);
@@ -446,7 +445,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 		if (!this.diagnostics.failed()) {
 			compiler_panic("target initialization failed without a diagnostic");
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (this.backend.get()->pointer_bits() != this.analysis->pointer_bits()) {
@@ -458,7 +457,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 		if (!this.diagnostics.failed()) {
 			compiler_panic("native emission failed without a diagnostic");
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var native_output_path = rt::string(output_path);
@@ -475,7 +474,6 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 		return @this.output_failure("cannot close", output_path);
 	};
 
-	return CompilationResult();
 };
 
 fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_view output_path, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> CompilationResult {
@@ -484,12 +482,12 @@ fn Compiler::emit_target(var Compiler& this, rt::string_view key, rt::string_vie
 		var errors = Diagnostics($diagnostics);
 		Token location;
 		@errors.error(location, "no current target analysis is available for native emission");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (lease.value().diagnostics().failed()) {
 		lease.value().diagnostics().replay(diagnostics);
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var compilation = Compilation(lease.value(), &platform_open_utf8_file, $diagnostics, this.progress);
@@ -506,15 +504,15 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 
 	if (!paths.size()) {
 		@errors.error(location, "no source files");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (output_path.empty()) {
 		@errors.error(location, "native object output path is required");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
-	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
+	var analysis = rt::unique<Analysis>(new Analysis(diagnostics));
 	if (!analysis.get()) {
 		rt::allocation_error error;
 		@error.requested_bytes = sizeof(Analysis);
@@ -529,10 +527,10 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 
 		if (path.empty() || path == output_path) {
 			@errors.error(location, "output cannot overwrite a source file");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!(@analysis.get()->load_source(path, opener)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 		this.progress.report("reading", index, paths.size(), path);
@@ -549,7 +547,7 @@ fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysi
 	};
 	if (!(@analysis.get()->analyze(static_cast<u32>(sizeof(usize) * 8), nullptr, nullptr)).has<void>()) {
 		@this.publish($analysis);
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var compilation = Compilation(*analysis.get(), opener, diagnostics, this.progress);
@@ -574,7 +572,6 @@ fn Compiler::add_module_source(var Compiler& this, rt::string_view path, rt::str
 	@source.module_name = rt::string(name);
 	@source.access = $access;
 	@this.module_sources.push_back($source);
-	return;
 };
 
 fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& paths, rt::buffer<rt::string_view>& texts, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> CompilationResult {
@@ -582,14 +579,14 @@ fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& pa
 	Token location;
 	if (!paths.size() || paths.size() != texts.size()) {
 		@errors.error(location, "source paths and source texts must have matching nonzero counts");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (output_path.empty()) {
 		@errors.error(location, "native object output path is required");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var operation = CompilerOperation(@this);
-	var analysis = rt::unique<Analysis>(new var Analysis(diagnostics));
+	var analysis = rt::unique<Analysis>(new Analysis(diagnostics));
 	if (!analysis.get()) {
 		rt::allocation_error error;
 		@error.requested_bytes = sizeof(Analysis);
@@ -602,7 +599,7 @@ fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& pa
 		rt::string_view path := paths.data()[index];
 		if (path.empty() || path == output_path) {
 			@errors.error(location, "output cannot overwrite a source file");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@analysis.get()->add_source(path, texts.data()[index]);
 		usize module_index = 0;

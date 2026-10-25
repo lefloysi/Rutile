@@ -51,7 +51,6 @@ fn VariantFlowFacts::establish(var VariantFlowFacts& this, var Entity& binding, 
 	@entry.binding = &@binding;
 	@entry.alternative = alternative;
 	@this.entries.push_back($entry);
-	return;
 };
 
 fn VariantFlowFacts::invalidate(var VariantFlowFacts& this, Entity& binding) {
@@ -225,7 +224,7 @@ fn variant_flow_extract(var Analyzer& analyzer, var Syntax& syntax, rt::unique<S
 		return rt::unique<SemanticExpression>();
 	};
 	var result = aggregate_element(@analyzer, @syntax, $element, selected);
-	if (result.get()) {
+	if (result.get() && selected->type()->kind() != type_kind::reference) {
 		@result.get()->set_mutable_access(mutable_access);
 	};
 	return $result;

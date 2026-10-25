@@ -1,4 +1,4 @@
-fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected, bool propagate) -> rt::unique<SemanticExpression> {
 	Type* owner = receiver.get()->type();
 	TemplateInstantiation* instance = owner->entity()->template_arguments();
 	var TemplatePack* elements = instance->arguments.data()[0].pack;
@@ -6,7 +6,8 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 	usize count = 0;
 	usize index = 0;
 	while (index < elements->elements.size()) {
-		if (elements->elements.data()[index].type->same_shape(*target)) {
+		Type* alternative = elements->elements.data()[index].type;
+		if (alternative->same_shape(*target) || alternative->kind() == type_kind::reference && alternative->element()->same_shape(*target)) {
 			@selected = index;
 			@count = count + 1;
 		};
@@ -33,15 +34,22 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 		return @this.convert($result, expected, @syntax);
 	};
 	Type* result_type = elements->elements.data()[selected].type;
+	bool reference_result = result_type->kind() == type_kind::reference;
+	if (reference_result) {
+		@result_type = result_type->element();
+	};
 	bool null_result = result_type->kind() == type_kind::null_type;
 	if (null_result) {
 		@result_type = @this.types->pointer(@this.types->qualified(*result_type, type_qualifier::immutable));
 	};
-	if (owner->qualifier() == type_qualifier::immutable && result_type->kind() != type_kind::void_type) {
+	if (!reference_result && owner->qualifier() == type_qualifier::immutable && result_type->kind() != type_kind::void_type) {
 		@result_type = @this.types->qualified(*result_type, type_qualifier::immutable);
 	};
 	bool mutable_access = receiver.get()->mutable_access();
 	value_category category = receiver.get()->category();
+	if (reference_result) {
+		@mutable_access = result_type->qualifier() == type_qualifier::mutable;
+	};
 	var result = @this.node(semantic_kind::variant_cast, result_type, &@syntax);
 	if (!result.get() || !(@result.get()->append($receiver)).has<void>()) {
 		return rt::unique<SemanticExpression>();
@@ -49,7 +57,12 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 	@result.get()->set_integer(u64(selected + 1));
 	@result.get()->set_mutable_access(mutable_access);
 	if (!null_result && result_type->kind() != type_kind::void_type) {
-		@result.get()->set_category(category);
+		if (reference_result) {
+			@result.get()->set_category(value_category::place);
+		}
+		else {
+			@result.get()->set_category(category);
+		};
 	};
 	@index = 0;
 	while (index < elements->elements.size()) {
@@ -62,8 +75,24 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 			Type* alternative = elements->elements.data()[index].type;
 			if (alternative->kind() == type_kind::null_type) {
 				Type* null_type = @this.types->pointer(@this.types->qualified(*alternative, type_qualifier::immutable));
+				var payload = @this.node(semantic_kind::null_pointer, null_type, &@syntax);
+				if (!payload.get()) {
+					return rt::unique<SemanticExpression>();
+				};
+				if (propagate && this.function) {
+					Type* returned_type = this.function->type()->signature().result();
+					if (@this.argument_rank(*payload.get(), *returned_type) >= 0) {
+						var returned = @this.node(semantic_kind::return_value, this.types->find_primitive("void"), &@syntax);
+						var returned_value = @this.convert($payload, rt::optional_ref<const Type>(*returned_type), @syntax);
+						if (!returned.get() || !returned_value.get() || !(@returned.get()->append($returned_value)).has<void>() || !(@result.get()->append($returned)).has<void>()) {
+							return rt::unique<SemanticExpression>();
+						};
+						@index = index + 1;
+						continue;
+					};
+				};
 				var failure = @this.node(semantic_kind::exception_throw, this.types->find_primitive("void"), &@syntax);
-				if (!failure.get() || !(@failure.get()->append(@this.node(semantic_kind::null_pointer, null_type, &@syntax))).has<void>() || !(@result.get()->append($failure)).has<void>()) {
+				if (!failure.get() || !(@failure.get()->append($payload)).has<void>() || !(@result.get()->append($failure)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 				@index = index + 1;
@@ -84,6 +113,18 @@ fn Analyzer::variant_cast(var Analyzer& this, var Scope& scope, var Syntax& synt
 				return rt::unique<SemanticExpression>();
 			};
 			@payload.get()->set_category(category);
+			if (propagate && this.function) {
+				Type* returned_type = this.function->type()->signature().result();
+				if (@this.argument_rank(*payload.get(), *returned_type) >= 0) {
+					var returned = @this.node(semantic_kind::return_value, this.types->find_primitive("void"), &@syntax);
+					var returned_value = @this.convert($payload, rt::optional_ref<const Type>(*returned_type), @syntax);
+					if (!returned.get() || !returned_value.get() || !(@returned.get()->append($returned_value)).has<void>() || !(@result.get()->append($returned)).has<void>()) {
+						return rt::unique<SemanticExpression>();
+					};
+					@index = index + 1;
+					continue;
+				};
+			};
 			var value = @this.initialize(@syntax, alternative, $payload);
 			if (!value.get()) {
 				return rt::unique<SemanticExpression>();

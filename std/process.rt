@@ -1,37 +1,42 @@
-struct NativeProcess;
-struct ProcessBuffer {
-	char* data;
-	usize size;
-	i32 error;
-};
-struct ProcessStart {
-	var NativeProcess* handle;
-	i32 error;
-};
-struct ProcessOutput {
-	i32 state;
-	i32 exit_code;
-	ProcessBuffer output;
-	ProcessBuffer error;
-};
-fn rutile_process_start(char** arguments, usize count, char* directory, char** environment, usize environment_count, var ProcessStart* result);
-fn rutile_process_write(var NativeProcess* process, char* bytes, usize size) -> i32;
-fn rutile_process_close_input(var NativeProcess* process);
-fn rutile_process_read(var NativeProcess* process, u32 timeout_ms) -> ProcessBuffer*;
-fn rutile_process_wait(var NativeProcess* process, u32 timeout_ms) -> ProcessOutput*;
-fn rutile_process_dispose(var NativeProcess* process);
+struct Process;
+fn rutile_process_start(char** arguments, usize count, char* directory, char** environment, usize environment_count, var void* result);
+fn rutile_process_write(var Process* process, char* bytes, usize size, var void* result);
+fn rutile_process_close_input(var Process* process);
+fn rutile_process_read(var Process* process, u32 timeout_ms, var void* result);
+fn rutile_process_wait(var Process* process, u32 timeout_ms, var void* result);
+fn rutile_process_dispose(var Process* process);
 
 namespace rt::sys {
-	export struct launch_error {
+	export struct launch_error : [rt::error] {
+		fn description(launch_error& this) -> rt::string_view : [override];
 	};
 
-	export struct timeout_error {
+	export fn launch_error::description(launch_error& this) -> rt::string_view {
+		return "The process could not be started.";
 	};
 
-	export struct io_error {
+	export struct timeout_error : [rt::error] {
+		fn description(timeout_error& this) -> rt::string_view : [override];
 	};
 
-	export struct invalid_environment_error {
+	export fn timeout_error::description(timeout_error& this) -> rt::string_view {
+		return "The process timed out.";
+	};
+
+	export struct io_error : [rt::error] {
+		fn description(io_error& this) -> rt::string_view : [override];
+	};
+
+	export fn io_error::description(io_error& this) -> rt::string_view {
+		return "The process I/O operation failed.";
+	};
+
+	export struct invalid_environment_error : [rt::error] {
+		fn description(invalid_environment_error& this) -> rt::string_view : [override];
+	};
+
+	export fn invalid_environment_error::description(invalid_environment_error& this) -> rt::string_view {
+		return "The process environment entry is invalid.";
 	};
 	export struct Command {
 		rt::buffer<rt::string> arguments;
@@ -46,14 +51,14 @@ namespace rt::sys {
 	};
 
 	export struct Result {
-		i32 exit_code = -1;
+		i32 exit_code = 0;
 		rt::string output;
 		rt::string error;
 	};
 
 	export struct Session {
 		fn Session(var Session& this) : [default];
-		fn Session(var Session& this, var NativeProcess* process);
+		fn Session(var Session& this, var Process* process);
 		fn Session(var Session& this, Session& other) : [delete];
 		fn ~Session(var Session& this);
 		fn valid(Session& this) -> bool;
@@ -63,45 +68,28 @@ namespace rt::sys {
 		fn wait(var Session& this, u32 timeout_ms) -> Result | launch_error | timeout_error | io_error | rt::allocation_error;
 
 	private:
-		var NativeProcess* handle;
+		var Process* handle = nullptr;
 	};
 
 	export fn Command::Command(var Command& this, rt::string_view executable) {
-		var appended = @this.arguments.push_back(rt::string(executable));
-		if (appended.has<rt::allocation_error>()) {
-			throw rt::allocation_error(appended.get<rt::allocation_error>());
-		};
+		@this.arguments.push_back(rt::string(executable));
 	};
 
 	export fn Command::argument(var Command& this, rt::string_view value) -> void | rt::allocation_error {
-		using Result = void | rt::allocation_error;
-		try {
-			return @this.arguments.push_back(rt::string(value));
-		}
-		catch (rt::allocation_error error) {
-			return Result($error);
-		};
+		rt::string argument;
+		@argument.append(value);
+		@this.arguments.push_back($argument);
 	};
 
 	export fn Command::environment(var Command& this, rt::string_view name, rt::string_view value) -> void | invalid_environment_error | rt::allocation_error {
-		using Result = void | invalid_environment_error | rt::allocation_error;
 		if (name.empty() || name.contains("=") || name.contains("\0") || value.contains("\0")) {
 			invalid_environment_error error;
-			return Result($error);
+			return $error;
 		};
-		try {
-			var appended = @this.environment_overrides.push_back(name + "=" + value);
-			if (appended.has<rt::allocation_error>()) {
-				return Result(appended.get<rt::allocation_error>());
-			};
-			return Result();
-		}
-		catch (rt::allocation_error error) {
-			return Result($error);
-		};
+		@this.environment_overrides.push_back(name + "=" + value);
 	};
 
-	export fn Session::Session(var Session& this, var NativeProcess* process) {
+	export fn Session::Session(var Session& this, var Process* process) {
 		@this.handle = $process;
 	};
 
@@ -113,23 +101,92 @@ namespace rt::sys {
 		return this.handle != nullptr;
 	};
 
-	export fn Session::write(var Session& this, rt::string_view input) -> void | io_error | rt::allocation_error {
-		using Result = void | io_error | rt::allocation_error;
-		if (!this.handle) {
-			io_error error;
-			return Result($error);
-		};
-		i32 failure = rutile_process_write(this.handle, input.data(), input.size());
-		if (failure == 3) {
-			rt::allocation_error error;
-			return Result($error);
-		};
-		if (failure) {
-			io_error error;
-			return Result($error);
-		};
-		return Result();
+	using WriteResult = void | io_error | rt::allocation_error;
+	using ReadResult = rt::string | io_error | rt::allocation_error;
+	using WaitResult = Result | launch_error | timeout_error | io_error | rt::allocation_error;
+	using StartResult = Session | launch_error | rt::allocation_error;
+
+	fn "C" rutile_process_start_complete(var void* storage, var Process* process) {
+		@*reinterpret_cast<var StartResult*>(storage) = Session(process);
 	};
+	fn "C" rutile_process_start_launch_error(var void* storage) {
+		@*reinterpret_cast<var StartResult*>(storage) = launch_error();
+	};
+	fn "C" rutile_process_start_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var StartResult*>(storage) = $error;
+	};
+	fn "C" rutile_process_write_complete(var void* storage) {
+		@*reinterpret_cast<var WriteResult*>(storage) = WriteResult();
+	};
+	fn "C" rutile_process_write_io_error(var void* storage) {
+		@*reinterpret_cast<var WriteResult*>(storage) = io_error();
+	};
+	fn "C" rutile_process_write_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.kind = rt::allocation_kind::array;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var WriteResult*>(storage) = $error;
+	};
+	fn "C" rutile_process_read_complete(var void* storage, char* bytes, usize size) -> usize {
+		var ReadResult& result = @*reinterpret_cast<var ReadResult*>(storage);
+		rt::string text;
+		var appended = @text.append(rt::string_view(bytes, size));
+		if (appended.has<rt::allocation_error>()) {
+			@result = appended.get<rt::allocation_error>();
+			return 0;
+		};
+		@result = $text;
+		return $size;
+	};
+	fn "C" rutile_process_read_io_error(var void* storage) {
+		@*reinterpret_cast<var ReadResult*>(storage) = io_error();
+	};
+	fn "C" rutile_process_read_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.kind = rt::allocation_kind::array;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var ReadResult*>(storage) = $error;
+	};
+	fn "C" rutile_process_wait_complete(var void* storage, i32 exit_code, char* output, usize output_size, char* error, usize error_size) {
+		var WaitResult& outcome = @*reinterpret_cast<var WaitResult*>(storage);
+		Result result;
+		@result.exit_code = $exit_code;
+		var copied_output = @result.output.append(rt::string_view(output, output_size));
+		if (copied_output.has<rt::allocation_error>()) {
+			@outcome = copied_output.get<rt::allocation_error>();
+			return;
+		};
+		var copied_error = @result.error.append(rt::string_view(error, error_size));
+		if (copied_error.has<rt::allocation_error>()) {
+			@outcome = copied_error.get<rt::allocation_error>();
+			return;
+		};
+		@outcome = $result;
+	};
+	fn "C" rutile_process_wait_timeout_error(var void* storage) {
+		@*reinterpret_cast<var WaitResult*>(storage) = timeout_error();
+	};
+	fn "C" rutile_process_wait_io_error(var void* storage) {
+		@*reinterpret_cast<var WaitResult*>(storage) = io_error();
+	};
+	fn "C" rutile_process_wait_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.kind = rt::allocation_kind::array;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var WaitResult*>(storage) = $error;
+	};
+
+	export fn Session::write(var Session& this, rt::string_view input) -> void | io_error | rt::allocation_error {
+		if (!this.handle) {
+			return io_error();
+		};
+		WriteResult result;
+		rutile_process_write(this.handle, input.data(), input.size(), &@result);
+		return $result;
+	};
+
 	export fn Session::close_input(var Session& this) {
 		if (this.handle) {
 			rutile_process_close_input(this.handle);
@@ -137,110 +194,47 @@ namespace rt::sys {
 	};
 
 	export fn Session::read(var Session& this, u32 timeout_ms) -> rt::string | io_error | rt::allocation_error {
-		using Outcome = rt::string | io_error | rt::allocation_error;
 		if (!this.handle) {
-			io_error error;
-			return Outcome($error);
+			return io_error();
 		};
-		var output = rutile_process_read(this.handle, timeout_ms);
-		if (output->error == 3) {
-			rt::allocation_error error;
-			return Outcome($error);
-		};
-		if (output->error) {
-			io_error error;
-			return Outcome($error);
-		};
-		rt::string bytes;
-		var copied = @bytes.append(rt::string_view(output->data, output->size));
-		if (copied.has<rt::allocation_error>()) {
-			return Outcome(copied.get<rt::allocation_error>());
-		};
-		return Outcome($bytes);
+		ReadResult result;
+		rutile_process_read(this.handle, timeout_ms, &@result);
+		return $result;
 	};
 
 	export fn Session::wait(var Session& this, u32 timeout_ms) -> Result | launch_error | timeout_error | io_error | rt::allocation_error {
-		using Outcome = Result | launch_error | timeout_error | io_error | rt::allocation_error;
 		if (!this.handle) {
-			launch_error error;
-			return Outcome($error);
+			return launch_error();
 		};
-		var output = rutile_process_wait(this.handle, timeout_ms);
-		if (output->state == 3) {
-			rt::allocation_error error;
-			return Outcome($error);
-		};
-		if (output->state == 4) {
-			io_error error;
-			return Outcome($error);
-		};
-		if (output->state == 1) {
-			launch_error error;
-			return Outcome($error);
-		};
-		if (output->state == 2) {
-			timeout_error error;
-			return Outcome($error);
-		};
-		Result result;
-		@result.exit_code = output->exit_code;
-		var copied_output = @result.output.append(rt::string_view(output->output.data, output->output.size));
-		if (copied_output.has<rt::allocation_error>()) {
-			return Outcome(copied_output.get<rt::allocation_error>());
-		};
-		var copied_error = @result.error.append(rt::string_view(output->error.data, output->error.size));
-		if (copied_error.has<rt::allocation_error>()) {
-			return Outcome(copied_error.get<rt::allocation_error>());
-		};
-		return Outcome($result);
+		WaitResult result;
+		rutile_process_wait(this.handle, timeout_ms, &@result);
+		return $result;
 	};
 
 	export fn start(Command& command) -> Session | launch_error | rt::allocation_error {
-		using Outcome = Session | launch_error | rt::allocation_error;
 		rt::buffer<char*> pointers;
 		for (usize index = 0; index < command.arguments.size(); @index = index + 1) {
-			var appended = @pointers.push_back(command.arguments.data()[index].c_str());
-			if (appended.has<rt::allocation_error>()) {
-				return Outcome(appended.get<rt::allocation_error>());
-			};
+			@pointers.push_back(command.arguments.data()[index].c_str());
 		};
 		rt::buffer<char*> environment;
 		for (usize index = 0; index < command.environment_overrides.size(); @index = index + 1) {
-			var appended = @environment.push_back(command.environment_overrides.data()[index].c_str());
-			if (appended.has<rt::allocation_error>()) {
-				return Outcome(appended.get<rt::allocation_error>());
-			};
+			@environment.push_back(command.environment_overrides.data()[index].c_str());
 		};
-		ProcessStart started;
-		rutile_process_start(pointers.data(), pointers.size(), command.working_directory.c_str(), environment.data(), environment.size(), &@started);
-		if (started.error == 3) {
-			rt::allocation_error error;
-			return Outcome($error);
-		};
-		if (started.error || !started.handle) {
-			launch_error error;
-			return Outcome($error);
-		};
-		return Outcome(Session(started.handle));
+		StartResult result;
+		rutile_process_start(pointers.data(), pointers.size(), command.working_directory.c_str(), environment.data(), environment.size(), &@result);
+		return $result;
 	};
 
 	export fn cmd(Command& command) -> Result | launch_error | timeout_error | io_error | rt::allocation_error {
-		using Outcome = Result | launch_error | timeout_error | io_error | rt::allocation_error;
 		var started = start(command);
 		if (started.has<launch_error>()) {
-			return Outcome(started.get<launch_error>());
+			return started.get<launch_error>();
 		};
 		if (started.has<rt::allocation_error>()) {
-			return Outcome(started.get<rt::allocation_error>());
+			return started.get<rt::allocation_error>();
 		};
 		var Session& session = (@started).get<Session>();
-		var written = @session.write(command.input);
-		if (written.has<io_error>()) {
-			return Outcome(written.get<io_error>());
-		};
-		if (written.has<rt::allocation_error>()) {
-			return Outcome(written.get<rt::allocation_error>());
-		};
+		@session.write(command.input);
 		@session.close_input();
 		return @session.wait(command.timeout_ms);
 	};

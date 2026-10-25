@@ -236,7 +236,7 @@ fn Backend::symbol(Backend& this, var Entity* entity) -> var LLVMOpaqueValue* {
 
 fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult {
 	if (!this.required(entity) || this.symbol((var Entity*(entity)))) {
-		return CompilationResult();
+		return;
 	};
 
 	if (!entity->type()) {
@@ -244,7 +244,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 	};
 
 	if (entity->kind() == entity_kind::function && (entity->definition() == function_definition::declaration || entity->linkage() == function_linkage::c) && !(@this.external_signature(entity)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	rt::string name;
@@ -278,7 +278,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 		while (parameter < entity->parameters().size()) {
 			var Entity* argument = entity->parameters().data()[parameter];
 			if (!@this.type(argument->type(), argument->token())) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@parameter = parameter + 1;
 		};
@@ -286,7 +286,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 	var LLVMOpaqueType* type = @this.type(entity->type(), entity->token());
 
 	if (!type) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var LLVMOpaqueValue* value;
@@ -351,7 +351,6 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 
 	@this.entities.push_back($native);
 
-	return CompilationResult();
 };
 
 fn Backend::required(Backend& this, var Entity* entity) -> bool {

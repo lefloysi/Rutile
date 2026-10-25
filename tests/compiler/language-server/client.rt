@@ -20,24 +20,23 @@ struct LspFiles {
 	};
 
 	fn execute(var LspFiles& this, rt::string_view requests) -> i32 | rt::fs::file_io_error {
-		using Result = i32 | rt::fs::file_io_error;
 		if (!this.input || !this.output || fwrite(requests.data(), 1, requests.size(), this.input) != requests.size()) {
 			rt::fs::file_io_error error;
-			return Result($error);
+			return $error;
 		};
 		rewind(this.input);
 		Compiler compiler;
 		var protocol = LanguageProtocol(@*this.input, @*this.output);
 		var workspace = LanguageWorkspace(@compiler, @protocol, ".");
 		var server = LanguageServer(@protocol, @workspace);
-		return Result(@server.run());
+		return @server.run();
 	};
 };
 
 fn lsp_frame(rt::string_view body) -> rt::string {
 	var length = rt::json_value::make_unsigned(u64(body.size()));
 	rt::test::expect(length.get());
-	return "Content-Length: " + length.get()->text() + "\r\n\r\n" + body;
+	return rt::string("Content-Length: ") + length.get()->text() + "\r\n\r\n" + body;
 };
 
 fn lsp_response(var LanguageProtocol& protocol, i64 expected) -> rt::json_document {

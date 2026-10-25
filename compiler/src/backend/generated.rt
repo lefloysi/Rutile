@@ -7,17 +7,16 @@ enum component_transfer : [u08] {
 fn FunctionEmitter::initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
 	usize begin = this.unwinds.size();
 	if (!(@this.initialize_body(type, address)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@this.forget_unwinds(begin);
-	return CompilationResult();
 };
 
 fn FunctionEmitter::initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), address);
@@ -27,7 +26,7 @@ fn FunctionEmitter::initialize_body(var FunctionEmitter& this, Type* type, var L
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* record = type->entity();
@@ -45,16 +44,24 @@ fn FunctionEmitter::initialize_body(var FunctionEmitter& this, Type* type, var L
 			@message.text("'");
 			discard @this.backend->error(constructor->token(), message.view());
 			@this.backend->note(constructor->token(), "function is declared deleted here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var LLVMOpaqueValue*[1] inputs {};
 		@inputs[0] = address;
-		if (!@this.native_call(@this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 1)) {
-			return CompilationResult(compilation_error());
+		var LLVMOpaqueValue* callee = this.backend->symbol(constructor);
+		if (!callee) {
+			DiagnosticMessage message;
+			@message.text("default construction has no native callee for '");
+			diagnostic_entity(@message, *constructor);
+			@message.text("'");
+			compiler_panic(message.view());
+		};
+		if (!@this.native_call(@this.backend->type(constructor->type(), constructor->token()), callee, &@inputs[0], 1)) {
+			return compilation_error();
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	return @this.initialize_members(type, address);
@@ -63,17 +70,16 @@ fn FunctionEmitter::initialize_body(var FunctionEmitter& this, Type* type, var L
 fn FunctionEmitter::copy_initialize(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult {
 	usize begin = this.unwinds.size();
 	if (!(@this.copy_initialize_body(type, destination, source)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@this.forget_unwinds(begin);
-	return CompilationResult();
 };
 
 fn FunctionEmitter::copy_initialize_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -83,7 +89,7 @@ fn FunctionEmitter::copy_initialize_body(var FunctionEmitter& this, Type* type, 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
 		discard LLVMBuildStore(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), native, source, "copied\0".data()), destination);
 
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* record = type->entity();
@@ -101,7 +107,7 @@ fn FunctionEmitter::copy_initialize_body(var FunctionEmitter& this, Type* type, 
 			@message.text("'");
 			discard @this.backend->error(constructor->token(), message.view());
 			@this.backend->note(constructor->token(), "function is declared deleted here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (record->layout() == record_layout::overlapping && constructor->definition() != function_definition::defaulted) {
@@ -112,10 +118,10 @@ fn FunctionEmitter::copy_initialize_body(var FunctionEmitter& this, Type* type, 
 		@inputs[0] = destination;
 		@inputs[1] = source;
 		if (!@this.native_call(@this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 2)) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	return @this.copy_members(type, destination, source);
@@ -125,7 +131,7 @@ fn FunctionEmitter::move_initialize(var FunctionEmitter& this, Type* type, var L
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "move.source\0".data());
@@ -144,17 +150,17 @@ fn FunctionEmitter::move_initialize(var FunctionEmitter& this, Type* type, var L
 			@message.text("'");
 			discard @this.backend->error(constructor->token(), message.view());
 			@this.backend->note(constructor->token(), "function is declared deleted here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var LLVMOpaqueValue*[2] inputs {};
 		@inputs[0] = destination;
 		@inputs[1] = value;
 		if (!@this.native_call(@this.backend->type(constructor->type(), constructor->token()), this.backend->symbol(constructor), &@inputs[0], 2)) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	return @this.copy_representation(type, destination, source);
@@ -175,7 +181,7 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 		discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(@this.backend->type(type, function->token())), destination);
 
 		if (!(@this.initialize_members(type, destination)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	}
 	else if (function->role() == function_role::constructor && function->parameters().size() == 2) {
@@ -185,12 +191,12 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 			var LLVMOpaqueValue* input = LLVMGetParam(this.function, 1);
 
 			if (!(@this.copy_members(type, destination, input)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else {
 			if (!(@this.copy_representation(type, destination, this.storage(source))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@this.binding_live(source, false);
@@ -201,16 +207,16 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 
 		if (source->type()->kind() == type_kind::reference) {
 			if (!(@this.copy_assign_members(type, destination, LLVMGetParam(this.function, 1))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else {
 			if (!(@this.destroy(type, destination)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (!(@this.move_initialize(type, destination, this.storage(source))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@this.binding_live(source, false);
@@ -221,7 +227,7 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 	};
 
 	if (!(@this.cleanup_bindings(0)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (this.result->kind() == type_kind::void_type) {
@@ -234,7 +240,6 @@ fn FunctionEmitter::generated(var FunctionEmitter& this, var Entity* function) -
 		discard LLVMBuildRet(this.backend->builder(), LLVMBuildLoad2(this.backend->builder(), @this.backend->type(this.result, function->token()), destination, "generated.result\0".data()));
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source, component_transfer operation) -> CompilationResult {
@@ -265,18 +270,18 @@ fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, Type* type, var
 
 		if (operation == component_transfer::copy_assign) {
 			if (!(@this.copy_assign(type->element(), output, input)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else {
 			if (!(@this.copy_initialize(type->element(), output, input)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 	}
 	else {
 		if (!(@this.initialize(type->element(), output)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -296,16 +301,14 @@ fn FunctionEmitter::transfer_elements(var FunctionEmitter& this, Type* type, var
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 	@this.forget_unwinds(unwind_begin);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::initialize_value(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* expression) -> CompilationResult {
 	usize begin = this.unwinds.size();
 	if (!(@this.initialize_value_body(type, address, expression)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@this.forget_unwinds(begin);
-	return CompilationResult();
 };
 
 fn FunctionEmitter::initialize_value_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* expression) -> CompilationResult {
@@ -317,12 +320,12 @@ fn FunctionEmitter::initialize_value_body(var FunctionEmitter& this, Type* type,
 		var LLVMOpaqueValue* value = @this.address(expression);
 
 		if (!value) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		discard LLVMBuildStore(this.backend->builder(), value, address);
 
-		return CompilationResult();
+		return;
 	};
 
 	if (expression->kind() == semantic_kind::construction && expression->category() == value_category::consumable) {
@@ -332,14 +335,14 @@ fn FunctionEmitter::initialize_value_body(var FunctionEmitter& this, Type* type,
 	var LLVMOpaqueValue* value = @this.take(expression);
 
 	if (!value) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record && type->entity()->move_constructor()) {
 		var LLVMOpaqueValue* source = @this.slot(type);
 
 		if (!source) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		discard LLVMBuildStore(this.backend->builder(), value, source);
@@ -349,51 +352,48 @@ fn FunctionEmitter::initialize_value_body(var FunctionEmitter& this, Type* type,
 
 	discard LLVMBuildStore(this.backend->builder(), value, address);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::finish_expression(var FunctionEmitter& this) -> CompilationResult {
 	if (!(@this.cleanup_temporaries(0)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.forget_temporaries(0);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::copy_representation(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult {
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() != type_kind::array && (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record)) {
 		var LLVMOpaqueValue* value = LLVMBuildLoad2(this.backend->builder(), native, source, "transfer.value\0".data());
 		discard LLVMBuildStore(this.backend->builder(), value, destination);
 
-		return CompilationResult();
+		return;
 	};
 
 	u64 size = LLVMABISizeOfType(this.backend->layout(), native);
 	var LLVMOpaqueValue* bytes = LLVMConstInt(LLVMIntTypeInContext(this.backend->context(), 64), size, 0);
 	discard LLVMBuildMemCpy(this.backend->builder(), destination, 0, source, 0, bytes);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::initialize_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
 	var Entity* record = type->entity();
 
 	if (record->layout() == record_layout::overlapping) {
-		return CompilationResult();
+		return;
 	};
 
 	var LLVMOpaqueType* native = @this.backend->type(type);
 
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	usize index = 0;
@@ -402,7 +402,7 @@ fn FunctionEmitter::initialize_members(var FunctionEmitter& this, Type* type, va
 		var LLVMOpaqueValue* base = LLVMBuildStructGEP2(this.backend->builder(), native, address, static_cast<u32>(index), "initialize.base\0".data());
 
 		if (!(@this.initialize(record->bases().data()[index], base)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@this.retain_unwind(record->bases().data()[index], base, nullptr, nullptr);
 
@@ -410,7 +410,7 @@ fn FunctionEmitter::initialize_members(var FunctionEmitter& this, Type* type, va
 	};
 
 	if (!(@this.initialize_dispatch(type, address)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@index = 0;
@@ -432,18 +432,17 @@ fn FunctionEmitter::initialize_members(var FunctionEmitter& this, Type* type, va
 		usize temporary_boundary = this.temporaries.size();
 
 		if (!(@this.initialize_value(field->type(), member, field->body())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@this.retain_unwind(field->type(), member, nullptr, nullptr);
 		if (!(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@this.forget_temporaries(temporary_boundary);
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::copy_members(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult {
@@ -461,7 +460,7 @@ fn FunctionEmitter::copy_members(var FunctionEmitter& this, Type* type, var LLVM
 		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "copy.base.source\0".data());
 
 		if (!(@this.copy_initialize(record->bases().data()[index], output, input)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@this.retain_unwind(record->bases().data()[index], output, nullptr, nullptr);
 
@@ -469,7 +468,7 @@ fn FunctionEmitter::copy_members(var FunctionEmitter& this, Type* type, var LLVM
 	};
 
 	if (!(@this.initialize_dispatch(type, destination)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@index = 0;
@@ -481,14 +480,13 @@ fn FunctionEmitter::copy_members(var FunctionEmitter& this, Type* type, var LLVM
 		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "copy.field.source\0".data());
 
 		if (!(@this.copy_initialize(field->type(), output, input)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@this.retain_unwind(field->type(), output, nullptr, nullptr);
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::copy_assign(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* destination, var LLVMOpaqueValue* source) -> CompilationResult {
@@ -518,7 +516,7 @@ fn FunctionEmitter::copy_assign(var FunctionEmitter& this, Type* type, var LLVMO
 	var LLVMOpaqueValue* source_slot = @this.slot(assignment->source().type());
 
 	if (!destination_slot || !source_slot) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	discard LLVMBuildStore(this.backend->builder(), destination, destination_slot);
@@ -528,7 +526,7 @@ fn FunctionEmitter::copy_assign(var FunctionEmitter& this, Type* type, var LLVMO
 	@this.bind(&@assignment->source(), source_slot);
 
 	if (!@this.value(&@assignment->expression()) || !(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.forget_temporaries(temporary_boundary);
@@ -551,7 +549,7 @@ fn FunctionEmitter::copy_assign_members(var FunctionEmitter& this, Type* type, v
 		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, static_cast<u32>(index), "assign.base.source\0".data());
 
 		if (!(@this.copy_assign(record->bases().data()[index], output, input)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -566,11 +564,10 @@ fn FunctionEmitter::copy_assign_members(var FunctionEmitter& this, Type* type, v
 		var LLVMOpaqueValue* input = LLVMBuildStructGEP2(this.backend->builder(), native, source, component, "assign.field.source\0".data());
 
 		if (!(@this.copy_assign(field->type(), output, input)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };

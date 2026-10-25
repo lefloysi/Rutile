@@ -3,7 +3,7 @@ fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* 
 	usize temporaries = this.temporaries.size();
 
 	if (!(@this.statement(expression->item(0))).has<void>() || !(@this.statement(expression->item(1))).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (this.terminated()) {
@@ -14,7 +14,7 @@ fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* 
 
 	if (expression->type()->kind() == type_kind::void_type) {
 		if (!(@this.statement(yielded)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	}
 	else if (form == native_evaluation::address) {
@@ -32,14 +32,13 @@ fn FunctionEmitter::sequence(var FunctionEmitter& this, var SemanticExpression* 
 	};
 
 	if (expression->type()->kind() != type_kind::void_type && !result) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (!(@this.cleanup_temporaries(temporaries)).has<void>() || !(@this.leave_scope(bindings)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.forget_temporaries(temporaries);
 
-	return CompilationResult();
 };

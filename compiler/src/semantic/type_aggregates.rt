@@ -1,10 +1,10 @@
 fn Analyzer::configure_variant_default(var Analyzer& this, var Entity& record) -> CompilationResult {
 	if (!variant_instance(record)) {
-		return CompilationResult();
+		return;
 	};
 	TemplateInstantiation* instance = record.template_arguments();
 	if (instance->arguments.size() != 1 || !instance->arguments.data()[0].pack) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var TemplatePack* elements = instance->arguments.data()[0].pack;
 	configure_variant_copy(@record);
@@ -18,25 +18,24 @@ fn Analyzer::configure_variant_default(var Analyzer& this, var Entity& record) -
 		@index = index + 1;
 	};
 	if (!available) {
-		return CompilationResult();
+		return;
 	};
 	var Entity* constructor = @this.supply_special(&@record, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
 	if (!constructor) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@constructor->set_definition(function_definition::defaulted);
 	@record.set_default_constructor(constructor);
 	var Entity* tag = record.find_member("_index");
 	if (!tag || !(@this.resolve(tag)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	Token location = tag->token();
 	var initializer = SemanticExpression::make(semantic_kind::literal_integer, tag->type(), location);
 	if (!initializer.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@initializer.get()->set_integer(1);
 	@tag->set_body($initializer);
 	@tag->set_body_state(entity_state::ready);
-	return CompilationResult();
 };

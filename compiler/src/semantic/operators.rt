@@ -198,7 +198,7 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 
 fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
 	Token operation = syntax.token();
-	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
+	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy || operation.kind == token_kind::op_plus_assign;
 	bool logical = operation.kind == token_kind::op_and || operation.kind == token_kind::op_or;
 	bool comparison = operation.kind == token_kind::op_equal || operation.kind == token_kind::op_not_equal || operation.kind == token_kind::op_less || operation.kind == token_kind::op_greater || operation.kind == token_kind::op_less_equal || operation.kind == token_kind::op_greater_equal;
 	rt::optional_ref<const Type> left_context;
@@ -304,12 +304,12 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 			return rt::unique<SemanticExpression>();
 		};
 	};
-	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy;
+	bool assignment = operation.kind == token_kind::op_assign || operation.kind == token_kind::op_copy || operation.kind == token_kind::op_plus_assign;
 	if (assignment) {
 		Type* alternative = variant_flow_known(this.variant_facts, *right.get());
 		var Entity* binding = variant_flow_binding(*left.get());
 		@this.variant_facts.clear();
-		if (binding) {
+		if (binding && operation.kind != token_kind::op_plus_assign) {
 			if (alternative) {
 				@this.variant_facts.establish(@*binding, alternative);
 			};
@@ -375,6 +375,11 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 		@arguments.push_back($right);
 
 		return @this.overloaded(@scope, @syntax, $arguments, expected);
+	};
+
+	if (operation.kind == token_kind::op_plus_assign) {
+		diagnostic_binary_operands(@*this.diagnostics, @syntax, "operator += requires an applicable overload", *type, *other);
+		return rt::unique<SemanticExpression>();
 	};
 
 	if (assignment) {
@@ -459,7 +464,7 @@ fn Analyzer::cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 
 	Type* source = value.get()->type();
 	if (operation.kind == token_kind::punct_left_paren && aggregate_access_kind(source) == 2) {
-		return @this.variant_cast(@scope, @syntax, target, $value, expected);
+		return @this.variant_cast(@scope, @syntax, target, $value, expected, false);
 	};
 	if (operation.kind == token_kind::punct_left_paren) {
 		@this.error(&@syntax, "parenthesized access casts require a variant operand");

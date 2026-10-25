@@ -54,7 +54,6 @@ fn FactState::record_aggregate(var FactState& this, SemanticExpression* expressi
 	@entry.place = place;
 	@entry.value = $value;
 	@this.aggregate_evaluated.push_back($entry);
-	return;
 };
 
 fn fact_aggregate_shape(Type* type, usize depth, var usize& budget) -> bool {
@@ -178,7 +177,7 @@ fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, Semantic
 	if (relocation && destination && !this.aggregate_move(initializer) && this.aggregate_moves.size() < 128) {
 		usize source = @this.place(relocation->item(0));
 		if (source && this.places.data()[source - 1].root->kind() == entity_kind::local && this.places.data()[destination - 1].root->kind() == entity_kind::local && !fact_aggregate_descendant(this.places, source, destination) && !fact_aggregate_descendant(this.places, destination, source)) {
-			var move = rt::unique<FactAggregateMove>::make();
+			rt::unique<FactAggregateMove> move = rt::unique<FactAggregateMove>::make();
 			@move.get()->initializer = initializer;
 			@move.get()->relocation = relocation;
 			@move.get()->source = source;
@@ -191,7 +190,6 @@ fn InferredFacts::collect_aggregate_move_nodes(var InferredFacts& this, Semantic
 		@this.collect_aggregate_move_nodes(expression->item(child));
 		@child = child + 1;
 	};
-	return;
 };
 
 fn InferredFacts::project_aggregate_place(var InferredFacts& this, usize place, usize source, usize destination, usize depth) -> usize {
@@ -262,7 +260,6 @@ fn InferredFacts::collect_aggregate_moves(var InferredFacts& this, SemanticExpre
 		@iteration = iteration + 1;
 	};
 	@this.aggregate_moves.clear();
-	return;
 };
 
 fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression* expression, var FactState& state) {
@@ -279,7 +276,6 @@ fn InferredFacts::capture_aggregate(var InferredFacts& this, SemanticExpression*
 		};
 		@index = index + 1;
 	};
-	return;
 };
 
 fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpression* initializer, var FactState& state) {
@@ -294,5 +290,4 @@ fn InferredFacts::apply_aggregate_move(var InferredFacts& this, SemanticExpressi
 		@((@state.places).data()[projection.destination - 1]) = state.aggregate_value(move->relocation, projection.source);
 		@field = field + 1;
 	};
-	return;
 };

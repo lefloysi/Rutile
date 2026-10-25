@@ -131,7 +131,7 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 						rt::buffer<ReferenceLoanPlace> roots;
 						rt::buffer<ReferenceLoanSubstitution> substitutions;
 						if (!(@this.places(*expression.item(1)->item(argument), @roots, @substitutions, &@function, 0)).has<void>()) {
-							return CompilationResult(compilation_error());
+							return compilation_error();
 						};
 						usize formal = 0;
 						while (formal < function.parameters().size()) {
@@ -181,14 +181,14 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 	usize child = 0;
 	while (child < expression.size()) {
 		if (!(@this.capture_walk(*expression.item(child), @function)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@child = child + 1;
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+	@this.capture_resolution = entity_state::resolving;
 	@this.captures_summary.clear();
 	while (true) {
 		usize previous = this.captures_summary.size();
@@ -196,13 +196,13 @@ fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, Sema
 		while (index < unit.entities().size()) {
 			var Entity* function = unit.entities().data()[index].get();
 			@index = index + 1;
-			if (function->kind() == entity_kind::function && function->body() && function->dispatch() == function_dispatch::ordinary && !(@this.capture_walk(*function->body(), @*function)).has<void>()) {
-				return CompilationResult(compilation_error());
+			if (function->kind() == entity_kind::function && function->body() && !(@this.capture_walk(*function->body(), @*function)).has<void>()) {
+				return compilation_error();
 			};
 		};
 		if (previous == this.captures_summary.size()) {
+			@this.capture_resolution = entity_state::ready;
 			break;
 		};
 	};
-	return CompilationResult();
 };

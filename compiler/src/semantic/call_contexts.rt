@@ -142,7 +142,6 @@ fn InferredFacts::context_seed(var InferredFacts& this, var FactState& state) {
 		};
 		@index = index + 1;
 	};
-	return;
 };
 
 fn InferredFacts::context_override(var InferredFacts& this, var SemanticExpression& expression, inferred_override_kind kind, u64 value) {
@@ -151,7 +150,6 @@ fn InferredFacts::context_override(var InferredFacts& this, var SemanticExpressi
 	@fact.kind = $kind;
 	@fact.value = $value;
 	@this.context_output->overrides.push_back($fact);
-	return;
 };
 
 fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpression& call, FactState& state) {
@@ -162,7 +160,7 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 	if (this.context_requests.size() >= 512 || !function || function == this.analyzed_function || function->dispatch() != function_dispatch::ordinary || function->role() != function_role::ordinary || function->definition() != function_definition::user_defined || !function->body() || function->parameters().size() > 16 || call.size() != 2 || call.item(0)->kind() != semantic_kind::name || (!call.item(0)->entity() || call.item(0)->entity()->canonical() != function) || call.item(1)->size() != function->parameters().size() || !fact_context_has_check(function->body(), 0)) {
 		return;
 	};
-	var request = rt::unique<FactContextRequest>::make();
+	rt::unique<FactContextRequest> request = rt::unique<FactContextRequest>::make();
 	@request.get()->call = &@call;
 	@request.get()->function = function;
 	bool useful = false;
@@ -213,7 +211,6 @@ fn InferredFacts::context_capture(var InferredFacts& this, var SemanticExpressio
 		return;
 	};
 	@this.context_requests.push_back($request);
-	return;
 };
 
 fn fact_context_equal(InferredFunctionContext& left, InferredFunctionContext& right) -> bool {
@@ -250,12 +247,12 @@ struct FactContextPlanner {
 fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& request, var usize& result) -> CompilationResult {
 	@result = 0;
 	if (this.attempts >= 512 || this.output->contexts.size() >= 256 || this.active.size() >= 32) {
-		return CompilationResult();
+		return;
 	};
 	usize index = 0;
 	while (index < this.active.size()) {
 		if (this.active.data()[index] == request.function) {
-			return CompilationResult();
+			return;
 		};
 		@index = index + 1;
 	};
@@ -268,10 +265,10 @@ fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& re
 		@index = index + 1;
 	};
 	if (count >= 16) {
-		return CompilationResult();
+		return;
 	};
 	@this.attempts = this.attempts + 1;
-	var context = rt::unique<InferredFunctionContext>::make();
+	rt::unique<InferredFunctionContext> context = rt::unique<InferredFunctionContext>::make();
 	@this.active.push_back(request.function);
 	@context.get()->function = request.function;
 	var worker = InferredFacts(@*this.root->diagnostics);
@@ -289,13 +286,13 @@ fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& re
 		@index = index + 1;
 	};
 	if (!(@worker.analyze(request.function->body())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@index = 0;
 	while (index < worker.context_requests.size()) {
 		usize nested = 0;
 		if (!(@this.plan(*worker.context_requests.data()[index].get(), @nested)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (nested) {
 			InferredCallBinding binding;
@@ -307,23 +304,22 @@ fn FactContextPlanner::plan(var FactContextPlanner& this, FactContextRequest& re
 	};
 	@this.active.pop_back();
 	if (!context.get()->overrides.size() && !context.get()->calls.size()) {
-		return CompilationResult();
+		return;
 	};
 	@index = 0;
 	while (index < this.output->contexts.size()) {
 		if (fact_context_equal(*this.output->contexts.data()[index].get(), *context.get())) {
 			@result = index + 1;
-			return CompilationResult();
+			return;
 		};
 		@index = index + 1;
 	};
 	// Nested planning may have filled the budget while this parent was pending.
 	if (this.output->contexts.size() >= 256) {
-		return CompilationResult();
+		return;
 	};
 	@this.output->contexts.push_back($context);
 	@result = this.output->contexts.size();
-	return CompilationResult();
 };
 
 fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) -> CompilationResult {
@@ -337,7 +333,7 @@ fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) 
 		FactContextRequest& request = *root.context_requests.data()[index].get();
 		usize context = 0;
 		if (!(@planner.plan(request, @context)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (context) {
 			InferredCallBinding binding;
@@ -347,5 +343,4 @@ fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) 
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };

@@ -2,17 +2,17 @@ fn LanguageWorkspace::cursor(var LanguageWorkspace& this, LanguageIndex& index, 
 	rt::json_value* document = parameters.member("textDocument");
 	rt::json_value* position = parameters.member("position");
 	if (!document || !position) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	rt::string path;
 	rt::string key;
 	if (!LanguageUri::decode(LanguageJson::text(*document, "uri"), @path).has<void>()) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	LanguageUri::key(path.view(), @key);
 	var found = index.source_ids.find(key);
 	if (!found) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	@source = *found;
 	LanguageText* text = &@index.sources.data()[source].text;
@@ -23,13 +23,13 @@ fn LanguageWorkspace::cursor(var LanguageWorkspace& this, LanguageIndex& index, 
 	i64 line = LanguageJson::integer(*position, "line", -1);
 	i64 character = LanguageJson::integer(*position, "character", -1);
 	if (line < 0 || character < 0) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	usize current = text->offset(static_cast<usize>(line), static_cast<usize>(character));
 	if (@this.old_offset(index, usize(source), $current, @offset)) {
-		return LanguageRequestResult();
+		return;
 	};
-	return LanguageRequestResult(language_request_error());
+	return language_request_error();
 };
 
 fn language_completion_identifier(char character) -> bool {

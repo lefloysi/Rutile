@@ -56,14 +56,14 @@ fn TemplateDeclarationValidator::dependent(TemplateDeclarationValidator& this, S
 
 fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Syntax& name, template_validation_role role) -> CompilationResult {
 	if (name.kind() != syntax_kind::name) {
-		return CompilationResult();
+		return;
 	};
 	usize index = this.frame_start;
 	while (index < this.symbols.size()) {
 		TemplateValidationSymbol& previous = this.symbols.data()[index];
 		if (previous.name.same(name.token())) {
 			if ((previous.role == template_validation_role::dependent_type || previous.role == template_validation_role::template_type) && (role == template_validation_role::dependent_type || role == template_validation_role::template_type)) {
-				return CompilationResult();
+				return;
 			};
 			var message = DiagnosticMessage();
 			@message.text("duplicate declaration of '");
@@ -71,7 +71,7 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 			@message.text("' in template member scope");
 			@analyzer.report(name.token(), message.view());
 			@analyzer.note(previous.name, "previous declaration is here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
@@ -79,7 +79,6 @@ fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this
 	@symbol.name = name.token();
 	@symbol.role = $role;
 	@this.symbols.push_back($symbol);
-	return CompilationResult();
 };
 
 fn TemplateDeclarationValidator::restore(var TemplateDeclarationValidator& this, usize checkpoint, usize frame) {
@@ -115,7 +114,7 @@ fn TemplateDeclarationValidator::certain(TemplateDeclarationValidator& this, var
 fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> CompilationResult {
 	if (syntax.kind() == syntax_kind::record) {
 		if (!(@this.remember(@analyzer, @*syntax.record_name(), template_validation_role::dependent_type)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		return @this.declaration(@analyzer, @scope, @syntax);
 	};
@@ -123,11 +122,11 @@ fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& th
 		usize index = 0;
 		while (index < syntax.size()) {
 			if (!(@this.type_names(@analyzer, @scope, @*syntax.item(index))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
-		return CompilationResult();
+		return;
 	};
 	if (syntax.kind() == syntax_kind::type_name) {
 		if (this.dependent(syntax)) {
@@ -136,15 +135,15 @@ fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& th
 				TemplateValidationSymbol* symbol = this.lookup(name->token());
 				if (symbol && symbol->role == template_validation_role::template_type) {
 					@analyzer.semantic_unit()->record_classification(name->token(), 6, 0);
-					return CompilationResult();
+					return;
 				};
 			};
-			return CompilationResult();
+			return;
 		};
 		var Syntax* name = syntax.designated_type();
 		// Applications have their own argument roles and are checked when instantiated.
 		if (name->kind() == syntax_kind::template_apply || name->kind() == syntax_kind::qualified_name) {
-			return CompilationResult();
+			return;
 		};
 		TemplateValidationSymbol* symbol = this.lookup(name->token());
 		if (symbol && symbol->role == template_validation_role::value) {
@@ -153,7 +152,7 @@ fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& th
 			diagnostic_name(@message, *name);
 			@message.text("' names a value; a type is required here");
 			@analyzer.report(name->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		var Entity* entity = @analyzer.lookup(@scope, @*name);
 		if (!entity || !entity->denotes_type()) {
@@ -162,27 +161,26 @@ fn TemplateDeclarationValidator::type_names(var TemplateDeclarationValidator& th
 			diagnostic_name(@message, *name);
 			@message.text("' does not name a type entity");
 			@analyzer.report(name->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
-		return CompilationResult();
+		return;
 	};
 	if (syntax.kind() == syntax_kind::type_pointer || syntax.kind() == syntax_kind::type_reference || (syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_mutable) || syntax.kind() == syntax_kind::type_array) {
 		return @this.type_names(@analyzer, @scope, @*syntax.designated_type());
 	};
 	if (syntax.kind() == syntax_kind::type_function) {
 		if (!(@this.type_names(@analyzer, @scope, @*syntax.function_type_result())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		var Syntax* parameters = syntax.function_type_parameters();
 		usize index = 0;
 		while (index < parameters->size()) {
 			if (!(@this.type_names(@analyzer, @scope, @*parameters->item(index)->parameter_type())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn TemplateDeclarationValidator::members(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& owner, var Syntax& body) -> CompilationResult {
@@ -202,7 +200,7 @@ fn TemplateDeclarationValidator::members(var TemplateDeclarationValidator& this,
 				@name = member->alias_name();
 			};
 			if (!(@this.remember(@analyzer, @*name, template_validation_role::dependent_type)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 	};
@@ -224,18 +222,17 @@ fn TemplateDeclarationValidator::members(var TemplateDeclarationValidator& this,
 				diagnostic_name(@message, *name);
 				@message.text("' requires an explicit first reference parameter named 'this'");
 				@analyzer.report(name->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		if (!(@this.declaration(@analyzer, @scope, @*member)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (member->kind() == syntax_kind::variable && !(@this.remember(@analyzer, @*member->variable_name(), template_validation_role::value)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	@this.restore($checkpoint, $frame);
-	return CompilationResult();
 };
 
 fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> CompilationResult {
@@ -258,19 +255,19 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 					@message.number(index + 1);
 					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
 					@analyzer.note(parameters->item(prior)->template_parameter_name()->token(), "previous template parameter is declared here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@prior = prior + 1;
 			};
 			if (parameter->kind() == syntax_kind::template_variadic_parameter && index + 1 != parameters->size()) {
 				@analyzer.error(parameter, "variadic template parameter must be last");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			var Syntax* pack_signature = @analyzer.template_engine()->signature(@analyzer, @scope, @*type);
 			if (!pack_signature && type->kind() != syntax_kind::absent && !this.dependent(*type)) {
 				Type* resolved = @analyzer.type(@scope, @*type);
 				if (!resolved) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				if (!resolved->kind().is_numeric()) {
 					var message = DiagnosticMessage();
@@ -282,7 +279,7 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 					diagnostic_type(@message, *resolved);
 					@message.text("'");
 					@analyzer.report(parameter->template_parameter_name()->token(), message.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			};
 			template_validation_role role = template_validation_role::template_type;
@@ -290,7 +287,7 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 				@role = template_validation_role::dependent_value;
 			};
 			if (!(@this.remember(@analyzer, @*parameter->template_parameter_name(), $role)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (type->kind() == syntax_kind::absent) {
 				@analyzer.semantic_unit()->record_classification(parameter->template_parameter_name()->token(), 6, 1);
@@ -307,7 +304,7 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 		@this.frame_start = checkpoint;
 		if (!(@this.remember(@analyzer, @*syntax.record_name(), template_validation_role::dependent_type)).has<void>()) {
 			@this.restore($checkpoint, $frame);
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		CompilationResult valid = @this.members(@analyzer, @scope, @syntax, @*syntax.record_members());
 		@this.restore($checkpoint, $frame);
@@ -327,11 +324,11 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 		if (specifier->kind() == syntax_kind::type_name && specifier->designated_type()->kind() == syntax_kind::name) {
 			TemplateValidationSymbol* symbol = this.lookup(specifier->designated_type()->token());
 			if (symbol && symbol->role == template_validation_role::pack_signature) {
-				return CompilationResult();
+				return;
 			};
 		};
 		if (@analyzer.template_engine()->signature(@analyzer, @scope, @*syntax.variable_type())) {
-			return CompilationResult();
+			return;
 		};
 		return @this.type_names(@analyzer, @scope, @*syntax.variable_type());
 	};
@@ -340,24 +337,23 @@ fn TemplateDeclarationValidator::declaration(var TemplateDeclarationValidator& t
 	};
 	if (syntax.kind() == syntax_kind::function) {
 		if (!(@this.type_names(@analyzer, @scope, @*syntax.function_result())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize index = 0;
 		while (index < syntax.function_parameters()->size()) {
 			if (!(@this.type_names(@analyzer, @scope, @*syntax.function_parameters()->item(index)->parameter_type())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn TemplateDeclarationValidator::validate(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Entity& pattern) -> CompilationResult {
 	@this.symbols.clear();
 	@this.frame_start = 0;
 	if (!pattern.declaration() || !pattern.resolution_scope()) {
-		return CompilationResult();
+		return;
 	};
 	return @this.declaration(@analyzer, @*pattern.resolution_scope(), @*pattern.declaration());
 };

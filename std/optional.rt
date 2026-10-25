@@ -1,12 +1,10 @@
 namespace rt {
 	template<typename T>
 	export struct optional {
-		fn optional(var optional& this);
+		fn optional(var optional& this) : [default];
 		fn optional(var optional& this, T value);
 		fn optional(var optional& this, optional& other);
-		fn optional(var optional& this, optional other);
 		fn ~optional(var optional& this);
-		fn operator=(var optional& this, optional other) -> var optional&;
 		fn operator:=(var optional& this, optional& other) -> var optional&;
 
 		fn reset(var optional& this);
@@ -18,12 +16,6 @@ namespace rt {
 
 	private:
 		union Storage {
-			fn Storage(var Storage& this) {
-			};
-
-			fn ~Storage(var Storage& this) {
-			};
-
 			T value;
 		};
 
@@ -35,7 +27,6 @@ namespace rt {
 	export struct optional_ref {
 		fn optional_ref(var optional_ref& this) : [default];
 		fn optional_ref(var optional_ref& this, var T& value);
-		fn optional_ref(var optional_ref& this, optional_ref& other) : [implicit];
 
 		fn reset(var optional_ref& this);
 		fn bind(var optional_ref& this, var T& value);
@@ -47,10 +38,6 @@ namespace rt {
 
 	private:
 		var T* pointer;
-	};
-
-	template<typename T>
-	export fn optional<T>::optional(var optional& this) {
 	};
 
 	template<typename T>
@@ -68,31 +55,8 @@ namespace rt {
 	};
 
 	template<typename T>
-	export fn optional<T>::optional(var optional& this, optional other) {
-		if (other.has_value()) {
-			var T* source = &@other.storage.value;
-
-			@this.storage.value.T($(*source));
-			@this.engaged = true;
-			@other.engaged = false;
-		};
-	};
-
-	template<typename T>
 	export fn optional<T>::~optional(var optional& this) {
 		@this.reset();
-	};
-
-	template<typename T>
-	export fn optional<T>::operator=(var optional& this, optional other) -> var optional& {
-		@this.reset();
-		if (other.has_value()) {
-			var T* source = &@other.storage.value;
-			@this.storage.value.T($(*source));
-			@this.engaged = true;
-			@other.engaged = false;
-		};
-		return @this;
 	};
 
 	template<typename T>
@@ -142,11 +106,6 @@ namespace rt {
 	template<typename T>
 	export fn optional_ref<T>::optional_ref(var optional_ref& this, var T& value) {
 		@this.pointer = &@value;
-	};
-
-	template<typename T>
-	export fn optional_ref<T>::optional_ref(var optional_ref& this, optional_ref& other) : [implicit] {
-		@this.pointer := other.pointer;
 	};
 
 	template<typename T>

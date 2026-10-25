@@ -79,7 +79,6 @@ fn FunctionEmitter::retain_components(var FunctionEmitter& this, Type* type, var
 		@this.retain_unwind(field->type(), member, nullptr, nullptr);
 		@index = index + 1;
 	};
-	return;
 };
 
 fn FunctionEmitter::native_call(var FunctionEmitter& this, var LLVMOpaqueType* type, var LLVMOpaqueValue* function, var LLVMOpaqueValue var** arguments, u32 count) -> var LLVMOpaqueValue* {
@@ -225,7 +224,6 @@ fn FunctionEmitter::retain_unwind(var FunctionEmitter& this, Type* type, var LLV
 	@action.order = this.lifetime_order;
 	@this.unwinds.push_back($action);
 	@this.lifetime_revision = this.lifetime_revision + 1;
-	return;
 };
 
 fn FunctionEmitter::forget_unwinds(var FunctionEmitter& this, usize begin) {
@@ -256,7 +254,7 @@ fn FunctionEmitter::unwind_cleanup(var FunctionEmitter& this, usize bindings, us
 			@binding_index = binding_index - 1;
 			NativeBinding& binding = this.bindings.data()[binding_index];
 			if (!(@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			continue;
 		};
@@ -264,7 +262,7 @@ fn FunctionEmitter::unwind_cleanup(var FunctionEmitter& this, usize bindings, us
 			@temporary_index = temporary_index - 1;
 			NativeTemporary& temporary = this.temporaries.data()[temporary_index];
 			if (!(@this.guarded_destroy(temporary.expression->type(), temporary.address, temporary.live)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			continue;
 		};
@@ -274,11 +272,11 @@ fn FunctionEmitter::unwind_cleanup(var FunctionEmitter& this, usize bindings, us
 			var LLVMOpaqueType* integer = LLVMIntTypeInContext(this.backend->context(), this.backend->pointer_bits());
 			var LLVMOpaqueValue* count = LLVMBuildLoad2(this.backend->builder(), integer, action.count, "constructed.count\0".data());
 			if (!(@this.destroy_range(action.type, action.address, count)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else if (action.address && !(@this.destroy(action.type, action.address)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (action.allocation) {
 			var LLVMOpaqueType* pointer = LLVMPointerTypeInContext(this.backend->context(), 0);
@@ -293,7 +291,6 @@ fn FunctionEmitter::unwind_cleanup(var FunctionEmitter& this, usize bindings, us
 			LLVMDisposeOperandBundle(bundle);
 		};
 	};
-	return CompilationResult();
 };
 
 fn FunctionEmitter::exception_throw(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
@@ -309,12 +306,12 @@ fn FunctionEmitter::exception_throw(var FunctionEmitter& this, var SemanticExpre
 		var SemanticExpression* value = expression->item(0);
 		var LLVMOpaqueValue* storage = @this.slot(value->type());
 		if (!storage || !(@this.initialize_value(value->type(), storage, value)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@arguments[0] = storage;
 		@arguments[1] = @this.backend->exception_info(value->type());
 		if (!arguments[1]) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -327,10 +324,9 @@ fn FunctionEmitter::exception_throw(var FunctionEmitter& this, var SemanticExpre
 		@function = LLVMAddFunction(this.backend->module(), "_CxxThrowException\0".data(), signature);
 	};
 	if (!@this.native_call(signature, function, &@arguments[0], 2)) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	discard LLVMBuildUnreachable(this.backend->builder());
-	return CompilationResult();
 };
 
 fn native_exception_accepts_nonthrowing(Type* type) -> bool {
@@ -367,7 +363,7 @@ fn FunctionEmitter::exception_try(var FunctionEmitter& this, var SemanticExpress
 	@this.active_handler = &@handler;
 	@this.lifetime_revision = this.lifetime_revision + 1;
 	if (!(@this.scoped_statement(expression->item(0))).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (!this.terminated()) {
 		discard LLVMBuildBr(this.backend->builder(), after);
@@ -392,7 +388,7 @@ fn FunctionEmitter::exception_try(var FunctionEmitter& this, var SemanticExpress
 	while (index < expression->size()) {
 		var SemanticExpression* source = expression->item(index);
 		if (!(@this.catch_handler(source, switch_pad, after, outer_unwind, nullptr)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (native_exception_accepts_nonthrowing(source->type())) {
 			Type* type = source->type();
@@ -401,13 +397,12 @@ fn FunctionEmitter::exception_try(var FunctionEmitter& this, var SemanticExpress
 			};
 			var LLVMOpaqueValue* descriptor = native_exception_function_pointer_descriptor(@*this.backend, type, true);
 			if (!descriptor || !(@this.catch_handler(source, switch_pad, after, outer_unwind, descriptor)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		@index = index + 1;
 	};
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
-	return CompilationResult();
 };
 
 fn FunctionEmitter::catch_handler(var FunctionEmitter& this, var SemanticExpression* source, var LLVMOpaqueValue* dispatch, var LLVMOpaqueBasicBlock* after, var LLVMOpaqueBasicBlock* unwind, var LLVMOpaqueValue* descriptor) -> CompilationResult {
@@ -438,7 +433,7 @@ fn FunctionEmitter::catch_handler(var FunctionEmitter& this, var SemanticExpress
 		@storage = @this.slot(source->type());
 		@arguments[2] = storage;
 		if (!arguments[0] || !storage) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	var LLVMOpaqueValue* pad = LLVMBuildCatchPad(this.backend->builder(), dispatch, &@arguments[0], 3, "catch.pad\0".data());
@@ -457,14 +452,13 @@ fn FunctionEmitter::catch_handler(var FunctionEmitter& this, var SemanticExpress
 		@this.bind(source->entity(), storage);
 	};
 	if (!(@this.scoped_statement(source->item(0))).has<void>() || !(@this.leave_scope(active.bindings)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (!this.terminated()) {
 		discard LLVMBuildCatchRet(this.backend->builder(), pad, after);
 	};
 	@this.active_catch = active.parent;
 	@this.active_pad = active.parent_pad;
-	return CompilationResult();
 };
 
 fn FunctionEmitter::exit_cleanup(var FunctionEmitter& this, usize bindings, var NativeCatch* catches, var NativeHandler* handlers) -> CompilationResult {

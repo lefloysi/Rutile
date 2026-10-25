@@ -56,7 +56,7 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 		@this.cached_configuration = job.configuration;
 	};
 
-	var index = rt::unique<LanguageIndex>::make();
+	rt::unique<LanguageIndex> index = rt::unique<LanguageIndex>::make();
 	if (!index.get()) {
 		return rt::unique<LanguageIndex>();
 	};
@@ -124,9 +124,9 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 };
 
 fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> CompilationResult {
-	var analysis = rt::unique<Analysis>::make();
+	rt::unique<Analysis> analysis = rt::unique<Analysis>::make();
 	if (!analysis.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (group.kind == language_group_kind::test_target) {
 		@analysis.get()->enable_tests();
@@ -137,12 +137,12 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	@cancellation.expected = job.generation;
 	rt::string key;
 	if (LanguageWorkspace::cancelled(&@cancellation)) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (group.kind != language_group_kind::analysis) {
 		LanguageWorkspace::target_key(job.root.view(), group, @key);
 		if (!(@this.compiler->expect_target(key.view(), u64(job.generation))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -151,13 +151,13 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 	usize source = 0;
 	while (source < group.paths.size()) {
 		if (LanguageWorkspace::cancelled(&@cancellation)) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		rt::string& path = group.paths.data()[source];
 		i32 imported = kiln_project_source_load(path.c_str(), &language_load_interface_source, analysis.get());
 		if (imported >= 0) {
 			if (!imported) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@source = source + 1;
 			continue;
@@ -175,19 +175,19 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 			usize diagnostic = 0;
 			while (diagnostic < analysis.get()->diagnostics().records().size()) {
 				if (LanguageWorkspace::cancelled(&@cancellation)) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				DiagnosticRecord& record = analysis.get()->diagnostics().records().data()[diagnostic];
 				var parameters = rt::json_value::make_object();
 				if (!parameters.get()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@parameters.get()->set("type", rt::json_value::make_unsigned(1));
 				@parameters.get()->set("message", rt::json_value::make_string(record.message.view()));
 				@this.notify("window/logMessage", $parameters);
 				@diagnostic = diagnostic + 1;
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@analysis.get()->set_source_module(analysis.get()->source_count() - 1, group.name.view(), 0);
 		@source = source + 1;
@@ -266,7 +266,7 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@context_result.arguments = rt::string(document.template_arguments);
 		@contextual = rt::unique<Analysis>::make();
 		if (!contextual.get()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize source = 0;
 		while (source < analysis.get()->source_count()) {
@@ -303,14 +303,14 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@indexed = contextual.get();
 	};
 	if (LanguageWorkspace::cancelled(&@cancellation)) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@index.append(*indexed, job);
 	if (!context_result.key.empty()) {
 		@index.template_results.push_back($context_result);
 	};
 	if (group.kind == language_group_kind::analysis) {
-		return CompilationResult();
+		return;
 	};
 	@index.targets.push_back(rt::string(key));
 	analysis_publication publication = analysis_publication::obsolete;
@@ -321,9 +321,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@publication = @this.compiler->publish_target(key.view(), u64(job.generation), $analysis);
 	};
 	if (publication == analysis_publication::published && !LanguageWorkspace::cancelled(&@cancellation)) {
-		return CompilationResult();
+		return;
 	};
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn LanguageWorkspace::target_key(rt::string_view root, LanguageGroup& group, var rt::string& key) {
@@ -337,7 +337,6 @@ fn LanguageWorkspace::target_key(rt::string_view root, LanguageGroup& group, var
 		@result.append(group.name.view());
 	};
 	@key = $result;
-	return;
 };
 
 fn LanguageIndex::source(var LanguageIndex& this, Analysis& analysis, usize number, LanguageJob& job) -> usize {
@@ -623,7 +622,6 @@ fn LanguageIndex::append(var LanguageIndex& this, Analysis& analysis, LanguageJo
 		};
 		@number = number + 1;
 	};
-	return;
 };
 
 fn LanguageIndex::before(NavigationOccurrence& first, NavigationOccurrence& second) -> bool {
@@ -720,5 +718,4 @@ fn LanguageIndex::finish(var LanguageIndex& this) {
 	if (!this.diagnostics.get()) {
 		compiler_panic("language index diagnostics container is unavailable");
 	};
-	return;
 };

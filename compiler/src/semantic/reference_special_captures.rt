@@ -72,7 +72,7 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 					else {
 						@this.diagnostics->note(function.token(), "constructor receiver may escape through this function");
 					};
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				ReferenceLoanPlace target;
 				@target.root = owner;
@@ -82,7 +82,7 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 		else if (parameter && arguments && parameter - 1 < arguments->size()) {
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
 			if (!(@this.places(*arguments->item(parameter - 1), @targets, @substitutions, nullptr, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		usize candidate = 0;
@@ -100,7 +100,6 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 			@candidate = candidate + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this) -> CompilationResult {
@@ -118,10 +117,10 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 			@owner = expression->item(1)->owned_binding();
 		};
 		if (owner && construction->kind() == semantic_kind::construction && construction->entity() && !(@this.retain_effect_capture(@*construction->entity(), owner, construction->item(0), this.position(*construction), *expression)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (owner && construction->kind() == semantic_kind::construction && !(@this.retain_constructor_captures(owner->type(), owner, this.position(*construction), *expression, 0, reference_initialization_kind::initialize, construction)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 	};
@@ -134,12 +133,11 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 				@location = this.function_body;
 			};
 			if (!(@this.retain_destructor_captures(node.owner->type(), node.owner, index, *location, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth) -> CompilationResult {
@@ -147,33 +145,32 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
 	if (type->kind() == type_kind::reference) {
-		return CompilationResult();
+		return;
 	};
 	if (type->kind() == type_kind::array) {
 		return @this.retain_destructor_captures(type->element(), owner, position, location, depth + 1);
 	};
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 	var Entity* record = type->entity();
 	if (record->destructor() && !(@this.retain_effect_capture(@*record->destructor(), owner, nullptr, position, location)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	usize index = 0;
 	while (index < record->bases().size()) {
 		if (!(@this.retain_destructor_captures(record->bases().data()[index], owner, position, location, depth + 1)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
 	@index = 0;
 	while (index < record->fields().size()) {
 		if (!(@this.retain_destructor_captures(record->fields().data()[index]->type(), owner, position, location, depth + 1)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 
@@ -185,7 +182,7 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
 	if (type->kind() == type_kind::reference) {
-		return CompilationResult();
+		return;
 	};
 	if (initialization && initialization->kind() == semantic_kind::construction) {
 		var Entity* selected = initialization->entity();
@@ -209,13 +206,13 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 		};
 	};
 	if (mode == reference_initialization_kind::relocate) {
-		return CompilationResult();
+		return;
 	};
 	if (type->kind() == type_kind::array) {
 		return @this.retain_constructor_captures(type->element(), owner, position, location, depth + 1, mode, nullptr);
 	};
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record || type->entity()->layout() == record_layout::overlapping) {
-		return CompilationResult();
+		return;
 	};
 	var Entity* record = type->entity();
 	usize member = 0;
@@ -277,15 +274,14 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 					@capture_index = capture_index + 1;
 				};
 				if (!(@this.retain_effect_capture(@*constructor, owner, arguments, position, location)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@child_mode = reference_initialization_kind::initialize;
 				@value = nullptr;
 			};
 		};
 		if (!(@this.retain_constructor_captures(child, owner, position, location, depth + 1, child_mode, value)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
-	return CompilationResult();
 };

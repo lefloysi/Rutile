@@ -155,7 +155,7 @@ fn SemanticUnit::describe_type(var SemanticUnit& this, var Analyzer& analyzer, v
 
 fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer, var Entity& entity) -> CompilationResult {
 	if (!entity.type() || entity.type_use().has_value() || entity.kind() == entity_kind::template_pattern) {
-		return CompilationResult();
+		return;
 	};
 
 	var Syntax* source = entity.declaration();
@@ -168,7 +168,7 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 			var Entity* parameter = entity.parameters().data()[index];
 
 			if (!(@this.describe_entity(@analyzer, @*parameter)).has<void>() || !parameter->type_use().has_value()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			rt::optional<ParameterLabel> name;
@@ -198,7 +198,7 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 		};
 
 		if (!result) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@use = @this.function_use(*entity.type(), $parameters, *result);
@@ -221,12 +221,11 @@ fn SemanticUnit::describe_entity(var SemanticUnit& this, var Analyzer& analyzer,
 	};
 
 	if (!use) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity.set_type_use(*use);
 
-	return CompilationResult();
 };
 
 fn SemanticUnit::available_use(SemanticUnit& this, SemanticExpression& expression) -> TypeUse* {
@@ -245,7 +244,7 @@ fn SemanticUnit::available_use(SemanticUnit& this, SemanticExpression& expressio
 
 fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analyzer, var Scope& scope, Syntax& syntax, var SemanticExpression& expression) -> CompilationResult {
 	if (expression.type_use().has_value()) {
-		return CompilationResult();
+		return;
 	};
 
 	semantic_kind kind = expression.kind();
@@ -266,16 +265,16 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 			@entity->set_type_use(*use);
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	if (expression.type()->kind() == type_kind::void_type) {
-		return CompilationResult();
+		return;
 	};
 
 	TypeUse* use = this.available_use(expression);
 
-	if (kind == semantic_kind::allocation && syntax.kind() == syntax_kind::allocation) {
+	if (kind == semantic_kind::allocation && syntax.kind() == syntax_kind::allocation && expression.type()->kind() == type_kind::pointer) {
 		var Syntax* allocated = syntax.allocation_type();
 
 		if (allocated->kind() == syntax_kind::type_array) {
@@ -305,7 +304,7 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 			Type* target = @analyzer.type(@scope, @*syntax.cast_type());
 
 			if (!target) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@use = @this.describe_type(@analyzer, @scope, *syntax.cast_type(), *target);
@@ -354,17 +353,16 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 	};
 
 	if (!use) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@expression.set_type_use(*use);
 
-	return CompilationResult();
 };
 
 fn Analyzer::resolve(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	if (!(@this.resolve_impl(entity)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	return @this.unit->describe_entity(@this, @*entity);

@@ -85,19 +85,18 @@ fn Backend::declare_fact_contexts(var Backend& this, InferredContextSet& context
 		var spelling = rt::string(name.view());
 		var LLVMOpaqueType* signature = @this.type(context->function->type(), context->function->token());
 		if (!signature) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		var LLVMOpaqueValue* symbol = LLVMAddFunction(this.module(), spelling.c_str(), signature);
 		LLVMSetLinkage(symbol, 9);
 		@this.fact_symbols.push_back(symbol);
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn Backend::emit_fact_contexts(var Backend& this) -> CompilationResult {
 	if (!this.fact_context_set) {
-		return CompilationResult();
+		return;
 	};
 	usize index = 0;
 	while (index < this.fact_context_set->contexts.size()) {
@@ -105,11 +104,10 @@ fn Backend::emit_fact_contexts(var Backend& this) -> CompilationResult {
 		var emitter = FunctionEmitter(@this, this.fact_symbol(index + 1), context->function->type()->signature().result());
 		@emitter.set_fact_context(context);
 		if (!(@emitter.emit(context->function)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn FunctionEmitter::condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool {

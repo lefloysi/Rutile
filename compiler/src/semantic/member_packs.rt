@@ -2,24 +2,23 @@ fn Analyzer::collect_member_pack(var Analyzer& this, var Scope& scope, var Synta
 	var Entity* owner = scope.owner();
 	if (!owner || owner->kind() != entity_kind::record) {
 		@this.error(&@declaration, "member pack declaration requires record scope");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var Syntax* name = declaration.variable_name();
 	if (name->kind() != syntax_kind::name || scope.local(name->token().text())) {
 		@this.error(name, "member pack requires a distinct unqualified name");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (declaration.variable_initializer()->kind() != syntax_kind::absent) {
 		@this.error(&@declaration, "member pack declaration cannot have an initializer");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var Entity* members = @this.unit->create_entity(entity_kind::field_pack, name->token(), &@declaration, &@scope);
 	if (!members) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@members->set_access(scope.access());
 	@owner->add_field(members);
-	return CompilationResult();
 };
 
 fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> CompilationResult {
@@ -29,7 +28,7 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> Com
 	var Syntax* name = declaration->variable_name();
 	var TemplatePack* elements = @this.templates.pack(@this, @*scope, @*declaration->variable_type()->item(0));
 	if (!elements) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@members.set_pack(elements);
 	usize index = 0;
@@ -37,7 +36,7 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> Com
 		TemplateArgument& argument = elements->elements.data()[index];
 		if (argument.kind != template_argument_kind::type || !argument.type) {
 			@this.error(declaration, "member pack requires type arguments");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		Type* type = argument.type;
 		if ((type->kind() == type_kind::null_type || type->kind() == type_kind::void_type && owner->scope() && owner->scope()->owner() && variant_instance(*owner->scope()->owner())) && owner->layout() == record_layout::overlapping) {
@@ -48,15 +47,15 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> Com
 		};
 		if (type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function) {
 			@this.error(declaration, "member pack element requires object storage or a reference");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		Type* storage_type = type;
 		while (storage_type->kind() == type_kind::array) {
 			@storage_type = storage_type->element();
 		};
-		if (storage_type->kind() == type_kind::named && storage_type->entity()->kind() == entity_kind::record && (storage_type->entity()->state() == entity_state::resolving || storage_type->entity()->declaration()->record_members()->kind() == syntax_kind::noop || !storage_type->has_layout())) {
+		if (storage_type->kind() == type_kind::named && storage_type->entity()->kind() == entity_kind::record && ((storage_type->entity()->state() == entity_state::resolving && storage_type->entity()->record_phase() == record_resolution_phase::fields) || storage_type->entity()->declaration()->record_members()->kind() == syntax_kind::noop || !storage_type->has_layout())) {
 			@this.error(declaration, "member pack element requires a complete nonrecursive storage type");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		var field_name = DiagnosticMessage();
 		@field_name.text(members.name());
@@ -68,7 +67,7 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> Com
 			@field->set_name(field_name.view());
 		}
 		else {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@field->set_origin(declaration_origin::compiler_supplied);
 		@field->set_access(members.access());
@@ -84,7 +83,6 @@ fn Analyzer::resolve_member_pack(var Analyzer& this, var Entity& members) -> Com
 	};
 	@members.set_state(entity_state::ready);
 	@members.set_body_state(entity_state::ready);
-	return CompilationResult();
 };
 
 fn Analyzer::expand_member_packs(var Analyzer& this, var Entity& record) -> CompilationResult {
@@ -99,7 +97,7 @@ fn Analyzer::expand_member_packs(var Analyzer& this, var Entity& record) -> Comp
 			continue;
 		};
 		if (!(@this.resolve(member)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize element = 0;
 		while (element < member->fields().size()) {
@@ -113,5 +111,4 @@ fn Analyzer::expand_member_packs(var Analyzer& this, var Entity& record) -> Comp
 		};
 	};
 	@record.set_fields($fields);
-	return CompilationResult();
 };

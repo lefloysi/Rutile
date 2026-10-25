@@ -160,7 +160,7 @@ fn SemanticUnit::root_scope(SemanticUnit& this) -> var Scope* {
 };
 
 fn SemanticUnit::create_scope(var SemanticUnit& this, var Scope* parent, var Entity* owner) -> var Scope* {
-	var owned = rt::unique<Scope>(new var Scope($parent, $owner));
+	var owned = rt::unique<Scope>(new Scope($parent, $owner));
 	var Scope* result = owned.get();
 
 	if (!result) {
@@ -179,7 +179,7 @@ fn SemanticUnit::create_scope(var SemanticUnit& this, var Scope* parent, var Ent
 };
 
 fn SemanticUnit::create_entity(var SemanticUnit& this, entity_kind kind, Token& token, var Syntax* syntax, var Scope* scope) -> var Entity* {
-	var owned = rt::unique<Entity>(new var Entity($kind, token, $syntax, scope));
+	var owned = rt::unique<Entity>(new Entity($kind, token, $syntax, scope));
 	var Entity* result = owned.get();
 
 	if (!result) {
@@ -211,11 +211,10 @@ fn SemanticUnit::record_reference(var SemanticUnit& this, Token& token, var Enti
 	@reference.context = $context;
 	@reference.roles = $roles;
 	@this.resolved_references.push_back($reference);
-	return;
 };
 
 fn SemanticUnit::record_origin(var SemanticUnit& this, var Entity& instance, var Entity& pattern, rt::buffer<TemplateArgument>& arguments, usize source_argument_count) {
-	var metadata = rt::unique<TemplateInstantiation>::make();
+	rt::unique<TemplateInstantiation> metadata = rt::unique<TemplateInstantiation>::make();
 	@metadata.get()->pattern = &@pattern;
 	@metadata.get()->source_argument_count = $source_argument_count;
 	usize index = 0;
@@ -295,7 +294,6 @@ fn SemanticUnit::record_name(var SemanticUnit& this, var Analyzer& analyzer, var
 		return;
 	};
 	@this.record_reference(name.token(), @target, this.reference_context(@scope), $roles);
-	return;
 };
 
 fn SemanticUnit::record_scope(var SemanticUnit& this, var Scope& scope, var Syntax& syntax) {
@@ -303,7 +301,6 @@ fn SemanticUnit::record_scope(var SemanticUnit& this, var Scope& scope, var Synt
 	@region.scope = &@scope;
 	@region.syntax = &@syntax;
 	@this.regions.push_back($region);
-	return;
 };
 
 fn SemanticUnit::scope_regions(SemanticUnit& this) -> rt::buffer<SemanticScopeRegion>& {
@@ -331,7 +328,6 @@ fn SemanticUnit::record_call(var SemanticUnit& this, var Scope& scope, var Synta
 	@site.selected = call->entity()->canonical();
 	@site.bound_receiver = syntax.callable()->kind() == syntax_kind::member && call->size() > 1 && call->item(1)->size() == syntax.arguments()->size() + 1;
 	@this.calls.push_back($site);
-	return;
 };
 
 fn SemanticUnit::record_receiver(var SemanticUnit& this, var Scope& scope, var Syntax& syntax, var Entity& owner) {
@@ -341,7 +337,6 @@ fn SemanticUnit::record_receiver(var SemanticUnit& this, var Scope& scope, var S
 	@site.owner = &@owner;
 
 	@this.receivers.push_back($site);
-	return;
 };
 
 fn SemanticUnit::receiver_sites(SemanticUnit& this) -> rt::buffer<SemanticReceiverSite>& {
@@ -356,7 +351,6 @@ fn SemanticUnit::record_incomplete_call(var SemanticUnit& this, var Scope& scope
 	@site.bound_receiver = $bound_receiver;
 
 	@this.calls.push_back($site);
-	return;
 };
 
 fn SemanticUnit::record_classification(var SemanticUnit& this, Token& location, u32 type, u32 modifiers) {
@@ -366,7 +360,6 @@ fn SemanticUnit::record_classification(var SemanticUnit& this, Token& location, 
 	@classification.modifiers = $modifiers;
 
 	@this.token_classifications.push_back($classification);
-	return;
 };
 
 fn SemanticUnit::classifications(SemanticUnit& this) -> rt::buffer<SemanticClassification>& {
@@ -374,7 +367,7 @@ fn SemanticUnit::classifications(SemanticUnit& this) -> rt::buffer<SemanticClass
 };
 
 fn SemanticUnit::create_pack(var SemanticUnit& this) -> var TemplatePack* {
-	var owned = rt::unique<TemplatePack>::make();
+	rt::unique<TemplatePack> owned = rt::unique<TemplatePack>::make();
 	var TemplatePack* result = owned.get();
 	@this.packs.push_back($owned);
 	return $result;

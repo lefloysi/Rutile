@@ -1,216 +1,318 @@
-fn malloc(usize size) -> var void*;
-
-fn free(void* memory);
-
 fn memcpy(var void* destination, void* source, usize size) -> var void*;
 
 fn memmove(var void* destination, void* source, usize size) -> var void*;
 
 namespace rt {
-	union string_storage {
-		fn string_storage(var string_storage& this) : [default];
-		fn ~string_storage(var string_storage& this) : [default];
+	export struct string_view {
+		fn string_view(var string_view& this) : [default];
+		fn string_view(var string_view& this, string& other) : [implicit];
+		fn string_view(var string_view& this, char* data, usize size);
 
-		char[16] inline_bytes;
-		var char* heap;
+		fn data(string_view& this) -> char*;
+		fn size(string_view& this) -> usize;
+		fn empty(string_view& this) -> bool;
+		fn slice(string_view& this, usize begin, usize count) -> string_view;
+		fn contains(string_view& this, string_view other) -> bool;
+		fn trim(string_view& this) -> string_view;
+
+	private:
+		char* bytes;
+		usize length;
 	};
 
+	export fn operator==(string_view lhs, string_view rhs) -> bool {
+		if (lhs.size() != rhs.size()) {
+			return false;
+		};
+		for (usize index = 0; index < lhs.size(); @index = index + 1) {
+			if (lhs.data()[index] != rhs.data()[index]) {
+				return false;
+			};
+		};
+		return true;
+	};
+
+	export fn operator!=(string_view lhs, string_view rhs) -> bool {
+		return !(lhs == rhs);
+	};
+
+	export fn operator<(string_view lhs, string_view rhs) -> bool {
+		for (usize index = 0; index < lhs.size() && index < rhs.size(); @index = index + 1) {
+			if (lhs.data()[index] != rhs.data()[index]) {
+				return static_cast<u08>(lhs.data()[index]) < static_cast<u08>(rhs.data()[index]);
+			};
+		};
+		return lhs.size() < rhs.size();
+	};
+
+	export fn operator<=(string_view lhs, string_view rhs) -> bool {
+		return !(rhs < lhs);
+	};
+
+	export fn operator>(string_view lhs, string_view rhs) -> bool {
+		return rhs < lhs;
+	};
+
+	export fn operator>=(string_view lhs, string_view rhs) -> bool {
+		return !(lhs < rhs);
+	};
+
+	export fn string_view::string_view(var string_view& this, char* data, usize size) {
+		@this.bytes = $data;
+		@this.length = $size;
+	};
+
+	export fn from_c_string(char* text) -> string_view {
+		usize length = 0;
+		while (text && text[length]) {
+			@length = length + 1;
+		};
+		return string_view(text, length);
+	};
+
+	export fn string_view::data(string_view& this) -> char* {
+		return this.bytes;
+	};
+
+	export fn string_view::size(string_view& this) -> usize {
+		return this.length;
+	};
+
+	export fn string_view::empty(string_view& this) -> bool {
+		return !this.length;
+	};
+
+	export fn string_view::slice(string_view& this, usize begin, usize count) -> string_view {
+		return string_view(this.bytes + begin, $count);
+	};
+
+	export fn string_view::trim(string_view& this) -> string_view {
+		usize begin = 0;
+		usize end = this.length;
+		for (; begin < end; @begin = begin + 1) {
+			char value = this.bytes[begin];
+			if (value != ' ' && value != '\t' && value != '\r' && value != '\n' && value != char(11) && value != char(12)) {
+				break;
+			};
+		};
+		for (; end > begin; @end = end - 1) {
+			char value = this.bytes[end - 1];
+			if (value != ' ' && value != '\t' && value != '\r' && value != '\n' && value != char(11) && value != char(12)) {
+				break;
+			};
+		};
+		return this.slice(begin, end - begin);
+	};
+
+	export fn string_view::contains(string_view& this, string_view other) -> bool {
+		if (other.size() > this.length) {
+			return false;
+		};
+		for (usize index = 0; index <= this.length - other.size(); @index = index + 1) {
+			if (this.slice(index, other.size()) == other) {
+				return true;
+			};
+		};
+		return false;
+	};
 	export struct string {
 		fn string(var string& this) : [default];
 		fn string(var string& this, string& other);
-		fn string(var string& this, string_view text);
+		fn string(var string& this, string_view other);
 		fn ~string(var string& this);
 
 		fn operator:=(var string& this, string& other) -> var string&;
+		fn operator+=(var string& this, string& other) -> var string& | allocation_error;
+		fn operator+=(var string& this, string_view other) -> var string& | allocation_error;
 		fn clear(var string& this);
-		fn append(var string& this, string_view text) -> void | allocation_error;
-		// The requested capacity excludes the terminating NUL byte.
+		fn append(var string& this, string_view other) -> void | allocation_error;
+		fn append(var string& this, string& other) -> void | allocation_error;
 		fn reserve(var string& this, usize required) -> void | allocation_error;
 
 		fn size(string& this) -> usize;
 		fn capacity(string& this) -> usize;
 		fn empty(string& this) -> bool;
 		fn data(auto string& this) -> const[this] char*;
-		fn c_str(string& this) -> char*;
+		fn c_str(auto string& this) -> const[this] char*;
 		fn view(string& this) -> string_view;
-		fn contains(string& this, string_view text) -> bool;
+		fn contains(string& this, string_view other) -> bool;
 		fn trim(string& this) -> string_view;
 
 	private:
-		string_storage storage;
-		usize length;
-		// Zero selects inline storage; heap capacity excludes the terminating NUL.
-		usize heap_capacity;
+		fn append_data(var string& this, char* other, usize count) -> void | allocation_error;
+		union {
+			char[16] inline_bytes;
+			var char* heap;
+		} storage;
+		usize _size;
+		usize _capacity = 15;
 	};
 
-	export fn string_view::string_view(var string_view& this, string& text) {
-		@this.bytes = text.data();
-		@this.length = text.size();
+	export fn string_view::string_view(var string_view& this, string& other) {
+		@this.bytes = other.data();
+		@this.length = other.size();
 	};
 
-	export fn operator+(string_view first, string_view second) -> string {
-		string result;
-		if (second.size() > usize::max - first.size()) {
+	template<typename L, typename R>
+	fn concatenate(L& lhs, R& rhs) -> string | allocation_error {
+		if (rhs.size() > usize::max - lhs.size()) {
 			allocation_error error;
 			@error.requested_bytes = usize::max;
-			throw $error;
+			@error.kind = allocation_kind::array;
+			return $error;
 		};
-		var reserved = @result.reserve(first.size() + second.size());
-		if (reserved.has<allocation_error>()) {
-			throw allocation_error(reserved.get<allocation_error>());
-		};
-		@result.append(first);
-		@result.append(second);
+		string result;
+		@result.reserve(lhs.size() + rhs.size());
+		@result.append(lhs);
+		@result.append(rhs);
 		return $result;
 	};
 
+	export fn operator+(string_view lhs, string_view rhs) -> string | allocation_error {
+		return concatenate(lhs, rhs);
+	};
+
+	export fn operator+(string& lhs, string& rhs) -> string | allocation_error {
+		return concatenate(lhs, rhs);
+	};
+
+	export fn operator+(string& lhs, string_view rhs) -> string | allocation_error {
+		return concatenate(lhs, rhs);
+	};
+
+	export fn operator+(string_view lhs, string& rhs) -> string | allocation_error {
+		return concatenate(lhs, rhs);
+	};
+
 	export fn string::reserve(var string& this, usize required) -> void | allocation_error {
-		using Result = void | allocation_error;
 		if (required <= this.capacity()) {
-			return Result();
+			return;
 		};
 
-		usize maximum = usize::max - 1;
-		if (required > maximum) {
+		if (required > usize::max - 1) {
 			allocation_error error;
 			@error.requested_bytes = required;
-			return Result($error);
+			@error.kind = allocation_kind::array;
+			return $error;
 		};
 
-		usize count = $required;
 		usize capacity = this.capacity();
-		usize half = capacity >> 1;
-		if (capacity > maximum - half) {
-			@count = $maximum;
-		}
-		else if (capacity + half > count) {
-			@count = capacity + half;
-		};
+		usize count = grow_capacity(capacity, required, usize::max - 1, capacity >> 1);
 
-		var char* replacement = static_cast<var char*>(malloc(count + 1));
-		if (!replacement) {
-			allocation_error error;
-			@error.requested_bytes = count + 1;
-			return Result($error);
-		};
+		var char* replacement = new char[count + 1]{};
 
-		@replacement = static_cast<var char*>(memcpy(replacement, this.data(), this.length + 1));
-		if (this.heap_capacity) {
-			free(this.storage.heap);
+		@replacement = static_cast<var char*>(memcpy(replacement, this.data(), this._size + 1));
+		if (this._capacity > 15) {
+			delete[] this.storage.heap;
 		};
 
 		@this.storage.heap = $replacement;
-		@this.heap_capacity = $count;
-
-		return Result();
+		@this._capacity = $count;
 	};
 
-	export fn string::append(var string& this, string_view text) -> void | allocation_error {
-		using Result = void | allocation_error;
-		if (text.empty()) {
-			return Result();
+	export fn string::append(var string& this, string_view other) -> void | allocation_error {
+		@this.append_data(other.data(), other.size());
+	};
+
+	export fn string::append(var string& this, string& other) -> void | allocation_error {
+		@this.append_data(other.data(), other.size());
+	};
+
+	fn string::append_data(var string& this, char* other, usize count) -> void | allocation_error {
+		if (!count) {
+			return;
 		};
 
-		if (text.size() > usize::max - this.length - 1) {
+		if (count > usize::max - this._size - 1) {
 			allocation_error error;
 			@error.requested_bytes = usize::max;
-			return Result($error);
+			@error.kind = allocation_kind::array;
+			return $error;
 		};
 
-		char* source = text.data();
-		usize address = reinterpret_cast<usize>(source);
-		usize begin = reinterpret_cast<usize>(this.data());
-		bool aliases = address >= begin && address - begin <= this.length;
-		usize offset = 0;
-		if (aliases) {
-			@offset = address - begin;
+		usize length = this._size + count;
+		string replacement;
+		var string* target = &@this;
+		if (length > this.capacity()) {
+			usize capacity = this.capacity();
+			@replacement.reserve(grow_capacity(capacity, length, usize::max - 1, capacity >> 1));
+			@replacement.append(this);
+			@target = &@replacement;
 		};
 
-		usize length = this.length + text.size();
-		var reserved = @this.reserve(length);
-		if (reserved.has<allocation_error>()) {
-			return $reserved;
+		var char* destination = @target->data();
+		var char* appended = static_cast<var char*>(memmove(destination + this._size, other, count));
+		@appended[count] = '\0';
+		@target->_size = $length;
+		if (target != &this) {
+			@this = $replacement;
 		};
-
-		var char* destination = (@this).data();
-		if (aliases) {
-			@source = destination + offset;
-		};
-
-		var char* appended = static_cast<var char*>(memmove(destination + this.length, source, text.size()));
-		@appended[text.size()] = '\0';
-		@this.length = $length;
-
-		return Result();
 	};
 
 	export fn string::string(var string& this, string& other) {
-		var appended = @this.append(other.view());
-		if (appended.has<allocation_error>()) {
-			throw allocation_error(appended.get<allocation_error>());
-		};
+		@this.append(other);
 	};
 
-	export fn string::string(var string& this, string_view text) {
-		var appended = @this.append(text);
-		if (appended.has<allocation_error>()) {
-			throw allocation_error(appended.get<allocation_error>());
-		};
+	export fn string::string(var string& this, string_view other) {
+		@this.append(other);
 	};
 
 	export fn string::~string(var string& this) {
-		if (this.heap_capacity) {
-			free(this.storage.heap);
+		if (this._capacity > 15) {
+			delete[] this.storage.heap;
 		};
 	};
 
 	export fn string::operator:=(var string& this, string& other) -> var string& {
 		string replacement;
-		var appended = @replacement.append(other.view());
-		if (appended.has<allocation_error>()) {
-			throw allocation_error(appended.get<allocation_error>());
-		};
+		@replacement.append(other);
 
 		@this = $replacement;
 
 		return @this;
 	};
 
+	export fn string::operator+=(var string& this, string& other) -> var string& | allocation_error {
+		@this.append(other);
+		return @this;
+	};
+
+	export fn string::operator+=(var string& this, string_view other) -> var string& | allocation_error {
+		@this.append(other);
+		return @this;
+	};
+
 	export fn string::size(string& this) -> usize {
-		return this.length;
+		return this._size;
 	};
 
 	export fn string::capacity(string& this) -> usize {
-		if (this.heap_capacity) {
-			return this.heap_capacity;
-		};
-
-		return 15;
+		return this._capacity;
 	};
 
 	export fn string::empty(string& this) -> bool {
-		return !this.length;
+		return !this._size;
 	};
 
 	export fn string::data(auto string& this) -> const[this] char* {
-		if (this.heap_capacity) {
+		if (this._capacity > 15) {
 			return this.storage.heap;
 		};
 
 		return &@this.storage.inline_bytes[0];
 	};
 
-	export fn string::c_str(string& this) -> char* {
+	export fn string::c_str(auto string& this) -> const[this] char* {
 		return this.data();
 	};
 
 	export fn string::view(string& this) -> string_view {
-		return string_view(this.data(), this.length);
+		return string_view(this.data(), this._size);
 	};
 
-	export fn string::contains(string& this, string_view text) -> bool {
+	export fn string::contains(string& this, string_view other) -> bool {
 		string_view view = this;
-		return view.contains(text);
+		return view.contains(other);
 	};
 
 	export fn string::trim(string& this) -> string_view {
@@ -219,8 +321,7 @@ namespace rt {
 	};
 
 	export fn string::clear(var string& this) {
-		@this.length = 0;
-		var char* bytes = (@this).data();
-		@bytes[0] = '\0';
+		@this._size = 0;
+		@this.data()[0] = '\0';
 	};
 };

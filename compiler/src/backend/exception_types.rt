@@ -24,7 +24,6 @@ fn native_exception_source_name(var NativeExceptionNames& context, rt::string_vi
 	};
 	@name.append(source);
 	@name.append("@");
-	return;
 };
 
 fn native_exception_number(u64 value, var rt::string& name) {
@@ -49,25 +48,24 @@ fn native_exception_number(u64 value, var rt::string& name) {
 		@name.append(rt::string_view(&digits[count], 1));
 	};
 	@name.append("@");
-	return;
 };
 
 fn native_exception_template_argument(var NativeExceptionNames& context, TemplateArgument& argument, var rt::string& name) -> CompilationResult {
 	if (argument.kind == template_argument_kind::pack) {
 		if (!argument.pack) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@name.append("$$P");
 		native_exception_number(argument.pack->elements.size(), @name);
 		usize index = 0;
 		while (index < argument.pack->elements.size()) {
 			if (!native_exception_template_argument(@context, argument.pack->elements.data()[index], @name).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
 		@name.append("$$E");
-		return CompilationResult();
+		return;
 	};
 	if (argument.kind == template_argument_kind::type) {
 		return native_exception_encoding(@context, argument.type, @name, false, true);
@@ -77,10 +75,10 @@ fn native_exception_template_argument(var NativeExceptionNames& context, Templat
 		u64 bits = *reinterpret_cast<u64*>(&real);
 		@name.append("$$R");
 		if (!native_exception_encoding(@context, argument.type, @name, false, true).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		native_exception_number(bits, @name);
-		return CompilationResult();
+		return;
 	};
 	@name.append("$0");
 	u64 value = argument.value;
@@ -93,16 +91,15 @@ fn native_exception_template_argument(var NativeExceptionNames& context, Templat
 		@value = u64(0) - value;
 	};
 	native_exception_number(value, @name);
-	return CompilationResult();
 };
 
 fn native_exception_template(var Entity& entity, var rt::string& name) -> CompilationResult {
 	TemplateInstantiation* instance = entity.template_arguments();
 	if (!instance) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (!instance->pattern) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@name.append("?$");
 	var context = NativeExceptionNames();
@@ -111,11 +108,10 @@ fn native_exception_template(var Entity& entity, var rt::string& name) -> Compil
 	while (index < instance->arguments.size()) {
 		TemplateArgument& argument = instance->arguments.data()[index];
 		if (!native_exception_template_argument(@context, argument, @name).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var rt::string& name, bool result, bool escape) -> CompilationResult {
@@ -142,56 +138,56 @@ fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var 
 	switch (type->kind()) {
 		case type_kind::void_type:
 			@name.append("X");
-			return CompilationResult();
+			return;
 		case type_kind::boolean:
 			@name.append("_N");
-			return CompilationResult();
+			return;
 		case type_kind::character:
 			@name.append("D");
-			return CompilationResult();
+			return;
 		case type_kind::signed_integer:
 			switch (type->bits()) {
 				case 8:
 					@name.append("C");
-					return CompilationResult();
+					return;
 				case 16:
 					@name.append("F");
-					return CompilationResult();
+					return;
 				case 32:
 					@name.append("H");
-					return CompilationResult();
+					return;
 				case 64:
 					@name.append("_J");
-					return CompilationResult();
+					return;
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		case type_kind::unsigned_integer:
 			switch (type->bits()) {
 				case 8:
 					@name.append("E");
-					return CompilationResult();
+					return;
 				case 16:
 					@name.append("G");
-					return CompilationResult();
+					return;
 				case 32:
 					@name.append("I");
-					return CompilationResult();
+					return;
 				case 64:
 					@name.append("_K");
-					return CompilationResult();
+					return;
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		case type_kind::floating_point:
 			if (type->bits() == 32) {
 				@name.append("M");
-				return CompilationResult();
+				return;
 			};
 			@name.append("N");
-			return CompilationResult();
+			return;
 		case type_kind::pointer: {
 			if (type->element()->kind() == type_kind::null_type) {
 				@name.append("$$T");
-				return CompilationResult();
+				return;
 			};
 			if (type->element()->kind() == type_kind::function) {
 				if (type->qualifier() == type_qualifier::immutable) {
@@ -245,7 +241,7 @@ fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var 
 		case type_kind::named: {
 			var Entity* entity = type->entity();
 			if (!entity) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (result) {
 				if (type->qualifier() == type_qualifier::immutable) {
@@ -268,7 +264,7 @@ fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var 
 				if (entity->template_arguments()) {
 					var template_name = rt::string();
 					if (!native_exception_template(@*entity, @template_name).has<void>()) {
-						return CompilationResult(compilation_error());
+						return compilation_error();
 					};
 					native_exception_source_name(@context, template_name.view(), @name);
 				}
@@ -283,10 +279,10 @@ fn native_exception_encoding(var NativeExceptionNames& context, Type* type, var 
 				};
 			};
 			@name.append("@");
-			return CompilationResult();
+			return;
 		};
 		default:
-			return CompilationResult(compilation_error());
+			return compilation_error();
 	};
 };
 
@@ -310,7 +306,7 @@ fn native_exception_function(var NativeExceptionNames& context, Type* type, var 
 	FunctionSignature& signature = type->signature();
 	@name.append("A");
 	if (!native_exception_encoding(@context, signature.result(), @name, true, false).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	usize index = 0;
 	while (index < signature.parameters().size()) {
@@ -326,7 +322,7 @@ fn native_exception_function(var NativeExceptionNames& context, Type* type, var 
 		else {
 			usize begin = name.size();
 			if (!native_exception_encoding(@context, parameter, @name, false, false).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (name.size() - begin > 1 && context.arguments.size() < 10) {
 				@context.arguments.push_back(parameter);
@@ -345,10 +341,9 @@ fn native_exception_function(var NativeExceptionNames& context, Type* type, var 
 	};
 	if (signature.nonthrowing()) {
 		@name.append("_E");
-		return CompilationResult();
+		return;
 	};
 	@name.append("Z");
-	return CompilationResult();
 };
 
 fn native_exception_function_pointer_descriptor(var Backend& backend, Type* pointer, bool nonthrowing) -> var LLVMOpaqueValue* {
@@ -497,7 +492,6 @@ fn native_exception_bases(var Backend& backend, Type* type, u64 offset, var rt::
 		native_exception_bases(@backend, parent, offset + displacement, @bases);
 		@index = index + 1;
 	};
-	return;
 };
 
 fn Backend::exception_info(var Backend& this, Type* type) -> var LLVMOpaqueValue* {

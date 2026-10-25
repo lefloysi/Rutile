@@ -1,9 +1,14 @@
 namespace rt {
-	export struct json_error {
+	export struct json_error : [error] {
+		fn description(json_error& this) -> string_view : [override];
 		fn json_error(var json_error& this) : [default];
 		fn json_error(var json_error& this, string_view message, usize offset);
 		string message;
 		usize offset;
+	};
+
+	export fn json_error::description(json_error& this) -> string_view {
+		return this.message.view();
 	};
 
 	export using json_result = void | json_error | allocation_error;
@@ -185,14 +190,12 @@ namespace rt {
 		if (width > text.size() - offset) {
 			return 0;
 		};
-		usize index = 1;
-		while (index < width) {
+		for (usize index = 1; index < width; @index = index + 1) {
 			u08 byte = static_cast<u08>(text.data()[offset + index]);
 			if ((byte & 192) != 128) {
 				return 0;
 			};
 			@code = (code << 6) | static_cast<u32>(byte & 63);
-			@index = index + 1;
 		};
 		if (code < minimum || code > 1114111 || (code >= 55296 && code <= 57343)) {
 			return 0;
@@ -226,21 +229,17 @@ namespace rt {
 	};
 
 	export fn json_value::make_number(string_view value) -> unique<json_value> | json_error {
-		using Result = unique<json_value> | json_error;
 		if (!value.size() || json_number_end(value, 0) != value.size()) {
-			return Result(json_error("Invalid JSON number.", 0));
+			return json_error("Invalid JSON number.", 0);
 		};
 		var result = make_null();
 		if (!result.get()) {
-			return Result($result);
+			return $result;
 		};
 		@result.get()->payload.text.string();
 		@result.get()->tag = json_kind::number;
-		var appended = @result.get()->payload.text.append(value);
-		if (appended.has<allocation_error>()) {
-			throw allocation_error(appended.get<allocation_error>());
-		};
-		return Result($result);
+		@result.get()->payload.text.append(value);
+		return $result;
 	};
 
 	export fn json_value::make_unsigned(u64 value) -> unique<json_value> {
@@ -287,23 +286,14 @@ namespace rt {
 		if (!result.get()) {
 			return $result;
 		};
-		usize index = 0;
-		while (index < this.size()) {
+		for (usize index = 0; index < this.size(); @index = index + 1) {
 			var child = this.item(index)->clone();
-			json_result stored;
 			if (this.tag == json_kind::object) {
-				@stored = @result.get()->set(this.key(index), unique<json_value>(@child.release()));
+				@result.get()->set(this.key(index), unique<json_value>(@child.release()));
 			}
 			else {
-				@stored = @result.get()->append(unique<json_value>(@child.release()));
+				@result.get()->append(unique<json_value>(@child.release()));
 			};
-			if (stored.has<allocation_error>()) {
-				throw allocation_error(stored.get<allocation_error>());
-			};
-			if (stored.has<json_error>()) {
-				throw json_error(stored.get<json_error>());
-			};
-			@index = index + 1;
 		};
 		return $result;
 	};
@@ -320,10 +310,7 @@ namespace rt {
 		};
 		@result.get()->payload.text.string();
 		@result.get()->tag = json_kind::string;
-		var appended = @result.get()->payload.text.append(value);
-		if (appended.has<allocation_error>()) {
-			throw allocation_error(appended.get<allocation_error>());
-		};
+		@result.get()->payload.text.append(value);
 		return $result;
 	};
 
@@ -349,37 +336,26 @@ namespace rt {
 		if (this.tag != json_kind::array || !value.get()) {
 			json_error error;
 			@error.message = string("JSON append requires an array and a value.");
-			return json_result($error);
+			return $error;
 		};
-		var appended = @this.payload.array.push_back($value);
-		if (appended.has<allocation_error>()) {
-			return json_result(appended.get<allocation_error>());
-		};
-		return json_result();
+		@this.payload.array.push_back($value);
 	};
 
 	export fn json_value::set(var json_value& this, string_view key, unique<json_value> value) -> json_result {
 		if (this.tag != json_kind::object || !value.get() || !json_valid_utf8(key)) {
 			json_error error;
 			@error.message = string("JSON set requires an object, a value, and a UTF-8 key.");
-			return json_result($error);
+			return $error;
 		};
 		for (usize index = 0; index < this.payload.object.size(); @index = index + 1) {
 			if (this.payload.object.data()[index].key.view() == key) {
 				@(@this.payload.object).data()[index].value = $value;
-				return json_result();
+				return;
 			};
 		};
 		string owned_key;
-		var copied = @owned_key.append(key);
-		if (copied.has<allocation_error>()) {
-			return json_result(copied.get<allocation_error>());
-		};
-		var appended = @this.payload.object.push_back(json_member($owned_key, $value));
-		if (appended.has<allocation_error>()) {
-			return json_result(appended.get<allocation_error>());
-		};
-		return json_result();
+		@owned_key.append(key);
+		@this.payload.object.push_back(json_member($owned_key, $value));
 	};
 	export fn json_value::kind(json_value& this) -> json_kind {
 		return json_kind(this.tag);
@@ -397,13 +373,12 @@ namespace rt {
 	};
 
 	export fn json_value::integer(json_value& this) -> i64 | json_error {
-		using Result = i64 | json_error;
 		if (this.tag != json_kind::number) {
-			return Result(json_error("JSON value is not a number", 0));
+			return json_error("JSON value is not a number", 0);
 		};
 		var text = this.payload.text.view();
 		if (text.empty()) {
-			return Result(json_error("JSON number is empty", 0));
+			return json_error("JSON number is empty", 0);
 		};
 		usize index = 0;
 		bool negative = text.data()[0] == '-';
@@ -411,29 +386,28 @@ namespace rt {
 			@index = 1;
 		};
 		if (index == text.size()) {
-			return Result(json_error("JSON number requires digits after its sign", index));
+			return json_error("JSON number requires digits after its sign", index);
 		};
 		u64 magnitude = 0;
 		u64 limit = 9223372036854775807;
 		if (negative) {
 			@limit = limit + 1;
 		};
-		while (index < text.size()) {
+		for (; index < text.size(); @index = index + 1) {
 			char byte = text.data()[index];
 			if (byte < '0' || byte > '9') {
-				return Result(json_error("JSON number is not an integer", index));
+				return json_error("JSON number is not an integer", index);
 			};
 			u64 digit = static_cast<u64>(byte - '0');
 			if (magnitude > (limit - digit) / 10) {
-				return Result(json_error("JSON integer is outside the i64 range", index));
+				return json_error("JSON integer is outside the i64 range", index);
 			};
 			@magnitude = magnitude * 10 + digit;
-			@index = index + 1;
 		};
 		if (negative && magnitude) {
-			return Result(-static_cast<i64>(magnitude - 1) - 1);
+			return -static_cast<i64>(magnitude - 1) - 1;
 		};
-		return Result(static_cast<i64>($magnitude));
+		return static_cast<i64>($magnitude);
 	};
 
 	export fn json_value::member(json_value& this, string_view key) -> json_value* {
@@ -505,11 +479,10 @@ namespace rt {
 
 	export fn json_parser::hex_quad(var json_parser& this, var u32& value) -> json_result {
 		@value = 0;
-		usize index = 0;
-		while (index < 4) {
+		for (usize index = 0; index < 4; @index = index + 1) {
 			if (this.cursor >= this.input.size()) {
 				@this.fail("incomplete Unicode escape");
-				return json_result(json_error(this.failure.view(), this.failure_offset));
+				return json_error(this.failure.view(), this.failure_offset);
 			};
 			char byte = this.input.data()[this.cursor];
 			u32 digit = 0;
@@ -524,20 +497,18 @@ namespace rt {
 			}
 			else {
 				@this.fail("invalid Unicode escape");
-				return json_result(json_error(this.failure.view(), this.failure_offset));
+				return json_error(this.failure.view(), this.failure_offset);
 			};
 			@value = (value << 4) | digit;
 			@this.cursor = this.cursor + 1;
-			@index = index + 1;
 		};
-		return json_result();
 	};
 
 	export fn json_append_codepoint(var string& output, u32 code) -> json_result {
 		if (code > 1114111 || code >= 55296 && code <= 57343) {
 			json_error error;
 			@error.message = string("Invalid Unicode code point.");
-			return json_result($error);
+			return $error;
 		};
 		char[4] bytes;
 		usize count = 0;
@@ -563,64 +534,50 @@ namespace rt {
 			@bytes[3] = static_cast<char>(128 | (code & 63));
 			@count = 4;
 		};
-		var appended = @output.append(string_view(&@bytes[0], $count));
-		if (appended.has<allocation_error>()) {
-			return json_result(appended.get<allocation_error>());
-		};
-		return json_result();
+		@output.append(string_view(&@bytes[0], $count));
 	};
 
 	export fn json_parser::string_value(var json_parser& this, var string& result) -> json_result {
 		if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != '"') {
 			@this.fail("expected a JSON string");
-			return json_result(json_error(this.failure.view(), this.failure_offset));
+			return json_error(this.failure.view(), this.failure_offset);
 		};
 		@this.cursor = this.cursor + 1;
 		while (this.cursor < this.input.size()) {
 			char byte = this.input.data()[this.cursor];
 			@this.cursor = this.cursor + 1;
 			if (byte == '"') {
-				return json_result();
+				return;
 			};
 			if (byte == '\\') {
 				if (this.cursor >= this.input.size()) {
 					@this.fail("incomplete string escape");
-					return json_result(json_error(this.failure.view(), this.failure_offset));
+					return json_error(this.failure.view(), this.failure_offset);
 				};
 				@byte := this.input.data()[this.cursor];
 				@this.cursor = this.cursor + 1;
 				if (byte == 'u') {
 					u32 code = 0;
-					if (!(@this.hex_quad(@code)).has<void>()) {
-						return json_result(json_error(this.failure.view(), this.failure_offset));
-					};
+					@this.hex_quad(@code);
 					if (code >= 55296 && code <= 56319) {
 						if (this.input.size() - this.cursor < 2 || this.input.data()[this.cursor] != '\\' || this.input.data()[this.cursor + 1] != 'u') {
 							@this.fail("high surrogate requires a low surrogate");
-							return json_result(json_error(this.failure.view(), this.failure_offset));
+							return json_error(this.failure.view(), this.failure_offset);
 						};
 						@this.cursor = this.cursor + 2;
 						u32 low = 0;
-						if (!(@this.hex_quad(@low)).has<void>()) {
-							return json_result(json_error(this.failure.view(), this.failure_offset));
-						};
+						@this.hex_quad(@low);
 						if (low < 56320 || low > 57343) {
 							@this.fail("invalid low surrogate");
-							return json_result(json_error(this.failure.view(), this.failure_offset));
+							return json_error(this.failure.view(), this.failure_offset);
 						};
 						@code = 65536 + ((code - 55296) << 10) + (low - 56320);
 					}
 					else if (code >= 56320 && code <= 57343) {
 						@this.fail("unpaired low surrogate");
-						return json_result(json_error(this.failure.view(), this.failure_offset));
+						return json_error(this.failure.view(), this.failure_offset);
 					};
-					var appended = json_append_codepoint(@result, $code);
-					if (appended.has<allocation_error>()) {
-						return json_result(appended.get<allocation_error>());
-					};
-					if (appended.has<json_error>()) {
-						return json_result(appended.get<json_error>());
-					};
+					json_append_codepoint(@result, $code);
 					continue;
 				};
 				if (byte == 'b') {
@@ -640,36 +597,30 @@ namespace rt {
 				}
 				else if (byte != '"' && byte != '\\' && byte != '/') {
 					@this.fail("invalid string escape");
-					return json_result(json_error(this.failure.view(), this.failure_offset));
+					return json_error(this.failure.view(), this.failure_offset);
 				};
 			}
 			else {
 				if (static_cast<u08>(byte) < 32) {
 					@this.fail("unescaped control character");
-					return json_result(json_error(this.failure.view(), this.failure_offset));
+					return json_error(this.failure.view(), this.failure_offset);
 				};
 				if (static_cast<u08>(byte) >= 128) {
 					usize begin = this.cursor - 1;
 					usize width = json_utf8_width(this.input, begin);
 					if (!width) {
 						@this.fail("invalid UTF-8 in JSON string");
-						return json_result(json_error(this.failure.view(), this.failure_offset));
+						return json_error(this.failure.view(), this.failure_offset);
 					};
-					var appended = @result.append(this.input.slice(begin, width));
-					if (appended.has<allocation_error>()) {
-						throw allocation_error(appended.get<allocation_error>());
-					};
+					@result.append(this.input.slice(begin, width));
 					@this.cursor = begin + width;
 					continue;
 				};
 			};
-			var appended = @result.append(string_view(&@byte, 1));
-			if (appended.has<allocation_error>()) {
-				throw allocation_error(appended.get<allocation_error>());
-			};
+			@result.append(string_view(&@byte, 1));
 		};
 		@this.fail("unterminated JSON string");
-		return json_result(json_error(this.failure.view(), this.failure_offset));
+		return json_error(this.failure.view(), this.failure_offset);
 	};
 
 	export fn json_parser::value(var json_parser& this, usize depth) -> unique<json_value> {
@@ -682,12 +633,10 @@ namespace rt {
 		if (byte == '"') {
 			string text;
 			var decoded = @this.string_value(@text);
-			if (decoded.has<allocation_error>()) {
-				throw allocation_error(decoded.get<allocation_error>());
-			};
 			if (decoded.has<json_error>()) {
 				return unique<json_value>();
 			};
+			decoded;
 			return json_value::make_string(text.view());
 		};
 		if (byte == '{' || byte == '[') {
@@ -709,12 +658,10 @@ namespace rt {
 				if (object) {
 					@this.whitespace();
 					var decoded = @this.string_value(@key);
-					if (decoded.has<allocation_error>()) {
-						throw allocation_error(decoded.get<allocation_error>());
-					};
 					if (decoded.has<json_error>()) {
 						return unique<json_value>();
 					};
+					decoded;
 					@this.whitespace();
 					if (this.cursor >= this.input.size() || this.input.data()[this.cursor] != ':') {
 						@this.fail("expected ':' after object key");
@@ -733,13 +680,11 @@ namespace rt {
 				else {
 					@stored = @result.get()->append(unique<json_value>(@child.release()));
 				};
-				if (stored.has<allocation_error>()) {
-					throw allocation_error(stored.get<allocation_error>());
-				};
 				if (stored.has<json_error>()) {
 					@this.fail(stored.get<json_error>().message);
 					return unique<json_value>();
 				};
+				stored;
 				@this.whitespace();
 				if (this.cursor >= this.input.size()) {
 					@this.fail("unterminated JSON container");
@@ -797,15 +742,15 @@ namespace rt {
 				@root.reset(nullptr);
 			};
 			if (!root.get()) {
-				return json_document(json_error(this.failure.view(), this.failure_offset));
+				return json_error(this.failure.view(), this.failure_offset);
 			};
-			return json_document($root);
+			return $root;
 		}
 		catch (json_error error) {
-			return json_document($error);
+			return $error;
 		}
 		catch (allocation_error error) {
-			return json_document($error);
+			return $error;
 		};
 	};
 
@@ -819,109 +764,84 @@ namespace rt {
 		if (!json_valid_utf8(value)) {
 			json_error error;
 			@error.message = string("JSON strings require valid UTF-8.");
-			return json_result($error);
+			return $error;
 		};
-		try {
-			@output.append("\"");
-			var digits = "0123456789abcdef";
-			for (usize index = 0; index < value.size(); @index = index + 1) {
-				u08 byte = static_cast<u08>(value.data()[index]);
-				if (byte == 34 || byte == 92) {
-					@output.append("\\");
-					@output.append(value.slice(index, 1));
-				}
-				else if (byte < 32) {
-					char[2] hex;
-					@hex[0] := digits.data()[byte >> 4];
-					@hex[1] := digits.data()[byte & 15];
-					@output.append("\\u00");
-					@output.append(string_view(&@hex[0], 2));
-				}
-				else {
-					@output.append(value.slice(index, 1));
-				};
+		@output.append("\"");
+		var digits = "0123456789abcdef";
+		for (usize index = 0; index < value.size(); @index = index + 1) {
+			u08 byte = static_cast<u08>(value.data()[index]);
+			if (byte == 34 || byte == 92) {
+				@output.append("\\");
+				@output.append(value.slice(index, 1));
+			}
+			else if (byte < 32) {
+				char[2] hex;
+				@hex[0] := digits.data()[byte >> 4];
+				@hex[1] := digits.data()[byte & 15];
+				@output.append("\\u00");
+				@output.append(string_view(&@hex[0], 2));
+			}
+			else {
+				@output.append(value.slice(index, 1));
 			};
-			@output.append("\"");
-			return json_result();
-		}
-		catch (allocation_error error) {
-			return json_result($error);
 		};
+		@output.append("\"");
 	};
 
 	export fn json_write_value(json_value& value, var string& output, usize depth) -> json_result {
 		if (depth > 128) {
 			json_error error;
 			@error.message = string("JSON nesting exceeds the supported depth.");
-			return json_result($error);
+			return $error;
 		};
-		try {
-			switch (value.kind()) {
-				case json_kind::null_value: {
-					@output.append("null");
-					return json_result();
-				};
-				case json_kind::boolean: {
-					if (value.boolean()) {
-						@output.append("true");
-					}
-					else {
-						@output.append("false");
-					};
-					return json_result();
-				};
-				case json_kind::number: {
-					@output.append(value.text());
-					return json_result();
-				};
-				case json_kind::string: return json_write_string(value.text(), @output);
+		switch (value.kind()) {
+			case json_kind::null_value: {
+				@output.append("null");
+				return;
 			};
-			bool object = value.kind() == json_kind::object;
-			if (object) {
-				@output.append("{");
-			}
-			else {
-				@output.append("[");
-			};
-			for (usize index = 0; index < value.size(); @index = index + 1) {
-				if (index) {
-					@output.append(",");
+			case json_kind::boolean: {
+				if (value.boolean()) {
+					@output.append("true");
+				}
+				else {
+					@output.append("false");
 				};
-				if (object) {
-					var key = json_write_string(value.key(index), @output);
-					if (!key.has<void>()) {
-						return $key;
-					};
-					@output.append(":");
-				};
-				var item = json_write_value(*value.item(index), @output, depth + 1);
-				if (!item.has<void>()) {
-					return $item;
-				};
+				return;
 			};
-			if (object) {
-				@output.append("}");
-			}
-			else {
-				@output.append("]");
+			case json_kind::number: {
+				@output.append(value.text());
+				return;
 			};
-			return json_result();
+			case json_kind::string: return json_write_string(value.text(), @output);
+		};
+		bool object = value.kind() == json_kind::object;
+		if (object) {
+			@output.append("{");
 		}
-		catch (allocation_error error) {
-			return json_result($error);
+		else {
+			@output.append("[");
+		};
+		for (usize index = 0; index < value.size(); @index = index + 1) {
+			if (index) {
+				@output.append(",");
+			};
+			if (object) {
+				json_write_string(value.key(index), @output);
+				@output.append(":");
+			};
+			json_write_value(*value.item(index), @output, depth + 1);
+		};
+		if (object) {
+			@output.append("}");
+		}
+		else {
+			@output.append("]");
 		};
 	};
 
 	export fn json_write(json_value& value, var string& output) -> json_result {
 		string encoded;
-		var written = json_write_value(value, @encoded, 0);
-		if (!written.has<void>()) {
-			return $written;
-		};
-		var appended = @output.append(encoded);
-		if (appended.has<allocation_error>()) {
-			return json_result(appended.get<allocation_error>());
-		};
-		return json_result();
+		json_write_value(value, @encoded, 0);
+		@output.append(encoded);
 	};
 };

@@ -1,6 +1,11 @@
 [[test]]
 fn processes_capture_standard_output() {
-	var command = rt::sys::Command(rt::environment("ComSpec"));
+	rt::string shell = rt::environment("ComSpec");
+	rt::test::expect(!shell.empty());
+	var absent = rt::environment("RUTILE_UNDEFINED_ENVIRONMENT_7410F14B");
+	rt::test::expect(absent.has<rt::string>());
+	rt::test::expect(absent.get<rt::string>().empty());
+	var command = rt::sys::Command(shell);
 	@command.argument("/c");
 	@command.argument("echo rutile-process-output");
 	rt::sys::Result result = rt::sys::cmd(command);
@@ -11,6 +16,9 @@ fn processes_capture_standard_output() {
 	rt::test::expect(environment.has<rt::sys::invalid_environment_error>());
 	var oversized_argument = @command.argument(rt::string_view("x".data(), usize::max));
 	rt::test::expect(oversized_argument.has<rt::allocation_error>());
+	rt::sys::Result after_failure = rt::sys::cmd(command);
+	rt::test::expect(!after_failure.exit_code);
+	rt::test::expect(after_failure.output.trim() == "rutile-process-output");
 };
 
 [[test]]
@@ -26,8 +34,28 @@ fn process_launch_failures_are_distinct_from_exit_codes() {
 };
 
 [[test]]
+fn interactive_process_reads_own_output_independently_of_completion() {
+	rt::string shell = rt::environment("ComSpec");
+	var command = rt::sys::Command(shell);
+	@command.argument("/c");
+	@command.argument("echo streamed & echo failure 1>&2 & exit /b 7");
+	rt::sys::Session session = rt::sys::start(command);
+	rt::string chunk = @session.read(5000);
+	rt::test::expect(!chunk.empty());
+	rt::string preserved = chunk;
+	rt::sys::Result completed = @session.wait(5000);
+	rt::test::expect(completed.exit_code == 7);
+	rt::test::expect(completed.output.contains(chunk));
+	rt::test::expect(completed.output.contains("streamed"));
+	rt::test::expect(completed.error.contains("failure"));
+	@completed.output.clear();
+	rt::test::expect(chunk == preserved);
+};
+
+[[test]]
 fn interactive_processes_time_out_and_terminate() {
-	var command = rt::sys::Command(rt::environment("ComSpec"));
+	rt::string shell = rt::environment("ComSpec");
+	var command = rt::sys::Command(shell);
 	@command.argument("/c");
 	@command.argument("ping -n 6 127.0.0.1 >nul");
 	rt::sys::Session session = rt::sys::start(command);

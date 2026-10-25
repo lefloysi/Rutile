@@ -12,6 +12,9 @@ fn FunctionEmitter::needs_destruction(Type* type) -> bool {
 	if (record->destructor()) {
 		return true;
 	};
+	if (record->layout() == record_layout::overlapping) {
+		return false;
+	};
 
 	usize index = 0;
 
@@ -38,7 +41,7 @@ fn FunctionEmitter::needs_destruction(Type* type) -> bool {
 
 fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
 	if (!FunctionEmitter::needs_destruction(type)) {
-		return CompilationResult();
+		return;
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -54,7 +57,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 	bool protect_components = !this.unwind_depth && record->layout() == record_layout::sequential && aggregate_access_kind(type) != 2;
 
 	if (!(@this.initialize_dispatch(type, address)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (protect_components) {
 		@this.retain_components(type, address);
@@ -76,7 +79,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 				@message.text("' requires destruction");
 				discard @this.backend->error(record->token(), message.view());
 				@this.backend->note(member->token(), "member requiring destruction is declared here");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
@@ -95,18 +98,26 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 			@message.text("'");
 			discard @this.backend->error(destructor->token(), message.view());
 			@this.backend->note(destructor->token(), "destructor is declared deleted here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var LLVMOpaqueValue*[1] arguments {};
 		@arguments[0] = address;
-		if (!@this.native_call(@this.backend->type(destructor->type(), destructor->token()), this.backend->symbol(destructor), &@arguments[0], 1)) {
-			return CompilationResult(compilation_error());
+		var LLVMOpaqueValue* callee = this.backend->symbol(destructor);
+		if (!callee) {
+			DiagnosticMessage message;
+			@message.text("destruction has no native callee for '");
+			diagnostic_entity(@message, *destructor);
+			@message.text("'");
+			compiler_panic(message.view());
+		};
+		if (!@this.native_call(@this.backend->type(destructor->type(), destructor->token()), callee, &@arguments[0], 1)) {
+			return compilation_error();
 		};
 	};
 
 	if (record->layout() == record_layout::overlapping || aggregate_access_kind(type) == 2) {
-		return CompilationResult();
+		return;
 	};
 
 	usize index = record->fields().size();
@@ -122,7 +133,7 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 			var LLVMOpaqueValue* member = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(type, field->token()), address, this.backend->field_index(record, index), "destroy.field\0".data());
 
 			if (!(@this.destroy(field->type(), member)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 	};
@@ -137,12 +148,11 @@ fn FunctionEmitter::destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqu
 		};
 
 		if (!(@this.destroy(record->bases().data()[index], base)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	@this.forget_unwinds(unwind_begin);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::slot(var FunctionEmitter& this, Type* type) -> var LLVMOpaqueValue* {
@@ -217,7 +227,6 @@ fn FunctionEmitter::remember(var FunctionEmitter& this, var SemanticExpression* 
 	@this.temporaries.push_back($temporary);
 	@this.lifetime_revision = this.lifetime_revision + 1;
 
-	return;
 };
 
 fn FunctionEmitter::value(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
@@ -291,7 +300,7 @@ fn FunctionEmitter::binding_live(var FunctionEmitter& this, var Entity* entity, 
 
 fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var LLVMOpaqueValue* live) -> CompilationResult {
 	if (!live) {
-		return CompilationResult();
+		return;
 	};
 
 	var LLVMOpaqueBasicBlock* destroy = @this.block("cleanup.destroy");
@@ -302,13 +311,12 @@ fn FunctionEmitter::guarded_destroy(var FunctionEmitter& this, Type* type, var L
 	discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(boolean), live);
 
 	if (!(@this.destroy(type, address)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	discard LLVMBuildBr(this.backend->builder(), after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::cleanup_temporaries(var FunctionEmitter& this, usize begin) -> CompilationResult {
@@ -319,11 +327,10 @@ fn FunctionEmitter::cleanup_temporaries(var FunctionEmitter& this, usize begin) 
 		NativeTemporary& temporary = this.temporaries.data()[index];
 
 		if (!(@this.guarded_destroy(temporary.expression->type(), temporary.address, temporary.live)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::cleanup_bindings(var FunctionEmitter& this, usize begin) -> CompilationResult {
@@ -334,11 +341,10 @@ fn FunctionEmitter::cleanup_bindings(var FunctionEmitter& this, usize begin) -> 
 		NativeBinding& binding = this.bindings.data()[index];
 
 		if (!(@this.guarded_destroy(binding.entity->type(), binding.address, binding.live)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::forget_temporaries(var FunctionEmitter& this, usize begin) {
@@ -350,7 +356,7 @@ fn FunctionEmitter::forget_temporaries(var FunctionEmitter& this, usize begin) {
 
 fn FunctionEmitter::leave_scope(var FunctionEmitter& this, usize begin) -> CompilationResult {
 	if (!this.terminated() && !(@this.cleanup_bindings(begin)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	while (this.bindings.size() > begin) {
@@ -358,14 +364,13 @@ fn FunctionEmitter::leave_scope(var FunctionEmitter& this, usize begin) -> Compi
 		@this.lifetime_revision = this.lifetime_revision + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::scoped_statement(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	usize begin = this.bindings.size();
 
 	if (!(@this.statement(expression)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	return @this.leave_scope(begin);

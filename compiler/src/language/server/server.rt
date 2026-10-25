@@ -34,12 +34,10 @@ fn LanguageServer::send(var LanguageServer& this, rt::unique<rt::json_value> mes
 	};
 	rt::json_write(*message.get(), @text);
 	@this.protocol->send(text.view());
-	return;
 };
 
 fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code, rt::string_view text) {
 	@this.send(LanguageJson::failure(id, $code, text));
-	return;
 };
 
 fn LanguageServer::description() -> rt::json_document {
@@ -85,7 +83,6 @@ fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::
 	};
 	@this.state = language_server_state::running;
 	@this.send(LanguageJson::response(id, $result));
-	return;
 };
 
 fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) {
@@ -208,7 +205,6 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) {
 	if (supplied_id) {
 		@this.error(*id, -32601, "method is not implemented");
 	};
-	return;
 };
 
 fn LanguageServer::run(var LanguageServer& this) -> i32 {
@@ -254,7 +250,7 @@ fn "C" rutile_language_server_main(var Compiler* compiler, var NativeFile* input
 		if (!compiler || !input || !output || !root) {
 			return 1;
 		};
-		var protocol = rt::unique<LanguageProtocol>(new var LanguageProtocol(@*input, @*output));
+		var protocol = rt::unique<LanguageProtocol>(new LanguageProtocol(@*input, @*output));
 		if (!protocol.get()) {
 			rt::allocation_error error;
 			@error.requested_bytes = sizeof(LanguageProtocol);
@@ -263,7 +259,7 @@ fn "C" rutile_language_server_main(var Compiler* compiler, var NativeFile* input
 		if (!protocol.get()->ready()) {
 			compiler_panic("language protocol synchronization could not be initialized");
 		};
-		var workspace = rt::unique<LanguageWorkspace>(new var LanguageWorkspace(@*compiler, @*protocol.get(), rt::from_c_string(root)));
+		var workspace = rt::unique<LanguageWorkspace>(new LanguageWorkspace(@*compiler, @*protocol.get(), rt::from_c_string(root)));
 		if (!workspace.get()) {
 			rt::allocation_error error;
 			@error.requested_bytes = sizeof(LanguageWorkspace);
@@ -296,7 +292,7 @@ fn kiln_emit_target(var Compiler* compiler, char* root, char* name, var char* ou
 		var errors = Diagnostics(diagnostics);
 		Token location;
 		@errors.error(location, "compiler, workspace root, and target name are required for native emission");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	LanguageGroup group;
 	@group.kind = language_group_kind::target;

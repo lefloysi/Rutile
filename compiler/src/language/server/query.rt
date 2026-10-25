@@ -86,17 +86,17 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 	rt::json_value* document = parameters.member("textDocument");
 	rt::json_value* position = parameters.member("position");
 	if (!document || !position) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	rt::string path;
 	rt::string key;
 	if (!LanguageUri::decode(LanguageJson::text(*document, "uri"), @path).has<void>()) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	LanguageUri::key(path.view(), @key);
 	var found = index.source_ids.find(key);
 	if (!found) {
-		return LanguageRequestResult();
+		return;
 	};
 	usize source = *found;
 	LanguageText* text = &@index.sources.data()[source].text;
@@ -107,12 +107,12 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 	i64 line = LanguageJson::integer(*position, "line", -1);
 	i64 character = LanguageJson::integer(*position, "character", -1);
 	if (line < 0 || character < 0) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	usize current = text->offset(static_cast<usize>(line), static_cast<usize>(character));
 	usize original = 0;
 	if (!@this.old_offset(index, usize(source), usize(current), @original)) {
-		return LanguageRequestResult();
+		return;
 	};
 
 	usize first = 0;
@@ -171,7 +171,6 @@ fn LanguageWorkspace::bindings(var LanguageWorkspace& this, LanguageIndex& index
 		};
 		@pass = pass + 1;
 	};
-	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::contains(rt::string_view text, rt::string_view part) -> bool {
@@ -207,7 +206,6 @@ fn LanguageWorkspace::append_location(var rt::json_value& result, rt::unique<rt:
 		compiler_panic("language server append_location invariant failed");
 	};
 	@result.append($location);
-	return;
 };
 
 fn LanguageWorkspace::query(var LanguageWorkspace& this, rt::string_view method, rt::json_value& parameters) -> rt::unique<rt::json_value> {

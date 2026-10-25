@@ -191,14 +191,14 @@ fn Parser::accept(var Parser& this, token_kind& kind) -> bool {
 
 fn Parser::require(var Parser& this, token_kind& kind, rt::string_view message) -> CompilationResult {
 	if (@this.accept(kind)) {
-		return CompilationResult();
+		return;
 	};
 
 	if (this.mode == parse_mode::editor && kind == token_kind::punct_semicolon && (this.peek().kind == token_kind::eof || this.peek().kind == token_kind::punct_right_brace)) {
-		return CompilationResult();
+		return;
 	};
 	@this.fail(message);
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Parser::fail(var Parser& this, rt::string_view message) {
@@ -209,7 +209,7 @@ fn Parser::fail(var Parser& this, rt::string_view message) {
 };
 
 fn Parser::node(var Parser& this, syntax_kind kind, Token& token) -> rt::unique<Syntax> {
-	var result = rt::unique<Syntax>(new var Syntax($kind, token));
+	var result = rt::unique<Syntax>(new Syntax($kind, token));
 	if (!result.get()) {
 		rt::allocation_error error;
 		@error.requested_bytes = sizeof(Syntax);
@@ -224,7 +224,7 @@ fn Parser::absent(var Parser& this) -> rt::unique<Syntax> {
 
 fn Parser::add(var Parser& this, var Syntax& parent, rt::unique<Syntax> child) -> CompilationResult {
 	if (!child.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	return @parent.append($child);
@@ -233,6 +233,7 @@ fn Parser::add(var Parser& this, var Syntax& parent, rt::unique<Syntax> child) -
 fn Parser::precedence(token_kind& kind) -> i32 {
 	switch (kind) {
 		case token_kind::op_assign:
+		case token_kind::op_plus_assign:
 		case token_kind::op_copy:
 			return 1;
 		case token_kind::op_or:
@@ -292,10 +293,10 @@ fn Parser::parse_editor(var Parser& this) -> ParseResult {
 	var result = @this.parse_impl();
 
 	if (!result.get() || !(@this.collect_issues(*result.get())).has<void>()) {
-		return ParseResult(compilation_error());
+		return compilation_error();
 	};
 
-	return ParseResult($result);
+	return $result;
 };
 
 fn Parser::recovery_boundary(Parser& this) -> bool {
@@ -338,7 +339,7 @@ fn Parser::synchronize(var Parser& this, usize start) {
 
 fn Parser::collect_issues(var Parser& this, Syntax& syntax) -> CompilationResult {
 	if (@this.cancelled()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	rt::string_view message;
 
@@ -369,20 +370,19 @@ fn Parser::collect_issues(var Parser& this, Syntax& syntax) -> CompilationResult
 
 	while (index < syntax.size()) {
 		if (!(@this.collect_issues(*syntax.item(index))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn Parser::parse(var Parser& this) -> ParseResult {
 	@this.mode = parse_mode::strict;
 	var result = @this.parse_impl();
 	if (!result.get()) {
-		return ParseResult(compilation_error());
+		return compilation_error();
 	};
-	return ParseResult($result);
+	return $result;
 };
 
 fn Parser::parse_impl(var Parser& this) -> rt::unique<Syntax> {
@@ -491,29 +491,29 @@ fn Parser::arguments(var Parser& this, token_kind close) -> rt::unique<Syntax> {
 
 fn Parser::open_template(var Parser& this) -> CompilationResult {
 	if (@this.accept(token_kind::op_less)) {
-		return CompilationResult();
+		return;
 	};
 	if (@this.accept(token_kind::op_shift_left)) {
 		@this.pending_less = 1;
-		return CompilationResult();
+		return;
 	};
 	@this.fail("expected '<'");
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Parser::close_template(var Parser& this) -> CompilationResult {
 	if (@this.accept(token_kind::op_greater)) {
-		return CompilationResult();
+		return;
 	};
 
 	if (@this.accept(token_kind::op_shift_right)) {
 		@this.pending_greater = 1;
 
-		return CompilationResult();
+		return;
 	};
 
 	@this.fail("expected '>' after template arguments");
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Parser::template_arguments(var Parser& this) -> rt::unique<Syntax> {
@@ -1330,6 +1330,13 @@ fn Parser::primary(var Parser& this) -> rt::unique<Syntax> {
 
 			if (@this.accept(token_kind::punct_left_paren)) {
 				discard @this.add(@*allocation.get(), @this.arguments(token_kind::punct_right_paren));
+			}
+			else if (this.peek().kind == token_kind::punct_left_brace) {
+				var opening = @this.take();
+				discard @this.add(@*allocation.get(), @this.node(syntax_kind::list, opening));
+				if (!(@this.require(token_kind::punct_right_brace, "uninitialized allocation requires empty '{}' delimiters")).has<void>()) {
+					return rt::unique<Syntax>();
+				};
 			}
 			else {
 				if (array) {
@@ -2263,20 +2270,20 @@ fn Parser::alternative_add(var Parser& this, var rt::buffer<rt::unique<Syntax>>&
 
 		while (index < syntax.get()->size()) {
 			if (!(@this.alternative_add(@alternatives, @syntax.get()->take_item(index))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	usize index = 0;
 
 	while (index < alternatives.size()) {
 		if (alternatives.data()[index].get()->same_tree(*syntax.get())) {
-			return CompilationResult();
+			return;
 		};
 
 		@index = index + 1;
@@ -2284,7 +2291,6 @@ fn Parser::alternative_add(var Parser& this, var rt::buffer<rt::unique<Syntax>>&
 
 	@alternatives.push_back($syntax);
 
-	return CompilationResult();
 };
 
 fn Parser::factor(var Parser& this, var rt::buffer<rt::unique<Syntax>>& alternatives) -> rt::unique<Syntax> {
@@ -2460,7 +2466,7 @@ fn ParseChoices::contains(ParseChoices& this, usize position) -> bool {
 };
 
 fn ParseChoices::extended(ParseChoices& this, usize position) -> rt::unique<ParseChoices> {
-	var result = rt::unique<ParseChoices>::make();
+	rt::unique<ParseChoices> result = rt::unique<ParseChoices>::make();
 	usize index = 0;
 
 	while (index < this.operators.size()) {

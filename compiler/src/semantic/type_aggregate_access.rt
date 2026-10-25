@@ -33,6 +33,9 @@ fn aggregate_element(var Analyzer& analyzer, var Syntax& syntax, rt::unique<Sema
 	};
 	Token location = syntax.token();
 	bool mutable_access = object.get()->mutable_access();
+	if (field->type()->kind() == type_kind::reference) {
+		@mutable_access = type->qualifier() == type_qualifier::mutable;
+	};
 	var result = SemanticExpression::make(semantic_kind::member, type, location);
 	if (!result.get() || !(@result.get()->append($object)).has<void>()) {
 		return rt::unique<SemanticExpression>();

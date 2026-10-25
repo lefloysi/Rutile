@@ -9,7 +9,12 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 		return nullptr;
 	};
 	var LLVMOpaqueValue* storage = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), storage_field->index()), "variant.payload\0".data());
+	TemplatePack* alternatives = owner->entity()->template_arguments()->arguments.data()[0].pack;
+	Type* selected = alternatives->elements.data()[usize(expression->integer() - 1)].type;
 	if (storage && this.alternative_fact(*expression) == expression->integer()) {
+		if (selected->kind() == type_kind::reference) {
+			return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(selected), storage, "variant.reference\0".data());
+		};
 		return storage;
 	};
 	var LLVMOpaqueValue* tag_address = LLVMBuildStructGEP2(this.backend->builder(), native, object, this.backend->field_index(owner->entity(), index_field->index()), "variant.tag.address\0".data());
@@ -25,7 +30,7 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 	usize index = 1;
 	while (index < expression->size()) {
 		if (u64(index) != expression->integer()) {
-			var LLVMOpaqueBasicBlock* mismatch = @this.block("variant.cast.throw");
+			var LLVMOpaqueBasicBlock* mismatch = @this.block("variant.cast.mismatch");
 			LLVMAddCase(dispatch, LLVMConstInt(tag_type, u64(index), 0), mismatch);
 			LLVMPositionBuilderAtEnd(this.backend->builder(), mismatch);
 			var LLVMOpaqueValue* previous = this.variant_payload_address;
@@ -41,7 +46,7 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 					};
 				};
 			};
-			var emitted = @this.exception_throw(expression->item(index));
+			var emitted = @this.statement(expression->item(index));
 			@this.variant_payload_address = previous;
 			@this.variant_payload_live = previous_live;
 			if (emitted.has<compilation_error>()) {
@@ -53,5 +58,8 @@ fn FunctionEmitter::variant_cast_address(var FunctionEmitter& this, var Semantic
 	LLVMPositionBuilderAtEnd(this.backend->builder(), invalid);
 	discard LLVMBuildUnreachable(this.backend->builder());
 	LLVMPositionBuilderAtEnd(this.backend->builder(), success);
+	if (selected->kind() == type_kind::reference) {
+		return LLVMBuildLoad2(this.backend->builder(), @this.backend->type(selected), storage, "variant.reference\0".data());
+	};
 	return storage;
 };

@@ -66,7 +66,8 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 	usize selected = alternatives->fields().size();
 	usize index = 0;
 	while (index < alternatives->fields().size()) {
-		if (alternatives->fields().data()[index]->type()->same_shape(*raw.data()[0].get()->type())) {
+		Type* candidate = alternatives->fields().data()[index]->type();
+		if (candidate->same_shape(*raw.data()[0].get()->type()) || candidate->kind() == type_kind::reference && candidate->element()->same_shape(*raw.data()[0].get()->type()) && @this.argument_rank(*raw.data()[0].get(), *candidate) >= 0) {
 			if (selected != alternatives->fields().size()) {
 				@this.error(&@syntax, "variant construction type matches more than one alternative");
 				return rt::unique<SemanticExpression>();
@@ -81,12 +82,19 @@ fn Analyzer::construct_variant(var Analyzer& this, var Syntax& syntax, Type* typ
 	};
 
 	Type* alternative = alternatives->fields().data()[selected]->type();
-	if (raw.data()[0].get()->category() == value_category::place && !(@this.prepare_copy(alternative)).has<void>()) {
+	if (alternative->kind() != type_kind::reference && raw.data()[0].get()->category() == value_category::place && !(@this.prepare_copy(alternative)).has<void>()) {
 		return rt::unique<SemanticExpression>();
 	};
 	rt::buffer<rt::unique<SemanticExpression>> payload_arguments;
 	@payload_arguments.push_back(rt::unique<SemanticExpression>(@raw.data()[0].release()));
-	var payload = @this.construct_values(@syntax, alternative, $payload_arguments);
+	rt::unique<SemanticExpression> payload;
+	if (alternative->kind() == type_kind::reference) {
+		var rt::unique<SemanticExpression>* values = (@payload_arguments).data();
+		@payload = rt::unique<SemanticExpression>(@values[0].release());
+	}
+	else {
+		@payload = @this.construct_values(@syntax, alternative, $payload_arguments);
+	};
 	var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
 	var result = @this.node(semantic_kind::construction, type, &@syntax);
 	if (!payload.get() || !arguments.get() || !result.get() || !(@arguments.get()->append($payload)).has<void>() || !(@result.get()->append($arguments)).has<void>()) {

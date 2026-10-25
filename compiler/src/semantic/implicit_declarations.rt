@@ -3,7 +3,7 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 	Type* copy = @this.types->reference(@this.types->qualified(*source, type_qualifier::immutable));
 
 	if (!copy) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	bool source_constructor = false;
@@ -22,7 +22,7 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 		var Entity* constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, nullptr, function_definition::defaulted);
 
 		if (!constructor) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@entity->set_default_constructor(constructor);
@@ -32,7 +32,7 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 	var Entity* copy_constructor = @this.supply_special(entity, function_role::constructor, token_kind::identifier, copy, function_definition::defaulted);
 
 	if (!move_constructor || !copy_constructor) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity->set_move_constructor(move_constructor);
@@ -40,19 +40,19 @@ fn Analyzer::supply_special_functions(var Analyzer& this, var Entity* entity) ->
 	if (variant_instance(*entity) && !entity->destructor()) {
 		var Entity* destructor = @this.supply_special(entity, function_role::destructor, token_kind::op_tilde, nullptr, function_definition::defaulted);
 		if (!destructor) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@entity->set_destructor(destructor);
 	};
 
 	if (!@this.supply_special(entity, function_role::assignment, token_kind::op_assign, source, function_definition::defaulted)) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (@this.supply_special(entity, function_role::assignment, token_kind::op_copy, copy, function_definition::defaulted) != nullptr) {
-		return CompilationResult();
+		return;
 	};
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_role role, token_kind operation, Type* source, function_definition definition) -> var Entity* {
@@ -122,6 +122,9 @@ fn Analyzer::supply_special(var Analyzer& this, var Entity* entity, function_rol
 	@function->set_origin(declaration_origin::compiler_supplied);
 	@function->set_definition(function_definition(definition));
 	@function->set_role(function_role(role));
+	if (role == function_role::constructor && source && source->kind() == type_kind::reference && source->element()->same_shape(*entity->type())) {
+		@function->set_conversion(conversion_mode::implicit_allowed);
+	};
 	@function->set_operator_kind(token_kind(operation));
 	@function->set_access(access_kind::public_access);
 	var Scope* parameters = @this.unit->create_scope(entity->members(), (var Entity*(function)));

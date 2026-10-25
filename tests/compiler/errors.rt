@@ -1,4 +1,146 @@
 [[test]]
+fn compound_assignment_returns_references_and_propagates_unmatched_errors() {
+	var directory = compiler_directory("compound-assignment");
+	var source = """
+struct Failure {
+	i32 code;
+	fn Failure(var Failure& this, i32 code) {
+		@this.code = code;
+	};
+	fn Failure(var Failure& this, Failure& other) : [delete];
+	fn Failure(var Failure& this, Failure other) : [default];
+};
+i32 destroyed;
+struct Counter {
+	i32 value;
+	fn ~Counter(var Counter& this) {
+		@destroyed = destroyed + 1;
+	};
+	fn operator+=(var Counter& lhs, Counter& rhs) -> var Counter& | Failure {
+		if (rhs.value < 0) {
+			var failure = Failure(rhs.value);
+			return $failure;
+		};
+		@lhs.value = lhs.value + rhs.value;
+		return @lhs;
+	};
+};
+fn add(var Counter& lhs, Counter& rhs) -> void | Failure {
+	@lhs += rhs;
+	@lhs.value = lhs.value + 10;
+};
+fn receiver(var Counter& value, var i32& calls) -> var Counter& {
+	@calls = calls + 1;
+	return @value;
+};
+[[test]] fn reference_results_preserve_identity_and_right_associativity() {
+	@destroyed = 0;
+	var first = Counter(1);
+	var second = Counter(2);
+	var third = Counter(3);
+	var Counter* original = &@first;
+	@first += @second += third;
+	rt::test::expect(first.value == 6);
+	rt::test::expect(second.value == 5);
+	{
+		var captured = (@first += third);
+		rt::test::expect(captured.has<var Counter&>());
+		var Counter& alias = captured.get<var Counter&>();
+		rt::test::expect(&alias == original);
+		@alias.value = 20;
+	};
+	rt::test::expect(first.value == 20);
+	{
+		var Counter& extracted = (@first += third);
+		rt::test::expect(&extracted == original);
+		rt::test::expect(extracted.value == 23);
+	};
+	rt::test::expect(first.value == 23);
+	var calls = i32(0);
+	@receiver(@first, @calls) += third;
+	rt::test::expect(calls == 1);
+	rt::test::expect(first.value == 26);
+	rt::test::expect(!destroyed);
+};
+[[test]] fn compound_assignment_keeps_error_alternatives_observable() {
+	var target = Counter(1);
+	var negative = Counter(-7);
+	var captured = (@target += negative);
+	rt::test::expect(captured.has<Failure>());
+	rt::test::expect(captured.get<Failure>().code == -7);
+	var forwarded = add(@target, negative);
+	rt::test::expect(forwarded.has<Failure>());
+	rt::test::expect(target.value == 1);
+	var positive = Counter(2);
+	var succeeded = add(@target, positive);
+	rt::test::expect(succeeded.has<void>());
+	rt::test::expect(target.value == 13);
+	var caught = false;
+	try {
+		@target += negative;
+	} catch (Failure& error) {
+		@caught = error.code == -7;
+	};
+	rt::test::expect(caught);
+};
+""";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("compound-assignment.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts(executed.output.c_str());
+		discard puts(executed.error.c_str());
+	};
+	rt::test::expect(!executed.exit_code);
+};
+
+[[test]]
+fn reference_union_conversions_preserve_constness_and_local_lifetimes() {
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	rt::buffer<rt::string_view> cases;
+	@cases.push_back("struct Failure {}; fn broken() -> var i32& | Failure { var local = i32(1); return @local; };");
+	@cases.push_back("struct Failure {}; fn broken(i32& value) -> var i32& | Failure { return value; };");
+	@cases.push_back("struct Failure {}; fn broken(i32& value) { i32& | Failure borrowed = value; var i32& mutable = borrowed; @mutable = 2; };");
+	@cases.push_back("fn broken() { var value = i32(1); @value += 2; };");
+	@cases.push_back("struct Counter { i32 value; fn operator+=(var Counter& lhs, Counter& rhs) -> var Counter& { return @lhs; }; }; fn broken(Counter& lhs, Counter& rhs) { lhs += rhs; };");
+	rt::buffer<rt::string_view> messages;
+	@messages.push_back("local storage");
+	@messages.push_back("not an alternative");
+	@messages.push_back("cannot initialize");
+	@messages.push_back("requires an applicable overload");
+	@messages.push_back("assignment requires explicit mutable access");
+	for (usize index = 0; index < cases.size(); @index = index + 1) {
+		Compiler compiler;
+		rt::buffer<rt::string_view> paths;
+		rt::buffer<rt::string_view> sources;
+		append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+		@paths.push_back("invalid-reference-union.rt");
+		@sources.push_back(cases.data()[index]);
+		var result = @compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
+		rt::test::expect(result.has<compilation_error>());
+		var analysis = @compiler.acquire_analysis();
+		rt::test::expect(analysis.get());
+		rt::test::expect(analysis.value().diagnostics().failed());
+		var found = false;
+		rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+		for (usize diagnostic = 0; diagnostic < records.size(); @diagnostic = diagnostic + 1) {
+			if (records.data()[diagnostic].message.contains(messages.data()[index])) {
+				@found = true;
+			};
+		};
+		rt::test::expect(found);
+	};
+};
+
+[[test]]
 fn duplicate_navigation_sources_report_an_internal_failure() {
 	NavigationIndex index;
 	SourceFile source;
@@ -24,7 +166,7 @@ fn ordinary_results_cannot_be_ignored() {
 	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { size(); };");
 	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { if (true) size(); };");
 	@inputs.push_back("fn size() -> usize { return 3; }; fn ignored() { for (; false; size()) {}; };");
-	@inputs.push_back("struct Error {}; fn result() -> i32 | Error { return (i32 | Error)(3); }; fn ignored() { result(); };");
+	@inputs.push_back("struct Error {}; fn result() -> i32 | Error { return 3; }; fn ignored() { result(); };");
 	@inputs.push_back("struct Foo {}; fn ignored() { Foo(); };");
 	for (usize index = 0; index < 5; @index = index + 1) {
 		Compiler compiler;
@@ -52,10 +194,10 @@ fn implicit_union_extraction_continues_or_throws_the_other_alternative() {
 struct Failure { i32 code; }; i32 alive;
 struct Payload { i32 value; fn Payload(var Payload& this, i32 value) { @this.value = value; @alive = alive + 1; }; fn Payload(var Payload& this, Payload& other) { @this.value = other.value; @alive = alive + 1; }; fn ~Payload(var Payload& this) { @alive = alive - 1; }; };
 using Number = i32 | Failure; using Done = void | Failure;
-using Object = Payload | Failure; fn payload() -> Object { return Object(Payload(9)); };
-using Decision = bool | Failure; fn decision(bool value, bool fail) -> Decision { if (fail) { Failure error; @error.code = 31; return Decision($error); }; return Decision(value); };
-fn number(bool fail) -> Number { if (fail) { Failure error; @error.code = 17; return Number($error); }; return Number(42); };
-fn done(bool fail) -> Done { if (fail) { Failure error; @error.code = 23; return Done($error); }; return Done(); };
+using Object = Payload | Failure; fn payload() -> Object { return Payload(9); };
+using Decision = bool | Failure; fn decision(bool value, bool fail) -> Decision { if (fail) { Failure error; @error.code = 31; return $error; }; return value; };
+fn number(bool fail) -> Number { if (fail) { Failure error; @error.code = 17; return $error; }; return 42; };
+fn done(bool fail) -> Done { if (fail) { Failure error; @error.code = 23; return $error; }; return; };
 fn accept(i32 value) -> i32 { return value; };
 i32 failures_alive;
 struct MoveFailure {
@@ -71,7 +213,60 @@ struct MoveFailure {
 	};
 };
 fn move_failure() -> i32 | MoveFailure {
-	return (i32 | MoveFailure)(MoveFailure(37));
+	return MoveFailure(37);
+};
+i32 continued;
+fn forward_done(bool fail) -> Done {
+	Payload cleanup = Payload(11);
+	done(fail);
+	@continued = continued + 1;
+};
+fn forward_number(bool fail) -> Number {
+	Payload cleanup = Payload(14);
+	i32 value = number(fail);
+	return value;
+};
+fn incompatible_done() -> i32 {
+	Payload cleanup = Payload(12);
+	done(true);
+	@continued = continued + 1;
+	return 0;
+};
+fn scalar_done(bool fail) -> void | i32 {
+	if (fail) {
+		return 7;
+	};
+};
+fn forward_scalar(bool fail) -> bool {
+	Payload cleanup = Payload(15);
+	scalar_done(fail);
+	return false;
+};
+struct AcceptedFailure {
+	i32 code;
+	fn AcceptedFailure(var AcceptedFailure& this, Failure failure) : [implicit] {
+		@this.code = failure.code;
+	};
+};
+fn forward_constructed(bool fail) -> AcceptedFailure {
+	Payload cleanup = Payload(16);
+	done(fail);
+	return AcceptedFailure(Failure(0));
+};
+fn captured_done() -> Done {
+	var captured = done(true);
+	rt::test::expect(captured.has<Failure>());
+	@continued = continued + 1;
+};
+fn move_done(bool fail) -> void | MoveFailure {
+	if (fail) {
+		return MoveFailure(41);
+	};
+};
+fn forward_move_done(bool fail) -> void | MoveFailure {
+	Payload cleanup = Payload(13);
+	move_done(fail);
+	@continued = continued + 1;
 };
 """;
 	var source = """
@@ -112,6 +307,67 @@ var caught = false; try { i32 ignored = number(true); } catch (Failure& error) {
 		@caught = true;
 	};
 	rt::test::expect(!caught);
+};
+
+[[test]] fn ignored_void_results_propagate_compatible_errors_and_continue_on_success() {
+	@continued = 0;
+	var success = forward_done(false);
+	rt::test::expect(success.has<void>());
+	rt::test::expect(continued == 1 && alive == 0);
+	var failure = forward_done(true);
+	rt::test::expect(failure.has<Failure>());
+	rt::test::expect(failure.get<Failure>().code == 23);
+	rt::test::expect(continued == 1 && alive == 0);
+	var captured = captured_done();
+	rt::test::expect(captured.has<void>());
+	rt::test::expect(continued == 2);
+};
+
+[[test]] fn typed_extraction_propagates_compatible_errors_and_cleans_up_locals() {
+	var success = forward_number(false);
+	rt::test::expect(success.has<i32>() && success.get<i32>() == 42);
+	var failure = forward_number(true);
+	rt::test::expect(failure.has<Failure>() && failure.get<Failure>().code == 17);
+	rt::test::expect(!alive);
+};
+
+[[test]] fn unmatched_errors_use_ordinary_implicit_return_conversions() {
+	rt::test::expect(!forward_scalar(false));
+	rt::test::expect(forward_scalar(true));
+	rt::test::expect(!alive);
+	var success = forward_constructed(false);
+	rt::test::expect(!success.code);
+	var failure = forward_constructed(true);
+	rt::test::expect(failure.code == 23);
+	rt::test::expect(!alive);
+};
+
+[[test]] fn ignored_void_results_throw_errors_incompatible_with_the_enclosing_return() {
+	@continued = 0;
+	var caught = false;
+	try {
+		i32 value = incompatible_done();
+		rt::test::expect(false);
+	} catch (Failure& error) {
+		@caught = error.code == 23;
+	};
+	rt::test::expect(caught);
+	rt::test::expect(!continued && !alive);
+};
+
+[[test]] fn ignored_void_results_transfer_move_only_errors_and_clean_up_locals() {
+	@continued = 0;
+	rt::test::expect(!failures_alive && !alive);
+	{
+		var failed = forward_move_done(true);
+		rt::test::expect(failed.has<MoveFailure>());
+		rt::test::expect(failed.get<MoveFailure>().code == 41);
+		rt::test::expect(failures_alive == 1 && !alive && !continued);
+	};
+	rt::test::expect(!failures_alive);
+	var success = forward_move_done(false);
+	rt::test::expect(success.has<void>());
+	rt::test::expect(continued == 1 && !alive && !failures_alive);
 };
 
 [[test]] fn an_unmatched_use_of_a_captured_union_throws() {

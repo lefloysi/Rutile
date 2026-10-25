@@ -57,31 +57,29 @@ fn File::failed(const File& this) -> bool {
 
 fn File::read(var File& this, var char* destination, usize capacity) -> FileReadResult {
 	if (!this.handle.get()) {
-		return FileReadResult(file_io_error("cannot read a closed file"));
+		return file_io_error("cannot read a closed file");
 	};
 	usize count = fread($destination, 1, $capacity, this.handle.get());
 	if (ferror(this.handle.get())) {
-		return FileReadResult(file_io_error("cannot read"));
+		return file_io_error("cannot read");
 	};
-	return FileReadResult($count);
+	return $count;
 };
 
 fn File::write(var File& this, rt::string_view bytes) -> FileResult {
 	if (!this.handle.get() || fwrite(bytes.data(), 1, bytes.size(), this.handle.get()) != bytes.size()) {
-		return FileResult(file_io_error("cannot write"));
+		return file_io_error("cannot write");
 	};
-	return FileResult();
 };
 
 fn File::close(var File& this) -> FileResult {
 	var NativeFile* handle = @this.handle.release();
 
 	if (!handle) {
-		return FileResult();
+		return;
 	};
 
 	if (fclose($handle)) {
-		return FileResult(file_io_error("cannot close"));
+		return file_io_error("cannot close");
 	};
-	return FileResult();
 };

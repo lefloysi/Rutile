@@ -60,7 +60,6 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> CompilationResult {
 
 	discard LLVMBuildRet(this.builder(), result);
 
-	return CompilationResult();
 };
 
 fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult {
@@ -103,7 +102,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 	while (index < unit.entities().size()) {
 		if (!(@this.declare(unit.entities().data()[index].get())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -112,7 +111,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 	usize function_count = 0;
 	if (!(@this.declare_fact_contexts(unit.fact_contexts())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@index = 0;
 
@@ -140,7 +139,14 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 			this.progress.report("compiling-function", compiled_functions, function_count, detail.view());
 
 			if (!(@emitter.emit(entity)).has<void>()) {
-				return CompilationResult(compilation_error());
+				if (!this.failed()) {
+					DiagnosticMessage failure;
+					@failure.text("native emission failed without a diagnostic while compiling '");
+					diagnostic_entity(@failure, *entity);
+					@failure.text("'");
+					compiler_panic(failure.view());
+				};
+				return compilation_error();
 			};
 
 			@compiled_functions = compiled_functions + 1;
@@ -151,7 +157,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 	};
 
 	if (!(@this.emit_fact_contexts()).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	this.progress.report("dispatch", 0, unit.entities().size(), "");
 	@index = 0;
@@ -160,7 +166,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		var Entity* entity = unit.entities().data()[index].get();
 
 		if (this.required(entity) && !entity->imported_definition() && entity->kind() == entity_kind::function && entity->dispatch() != function_dispatch::ordinary && !(@this.emit_dispatch(entity)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -184,7 +190,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 			var emitter = FunctionEmitter(@this, (var LLVMOpaqueValue*(initialize)), nullptr);
 
 			if (!(@emitter.initialize_value(entity->type(), this.symbol(entity), entity->body())).has<void>() || !(@emitter.finish_expression()).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -215,7 +221,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 			var emitter = FunctionEmitter(@this, finalize, nullptr);
 
 			if (!(@emitter.destroy(entity->type(), this.symbol(entity))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 	};
@@ -227,7 +233,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 
 	if (output != output_kind::library) {
 		if (!(@this.entry(this.selected_entry)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -241,7 +247,6 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 		@function = LLVMGetNextFunction(function);
 	};
 	@this.verify();
-	return CompilationResult();
 };
 
 fn Backend::register_lifecycle(var Backend& this, var LLVMOpaqueValue* function, rt::string_view name) {

@@ -12,7 +12,7 @@ namespace rt {
 		fn operator=(var unique& this, unique& other) -> var unique& : [delete];
 		fn operator:=(var unique& this, unique& other) -> var unique& : [delete];
 		fn ~unique(var unique& this);
-		fn make() -> unique;
+		fn make() -> unique | allocation_error;
 
 		fn release(var unique& this) -> var T*;
 		fn reset(var unique& this, var T* pointer);
@@ -61,13 +61,8 @@ namespace rt {
 	};
 
 	template<typename T, typename D>
-	export fn unique<T, D>::make() -> unique {
-		var pointer = new var T();
-		if (!pointer) {
-			allocation_error error;
-			@error.requested_bytes = sizeof(T);
-			throw $error;
-		};
+	export fn unique<T, D>::make() -> unique | allocation_error {
+		var T* pointer = new T();
 		return unique($pointer);
 	};
 };

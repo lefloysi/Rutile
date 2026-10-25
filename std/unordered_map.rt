@@ -118,30 +118,22 @@ namespace rt {
 
 	template<typename K, typename V, typename Hash, typename Equal>
 	export fn unordered_map<K, V, Hash, Equal>::insert(var unordered_map& this, K key, V value) -> bool | allocation_error {
-		using Result = bool | allocation_error;
 		if (this.find(key)) {
-			return Result(false);
+			return false;
 		};
 
 		if (this.length == usize::max) {
 			allocation_error error;
+			@error.kind = allocation_kind::array;
 			@error.requested_bytes = usize::max;
-			return Result($error);
+			return $error;
 		};
 
 		usize code = this.hasher.object.hash(key);
-		var reserved = @this.reserve(this.length + 1);
-		if (reserved.has<allocation_error>()) {
-			return Result(reserved.get<allocation_error>());
-		};
+		@this.reserve(this.length + 1);
 
 		using Node = unordered_node<K, V>;
-		var Node* node = static_cast<var Node*>(malloc(sizeof(Node)));
-		if (!node) {
-			allocation_error error;
-			@error.requested_bytes = sizeof(Node);
-			return Result($error);
-		};
+		var Node* node = new Node{};
 
 		@node->Node($key, $value, $code);
 
@@ -151,7 +143,7 @@ namespace rt {
 		@(@this.buckets).data()[index] = node;
 		@this.length = this.length + 1;
 
-		return Result(true);
+		return true;
 	};
 
 	template<typename K, typename V, typename Hash, typename Equal>
@@ -168,10 +160,7 @@ namespace rt {
 			if (node->hash_code == code && this.comparison.object.equal(node->key.object, key)) {
 				@*link = node->next;
 
-				using Node = unordered_node<K, V>;
-
-				@node->~Node();
-				free(node);
+				delete node;
 				@this.length = this.length - 1;
 
 				return true;
@@ -185,20 +174,15 @@ namespace rt {
 
 	template<typename K, typename V, typename Hash, typename Equal>
 	export fn unordered_map<K, V, Hash, Equal>::clear(var unordered_map& this) {
-		usize index = 0;
-		while (index < this.buckets.size()) {
+		for (usize index = 0; index < this.buckets.size(); @index = index + 1) {
 			var unordered_node<K, V>* node = this.buckets.data()[index];
 			while (node) {
 				var unordered_node<K, V>* next = node->next;
-				using Node = unordered_node<K, V>;
-
-				@node->~Node();
-				free(node);
+				delete node;
 				@node = next;
 			};
 
 			@(@this.buckets).data()[index] = nullptr;
-			@index = index + 1;
 		};
 
 		@this.length = 0;
@@ -206,16 +190,16 @@ namespace rt {
 
 	template<typename K, typename V, typename Hash, typename Equal>
 	export fn unordered_map<K, V, Hash, Equal>::reserve(var unordered_map& this, usize required) -> void | allocation_error {
-		using Result = void | allocation_error;
 		if (required <= this.buckets.size()) {
-			return Result();
+			return;
 		};
 
 		usize maximum = usize::max / sizeof(var unordered_node<K, V>*);
 		if (required > maximum) {
 			allocation_error error;
+			@error.kind = allocation_kind::array;
 			@error.requested_bytes = usize::max;
-			return Result($error);
+			return $error;
 		};
 
 		usize count = $required;
@@ -223,31 +207,16 @@ namespace rt {
 			@count = 8;
 		};
 
-		if (this.buckets.size() <= (maximum >> 1)) {
-			usize grown = this.buckets.size() << 1;
-			if (grown > count) {
-				@count = grown;
-			};
-		};
+		@count = grow_capacity(this.buckets.size(), count, maximum, this.buckets.size());
 
 		buffer<var unordered_node<K, V>*> replacement;
-		var reserved = @replacement.reserve(count);
-		if (reserved.has<allocation_error>()) {
-			return $reserved;
+		@replacement.reserve(count);
+
+		for (usize index = 0; index < count; @index = index + 1) {
+			@replacement.push_back(nullptr);
 		};
 
-		usize index = 0;
-		while (index < count) {
-			var appended = @replacement.push_back(nullptr);
-			if (appended.has<allocation_error>()) {
-				return $appended;
-			};
-
-			@index = index + 1;
-		};
-
-		@index = 0;
-		while (index < this.buckets.size()) {
+		for (usize index = 0; index < this.buckets.size(); @index = index + 1) {
 			var unordered_node<K, V>* node = this.buckets.data()[index];
 			while (node) {
 				var unordered_node<K, V>* next = node->next;
@@ -257,12 +226,9 @@ namespace rt {
 				@(@replacement).data()[bucket] = node;
 				@node = next;
 			};
-
-			@index = index + 1;
 		};
 
 		@this.buckets = $replacement;
 
-		return Result();
 	};
 };

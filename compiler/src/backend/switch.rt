@@ -5,13 +5,13 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 	var LLVMOpaqueValue* value = @this.value(condition);
 
 	if (!value || !(@this.cleanup_temporaries(temporary_boundary)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.forget_temporaries(temporary_boundary);
 
 	if (!body) {
-		return CompilationResult();
+		return;
 	};
 
 	if (body->kind() != semantic_kind::brace) {
@@ -39,7 +39,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 			};
 		}
 		else if (!(@this.validate_switch_item(item)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@labels.push_back(destination);
@@ -90,7 +90,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 		else if (!(@this.statement(item)).has<void>()) {
 			@this.active_control = control.parent;
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -114,7 +114,7 @@ fn FunctionEmitter::selection(var FunctionEmitter& this, var SemanticExpression*
 
 fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var SemanticExpression* expression) -> CompilationResult {
 	if (expression->kind() == semantic_kind::switch_expression) {
-		return CompilationResult();
+		return;
 	};
 
 	if (expression->kind() == semantic_kind::case_label) {
@@ -125,11 +125,10 @@ fn FunctionEmitter::validate_switch_item(var FunctionEmitter& this, var Semantic
 
 	while (index < expression->size()) {
 		if (!(@this.validate_switch_item(expression->item(index))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };

@@ -30,14 +30,14 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
 		@this.messages.error(location, "language analysis requires a 32-bit or 64-bit target");
-		return AnalysisResult(compilation_error());
+		return compilation_error();
 	};
 	Diagnostics parse_errors;
 	this.progress.report("parsing", 0, this.sources.count(), "");
 	usize index = 0;
 	while (index < this.sources.count()) {
 		if (this.messages.cancelled()) {
-			return AnalysisResult(analysis_cancelled_error());
+			return analysis_cancelled_error();
 		};
 		var SourceFile* file = @this.sources.at(index);
 		var lexer = Lexer(@*file);
@@ -62,7 +62,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 		if (parsed.has<compilation_error>()) {
 			if (this.messages.cancelled()) {
-				return AnalysisResult(analysis_cancelled_error());
+				return analysis_cancelled_error();
 			};
 			@parse_errors.syntax_error(parser.error_token(), parser.error());
 		}
@@ -102,13 +102,13 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		var lexer = Lexer(@*file);
 		if (!(@lexer.scan()).has<void>()) {
 			@this.messages.syntax_error(lexer.error_token(), lexer.error());
-			return AnalysisResult(compilation_error());
+			return compilation_error();
 		};
 		var parser = Parser(file->tokens());
 		var parsed = @parser.parse();
 		if (parsed.has<compilation_error>()) {
 			@this.messages.syntax_error(parser.error_token(), parser.error());
-			return AnalysisResult(compilation_error());
+			return compilation_error();
 		};
 		var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
 		@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
@@ -188,7 +188,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		};
 	};
 	if (this.messages.cancelled()) {
-		return AnalysisResult(analysis_cancelled_error());
+		return analysis_cancelled_error();
 	};
 	rt::buffer<DiagnosticRecord>& records = parse_errors.records();
 	@index = 0;
@@ -204,9 +204,8 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	};
 	@this.index.build(*this.semantic_unit.get());
 	if (this.messages.failed()) {
-		return AnalysisResult(compilation_error());
+		return compilation_error();
 	};
-	return AnalysisResult();
 };
 
 

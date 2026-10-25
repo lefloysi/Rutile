@@ -19,7 +19,6 @@ fn SemanticUnit::associate(var SemanticUnit& this, Type& type, var Entity& owner
 	@association.owner = &@owner;
 
 	@this.associated_scopes.push_back($association);
-	return;
 };
 
 fn Analyzer::primitive_scope(var Analyzer& this, Type& type, Token& location) -> var Entity* {
@@ -73,12 +72,12 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> Compi
 	Type* type = owner.type();
 
 	if (!type->kind().is_numeric()) {
-		return CompilationResult();
+		return;
 	};
 
 	Type* value_type = @this.types->qualified(*type, type_qualifier::immutable);
 	if (!value_type) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	semantic_kind kind = semantic_kind::literal_integer;
@@ -90,7 +89,7 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> Compi
 	var value = SemanticExpression::make($kind, value_type, owner.token());
 
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() == type_kind::floating_point) {
@@ -124,7 +123,7 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> Compi
 		@constant->set_name("max");
 	}
 	else {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@constant->set_origin(declaration_origin::compiler_supplied);
@@ -133,5 +132,4 @@ fn Analyzer::primitive_constants(var Analyzer& this, var Entity& owner) -> Compi
 	@constant->set_state(entity_state::ready);
 	@constant->set_body_state(entity_state::ready);
 
-	return CompilationResult();
 };

@@ -36,11 +36,11 @@ struct LifetimeDelete {
 fn unique_custom_deleters_run_on_reset_and_scope_exit() {
 	LifetimeCounts counts;
 	{
-		var number = rt::unique<i32>::make();
+		rt::unique<i32> number = rt::unique<i32>::make();
 		rt::test::expect(number.get());
 		rt::test::expect(number.get() && !*number.get());
-		var owner = rt::unique<TrackedValue, LifetimeDelete>(new var TrackedValue(&@counts, 1));
-		@owner.reset(new var TrackedValue(&@counts, 2));
+		var owner = rt::unique<TrackedValue, LifetimeDelete>(new TrackedValue(&@counts, 1));
+		@owner.reset(new TrackedValue(&@counts, 2));
 		rt::test::expect(counts.custom_disposals == 1);
 		rt::test::expect(counts.destroyed == 1);
 	};
@@ -84,9 +84,9 @@ fn unique_transfer_release_and_reset_destroy_each_owner_once() {
 		rt::unique<TrackedValue> empty;
 		rt::test::expect(!empty.get());
 		@empty.reset(nullptr);
-		var first = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 1));
+		var first = rt::unique<TrackedValue>(new TrackedValue(&@counts, 1));
 		var second = $first;
-		var destination = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 2));
+		var destination = rt::unique<TrackedValue>(new TrackedValue(&@counts, 2));
 		@destination = $second;
 		rt::test::expect(counts.destroyed == 1);
 		rt::test::expect(destination.get() && destination.get()->value == 1);
@@ -95,8 +95,8 @@ fn unique_transfer_release_and_reset_destroy_each_owner_once() {
 		rt::test::expect(counts.live == 1);
 		delete pointer;
 		rt::test::expect(!counts.live);
-		@destination.reset(new var TrackedValue(&@counts, 3));
-		@destination.reset(new var TrackedValue(&@counts, 4));
+		@destination.reset(new TrackedValue(&@counts, 3));
+		@destination.reset(new TrackedValue(&@counts, 4));
 		rt::test::expect(counts.destroyed == 3);
 	};
 	rt::test::expect(!counts.live);
@@ -129,13 +129,64 @@ fn optional_reset_and_move_preserve_lifetimes() {
 	rt::test::expect(counts.destroyed == 2);
 };
 
+struct OptionalCopyCounts {
+	i32 live;
+	i32 copies;
+	i32 destroyed;
+};
+
+struct OptionalCopyValue {
+	fn OptionalCopyValue(var OptionalCopyValue& this, var OptionalCopyCounts* counts, i32 value) {
+		@this.counts = counts;
+		@this.value = value;
+		@counts->live = counts->live + 1;
+	};
+	fn OptionalCopyValue(var OptionalCopyValue& this, OptionalCopyValue& other) {
+		@this.counts = other.counts;
+		@this.value = other.value;
+		@this.counts->live = this.counts->live + 1;
+		@this.counts->copies = this.counts->copies + 1;
+	};
+	fn OptionalCopyValue(var OptionalCopyValue& this, OptionalCopyValue other) : [default];
+	fn ~OptionalCopyValue(var OptionalCopyValue& this) {
+		@this.counts->live = this.counts->live - 1;
+		@this.counts->destroyed = this.counts->destroyed + 1;
+	};
+	var OptionalCopyCounts* counts;
+	i32 value;
+};
+
+[[test]]
+fn optional_generated_transfers_preserve_active_payload_lifetimes() {
+	OptionalCopyCounts counts;
+	{
+		rt::optional<OptionalCopyValue> empty;
+		var empty_copy = rt::optional<OptionalCopyValue>(empty);
+		rt::test::expect(!empty_copy.has_value() && !counts.live);
+		var original = rt::optional<OptionalCopyValue>(OptionalCopyValue(&@counts, 42));
+		var copied = rt::optional<OptionalCopyValue>(original);
+		rt::test::expect(counts.live == 2 && counts.copies == 1);
+		var moved = $copied;
+		rt::test::expect(moved.value().value == 42 && counts.live == 2);
+		@empty := moved;
+		rt::test::expect(empty.value().value == 42 && counts.live == 3);
+		@empty = $moved;
+		rt::test::expect(empty.value().value == 42 && counts.live == 2);
+		@empty.reset();
+		rt::test::expect(counts.live == 1);
+	};
+	rt::test::expect(!counts.live);
+	rt::test::expect(counts.destroyed == 3);
+};
+
 [[test]]
 fn optional_references_borrow_without_destroying_values() {
 	i32 number = 42;
 	var borrowed = rt::optional_ref<i32>(@number);
 	rt::test::expect(borrowed.has_value());
 	rt::test::expect(borrowed.has_value() && borrowed.value() == 42);
-	var copied = rt::optional_ref<i32>(borrowed);
+	rt::optional_ref<i32> copied = borrowed;
+	rt::test::expect(copied.get() == &number);
 	@borrowed.reset();
 	rt::test::expect(!borrowed.has_value());
 	rt::test::expect(copied.has_value());
@@ -146,6 +197,7 @@ fn optional_references_borrow_without_destroying_values() {
 	@writable = 9;
 	rt::test::expect(number == 9);
 	@copied.reset();
+	rt::test::expect(!copied.has_value());
 	rt::test::expect(number == 9);
 };
 
@@ -153,8 +205,8 @@ fn optional_references_borrow_without_destroying_values() {
 fn swap_exchanges_ownership_without_destruction() {
 	LifetimeCounts counts;
 	{
-		var first = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 1));
-		var second = rt::unique<TrackedValue>(new var TrackedValue(&@counts, 2));
+		var first = rt::unique<TrackedValue>(new TrackedValue(&@counts, 1));
+		var second = rt::unique<TrackedValue>(new TrackedValue(&@counts, 2));
 		rt::swap<rt::unique<TrackedValue>>(@first, @second);
 		rt::test::expect(first.get() && first.get()->value == 2);
 		rt::test::expect(second.get() && second.get()->value == 1);

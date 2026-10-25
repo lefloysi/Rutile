@@ -8,10 +8,10 @@ fn FunctionEmitter::allocation_prefix(var FunctionEmitter& this, Type* type) -> 
 fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
 	var SemanticExpression* construction = expression->item(0);
 
-	if (construction->item(0)->size()) {
+	if (construction->kind() != semantic_kind::noop && construction->item(0)->size()) {
 		var message = DiagnosticMessage();
 		@message.text("array constructor argument evaluation is not specified for element type '");
-		diagnostic_type(@message, *expression->type()->element());
+		diagnostic_type(@message, *construction->type());
 		@message.text("' with arguments ");
 		@message.text("(");
 		usize argument = 0;
@@ -27,7 +27,7 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 		return nullptr;
 	};
 
-	Type* element = expression->type()->element();
+	Type* element = expression->item(0)->type();
 	var LLVMOpaqueType* native = @this.backend->type(element, expression->token());
 
 	if (!native) {
@@ -51,7 +51,8 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	u64 maximum = (u64::max) >> (64 - static_cast<u64>(bits));
 
 	if (prefix > maximum) {
-		return LLVMConstNull(@this.backend->type(expression->type(), expression->token()));
+		var LLVMOpaqueType* pointer_type = @this.backend->type(variant_flow_type(expression->type(), 0), expression->token());
+		return @this.allocation_result(expression, LLVMConstNull(pointer_type), LLVMConstInt(integer, maximum, 0), true);
 	};
 
 	u64 maximum_count = maximum;
@@ -79,15 +80,21 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	var LLVMOpaqueBasicBlock* initialize = @this.block("array.initialize");
 	var LLVMOpaqueBasicBlock* failure = @this.block("array.failure");
 	var LLVMOpaqueBasicBlock* after = @this.block("array.after");
-	discard LLVMBuildCondBr(this.backend->builder(), invalid, failure, allocate);
-	LLVMPositionBuilderAtEnd(this.backend->builder(), allocate);
 	var LLVMOpaqueValue* bytes = LLVMBuildMul(this.backend->builder(), count, LLVMConstInt(integer, size, 0), "array.bytes\0".data());
 	@bytes = LLVMBuildAdd(this.backend->builder(), bytes, LLVMConstInt(integer, prefix, 0), "array.storage.bytes\0".data());
+	var LLVMOpaqueValue* requested_bytes = LLVMBuildSelect(this.backend->builder(), invalid, LLVMConstInt(integer, maximum, 0), bytes, "array.requested.bytes\0".data());
+	discard LLVMBuildCondBr(this.backend->builder(), invalid, failure, allocate);
+	LLVMPositionBuilderAtEnd(this.backend->builder(), allocate);
 	var LLVMOpaqueValue* memory = @this.native_allocate(bytes);
 	var LLVMOpaqueValue* exists = LLVMBuildICmp(this.backend->builder(), 33, memory, LLVMConstNull(LLVMTypeOf(memory)), "array.exists\0".data());
 	discard LLVMBuildCondBr(this.backend->builder(), exists, initialize, failure);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), initialize);
-	discard LLVMBuildStore(this.backend->builder(), count, memory);
+	bool uninitialized = construction->kind() == semantic_kind::noop;
+	var LLVMOpaqueValue* initialized_count = count;
+	if (uninitialized) {
+		@initialized_count = LLVMConstNull(integer);
+	};
+	discard LLVMBuildStore(this.backend->builder(), initialized_count, memory);
 	var LLVMOpaqueValue* offset = LLVMConstInt(integer, prefix, 0);
 	var LLVMOpaqueValue* data = LLVMBuildGEP2(this.backend->builder(), character, memory, &@offset, 1, "array.data\0".data());
 	usize unwind_begin = this.unwinds.size();
@@ -101,12 +108,14 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	discard LLVMBuildBr(this.backend->builder(), test);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), test);
 	var LLVMOpaqueValue* index = LLVMBuildPhi(this.backend->builder(), integer, "array.index\0".data());
-	discard LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 36, index, count, "array.within\0".data()), body, done);
+	discard LLVMBuildCondBr(this.backend->builder(), LLVMBuildICmp(this.backend->builder(), 36, index, initialized_count, "array.within\0".data()), body, done);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), body);
 	var LLVMOpaqueValue* address = LLVMBuildGEP2(this.backend->builder(), native, data, &@index, 1, "array.element\0".data());
 
-	if (!(@this.construct_into(construction, address)).has<void>()) {
-		return nullptr;
+	if (!uninitialized) {
+		if (!(@this.construct_into(construction, address)).has<void>()) {
+			return nullptr;
+		};
 	};
 
 	var LLVMOpaqueValue* next = LLVMBuildAdd(this.backend->builder(), index, LLVMConstInt(integer, 1, 0), "array.next\0".data());
@@ -126,14 +135,15 @@ fn FunctionEmitter::allocate_array(var FunctionEmitter& this, var SemanticExpres
 	LLVMPositionBuilderAtEnd(this.backend->builder(), failure);
 	discard LLVMBuildBr(this.backend->builder(), after);
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
-	var LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), @this.backend->type(expression->type(), expression->token()), "array.result\0".data());
+	var LLVMOpaqueType* pointer_type = @this.backend->type(variant_flow_type(expression->type(), 0), expression->token());
+	var LLVMOpaqueValue* result = LLVMBuildPhi(this.backend->builder(), pointer_type, "array.result\0".data());
 	@values[0] = data;
-	@values[1] = LLVMConstNull(@this.backend->type(expression->type(), expression->token()));
+	@values[1] = LLVMConstNull(pointer_type);
 	@blocks[0] = done;
 	@blocks[1] = failure;
 	LLVMAddIncoming(result, &@values[0], &@blocks[0], 2);
 
-	return result;
+	return @this.allocation_result(expression, result, requested_bytes, true);
 };
 
 fn FunctionEmitter::deallocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue* {
@@ -180,7 +190,7 @@ fn FunctionEmitter::deallocate_array(var FunctionEmitter& this, var SemanticExpr
 
 fn FunctionEmitter::destroy_range(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* memory, var LLVMOpaqueValue* count) -> CompilationResult {
 	if (!FunctionEmitter::needs_destruction(type)) {
-		return CompilationResult();
+		return;
 	};
 
 	var LLVMOpaqueType* integer = LLVMTypeOf(count);
@@ -207,7 +217,7 @@ fn FunctionEmitter::destroy_range(var FunctionEmitter& this, Type* type, var LLV
 	var LLVMOpaqueValue* element = LLVMBuildGEP2(this.backend->builder(), @this.backend->type(type), memory, &@previous, 1, "array.destroy.address\0".data());
 
 	if (!(@this.destroy(type, element)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var LLVMOpaqueBasicBlock* tail = LLVMGetInsertBlock(this.backend->builder());
@@ -222,5 +232,4 @@ fn FunctionEmitter::destroy_range(var FunctionEmitter& this, Type* type, var LLV
 	LLVMPositionBuilderAtEnd(this.backend->builder(), after);
 	@this.forget_unwinds(unwind_begin);
 
-	return CompilationResult();
 };

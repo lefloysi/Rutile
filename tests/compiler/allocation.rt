@@ -1,0 +1,196 @@
+[[test]]
+fn uninitialized_allocations_skip_constructors_and_array_destruction() {
+	var directory = compiler_directory("uninitialized-allocation");
+	var source = """
+i32 constructed;
+i32 destroyed;
+i32 counts;
+struct Tracked {
+	i32 value;
+	fn Tracked(var Tracked& this) {
+		@this.value = 42;
+		@constructed = constructed + 1;
+	};
+	fn ~Tracked(var Tracked& this) {
+		@destroyed = destroyed + 1;
+	};
+};
+
+fn count() -> i32 {
+	@counts = counts + 1;
+	return 3;
+};
+[[test]] fn raw_storage_requires_explicit_construction() {
+	var Tracked* scalar = new Tracked{};
+	rt::test::expect(scalar && !constructed && !destroyed);
+	@scalar->Tracked();
+	rt::test::expect(scalar->value == 42 && constructed == 1);
+	delete scalar;
+	rt::test::expect(destroyed == 1);
+	var Tracked* raw = new Tracked[count()]{};
+	rt::test::expect(raw && counts == 1 && constructed == 1);
+	@raw[0].Tracked();
+	@raw[1].Tracked();
+	rt::test::expect(raw[0].value == 42 && raw[1].value == 42);
+	@raw[1].~Tracked();
+	@raw[0].~Tracked();
+	rt::test::expect(constructed == 3 && destroyed == 3);
+	delete[] raw;
+	rt::test::expect(destroyed == 3);
+	var Tracked* initialized = new Tracked[3]();
+	rt::test::expect(constructed == 6);
+	delete[] initialized;
+	rt::test::expect(destroyed == 6);
+};
+[[test]] fn character_allocations_are_mutable_unless_explicitly_const() {
+	var captured = new char[4]{};
+	rt::test::expect(captured.has<var char*>());
+	var char* bytes = captured.get<var char*>();
+	@bytes[0] = 'a';
+	@bytes[3] = 'z';
+	rt::test::expect(bytes[0] == 'a' && bytes[3] == 'z');
+	delete[] bytes;
+	var char* typed = new char[2]();
+	rt::test::expect(!typed[0] && !typed[1]);
+	@typed[1] = 'b';
+	rt::test::expect(typed[1] == 'b');
+	delete[] typed;
+	var immutable = new const char[2]();
+	rt::test::expect(immutable.has<char*>());
+	char* constant = immutable.get<char*>();
+	rt::test::expect(!constant[0] && !constant[1]);
+	delete[] constant;
+};
+[[test]] fn impossible_array_sizes_return_typed_allocation_errors() {
+	var failed = new char[usize::max]{};
+	rt::test::expect(failed.has<rt::allocation_error>());
+	rt::test::expect(failed.get<rt::allocation_error>().requested_bytes == usize::max);
+	rt::test::expect(failed.get<rt::allocation_error>().kind == rt::allocation_kind::array);
+	var caught = false;
+	try {
+		var char* extracted = new char[usize::max]{};
+		rt::test::expect(false);
+	} catch (rt::allocation_error& error) {
+		@caught = error.requested_bytes == usize::max && error.kind == rt::allocation_kind::array;
+	};
+	rt::test::expect(caught);
+};
+""";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("allocation.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts(executed.output.c_str());
+		discard puts(executed.error.c_str());
+	};
+	rt::test::expect(!executed.exit_code);
+};
+
+[[test]]
+fn factories_before_constructors_preserve_move_only_and_virtual_owners() {
+	var directory = compiler_directory("owner-factory-layout");
+	var source = """
+struct Failure {
+	i32 code;
+};
+i32 owners_alive;
+struct Owner {
+	fn make(bool fail) -> Owner | Failure {
+		if (fail) {
+			return Failure(17);
+		};
+		return Owner(42);
+	};
+	fn Owner(var Owner& this, i32 value) {
+		@this.value = value;
+		@owners_alive = owners_alive + 1;
+	};
+	fn Owner(var Owner& this, Owner& other) : [delete];
+	fn Owner(var Owner& this, Owner other) : [default];
+	fn ~Owner(var Owner& this) {
+		@owners_alive = owners_alive - 1;
+	};
+	i32 value;
+};
+struct VirtualOwner {
+	fn make() -> VirtualOwner | Failure {
+		return VirtualOwner(77);
+	};
+	fn read(VirtualOwner& this) -> i32 : [virtual];
+	fn VirtualOwner(var VirtualOwner& this, i32 value) {
+		@this.value = value;
+		@owners_alive = owners_alive + 1;
+	};
+	fn VirtualOwner(var VirtualOwner& this, VirtualOwner& other) : [delete];
+	fn VirtualOwner(var VirtualOwner& this, VirtualOwner other) : [default];
+	fn ~VirtualOwner(var VirtualOwner& this) {
+		@owners_alive = owners_alive - 1;
+	};
+	i32 value;
+};
+fn VirtualOwner::read(VirtualOwner& this) -> i32 {
+	return this.value;
+};
+[[test]] fn factories_construct_their_move_only_owner_alternative() {
+	{
+		var produced = Owner::make(false);
+		rt::test::expect(produced.has<Owner>());
+		Owner owned = $produced;
+		rt::test::expect(owned.value == 42 && owners_alive == 1);
+	};
+	rt::test::expect(!owners_alive);
+	var failed = Owner::make(true);
+	rt::test::expect(failed.has<Failure>());
+	rt::test::expect(failed.get<Failure>().code == 17);
+	rt::test::expect(!owners_alive);
+};
+[[test]] fn factories_preserve_virtual_owner_layout_and_dispatch() {
+	rt::test::expect(sizeof(VirtualOwner) > sizeof(i32));
+	{
+		var produced = VirtualOwner::make();
+		rt::test::expect(produced.has<VirtualOwner>());
+		VirtualOwner owned = $produced;
+		rt::test::expect(owned.read() == 77 && owners_alive == 1);
+	};
+	rt::test::expect(!owners_alive);
+};
+""";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("owners.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
+	if (executed.exit_code) {
+		discard puts(executed.output.c_str());
+		discard puts(executed.error.c_str());
+	};
+	rt::test::expect(!executed.exit_code);
+};
+
+[[test]]
+fn an_owned_recursive_field_still_requires_complete_storage() {
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	@paths.push_back("recursive.rt");
+	@sources.push_back("struct Loop { Loop value; };\n");
+	var compiled = @compiler.compile_sources(paths, sources, "build/tests/compiler/unexpected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
+	rt::test::expect(compiled.has<compilation_error>());
+	var analysis = @compiler.acquire_analysis();
+	rt::test::expect(analysis.get());
+	rt::buffer<DiagnosticRecord>& diagnostics = analysis.value().diagnostics().records();
+	rt::test::expect(diagnostics.size());
+	rt::test::expect(diagnostics.data()[0].message.contains("complete nonrecursive storage type"));
+};

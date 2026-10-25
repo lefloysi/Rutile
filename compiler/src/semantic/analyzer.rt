@@ -68,7 +68,7 @@ private:
 	fn prepare_variant_special(var Analyzer& this, var Entity& function) -> CompilationResult;
 	fn configure_variant_default(var Analyzer& this, var Entity& record) -> CompilationResult;
 	fn null_member_pack(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity* pack, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
-	fn variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn variant_cast(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* target, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected, bool propagate) -> rt::unique<SemanticExpression>;
 	fn aggregate_access(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> receiver, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn construct_variant(var Analyzer& this, var Syntax& syntax, Type* type, var rt::buffer<rt::unique<SemanticExpression>>& raw, var bool& handled) -> rt::unique<SemanticExpression>;
 	fn pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& syntax, var TemplatePack var*& pack) -> CompilationResult;
@@ -237,7 +237,7 @@ fn Analyzer::lookup(var Analyzer& this, var Scope& scope, var Syntax& name) -> v
 
 fn Analyzer::integer(var Analyzer& this, var Syntax& syntax, var u64& result) -> CompilationResult {
 	if (syntax.kind() != syntax_kind::number) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var text = syntax.token().text();
@@ -276,11 +276,11 @@ fn Analyzer::integer(var Analyzer& this, var Syntax& syntax, var u64& result) ->
 			@digit = static_cast<u64>(character - 'A') + 10;
 		}
 		else {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (digit >= base || value > (u64::max - digit) / base) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@value = value * base + digit;
@@ -288,7 +288,6 @@ fn Analyzer::integer(var Analyzer& this, var Syntax& syntax, var u64& result) ->
 
 	@result = $value;
 
-	return CompilationResult();
 };
 
 fn Analyzer::type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> Type* {
@@ -586,17 +585,17 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		usize index = 0;
 		while (index < syntax.size()) {
 			if (!(@this.collect(@*scope_cursor, @*syntax.item(index))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	if (kind == syntax_kind::noop || kind == syntax_kind::absent) {
-		return CompilationResult();
+		return;
 	};
 	if (kind == syntax_kind::pack_signature_declaration) {
 		return @this.templates.collect_signature(@this, @*scope_cursor, @syntax);
@@ -617,7 +616,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 				@message.text("module scope");
 			};
 			@this.report(syntax.token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		Token token = syntax.token();
@@ -632,7 +631,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			@scope_cursor->set_access(access_kind::public_access);
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	if (kind == syntax_kind::ambiguity) {
@@ -654,7 +653,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 						diagnostic_entity(@message, *scope_cursor->owner());
 					};
 					@this.report(syntax.token(), message.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@declaration := candidate;
@@ -674,7 +673,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 				diagnostic_entity(@message, *scope_cursor->owner());
 			};
 			@this.report(syntax.token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		return @this.collect(@*scope_cursor, @*declaration);
@@ -690,12 +689,12 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		@pending.syntax = &@syntax;
 		@pending.access = scope_cursor->access();
 		@this.pending_declarations.push_back($pending);
-		return CompilationResult();
+		return;
 	};
 
 	if (kind == syntax_kind::template_declaration) {
 		if (!(@this.validate_dispatch_syntax(@syntax, scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		return @this.templates.collect(@this, @*scope_cursor, @syntax);
@@ -703,7 +702,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 
 	if (kind == syntax_kind::function && this.templates.qualifier_dependent(@syntax)) {
 		if (!(@this.validate_dispatch_syntax(@syntax, scope_cursor->owner() && scope_cursor->owner()->kind() == entity_kind::record)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		return @this.templates.collect(@this, @*scope_cursor, @syntax);
@@ -764,7 +763,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			diagnostic_entity(@message, *scope_cursor->owner());
 		};
 		@this.report(syntax.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (!name || name->kind() == syntax_kind::absent) {
@@ -774,10 +773,14 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		@message.text(" declaration begins with ");
 		@message.quoted(syntax.token().text());
 		@this.report(syntax.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	access_kind declaration_access = scope_cursor->access();
+	if (category == entity_kind::namespace_body && name->kind() == syntax_kind::template_apply) {
+		@this.error(name, "namespace declaration cannot have template arguments");
+		return compilation_error();
+	};
 
 	if (name->kind() == syntax_kind::qualified_name) {
 		var Entity* owner = @this.lookup(@*scope_cursor, @*name->left());
@@ -802,7 +805,11 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 					@this.note(owner->token(), "owner is declared here");
 				};
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
+		};
+		if (category == entity_kind::namespace_body && owner->kind() != entity_kind::namespace_body) {
+			@this.error(name, "namespace declaration requires a namespace owner");
+			return compilation_error();
 		};
 
 		@this.unit->record_name(@this, @*scope_cursor, @*name->left(), @*owner, 2);
@@ -823,7 +830,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			diagnostic_entity_kind(@message, existing->kind());
 			@this.report(name->token(), message.view());
 			@this.note(existing->token(), "previous declaration is here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (category == entity_kind::record) {
@@ -837,7 +844,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 					@message.text(")");
 					@this.report(name->token(), message.view());
 					@this.note(existing->token(), "previous record definition is here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@existing->replace_declaration(&@syntax);
@@ -852,7 +859,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 			@message.text(")");
 			@this.report(name->token(), message.view());
 			@this.note(existing->token(), "previous declaration is here");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -868,7 +875,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 
 	if (!entity) {
 		@this.error(&@syntax, "out of memory storing declaration");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (members) {
@@ -880,7 +887,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		};
 
 		if (!nested || !(@this.collect(@*nested, @*members)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -888,7 +895,7 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 		@entity->set_index(scope_cursor->owner()->fields().size());
 
 		@scope_cursor->owner()->add_field(entity);
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->kind() == entity_kind::function && name->kind() == syntax_kind::unary && name->token().kind == token_kind::op_tilde) {
@@ -906,13 +913,12 @@ fn Analyzer::collect(var Analyzer& this, var Scope& scope, var Syntax& syntax) -
 				@message.text("; declaration is outside class scope");
 			};
 			@this.report(name->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@scope_cursor->owner()->set_destructor(entity);
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::Analyzer(var Analyzer& this, var TypeStore& types, var Diagnostics& diagnostics, u32 pointer_bits) {

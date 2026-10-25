@@ -23,13 +23,13 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> CompilationResu
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* owner = type->entity();
 
 	if (!(@this.resolve((var Entity*(owner)))).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (owner->virtual_functions().size()) {
@@ -38,7 +38,7 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> CompilationResu
 
 		while (slot < owner->virtual_functions().size()) {
 			if (!(@this.function_body(owner->virtual_functions().data()[slot])).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@slot = slot + 1;
@@ -48,17 +48,17 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> CompilationResu
 	var Entity* destructor = owner->destructor();
 
 	if (destructor && !(@this.function_body((var Entity*(destructor)))).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return CompilationResult();
+		return;
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
 		if (!(@this.prepare_lifetime(owner->bases().data()[index])).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -68,18 +68,17 @@ fn Analyzer::prepare_lifetime(var Analyzer& this, Type* type) -> CompilationResu
 
 	while (index < owner->fields().size()) {
 		if (!(@this.prepare_lifetime(owner->fields().data()[index]->type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResult {
 	if (!(@this.prepare_lifetime(type)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -87,7 +86,7 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResul
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* owner = type->entity();
@@ -107,11 +106,11 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResul
 				@this.report(owner->token(), message.view());
 				diagnostic_candidates(@*this.diagnostics, *group);
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (constructor->definition() == function_definition::deleted) {
 			@this.deleted_function(owner->token(), *constructor);
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
@@ -120,13 +119,13 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResul
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return CompilationResult();
+		return;
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
 		if (!(@this.prepare_default(owner->bases().data()[index])).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -138,38 +137,37 @@ fn Analyzer::prepare_default(var Analyzer& this, Type* type) -> CompilationResul
 		var Entity* field = owner->fields().data()[index];
 
 		if (!(@this.field_initializer((var Entity*(field)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (field->body()) {
 			if (!(@this.prepare_expression(field->body())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else if (!(@this.prepare_default(field->type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::prepare_function_exception(var Analyzer& this, var Entity& entity) -> CompilationResult {
 	if (entity.kind() != entity_kind::function || entity.exception_contract() != exception_specification::inferred || entity.exception_state() != entity_state::declared || entity.definition() == function_definition::deleted) {
-		return CompilationResult();
+		return;
 	};
 	if (entity.role() != function_role::destructor && entity.definition() != function_definition::defaulted) {
-		return CompilationResult();
+		return;
 	};
 	var Entity* owner = entity.scope()->owner();
 	if (owner && owner->kind() == entity_kind::record && owner->state() != entity_state::ready) {
-		return CompilationResult();
+		return;
 	};
 	@entity.set_exception_state(entity_state::resolving);
 	if (entity.definition() == function_definition::defaulted && !(@this.function_body(&@entity)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	rt::buffer<Type*> parameters;
 	usize index = 0;
@@ -179,11 +177,10 @@ fn Analyzer::prepare_function_exception(var Analyzer& this, var Entity& entity) 
 	};
 	Type* type = @this.types->function(entity.type()->signature().result(), $parameters, entity.type()->signature().arity(), entity.nonthrowing());
 	if (!type) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@entity.set_type(type);
 	@entity.set_exception_state(entity_state::ready);
-	return CompilationResult();
 };
 
 fn exception_copyable(Type* type) -> bool {
@@ -220,26 +217,25 @@ fn exception_copyable(Type* type) -> bool {
 
 fn Analyzer::prepare_exception_type(var Analyzer& this, Type* type) -> CompilationResult {
 	if (!(@this.prepare_lifetime(type)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (exception_copyable(type) && !(@this.prepare_copy(type)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
 		usize index = 0;
 		while (index < type->entity()->bases().size()) {
 			if (!(@this.prepare_exception_type(type->entity()->bases().data()[index])).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expression) -> CompilationResult {
 	if (!expression) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* selected = expression->entity();
@@ -252,34 +248,37 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 			@message.text("' requested here");
 			@this.note(expression->token(), message.view());
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (selected && selected->kind() == entity_kind::function && !(@this.prepare_function_exception(@*selected)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if ((expression->kind() == semantic_kind::variable || expression->kind() == semantic_kind::name || expression->kind() == semantic_kind::exception_handler) && selected && !(@this.prepare_lifetime(selected->type())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (expression->kind() == semantic_kind::variable && selected && expression->size() && expression->item(0)->kind() == semantic_kind::noop && !(@this.prepare_default(selected->type())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (expression->kind() == semantic_kind::exception_handler && selected && selected->type()->kind() != type_kind::reference) {
 		if (!exception_copyable(selected->type())) {
 			@this.report(expression->token(), "catch by value requires a copyable exception type");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!(@this.prepare_copy(selected->type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	if (expression->kind() == semantic_kind::exception_throw && !(@this.prepare_exception_type(expression->item(0)->type())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
+	if (expression->kind() == semantic_kind::allocation && !(@this.prepare_lifetime(expression->type())).has<void>()) {
+		return compilation_error();
+	};
 	if (expression->kind() == semantic_kind::construction) {
 		if (!(@this.prepare_lifetime(expression->type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (!selected && expression->type()->kind() == type_kind::named && expression->type()->entity()->layout() != record_layout::overlapping) {
@@ -290,15 +289,15 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 				var Entity* member = fields.data()[field];
 
 				if (!(@this.field_initializer((var Entity*(member)))).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				if (!member->body() && !(@this.prepare_default(member->type())).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				if (member->body() && !(@this.prepare_expression(member->body())).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@field = field + 1;
@@ -309,22 +308,21 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 	usize index = 0;
 	while (index < expression->size()) {
 		if (!(@this.prepare_expression(expression->item(index))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> CompilationResult {
 	if (!(@this.resolve(&@entity)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (entity.body_state() == entity_state::ready) {
-		return CompilationResult();
+		return;
 	};
 
 	if (entity.body_state() == entity_state::resolving) {
@@ -335,17 +333,17 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> Compi
 		diagnostic_type(@message, *entity.type());
 		@message.text("' has a circular dependency");
 		@this.report(entity.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var Syntax* initializer = entity.declaration()->variable_initializer();
 
 	if (initializer->kind() == syntax_kind::absent) {
 		if (!(@this.prepare_default(entity.type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@entity.set_body_state(entity_state::ready);
-		return CompilationResult();
+		return;
 	};
 
 	@entity.set_body_state(entity_state::resolving);
@@ -364,13 +362,13 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> Compi
 	var value = @this.expression(@*entity.scope(), @*initializer, expected);
 
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@value = @this.initialize(@*initializer, entity.type(), rt::unique<SemanticExpression>(@value.release()));
 
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity.set_body($value);
@@ -381,7 +379,7 @@ fn Analyzer::global_initializer(var Analyzer& this, var Entity& entity) -> Compi
 
 fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	if (entity->body_state() == entity_state::ready) {
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->body_state() == entity_state::resolving) {
@@ -392,7 +390,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> Compil
 		diagnostic_type(@message, *entity->type());
 		@message.text("' has a circular dependency");
 		@this.report(entity->token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var Syntax* initializer = entity->declaration()->variable_initializer();
@@ -400,7 +398,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> Compil
 	if (initializer->kind() == syntax_kind::absent) {
 		@entity->set_body_state(entity_state::ready);
 
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->scope()->owner()->layout() == record_layout::overlapping) {
@@ -412,7 +410,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> Compil
 		@message.text("' is not implemented");
 		@this.report(initializer->token(), message.view());
 		@this.note(entity->token(), "union member is declared here");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity->set_body_state(entity_state::resolving);
@@ -431,7 +429,7 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> Compil
 	var value = @this.expression(@*entity->scope(), @*initializer, expected);
 
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (entity->type()->kind() == type_kind::reference && value.get()->category() == value_category::consumable) {
@@ -445,13 +443,13 @@ fn Analyzer::field_initializer(var Analyzer& this, var Entity* entity) -> Compil
 		@message.text("'");
 		@this.report(initializer->token(), message.view());
 		@this.note(entity->token(), "reference member is declared here");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@value = @this.initialize(@*initializer, entity->type(), rt::unique<SemanticExpression>(@value.release()));
 
 	if (!value.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity->set_body($value);
@@ -466,7 +464,7 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* owner = type->entity();
@@ -478,7 +476,7 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 		var source = @this.node(semantic_kind::name, source_type, owner->declaration());
 
 		if (!source.get()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@source.get()->set_category(value_category::place);
@@ -488,12 +486,12 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 		var Entity* constructor = @this.select(group, arguments, 1, conversion_mode::explicit_only, @*owner->declaration());
 
 		if (this.diagnostics->failed()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (constructor && constructor->definition() == function_definition::deleted) {
 			@this.deleted_function(owner->token(), *constructor);
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (constructor) {
@@ -502,13 +500,13 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 	};
 
 	if (owner->layout() == record_layout::overlapping) {
-		return CompilationResult();
+		return;
 	};
 
 	usize index = 0;
 	while (index < owner->bases().size()) {
 		if (!(@this.prepare_copy(owner->bases().data()[index])).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -518,13 +516,12 @@ fn Analyzer::prepare_copy(var Analyzer& this, Type* type) -> CompilationResult {
 
 	while (index < owner->fields().size()) {
 		if (!(@this.prepare_copy(owner->fields().data()[index]->type())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> CompilationResult {
@@ -547,7 +544,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 		};
 		@this.report(location, message.view());
 
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (type->kind() == type_kind::array) {
@@ -555,7 +552,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 	};
 
 	if (type->kind() != type_kind::named || type->entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 
 	var Entity* owner = type->entity();
@@ -571,7 +568,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 		};
 
 		if (!(@this.resolve((var Entity*(candidate)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (candidate->role() == function_role::assignment) {
@@ -585,14 +582,14 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 	var Scope* bindings = @this.unit->create_scope(owner->members(), nullptr);
 
 	if (!bindings) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var Entity* destination_binding = @this.unit->create_entity(entity_kind::parameter, owner->token(), nullptr, bindings);
 	var Entity* source_binding = @this.unit->create_entity(entity_kind::parameter, owner->token(), nullptr, bindings);
 
 	if (!destination_binding || !source_binding) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@destination_binding->set_name("destination");
@@ -608,7 +605,7 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 	var source = @this.node(semantic_kind::name, immutable, owner->declaration());
 
 	if (!destination.get() || !source.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@destination.get()->bind((var Entity*(destination_binding)), value_category::place);
@@ -636,31 +633,31 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 				@candidate_index = candidate_index + 1;
 			};
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	if (selected->definition() == function_definition::deleted) {
 		@this.deleted_function(owner->token(), *selected);
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var callable = @this.node(semantic_kind::name, selected->type(), owner->declaration());
 
 	if (!callable.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@callable.get()->bind((var Entity*(selected)), value_category::place);
 	var operation = @this.invoke(@*owner->declaration(), selected, $callable, $arguments, rt::optional_ref<const Type>());
 
 	if (!operation.get() || !(@this.prepare_expression(operation.get())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (!(@this.prepare_lifetime(selected->type()->signature().result())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
-	var plan = rt::unique<CopyAssignmentPlan>(new var CopyAssignmentPlan(@*destination_binding, @*source_binding, $operation));
+	var plan = rt::unique<CopyAssignmentPlan>(new CopyAssignmentPlan(@*destination_binding, @*source_binding, $operation));
 
 	if (!plan.get()) {
 		rt::allocation_error error;
@@ -670,7 +667,6 @@ fn Analyzer::prepare_copy_assignment(var Analyzer& this, Type* type) -> Compilat
 
 	@owner->set_copy_assignment($plan);
 
-	return CompilationResult();
 };
 
 fn FunctionAnalysisScope::FunctionAnalysisScope(var FunctionAnalysisScope& this, var Entity var*& function, var usize& loop_depth, var SwitchAnalysis var*& selection, rt::optional_ref<Entity>& current) {

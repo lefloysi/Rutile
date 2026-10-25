@@ -23,21 +23,20 @@ fn FunctionEmitter::construct_variant_body(var FunctionEmitter& this, var Semant
 
 	var LLVMOpaqueType* native = @this.backend->type(type, expression->token());
 	if (!native) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), storage);
 	if (alternative_field) {
 		var LLVMOpaqueValue* alternative_address = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(owner, alternatives_field->index()), "variant.storage\0".data());
 		Type* alternative = alternative_field->type();
 		if (!(@this.initialize_value(alternative, alternative_address, expression->item(0)->item(0))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	var LLVMOpaqueValue* index_address = LLVMBuildStructGEP2(this.backend->builder(), native, storage, this.backend->field_index(owner, index_field->index()), "variant.index\0".data());
 	var LLVMOpaqueType* index_type = @this.backend->type(index_field->type(), expression->token());
 	if (!index_type) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	discard LLVMBuildStore(this.backend->builder(), LLVMConstInt(index_type, expression->integer(), 0), index_address);
-	return CompilationResult();
 };

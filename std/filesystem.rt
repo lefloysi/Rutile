@@ -1,145 +1,123 @@
-enum native_file_error_kind : [i32] {
-	success;
-	not_found;
-	permission_denied;
-	io;
-	allocation;
-};
-
-struct NativeFileResult {
-	var char* data;
-	usize size;
-	native_file_error_kind error_kind;
-	i32 native_code;
-};
-fn rutile_file_read(char* path, usize path_size, var NativeFileResult* result);
-fn rutile_file_write(char* path, usize path_size, char* bytes, usize size, var NativeFileResult* result);
-fn rutile_create_directories(char* path, usize path_size, var NativeFileResult* result);
-fn rutile_temporary_directory(var NativeFileResult* result);
-fn rutile_environment(char* name, var NativeFileResult* result);
-fn free(void* memory);
+fn rutile_file_read(char* path, usize path_size, var void* result);
+fn rutile_file_write(char* path, usize path_size, char* bytes, usize size, var void* result);
+fn rutile_create_directories(char* path, usize path_size, var void* result);
+fn rutile_temporary_directory(var void* result);
+fn getenv(char* name) -> char*;
 
 namespace rt::fs {
-	export struct file_not_found_error {
-		i32 native_code;
+	export struct file_not_found_error : [rt::error] {
+		fn description(file_not_found_error& this) -> rt::string_view : [override];
 	};
 
-	export struct permission_denied_error {
-		i32 native_code;
+	export fn file_not_found_error::description(file_not_found_error& this) -> rt::string_view {
+		return "The requested file was not found.";
+	};
+	export struct permission_denied_error : [rt::error] {
+		fn description(permission_denied_error& this) -> rt::string_view : [override];
 	};
 
-	export struct file_io_error {
-		i32 native_code;
+	export fn permission_denied_error::description(permission_denied_error& this) -> rt::string_view {
+		return "Permission to access the file was denied.";
+	};
+	export struct file_io_error : [rt::error] {
+		fn description(file_io_error& this) -> rt::string_view : [override];
 	};
 
-	template<typename Result>
-	fn failure(NativeFileResult& native) -> Result {
-		if (native.error_kind == native_file_error_kind::not_found) {
-			file_not_found_error error;
-			@error.native_code = native.native_code;
-			return Result($error);
+	export fn file_io_error::description(file_io_error& this) -> rt::string_view {
+		return "The file operation failed.";
+	};
+
+	using TextResult = rt::string | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
+	using OperationResult = void | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
+
+	fn "C" rutile_fs_text_complete(var void* storage, char* bytes, usize size) {
+		var TextResult& result = @*reinterpret_cast<var TextResult*>(storage);
+		rt::string text;
+		var copied = @text.append(rt::string_view(bytes, size));
+		if (copied.has<rt::allocation_error>()) {
+			@result = copied.get<rt::allocation_error>();
+			return;
 		};
-		if (native.error_kind == native_file_error_kind::permission_denied) {
-			permission_denied_error error;
-			@error.native_code = native.native_code;
-			return Result($error);
-		};
-		if (native.error_kind == native_file_error_kind::allocation) {
-			rt::allocation_error error;
-			@error.requested_bytes = native.size;
-			return Result($error);
-		};
-		file_io_error error;
-		@error.native_code = native.native_code;
-		return Result($error);
+		@result = $text;
+	};
+
+	fn "C" rutile_fs_text_not_found(var void* storage) {
+		@*reinterpret_cast<var TextResult*>(storage) = file_not_found_error();
+	};
+
+	fn "C" rutile_fs_text_permission_denied(var void* storage) {
+		@*reinterpret_cast<var TextResult*>(storage) = permission_denied_error();
+	};
+
+	fn "C" rutile_fs_text_io_error(var void* storage) {
+		@*reinterpret_cast<var TextResult*>(storage) = file_io_error();
+	};
+
+	fn "C" rutile_fs_text_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var TextResult*>(storage) = $error;
+	};
+
+	fn "C" rutile_fs_operation_complete(var void* storage) {
+		@*reinterpret_cast<var OperationResult*>(storage) = OperationResult();
+	};
+
+	fn "C" rutile_fs_operation_not_found(var void* storage) {
+		@*reinterpret_cast<var OperationResult*>(storage) = file_not_found_error();
+	};
+
+	fn "C" rutile_fs_operation_permission_denied(var void* storage) {
+		@*reinterpret_cast<var OperationResult*>(storage) = permission_denied_error();
+	};
+
+	fn "C" rutile_fs_operation_io_error(var void* storage) {
+		@*reinterpret_cast<var OperationResult*>(storage) = file_io_error();
+	};
+
+	fn "C" rutile_fs_operation_allocation_error(var void* storage, usize bytes) {
+		rt::allocation_error error;
+		@error.requested_bytes = bytes;
+		@*reinterpret_cast<var OperationResult*>(storage) = $error;
 	};
 
 	export fn read(rt::string_view path) -> rt::string | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error {
-		using Result = rt::string | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
 		rt::string terminated;
-		var terminated_path = @terminated.append(path);
-		if (terminated_path.has<rt::allocation_error>()) {
-			return Result(terminated_path.get<rt::allocation_error>());
-		};
-		NativeFileResult native;
-		rutile_file_read(terminated.c_str(), path.size(), &@native);
-		if (native.error_kind) {
-			return failure<Result>(native);
-		};
-		rt::string contents;
-		var copied_contents = @contents.append(rt::string_view(native.data, native.size));
-		if (copied_contents.has<rt::allocation_error>()) {
-			free(native.data);
-			return Result(copied_contents.get<rt::allocation_error>());
-		};
-		free(native.data);
-		return Result($contents);
+		@terminated.append(path);
+		TextResult result;
+		rutile_file_read(terminated.c_str(), path.size(), &@result);
+		return $result;
 	};
 
 	export fn write(rt::string_view path, rt::string_view contents) -> void | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error {
-		using Result = void | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
 		rt::string terminated;
-		var terminated_path = @terminated.append(path);
-		if (terminated_path.has<rt::allocation_error>()) {
-			return Result(terminated_path.get<rt::allocation_error>());
-		};
-		NativeFileResult native;
-		rutile_file_write(terminated.c_str(), path.size(), contents.data(), contents.size(), &@native);
-		if (native.error_kind) {
-			return failure<Result>(native);
-		};
-		return Result();
+		@terminated.append(path);
+		OperationResult result;
+		rutile_file_write(terminated.c_str(), path.size(), contents.data(), contents.size(), &@result);
+		return $result;
 	};
 
 	export fn create_directories(rt::string_view path) -> void | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error {
-		using Result = void | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
 		rt::string terminated;
-		var terminated_path = @terminated.append(path);
-		if (terminated_path.has<rt::allocation_error>()) {
-			return Result(terminated_path.get<rt::allocation_error>());
-		};
-		NativeFileResult native;
-		rutile_create_directories(terminated.c_str(), path.size(), &@native);
-		if (native.error_kind) {
-			return failure<Result>(native);
-		};
-		return Result();
+		@terminated.append(path);
+		OperationResult result;
+		rutile_create_directories(terminated.c_str(), path.size(), &@result);
+		return $result;
 	};
 
 	export fn temporary_directory() -> rt::string | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error {
-		using Result = rt::string | file_not_found_error | permission_denied_error | file_io_error | rt::allocation_error;
-		NativeFileResult native;
-		rutile_temporary_directory(&@native);
-		if (native.error_kind) {
-			return failure<Result>(native);
-		};
-		rt::string contents;
-		var copied_contents = @contents.append(rt::string_view(native.data, native.size));
-		if (copied_contents.has<rt::allocation_error>()) {
-			free(native.data);
-			return Result(copied_contents.get<rt::allocation_error>());
-		};
-		free(native.data);
-		return Result($contents);
+		TextResult result;
+		rutile_temporary_directory(&@result);
+		return $result;
 	};
 };
 
 namespace rt {
-	export fn environment(rt::string_view name) -> rt::string {
-		var terminated = rt::string(name);
-		NativeFileResult native;
-		rutile_environment(terminated.c_str(), &@native);
-		if (native.error_kind == native_file_error_kind::allocation) {
-			allocation_error error;
-			@error.requested_bytes = native.size;
-			throw $error;
-		};
-		string result;
-		var copied = @result.append(string_view(native.data, native.size));
-		free(native.data);
-		if (copied.has<allocation_error>()) {
-			throw allocation_error(copied.get<allocation_error>());
-		};
-		return $result;
+	export fn environment(rt::string_view name) -> string | allocation_error {
+		string terminated;
+		@terminated.append(name);
+		string value;
+		@value.append(from_c_string(getenv(terminated.c_str())));
+		return $value;
 	};
 };

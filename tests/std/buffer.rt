@@ -100,3 +100,21 @@ fn buffer_clear_retains_storage_and_failed_reserve_preserves_elements() {
 	rt::test::expect(popped.has<void>());
 	rt::test::expect(!values.size());
 };
+
+[[test]]
+fn capacity_growth_handles_required_sizes_and_saturates_without_overflow() {
+	rt::test::expect(rt::grow_capacity(16, 17, 100, 8) == 24);
+	rt::test::expect(rt::grow_capacity(16, 40, 100, 8) == 40);
+	rt::test::expect(rt::grow_capacity(96, 97, 100, 8) == 100);
+	rt::test::expect(rt::grow_capacity(usize::max - 3, usize::max - 2, usize::max, 8) == usize::max);
+	rt::test::expect(rt::grow_capacity(16, 101, 100, 8) == 101);
+};
+
+[[test]]
+fn bytes_have_one_byte_storage_and_explicit_numeric_conversions() {
+	rt::test::expect(sizeof(rt::byte) == 1);
+	var zero = static_cast<rt::byte>(u08(0));
+	var maximum = static_cast<rt::byte>(u08(255));
+	rt::test::expect(static_cast<u08>(zero) == 0);
+	rt::test::expect(static_cast<u08>(maximum) == 255);
+};

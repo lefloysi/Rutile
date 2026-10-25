@@ -28,6 +28,7 @@ fn Analyzer::select(var Analyzer& this, var Entity* group, rt::buffer<rt::unique
 fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bindings, rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity* {
 	var Entity* selected = nullptr;
 	i32 best = i32::max;
+	i32 best_receiver = i32::max;
 	i32 best_origin = 2;
 	rt::buffer<var Entity*> best_matches;
 	rt::buffer<var Entity*> seen;
@@ -92,24 +93,35 @@ fn Analyzer::select_candidates(var Analyzer& this, rt::buffer<var Entity*>& bind
 			@argument = argument + 1;
 		};
 
+		i32 receiver = 0;
+		if (syntax.kind() == syntax_kind::binary && (syntax.token().kind == token_kind::op_assign || syntax.token().kind == token_kind::op_copy) && !skipped && fixed && candidate->operator_kind() == syntax.token().kind) {
+			Type* destination = candidate->parameters().data()[0]->type();
+			if (destination->kind() == type_kind::reference) {
+				@destination = destination->element();
+			};
+			if (!arguments.data()[0].get()->type()->same_shape(*destination)) {
+				@receiver = 1;
+			};
+		};
 		i32 origin = 0;
 
 		if (candidate->origin() == declaration_origin::compiler_supplied) {
 			@origin = 1;
 		};
 
-		if (rank < 0 || rank > best || rank == best && origin > best_origin) {
+		if (rank < 0 || receiver > best_receiver || receiver == best_receiver && (rank > best || rank == best && origin > best_origin)) {
 			continue;
 		};
 
-		if (rank != best || origin != best_origin) {
+		if (receiver != best_receiver || rank != best || origin != best_origin) {
 			@best_matches.clear();
 		};
 		@best_matches.push_back((var Entity*(candidate)));
-		if (rank == best && origin == best_origin) {
+		if (receiver == best_receiver && rank == best && origin == best_origin) {
 			continue;
 		};
 
+		@best_receiver = receiver;
 		@best_origin = origin;
 		@best := rank;
 		@selected := candidate;

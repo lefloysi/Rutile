@@ -38,7 +38,7 @@ fn SourceReader::load(var SourceReader& this, rt::string_view path) -> SourceRea
 	var file = File(this.opener(native_path.c_str(), "rb\0".data()));
 
 	if (!file.is_open()) {
-		return SourceReadResult(@this.error(path, "cannot open"));
+		return @this.error(path, "cannot open");
 	};
 
 	rt::string contents;
@@ -47,7 +47,7 @@ fn SourceReader::load(var SourceReader& this, rt::string_view path) -> SourceRea
 	while (true) {
 		var read = @file.read(&@chunk[0], sizeof(chunk));
 		if (read.has<file_io_error>()) {
-			return SourceReadResult(@this.error(path, read.get<file_io_error>().operation));
+			return @this.error(path, read.get<file_io_error>().operation);
 		};
 		usize count = read.get<usize>();
 
@@ -60,10 +60,10 @@ fn SourceReader::load(var SourceReader& this, rt::string_view path) -> SourceRea
 
 	var closed = @file.close();
 	if (closed.has<file_io_error>()) {
-		return SourceReadResult(@this.error(path, closed.get<file_io_error>().operation));
+		return @this.error(path, closed.get<file_io_error>().operation);
 	};
 
 	var SourceFile* source = @this.sources->add(path, contents.view());
 
-	return SourceReadResult($source);
+	return $source;
 };

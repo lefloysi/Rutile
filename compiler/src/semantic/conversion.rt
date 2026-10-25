@@ -88,10 +88,23 @@ fn Analyzer::builtin_rank(Analyzer& this, SemanticExpression& value, Type& expec
 		@target = target->element();
 	};
 	Type* known = variant_flow_known(this.variant_facts, value);
+	if (!value.type()->same_shape(*target) && variant_alternative(target, value.type())) {
+		var injected = SemanticExpression(semantic_kind::construction, target, value.token());
+		i32 rank = this.builtin_rank(injected, expected);
+		if (rank < 0) {
+			return rank;
+		};
+		return rank + 4;
+	};
 	if (!value.type()->same_shape(*target) && variant_alternative(value.type(), target)) {
+		Type* alternative = variant_alternative(value.type(), target);
 		var extracted = SemanticExpression(semantic_kind::name, target, value.token());
 		@extracted.set_category(value.category());
 		@extracted.set_mutable_access(value.mutable_access());
+		if (alternative->kind() == type_kind::reference) {
+			@extracted.set_category(value_category::place);
+			@extracted.set_mutable_access(alternative->element()->qualifier() == type_qualifier::mutable);
+		};
 		i32 rank = this.builtin_rank(extracted, expected);
 		if (rank < 0) {
 			return rank;
@@ -185,6 +198,12 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 	if (requested->kind() == type_kind::reference) {
 		@requested = requested->element();
 	};
+	if (!value.get()->type()->same_shape(*requested) && variant_alternative(requested, value.get()->type())) {
+		rt::buffer<rt::unique<SemanticExpression>> arguments;
+		@arguments.push_back($value);
+		var constructed = @this.construct_values(@syntax, requested, $arguments);
+		return @this.convert($constructed, expected, @syntax);
+	};
 	if (!value.get()->type()->same_shape(*requested) && variant_alternative(value.get()->type(), requested)) {
 		var Scope* scope = this.unit->root_scope();
 		rt::buffer<SemanticScopeRegion>& regions = this.unit->scope_regions();
@@ -195,7 +214,7 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 				break;
 			};
 		};
-		return @this.variant_cast(@*scope, @syntax, requested, $value, expected);
+		return @this.variant_cast(@*scope, @syntax, requested, $value, expected, true);
 	};
 	Type* known = variant_flow_known(this.variant_facts, *value.get());
 	if (known && !value.get()->type()->same_shape(*requested)) {
@@ -368,6 +387,18 @@ fn Analyzer::convert(var Analyzer& this, rt::unique<SemanticExpression> value, r
 
 	if (!result.get()) {
 		return rt::unique<SemanticExpression>();
+	};
+
+	TypeUse* use = value.get()->type_use().get();
+	if (!use && value.get()->entity() && value.get()->entity()->type_use().has_value()) {
+		@use = &@value.get()->entity()->type_use().value().effective();
+	};
+	if (syntax.kind() != syntax_kind::cast && use && use->type().same_shape(*target)) {
+		TypeUse* converted_use = @this.unit->retype_use(*use, *target);
+		if (!converted_use) {
+			return rt::unique<SemanticExpression>();
+		};
+		@result.get()->set_type_use(*converted_use);
 	};
 
 	if (!(@result.get()->append($value)).has<void>()) {

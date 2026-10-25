@@ -249,7 +249,105 @@ fn reference_dispatch_body_captures(SemanticExpression& expression, Entity& targ
 	return false;
 };
 
+fn reference_dispatch_target_use(SemanticExpression& expression, Entity& target, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body) -> bool {
+	rt::buffer<SemanticExpression*> pending;
+	@pending.push_back(&expression);
+	usize budget = 1024;
+	while (pending.size()) {
+		if (!budget) {
+			return true;
+		};
+		@budget = budget - 1;
+		SemanticExpression* current = pending.data()[pending.size() - 1];
+		@pending.pop_back();
+		if (reference_dispatch_origin(*current, bindings, body, 0) == &target) {
+			return true;
+		};
+		for (usize index = current->size(); index; @index = index - 1) {
+			@pending.push_back(current->item(index - 1));
+		};
+	};
+	return false;
+};
+
+fn reference_dispatch_selected(SemanticExpression& call, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body) -> var Entity* {
+	var Entity* callee = call.entity();
+	if (!callee) {
+		return reference_dispatch_callable(*call.item(0), body, 0);
+	};
+	@callee = callee->canonical();
+	if (callee->dispatch() == function_dispatch::ordinary) {
+		return callee;
+	};
+	if (call.size() < 2 || !call.item(1)->size()) {
+		return nullptr;
+	};
+	var Entity* receiver = reference_dispatch_origin(*call.item(1)->item(0), bindings, body, 0);
+	if (!receiver || receiver->kind() != entity_kind::local || receiver->type()->kind() != type_kind::named || receiver->type()->entity()->kind() != entity_kind::record || !callee->scope() || !callee->scope()->owner() || !reference_dispatch_compatible(*receiver->type()->entity(), *callee->scope()->owner(), 0) || callee->virtual_slot() >= receiver->type()->entity()->virtual_functions().size()) {
+		return nullptr;
+	};
+	return receiver->type()->entity()->virtual_functions().data()[callee->virtual_slot()]->canonical();
+};
+
+fn reference_dispatch_owner_change(SemanticExpression& expression, Entity& target, rt::buffer<ReferenceDispatchBinding>& bindings, SemanticExpression* body, usize depth) -> bool {
+	if (depth > 24) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::construction) {
+		if (expression.size() > 1 && reference_dispatch_target_use(*expression.item(1), target, bindings, body)) {
+			return true;
+		};
+		var Entity* constructor = expression.entity();
+		for (usize index = 0; expression.size() && index < expression.item(0)->size(); @index = index + 1) {
+			Type* parameter = nullptr;
+			if (constructor && index + 1 < constructor->parameters().size()) {
+				@parameter = constructor->parameters().data()[index + 1]->type();
+			}
+			else if (!constructor && expression.type()->kind() == type_kind::named && expression.type()->entity()->kind() == entity_kind::record && index < expression.type()->entity()->fields().size()) {
+				@parameter = expression.type()->entity()->fields().data()[index]->type();
+			};
+			if ((!parameter || parameter->kind() == type_kind::reference || parameter->kind() == type_kind::pointer || reference_loan_members(*parameter)) && reference_dispatch_target_use(*expression.item(0)->item(index), target, bindings, body)) {
+				return true;
+			};
+		};
+	};
+	if ((expression.kind() == semantic_kind::destruction || expression.kind() == semantic_kind::relocation) && expression.size() && reference_dispatch_target_use(*expression.item(0), target, bindings, body)) {
+		return true;
+	};
+	if (expression.kind() == semantic_kind::call && expression.size() > 1 && reference_dispatch_target_use(*expression.item(1), target, bindings, body)) {
+		var Entity* callee = reference_dispatch_selected(expression, bindings, body);
+		if (!callee || !callee->body() && callee->definition() != function_definition::defaulted) {
+			return true;
+		};
+		if (callee->role() == function_role::assignment && expression.item(1)->size() && reference_dispatch_origin(*expression.item(1)->item(0), bindings, body, 0) == &target) {
+			return true;
+		};
+		if (callee->body()) {
+			rt::buffer<ReferenceDispatchBinding> nested;
+			for (usize index = 0; index < callee->parameters().size() && index < expression.item(1)->size(); @index = index + 1) {
+				ReferenceDispatchBinding binding;
+				@binding.parameter = callee->parameters().data()[index];
+				@binding.root = reference_dispatch_origin(*expression.item(1)->item(index), bindings, body, 0);
+				@nested.push_back($binding);
+			};
+			if (reference_dispatch_owner_change(*callee->body(), target, nested, callee->body(), depth + 1)) {
+				return true;
+			};
+		};
+	};
+	for (usize index = 0; index < expression.size(); @index = index + 1) {
+		if (reference_dispatch_owner_change(*expression.item(index), target, bindings, body, depth + 1)) {
+			return true;
+		};
+	};
+	return false;
+};
+
 fn ReferenceLoanAnalyzer::contextual_capture(var ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool {
+	var ReferenceLoanAnalyzer* summary = &@this;
+	if (summary->capture_resolution != entity_state::ready) {
+		return true;
+	};
 	if (!this.capture_mode(call, argument, contents)) {
 		return false;
 	};
@@ -261,16 +359,61 @@ fn ReferenceLoanAnalyzer::contextual_capture(var ReferenceLoanAnalyzer& this, Se
 	if (!target || target->kind() != entity_kind::local) {
 		return true;
 	};
-	// A reachable raw memory effect can change a receiver's dispatch header.
+	// A raw memory effect can reach the owner after its address escapes.
 	usize operation = this.position(call);
+	rt::buffer<usize> exposures;
 	usize index = 0;
 	while (index < this.expressions.size()) {
 		SemanticExpression& candidate = *this.expressions.data()[index];
 		usize point = this.position(candidate);
-		if (&candidate != &call && (candidate.kind() == semantic_kind::call || candidate.kind() == semantic_kind::binary || candidate.kind() == semantic_kind::construction || candidate.kind() == semantic_kind::destruction || candidate.kind() == semantic_kind::relocation) && (reference_raw_effects(candidate, this.raw_functions) || reference_dispatch_reconstruction(candidate)) && @this.reachable(this.graph.entry, point, fact_no_node(), nullptr) && @this.reachable(point, operation, fact_no_node(), nullptr)) {
+		if (&candidate != &call && @this.reachable(this.graph.entry, point, fact_no_node(), nullptr) && @this.reachable(point, operation, fact_no_node(), nullptr)) {
+			if (candidate.kind() == semantic_kind::address && reference_dispatch_target_use(candidate, *target, bindings, this.function_body)) {
+				@exposures.push_back(point);
+			};
+			if (candidate.kind() == semantic_kind::call && candidate.size() > 1) {
+				Type* signature = candidate.item(0)->type();
+				if (signature->kind() == type_kind::pointer) {
+					@signature = signature->element();
+				};
+				for (usize actual = 0; signature->kind() == type_kind::function && actual < candidate.item(1)->size() && actual < signature->signature().parameters().size(); @actual = actual + 1) {
+					Type* parameter = signature->signature().parameters().data()[actual];
+					if ((parameter->kind() == type_kind::reference || parameter->kind() == type_kind::pointer) && reference_dispatch_target_use(*candidate.item(1)->item(actual), *target, bindings, this.function_body) && (this.capture_mode(candidate, actual, false) || reference_raw_effects(candidate, this.raw_functions))) {
+						@exposures.push_back(point);
+					};
+				};
+			};
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < this.expressions.size()) {
+		SemanticExpression& candidate = *this.expressions.data()[index];
+		usize point = this.position(candidate);
+		bool exposed = false;
+		for (usize exposure = 0; exposure < exposures.size(); @exposure = exposure + 1) {
+			if (@this.reachable(exposures.data()[exposure], point, fact_no_node(), nullptr)) {
+				@exposed = true;
+				break;
+			};
+		};
+		if (&candidate != &call && (candidate.kind() == semantic_kind::call || candidate.kind() == semantic_kind::binary || candidate.kind() == semantic_kind::construction || candidate.kind() == semantic_kind::destruction || candidate.kind() == semantic_kind::relocation) && (exposed && reference_raw_effects(candidate, this.raw_functions) || reference_dispatch_owner_change(candidate, *target, bindings, this.function_body, 0)) && @this.reachable(this.graph.entry, point, fact_no_node(), nullptr) && @this.reachable(point, operation, fact_no_node(), nullptr)) {
 			return true;
 		};
 		@index = index + 1;
+	};
+	var Entity* declared = call.entity();
+	if (declared && declared->dispatch() != function_dispatch::ordinary) {
+		var Entity* selected = reference_dispatch_selected(call, bindings, this.function_body);
+		if (!selected || !selected->body() && selected->definition() != function_definition::defaulted || argument >= selected->parameters().size()) {
+			return true;
+		};
+		for (usize capture = 0; capture < summary->captures_summary.size(); @capture = capture + 1) {
+			ReferenceCapture& effect = summary->captures_summary.data()[capture];
+			if (effect.function == selected && effect.parameter == selected->parameters().data()[argument] && effect.contents == contents) {
+				return true;
+			};
+		};
+		return false;
 	};
 	rt::buffer<var Entity*> stack;
 	return reference_dispatch_call_captures(call, *target, bindings, this.function_body, this.raw_functions, @stack, 0);

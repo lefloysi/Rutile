@@ -491,7 +491,7 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 		compiler_panic("language worker is unavailable while scheduling analysis");
 	};
 	@this.receive();
-	var job = rt::unique<LanguageJob>::make();
+	rt::unique<LanguageJob> job = rt::unique<LanguageJob>::make();
 	if (!job.get()) {
 		compiler_panic("language server schedule invariant failed");
 	};
@@ -549,7 +549,6 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 	@this.pending = $job;
 	runtime_mutex_unlock(this.jobs_mutex);
 	runtime_condition_notify(this.wake);
-	return;
 };
 
 fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
@@ -557,14 +556,13 @@ fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& par
 	if (!uri.empty()) {
 		rt::string path;
 		if (!LanguageUri::decode(uri, @path).has<void>()) {
-			return LanguageRequestResult(language_request_error());
+			return language_request_error();
 		};
 		@this.root = $path;
 	};
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	@this.schedule();
-	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::document_key(var LanguageWorkspace& this, rt::string_view key) -> var LanguageDocument* {
@@ -588,16 +586,16 @@ fn LanguageWorkspace::document(var LanguageWorkspace& this, rt::string_view uri)
 fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	var uri = LanguageJson::text(*identity, "uri");
-	var document = rt::unique<LanguageDocument>::make();
+	rt::unique<LanguageDocument> document = rt::unique<LanguageDocument>::make();
 	if (!document.get()) {
 		compiler_panic("language document allocation returned no document");
 	};
 	@document.get()->uri.append(uri);
 	if (!LanguageUri::decode(uri, @document.get()->path).has<void>()) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	LanguageUri::key(document.get()->path.view(), @document.get()->key);
 	@document.get()->text.assign(LanguageJson::text(*identity, "text"));
@@ -631,22 +629,21 @@ fn LanguageWorkspace::open(var LanguageWorkspace& this, rt::json_value& paramete
 	};
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	@this.schedule();
-	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	rt::json_value* changes = parameters.member("contentChanges");
 	if (!identity || !changes || changes->kind() != rt::json_kind::array) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	var LanguageDocument* document = @this.document(LanguageJson::text(*identity, "uri"));
 	i64 version = LanguageJson::integer(*identity, "version", -1);
 	if (!document) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	if (version <= document->version) {
-		return LanguageRequestResult();
+		return;
 	};
 
 	usize index = 0;
@@ -659,13 +656,13 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 			rt::json_value* start = range->member("start");
 			rt::json_value* finish = range->member("end");
 			if (!start || !finish) {
-				return LanguageRequestResult(language_request_error());
+				return language_request_error();
 			};
 			@begin = document->text.offset(static_cast<usize>(LanguageJson::integer(*start, "line", 0)), static_cast<usize>(LanguageJson::integer(*start, "character", 0)));
 			@end = document->text.offset(static_cast<usize>(LanguageJson::integer(*finish, "line", 0)), static_cast<usize>(LanguageJson::integer(*finish, "character", 0)));
 		};
 		if (end < begin) {
-			return LanguageRequestResult(language_request_error());
+			return language_request_error();
 		};
 
 		var inserted = LanguageJson::text(*change, "text");
@@ -710,13 +707,12 @@ fn LanguageWorkspace::change(var LanguageWorkspace& this, rt::json_value& parame
 	@document->version = $version;
 	rutile_editor_source_update(document->path.c_str(), document->text.view().data(), document->text.view().size());
 	@this.schedule();
-	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
 	rt::json_value* identity = parameters.member("textDocument");
 	if (!identity) {
-		return LanguageRequestResult(language_request_error());
+		return language_request_error();
 	};
 	var uri = LanguageJson::text(*identity, "uri");
 	var LanguageDocument* document = @this.document(uri);
@@ -743,7 +739,6 @@ fn LanguageWorkspace::close(var LanguageWorkspace& this, rt::json_value& paramet
 	};
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	@this.schedule();
-	return LanguageRequestResult();
 };
 
 fn LanguageWorkspace::refresh(var LanguageWorkspace& this) {
@@ -751,14 +746,12 @@ fn LanguageWorkspace::refresh(var LanguageWorkspace& this) {
 	@this.configuration = this.configuration + 1;
 	@this.minimum_semantic_generation = runtime_atomic_load(this.generation) + 1;
 	@this.schedule();
-	return;
 };
 
 fn LanguageWorkspace::refresh_sources(var LanguageWorkspace& this) {
 	if (!(this.sources_revision == kiln_project_sources_revision())) {
 		@this.refresh();
 	};
-	return;
 };
 
 fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method, rt::unique<rt::json_value> parameters) {
@@ -769,5 +762,4 @@ fn LanguageWorkspace::notify(var LanguageWorkspace& this, rt::string_view method
 	};
 	rt::json_write(*message.get(), @output);
 	@this.protocol->send(output.view());
-	return;
 };

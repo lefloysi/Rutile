@@ -1,6 +1,40 @@
 namespace rt {
-	export struct allocation_error {
+	export enum byte : [u08] {
+	};
+
+	export struct error {
+		fn description(error& this) -> string_view : [virtual];
+	};
+
+	export fn error::description(error& this) -> string_view {
+		return "Runtime error.";
+	};
+
+	export enum allocation_kind : [u08] {
+		unknown;
+		single;
+		array;
+	};
+
+	export struct allocation_error : [error] {
+		fn description(allocation_error& this) -> string_view : [override];
 		usize requested_bytes;
+		allocation_kind kind;
+	};
+
+	export fn allocation_error::description(allocation_error& this) -> string_view {
+		return "Memory allocation failed.";
+	};
+
+	export fn grow_capacity(usize capacity, usize required, usize maximum, usize increment) -> usize {
+		usize grown = maximum;
+		if (capacity <= maximum && increment <= maximum - capacity) {
+			@grown = capacity + increment;
+		};
+		if (required > grown) {
+			return required;
+		};
+		return grown;
 	};
 
 	export enum ExitCode : [i32] {

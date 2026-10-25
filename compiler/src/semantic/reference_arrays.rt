@@ -31,7 +31,7 @@ fn reference_slot_append(ReferenceSlotPath& prefix, ReferenceSlotPath& suffix, v
 	while (index < suffix.size) {
 		if (result.size == 16) {
 			@result.imprecise = true;
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		ReferenceSlotStep& step = suffix.steps[index];
 		@result.steps[result.size].field = step.field;
@@ -41,7 +41,6 @@ fn reference_slot_append(ReferenceSlotPath& prefix, ReferenceSlotPath& suffix, v
 		@result.size = result.size + 1;
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn reference_content_field(Type& type, usize depth) -> var Entity* {
@@ -121,7 +120,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 			@index = index + 1;
 		};
 		if (found) {
-			return CompilationResult();
+			return;
 		};
 		if (slot.root && slot.root->kind() == entity_kind::parameter) {
 			@symbolic = slot.root;
@@ -138,7 +137,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 				ReferenceSlotPath path;
 				reference_slot_copy(loan.holding, @path);
 				if (!path.size && !reference_slot_field(@path, loan.stored_field).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				if (!reference_slot_append(holding, path, @root.holding).has<void>()) {
 					return @this.error(*source, "reference holding projection exceeds the analysis depth limit");
@@ -156,7 +155,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 			@index = index + 1;
 		};
 		if (found) {
-			return CompilationResult();
+			return;
 		};
 		if (source->entity()->kind() == entity_kind::parameter) {
 			@symbolic = source->entity();
@@ -172,7 +171,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 	if (source && source->kind() == semantic_kind::call && reference_loan_members(type)) {
 		rt::buffer<ReferenceLoanPlace> targets;
 		if (!(@this.places(*source, @targets, @substitutions, context, depth + 1)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		var Entity* field = reference_content_field(type, 0);
 		if (!field) {
@@ -195,11 +194,11 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 			@output.push_back($root);
 			@index = index + 1;
 		};
-		return CompilationResult();
+		return;
 	};
 	if (type.kind() == type_kind::array) {
 		if (!type.count() || !reference_loan_members(type)) {
-			return CompilationResult();
+			return;
 		};
 		ReferenceSlotPath element;
 		reference_slot_copy(holding, @element);
@@ -209,7 +208,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 		return @this.content_sources(*type.element(), nullptr, @output, @substitutions, context, element, symbolic, depth + 1);
 	};
 	if (type.kind() != type_kind::named || type.entity()->kind() != entity_kind::record) {
-		return CompilationResult();
+		return;
 	};
 	var SemanticExpression* arguments = nullptr;
 	bool custom = false;
@@ -235,7 +234,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 		};
 		if (field->type()->kind() != type_kind::reference) {
 			if (!(@this.content_sources(*field->type(), value, @output, @substitutions, context, path, symbolic, depth + 1)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			continue;
 		};
@@ -268,7 +267,7 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 			};
 		}
 		else if (value && !(@this.places(*value, @targets, @substitutions, context, depth + 1)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize candidate = 0;
 		while (candidate < targets.size()) {
@@ -285,18 +284,17 @@ fn ReferenceLoanAnalyzer::content_sources(var ReferenceLoanAnalyzer& this, Type&
 			@candidate = candidate + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::array_aggregate(var ReferenceLoanAnalyzer& this, SemanticExpression& expression) -> CompilationResult {
 	if (this.phase != reference_loan_phase::collect) {
-		return CompilationResult();
+		return;
 	};
 	rt::buffer<ReferenceContentRoot> roots;
 	rt::buffer<ReferenceLoanSubstitution> substitutions;
 	ReferenceSlotPath path;
 	if (!(@this.content_sources(*expression.entity()->type(), expression.item(0), @roots, @substitutions, nullptr, path, nullptr, 0)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	usize index = 0;
 	while (index < roots.size()) {
@@ -315,14 +313,13 @@ fn ReferenceLoanAnalyzer::array_aggregate(var ReferenceLoanAnalyzer& this, Seman
 		@this.append_array_loan($loan);
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::stored_contents(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var rt::buffer<ReferenceLoanPlace>& output, var bool& found) -> CompilationResult {
 	rt::buffer<ReferenceStoreBinding> bindings;
 	var slot = this.store_slot(@expression, bindings, nullptr, 0);
 	if (!slot.root) {
-		return CompilationResult();
+		return;
 	};
 	usize index = 0;
 	while (index < this.loans.size()) {
@@ -334,7 +331,7 @@ fn ReferenceLoanAnalyzer::stored_contents(var ReferenceLoanAnalyzer& this, Seman
 		ReferenceSlotPath holding;
 		reference_slot_copy(loan.holding, @holding);
 		if (!holding.size && !reference_slot_field(@holding, loan.stored_field).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!reference_slot_overlap(holding, slot.path)) {
 			continue;
@@ -348,7 +345,6 @@ fn ReferenceLoanAnalyzer::stored_contents(var ReferenceLoanAnalyzer& this, Seman
 		@output.push_back($root);
 		@found = true;
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::holding_use(var ReferenceLoanAnalyzer& this, ReferenceLoan& loan, var SemanticExpression& expression) -> bool {
@@ -410,7 +406,6 @@ fn ReferenceLoanAnalyzer::append_array_loan(var ReferenceLoanAnalyzer& this, Ref
 		@index = index + 1;
 	};
 	@this.loans.push_back($loan);
-	return;
 };
 
 fn ReferenceLoanAnalyzer::refresh_array_aliases(var ReferenceLoanAnalyzer& this) -> CompilationResult {
@@ -429,7 +424,7 @@ fn ReferenceLoanAnalyzer::refresh_array_aliases(var ReferenceLoanAnalyzer& this)
 				bool collected = (@this.array_aggregate(*expression)).has<void>();
 				@this.phase = reference_loan_phase::validate;
 				if (!collected) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				continue;
 			};
@@ -444,7 +439,7 @@ fn ReferenceLoanAnalyzer::refresh_array_aliases(var ReferenceLoanAnalyzer& this)
 			rt::buffer<ReferenceLoanPlace> targets;
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
 			if (!(@this.places(*expression->item(0), @targets, @substitutions, nullptr, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			usize candidate = 0;
 			while (candidate < targets.size()) {
@@ -462,10 +457,10 @@ fn ReferenceLoanAnalyzer::refresh_array_aliases(var ReferenceLoanAnalyzer& this)
 			};
 		};
 		if (!(@this.retain_stores(@*this.function_body)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (previous == this.loans.size()) {
-			return CompilationResult();
+			return;
 		};
 		@iteration = iteration + 1;
 	};

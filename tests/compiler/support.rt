@@ -1,7 +1,7 @@
 fn puts(char* text) -> i32;
 
 fn standard_interface() -> rt::string {
-	var context = rt::environment("KILN_TEST_INTERFACES");
+	rt::string context = rt::environment("KILN_TEST_INTERFACES");
 	var document = rt::json_parse(context);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var standard = document.get<rt::unique<rt::json_value>>().get()->member("std");
@@ -10,7 +10,7 @@ fn standard_interface() -> rt::string {
 };
 
 fn compiler_directory(rt::string_view name) -> rt::string {
-	var directory = "build/tests/compiler/" + name;
+	var directory = rt::string("build/tests/compiler/") + name;
 	rt::fs::create_directories(directory);
 	return $directory;
 };
@@ -31,18 +31,20 @@ fn append_import(var Compiler& compiler, rt::buffer<InterfaceSource>& imported, 
 };
 
 fn fixture_command(rt::string_view directory, rt::string_view objects) -> rt::sys::Command {
-	var configuration = "fn build(kiln::Options& options) {\n"
+	var configuration = rt::string("fn build(kiln::Options& options) {\n")
 		+ "\tvar fixture = kiln::add_target(\"fixture\", kiln::TargetType::executable);\n"
 		+ "\t@fixture.sources.add(\"case.obj\");\n"
 		+ "\t@fixture.import(\"std\");\n"
 		+ "\t@fixture.option(\"runtime\", \"MT\");\n"
 		+ "\t@fixture.option(\"objects\", \"" + objects + "\");\n"
 		+ "};\n";
-	rt::fs::write(directory + "/kiln.rt", configuration);
-	var command = rt::sys::Command(rt::environment("KILN_EXECUTABLE"));
+	rt::fs::write(rt::string(directory) + "/kiln.rt", configuration);
+	rt::string executable = rt::environment("KILN_EXECUTABLE");
+	var command = rt::sys::Command(executable);
 	@command.argument("run");
 	@command.argument("fixture");
-	@command.environment("RUTILE_MODULE_PATH", rt::environment("KILN_TEST_MODULE_PATH"));
+	rt::string modules = rt::environment("KILN_TEST_MODULE_PATH");
+	@command.environment("RUTILE_MODULE_PATH", modules);
 	@command.working_directory = rt::string(directory);
 	@command.timeout_ms = 120000;
 	return $command;

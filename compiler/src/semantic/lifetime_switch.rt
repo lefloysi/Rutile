@@ -1,12 +1,12 @@
 fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
 	if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var SemanticExpression* body = expression->item(1);
 
 	if (body->kind() != semantic_kind::brace) {
-		return CompilationResult();
+		return;
 	};
 
 	usize boundary = state.size();
@@ -63,14 +63,14 @@ fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpressio
 
 		while (next < body->size() && !path.exited()) {
 			if (body->item(next)->kind() != semantic_kind::case_label && !(@this.walk(body->item(next), @path)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@next = next + 1;
 		};
 
 		if (!path.exited() && !(@this.save(@selection.breaks, @path, boundary, expression)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -83,12 +83,11 @@ fn LifetimeAnalyzer::selection(var LifetimeAnalyzer& this, var SemanticExpressio
 
 		@previous.copy_from(combined);
 		if (!((@this.merge(@combined, @previous, @*selection.breaks.data()[index].get(), expression)).has<void>())) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
 	};
 
 	@state.copy_from(combined);
-	return CompilationResult();
 };

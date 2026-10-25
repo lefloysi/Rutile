@@ -73,7 +73,6 @@ fn FunctionFactPath::copy_from(var FunctionFactPath& this, FunctionFactPath& oth
 		@this.writes.push_back(FactWrite(other.writes.data()[index]));
 		@index = index + 1;
 	};
-	return;
 };
 
 fn function_fact_unwrap(var SemanticExpression* expression) -> var SemanticExpression* {
@@ -448,7 +447,6 @@ fn FunctionFactSummaries::finish(var FunctionFactSummaries& this, var FunctionFa
 		@index = index + 1;
 	};
 	@summary.outcomes.push_back($outcome);
-	return;
 };
 
 // Initially compose calls only when their evaluation occupies a whole value
@@ -503,7 +501,7 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 		};
 		FunctionFactPath& source = *paths.data()[index].get();
 		if (source.returned) {
-			var retained = rt::unique<FunctionFactPath>::make();
+			rt::unique<FunctionFactPath> retained = rt::unique<FunctionFactPath>::make();
 			@retained.get()->copy_from(source);
 			@expanded.push_back($retained);
 		}
@@ -528,7 +526,7 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 					return;
 				};
 				FunctionFactOutcome& selected = callee->outcomes.data()[outcome];
-				var branch = rt::unique<FunctionFactPath>::make();
+				rt::unique<FunctionFactPath> branch = rt::unique<FunctionFactPath>::make();
 				@branch.get()->copy_from(entry);
 				usize condition = 0;
 				while (condition < selected.conditions.size()) {
@@ -569,7 +567,6 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 		@index = index + 1;
 	};
 	@paths = $expanded;
-	return;
 };
 
 fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) {
@@ -608,7 +605,7 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 		while (index < paths.size()) {
 			var FunctionFactPath& source = @*(@paths).data()[index].get();
 			if (source.returned) {
-				var retained = rt::unique<FunctionFactPath>::make();
+				rt::unique<FunctionFactPath> retained = rt::unique<FunctionFactPath>::make();
 				@retained.get()->copy_from(source);
 				@branches.push_back($retained);
 			}
@@ -616,7 +613,7 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 				usize condition = @this.expression(@summary, expression->item(0), @source);
 				usize branch = 0;
 				while (branch < 2) {
-					var state = rt::unique<FunctionFactPath>::make();
+					rt::unique<FunctionFactPath> state = rt::unique<FunctionFactPath>::make();
 					@state.get()->copy_from(source);
 					FactPathCondition fact;
 					@fact.value = condition;
@@ -680,11 +677,10 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 		};
 		@index = index + 1;
 	};
-	return;
 };
 
 fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& function) {
-	var summary = rt::unique<FunctionFactSummary>::make();
+	rt::unique<FunctionFactSummary> summary = rt::unique<FunctionFactSummary>::make();
 	@summary.get()->function = &@function;
 	if (function.dispatch() != function_dispatch::ordinary) {
 		// A statically selected declaration does not identify a virtual target.
@@ -706,7 +702,7 @@ fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& fun
 	}
 	else {
 		rt::buffer<rt::unique<FunctionFactPath>> paths;
-		var initial = rt::unique<FunctionFactPath>::make();
+		rt::unique<FunctionFactPath> initial = rt::unique<FunctionFactPath>::make();
 		@paths.push_back($initial);
 		@this.walk(@*summary.get(), function.body(), @paths);
 		usize index = 0;
@@ -766,7 +762,6 @@ fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& fun
 		@existing = existing + 1;
 	};
 	@this.summaries.push_back($summary);
-	return;
 };
 
 fn FunctionFactSummaries::validate(var FunctionFactSummaries& this, SemanticUnit& unit) {
@@ -793,5 +788,4 @@ fn FunctionFactSummaries::validate(var FunctionFactSummaries& this, SemanticUnit
 			break;
 		};
 	};
-	return;
 };

@@ -101,7 +101,7 @@ private:
 
 fn LifetimeAnalyzer::exceptional_edge(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
 	if (!this.active_exception || state.exited()) {
-		return CompilationResult();
+		return;
 	};
 	return @this.save(@this.active_exception->entries, @state, usize(this.active_exception->boundary), expression);
 };
@@ -116,12 +116,12 @@ fn LifetimeAnalyzer::exceptions(var LifetimeAnalyzer& this, var SemanticExpressi
 	bool valid = (@this.walk(expression->item(0), @normal)).has<void>();
 	@this.active_exception = region.parent;
 	if (!valid) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@normal.truncate(usize(region.boundary));
 	@state.copy_from(normal);
 	if (!region.entries.size()) {
-		return CompilationResult();
+		return;
 	};
 	FlowState incoming;
 	@incoming.copy_from(*region.entries.data()[0].get());
@@ -130,7 +130,7 @@ fn LifetimeAnalyzer::exceptions(var LifetimeAnalyzer& this, var SemanticExpressi
 		FlowState previous;
 		@previous.copy_from(incoming);
 		if (!((@this.merge(@incoming, @previous, @*region.entries.data()[edge].get(), expression)).has<void>())) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@edge = edge + 1;
 	};
@@ -143,21 +143,20 @@ fn LifetimeAnalyzer::exceptions(var LifetimeAnalyzer& this, var SemanticExpressi
 			@caught.declare(handler->entity());
 		};
 		if (!(@this.walk(handler->item(0), @caught)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@caught.truncate(usize(region.boundary));
 		FlowState previous;
 		@previous.copy_from(state);
 		if (!((@this.merge(@state, @previous, @caught, expression)).has<void>())) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
 	var SemanticExpression* last = expression->item(expression->size() - 1);
 	if (last->type()->kind() != type_kind::void_type && !(@this.exceptional_edge(expression, @incoming)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view message) -> CompilationResult {
@@ -168,12 +167,12 @@ fn LifetimeAnalyzer::error(var LifetimeAnalyzer& this, var SemanticExpression* e
 	};
 
 	@this.diagnostics->error(token, message);
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn LifetimeAnalyzer::binding_error(var LifetimeAnalyzer& this, var SemanticExpression* expression, rt::string_view reason, Entity& entity) -> CompilationResult {
 	if (this.diagnostics->failed()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	var message = DiagnosticMessage();
 	@message.text(reason);
@@ -188,23 +187,23 @@ fn LifetimeAnalyzer::binding_error(var LifetimeAnalyzer& this, var SemanticExpre
 	};
 	@this.diagnostics->error(location, message.view());
 	@this.diagnostics->note(entity.token(), "object is declared here");
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn LifetimeAnalyzer::merge(var LifetimeAnalyzer& this, var FlowState& destination, var FlowState& first, var FlowState& second, var SemanticExpression* expression) -> CompilationResult {
 	if (first.exited() && second.exited()) {
 		@destination.copy_from(first);
-		return CompilationResult();
+		return;
 	};
 
 	if (first.exited()) {
 		@destination.copy_from(second);
-		return CompilationResult();
+		return;
 	};
 
 	if (second.exited()) {
 		@destination.copy_from(first);
-		return CompilationResult();
+		return;
 	};
 
 	usize index = 0;
@@ -234,7 +233,6 @@ fn LifetimeAnalyzer::merge(var LifetimeAnalyzer& this, var FlowState& destinatio
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::validate_backedge(var LifetimeAnalyzer& this, var FlowState& entry, var FlowState& incoming, var SemanticExpression* expression) -> CompilationResult {
@@ -250,12 +248,11 @@ fn LifetimeAnalyzer::validate_backedge(var LifetimeAnalyzer& this, var FlowState
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::conditional(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
 	if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	bool truth = false;
@@ -275,7 +272,7 @@ fn LifetimeAnalyzer::conditional(var LifetimeAnalyzer& this, var SemanticExpress
 	@second.copy_from(state);
 
 	if (!(@this.walk(expression->item(1), @first)).has<void>() || !(@this.walk(expression->item(2), @second)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	return @this.merge(@state, @first, @second, $expression);
@@ -292,11 +289,10 @@ fn LifetimeAnalyzer::storage(var LifetimeAnalyzer& this, var SemanticExpression*
 		return @this.binding_error(expression, "object storage does not reach this construction", *owner);
 	};
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<FlowState>>& exits, var FlowState& state, usize boundary, var SemanticExpression* expression) -> CompilationResult {
-	var snapshot = rt::unique<FlowState>::make();
+	rt::unique<FlowState> snapshot = rt::unique<FlowState>::make();
 
 	@snapshot.get()->copy_from(state);
 
@@ -305,7 +301,6 @@ fn LifetimeAnalyzer::save(var LifetimeAnalyzer& this, var rt::buffer<rt::unique<
 
 	@exits.push_back($snapshot);
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
@@ -313,7 +308,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	usize boundary = state.size();
 
 	if (is_for && !(@this.walk(expression->item(0), @state)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	FlowState entry;
@@ -331,7 +326,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	var SemanticExpression* test = expression->item(condition);
 
 	if (!(@this.walk(test, @state)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	bool truth = true;
@@ -344,7 +339,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	if (known && !truth) {
 		@state.truncate(boundary);
 
-		return CompilationResult();
+		return;
 	};
 
 	FlowState repeated;
@@ -358,11 +353,11 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	var scope = LoopScope(@this.active_loop, @loop);
 
 	if (!(@this.walk(expression->item(body), @repeated)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (!repeated.exited() && !(@this.save(@loop.continues, @repeated, loop.continue_boundary, expression)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	usize body_exits = loop.continues.size();
@@ -371,12 +366,12 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 		var FlowState& backedge = @*loop.continues.data()[index].get();
 
 		if (is_for && !(@this.walk(expression->item(2), @backedge)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (!backedge.exited()) {
 			if (!(@this.validate_backedge(@entry, @backedge, expression)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -385,7 +380,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 
 	while (index < loop.continues.size()) {
 		if (!(@this.validate_backedge(@entry, @*loop.continues.data()[index].get(), expression)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -408,7 +403,7 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 
 			@previous.copy_from(state);
 			if (!((@this.merge(@state, @previous, @leaving, expression)).has<void>())) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -419,12 +414,11 @@ fn LifetimeAnalyzer::loop(var LifetimeAnalyzer& this, var SemanticExpression* ex
 		@state.leave(flow_exit::unreachable);
 	};
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* expression, var FlowState& state) -> CompilationResult {
 	if (!expression || state.exited()) {
-		return CompilationResult();
+		return;
 	};
 
 	switch (expression->kind()) {
@@ -433,24 +427,24 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 		case semantic_kind::exception_throw:
 		case semantic_kind::exception_rethrow:
 			if (expression->size() && !(@this.walk(expression->item(0), @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (!(@this.exceptional_edge(expression, @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@state.leave(flow_exit::throw_exception);
-			return CompilationResult();
+			return;
 		case semantic_kind::binary:
 			if (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or) {
 				if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				bool truth = false;
 
 				if (expression->item(0)->constant_truth(@truth)) {
 					if (expression->operation() == token_kind::op_and && !truth || expression->operation() == token_kind::op_or && truth) {
-						return CompilationResult();
+						return;
 					};
 
 					return @this.walk(expression->item(1), @state);
@@ -463,7 +457,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				@evaluated.copy_from(state);
 
 				if (!(@this.walk(expression->item(1), @evaluated)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				return @this.merge(@state, @skipped, @evaluated, $expression);
@@ -483,7 +477,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			var Entity* entity = expression->entity();
 
 			if (!entity || (entity->kind() != entity_kind::local && entity->kind() != entity_kind::parameter)) {
-				return CompilationResult();
+				return;
 			};
 
 			var LiveBinding* binding = @state.find($entity);
@@ -511,11 +505,11 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				return @this.binding_error(expression, "object lifetime differs across reachable control-flow paths", *binding->entity);
 			};
 
-			return CompilationResult();
+			return;
 		};
 		case semantic_kind::variable: {
 			if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			var owner = this.storage_owner(*expression->item(0), @state);
@@ -527,13 +521,13 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				@binding->referent.bind(@*owner.get());
 			};
 
-			return CompilationResult();
+			return;
 		};
 		case semantic_kind::relocation: {
 			var SemanticExpression* source = expression->item(0);
 
 			if (!(@this.walk(source, @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			var Entity* owner = source->owned_binding();
@@ -546,13 +540,13 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				};
 			};
 
-			return CompilationResult();
+			return;
 		};
 		case semantic_kind::destruction: {
 			var SemanticExpression* object = expression->item(0);
 
 			if (!(@this.walk(object, @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			var Entity* owner = object->owned_binding();
@@ -565,12 +559,12 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				};
 			};
 
-			return CompilationResult();
+			return;
 		};
 		case semantic_kind::construction: {
 			if (expression->size() < 2) {
 				if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				return @this.exceptional_edge(expression, @state);
 			};
@@ -578,11 +572,11 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 			var SemanticExpression* destination = expression->item(1);
 
 			if (!(@this.storage(destination, @state)).has<void>() || !(@this.walk(expression->item(0), @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (!(@this.exceptional_edge(expression, @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			var Entity* owner = destination->owned_binding();
 
@@ -594,27 +588,27 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				};
 			};
 
-			return CompilationResult();
+			return;
 		};
 		case semantic_kind::return_value:
 			if (!(@this.walk(expression->item(0), @state)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@state.leave(flow_exit::return_function);
 
-			return CompilationResult();
+			return;
 		case semantic_kind::break_loop:
 			if (!this.active_loop) {
 				return @this.error(expression, "break requires an enclosing loop or switch");
 			};
 			if (!(@this.save(@this.active_loop->breaks, @state, usize(this.active_loop->break_boundary), expression)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@state.leave(flow_exit::break_loop);
 
-			return CompilationResult();
+			return;
 		case semantic_kind::continue_loop: {
 			var LoopFlow* loop = this.active_loop;
 
@@ -626,12 +620,12 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 				return @this.error(expression, "continue requires an enclosing loop");
 			};
 			if (!(@this.save(@loop->continues, @state, usize(loop->continue_boundary), expression)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@state.leave(flow_exit::continue_loop);
 
-			return CompilationResult();
+			return;
 		};
 		default:
 			break;
@@ -641,7 +635,7 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 	usize index = 0;
 	while (index < expression->size()) {
 		if (!(@this.walk(expression->item(index), @state)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -649,14 +643,13 @@ fn LifetimeAnalyzer::walk(var LifetimeAnalyzer& this, var SemanticExpression* ex
 
 	if (expression->kind() == semantic_kind::call || expression->kind() == semantic_kind::allocation || expression->kind() == semantic_kind::deallocation || expression->kind() == semantic_kind::array_deallocation) {
 		if (!(@this.exceptional_edge(expression, @state)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 	if (expression->kind() == semantic_kind::brace) {
 		@state.truncate(boundary);
 	};
 
-	return CompilationResult();
 };
 
 fn LifetimeAnalyzer::validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
@@ -683,7 +676,7 @@ fn LifetimeAnalyzer::validate_legacy(var LifetimeAnalyzer& this, SemanticUnit& u
 		};
 
 		if (!(@this.walk(function->body(), @state)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		function_completion completion = function_completion::reaches_end;
@@ -695,7 +688,6 @@ fn LifetimeAnalyzer::validate_legacy(var LifetimeAnalyzer& this, SemanticUnit& u
 		@function->set_completion($completion);
 	};
 
-	return CompilationResult();
 };
 
 fn FlowState::size(FlowState& this) -> usize {
@@ -725,7 +717,6 @@ fn FlowState::declare(var FlowState& this, var Entity* entity) {
 	@binding.lifetime = object_lifetime::live;
 
 	@this.bindings.push_back($binding);
-	return;
 };
 
 fn FlowState::copy_from(var FlowState& this, FlowState& other) {
@@ -740,7 +731,6 @@ fn FlowState::copy_from(var FlowState& this, FlowState& other) {
 		@index = index + 1;
 	};
 
-	return;
 };
 
 fn FlowState::truncate(var FlowState& this, usize size) {

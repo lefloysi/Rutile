@@ -166,6 +166,7 @@ private:
 	fn initialize_value_body(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address, var SemanticExpression* value) -> CompilationResult;
 
 	fn allocate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
+	fn allocation_result(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueValue* pointer, var LLVMOpaqueValue* bytes, bool array) -> var LLVMOpaqueValue*;
 	fn allocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn deallocate_array(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 
@@ -231,7 +232,6 @@ fn FunctionEmitter::bind(var FunctionEmitter& this, var Entity* entity, var LLVM
 	@this.bindings.push_back($binding);
 	@this.lifetime_revision = this.lifetime_revision + 1;
 
-	return;
 };
 
 fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LLVMOpaqueValue* {
@@ -265,7 +265,7 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> Com
 		var LLVMOpaqueValue* slot = @this.slot(parameter->type());
 
 		if (!slot) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		discard LLVMBuildStore(this.backend->builder(), LLVMGetParam(this.function, static_cast<u32>(index)), (var LLVMOpaqueValue*(slot)));
@@ -287,32 +287,32 @@ fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> Com
 		Type* type = function->parameters().data()[0]->type()->element();
 
 		if (!(@this.initialize_members(type, LLVMGetParam(this.function, 0))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
 
 	if (!(@this.statement(function->body())).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (this.terminated()) {
-		return CompilationResult();
+		return;
 	};
 
 	if (function->completion() == function_completion::no_fallthrough) {
 		discard LLVMBuildUnreachable(this.backend->builder());
 
-		return CompilationResult();
+		return;
 	};
 
 	if (this.result->kind() == type_kind::void_type) {
 		if (!(@this.cleanup_bindings(0)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		discard LLVMBuildRetVoid(this.backend->builder());
 
-		return CompilationResult();
+		return;
 	};
 
 	var message = DiagnosticMessage();

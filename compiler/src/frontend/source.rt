@@ -38,7 +38,6 @@ private:
 fn SourceFile::set_module(var SourceFile& this, rt::string_view name, i32 access) {
 	@this.owning_module = rt::string(name);
 	@this.module_access = $access;
-	return;
 };
 
 fn SourceFile::module_name(SourceFile& this) -> rt::string_view {
@@ -98,7 +97,6 @@ fn SourceFile::assign(var SourceFile& this, rt::string_view path, rt::string_vie
 	@this.contents = $next_text;
 	@this.line_offsets = $next_lines;
 
-	return;
 };
 
 fn SourceFile::path(SourceFile& this) -> rt::string_view {
@@ -142,12 +140,10 @@ fn SourceFile::token_count(SourceFile& this) -> usize {
 
 fn SourceFile::append_token(var SourceFile& this, Token token) {
 	@this.token_buffer.push_back($token);
-	return;
 };
 
 fn SourceFile::append_comment(var SourceFile& this, Token comment) {
 	@this.comment_buffer.push_back($comment);
-	return;
 };
 
 fn SourceFile::clear_tokens(var SourceFile& this) {
@@ -156,7 +152,7 @@ fn SourceFile::clear_tokens(var SourceFile& this) {
 };
 
 fn SourceManager::add(var SourceManager& this, rt::string_view path, rt::string_view text) -> var SourceFile* {
-	var file = rt::unique<SourceFile>::make();
+	rt::unique<SourceFile> file = rt::unique<SourceFile>::make();
 
 	@file.get()->assign(path, text);
 

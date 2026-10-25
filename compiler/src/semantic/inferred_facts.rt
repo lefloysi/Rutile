@@ -203,7 +203,6 @@ fn FactState::copy_from(var FactState& this, FactState& other) {
 		@this.conditional_relations.push_back(ConditionalRelation(other.conditional_relations.data()[index]));
 		@index = index + 1;
 	};
-	return;
 };
 
 fn FactState::value(FactState& this, SemanticExpression* expression) -> FactValue {
@@ -231,7 +230,6 @@ fn FactState::record(var FactState& this, var SemanticExpression* expression, Fa
 	@entry.expression = expression;
 	@entry.value = $value;
 	@this.evaluated.push_back($entry);
-	return;
 };
 
 fn fact_join_value(var FactValue& current, FactValue& incoming, bool widen) -> bool {
@@ -357,7 +355,6 @@ fn FactState::join(var FactState& this, FactState& incoming, bool widen, var boo
 		};
 		@index = index + 1;
 	};
-	return;
 };
 
 fn fact_inverse(token_kind operation) -> token_kind {
@@ -809,7 +806,6 @@ fn InferredFacts::collect(var InferredFacts& this, SemanticExpression* expressio
 		@this.collect(expression->item(index));
 		@index = index + 1;
 	};
-	return;
 };
 
 fn InferredFacts::summary_place(var InferredFacts& this, SemanticExpression* expression, SemanticExpression& call, FunctionFactSummary& summary) -> usize {
@@ -1171,7 +1167,6 @@ fn InferredFacts::correlation_place(var InferredFacts& this, var rt::buffer<Fact
 	@entry.place = place;
 	@entry.written = written;
 	@places.push_back($entry);
-	return;
 };
 
 fn InferredFacts::summary_assume(var InferredFacts& this, FunctionFactSummary& summary, usize expression, bool truth, SemanticExpression& call, var FactState& state) {
@@ -1662,7 +1657,6 @@ fn InferredFacts::assume(var InferredFacts& this, var SemanticExpression* condit
 		return;
 	};
 	@((@state.places).data()[place - 1]).range = $refined;
-	return;
 };
 
 fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version) {
@@ -1764,7 +1758,6 @@ fn InferredFacts::transfer(var InferredFacts& this, var SemanticExpression* expr
 		};
 	};
 	@state.record(expression, $value);
-	return;
 };
 
 fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body) -> CompilationResult {
@@ -1782,12 +1775,12 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	};
 	// Large functions remain conservative until sparse state storage is available.
 	if (graph.nodes.size() > 512) {
-		return CompilationResult();
+		return;
 	};
 	@this.constant_base = (graph.nodes.size() + 3) * (this.places.size() + 1);
 	usize node = 0;
 	while (node < graph.nodes.size()) {
-		var state = rt::unique<FactState>::make();
+		rt::unique<FactState> state = rt::unique<FactState>::make();
 		usize place = 0;
 		while (place < this.places.size()) {
 			FactValue value;
@@ -1857,7 +1850,7 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 		};
 		@iteration = iteration + 1;
 		if (iteration > graph.nodes.size() * 4 + 16) {
-			return CompilationResult();
+			return;
 		};
 	};
 	@node = 0;
@@ -1924,13 +1917,12 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 					@deduction.text("]; array extent is ");
 					@deduction.number(expression->item(0)->type()->count());
 					@this.diagnostics->note(expression->item(1)->token(), deduction.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			};
 		};
 		@node = node + 1;
 	};
-	return CompilationResult();
 };
 
 fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
@@ -1942,7 +1934,7 @@ fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> C
 		if (entity->kind() == entity_kind::function && entity->body()) {
 			@this.analyzed_function = entity;
 			if (!(@this.analyze(entity->body())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		@index = index + 1;

@@ -98,7 +98,7 @@ fn Lexer::fail(var Lexer& this, Token& token, rt::string_view message) -> Compil
 		};
 	};
 
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Lexer::error(Lexer& this) -> rt::string_view {
@@ -257,7 +257,6 @@ fn Lexer::trivia(var Lexer& this) -> CompilationResult {
 		@this.source->append_comment(Token(start));
 	};
 
-	return CompilationResult();
 };
 
 fn Lexer::number(var Lexer& this, Token& token) -> CompilationResult {
@@ -274,7 +273,7 @@ fn Lexer::number(var Lexer& this, Token& token) -> CompilationResult {
 	};
 
 	if (this.peek(0) != 'e' && this.peek(0) != 'E') {
-		return CompilationResult();
+		return;
 	};
 
 	discard @this.advance();
@@ -291,7 +290,6 @@ fn Lexer::number(var Lexer& this, Token& token) -> CompilationResult {
 		discard @this.advance();
 	};
 
-	return CompilationResult();
 };
 
 fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> CompilationResult {
@@ -307,7 +305,7 @@ fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> CompilationResult
 				discard @this.advance();
 				discard @this.advance();
 				discard @this.advance();
-				return CompilationResult();
+				return;
 			};
 			discard @this.advance();
 		};
@@ -332,7 +330,7 @@ fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> CompilationResult
 			return @this.fail(token, "expected closing quote after character");
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	while (this.peek(0) != '"') {
@@ -351,7 +349,6 @@ fn Lexer::quoted(var Lexer& this, Token& token, char quote) -> CompilationResult
 
 	discard @this.advance();
 
-	return CompilationResult();
 };
 
 fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
@@ -385,6 +382,10 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
 			break;
 		case '+':
 			@token.kind = token_kind::op_plus;
+			if (next == '=') {
+				@token.kind = token_kind::op_plus_assign;
+				@width = 2;
+			};
 			break;
 		case '*':
 			@token.kind = token_kind::op_star;
@@ -514,7 +515,6 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
 		@consumed = consumed + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Lexer::scan(var Lexer& this) -> CompilationResult {
@@ -527,7 +527,7 @@ fn Lexer::scan(var Lexer& this) -> CompilationResult {
 
 	while (true) {
 		if (!(@this.trivia()).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var token = this.location();
@@ -552,7 +552,7 @@ fn Lexer::scan(var Lexer& this) -> CompilationResult {
 			@token.kind = token_kind::literal_number;
 
 			if (!(@this.number(token)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else if (value == '"' || value == '\'') {
@@ -567,12 +567,12 @@ fn Lexer::scan(var Lexer& this) -> CompilationResult {
 				if (token.length) {
 					@this.source->append_token(Token(token));
 				};
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		}
 		else {
 			if (!(@this.symbol(@token)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -585,5 +585,4 @@ fn Lexer::scan(var Lexer& this) -> CompilationResult {
 		};
 	};
 
-	return CompilationResult();
 };

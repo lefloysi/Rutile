@@ -235,21 +235,21 @@ fn selected(usize ordinal) -> bool {
 };
 fn parse_number(rt::string_view text) -> NumberResult {
 	if (text.empty()) {
-		return NumberResult(argument_error());
+		return argument_error();
 	};
 	usize value = 0;
 	for (usize index = 0; index < text.size(); @index = index + 1) {
 		char digit = text.data()[index];
 		if (digit < char(48) || digit > char(57)) {
-			return NumberResult(argument_error());
+			return argument_error();
 		};
 		usize number = static_cast<usize>(digit) - 48;
 		if (value > (usize::max - number) / 10) {
-			return NumberResult(argument_error());
+			return argument_error();
 		};
 		@value = value * 10 + number;
 	};
-	return NumberResult($value);
+	return $value;
 };
 fn configure(i32 argument_count, char** arguments) -> ConfigurationResult {
 	bool count_seen = false;
@@ -257,34 +257,33 @@ fn configure(i32 argument_count, char** arguments) -> ConfigurationResult {
 	for (i32 argument = 1; argument < argument_count; @argument = argument + 2) {
 		var option = rt::from_c_string(arguments[argument]);
 		if (argument + 1 >= argument_count) {
-			return ConfigurationResult(argument_error());
+			return argument_error();
 		};
 		var parsed = parse_number(rt::from_c_string(arguments[argument + 1]));
 		if (parsed.has<argument_error>()) {
-			return ConfigurationResult(argument_error());
+			return argument_error();
 		};
 		if (option == "--shard-count") {
 			if (count_seen) {
-				return ConfigurationResult(argument_error());
+				return argument_error();
 			};
 			@shard_count = parsed.get<usize>();
 			@count_seen = true;
 		}
 		else if (option == "--shard-index") {
 			if (index_seen) {
-				return ConfigurationResult(argument_error());
+				return argument_error();
 			};
 			@shard_index = parsed.get<usize>();
 			@index_seen = true;
 		}
 		else {
-			return ConfigurationResult(argument_error());
+			return argument_error();
 		};
 	};
 	if (!shard_count || shard_index >= shard_count) {
-		return ConfigurationResult(argument_error());
+		return argument_error();
 	};
-	return ConfigurationResult();
 };
 """);
 };

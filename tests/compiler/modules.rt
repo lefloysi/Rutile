@@ -1,8 +1,10 @@
 [[test]]
 fn exported_functions_round_trip_through_an_interface() {
 	var directory = compiler_directory("interface-round-trip");
-	var library = "fn abort();\nexport fn answer() -> i32 { return 42; };\n"
-		+ "[[test]] fn imported_tests_do_not_run() { abort(); };\n";
+	var library = """fn abort();
+export fn answer() -> i32 { return 42; };
+[[test]] fn imported_tests_do_not_run() { abort(); };
+""";
 	Compiler exporter;
 	rt::buffer<rt::string_view> library_paths;
 	rt::buffer<rt::string_view> library_sources;
@@ -33,7 +35,8 @@ fn exported_functions_round_trip_through_an_interface() {
 	rt::test::expect((@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
 	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
 	if (executed.exit_code) {
-		discard puts((executed.output + executed.error).c_str());
+		discard puts(executed.output.c_str());
+		discard puts(executed.error.c_str());
 	};
 	rt::test::expect(!executed.exit_code);
 };
@@ -75,11 +78,13 @@ fn malformed_interfaces_report_an_error() {
 [[test]]
 fn void_alternatives_cross_module_function_boundaries() {
 	var directory = compiler_directory("void-variant-interface");
-	var library = "using Status = void | i32;\n"
-		+ "export fn succeed() -> Status { return Status(); };\n"
-		+ "export fn fail() -> Status { return Status(i32(5)); };\n"
-		+ "fn complete() {};\nusing Later = i32 | void;\n"
-		+ "export fn succeed_later() -> Later { return Later(complete()); };\n";
+	var library = """using Status = void | i32;
+export fn succeed() -> Status { return; };
+export fn fail() -> Status { return 5; };
+fn complete() {};
+using Later = i32 | void;
+export fn succeed_later() -> Later { return complete(); };
+""";
 	var standard = standard_sources();
 	rt::test::expect(standard.has<rt::buffer<InterfaceSource>>());
 	Compiler exporter;
@@ -101,13 +106,14 @@ fn void_alternatives_cross_module_function_boundaries() {
 	rt::test::expect(encoded.has<rt::string>());
 	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
 	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
-	var source = "[[test]] fn imported_status() {\n"
-		+ "\trt::test::expect(succeed().has<void>());\n"
-		+ "\trt::test::expect(succeed_later().has<void>());\n"
-		+ "\tvar error = fail();\n"
-		+ "\trt::test::expect(error.has<i32>());\n"
-		+ "\tif (error.has<i32>()) { rt::test::expect(error.get<i32>() == 5); };\n"
-		+ "};\n";
+	var source = """[[test]] fn imported_status() {
+	rt::test::expect(succeed().has<void>());
+	rt::test::expect(succeed_later().has<void>());
+	var error = fail();
+	rt::test::expect(error.has<i32>());
+	if (error.has<i32>()) { rt::test::expect(error.get<i32>() == 5); };
+};
+""";
 	Compiler consumer;
 	rt::buffer<rt::string_view> paths;
 	rt::buffer<rt::string_view> sources;
@@ -118,7 +124,8 @@ fn void_alternatives_cross_module_function_boundaries() {
 	rt::test::expect((@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
 	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
 	if (executed.exit_code) {
-		discard puts((executed.output + executed.error).c_str());
+		discard puts(executed.output.c_str());
+		discard puts(executed.error.c_str());
 	};
 	rt::test::expect(!executed.exit_code);
 };

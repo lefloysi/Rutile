@@ -129,14 +129,13 @@ fn ReferenceLoanAnalyzer::unknown_event(var ReferenceLoanAnalyzer& this, var Ent
 	@event.source = position;
 	reference_slot_copy(holding, @event.holding);
 	@this.unknowns.push_back($event);
-	return;
 };
 
 fn ReferenceLoanAnalyzer::raw_targets(var ReferenceLoanAnalyzer& this, SemanticExpression& pointer, usize operation, usize depth) -> CompilationResult {
 	ReferenceSlotPath empty;
 	if (depth > 16) {
 		@this.unknown_event(nullptr, empty, operation);
-		return CompilationResult();
+		return;
 	};
 	if ((pointer.kind() == semantic_kind::cast || pointer.kind() == semantic_kind::access || pointer.kind() == semantic_kind::relocation) && pointer.size()) {
 		return @this.raw_targets(*pointer.item(0), operation, depth + 1);
@@ -154,7 +153,7 @@ fn ReferenceLoanAnalyzer::raw_targets(var ReferenceLoanAnalyzer& this, SemanticE
 			rt::buffer<ReferenceLoanPlace> targets;
 			rt::buffer<ReferenceLoanSubstitution> substitutions;
 			if (!(@this.places(value, @targets, @substitutions, nullptr, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			usize index = 0;
 			while (index < targets.size()) {
@@ -162,44 +161,43 @@ fn ReferenceLoanAnalyzer::raw_targets(var ReferenceLoanAnalyzer& this, SemanticE
 				@index = index + 1;
 			};
 			if (targets.size()) {
-				return CompilationResult();
+				return;
 			}
 			else {
 				@this.unknown_event(nullptr, empty, operation);
-				return CompilationResult();
+				return;
 			};
 		};
 		rt::buffer<ReferenceStoreBinding> bindings;
 		var slot = this.store_slot(value, bindings, nullptr, 0);
 		@this.unknown_event(slot.root, slot.path, operation);
-		return CompilationResult();
+		return;
 	};
 	if (pointer.kind() == semantic_kind::name && pointer.entity() && pointer.entity()->kind() == entity_kind::local && pointer.entity()->type()->kind() == type_kind::pointer) {
 		var SemanticExpression* initial = this.initializer(*this.function_body, *pointer.entity());
 		if (!initial || !(@this.raw_targets(*initial, operation, depth + 1)).has<void>()) {
 			if (initial == nullptr) {
 				@this.unknown_event(nullptr, empty, operation);
-				return CompilationResult();
+				return;
 			}
 			else {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		usize index = 0;
 		while (index < this.expressions.size()) {
 			SemanticExpression& assignment = *this.expressions.data()[index];
 			if (assignment.kind() == semantic_kind::binary && (assignment.operation() == token_kind::op_assign || assignment.operation() == token_kind::op_copy) && assignment.item(0)->owned_binding() == pointer.entity() && @this.reachable(this.position(assignment), operation, fact_no_node(), nullptr) && !(@this.raw_targets(*assignment.item(1), operation, depth + 1)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@index = index + 1;
 		};
-		return CompilationResult();
+		return;
 	};
 	if (pointer.kind() == semantic_kind::null_pointer) {
-		return CompilationResult();
+		return;
 	};
 	@this.unknown_event(nullptr, empty, operation);
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::raw_write(var ReferenceLoanAnalyzer& this, SemanticExpression& destination, usize operation) -> CompilationResult {
@@ -209,7 +207,6 @@ fn ReferenceLoanAnalyzer::raw_write(var ReferenceLoanAnalyzer& this, SemanticExp
 	if (destination.size() && destination.indirect_storage()) {
 		return @this.raw_write(*destination.item(0), operation);
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> CompilationResult {
@@ -224,7 +221,7 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 		@candidate = candidate + 1;
 	};
 	if (!tracked) {
-		return CompilationResult();
+		return;
 	};
 	usize index = 0;
 	while (index < this.expressions.size()) {
@@ -232,13 +229,13 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 		@index = index + 1;
 		usize operation = this.position(expression);
 		if (expression.kind() == semantic_kind::construction && expression.size() > 1 && expression.item(1)->indirect_storage() && !(@this.raw_write(*expression.item(1), operation)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if ((expression.kind() == semantic_kind::destruction || expression.kind() == semantic_kind::relocation) && expression.size() && expression.item(0)->indirect_storage() && !(@this.raw_write(*expression.item(0), operation)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (expression.kind() == semantic_kind::binary && (expression.operation() == token_kind::op_assign || expression.operation() == token_kind::op_copy) && expression.item(0)->indirect_storage() && !(@this.raw_write(*expression.item(0), operation)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (expression.kind() != semantic_kind::call || expression.size() < 2) {
 			continue;
@@ -247,7 +244,7 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 		if (function) {
 			@function = function->canonical();
 			if (function->role() == function_role::assignment && expression.item(1)->size() && expression.item(1)->item(0)->indirect_storage() && !(@this.raw_write(*expression.item(1)->item(0), operation)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		bool opaque = !function || function->definition() != function_definition::defaulted && (!function->body() || function->dispatch() != function_dispatch::ordinary);
@@ -275,7 +272,7 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 			};
 			if (parameter->kind() == type_kind::pointer) {
 				if (!(@this.raw_targets(actual, operation, 0)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@reachable_argument = true;
 			}
@@ -294,7 +291,7 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 			};
 		};
 		if (!(@this.visible_raw_targets(operation)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize global = 0;
 		while (global < this.raw_globals.size()) {
@@ -302,7 +299,6 @@ fn ReferenceLoanAnalyzer::collect_unknowns(var ReferenceLoanAnalyzer& this) -> C
 			@global = global + 1;
 		};
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::unknown_path(var ReferenceLoanAnalyzer& this, ReferenceUnknownContent& event, ReferenceStoreSlot& slot, usize target) -> bool {
@@ -392,19 +388,19 @@ fn ReferenceLoanAnalyzer::raw_address_context(ReferenceLoanAnalyzer& this, Seman
 
 fn ReferenceLoanAnalyzer::check_unknown(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, reference_loan_access access) -> CompilationResult {
 	if (!this.unknowns.size() || expression.indirect_storage() || this.raw_address_context(expression, 0)) {
-		return CompilationResult();
+		return;
 	};
 	bool reference_member = expression.kind() == semantic_kind::member && expression.entity() && expression.entity()->type()->kind() == type_kind::reference;
 	if (!reference_member && (access != reference_loan_access::read || !reference_loan_members(*expression.type()))) {
-		return CompilationResult();
+		return;
 	};
 	if (expression.kind() != semantic_kind::name && expression.kind() != semantic_kind::member && expression.kind() != semantic_kind::index && expression.kind() != semantic_kind::variant_cast && expression.kind() != semantic_kind::variant_payload) {
-		return CompilationResult();
+		return;
 	};
 	rt::buffer<ReferenceStoreBinding> bindings;
 	var slot = this.store_slot(expression, bindings, nullptr, 0);
 	if (!slot.root || !reference_holder_contents(slot.root->type())) {
-		return CompilationResult();
+		return;
 	};
 	usize index = 0;
 	while (index < this.unknowns.size()) {
@@ -414,7 +410,6 @@ fn ReferenceLoanAnalyzer::check_unknown(var ReferenceLoanAnalyzer& this, Semanti
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 // A later opaque operation can write through an address previously published to
@@ -432,7 +427,7 @@ fn ReferenceLoanAnalyzer::visible_raw_targets(var ReferenceLoanAnalyzer& this, u
 			rt::buffer<ReferenceStoreBinding> bindings;
 			var slot = this.store_slot(*source.item(0), bindings, nullptr, 0);
 			if (slot.root && slot.root->kind() == entity_kind::global && !(@this.raw_targets(*source.item(1), operation, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 		if (source.kind() != semantic_kind::call || source.size() < 2) {
@@ -459,10 +454,9 @@ fn ReferenceLoanAnalyzer::visible_raw_targets(var ReferenceLoanAnalyzer& this, u
 				@actual_type = actual_type->element();
 			};
 			if (actual_type->kind() == type_kind::pointer && !(@this.raw_targets(*source.item(1)->item(parameter), operation, 0)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@parameter = parameter + 1;
 		};
 	};
-	return CompilationResult();
 };

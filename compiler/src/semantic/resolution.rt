@@ -1,15 +1,15 @@
 fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	if (entity->kind() == entity_kind::template_pattern) {
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->state() == entity_state::ready) {
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->state() == entity_state::resolving) {
 		if (entity->kind() == entity_kind::record && entity->type()) {
-			return CompilationResult();
+			return;
 		};
 
 		var message = DiagnosticMessage();
@@ -19,7 +19,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 		diagnostic_entity(@message, *entity);
 		@message.text("'");
 		@this.report(entity->token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity->set_state(entity_state::resolving);
@@ -32,42 +32,45 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 	if (kind == entity_kind::pack_binding) {
 		var TemplatePack* pack = nullptr;
 		if (!(@this.pack_declaration(@*scope, @*source, @pack)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@entity->set_pack($pack);
 		@entity->set_state(entity_state::ready);
-		return CompilationResult();
+		return;
 	};
 
 	if (kind == entity_kind::record) {
+		@entity->set_record_phase(record_resolution_phase::fields);
 		@entity->set_type(@this.types->named(type_kind::named, (var Entity*(entity))));
 		if (!(@this.expand_member_packs(@*entity)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (!(@this.resolve_bases((var Entity*(entity)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		usize index = 0;
 		while (index < entity->fields().size()) {
 			if (!(@this.resolve(entity->fields().data()[index])).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
 		};
 
+		@entity->set_record_phase(record_resolution_phase::members);
 		if (!(@this.build_dispatch((var Entity*(entity)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (!(@this.supply_special_functions((var Entity*(entity)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (!(@this.configure_variant_default(@*entity)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
+		@entity->set_record_phase(record_resolution_phase::complete);
 	}
 	else if (kind == entity_kind::enumeration) {
 		@entity->set_type(@this.types->named(type_kind::named, (var Entity*(entity))));
@@ -86,7 +89,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 			diagnostic_type(@message, *underlying);
 			@message.text("'");
 			@this.report(source->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@entity->set_underlying(underlying);
@@ -94,7 +97,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 	else if (kind == entity_kind::namespace_body) {
 		@entity->set_state(entity_state::ready);
 
-		return CompilationResult();
+		return;
 	}
 	else if (kind == entity_kind::alias) {
 		@entity->set_type(@this.type(@*scope, @*source->alias_type()));
@@ -103,7 +106,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 		var Entity* owner = scope->owner();
 
 		if (!(@this.resolve((var Entity*(owner)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@entity->set_type(owner->type());
@@ -115,7 +118,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 
 			if (previous->kind() == entity_kind::enumerator) {
 				if (!(@this.resolve((var Entity*(previous)))).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@value = previous->integer() + 1;
@@ -128,11 +131,11 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 			var initializer = @this.expression(@*scope, @*source->item(1), rt::optional_ref<const Type>(*owner->underlying()));
 
 			if (!initializer.get()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (!@this.constant_integer(*initializer.get(), @value)) {
 				if (this.failed()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				var message = DiagnosticMessage();
 				@message.text("enumerator '");
@@ -143,7 +146,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *initializer.get()->type());
 				@message.text("' and is not constant");
 				@this.report(source->item(1)->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -154,7 +157,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 
 		if (!local) {
 			@this.error(source, "out of memory storing function scope");
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@entity->set_members((var Scope*(local)));
@@ -163,7 +166,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 		if (!signature) {
 			@this.error(source, "out of memory storing function signature scope");
 
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		rt::buffer<Type*> signature_parameters;
@@ -196,7 +199,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					@message.text("'");
 				};
 				@this.report(parameter->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			var Syntax* name = parameter->parameter_name();
@@ -214,14 +217,14 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					@message.text("'");
 					@this.report(token, message.view());
 					@this.diagnostics->note(local->local(token.text())->token(), "previous parameter is declared here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			};
 
 			var Entity* argument = @this.unit->create_entity(entity_kind::parameter, token, parameter, local);
 
 			if (!argument) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@argument->set_resolution_scope((var Scope*(signature)));
@@ -260,7 +263,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				};
 				@message.text("'");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@result := target;
@@ -287,7 +290,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				continue;
 			};
 			if (!(@this.exception_spec(@*signature, @*attribute, @nonthrowing)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			exception_specification contract = exception_specification::potentially_throwing;
 			if (nonthrowing) {
@@ -317,7 +320,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *entity->type());
 				@message.text("'");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (constructor) {
@@ -354,7 +357,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					@message.text("; destructors require exactly one parameter");
 				};
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -378,7 +381,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					diagnostic_entity(@message, *entity);
 					@message.text("': function has conflicting definitions");
 					@this.report(source->token(), message.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				if (token.is("default")) {
@@ -395,7 +398,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					diagnostic_entity(@message, *entity);
 					@message.text("': implicit requires a constructor or conversion function");
 					@this.report(source->token(), message.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@entity->set_conversion(conversion_mode::implicit_allowed);
@@ -418,7 +421,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				@message.text(token.text());
 				@message.text("'");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@attribute = attribute + 1;
@@ -433,7 +436,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *entity->type());
 				@message.text("'");
 				@this.report(entity->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			var Entity* receiver = entity->parameters().data()[0];
@@ -445,7 +448,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *entity->type());
 				@message.text("'");
 				@this.report(entity->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (entity->conversion() == conversion_mode::implicit_allowed && receiver->type()->element()->same_shape(*result) && receiver->type()->element()->qualifier() != type_qualifier::immutable) {
@@ -457,7 +460,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *receiver->type());
 				@message.text("'");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -494,7 +497,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					};
 				};
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (arity == parameter_arity::variadic) {
@@ -506,7 +509,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				diagnostic_type(@message, *entity->type());
 				@message.text("'");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -516,7 +519,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 			diagnostic_entity(@message, *entity);
 			@message.text("': this function has no compiler-generated implementation");
 			@this.report(source->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		rt::buffer<var Entity*>& names = entity->scope()->bindings();
@@ -528,12 +531,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				if (previous->linkage() != entity->linkage()) {
 					@this.error(source, "function redeclaration has incompatible language linkage");
 					@this.diagnostics->note(previous->token(), "previous declaration is here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				if (!previous->type()->signature().matches(entity->type()->signature())) {
 					@this.error(source, "C linkage functions cannot be overloaded");
 					@this.diagnostics->note(previous->token(), "previous declaration is here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			};
 
@@ -541,7 +544,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				if (previous->nonthrowing() != entity->nonthrowing()) {
 					@this.error(source, "function redeclaration has an incompatible exception specification");
 					@this.diagnostics->note(previous->token(), "previous declaration is here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@previous->merge_dispatch(*entity);
 				bool defined = source->function_body()->kind() != syntax_kind::noop;
@@ -555,7 +558,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 					@message.text("'");
 					@this.report(entity->token(), message.view());
 					@this.diagnostics->note(previous->token(), "previous definition is here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				if (defined) {
@@ -582,12 +585,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 			var value = @this.expression(@*scope, @*initial, rt::optional_ref<const Type>());
 
 			if (!value.get()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@resolved = @this.infer_variable(@*source, *value.get());
 			if (!resolved) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (value.get()->type_use().has_value()) {
@@ -601,7 +604,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 			diagnostic_entity(@message, *entity);
 			@message.text("': variable requires object storage or a reference");
 			@this.report(source->token(), message.view());
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@entity->set_type(resolved);
@@ -612,13 +615,13 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 		};
 
 		if (element->kind() == type_kind::named && element->entity()->kind() == entity_kind::record) {
-			if (element->entity()->state() == entity_state::resolving || element->entity()->declaration()->record_members()->kind() == syntax_kind::noop) {
+			if ((element->entity()->state() == entity_state::resolving && element->entity()->record_phase() == record_resolution_phase::fields) || element->entity()->declaration()->record_members()->kind() == syntax_kind::noop) {
 				var message = DiagnosticMessage();
 				@message.text("declaration '");
 				diagnostic_entity(@message, *entity);
 				@message.text("': object requires a complete nonrecursive storage type");
 				@this.report(source->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 	};
@@ -629,38 +632,37 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 		diagnostic_entity(@message, *entity);
 		@message.text("': type could not be resolved");
 		@this.report(source->token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity->set_state(entity_state::ready);
 
-	return CompilationResult();
 };
 
 fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> CompilationResult {
 	if (!(@this.resolve(entity)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@entity = entity->canonical();
 
 	if (entity->body() || entity->body_state() == entity_state::ready) {
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->definition() == function_definition::deleted) {
 		@this.deleted_function(entity->token(), *entity);
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (entity->definition() != function_definition::defaulted && (!entity->declaration() || entity->declaration()->function_body()->kind() == syntax_kind::noop)) {
 		@entity->set_body_state(entity_state::ready);
 
-		return CompilationResult();
+		return;
 	};
 
 	if (entity->body_state() == entity_state::resolving) {
-		return CompilationResult();
+		return;
 	};
 
 	@entity->set_body_state(entity_state::resolving);
@@ -668,7 +670,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 	var variant_context = VariantFlowScope(@this.variant_facts);
 	if (entity->definition() == function_definition::defaulted && entity->scope()->owner() && variant_instance(*entity->scope()->owner())) {
 		if (!(@this.prepare_variant_special(@*entity)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@entity->set_body_state(entity_state::ready);
 		return @this.prepare_function_exception(@*entity);
@@ -679,7 +681,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 		usize index = 0;
 		while (index < owner->bases().size()) {
 			if (!(@this.prepare_default(owner->bases().data()[index])).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
@@ -691,15 +693,15 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 			var Entity* field = owner->fields().data()[index];
 
 			if (!(@this.field_initializer((var Entity*(field)))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (!field->body() && !(@this.prepare_default(field->type())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (field->body() && !(@this.prepare_expression(field->body())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
@@ -710,7 +712,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 		Type* receiver = entity->parameters().data()[0]->type()->element();
 
 		if (!(@this.prepare_lifetime(receiver)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		var Entity* owner = receiver->entity();
@@ -719,7 +721,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 			usize index = 0;
 			while (index < owner->bases().size()) {
 				if (!(@this.prepare_copy(owner->bases().data()[index])).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@index = index + 1;
@@ -729,7 +731,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 
 			while (index < owner->fields().size()) {
 				if (!(@this.prepare_copy(owner->fields().data()[index]->type())).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@index = index + 1;
@@ -742,7 +744,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 
 				while (index < owner->bases().size()) {
 					if (!(@this.prepare_copy_assignment(owner->bases().data()[index])).has<void>()) {
-						return CompilationResult(compilation_error());
+						return compilation_error();
 					};
 
 					@index = index + 1;
@@ -752,14 +754,14 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 
 				while (owner->layout() != record_layout::overlapping && index < owner->fields().size()) {
 					if (!(@this.prepare_copy_assignment(owner->fields().data()[index]->type())).has<void>()) {
-						return CompilationResult(compilation_error());
+						return compilation_error();
 					};
 
 					@index = index + 1;
 				};
 			}
 			else if (owner->move_constructor() && !(@this.function_body(owner->move_constructor())).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
@@ -771,9 +773,19 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 	var body = @this.expression(@*entity->members(), @*entity->declaration()->function_body(), rt::optional_ref<const Type>());
 
 	if (!body.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
+	Type* void_type = this.types->find_primitive("void");
+	Type* result_type = entity->type()->signature().result();
+	if (entity->completion() != function_completion::no_fallthrough && variant_alternative(result_type, void_type)) {
+		var Syntax* source = entity->declaration()->function_body();
+		var returned = @this.node(semantic_kind::return_value, void_type, source);
+		var success = @this.convert(@this.node(semantic_kind::noop, void_type, source), rt::optional_ref<const Type>(*result_type), @*source);
+		if (!returned.get() || !success.get() || !(@returned.get()->append($success)).has<void>() || !(@body.get()->append($returned)).has<void>()) {
+			return compilation_error();
+		};
+	};
 	@entity->set_body($body);
 	@entity->set_body_state(entity_state::ready);
 
@@ -781,7 +793,7 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 };
 
 fn Analyzer::analyze(var Analyzer& this, rt::buffer<rt::unique<Syntax>>& syntax) -> rt::unique<SemanticUnit> {
-	var owned = rt::unique<SemanticUnit>::make();
+	rt::unique<SemanticUnit> owned = rt::unique<SemanticUnit>::make();
 	if (!owned.get() || !(@this.analyze_into(@*owned.get(), syntax)).has<void>()) {
 		return rt::unique<SemanticUnit>();
 	};
@@ -796,7 +808,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 	var Scope* root = @this.unit->create_scope(nullptr, nullptr);
 
 	if (!root) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	this.progress.report("collecting", 0, syntax.size(), "");
@@ -804,7 +816,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 	while (index < syntax.size() && !this.diagnostics->failed()) {
 		@this.unit->record_scope(@*root, @*syntax.data()[index].get());
 		if (!((@this.collect(@*root, @*(syntax.data()[index].get()))).has<void>())) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -825,7 +837,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 				CompilationResult collected = @this.collect(@*pending.scope, @*pending.syntax);
 				@pending.scope->set_access(access_kind(previous));
 				if (!collected.has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 			};
 			@index = index + 1;
@@ -842,7 +854,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
 		var Entity* pattern = this.unit->entities().data()[index].get();
 		if (pattern->kind() == entity_kind::template_pattern && !(@validator.validate(@this, @*pattern)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 		this.progress.report("validating", index, this.unit->entities().size(), "");
@@ -853,7 +865,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 
 	while (index < this.unit->entities().size() && !this.diagnostics->failed()) {
 		if (!(@this.resolve(this.unit->entities().data()[index].get())).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -867,22 +879,22 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		var Entity* entity = this.unit->entities().data()[index].get();
 
 		if (!(@this.resolve((var Entity*(entity)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (entity->kind() == entity_kind::function && !entity->instantiated() && entity->origin() != declaration_origin::compiler_supplied && entity->definition() != function_definition::deleted) {
 			this.report_progress("analyzing-function", 0, 0, *entity);
 			if (!(@this.function_body((var Entity*(entity)))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 		};
 
 		if (entity->kind() == entity_kind::field && !entity->instantiated() && !(@this.field_initializer((var Entity*(entity)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		if (entity->kind() == entity_kind::global && !(@this.global_initializer(@*entity)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@index = index + 1;
@@ -891,8 +903,7 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 	@this.unit = nullptr;
 
 	if (this.diagnostics->failed()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
-	return CompilationResult();
 };

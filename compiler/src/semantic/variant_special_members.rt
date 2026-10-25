@@ -3,13 +3,13 @@ fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -
 	TemplatePack& alternatives = *owner->template_arguments()->arguments.data()[0].pack;
 	if (function.role() == function_role::constructor && function.parameters().size() == 1) {
 		if (!alternatives.elements.size()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		Type* first = alternatives.elements.data()[0].type;
 		if (first->kind() == type_kind::null_type || first->kind() == type_kind::void_type || (@this.prepare_default(first)).has<void>()) {
-			return CompilationResult();
+			return;
 		};
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	bool copy = function.parameters().size() == 2 && function.parameters().data()[1]->type()->kind() == type_kind::reference;
 	usize index = 0;
@@ -20,16 +20,15 @@ fn Analyzer::prepare_variant_special(var Analyzer& this, var Entity& function) -
 			continue;
 		};
 		if (!(@this.prepare_lifetime(type)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (copy && !(@this.prepare_copy(type)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		if (copy && function.role() == function_role::assignment && !(@this.prepare_copy_assignment(type)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 	};
-	return CompilationResult();
 };
 
 fn variant_special_nonthrowing(Entity& function) -> bool {

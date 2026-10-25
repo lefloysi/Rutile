@@ -148,7 +148,7 @@ fn SemanticExpression::indirect_storage(SemanticExpression& this) -> bool {
 };
 
 fn SemanticExpression::make(semantic_kind kind, Type* type, Token& token) -> rt::unique<SemanticExpression> {
-	var result = rt::unique<SemanticExpression>(new var SemanticExpression($kind, type, token));
+	var result = rt::unique<SemanticExpression>(new SemanticExpression($kind, type, token));
 	if (!result.get()) {
 		rt::allocation_error error;
 		@error.requested_bytes = sizeof(SemanticExpression);
@@ -241,11 +241,10 @@ fn SemanticExpression::item(SemanticExpression& this, usize index) -> var Semant
 
 fn SemanticExpression::append(var SemanticExpression& this, rt::unique<SemanticExpression> child) -> CompilationResult {
 	if (!child.get()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	@this.children.push_back($child);
-	return CompilationResult();
 };
 
 fn SemanticExpression::bind(var SemanticExpression& this, var Entity* entity, value_category category) {
@@ -297,7 +296,6 @@ fn SemanticExpression::set_real(var SemanticExpression& this, f64 value) {
 
 fn SemanticExpression::set_text(var SemanticExpression& this, rt::string_view value) {
 	@this.text_value.append(value);
-	return;
 };
 
 enum inferred_override_kind : [u08] {

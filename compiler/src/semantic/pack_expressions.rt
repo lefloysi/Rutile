@@ -29,23 +29,23 @@ fn Analyzer::pack_declaration(var Analyzer& this, var Scope& scope, var Syntax& 
 	var Syntax* initializer = syntax.variable_initializer();
 	if (!signature || initializer->kind() != syntax_kind::unary || initializer->token().kind != token_kind::op_assign) {
 		@this.error(&@syntax, "a compile-time pack binding requires a signature and '= <arguments>' initializer");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@pack = @this.templates.pack(@this, @scope, @*initializer->operand());
 	if (pack && (@this.templates.validate_pack(@this, @scope, @*signature, @*pack)).has<void>()) {
-		return CompilationResult();
+		return;
 	};
-	return CompilationResult(compilation_error());
+	return compilation_error();
 };
 
 fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& syntax, var Entity var*& binding) -> CompilationResult {
 	if (syntax.kind() == syntax_kind::pack_fold) {
-		return CompilationResult();
+		return;
 	};
 	if (syntax.kind() == syntax_kind::member) {
 		var receiver = @this.expression(@scope, @*syntax.member_object(), rt::optional_ref<const Type>());
 		if (!receiver.get()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		Type* owner = receiver.get()->type();
 		if (syntax.token().kind == token_kind::op_arrow && owner->kind() == type_kind::pointer) {
@@ -57,14 +57,14 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 				if (!this.accessible_at(*member, @scope, syntax.token())) {
 					@this.error(&@syntax, "member pack is not accessible from this scope");
 					@this.note(member->token(), "member pack is declared here");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				if (binding && binding != member) {
 					@this.error(&@syntax, "a fold pattern must reference one pack");
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				@binding = member;
-				return CompilationResult();
+				return;
 			};
 		};
 	};
@@ -74,27 +74,26 @@ fn Analyzer::fold_binding(var Analyzer& this, var Scope& scope, var Syntax& synt
 			if (entity->kind() == entity_kind::field_pack && !this.accessible_at(*entity, @scope, syntax.token())) {
 				@this.error(&@syntax, "member pack is not accessible from this scope");
 				@this.note(entity->token(), "member pack is declared here");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (binding && binding != entity) {
 				@this.error(&@syntax, "a fold pattern must reference one pack");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			if (!(@this.resolve(entity)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			@binding = entity;
-			return CompilationResult();
+			return;
 		};
 	};
 	usize child = 0;
 	while (child < syntax.size()) {
 		if (!(@this.fold_binding(@scope, @*syntax.item(child), @binding)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@child = child + 1;
 	};
-	return CompilationResult();
 };
 
 fn Analyzer::pack_fold(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {

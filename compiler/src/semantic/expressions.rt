@@ -1,20 +1,19 @@
 fn Analyzer::exception_spec(var Analyzer& this, var Scope& scope, var Syntax& syntax, var bool& nonthrowing) -> CompilationResult {
 	@nonthrowing = false;
 	if (syntax.kind() == syntax_kind::absent) {
-		return CompilationResult();
+		return;
 	};
 	@nonthrowing = true;
 	if (syntax.operand()->kind() == syntax_kind::absent) {
-		return CompilationResult();
+		return;
 	};
 	var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*this.types->find_primitive("bool")));
 	u64 result = 0;
 	if (!value.get() || !@this.constant_integer(*value.get(), @result)) {
 		@this.error(&@syntax, "noexcept specification requires a constant boolean expression");
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	@nonthrowing = result != 0;
-	return CompilationResult();
 };
 
 fn exception_expression_contract(SemanticExpression& expression, bool temporary) -> bool {
@@ -125,16 +124,15 @@ fn exception_initializer_nonthrowing(SemanticExpression& expression) -> bool {
 fn Analyzer::prepare_exception_spec(var Analyzer& this, SemanticExpression& expression) -> CompilationResult {
 	var Entity* function = expression.entity();
 	if (function && function->kind() == entity_kind::function && !(@this.prepare_function_exception(@*function)).has<void>()) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 	usize index = 0;
 	while (index < expression.size()) {
 		if (!(@this.prepare_exception_spec(*expression.item(index))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return CompilationResult();
 };
 
 fn Analyzer::potentially_throwing(Analyzer& this, SemanticExpression& expression) -> bool {
@@ -332,6 +330,10 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		while (index < syntax.size()) {
 			var Syntax* candidate = syntax.item(index);
+			if (candidate->kind() == syntax_kind::cast && candidate->token().kind == token_kind::punct_left_paren && !@this.names_type(@scope, @*candidate->cast_type())) {
+				@index = index + 1;
+				continue;
+			};
 
 			if (candidate->kind() == syntax_kind::call) {
 				syntax_kind callee = candidate->callable()->kind();
@@ -731,12 +733,19 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 		return @this.convert($result, expected, @syntax);
 	};
 
-	if (kind == syntax_kind::using_alias) {
+	if (kind == syntax_kind::using_alias || kind == syntax_kind::record || kind == syntax_kind::enumeration) {
 		if (!(@this.collect(@scope, @syntax)).has<void>()) {
 			return rt::unique<SemanticExpression>();
 		};
 
-		var Entity* alias = scope.local(syntax.alias_name()->token().text());
+		var Syntax* name = syntax.alias_name();
+		if (kind == syntax_kind::record) {
+			@name = syntax.record_name();
+		}
+		else if (kind == syntax_kind::enumeration) {
+			@name = syntax.enum_name();
+		};
+		var Entity* alias = scope.local(name->token().text());
 
 		if (!alias || !(@this.resolve(alias)).has<void>()) {
 			return rt::unique<SemanticExpression>();
@@ -864,7 +873,13 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 
 		Type* result_type = this.function->type()->signature().result();
 		var result = @this.node(semantic_kind::return_value, void_type, &@syntax);
-		var value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*result_type));
+		var value = rt::unique<SemanticExpression>();
+		if (syntax.operand()->kind() == syntax_kind::absent) {
+			@value = @this.convert(@this.node(semantic_kind::noop, void_type, syntax.operand()), rt::optional_ref<const Type>(*result_type), @*syntax.operand());
+		}
+		else {
+			@value = @this.expression(@scope, @*syntax.operand(), rt::optional_ref<const Type>(*result_type));
+		};
 
 		if (!value.get()) {
 			return rt::unique<SemanticExpression>();
@@ -1195,7 +1210,13 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 			return rt::unique<SemanticExpression>();
 		};
 
-		var construction = @this.construct(@scope, @syntax, target, @*syntax.allocation_arguments());
+		var construction = rt::unique<SemanticExpression>();
+		if (syntax.allocation_arguments()->token().kind == token_kind::punct_left_brace) {
+			@construction = @this.node(semantic_kind::noop, target, &@syntax);
+		}
+		else {
+			@construction = @this.construct(@scope, @syntax, target, @*syntax.allocation_arguments());
+		};
 
 		if (!construction.get()) {
 			return rt::unique<SemanticExpression>();
@@ -1204,14 +1225,48 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 		Type* pointee = target;
 
 		if (!type_syntax->explicitly_qualified()) {
-			@pointee = @this.types->qualified(*target, type_qualifier::immutable);
+			@pointee = @this.types->qualified(*target, type_qualifier::mutable);
 
 			if (!pointee) {
 				return rt::unique<SemanticExpression>();
 			};
 		};
 
-		var result = @this.node(semantic_kind::allocation, @this.types->pointer(pointee), &@syntax);
+		var Entity* runtime_namespace = this.unit->root_scope()->local("rt");
+		var Entity* error = nullptr;
+		var Entity* variant = nullptr;
+		if (runtime_namespace && runtime_namespace->members()) {
+			@error = runtime_namespace->members()->local("allocation_error");
+			@variant = runtime_namespace->members()->local("variant");
+		};
+		if (!error || error->kind() != entity_kind::record || !variant || variant->kind() != entity_kind::template_pattern) {
+			@this.report(syntax.token(), "allocation requires the rt::allocation_error and rt::variant standard library declarations");
+			return rt::unique<SemanticExpression>();
+		};
+		if (!(@this.resolve(error)).has<void>()) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (!(@this.prepare_default(error->type())).has<void>()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var TemplatePack* alternatives = @this.unit->create_pack();
+		for (usize alternative = 0; alternative < 2; @alternative = alternative + 1) {
+			TemplateArgument element;
+			@element.kind = template_argument_kind::type;
+			@element.type = error->type();
+			if (!alternative) {
+				@element.type = @this.types->pointer(pointee);
+			};
+			PackElementSignature signature;
+			@signature.kind = template_argument_kind::type;
+			@alternatives->signature.push_back($signature);
+			@alternatives->elements.push_back($element);
+		};
+		Type* result_type = @this.templates.aggregate_type(@this, @scope, @syntax, syntax_kind::type_variant, @*alternatives);
+		if (!result_type) {
+			return rt::unique<SemanticExpression>();
+		};
+		var result = @this.node(semantic_kind::allocation, result_type, &@syntax);
 
 		if (!result.get()) {
 			return rt::unique<SemanticExpression>();

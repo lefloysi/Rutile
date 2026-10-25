@@ -21,14 +21,14 @@ fn Analyzer::contextual_arguments(var Analyzer& this, var Scope& scope, var Synt
 				diagnostic_type(@message, *callable.type());
 				@message.text("'");
 				@this.report(syntax.arguments()->item(index - offset)->token(), message.view());
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			ParameterUse& parameter = use->callable().parameters().data()[index];
 			var value = @this.contextual_argument(@scope, @*syntax.arguments()->item(index - offset), parameter.type(), parameter.name());
 
 			if (!value.get()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@(@values).data()[index] = $value;
@@ -37,7 +37,6 @@ fn Analyzer::contextual_arguments(var Analyzer& this, var Scope& scope, var Synt
 		@index = index + 1;
 	};
 
-	return CompilationResult();
 };
 
 fn Analyzer::contextual_argument(var Analyzer& this, var Scope& scope, var Syntax& syntax, TypeUse& use, rt::optional<ParameterLabel>& name) -> rt::unique<SemanticExpression> {

@@ -15,7 +15,7 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 					diagnostic_name(@message, *declaration->function_name());
 					@message.text("' requires virtual function templates, which are not implemented");
 					@this.report(token, message.view());
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 
 				@index = index + 1;
@@ -37,17 +37,17 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 		usize index = 0;
 		while (index < syntax.size()) {
 			if (!(@this.validate_dispatch_syntax(@*syntax.item(index), bool(class_scope))).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@index = index + 1;
 		};
 
-		return CompilationResult();
+		return;
 	};
 
 	if (syntax.kind() != syntax_kind::function) {
-		return CompilationResult();
+		return;
 	};
 
 	bool virtual_operation = false;
@@ -63,7 +63,7 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 	};
 
 	if (!virtual_operation) {
-		return CompilationResult();
+		return;
 	};
 
 	var Syntax* parameters = syntax.function_parameters();
@@ -87,7 +87,7 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 			};
 		};
 		@this.report(syntax.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	if (this.templates.qualifier_dependent(@syntax)) {
@@ -96,10 +96,9 @@ fn Analyzer::validate_dispatch_syntax(var Analyzer& this, var Syntax& syntax, bo
 		diagnostic_name(@message, *syntax.function_name());
 		@message.text("' cannot have dependent receiver qualification");
 		@this.report(syntax.token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
-	return CompilationResult();
 };
 
 fn dispatch_signature(Entity& function, Entity& inherited) -> bool {
@@ -170,7 +169,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 		};
 
 		if (!(@this.resolve((var Entity*(function)))).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 
 		@function = function->canonical();
@@ -196,7 +195,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 			var Entity* previous = entity->virtual_functions().data()[slot];
 			if (previous->nonthrowing() && !function->nonthrowing()) {
 				@this.error(function->declaration(), "virtual override cannot weaken a nonthrowing exception specification");
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (previous->is_final()) {
@@ -208,7 +207,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (!function->requires_override() && !function->is_final()) {
@@ -220,7 +219,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			if (!dispatch_result(*function->type()->signature().result(), *previous->type()->signature().result())) {
@@ -237,7 +236,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 				@message.text("'");
 				@this.report(function->token(), message.view());
 				diagnostic_candidate(@*this.diagnostics, *previous);
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 
 			@entity->replace_virtual(usize(slot), @*function);
@@ -262,7 +261,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 				diagnostic_candidate(@*this.diagnostics, *entity->virtual_functions().data()[inherited_index]);
 				@inherited_index = inherited_index + 1;
 			};
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		}
 		else if (function->declares_virtual()) {
 			@function->set_virtual_slot(entity->virtual_functions().size());
@@ -277,8 +276,7 @@ fn Analyzer::build_dispatch(var Analyzer& this, var Entity* entity) -> Compilati
 		diagnostic_entity(@message, *entity);
 		@message.text("' cannot contain virtual operations");
 		@this.report(entity->token(), message.view());
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
-	return CompilationResult();
 };

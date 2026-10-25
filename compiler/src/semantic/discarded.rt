@@ -7,7 +7,7 @@ fn variant_alternative(Type* source, Type* target) -> Type* {
 	Type* selected = nullptr;
 	for (usize index = 0; index < elements->elements.size(); @index = index + 1) {
 		Type* alternative = elements->elements.data()[index].type;
-		if (alternative->same_shape(*target)) {
+		if (alternative->same_shape(*target) || alternative->kind() == type_kind::reference && alternative->element()->same_shape(*target)) {
 			if (selected) {
 				return nullptr;
 			};
@@ -28,8 +28,31 @@ fn Analyzer::discarded(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		return $value;
 	};
 	Type* nothing = this.types->find_primitive("void");
+	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_plus_assign) {
+		Type* result_type = value.get()->type();
+		if (result_type->kind() == type_kind::named && variant_instance(*result_type->entity())) {
+			TemplatePack* elements = result_type->entity()->template_arguments()->arguments.data()[0].pack;
+			Type* reference = nullptr;
+			for (usize index = 0; index < elements->elements.size(); @index = index + 1) {
+				Type* alternative = elements->elements.data()[index].type;
+				if (alternative->kind() == type_kind::reference) {
+					if (reference) {
+						@this.error(&@syntax, "discarded compound assignment requires a unique reference result");
+						return rt::unique<SemanticExpression>();
+					};
+					@reference = alternative;
+				};
+			};
+			if (reference) {
+				return @this.variant_cast(@scope, @syntax, reference, $value, rt::optional_ref<const Type>(), true);
+			};
+		}
+		else if (value.get()->category() == value_category::place) {
+			return $value;
+		};
+	};
 	if (variant_alternative(value.get()->type(), nothing)) {
-		return @this.variant_cast(@scope, @syntax, nothing, $value, rt::optional_ref<const Type>());
+		return @this.variant_cast(@scope, @syntax, nothing, $value, rt::optional_ref<const Type>(), true);
 	};
 	@this.error(&@syntax, "expression result must be used");
 	return rt::unique<SemanticExpression>();

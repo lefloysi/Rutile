@@ -69,7 +69,6 @@ fn ReferenceLoanAnalyzer::prepare_stores(var ReferenceLoanAnalyzer& this, Semant
 			break;
 		};
 	};
-	return;
 };
 
 fn reference_store_contains(SemanticExpression& scope, SemanticExpression& expression) -> bool {
@@ -246,7 +245,7 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 			if (slot.root) {
 				rt::buffer<ReferenceLoanPlace> targets;
 				if (!(@this.places(*arguments->item(1), @targets, @substitutions, context, 0)).has<void>()) {
-					return CompilationResult(compilation_error());
+					return compilation_error();
 				};
 				usize field_index = 0;
 				while (field_index < arguments->item(0)->type()->entity()->fields().size()) {
@@ -293,7 +292,7 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 				@candidate = candidate + 1;
 			};
 			if (candidate == this.store_functions.size()) {
-				return CompilationResult();
+				return;
 			};
 			usize boundary = substitutions.size();
 			usize slot_boundary = bindings.size();
@@ -305,7 +304,7 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 				@binding.parameter = substitution.parameter;
 				if (substitution.parameter->type()->kind() == type_kind::reference) {
 					if (!(@this.places(*arguments->item(parameter), @substitution.places, @substitutions, context, 0)).has<void>()) {
-						return CompilationResult(compilation_error());
+						return compilation_error();
 					};
 					@binding.slot = this.store_slot(@*arguments->item(parameter), bindings, context, 0);
 				}
@@ -320,7 +319,7 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 				@parameter = parameter + 1;
 			};
 			if (!(@this.store_walk(@*callee->body(), @substitutions, @bindings, callee, event, required, depth + 1)).has<void>()) {
-				return CompilationResult(compilation_error());
+				return compilation_error();
 			};
 			while (substitutions.size() > boundary) {
 				@substitutions.pop_back();
@@ -330,7 +329,6 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 			};
 		};
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var SemanticExpression& expression, var rt::buffer<ReferenceLoanSubstitution>& substitutions, var rt::buffer<ReferenceStoreBinding>& bindings, var Entity* context, var SemanticExpression* site, bool definite, usize depth) -> CompilationResult {
@@ -345,7 +343,7 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 		var SemanticExpression* current = pending.data()[pending.size() - 1];
 		@pending.pop_back();
 		if (!(@this.store_expression(@*current, @substitutions, @bindings, context, site, definite, depth)).has<void>()) {
-			return CompilationResult(compilation_error());
+			return compilation_error();
 		};
 		usize child = current->size();
 		while (child) {
@@ -353,7 +351,6 @@ fn ReferenceLoanAnalyzer::store_walk(var ReferenceLoanAnalyzer& this, var Semant
 			@pending.push_back(current->item(child));
 		};
 	};
-	return CompilationResult();
 };
 
 fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var SemanticExpression& body) -> CompilationResult {
@@ -393,7 +390,7 @@ fn ReferenceLoanAnalyzer::retain_stores(var ReferenceLoanAnalyzer& this, var Sem
 			@index = index + 1;
 		};
 		if (previous == this.stores.size()) {
-			return CompilationResult();
+			return;
 		};
 		@iteration = iteration + 1;
 	};
@@ -515,5 +512,4 @@ fn ReferenceLoanAnalyzer::validate_stores(var ReferenceLoanAnalyzer& this) -> Co
 			@node_index = node_index + 1;
 		};
 	};
-	return CompilationResult();
 };

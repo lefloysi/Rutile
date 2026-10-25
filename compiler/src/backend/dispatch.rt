@@ -98,7 +98,7 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> CompilationR
 	var LLVMOpaqueValue* target = @this.dispatch_target(entity, arguments.data()[0]);
 
 	if (!target) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var LLVMOpaqueValue* result = LLVMBuildCall2(this.builder(), @this.type(entity->type()), target, (@arguments).data(), static_cast<u32>(arguments.size()), "\0".data());
@@ -110,7 +110,6 @@ fn Backend::emit_dispatch(var Backend& this, var Entity* entity) -> CompilationR
 		discard LLVMBuildRet(this.builder(), result);
 	};
 
-	return CompilationResult();
 };
 
 fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, Type* type, var LLVMOpaqueValue* address) -> CompilationResult {
@@ -118,17 +117,16 @@ fn FunctionEmitter::initialize_dispatch(var FunctionEmitter& this, Type* type, v
 	var Entity* owner = record->virtual_owner();
 
 	if (!owner) {
-		return CompilationResult();
+		return;
 	};
 
 	var LLVMOpaqueValue* table = @this.backend->table(record);
 
 	if (!table) {
-		return CompilationResult(compilation_error());
+		return compilation_error();
 	};
 
 	var LLVMOpaqueValue* header = LLVMBuildStructGEP2(this.backend->builder(), @this.backend->type(owner->type()), address, static_cast<u32>(owner->bases().size()), "initialize.dispatch\0".data());
 	discard LLVMBuildStore(this.backend->builder(), table, header);
 
-	return CompilationResult();
 };

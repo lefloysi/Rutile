@@ -6,33 +6,53 @@ fn filesystem_round_trips_binary_contents() {
 	rt::test::expect(written.has<void>());
 	var read = rt::fs::read("build/tests/filesystem/binary.dat");
 	rt::test::expect(read.has<rt::string>());
-	if (!read.has<rt::string>()) {
-		return;
-	};
 	rt::test::expect(read.get<rt::string>() == "first\0second\n");
+	var overwritten = rt::fs::write("build/tests/filesystem/binary.dat", "replacement");
+	rt::test::expect(overwritten.has<void>());
+	rt::test::expect(read.get<rt::string>() == "first\0second\n");
+	var moved = $read;
+	rt::test::expect(moved.get<rt::string>() == "first\0second\n");
+	var empty_written = rt::fs::write("build/tests/filesystem/empty.dat", "");
+	rt::test::expect(empty_written.has<void>());
+	var empty_read = rt::fs::read("build/tests/filesystem/empty.dat");
+	rt::test::expect(empty_read.has<rt::string>());
+	rt::test::expect(empty_read.get<rt::string>().empty());
 };
 
 [[test]]
 fn filesystem_reads_report_missing_files_as_errors() {
 	var result = rt::fs::read("build/tests/filesystem/this-file-does-not-exist.dat");
 	rt::test::expect(result.has<rt::fs::file_not_found_error>());
-	if (result.has<rt::fs::file_not_found_error>()) {
-		rt::test::expect(result.get<rt::fs::file_not_found_error>().native_code != 0);
-	};
 };
 
 [[test]]
 fn filesystem_writes_report_unavailable_parent_directories() {
 	var result = rt::fs::write("build/tests/filesystem/no-such-parent/file.dat", "contents");
 	rt::test::expect(result.has<rt::fs::file_not_found_error>());
-	if (result.has<rt::fs::file_not_found_error>()) {
-		rt::test::expect(result.get<rt::fs::file_not_found_error>().native_code != 0);
-	};
 };
 
 [[test]]
 fn filesystem_directory_creation_is_idempotent() {
 	rt::test::expect(rt::fs::create_directories("build/tests/filesystem/existing").has<void>());
+	var written = rt::fs::write("build/tests/filesystem/directory-blocker", "file");
+	rt::test::expect(written.has<void>());
+	var blocked = rt::fs::create_directories("build/tests/filesystem/directory-blocker");
+	rt::test::expect(blocked.has<rt::fs::file_io_error>());
+	var invalid_read = rt::fs::read("build/tests/filesystem/empty.dat\0suffix");
+	rt::test::expect(invalid_read.has<rt::fs::file_io_error>());
+	var invalid_write = rt::fs::write("build/tests/filesystem/directory-blocker\0suffix", "changed");
+	rt::test::expect(invalid_write.has<rt::fs::file_io_error>());
+	var invalid_directory = rt::fs::create_directories("build/tests/filesystem/existing\0suffix");
+	rt::test::expect(invalid_directory.has<rt::fs::file_io_error>());
+	var empty_read = rt::fs::read("");
+	rt::test::expect(empty_read.has<rt::fs::file_io_error>());
+	var empty_write = rt::fs::write("", "contents");
+	rt::test::expect(empty_write.has<rt::fs::file_io_error>());
+	var empty_directory = rt::fs::create_directories("");
+	rt::test::expect(empty_directory.has<rt::fs::file_io_error>());
+	var unchanged = rt::fs::read("build/tests/filesystem/directory-blocker");
+	rt::test::expect(unchanged.has<rt::string>());
+	rt::test::expect(unchanged.get<rt::string>() == "file");
 	rt::test::expect(rt::fs::create_directories("build/tests/filesystem/existing").has<void>());
 };
 
@@ -40,8 +60,5 @@ fn filesystem_directory_creation_is_idempotent() {
 fn filesystem_temporary_directory_is_available() {
 	var result = rt::fs::temporary_directory();
 	rt::test::expect(result.has<rt::string>());
-	if (!result.has<rt::string>()) {
-		return;
-	};
 	rt::test::expect(!result.get<rt::string>().empty());
 };

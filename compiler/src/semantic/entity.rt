@@ -27,6 +27,12 @@ enum entity_state : [u08] {
 	ready;
 };
 
+enum record_resolution_phase : [u08] {
+	fields;
+	members;
+	complete;
+};
+
 enum binding_lifetime : [u08] {
 	live;
 	consumed;
@@ -194,6 +200,8 @@ struct Entity {
 
 	fn state(Entity& this) -> entity_state;
 	fn set_state(var Entity& this, entity_state state);
+	fn record_phase(Entity& this) -> record_resolution_phase;
+	fn set_record_phase(var Entity& this, record_resolution_phase phase);
 	fn lifetime(Entity& this) -> binding_lifetime;
 	fn set_lifetime(var Entity& this, binding_lifetime lifetime);
 	fn integer(Entity& this) -> u64;
@@ -208,6 +216,7 @@ private:
 	declaration_origin declaration_origin_kind;
 	rt::string generated_name;
 	entity_state resolution;
+	record_resolution_phase record_resolution;
 	entity_state body_resolution;
 	function_completion body_completion;
 	bool template_instance;
@@ -291,7 +300,6 @@ fn Entity::virtual_functions(Entity& this) -> rt::buffer<var Entity*>& {
 
 fn Entity::add_virtual(var Entity& this, var Entity* function) {
 	@this.dispatch_table.push_back($function);
-	return;
 };
 
 fn Entity::replace_virtual(var Entity& this, usize index, var Entity& function) {
@@ -369,7 +377,6 @@ fn Entity::bases(Entity& this) -> rt::buffer<Type*>& {
 
 fn Entity::add_base(var Entity& this, Type* type) {
 	@this.base_types.push_back($type);
-	return;
 };
 
 fn Entity::Entity(var Entity& this, entity_kind kind, Token& token, var Syntax* source, var Scope* scope) {
@@ -468,7 +475,6 @@ fn Entity::name(Entity& this) -> rt::string_view {
 
 fn Entity::set_name(var Entity& this, rt::string_view name) {
 	@this.generated_name.append(name);
-	return;
 };
 
 fn Entity::origin(Entity& this) -> declaration_origin {
@@ -829,7 +835,6 @@ fn Entity::adopt_definition(var Entity& this, Entity& source) {
 		@index = index + 1;
 	};
 
-	return;
 };
 
 fn Entity::set_members(var Entity& this, var Scope* scope) {
@@ -843,6 +848,14 @@ fn Entity::set_body(var Entity& this, rt::unique<SemanticExpression> body) {
 
 fn Entity::set_state(var Entity& this, entity_state state) {
 	@this.resolution = $state;
+};
+
+fn Entity::record_phase(Entity& this) -> record_resolution_phase {
+	return record_resolution_phase(this.record_resolution);
+};
+
+fn Entity::set_record_phase(var Entity& this, record_resolution_phase phase) {
+	@this.record_resolution = $phase;
 };
 
 fn Entity::set_lifetime(var Entity& this, binding_lifetime lifetime) {
@@ -863,12 +876,10 @@ fn Entity::set_index(var Entity& this, usize index) {
 
 fn Entity::add_parameter(var Entity& this, var Entity* parameter) {
 	@this.arguments.push_back($parameter);
-	return;
 };
 
 fn Entity::add_field(var Entity& this, var Entity* field) {
 	@this.member_fields.push_back($field);
-	return;
 };
 
 fn Entity::set_fields(var Entity& this, rt::buffer<var Entity*> fields) {
