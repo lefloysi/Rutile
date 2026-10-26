@@ -16,8 +16,9 @@ internal sealed class EditorInterface<T> : RealProxy {
 	internal T Value => (T)GetTransparentProxy();
 	public override IMessage Invoke(IMessage message) {
 		var call = (IMethodCallMessage)message;
+		var arguments = call.Args;
 		try {
-			return new ReturnMessage(invoke((MethodInfo)call.MethodBase, call.Args), call.Args, call.Args.Length, call.LogicalCallContext, call);
+			return new ReturnMessage(invoke((MethodInfo)call.MethodBase, arguments), arguments, arguments.Length, call.LogicalCallContext, call);
 		}
 		catch (Exception error) {
 			return new ReturnMessage(error, call);
@@ -84,7 +85,32 @@ public static partial class EditorObservations {
 		created?.Invoke(null, new TextDocumentEventArgs(document));
 		var attached = field.GetValue(classifier);
 		created?.Invoke(null, new TextDocumentEventArgs(document));
+		var failedProperties = new PropertyCollection();
+		var failedBuffer = new EditorInterface<ITextBuffer>((method, values) => method.Name == "get_Properties" ? (object)failedProperties : method.Name == "get_CurrentSnapshot" ? snapshot : null).Value;
+		var failedDocument = new EditorInterface<ITextDocument>((method, values) => {
+			if (method.Name == "get_TextBuffer") {
+				return failedBuffer;
+			}
+			if (method.Name == "get_FilePath") {
+				throw new InvalidOperationException("semantic attachment failure");
+			}
+			return null;
+		}).Value;
+		var failedFactory = new EditorInterface<ITextDocumentFactoryService>((method, values) => {
+			if (method.Name == "TryGetTextDocument") {
+				values[1] = failedDocument;
+				return true;
+			}
+			return null;
+		}).Value;
+		string? attachmentError = null;
+		var failedProvider = new RutileLexicalClassifierProvider { Documents = failedFactory, Types = registry, ReportError = message => attachmentError = message };
+		var failedClassifier = failedProvider.GetClassifier(failedBuffer);
+		var lexicalAfterFailure = failedClassifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length)).Count;
 		return JsonConvert.SerializeObject(new {
+			lexical_after_attachment_failure = lexicalAfterFailure,
+			attachment_error = attachmentError,
+			attachment_error_reported = attachmentError?.Contains("semantic attachment failure") == true,
 			before, unrelated, attached = attached != null, same_classifier = sameClassifier, subscriptions,
 			retained = ReferenceEquals(attached, field.GetValue(classifier)),
 			uri = attached?.GetType().GetProperty("Uri", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(attached),

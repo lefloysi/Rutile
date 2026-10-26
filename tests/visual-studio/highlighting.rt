@@ -157,6 +157,10 @@ fn classifier_attaches_once_when_its_document_becomes_available() {
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(!root->member("before")->boolean());
+	i64 lexical_after_failure = 0;
+	@lexical_after_failure = root->member("lexical_after_attachment_failure")->integer();
+	rt::test::expect(lexical_after_failure > 0);
+	rt::test::expect(root->member("attachment_error_reported")->boolean());
 	rt::test::expect(!root->member("unrelated")->boolean());
 	rt::test::expect(root->member("attached")->boolean());
 	rt::test::expect(root->member("same_classifier")->boolean());

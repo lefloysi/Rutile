@@ -1,0 +1,44 @@
+[[test]]
+fn editor_resolves_documents_to_their_nearest_project() {
+	var result = editor_observation("DocumentProject");
+	rt::test::expect(!result.exit_code);
+	var document = rt::json_parse(result.output);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(root->member("outer")->boolean());
+	rt::test::expect(root->member("inner")->boolean());
+	rt::test::expect(root->member("build")->boolean());
+	rt::test::expect(root->member("unrelated")->boolean());
+	rt::test::expect(root->member("empty")->boolean());
+	i64 changes = 0;
+	@changes = root->member("changes")->integer();
+	rt::test::expect(changes == 3);
+};
+
+[[test]]
+fn editor_initializes_unfocused_and_late_documents_without_stealing_active_project() {
+	var result = editor_observation("DocumentFocus");
+	rt::test::expect(!result.exit_code);
+	var document = rt::json_parse(result.output);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(root->member("initialized")->boolean());
+	rt::test::expect(root->member("preserved")->boolean());
+	rt::test::expect(root->member("closed")->boolean());
+	rt::test::expect(root->member("waiting")->boolean());
+	rt::test::expect(root->member("unrelated")->boolean());
+	rt::test::expect(root->member("attached")->boolean());
+	rt::test::expect(root->member("cleaned")->boolean());
+};
+
+[[test]]
+fn editor_prepares_missing_project_environment_and_reuses_live_service() {
+	var result = editor_observation("ProjectEnvironment");
+	rt::test::expect(!result.exit_code);
+	var document = rt::json_parse(result.output);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	i64 configurations = 0;
+	@configurations = root->member("configurations")->integer();
+	rt::test::expect(configurations == 1);
+};

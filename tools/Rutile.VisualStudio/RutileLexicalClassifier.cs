@@ -17,23 +17,35 @@ namespace Rutile.VisualStudio {
 
 		private readonly ConditionalWeakTable<ITextBuffer, RutileLexicalClassifier> waiting = new ConditionalWeakTable<ITextBuffer, RutileLexicalClassifier>();
 		private int subscribed;
+		internal Action<string> ReportError = ServerOutput.Write;
 
 		public IClassifier GetClassifier(ITextBuffer buffer) {
-			if (Interlocked.CompareExchange(ref subscribed, 1, 0) == 0) {
-				Documents.TextDocumentCreated += OnDocumentCreated;
-			}
-			return buffer.Properties.GetOrCreateSingletonProperty(() => {
+			var result = buffer.Properties.GetOrCreateSingletonProperty(() => {
 				var classifier = new RutileLexicalClassifier(buffer, Types, null);
 				waiting.Add(buffer, classifier);
+				return classifier;
+			});
+			try {
+				if (Interlocked.CompareExchange(ref subscribed, 1, 0) == 0) {
+					Documents.TextDocumentCreated += OnDocumentCreated;
+				}
 				if (Documents.TryGetTextDocument(buffer, out var document)) {
 					Attach(document);
 				}
-				return classifier;
-			});
+			}
+			catch (Exception error) {
+				ReportError("Rutile semantic highlighting could not attach to the editor buffer. Lexical highlighting remains available. " + error);
+			}
+			return result;
 		}
 
 		private void OnDocumentCreated(object sender, TextDocumentEventArgs args) {
-			Attach(args.TextDocument);
+			try {
+				Attach(args.TextDocument);
+			}
+			catch (Exception error) {
+				ReportError("Rutile semantic highlighting could not attach to the opened document. Lexical highlighting remains available. " + error);
+			}
 		}
 
 		private void Attach(ITextDocument document) {

@@ -18,6 +18,7 @@ namespace Rutile.VisualStudio {
 		public WorkspaceRootMonitor(Func<Task> changed) {
 			ThreadHelper.ThrowIfNotOnUIThread();
 			this.changed = changed;
+			RutileDocumentProject.Changed += OnDocumentChanged;
 			var components = Package.GetGlobalService(typeof(SComponentModel)) as IComponentModel;
 			folders = components?.GetService<IVsFolderWorkspaceService>();
 			solution = Package.GetGlobalService(typeof(SVsSolution)) as IVsSolution;
@@ -31,13 +32,19 @@ namespace Rutile.VisualStudio {
 
 		public string? CurrentRoot() {
 			ThreadHelper.ThrowIfNotOnUIThread();
+			if (RutileDocumentProject.ActivePath != null) {
+				return RutileDocumentProject.FindRoot(RutileDocumentProject.ActivePath);
+			}
 			string? folder = folders?.CurrentWorkspace?.Location;
 			if (string.IsNullOrEmpty(folder) && solution != null) {
 				if (ErrorHandler.Failed(solution.GetSolutionInfo(out folder, out _, out _))) {
 					folder = null;
 				}
 			}
-			return string.IsNullOrEmpty(folder) || !Directory.Exists(folder) ? null : Path.GetFullPath(folder);
+			if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) {
+				return null;
+			}
+			return RutileDocumentProject.FindRoot(Path.Combine(folder, "kiln.rt"));
 		}
 
 		private async Task OnFolderChangedAsync(object? sender, EventArgs arguments) {
@@ -66,12 +73,17 @@ namespace Rutile.VisualStudio {
 			});
 		}
 
+		private void OnDocumentChanged(object? sender, EventArgs arguments) {
+			Changed();
+		}
+
 		public void Dispose() {
 			ThreadHelper.ThrowIfNotOnUIThread();
 			if (disposed) {
 				return;
 			}
 			disposed = true;
+			RutileDocumentProject.Changed -= OnDocumentChanged;
 			if (folders != null) {
 				folders.OnActiveWorkspaceChanged -= OnFolderChangedAsync;
 			}
