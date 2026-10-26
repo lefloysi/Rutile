@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -8,8 +9,30 @@ using Microsoft.Win32;
 
 namespace Rutile.VisualStudio {
 	internal static class RutileProjectEnvironment {
+		internal static string? ConfigurationVariable(string name, Func<string, EnvironmentVariableTarget, string?> read) {
+			foreach (var target in new[] { EnvironmentVariableTarget.Process, EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine }) {
+				var value = read(name, target);
+				if (!string.IsNullOrWhiteSpace(value)) {
+					return value;
+				}
+			}
+			return null;
+		}
+
+		internal static void InheritConfiguration(StringDictionary environment, Func<string, EnvironmentVariableTarget, string?> read) {
+			foreach (var name in new[] { "KILN_EXECUTABLE", "RUTILE_COMPILER", "KILN_DEPENDENCIES", "VCPKG_ROOT", "LLVM_ROOT" }) {
+				if (!string.IsNullOrWhiteSpace(environment[name])) {
+					continue;
+				}
+				var value = ConfigurationVariable(name, read);
+				if (value != null) {
+					environment[name] = value;
+				}
+			}
+		}
+
 		internal static string FindKiln(string root) {
-			var configured = Environment.GetEnvironmentVariable("KILN_EXECUTABLE");
+			var configured = ConfigurationVariable("KILN_EXECUTABLE", Environment.GetEnvironmentVariable);
 			if (!string.IsNullOrWhiteSpace(configured)) {
 				if (!File.Exists(configured)) {
 					throw new FileNotFoundException("KILN_EXECUTABLE does not name an existing Kiln executable.", configured);
@@ -57,6 +80,7 @@ namespace Rutile.VisualStudio {
 					RedirectStandardError = true
 				}
 			}) {
+				InheritConfiguration(process.StartInfo.EnvironmentVariables, Environment.GetEnvironmentVariable);
 				if (!process.Start()) {
 					throw new IOException("Kiln could not prepare Rutile language support.");
 				}

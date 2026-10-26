@@ -1,0 +1,14 @@
+[[test]]
+fn editor_uses_saved_tool_configuration_when_process_environment_is_missing() {
+	var result = editor_observation("SavedProjectEnvironment");
+	rt::test::expect(!result.exit_code);
+	var document = rt::json_parse(result.output);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(root->member("user_compiler")->text() == "user-compiler");
+	rt::test::expect(root->member("machine_dependencies")->text() == "machine-dependencies");
+	rt::test::expect(root->member("process_vcpkg")->text() == "process-vcpkg");
+	rt::test::expect(root->member("explicit_child_llvm")->text() == "explicit-child-llvm");
+	rt::test::expect(root->member("missing_executable")->boolean());
+	rt::test::expect(root->member("parent_unchanged")->boolean());
+};

@@ -1,0 +1,67 @@
+fn language_test_document(rt::string_view path, rt::string_view text) -> LanguageDocument {
+	LanguageDocument document;
+	@document.path = rt::string(path);
+	LanguageUri::key(path, @document.key);
+	LanguageUri::encode(path, @document.uri);
+	@document.text.assign(text);
+	@document.version = 1;
+	return $document;
+};
+
+[[test]]
+fn language_analysis_selects_open_project_groups_and_configuration_environment() {
+	var directory = compiler_directory("language-selected-projects");
+	var api = directory + "/kiln-api.rt";
+	var configuration = directory + "/kiln.rt";
+	var target_path = directory + "/target.rt";
+	rt::fs::write(api, "namespace kiln { struct Options {}; fn marker() -> i32 { return 42; }; };\n");
+	LspFiles files;
+	rt::test::expect(files.input && files.output);
+	var protocol = LanguageProtocol(@*files.input, @*files.output);
+	Compiler compiler;
+	var workspace = LanguageWorkspace(@compiler, @protocol, directory);
+	LanguageJob job;
+	@job.root = rt::string(directory);
+	@job.generation = 1;
+	@job.configuration = 1;
+	@workspace.cached_configuration = 1;
+	runtime_atomic_store(workspace.generation, 1);
+	@job.documents.push_back(language_test_document(target_path, "fn answer() -> i32 { return 42; };\n"));
+	@job.documents.push_back(language_test_document(configuration, "fn build(kiln::Options& options) { discard kiln::marker(); };\n"));
+
+	LanguageGroup unrelated;
+	@unrelated.name = rt::string("unopened");
+	@unrelated.paths.push_back(directory + "/does-not-exist.rt");
+	@workspace.groups.push_back($unrelated);
+	LanguageGroup target;
+	@target.name = rt::string("opened");
+	@target.paths.push_back(rt::string(target_path));
+	@workspace.groups.push_back($target);
+	LanguageGroup environment;
+	@environment.kind = language_group_kind::analysis;
+	@environment.name = rt::string("configuration");
+	@environment.paths.push_back(rt::string(api));
+	@environment.paths.push_back(rt::string(configuration));
+	@workspace.groups.push_back($environment);
+
+	var index = @workspace.analyze(@job);
+	rt::test::expect(index.get());
+	rt::test::expect(!index.get()->semantic_failed);
+	rt::test::expect(index.get()->sources.size() == 3);
+	rt::string api_key;
+	LanguageUri::key(api, @api_key);
+	rt::test::expect(index.get()->sources.data()[0].key.view() == api_key.view());
+	rt::test::expect(index.get()->targets.size() == 1);
+	bool marker = false;
+	usize symbol = 0;
+	while (symbol < index.get()->symbols.size()) {
+		if (index.get()->symbols.data()[symbol].name.view() == "marker") {
+			@marker = true;
+		};
+		@symbol = symbol + 1;
+	};
+	rt::test::expect(marker);
+	@job.documents.clear();
+	var idle = @workspace.analyze(@job);
+	rt::test::expect(idle.get() && !idle.get()->sources.size() && !idle.get()->targets.size());
+};

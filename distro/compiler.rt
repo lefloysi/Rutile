@@ -12754,6 +12754,23 @@ fn LanguageWorkspace::project_error(var void* context, char* text) {
 	@workspace.discovery_error = rt::string(rt::from_c_string(text));
 };
 
+fn language_group_open(LanguageGroup& group, LanguageJob& job) -> bool {
+	usize path = 0;
+	while (path < group.paths.size()) {
+		rt::string key;
+		LanguageUri::key(group.paths.data()[path].view(), @key);
+		usize document = 0;
+		while (document < job.documents.size()) {
+			if (job.documents.data()[document].key.view() == key.view()) {
+				return true;
+			};
+			@document = document + 1;
+		};
+		@path = path + 1;
+	};
+	return false;
+};
+
 fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex> {
 	u64 started = runtime_clock_nanoseconds();
 	if (this.cached_configuration != job.configuration) {
@@ -12777,13 +12794,27 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 	};
 	@index.get()->generation = job.generation;
 	rt::unordered_map<rt::string_view, bool> assigned;
+	rt::buffer<usize> selected;
 	usize group = 0;
 	while (group < this.groups.size()) {
-		var LanguageGroup& input = @(@this.groups).data()[group];
-		if (input.kind == language_group_kind::standard) {
-			@group = group + 1;
-			continue;
+		LanguageGroup& input = this.groups.data()[group];
+		if (input.kind == language_group_kind::analysis && language_group_open(input, job)) {
+			@selected.push_back(usize(group));
 		};
+		@group = group + 1;
+	};
+	@group = 0;
+	while (group < this.groups.size()) {
+		LanguageGroup& input = this.groups.data()[group];
+		if (input.kind != language_group_kind::standard && input.kind != language_group_kind::analysis && language_group_open(input, job)) {
+			@selected.push_back(usize(group));
+		};
+		@group = group + 1;
+	};
+	usize selection = 0;
+	while (selection < selected.size()) {
+		@group = selected.data()[selection];
+		var LanguageGroup& input = @(@this.groups).data()[group];
 		if (!(@this.analyze_group(@input, @job, @*index.get())).has<void>()) {
 			return rt::unique<LanguageIndex>();
 		};
@@ -12802,7 +12833,7 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 			};
 			@path = path + 1;
 		};
-		@group = group + 1;
+		@selection = selection + 1;
 	};
 
 	LanguageGroup loose;
@@ -42875,10 +42906,8 @@ enum syntax_kind : [i32] {
 struct Syntax {
 	fn Syntax(var Syntax& this, syntax_kind kind, Token& token);
 	fn Syntax(var Syntax& this, Syntax& other) : [delete];
-	fn Syntax(var Syntax& this, Syntax other) : [default];
 
 	fn operator=(var Syntax& this, Syntax& other) -> var Syntax& : [delete];
-	fn operator=(var Syntax& this, Syntax other) -> var Syntax& : [default];
 	fn append(var Syntax& this, rt::unique<Syntax> child) -> CompilationResult;
 
 	fn declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>&;
