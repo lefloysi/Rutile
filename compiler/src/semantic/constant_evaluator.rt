@@ -275,12 +275,41 @@ fn ConstantEvaluator::place(var ConstantEvaluator& this, var Analyzer& analyzer,
 	return nullptr;
 };
 
+fn constant_storage_size(Type& type, u32 pointer_bits, var u64& size) -> bool {
+	Type* representation = type.representation();
+	if (representation->kind().is_numeric()) {
+		@size = (u64(representation->bits()) + 7) / 8;
+		return true;
+	};
+	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference) {
+		@size = (u64(pointer_bits) + 7) / 8;
+		return true;
+	};
+	if (type.kind() != type_kind::array) {
+		return false;
+	};
+	u64 element = 0;
+	if (!constant_storage_size(*type.element(), pointer_bits, @element) || element && type.count() > u64::max / element) {
+		return false;
+	};
+	@size = element * type.count();
+	return true;
+};
+
 fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> rt::unique<SemanticExpression> {
 	if (!@this.tick()) {
 		return rt::unique<SemanticExpression>();
 	};
 
 	semantic_kind kind = source.kind();
+
+	if (kind == semantic_kind::sizeof_type) {
+		u64 size = 0;
+		if (!constant_storage_size(*source.item(0)->type(), source.type()->bits(), @size)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return this.literal(source, size);
+	};
 
 	if (kind == semantic_kind::noop) {
 		return SemanticExpression::make(semantic_kind::noop, source.type(), source.token());

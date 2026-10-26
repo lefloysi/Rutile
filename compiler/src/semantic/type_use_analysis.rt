@@ -294,7 +294,10 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 		TypeUse* child = this.available_use(*expression.item(0));
 
 		if (child) {
-			@use = @this.indirect_use(*expression.type(), *child);
+			@child = @this.retype_use(*child, *expression.type()->element());
+			if (child) {
+				@use = @this.indirect_use(*expression.type(), *child);
+			};
 		};
 	}
 	else if (kind == semantic_kind::access || kind == semantic_kind::relocation || kind == semantic_kind::cast) {

@@ -23,9 +23,15 @@ struct FactPathCondition {
 	bool truth;
 };
 
+enum function_fact_effect : [u08] {
+	known_write;
+	scoped_havoc;
+};
+
 struct FactWrite {
 	var SemanticExpression* target;
 	usize value;
+	function_fact_effect kind;
 };
 
 struct FunctionFactOutcome {
@@ -116,6 +122,157 @@ fn function_fact_root(var SemanticExpression* expression) -> var Entity* {
 	return nullptr;
 };
 
+fn function_fact_contains_place(SemanticExpression* prefix, SemanticExpression* place) -> bool {
+	var SemanticExpression* current = function_fact_unwrap(const_cast<var SemanticExpression*>(place));
+	while (current) {
+		if (function_fact_same_place(const_cast<var SemanticExpression*>(prefix), current)) {
+			return true;
+		};
+		if (current->kind() != semantic_kind::member || current->size() != 1) {
+			return false;
+		};
+		@current = function_fact_unwrap(current->item(0));
+	};
+	return false;
+};
+
+fn function_fact_reverse_comparison(token_kind operation) -> token_kind {
+	switch (operation) {
+		case token_kind::op_less:
+			return token_kind::op_greater;
+		case token_kind::op_less_equal:
+			return token_kind::op_greater_equal;
+		case token_kind::op_greater:
+			return token_kind::op_less;
+		case token_kind::op_greater_equal:
+			return token_kind::op_less_equal;
+	};
+	return operation;
+};
+
+fn function_fact_truth(FunctionFactSummary& summary, usize value, usize depth) -> fact_truth {
+	if (!value || value > summary.expressions.size() || depth > 32) {
+		return fact_truth::unknown;
+	};
+	FunctionFactExpression& expression = summary.expressions.data()[value - 1];
+	if (expression.kind == function_fact_kind::integer) {
+		if (expression.integer) {
+			return fact_truth::proven;
+		};
+		return fact_truth::disproven;
+	};
+	if (expression.kind == function_fact_kind::cast && expression.left && (expression.type->kind() == type_kind::boolean || expression.type->same_shape(*summary.expressions.data()[expression.left - 1].type))) {
+		return function_fact_truth(summary, expression.left, depth + 1);
+	};
+	if (expression.kind == function_fact_kind::unary && expression.operation == token_kind::op_bang) {
+		fact_truth child = function_fact_truth(summary, expression.left, depth + 1);
+		if (child == fact_truth::proven) {
+			return fact_truth::disproven;
+		};
+		if (child == fact_truth::disproven) {
+			return fact_truth::proven;
+		};
+	};
+	return fact_truth::unknown;
+};
+
+fn function_fact_unsigned_bound(FunctionFactSummary& summary, usize value, FunctionFactPath& path, usize depth) -> IntegerRange {
+	if (!value || value > summary.expressions.size() || depth > 32) {
+		return IntegerRange();
+	};
+	FunctionFactExpression& expression = summary.expressions.data()[value - 1];
+	if (expression.kind == function_fact_kind::integer) {
+		return fact_constant(expression.type, expression.integer);
+	};
+	if (expression.kind == function_fact_kind::cast && expression.left && expression.type->same_shape(*summary.expressions.data()[expression.left - 1].type)) {
+		return function_fact_unsigned_bound(summary, expression.left, path, depth + 1);
+	};
+	Type* type = expression.type->representation();
+	if (expression.kind != function_fact_kind::entry_place || type->kind() != type_kind::unsigned_integer && type->kind() != type_kind::boolean && type->kind() != type_kind::character) {
+		return IntegerRange();
+	};
+	IntegerRange range = fact_range(0, fact_limit(type));
+	usize index = 0;
+	while (index < path.conditions.size()) {
+		FactPathCondition& source = path.conditions.data()[index];
+		usize condition = source.value;
+		bool truth = source.truth;
+		usize wrappers = 0;
+		while (condition && condition <= summary.expressions.size() && wrappers < 32) {
+			FunctionFactExpression& wrapper = summary.expressions.data()[condition - 1];
+			if (wrapper.kind == function_fact_kind::unary && wrapper.operation == token_kind::op_bang) {
+				@truth = !truth;
+				@condition = wrapper.left;
+			}
+			else if (wrapper.kind == function_fact_kind::cast && wrapper.left && wrapper.type->kind() == type_kind::boolean && summary.expressions.data()[wrapper.left - 1].type->kind() == type_kind::boolean) {
+				@condition = wrapper.left;
+			}
+			else {
+				break;
+			};
+			@wrappers = wrappers + 1;
+		};
+		if (condition && condition <= summary.expressions.size()) {
+			FunctionFactExpression& guard = summary.expressions.data()[condition - 1];
+			if (guard.kind == function_fact_kind::binary && guard.left && guard.right && summary.expressions.data()[guard.left - 1].type->same_shape(*expression.type) && summary.expressions.data()[guard.right - 1].type->same_shape(*expression.type)) {
+				FunctionFactExpression& first = summary.expressions.data()[guard.left - 1];
+				FunctionFactExpression& second = summary.expressions.data()[guard.right - 1];
+				token_kind operation = guard.operation;
+				usize constant = 0;
+				if (first.kind == function_fact_kind::entry_place && second.kind == function_fact_kind::integer && function_fact_same_place(first.place, expression.place)) {
+					@constant = guard.right;
+				}
+				else if (second.kind == function_fact_kind::entry_place && first.kind == function_fact_kind::integer && function_fact_same_place(second.place, expression.place)) {
+					@constant = guard.left;
+					@operation = function_fact_reverse_comparison(operation);
+				};
+				if (constant) {
+					FunctionFactExpression& bound = summary.expressions.data()[constant - 1];
+					IntegerRange limit = fact_constant(bound.type, bound.integer);
+					if (!truth) {
+						@operation = fact_inverse(operation);
+					};
+					if (limit.available != fact_truth::unknown && limit.sign != integer_range_sign::negative) {
+						if (operation == token_kind::op_less && limit.lower && range.upper >= limit.lower) {
+							@range.upper = limit.lower - 1;
+						};
+						if (operation == token_kind::op_less_equal && range.upper > limit.lower) {
+							@range.upper = limit.lower;
+						};
+						if (operation == token_kind::op_greater && limit.lower != u64::max && range.lower <= limit.lower) {
+							@range.lower = limit.lower + 1;
+						};
+						if (operation == token_kind::op_greater_equal && range.lower < limit.lower) {
+							@range.lower = limit.lower;
+						};
+						if (operation == token_kind::op_equal) {
+							if (range.lower < limit.lower) {
+								@range.lower = limit.lower;
+							};
+							if (range.upper > limit.lower) {
+								@range.upper = limit.lower;
+							};
+						};
+						if (operation == token_kind::op_not_equal) {
+							if (range.upper == limit.lower && range.upper) {
+								@range.upper = range.upper - 1;
+							};
+							if (range.lower == limit.lower && range.lower != u64::max) {
+								@range.lower = range.lower + 1;
+							};
+						};
+					};
+				};
+			};
+		};
+		@index = index + 1;
+	};
+	if (range.lower > range.upper) {
+		return IntegerRange();
+	};
+	return $range;
+};
+
 fn function_fact_unknown_binary(token_kind operation) -> bool {
 	return operation == token_kind::op_star || operation == token_kind::op_slash
 		|| operation == token_kind::op_remainder || operation == token_kind::op_shift_left
@@ -134,6 +291,8 @@ struct FunctionFactSummaries {
 	fn import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, var FunctionFactPath& path, usize depth) -> usize;
 	fn payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> bool;
 	fn expand_call(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* call, var rt::buffer<rt::unique<FunctionFactPath>>& paths);
+	fn scoped_array_write(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* target, var SemanticExpression* value, var FunctionFactPath& path);
+	fn expand_boolean(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths, usize depth);
 };
 
 fn function_fact_clone_place(var SemanticExpression* source) -> rt::unique<SemanticExpression> {
@@ -261,8 +420,14 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		usize index = path.writes.size();
 		while (index) {
 			@index = index - 1;
-			if (function_fact_same_place(expression, path.writes.data()[index].target)) {
-				return path.writes.data()[index].value;
+			FactWrite& effect = path.writes.data()[index];
+			if (effect.kind == function_fact_effect::scoped_havoc && (function_fact_contains_place(effect.target, expression) || function_fact_contains_place(expression, effect.target))) {
+				@result.kind = function_fact_kind::unknown;
+				@summary.expressions.push_back($result);
+				return summary.expressions.size();
+			};
+			if (function_fact_same_place(expression, effect.target)) {
+				return effect.value;
 			};
 		};
 		var Entity* root = function_fact_root(expression);
@@ -551,7 +716,10 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 					};
 					FactWrite effect;
 					@effect.target = projected.get();
-					@effect.value = @this.import_value(@summary, *callee, selected.writes.data()[write].value, @*call, @entry, 0);
+					@effect.kind = selected.writes.data()[write].kind;
+					if (effect.kind == function_fact_effect::known_write) {
+						@effect.value = @this.import_value(@summary, *callee, selected.writes.data()[write].value, @*call, @entry, 0);
+					};
 					@summary.projected_places.push_back($projected);
 					@branch.get()->writes.push_back($effect);
 					@write = write + 1;
@@ -567,6 +735,147 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 		@index = index + 1;
 	};
 	@paths = $expanded;
+};
+
+fn FunctionFactSummaries::expand_boolean(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths, usize depth) {
+	if (!paths.size()) {
+		return;
+	};
+	if (!expression || expression->type()->kind() != type_kind::boolean || depth > 32) {
+		@summary.opaque = true;
+		return;
+	};
+	if (expression->kind() == semantic_kind::binary && (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or)) {
+		@this.expand_boolean(@summary, expression->item(0), @paths, depth + 1);
+		if (summary.opaque) {
+			return;
+		};
+		rt::buffer<rt::unique<FunctionFactPath>> selected;
+		rt::buffer<rt::unique<FunctionFactPath>> continuing;
+		usize index = 0;
+		while (index < paths.size()) {
+			var FunctionFactPath& path = @*(@paths).data()[index].get();
+			if (path.returned) {
+				@selected.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+			}
+			else {
+				usize left = @this.expression(@summary, expression->item(0), @path);
+				fact_truth truth = function_fact_truth(summary, left, 0);
+				if (truth == fact_truth::unknown) {
+					@summary.opaque = true;
+					return;
+				};
+				bool skip = expression->operation() == token_kind::op_and && truth == fact_truth::disproven || expression->operation() == token_kind::op_or && truth == fact_truth::proven;
+				if (skip) {
+					FunctionFactBinding binding;
+					@binding.expression = expression;
+					@binding.value = left;
+					@path.bindings.push_back($binding);
+					@selected.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+				}
+				else {
+					@continuing.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+				};
+			};
+			@index = index + 1;
+		};
+		@this.expand_boolean(@summary, expression->item(1), @continuing, depth + 1);
+		if (summary.opaque) {
+			return;
+		};
+		@index = 0;
+		while (index < continuing.size()) {
+			if (selected.size() >= 64) {
+				@summary.opaque = true;
+				return;
+			};
+			var FunctionFactPath& path = @*(@continuing).data()[index].get();
+			if (!path.returned) {
+				FunctionFactBinding binding;
+				@binding.expression = expression;
+				@binding.value = @this.expression(@summary, expression->item(1), @path);
+				@path.bindings.push_back($binding);
+			};
+			@selected.push_back(rt::unique<FunctionFactPath>(@((@continuing).data()[index]).release()));
+			@index = index + 1;
+		};
+		@paths = $selected;
+		return;
+	};
+	@this.expand_call(@summary, function_fact_direct_call(expression), @paths);
+	if (summary.opaque) {
+		return;
+	};
+	rt::buffer<rt::unique<FunctionFactPath>> branches;
+	usize index = 0;
+	while (index < paths.size()) {
+		var FunctionFactPath& source = @*(@paths).data()[index].get();
+		if (source.returned) {
+			if (branches.size() >= 64) {
+				@summary.opaque = true;
+				return;
+			};
+			rt::unique<FunctionFactPath> retained = rt::unique<FunctionFactPath>::make();
+			@retained.get()->copy_from(source);
+			@branches.push_back($retained);
+		}
+		else {
+			usize value = @this.expression(@summary, expression, @source);
+			if (summary.opaque) {
+				return;
+			};
+			fact_truth known = function_fact_truth(summary, value, 0);
+			usize truth = 0;
+			while (truth < 2) {
+				if (known == fact_truth::unknown || (known == fact_truth::proven) == (truth != 0)) {
+					if (branches.size() >= 64 || summary.expressions.size() >= 4096) {
+						@summary.opaque = true;
+						return;
+					};
+					rt::unique<FunctionFactPath> branch = rt::unique<FunctionFactPath>::make();
+					@branch.get()->copy_from(source);
+					if (known == fact_truth::unknown) {
+						FactPathCondition guard;
+						@guard.value = value;
+						@guard.truth = truth != 0;
+						@branch.get()->conditions.push_back($guard);
+					};
+					FunctionFactExpression constant;
+					@constant.kind = function_fact_kind::integer;
+					@constant.type = expression->type();
+					@constant.integer = truth;
+					@summary.expressions.push_back($constant);
+					FunctionFactBinding binding;
+					@binding.expression = expression;
+					@binding.value = summary.expressions.size();
+					@branch.get()->bindings.push_back($binding);
+					@branches.push_back($branch);
+				};
+				@truth = truth + 1;
+			};
+		};
+		@index = index + 1;
+	};
+	@paths = $branches;
+};
+
+fn FunctionFactSummaries::scoped_array_write(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* target, var SemanticExpression* value, var FunctionFactPath& path) {
+	discard @this.expression(@summary, value, @path);
+	var SemanticExpression* index = function_fact_unwrap(target);
+	if (summary.opaque || !index || index->kind() != semantic_kind::index || index->size() != 2 || index->item(0)->type()->kind() != type_kind::array || !index->item(0)->type()->element()->representation()->kind().is_integer() || !function_fact_root(index->item(0))) {
+		@summary.opaque = true;
+		return;
+	};
+	usize evaluated = @this.expression(@summary, index->item(1), @path);
+	IntegerRange bound = function_fact_unsigned_bound(summary, evaluated, path, 0);
+	if (summary.opaque || bound.available == fact_truth::unknown || bound.sign == integer_range_sign::negative || bound.upper >= index->item(0)->type()->count()) {
+		@summary.opaque = true;
+		return;
+	};
+	FactWrite effect;
+	@effect.target = index->item(0);
+	@effect.kind = function_fact_effect::scoped_havoc;
+	@path.writes.push_back($effect);
 };
 
 fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) {
@@ -595,7 +904,12 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 	else if (kind == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
 		@evaluated = expression->item(1);
 	};
-	@this.expand_call(@summary, function_fact_direct_call(evaluated), @paths);
+	if (evaluated->kind() == semantic_kind::binary && (evaluated->operation() == token_kind::op_and || evaluated->operation() == token_kind::op_or)) {
+		@this.expand_boolean(@summary, evaluated, @paths, 0);
+	}
+	else {
+		@this.expand_call(@summary, function_fact_direct_call(evaluated), @paths);
+	};
 	if (summary.opaque) {
 		return;
 	};
@@ -613,6 +927,11 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 				usize condition = @this.expression(@summary, expression->item(0), @source);
 				usize branch = 0;
 				while (branch < 2) {
+					fact_truth known = function_fact_truth(summary, condition, 0);
+					if (known != fact_truth::unknown && (known == fact_truth::proven) != !branch) {
+						@branch = branch + 1;
+						continue;
+					};
 					rt::unique<FunctionFactPath> state = rt::unique<FunctionFactPath>::make();
 					@state.get()->copy_from(source);
 					FactPathCondition fact;
@@ -663,13 +982,14 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 					@value = expression->item(1);
 				};
 				if (!function_fact_root(target)) {
-					@summary.opaque = true;
-					return;
+					@this.scoped_array_write(@summary, target, value, @path);
+				}
+				else {
+					FactWrite write;
+					@write.target = target;
+					@write.value = @this.expression(@summary, value, @path);
+					@path.writes.push_back($write);
 				};
-				FactWrite write;
-				@write.target = target;
-				@write.value = @this.expression(@summary, value, @path);
-				@path.writes.push_back($write);
 			}
 			else if (kind != semantic_kind::noop) {
 				discard @this.expression(@summary, expression, @path);
@@ -706,7 +1026,7 @@ fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& fun
 		@paths.push_back($initial);
 		@this.walk(@*summary.get(), function.body(), @paths);
 		usize index = 0;
-		while (index < paths.size()) {
+		while (!summary.get()->opaque && index < paths.size()) {
 			FunctionFactPath& path = *paths.data()[index].get();
 			if (!(path.returned)) {
 				@this.finish(@*summary.get(), nullptr, 0, path);

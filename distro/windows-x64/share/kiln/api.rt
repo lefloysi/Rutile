@@ -1,0 +1,248 @@
+namespace kiln {
+	struct configuration_error {
+		rt::string_view message;
+	};
+
+	enum TargetType : [u08] {
+		executable;
+		shared_lib;
+		static_lib;
+		object_lib;
+	};
+
+	using TargetCallback = ((var void*, char*, usize, char*, usize, i32) -> usize)*;
+	using OptionCallback = ((var void*, usize, char*, usize, char*, usize) -> i32)*;
+	using SourceCallback = ((var void*, usize, char*, usize) -> i32)*;
+	using ProfileCallback = ((var void*, char*, usize, i32) -> i32)*;
+
+	struct Options {
+		var void* context;
+		TargetCallback target_callback;
+		OptionCallback option_callback;
+		SourceCallback source_callback;
+		rt::string_view root_path;
+		rt::string_view host_os;
+		rt::string_view build_profile;
+		ProfileCallback profile_callback;
+
+		fn path(Options& this) -> rt::string_view;
+		fn os(Options& this) -> rt::string_view;
+		fn profile(Options& this) -> rt::string_view;
+	};
+
+	var Options* current;
+	i32 failure;
+
+	struct Sources {
+		usize target_id;
+		fn add(var Sources& this, rt::string_view folder) -> void | configuration_error;
+	};
+
+	struct Target {
+		Sources sources;
+		rt::string name;
+		fn option(var Target& this, rt::string_view key, rt::string_view value) -> void | configuration_error;
+		fn package(var Target& this, rt::string_view name) -> void | configuration_error;
+		fn depends_on(var Target& this, rt::string_view name) -> void | configuration_error;
+		fn import(var Target& this, rt::string_view name) -> void | configuration_error;
+	};
+
+	struct Tests {
+		Sources sources;
+		fn option(var Tests& this, rt::string_view key, rt::string_view value) -> void | configuration_error;
+		fn depends_on(var Tests& this, rt::string_view name) -> void | configuration_error;
+		fn package(var Tests& this, rt::string_view name) -> void | configuration_error;
+		fn import(var Tests& this, rt::string_view name) -> void | configuration_error;
+	};
+
+	fn begin(var Options& options) {
+		@current = &@options;
+		@failure = 0;
+	};
+
+	fn finish() -> i32 {
+		return failure;
+	};
+
+	fn error(rt::string_view message) {
+		@failure = 1;
+		if (current) {
+			discard current->option_callback(current->context, 0, "error".data(), 5, message.data(), message.size());
+		};
+	};
+
+	fn read_file(rt::string_view path) -> rt::string {
+		try {
+			rt::string contents = rt::fs::read(path);
+			return $contents;
+		}
+		catch (rt::fs::file_not_found_error failure) {
+			error(rt::string("File not found: ") + path);
+		}
+		catch (rt::fs::permission_denied_error failure) {
+			error(rt::string("Permission denied reading file: ") + path);
+		}
+		catch (rt::fs::file_io_error failure) {
+			error(rt::string("Cannot read file: ") + path);
+		};
+		configuration_error failure;
+		@failure.message = "Could not read the configuration file.";
+		throw $failure;
+	};
+
+	fn profile(rt::string_view name, i32 optimization) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->profile_callback(current->context, name.data(), name.size(), optimization)) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not declare the configuration profile.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn add_subdirectory(rt::string_view folder) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->option_callback(current->context, 0, "subdirectory".data(), 12, folder.data(), folder.size())) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not include the subdirectory configuration.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn build_directory(rt::string_view folder) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->option_callback(current->context, 0, "build_directory".data(), 15, folder.data(), folder.size())) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not set the build directory.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn Options::path(Options& this) -> rt::string_view {
+		return this.root_path;
+	};
+
+	fn Options::os(Options& this) -> rt::string_view {
+		return this.host_os;
+	};
+
+	fn Options::profile(Options& this) -> rt::string_view {
+		return this.build_profile;
+	};
+
+	fn add_target(rt::string_view name, TargetType kind) -> Target {
+		Target target;
+		@target.name = rt::string(name);
+
+		i32 target_kind = 0;
+		if (kind == TargetType::shared_lib) {
+			@target_kind = 1;
+		};
+		if (kind == TargetType::static_lib) {
+			@target_kind = 2;
+		};
+		if (kind == TargetType::object_lib) {
+			@target_kind = 3;
+		};
+		if (current) {
+			@target.sources.target_id = current->target_callback(current->context, name.data(), name.size(), "".data(), 0, target_kind);
+		};
+		if (!target.sources.target_id) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not declare the target.";
+			throw $error;
+		};
+		return $target;
+	};
+
+	fn add_target(rt::string_view name) -> Target {
+		return add_target(name, TargetType::static_lib);
+	};
+
+	fn add_target(rt::string_view name, rt::string_view entry) -> Target {
+		var target = add_target(name, TargetType::executable);
+		@target.option("entry", entry);
+		return $target;
+	};
+
+	fn add_tests(Target& tested) -> Tests {
+		Tests tests;
+		if (!current) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Tests require an active project configuration.";
+			throw $error;
+		};
+		@tests.sources.target_id = current->target_callback(current->context, "".data(), 0, tested.name.data(), tested.name.size(), 4);
+		if (!tests.sources.target_id) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not attach tests to the target.";
+			throw $error;
+		};
+		return $tests;
+	};
+
+	fn Tests::option(var Tests& this, rt::string_view key, rt::string_view value) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->option_callback(current->context, this.sources.target_id, key.data(), key.size(), value.data(), value.size())) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not configure the attached tests.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn Tests::depends_on(var Tests& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("dependency", name);
+	};
+
+	fn Tests::package(var Tests& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("package", name);
+	};
+
+	fn Tests::import(var Tests& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("import", name);
+	};
+
+	fn Target::import(var Target& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("import", name);
+	};
+
+	fn Sources::add(var Sources& this, rt::string_view folder) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->source_callback(current->context, this.target_id, folder.data(), folder.size())) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not add target sources.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn Target::option(var Target& this, rt::string_view key, rt::string_view value) -> void | configuration_error {
+		using Result = void | configuration_error;
+		if (!current || !current->option_callback(current->context, this.sources.target_id, key.data(), key.size(), value.data(), value.size())) {
+			@failure = 1;
+			configuration_error error;
+			@error.message = "Could not configure the target.";
+			return Result($error);
+		};
+		return Result();
+	};
+
+	fn Target::package(var Target& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("package", name);
+	};
+
+	fn Target::depends_on(var Target& this, rt::string_view name) -> void | configuration_error {
+		return @this.option("dependency", name);
+	};
+};

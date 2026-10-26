@@ -295,7 +295,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 		if (entity->linkage() == function_linkage::c && LLVMGetNamedGlobal(this.module(), name.c_str())) {
 			return @this.error(entity->token(), "C linkage function conflicts with an existing native global symbol");
 		};
-		if (entity->linkage() == function_linkage::c || entity->definition() == function_definition::declaration) {
+		if (entity->linkage() == function_linkage::c || entity->definition() == function_definition::declaration && (!entity->scope() || !entity->scope()->owner() || entity->scope()->owner()->kind() != entity_kind::record)) {
 			@value = LLVMGetNamedFunction(this.module(), name.c_str());
 			if (value) {
 				usize previous = 0;

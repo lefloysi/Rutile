@@ -38,6 +38,10 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 	if (!native) {
 		return compilation_error();
 	};
+	if (expression->operation() == token_kind::punct_left_brace) {
+		discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), storage);
+		return;
+	};
 
 	var SemanticExpression* arguments = expression->item(0);
 	var LLVMOpaqueValue* value = LLVMConstNull(native);

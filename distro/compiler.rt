@@ -727,6 +727,10 @@ fn FunctionEmitter::construct_body(var FunctionEmitter& this, var SemanticExpres
 	if (!native) {
 		return compilation_error();
 	};
+	if (expression->operation() == token_kind::punct_left_brace) {
+		discard LLVMBuildStore(this.backend->builder(), LLVMConstNull(native), storage);
+		return;
+	};
 
 	var SemanticExpression* arguments = expression->item(0);
 	var LLVMOpaqueValue* value = LLVMConstNull(native);
@@ -6033,7 +6037,7 @@ fn Backend::declare(var Backend& this, var Entity* entity) -> CompilationResult 
 		if (entity->linkage() == function_linkage::c && LLVMGetNamedGlobal(this.module(), name.c_str())) {
 			return @this.error(entity->token(), "C linkage function conflicts with an existing native global symbol");
 		};
-		if (entity->linkage() == function_linkage::c || entity->definition() == function_definition::declaration) {
+		if (entity->linkage() == function_linkage::c || entity->definition() == function_definition::declaration && (!entity->scope() || !entity->scope()->owner() || entity->scope()->owner()->kind() != entity_kind::record)) {
 			@value = LLVMGetNamedFunction(this.module(), name.c_str());
 			if (value) {
 				usize previous = 0;
@@ -17795,6 +17799,7 @@ private:
 	fn member_value(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::unique<SemanticExpression> object, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
 	fn construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression>;
 	fn construct_values(var Analyzer& this, var Syntax& syntax, Type* type, rt::buffer<rt::unique<SemanticExpression>> raw) -> rt::unique<SemanticExpression>;
+	fn zero_initialize(var Analyzer& this, var Syntax& syntax, Type* type) -> rt::unique<SemanticExpression>;
 	fn initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression>;
 	fn select_candidates(var Analyzer& this, rt::buffer<var Entity*>& candidates, rt::buffer<rt::unique<SemanticExpression>>& arguments, usize skipped, conversion_mode mode, var Syntax& syntax) -> var Entity*;
 	fn invoke(var Analyzer& this, var Syntax& syntax, var Entity* selected, rt::unique<SemanticExpression> callable, rt::buffer<rt::unique<SemanticExpression>> values, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
@@ -19029,6 +19034,22 @@ fn fact_build_contexts(var InferredFacts& root, var InferredContextSet& output) 
 	};
 };
 
+fn Analyzer::zero_initialize(var Analyzer& this, var Syntax& syntax, Type* type) -> rt::unique<SemanticExpression> {
+	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
+		@this.error(&@syntax, "zero initialization requires an object type");
+		return rt::unique<SemanticExpression>();
+	};
+	if (type->kind() == type_kind::named && !(@this.resolve(type->entity())).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var result = @this.node(semantic_kind::construction, type, &@syntax);
+	var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
+	if (!result.get() || !arguments.get() || !(@result.get()->append($arguments)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};
+
 fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
 	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
 		if (this.failed()) {
@@ -19049,10 +19070,19 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (arguments.size() == 1 && arguments.item(0)->kind() == syntax_kind::brace && !arguments.item(0)->size()) {
+		return @this.zero_initialize(@*arguments.item(0), type);
+	};
 	rt::buffer<rt::unique<SemanticExpression>> raw;
 	usize index = 0;
 	while (index < arguments.size()) {
-		var value = @this.expression(@scope, @*arguments.item(index), rt::optional_ref<const Type>());
+		var value = rt::unique<SemanticExpression>();
+		if (arguments.item(index)->kind() == syntax_kind::brace) {
+			@value = @this.node(semantic_kind::deferred_argument, this.types->find_primitive("void"), arguments.item(index));
+		}
+		else {
+			@value = @this.expression(@scope, @*arguments.item(index), rt::optional_ref<const Type>());
+		};
 
 		if (!value.get()) {
 			return rt::unique<SemanticExpression>();
@@ -19061,6 +19091,32 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		@raw.push_back($value);
 
 		@index = index + 1;
+	};
+	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
+		if (!(@this.resolve(type->entity())).has<void>()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var Entity* group = type->entity()->members()->local(type->entity()->name());
+		@index = 0;
+		while (index < raw.size()) {
+			if (raw.data()[index].get()->kind() == semantic_kind::deferred_argument) {
+				var Entity* selected = nullptr;
+				if (group) {
+					@selected = @this.select(group, raw, 1, conversion_mode::explicit_only, @syntax);
+				};
+				if (!selected || !selected->type_use().has_value()) {
+					@this.error(arguments.item(index), "constructor argument block requires a named parameter");
+					return rt::unique<SemanticExpression>();
+				};
+				ParameterUse& parameter = selected->type_use().value().callable().parameters().data()[index + 1];
+				var value = @this.contextual_argument(@scope, @*arguments.item(index), parameter.type(), parameter.name());
+				if (!value.get()) {
+					return rt::unique<SemanticExpression>();
+				};
+				@(@raw).data()[index] = $value;
+			};
+			@index = index + 1;
+		};
 	};
 
 	return @this.construct_values(@syntax, type, $raw);
@@ -19227,6 +19283,9 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
 	if (!type) {
 		return $value;
+	};
+	if (syntax.kind() == syntax_kind::variable && syntax.variable_initializer()->kind() == syntax_kind::brace && !syntax.variable_initializer()->size()) {
+		return @this.zero_initialize(@*syntax.variable_initializer(), type);
 	};
 
 	bool explicit_copy = syntax.kind() == syntax_kind::variable && syntax.variable_initializer()->kind() == syntax_kind::unary && syntax.variable_initializer()->token().kind == token_kind::op_copy;
@@ -20099,12 +20158,41 @@ fn ConstantEvaluator::place(var ConstantEvaluator& this, var Analyzer& analyzer,
 	return nullptr;
 };
 
+fn constant_storage_size(Type& type, u32 pointer_bits, var u64& size) -> bool {
+	Type* representation = type.representation();
+	if (representation->kind().is_numeric()) {
+		@size = (u64(representation->bits()) + 7) / 8;
+		return true;
+	};
+	if (type.kind() == type_kind::pointer || type.kind() == type_kind::reference) {
+		@size = (u64(pointer_bits) + 7) / 8;
+		return true;
+	};
+	if (type.kind() != type_kind::array) {
+		return false;
+	};
+	u64 element = 0;
+	if (!constant_storage_size(*type.element(), pointer_bits, @element) || element && type.count() > u64::max / element) {
+		return false;
+	};
+	@size = element * type.count();
+	return true;
+};
+
 fn ConstantEvaluator::value(var ConstantEvaluator& this, var Analyzer& analyzer, var ConstantFrame& frame, SemanticExpression& source) -> rt::unique<SemanticExpression> {
 	if (!@this.tick()) {
 		return rt::unique<SemanticExpression>();
 	};
 
 	semantic_kind kind = source.kind();
+
+	if (kind == semantic_kind::sizeof_type) {
+		u64 size = 0;
+		if (!constant_storage_size(*source.item(0)->type(), source.type()->bits(), @size)) {
+			return rt::unique<SemanticExpression>();
+		};
+		return this.literal(source, size);
+	};
 
 	if (kind == semantic_kind::noop) {
 		return SemanticExpression::make(semantic_kind::noop, source.type(), source.token());
@@ -25104,9 +25192,15 @@ struct FactPathCondition {
 	bool truth;
 };
 
+enum function_fact_effect : [u08] {
+	known_write;
+	scoped_havoc;
+};
+
 struct FactWrite {
 	var SemanticExpression* target;
 	usize value;
+	function_fact_effect kind;
 };
 
 struct FunctionFactOutcome {
@@ -25197,6 +25291,157 @@ fn function_fact_root(var SemanticExpression* expression) -> var Entity* {
 	return nullptr;
 };
 
+fn function_fact_contains_place(SemanticExpression* prefix, SemanticExpression* place) -> bool {
+	var SemanticExpression* current = function_fact_unwrap(const_cast<var SemanticExpression*>(place));
+	while (current) {
+		if (function_fact_same_place(const_cast<var SemanticExpression*>(prefix), current)) {
+			return true;
+		};
+		if (current->kind() != semantic_kind::member || current->size() != 1) {
+			return false;
+		};
+		@current = function_fact_unwrap(current->item(0));
+	};
+	return false;
+};
+
+fn function_fact_reverse_comparison(token_kind operation) -> token_kind {
+	switch (operation) {
+		case token_kind::op_less:
+			return token_kind::op_greater;
+		case token_kind::op_less_equal:
+			return token_kind::op_greater_equal;
+		case token_kind::op_greater:
+			return token_kind::op_less;
+		case token_kind::op_greater_equal:
+			return token_kind::op_less_equal;
+	};
+	return operation;
+};
+
+fn function_fact_truth(FunctionFactSummary& summary, usize value, usize depth) -> fact_truth {
+	if (!value || value > summary.expressions.size() || depth > 32) {
+		return fact_truth::unknown;
+	};
+	FunctionFactExpression& expression = summary.expressions.data()[value - 1];
+	if (expression.kind == function_fact_kind::integer) {
+		if (expression.integer) {
+			return fact_truth::proven;
+		};
+		return fact_truth::disproven;
+	};
+	if (expression.kind == function_fact_kind::cast && expression.left && (expression.type->kind() == type_kind::boolean || expression.type->same_shape(*summary.expressions.data()[expression.left - 1].type))) {
+		return function_fact_truth(summary, expression.left, depth + 1);
+	};
+	if (expression.kind == function_fact_kind::unary && expression.operation == token_kind::op_bang) {
+		fact_truth child = function_fact_truth(summary, expression.left, depth + 1);
+		if (child == fact_truth::proven) {
+			return fact_truth::disproven;
+		};
+		if (child == fact_truth::disproven) {
+			return fact_truth::proven;
+		};
+	};
+	return fact_truth::unknown;
+};
+
+fn function_fact_unsigned_bound(FunctionFactSummary& summary, usize value, FunctionFactPath& path, usize depth) -> IntegerRange {
+	if (!value || value > summary.expressions.size() || depth > 32) {
+		return IntegerRange();
+	};
+	FunctionFactExpression& expression = summary.expressions.data()[value - 1];
+	if (expression.kind == function_fact_kind::integer) {
+		return fact_constant(expression.type, expression.integer);
+	};
+	if (expression.kind == function_fact_kind::cast && expression.left && expression.type->same_shape(*summary.expressions.data()[expression.left - 1].type)) {
+		return function_fact_unsigned_bound(summary, expression.left, path, depth + 1);
+	};
+	Type* type = expression.type->representation();
+	if (expression.kind != function_fact_kind::entry_place || type->kind() != type_kind::unsigned_integer && type->kind() != type_kind::boolean && type->kind() != type_kind::character) {
+		return IntegerRange();
+	};
+	IntegerRange range = fact_range(0, fact_limit(type));
+	usize index = 0;
+	while (index < path.conditions.size()) {
+		FactPathCondition& source = path.conditions.data()[index];
+		usize condition = source.value;
+		bool truth = source.truth;
+		usize wrappers = 0;
+		while (condition && condition <= summary.expressions.size() && wrappers < 32) {
+			FunctionFactExpression& wrapper = summary.expressions.data()[condition - 1];
+			if (wrapper.kind == function_fact_kind::unary && wrapper.operation == token_kind::op_bang) {
+				@truth = !truth;
+				@condition = wrapper.left;
+			}
+			else if (wrapper.kind == function_fact_kind::cast && wrapper.left && wrapper.type->kind() == type_kind::boolean && summary.expressions.data()[wrapper.left - 1].type->kind() == type_kind::boolean) {
+				@condition = wrapper.left;
+			}
+			else {
+				break;
+			};
+			@wrappers = wrappers + 1;
+		};
+		if (condition && condition <= summary.expressions.size()) {
+			FunctionFactExpression& guard = summary.expressions.data()[condition - 1];
+			if (guard.kind == function_fact_kind::binary && guard.left && guard.right && summary.expressions.data()[guard.left - 1].type->same_shape(*expression.type) && summary.expressions.data()[guard.right - 1].type->same_shape(*expression.type)) {
+				FunctionFactExpression& first = summary.expressions.data()[guard.left - 1];
+				FunctionFactExpression& second = summary.expressions.data()[guard.right - 1];
+				token_kind operation = guard.operation;
+				usize constant = 0;
+				if (first.kind == function_fact_kind::entry_place && second.kind == function_fact_kind::integer && function_fact_same_place(first.place, expression.place)) {
+					@constant = guard.right;
+				}
+				else if (second.kind == function_fact_kind::entry_place && first.kind == function_fact_kind::integer && function_fact_same_place(second.place, expression.place)) {
+					@constant = guard.left;
+					@operation = function_fact_reverse_comparison(operation);
+				};
+				if (constant) {
+					FunctionFactExpression& bound = summary.expressions.data()[constant - 1];
+					IntegerRange limit = fact_constant(bound.type, bound.integer);
+					if (!truth) {
+						@operation = fact_inverse(operation);
+					};
+					if (limit.available != fact_truth::unknown && limit.sign != integer_range_sign::negative) {
+						if (operation == token_kind::op_less && limit.lower && range.upper >= limit.lower) {
+							@range.upper = limit.lower - 1;
+						};
+						if (operation == token_kind::op_less_equal && range.upper > limit.lower) {
+							@range.upper = limit.lower;
+						};
+						if (operation == token_kind::op_greater && limit.lower != u64::max && range.lower <= limit.lower) {
+							@range.lower = limit.lower + 1;
+						};
+						if (operation == token_kind::op_greater_equal && range.lower < limit.lower) {
+							@range.lower = limit.lower;
+						};
+						if (operation == token_kind::op_equal) {
+							if (range.lower < limit.lower) {
+								@range.lower = limit.lower;
+							};
+							if (range.upper > limit.lower) {
+								@range.upper = limit.lower;
+							};
+						};
+						if (operation == token_kind::op_not_equal) {
+							if (range.upper == limit.lower && range.upper) {
+								@range.upper = range.upper - 1;
+							};
+							if (range.lower == limit.lower && range.lower != u64::max) {
+								@range.lower = range.lower + 1;
+							};
+						};
+					};
+				};
+			};
+		};
+		@index = index + 1;
+	};
+	if (range.lower > range.upper) {
+		return IntegerRange();
+	};
+	return $range;
+};
+
 fn function_fact_unknown_binary(token_kind operation) -> bool {
 	return operation == token_kind::op_star || operation == token_kind::op_slash
 		|| operation == token_kind::op_remainder || operation == token_kind::op_shift_left
@@ -25215,6 +25460,8 @@ struct FunctionFactSummaries {
 	fn import_value(var FunctionFactSummaries& this, var FunctionFactSummary& summary, FunctionFactSummary& callee, usize value, var SemanticExpression& call, var FunctionFactPath& path, usize depth) -> usize;
 	fn payload_safe(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var FunctionFactPath& path) -> bool;
 	fn expand_call(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* call, var rt::buffer<rt::unique<FunctionFactPath>>& paths);
+	fn scoped_array_write(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* target, var SemanticExpression* value, var FunctionFactPath& path);
+	fn expand_boolean(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths, usize depth);
 };
 
 fn function_fact_clone_place(var SemanticExpression* source) -> rt::unique<SemanticExpression> {
@@ -25342,8 +25589,14 @@ fn FunctionFactSummaries::expression(var FunctionFactSummaries& this, var Functi
 		usize index = path.writes.size();
 		while (index) {
 			@index = index - 1;
-			if (function_fact_same_place(expression, path.writes.data()[index].target)) {
-				return path.writes.data()[index].value;
+			FactWrite& effect = path.writes.data()[index];
+			if (effect.kind == function_fact_effect::scoped_havoc && (function_fact_contains_place(effect.target, expression) || function_fact_contains_place(expression, effect.target))) {
+				@result.kind = function_fact_kind::unknown;
+				@summary.expressions.push_back($result);
+				return summary.expressions.size();
+			};
+			if (function_fact_same_place(expression, effect.target)) {
+				return effect.value;
 			};
 		};
 		var Entity* root = function_fact_root(expression);
@@ -25632,7 +25885,10 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 					};
 					FactWrite effect;
 					@effect.target = projected.get();
-					@effect.value = @this.import_value(@summary, *callee, selected.writes.data()[write].value, @*call, @entry, 0);
+					@effect.kind = selected.writes.data()[write].kind;
+					if (effect.kind == function_fact_effect::known_write) {
+						@effect.value = @this.import_value(@summary, *callee, selected.writes.data()[write].value, @*call, @entry, 0);
+					};
 					@summary.projected_places.push_back($projected);
 					@branch.get()->writes.push_back($effect);
 					@write = write + 1;
@@ -25648,6 +25904,147 @@ fn FunctionFactSummaries::expand_call(var FunctionFactSummaries& this, var Funct
 		@index = index + 1;
 	};
 	@paths = $expanded;
+};
+
+fn FunctionFactSummaries::expand_boolean(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths, usize depth) {
+	if (!paths.size()) {
+		return;
+	};
+	if (!expression || expression->type()->kind() != type_kind::boolean || depth > 32) {
+		@summary.opaque = true;
+		return;
+	};
+	if (expression->kind() == semantic_kind::binary && (expression->operation() == token_kind::op_and || expression->operation() == token_kind::op_or)) {
+		@this.expand_boolean(@summary, expression->item(0), @paths, depth + 1);
+		if (summary.opaque) {
+			return;
+		};
+		rt::buffer<rt::unique<FunctionFactPath>> selected;
+		rt::buffer<rt::unique<FunctionFactPath>> continuing;
+		usize index = 0;
+		while (index < paths.size()) {
+			var FunctionFactPath& path = @*(@paths).data()[index].get();
+			if (path.returned) {
+				@selected.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+			}
+			else {
+				usize left = @this.expression(@summary, expression->item(0), @path);
+				fact_truth truth = function_fact_truth(summary, left, 0);
+				if (truth == fact_truth::unknown) {
+					@summary.opaque = true;
+					return;
+				};
+				bool skip = expression->operation() == token_kind::op_and && truth == fact_truth::disproven || expression->operation() == token_kind::op_or && truth == fact_truth::proven;
+				if (skip) {
+					FunctionFactBinding binding;
+					@binding.expression = expression;
+					@binding.value = left;
+					@path.bindings.push_back($binding);
+					@selected.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+				}
+				else {
+					@continuing.push_back(rt::unique<FunctionFactPath>(@((@paths).data()[index]).release()));
+				};
+			};
+			@index = index + 1;
+		};
+		@this.expand_boolean(@summary, expression->item(1), @continuing, depth + 1);
+		if (summary.opaque) {
+			return;
+		};
+		@index = 0;
+		while (index < continuing.size()) {
+			if (selected.size() >= 64) {
+				@summary.opaque = true;
+				return;
+			};
+			var FunctionFactPath& path = @*(@continuing).data()[index].get();
+			if (!path.returned) {
+				FunctionFactBinding binding;
+				@binding.expression = expression;
+				@binding.value = @this.expression(@summary, expression->item(1), @path);
+				@path.bindings.push_back($binding);
+			};
+			@selected.push_back(rt::unique<FunctionFactPath>(@((@continuing).data()[index]).release()));
+			@index = index + 1;
+		};
+		@paths = $selected;
+		return;
+	};
+	@this.expand_call(@summary, function_fact_direct_call(expression), @paths);
+	if (summary.opaque) {
+		return;
+	};
+	rt::buffer<rt::unique<FunctionFactPath>> branches;
+	usize index = 0;
+	while (index < paths.size()) {
+		var FunctionFactPath& source = @*(@paths).data()[index].get();
+		if (source.returned) {
+			if (branches.size() >= 64) {
+				@summary.opaque = true;
+				return;
+			};
+			rt::unique<FunctionFactPath> retained = rt::unique<FunctionFactPath>::make();
+			@retained.get()->copy_from(source);
+			@branches.push_back($retained);
+		}
+		else {
+			usize value = @this.expression(@summary, expression, @source);
+			if (summary.opaque) {
+				return;
+			};
+			fact_truth known = function_fact_truth(summary, value, 0);
+			usize truth = 0;
+			while (truth < 2) {
+				if (known == fact_truth::unknown || (known == fact_truth::proven) == (truth != 0)) {
+					if (branches.size() >= 64 || summary.expressions.size() >= 4096) {
+						@summary.opaque = true;
+						return;
+					};
+					rt::unique<FunctionFactPath> branch = rt::unique<FunctionFactPath>::make();
+					@branch.get()->copy_from(source);
+					if (known == fact_truth::unknown) {
+						FactPathCondition guard;
+						@guard.value = value;
+						@guard.truth = truth != 0;
+						@branch.get()->conditions.push_back($guard);
+					};
+					FunctionFactExpression constant;
+					@constant.kind = function_fact_kind::integer;
+					@constant.type = expression->type();
+					@constant.integer = truth;
+					@summary.expressions.push_back($constant);
+					FunctionFactBinding binding;
+					@binding.expression = expression;
+					@binding.value = summary.expressions.size();
+					@branch.get()->bindings.push_back($binding);
+					@branches.push_back($branch);
+				};
+				@truth = truth + 1;
+			};
+		};
+		@index = index + 1;
+	};
+	@paths = $branches;
+};
+
+fn FunctionFactSummaries::scoped_array_write(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* target, var SemanticExpression* value, var FunctionFactPath& path) {
+	discard @this.expression(@summary, value, @path);
+	var SemanticExpression* index = function_fact_unwrap(target);
+	if (summary.opaque || !index || index->kind() != semantic_kind::index || index->size() != 2 || index->item(0)->type()->kind() != type_kind::array || !index->item(0)->type()->element()->representation()->kind().is_integer() || !function_fact_root(index->item(0))) {
+		@summary.opaque = true;
+		return;
+	};
+	usize evaluated = @this.expression(@summary, index->item(1), @path);
+	IntegerRange bound = function_fact_unsigned_bound(summary, evaluated, path, 0);
+	if (summary.opaque || bound.available == fact_truth::unknown || bound.sign == integer_range_sign::negative || bound.upper >= index->item(0)->type()->count()) {
+		@summary.opaque = true;
+		return;
+	};
+	FactWrite effect;
+	@effect.target = index->item(0);
+	@effect.kind = function_fact_effect::scoped_havoc;
+	@path.writes.push_back($effect);
 };
 
 fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFactSummary& summary, var SemanticExpression* expression, var rt::buffer<rt::unique<FunctionFactPath>>& paths) {
@@ -25676,7 +26073,12 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 	else if (kind == semantic_kind::binary && (expression->operation() == token_kind::op_assign || expression->operation() == token_kind::op_copy)) {
 		@evaluated = expression->item(1);
 	};
-	@this.expand_call(@summary, function_fact_direct_call(evaluated), @paths);
+	if (evaluated->kind() == semantic_kind::binary && (evaluated->operation() == token_kind::op_and || evaluated->operation() == token_kind::op_or)) {
+		@this.expand_boolean(@summary, evaluated, @paths, 0);
+	}
+	else {
+		@this.expand_call(@summary, function_fact_direct_call(evaluated), @paths);
+	};
 	if (summary.opaque) {
 		return;
 	};
@@ -25694,6 +26096,11 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 				usize condition = @this.expression(@summary, expression->item(0), @source);
 				usize branch = 0;
 				while (branch < 2) {
+					fact_truth known = function_fact_truth(summary, condition, 0);
+					if (known != fact_truth::unknown && (known == fact_truth::proven) != !branch) {
+						@branch = branch + 1;
+						continue;
+					};
 					rt::unique<FunctionFactPath> state = rt::unique<FunctionFactPath>::make();
 					@state.get()->copy_from(source);
 					FactPathCondition fact;
@@ -25744,13 +26151,14 @@ fn FunctionFactSummaries::walk(var FunctionFactSummaries& this, var FunctionFact
 					@value = expression->item(1);
 				};
 				if (!function_fact_root(target)) {
-					@summary.opaque = true;
-					return;
+					@this.scoped_array_write(@summary, target, value, @path);
+				}
+				else {
+					FactWrite write;
+					@write.target = target;
+					@write.value = @this.expression(@summary, value, @path);
+					@path.writes.push_back($write);
 				};
-				FactWrite write;
-				@write.target = target;
-				@write.value = @this.expression(@summary, value, @path);
-				@path.writes.push_back($write);
 			}
 			else if (kind != semantic_kind::noop) {
 				discard @this.expression(@summary, expression, @path);
@@ -25787,7 +26195,7 @@ fn FunctionFactSummaries::build(var FunctionFactSummaries& this, var Entity& fun
 		@paths.push_back($initial);
 		@this.walk(@*summary.get(), function.body(), @paths);
 		usize index = 0;
-		while (index < paths.size()) {
+		while (!summary.get()->opaque && index < paths.size()) {
 			FunctionFactPath& path = *paths.data()[index].get();
 			if (!(path.returned)) {
 				@this.finish(@*summary.get(), nullptr, 0, path);
@@ -27628,7 +28036,10 @@ fn InferredFacts::apply_summary(var InferredFacts& this, var SemanticExpression&
 				if (!place || place > branch.places.size()) {
 					return false;
 				};
-				FactValue value = @this.summary_value(*summary, effect.value, call, entry, 0);
+				FactValue value;
+				if (effect.kind == function_fact_effect::known_write) {
+					@value = @this.summary_value(*summary, effect.value, call, entry, 0);
+				};
 				@this.invalidate(@branch, place);
 				@value.version = version + place;
 				@((@branch.places).data()[place - 1]) = $value;
@@ -27951,8 +28362,21 @@ fn InferredFacts::refine_outcome(var InferredFacts& this, var FactState& state, 
 		};
 		if (found) {
 			@((@state.places).data()[place]).range := refined.range;
-			@((@state.places).data()[place]).origin = refined.origin;
-			@((@state.places).data()[place]).displacement = refined.displacement;
+			usize origin = refined.origin;
+			i64 displacement = refined.displacement;
+			Type* type = this.places.data()[place].root->type();
+			if (this.places.data()[place].field) {
+				@type = this.places.data()[place].field->type();
+			};
+			if (type->kind() == type_kind::reference) {
+				@type = type->element();
+			};
+			if (!origin && refined.version && refined.version != state.places.data()[place].version && type->representation()->kind().is_integer()) {
+				@origin = refined.version;
+				@displacement = 0;
+			};
+			@((@state.places).data()[place]).origin = origin;
+			@((@state.places).data()[place]).displacement = displacement;
 			@((@state.places).data()[place]).alternative = refined.alternative;
 		};
 		@place = place + 1;
@@ -32466,9 +32890,29 @@ fn ReferenceLoanAnalyzer::captures(ReferenceLoanAnalyzer& this, SemanticExpressi
 };
 
 fn ReferenceLoanAnalyzer::capture_mode(ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool {
+	if (this.capture_parent) {
+		return this.capture_parent->capture_mode(call, argument, contents);
+	};
 	var Entity* callee = call.entity();
 	if (callee) {
 		@callee = callee->canonical();
+	};
+	// The generated testing helper invokes its callback synchronously. For a known
+	// callback, propagate that function's capture effects rather than the opaque
+	// callback parameter's conservative generic effects.
+	if (callee && callee->token().source && callee->token().source->compiler_generated() && callee->token().is("register") && argument >= 2 && call.item(1)->size() > 1) {
+		var Entity* callback = reference_dispatch_callable(*call.item(1)->item(1), this.function_body, 0);
+		if (callback && callback->dispatch() == function_dispatch::ordinary && callback->body() && argument - 2 < callback->parameters().size()) {
+			usize index = 0;
+			while (index < this.captures_summary.size()) {
+				ReferenceCapture& capture = this.captures_summary.data()[index];
+				if (capture.function == callback && capture.parameter == callback->parameters().data()[argument - 2] && capture.contents == contents) {
+					return true;
+				};
+				@index = index + 1;
+			};
+			return false;
+		};
 	};
 	if (!callee || callee->dispatch() != function_dispatch::ordinary || !callee->body() && callee->definition() != function_definition::defaulted) {
 		Type* signature = call.item(0)->type();
@@ -32503,7 +32947,11 @@ fn ReferenceLoanAnalyzer::capture_mode(ReferenceLoanAnalyzer& this, SemanticExpr
 };
 
 fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, SemanticExpression& expression, var Entity& function) -> CompilationResult {
-	if (expression.kind() == semantic_kind::call && expression.size() >= 2) {
+	var ReferenceLoanAnalyzer* summary = &@this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
+	if (expression.kind() == semantic_kind::call && expression.size() >= 2 && (!this.capture_parent || @this.reachable(this.graph.entry, this.position(expression), fact_no_node(), nullptr))) {
 		Type* signature = expression.item(0)->type();
 		if (signature->kind() == type_kind::pointer) {
 			@signature = signature->element();
@@ -32539,7 +32987,7 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 							while (root < roots.size()) {
 								if (roots.data()[root].root == binding) {
 									@captured = true;
-									if (roots.data()[root].reference_contents) {
+									if (roots.data()[root].reference_contents && (contents || !reference_capture_aggregate(expression.item(1)->item(argument)->type()))) {
 										@captured_contents = true;
 									};
 								};
@@ -32549,19 +32997,19 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 								continue;
 							};
 							usize existing = 0;
-							while (existing < this.captures_summary.size()) {
-								ReferenceCapture& previous = this.captures_summary.data()[existing];
+							while (existing < summary->captures_summary.size()) {
+								ReferenceCapture& previous = summary->captures_summary.data()[existing];
 								if (previous.function == &function && previous.parameter == binding && previous.contents == captured_contents) {
 									break;
 								};
 								@existing = existing + 1;
 							};
-							if (existing == this.captures_summary.size()) {
+							if (existing == summary->captures_summary.size()) {
 								ReferenceCapture capture;
 								@capture.function = &@function;
 								@capture.parameter = binding;
 								@capture.contents = captured_contents;
-								@this.captures_summary.push_back($capture);
+								@summary->captures_summary.push_back($capture);
 							};
 						};
 					};
@@ -32579,22 +33027,127 @@ fn ReferenceLoanAnalyzer::capture_walk(var ReferenceLoanAnalyzer& this, Semantic
 	};
 };
 
+struct ReferenceCaptureContext {
+	var Entity* function;
+	rt::unique<ReferenceLoanAnalyzer> analyzer;
+	usize base_loans;
+};
+
 fn ReferenceLoanAnalyzer::prepare_captures(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	@this.capture_resolution = entity_state::resolving;
 	@this.captures_summary.clear();
-	while (true) {
-		usize previous = this.captures_summary.size();
-		usize index = 0;
-		while (index < unit.entities().size()) {
-			var Entity* function = unit.entities().data()[index].get();
-			@index = index + 1;
-			if (function->kind() == entity_kind::function && function->body() && !(@this.capture_walk(*function->body(), @*function)).has<void>()) {
+	rt::buffer<ReferenceCaptureContext> contexts;
+	usize index = 0;
+	while (index < unit.entities().size()) {
+		var Entity* function = unit.entities().data()[index].get();
+		@index = index + 1;
+		if (function->kind() != entity_kind::function || !function->body()) {
+			continue;
+		};
+		ReferenceCaptureContext context;
+		@context.function = function;
+		@context.analyzer = rt::unique<ReferenceLoanAnalyzer>(new ReferenceLoanAnalyzer(@*this.diagnostics));
+		if (!context.analyzer.get()) {
+			throw rt::allocation_error();
+		};
+		var ReferenceLoanAnalyzer& state = @*context.analyzer.get();
+		@state.capture_parent = &@this;
+		@state.function_body = function->body();
+		@state.return_type = function->type()->signature().result();
+		@state.phase = reference_loan_phase::collect;
+		usize store_function = 0;
+		while (store_function < this.store_functions.size()) {
+			@state.store_functions.push_back(this.store_functions.data()[store_function]);
+			@store_function = store_function + 1;
+		};
+		@state.build_graph(*function);
+		@state.collect(function->body());
+		usize parameter = 0;
+		while (parameter < function->parameters().size()) {
+			var Entity* formal = function->parameters().data()[parameter];
+			@parameter = parameter + 1;
+			Type* contents_type = formal->type();
+			if (contents_type->kind() == type_kind::reference) {
+				@contents_type = contents_type->element();
+			};
+			if (function->role() == function_role::constructor && parameter == 1 || !reference_loan_members(*contents_type)) {
+				continue;
+			};
+			rt::buffer<ReferenceContentRoot> roots;
+			rt::buffer<ReferenceLoanSubstitution> substitutions;
+			ReferenceSlotPath holding;
+			if (!(@state.content_sources(*contents_type, nullptr, @roots, @substitutions, function, holding, formal, 0)).has<void>()) {
 				return compilation_error();
 			};
+			usize root = 0;
+			while (root < roots.size()) {
+				ReferenceContentRoot& source = roots.data()[root];
+				ReferenceLoan loan;
+				@loan.binding = formal;
+				@loan.stored_field = source.field;
+				reference_slot_copy(source.holding, @loan.holding);
+				@loan.creation = state.graph.entry;
+				@loan.place.root = formal;
+				@loan.place.reference_contents = true;
+				@loan.permission = source.permission;
+				@state.loans.push_back($loan);
+				@root = root + 1;
+			};
+		};
+		if (!(@state.walk(function->body(), reference_loan_access::read)).has<void>() || !(@state.retain_stores(@*function->body())).has<void>() || !(@state.refresh_array_aliases()).has<void>()) {
+			return compilation_error();
+		};
+		@context.base_loans = state.loans.size();
+		@contexts.push_back($context);
+	};
+	while (true) {
+		usize previous = this.captures_summary.size();
+		@index = 0;
+		while (index < contexts.size()) {
+			ReferenceCaptureContext& context = contexts.data()[index];
+			var ReferenceLoanAnalyzer& state = @*context.analyzer.get();
+			while (state.loans.size() > context.base_loans) {
+				@state.loans.pop_back();
+			};
+			if (!(@state.capture_walk(*context.function->body(), @*context.function)).has<void>() || !(@state.retain_special_escapes()).has<void>()) {
+				return compilation_error();
+			};
+			usize loan_index = context.base_loans;
+			while (loan_index < state.loans.size()) {
+				ReferenceLoan& loan = state.loans.data()[loan_index];
+				@loan_index = loan_index + 1;
+				if (!loan.escapes.size() || !loan.place.root || !@state.reachable(state.graph.entry, usize(loan.creation), fact_no_node(), nullptr)) {
+					continue;
+				};
+				usize formal = 0;
+				while (formal < context.function->parameters().size()) {
+					var Entity* parameter = context.function->parameters().data()[formal];
+					@formal = formal + 1;
+					if (loan.place.root != parameter) {
+						continue;
+					};
+					usize existing = 0;
+					while (existing < this.captures_summary.size()) {
+						ReferenceCapture& capture = this.captures_summary.data()[existing];
+						if (capture.function == context.function && capture.parameter == parameter && capture.contents == loan.place.reference_contents) {
+							break;
+						};
+						@existing = existing + 1;
+					};
+					if (existing == this.captures_summary.size()) {
+						ReferenceCapture capture;
+						@capture.function = context.function;
+						@capture.parameter = parameter;
+						@capture.contents = loan.place.reference_contents;
+						@this.captures_summary.push_back($capture);
+					};
+				};
+			};
+			@index = index + 1;
 		};
 		if (previous == this.captures_summary.size()) {
 			@this.capture_resolution = entity_state::ready;
-			break;
+			return;
 		};
 	};
 };
@@ -32946,6 +33499,9 @@ fn reference_dispatch_owner_change(SemanticExpression& expression, Entity& targe
 
 fn ReferenceLoanAnalyzer::contextual_capture(var ReferenceLoanAnalyzer& this, SemanticExpression& call, usize argument, bool contents) -> bool {
 	var ReferenceLoanAnalyzer* summary = &@this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
 	if (summary->capture_resolution != entity_state::ready) {
 		return true;
 	};
@@ -33308,6 +33864,8 @@ struct ReferenceLoanAnalyzer {
 	rt::buffer<var Entity*> raw_functions;
 	rt::buffer<var Entity*> raw_globals;
 	rt::buffer<ReferenceUnknownContent> unknowns;
+	var ReferenceLoanAnalyzer* capture_parent;
+	var ReferenceStoreSlot* destructive_slot;
 	var SemanticExpression* function_body;
 	FactGraph graph;
 	rt::buffer<usize> pending;
@@ -34656,26 +35214,33 @@ enum reference_initialization_kind : [u08] {
 
 // Special members have implicit receivers rather than ordinary call arguments.
 fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> CompilationResult {
+	if (position != fact_no_node() && !@this.reachable(this.graph.entry, position, fact_no_node(), nullptr)) {
+		return;
+	};
+	ReferenceLoanAnalyzer* summary = &this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
 	var Entity* implementation = function.canonical();
 	if (implementation != &function) {
 		return @this.retain_effect_capture(@*implementation, owner, arguments, position, location);
 	};
 	usize index = 0;
 	bool opaque = function.definition() != function_definition::defaulted && (!function.body() || function.dispatch() != function_dispatch::ordinary);
-	usize count = this.captures_summary.size();
+	usize count = summary->captures_summary.size();
 	if (opaque) {
 		@count = count + function.parameters().size() * 2;
 	};
 	while (index < count) {
 		ReferenceCapture capture;
-		if (index < this.captures_summary.size()) {
-			ReferenceCapture& known = this.captures_summary.data()[index];
+		if (index < summary->captures_summary.size()) {
+			ReferenceCapture& known = summary->captures_summary.data()[index];
 			@capture.function = known.function;
 			@capture.parameter = known.parameter;
 			@capture.contents = known.contents;
 		}
 		else {
-			usize offset = index - this.captures_summary.size();
+			usize offset = index - summary->captures_summary.size();
 			@capture.function = &@function;
 			@capture.parameter = function.parameters().data()[offset / 2];
 			@capture.contents = offset % 2 == 1;
@@ -34703,6 +35268,22 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 				while (loan_index < this.loans.size()) {
 					ReferenceLoan& loan = this.loans.data()[loan_index];
 					if (loan.binding == owner && loan.stored_field) {
+						if (function.role() == function_role::destructor) {
+							usize definition = @this.loan_definition(loan);
+							if (definition == position || definition != fact_no_node() && (!@this.reachable(this.graph.entry, definition, fact_no_node(), nullptr) || !@this.loan_store_path(definition, position, loan, definition))) {
+								@loan_index = loan_index + 1;
+								continue;
+							};
+							ReferenceSlotPath holding;
+							reference_slot_copy(loan.holding, @holding);
+							if (!holding.size && !reference_slot_field(@holding, loan.stored_field).has<void>()) {
+								return @this.error(location, "reference holding projection exceeds the analysis depth limit");
+							};
+							if (this.destructive_slot && !reference_slot_overlap(holding, this.destructive_slot->path)) {
+								@loan_index = loan_index + 1;
+								continue;
+							};
+						};
 						ReferenceLoanPlace target;
 						@target.root = loan.place.root;
 						@target.reference_contents = loan.place.reference_contents;
@@ -34714,6 +35295,9 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 				};
 			}
 			else {
+				if (function.role() == function_role::destructor && this.destructive_slot) {
+					return @this.error(location, "destructor receiver capture outlives the replaced object");
+				};
 				if (function.role() == function_role::constructor && (owner->kind() == entity_kind::local || owner->kind() == entity_kind::parameter)) {
 					discard @this.error(location, "constructor reference capture may outlive local storage");
 					if (opaque) {
@@ -34757,6 +35341,21 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 	while (index < this.expressions.size()) {
 		var SemanticExpression* expression = this.expressions.data()[index];
 		@index = index + 1;
+		if (expression->kind() == semantic_kind::call && expression->entity() && expression->size() > 1) {
+			Entity* assignment = expression->entity()->canonical();
+			if (assignment->role() == function_role::assignment && assignment->definition() == function_definition::defaulted && assignment->parameters().size() == 2 && assignment->parameters().data()[1]->type()->kind() != type_kind::reference && expression->item(1)->size() == 2 && @this.reachable(this.graph.entry, this.position(*expression), fact_no_node(), nullptr)) {
+				rt::buffer<ReferenceStoreBinding> bindings;
+				var destination = this.store_slot(*expression->item(1)->item(0), bindings, nullptr, 0);
+				if (destination.root) {
+					@this.destructive_slot = &@destination;
+					bool retained = (@this.retain_destructor_captures(expression->item(1)->item(0)->type(), destination.root, this.position(*expression), *expression, 0)).has<void>();
+					@this.destructive_slot = nullptr;
+					if (!retained) {
+						return compilation_error();
+					};
+				};
+			};
+		};
 		var SemanticExpression* construction = expression;
 		var Entity* owner = nullptr;
 		if (expression->kind() == semantic_kind::variable && expression->size()) {
@@ -34828,6 +35427,10 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 // copy_members. Generated relocation transfers representation without invoking
 // member constructors; a custom constructor initializes its members normally.
 fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> CompilationResult {
+	ReferenceLoanAnalyzer* summary = &this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
 	if (depth > 32) {
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
@@ -34916,8 +35519,8 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 					return @this.error(location, "implicit constructor capture provenance is unavailable");
 				};
 				usize capture_index = 0;
-				while (!arguments && capture_index < this.captures_summary.size()) {
-					ReferenceCapture& capture = this.captures_summary.data()[capture_index];
+				while (!arguments && capture_index < summary->captures_summary.size()) {
+					ReferenceCapture& capture = summary->captures_summary.data()[capture_index];
 					if (capture.function == constructor && constructor->parameters().size() && capture.parameter != constructor->parameters().data()[0]) {
 						return @this.error(location, "implicit constructor capture provenance is unavailable");
 					};
@@ -35207,7 +35810,8 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 						@effect.referent.through = targets.data()[target].through;
 						@effect.referent.element = targets.data()[target].element;
 						@effect.permission = reference_loan_permission(*field->type(), 0);
-						@effect.definite = required && !fact_cleanup_effects(arguments->item(0)->type(), 0);
+						bool modeled_destructive = event == &@expression && callee->parameters().size() == 2 && callee->parameters().data()[1]->type()->kind() != type_kind::reference;
+						@effect.definite = required && (!fact_cleanup_effects(arguments->item(0)->type(), 0) || modeled_destructive);
 						usize existing = 0;
 						while (existing < this.stores.size()) {
 							ReferenceStoreEffect& previous = this.stores.data()[existing];
@@ -36457,7 +37061,7 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 				};
 			};
 
-			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type()->signature().matches(entity->type()->signature()) && (same_source_module(previous->token().source, entity->token().source) || previous->declaration()->function_body()->kind() == syntax_kind::noop && source->function_body()->kind() == syntax_kind::noop)) {
+			if (previous->kind() == entity_kind::function && previous->name() == entity->name() && previous->type()->signature().matches(entity->type()->signature()) && same_source_module(previous->token().source, entity->token().source)) {
 				if (previous->nonthrowing() != entity->nonthrowing()) {
 					@this.error(source, "function redeclaration has an incompatible exception specification");
 					@this.diagnostics->note(previous->token(), "previous declaration is here");
@@ -41515,7 +42119,10 @@ fn SemanticUnit::describe_expression(var SemanticUnit& this, var Analyzer& analy
 		TypeUse* child = this.available_use(*expression.item(0));
 
 		if (child) {
-			@use = @this.indirect_use(*expression.type(), *child);
+			@child = @this.retype_use(*child, *expression.type()->element());
+			if (child) {
+				@use = @this.indirect_use(*expression.type(), *child);
+			};
 		};
 	}
 	else if (kind == semantic_kind::access || kind == semantic_kind::relocation || kind == semantic_kind::cast) {

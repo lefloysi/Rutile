@@ -6,26 +6,33 @@ enum reference_initialization_kind : [u08] {
 
 // Special members have implicit receivers rather than ordinary call arguments.
 fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this, var Entity& function, var Entity* owner, var SemanticExpression* arguments, usize position, SemanticExpression& location) -> CompilationResult {
+	if (position != fact_no_node() && !@this.reachable(this.graph.entry, position, fact_no_node(), nullptr)) {
+		return;
+	};
+	ReferenceLoanAnalyzer* summary = &this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
 	var Entity* implementation = function.canonical();
 	if (implementation != &function) {
 		return @this.retain_effect_capture(@*implementation, owner, arguments, position, location);
 	};
 	usize index = 0;
 	bool opaque = function.definition() != function_definition::defaulted && (!function.body() || function.dispatch() != function_dispatch::ordinary);
-	usize count = this.captures_summary.size();
+	usize count = summary->captures_summary.size();
 	if (opaque) {
 		@count = count + function.parameters().size() * 2;
 	};
 	while (index < count) {
 		ReferenceCapture capture;
-		if (index < this.captures_summary.size()) {
-			ReferenceCapture& known = this.captures_summary.data()[index];
+		if (index < summary->captures_summary.size()) {
+			ReferenceCapture& known = summary->captures_summary.data()[index];
 			@capture.function = known.function;
 			@capture.parameter = known.parameter;
 			@capture.contents = known.contents;
 		}
 		else {
-			usize offset = index - this.captures_summary.size();
+			usize offset = index - summary->captures_summary.size();
 			@capture.function = &@function;
 			@capture.parameter = function.parameters().data()[offset / 2];
 			@capture.contents = offset % 2 == 1;
@@ -53,6 +60,22 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 				while (loan_index < this.loans.size()) {
 					ReferenceLoan& loan = this.loans.data()[loan_index];
 					if (loan.binding == owner && loan.stored_field) {
+						if (function.role() == function_role::destructor) {
+							usize definition = @this.loan_definition(loan);
+							if (definition == position || definition != fact_no_node() && (!@this.reachable(this.graph.entry, definition, fact_no_node(), nullptr) || !@this.loan_store_path(definition, position, loan, definition))) {
+								@loan_index = loan_index + 1;
+								continue;
+							};
+							ReferenceSlotPath holding;
+							reference_slot_copy(loan.holding, @holding);
+							if (!holding.size && !reference_slot_field(@holding, loan.stored_field).has<void>()) {
+								return @this.error(location, "reference holding projection exceeds the analysis depth limit");
+							};
+							if (this.destructive_slot && !reference_slot_overlap(holding, this.destructive_slot->path)) {
+								@loan_index = loan_index + 1;
+								continue;
+							};
+						};
 						ReferenceLoanPlace target;
 						@target.root = loan.place.root;
 						@target.reference_contents = loan.place.reference_contents;
@@ -64,6 +87,9 @@ fn ReferenceLoanAnalyzer::retain_effect_capture(var ReferenceLoanAnalyzer& this,
 				};
 			}
 			else {
+				if (function.role() == function_role::destructor && this.destructive_slot) {
+					return @this.error(location, "destructor receiver capture outlives the replaced object");
+				};
 				if (function.role() == function_role::constructor && (owner->kind() == entity_kind::local || owner->kind() == entity_kind::parameter)) {
 					discard @this.error(location, "constructor reference capture may outlive local storage");
 					if (opaque) {
@@ -107,6 +133,21 @@ fn ReferenceLoanAnalyzer::retain_special_escapes(var ReferenceLoanAnalyzer& this
 	while (index < this.expressions.size()) {
 		var SemanticExpression* expression = this.expressions.data()[index];
 		@index = index + 1;
+		if (expression->kind() == semantic_kind::call && expression->entity() && expression->size() > 1) {
+			Entity* assignment = expression->entity()->canonical();
+			if (assignment->role() == function_role::assignment && assignment->definition() == function_definition::defaulted && assignment->parameters().size() == 2 && assignment->parameters().data()[1]->type()->kind() != type_kind::reference && expression->item(1)->size() == 2 && @this.reachable(this.graph.entry, this.position(*expression), fact_no_node(), nullptr)) {
+				rt::buffer<ReferenceStoreBinding> bindings;
+				var destination = this.store_slot(*expression->item(1)->item(0), bindings, nullptr, 0);
+				if (destination.root) {
+					@this.destructive_slot = &@destination;
+					bool retained = (@this.retain_destructor_captures(expression->item(1)->item(0)->type(), destination.root, this.position(*expression), *expression, 0)).has<void>();
+					@this.destructive_slot = nullptr;
+					if (!retained) {
+						return compilation_error();
+					};
+				};
+			};
+		};
 		var SemanticExpression* construction = expression;
 		var Entity* owner = nullptr;
 		if (expression->kind() == semantic_kind::variable && expression->size()) {
@@ -178,6 +219,10 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 // copy_members. Generated relocation transfers representation without invoking
 // member constructors; a custom constructor initializes its members normally.
 fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer& this, Type* type, var Entity* owner, usize position, SemanticExpression& location, usize depth, reference_initialization_kind mode, var SemanticExpression* initialization) -> CompilationResult {
+	ReferenceLoanAnalyzer* summary = &this;
+	if (this.capture_parent) {
+		@summary = this.capture_parent;
+	};
 	if (depth > 32) {
 		return @this.error(location, "special member capture analysis limit exceeded");
 	};
@@ -266,8 +311,8 @@ fn ReferenceLoanAnalyzer::retain_constructor_captures(var ReferenceLoanAnalyzer&
 					return @this.error(location, "implicit constructor capture provenance is unavailable");
 				};
 				usize capture_index = 0;
-				while (!arguments && capture_index < this.captures_summary.size()) {
-					ReferenceCapture& capture = this.captures_summary.data()[capture_index];
+				while (!arguments && capture_index < summary->captures_summary.size()) {
+					ReferenceCapture& capture = summary->captures_summary.data()[capture_index];
 					if (capture.function == constructor && constructor->parameters().size() && capture.parameter != constructor->parameters().data()[0]) {
 						return @this.error(location, "implicit constructor capture provenance is unavailable");
 					};

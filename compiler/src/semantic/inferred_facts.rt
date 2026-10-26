@@ -997,7 +997,10 @@ fn InferredFacts::apply_summary(var InferredFacts& this, var SemanticExpression&
 				if (!place || place > branch.places.size()) {
 					return false;
 				};
-				FactValue value = @this.summary_value(*summary, effect.value, call, entry, 0);
+				FactValue value;
+				if (effect.kind == function_fact_effect::known_write) {
+					@value = @this.summary_value(*summary, effect.value, call, entry, 0);
+				};
 				@this.invalidate(@branch, place);
 				@value.version = version + place;
 				@((@branch.places).data()[place - 1]) = $value;
@@ -1320,8 +1323,21 @@ fn InferredFacts::refine_outcome(var InferredFacts& this, var FactState& state, 
 		};
 		if (found) {
 			@((@state.places).data()[place]).range := refined.range;
-			@((@state.places).data()[place]).origin = refined.origin;
-			@((@state.places).data()[place]).displacement = refined.displacement;
+			usize origin = refined.origin;
+			i64 displacement = refined.displacement;
+			Type* type = this.places.data()[place].root->type();
+			if (this.places.data()[place].field) {
+				@type = this.places.data()[place].field->type();
+			};
+			if (type->kind() == type_kind::reference) {
+				@type = type->element();
+			};
+			if (!origin && refined.version && refined.version != state.places.data()[place].version && type->representation()->kind().is_integer()) {
+				@origin = refined.version;
+				@displacement = 0;
+			};
+			@((@state.places).data()[place]).origin = origin;
+			@((@state.places).data()[place]).displacement = displacement;
 			@((@state.places).data()[place]).alternative = refined.alternative;
 		};
 		@place = place + 1;

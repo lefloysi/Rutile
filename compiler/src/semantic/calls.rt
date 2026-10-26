@@ -1,3 +1,19 @@
+fn Analyzer::zero_initialize(var Analyzer& this, var Syntax& syntax, Type* type) -> rt::unique<SemanticExpression> {
+	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
+		@this.error(&@syntax, "zero initialization requires an object type");
+		return rt::unique<SemanticExpression>();
+	};
+	if (type->kind() == type_kind::named && !(@this.resolve(type->entity())).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var result = @this.node(semantic_kind::construction, type, &@syntax);
+	var arguments = @this.node(semantic_kind::brace, this.types->find_primitive("void"), &@syntax);
+	if (!result.get() || !arguments.get() || !(@result.get()->append($arguments)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};
+
 fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax, Type* type, var Syntax& arguments) -> rt::unique<SemanticExpression> {
 	if (!type || type->kind() == type_kind::void_type || type->kind() == type_kind::null_type || type->kind() == type_kind::function || type->kind() == type_kind::reference) {
 		if (this.failed()) {
@@ -18,10 +34,19 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (arguments.size() == 1 && arguments.item(0)->kind() == syntax_kind::brace && !arguments.item(0)->size()) {
+		return @this.zero_initialize(@*arguments.item(0), type);
+	};
 	rt::buffer<rt::unique<SemanticExpression>> raw;
 	usize index = 0;
 	while (index < arguments.size()) {
-		var value = @this.expression(@scope, @*arguments.item(index), rt::optional_ref<const Type>());
+		var value = rt::unique<SemanticExpression>();
+		if (arguments.item(index)->kind() == syntax_kind::brace) {
+			@value = @this.node(semantic_kind::deferred_argument, this.types->find_primitive("void"), arguments.item(index));
+		}
+		else {
+			@value = @this.expression(@scope, @*arguments.item(index), rt::optional_ref<const Type>());
+		};
 
 		if (!value.get()) {
 			return rt::unique<SemanticExpression>();
@@ -30,6 +55,32 @@ fn Analyzer::construct(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 		@raw.push_back($value);
 
 		@index = index + 1;
+	};
+	if (type->kind() == type_kind::named && type->entity()->kind() == entity_kind::record) {
+		if (!(@this.resolve(type->entity())).has<void>()) {
+			return rt::unique<SemanticExpression>();
+		};
+		var Entity* group = type->entity()->members()->local(type->entity()->name());
+		@index = 0;
+		while (index < raw.size()) {
+			if (raw.data()[index].get()->kind() == semantic_kind::deferred_argument) {
+				var Entity* selected = nullptr;
+				if (group) {
+					@selected = @this.select(group, raw, 1, conversion_mode::explicit_only, @syntax);
+				};
+				if (!selected || !selected->type_use().has_value()) {
+					@this.error(arguments.item(index), "constructor argument block requires a named parameter");
+					return rt::unique<SemanticExpression>();
+				};
+				ParameterUse& parameter = selected->type_use().value().callable().parameters().data()[index + 1];
+				var value = @this.contextual_argument(@scope, @*arguments.item(index), parameter.type(), parameter.name());
+				if (!value.get()) {
+					return rt::unique<SemanticExpression>();
+				};
+				@(@raw).data()[index] = $value;
+			};
+			@index = index + 1;
+		};
 	};
 
 	return @this.construct_values(@syntax, type, $raw);
@@ -196,6 +247,9 @@ fn Analyzer::construct_values(var Analyzer& this, var Syntax& syntax, Type* type
 fn Analyzer::initialize(var Analyzer& this, var Syntax& syntax, Type* type, rt::unique<SemanticExpression> value) -> rt::unique<SemanticExpression> {
 	if (!type) {
 		return $value;
+	};
+	if (syntax.kind() == syntax_kind::variable && syntax.variable_initializer()->kind() == syntax_kind::brace && !syntax.variable_initializer()->size()) {
+		return @this.zero_initialize(@*syntax.variable_initializer(), type);
 	};
 
 	bool explicit_copy = syntax.kind() == syntax_kind::variable && syntax.variable_initializer()->kind() == syntax_kind::unary && syntax.variable_initializer()->token().kind == token_kind::op_copy;

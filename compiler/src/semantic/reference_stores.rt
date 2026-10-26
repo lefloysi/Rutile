@@ -269,7 +269,8 @@ fn ReferenceLoanAnalyzer::store_expression(var ReferenceLoanAnalyzer& this, var 
 						@effect.referent.through = targets.data()[target].through;
 						@effect.referent.element = targets.data()[target].element;
 						@effect.permission = reference_loan_permission(*field->type(), 0);
-						@effect.definite = required && !fact_cleanup_effects(arguments->item(0)->type(), 0);
+						bool modeled_destructive = event == &@expression && callee->parameters().size() == 2 && callee->parameters().data()[1]->type()->kind() != type_kind::reference;
+						@effect.definite = required && (!fact_cleanup_effects(arguments->item(0)->type(), 0) || modeled_destructive);
 						usize existing = 0;
 						while (existing < this.stores.size()) {
 							ReferenceStoreEffect& previous = this.stores.data()[existing];
