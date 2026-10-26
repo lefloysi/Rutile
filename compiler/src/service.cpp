@@ -733,6 +733,7 @@ int rutile_service_serve(const char* endpoint) {
 	auto update_artifact_revision = [](RutileServiceWatch& watch, const nlohmann::json& result) {
 		if (result.value("source_revision", std::size_t{}) == watch.source_revision) {
 			if (result.value("succeeded", false)) {
+				watch.build_requested = true;
 				watch.artifact_revision = result.value("artifact_revision", watch.source_revision);
 				watch.compile_failed = false;
 				watch.last_result = result;
@@ -797,13 +798,13 @@ int rutile_service_serve(const char* endpoint) {
 		auto now = std::chrono::steady_clock::now();
 		for (auto& entry : watches) {
 			auto& watch = entry.second;
-			if (!watch.build_requested) {
-				continue;
-			}
 			if (watch.active_job && watch.active_job->result.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 				auto result = watch.active_job->result.get();
 				update_artifact_revision(watch, result);
 				watch.active_job.reset();
+			}
+			if (!watch.build_requested) {
+				continue;
 			}
 			if (watch.initial_pending && watch.active_job) {
 				continue;

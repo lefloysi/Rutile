@@ -1,5 +1,10 @@
 fn configure_native(var kiln::Target& target, kiln::Options& options) {
-	var version_file = kiln::read_file(rt::string(options.path()) + "/VERSION");
+	var version_result = kiln::read_file(rt::string(options.path()) + "/VERSION");
+	if (!version_result.has<rt::string>()) {
+		kiln::error("Cannot read VERSION.");
+		return;
+	};
+	rt::string version_file = version_result.get<rt::string>();
 	var version = version_file.trim();
 	if (version.empty() || version.size() >= 64) {
 		kiln::error("VERSION must contain a nonempty version shorter than 64 bytes.");

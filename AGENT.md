@@ -26,6 +26,13 @@ or file. Where conventions vary, follow the surrounding code and the relevant AP
   For example, feedback about an uninformative status message means commands should report useful
   information about the user's work, rather than merely confirming an internal process exists.
 
+## Error handling
+
+Expected failures such as missing files, denied access, invalid input, and rejected configuration
+must be returned as explicit results or status codes. Inspect and propagate those results at call
+sites; do not convert them into exceptions or use try/catch as ordinary control flow. Reserve
+exceptions for compiler failures.
+
 ## Language design decisions
 
 - Ask the user before introducing language features or semantics that have not been specified.

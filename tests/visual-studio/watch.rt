@@ -1,5 +1,5 @@
 [[test]]
-fn configured_analysis_stays_idle_and_explicit_tests_import_mixed_library_interfaces() {
+fn configured_analysis_stays_idle_and_compiled_tests_rebuild_in_background() {
 	var result = editor_observation("WatchDependencies");
 	rt::test::expect(!result.exit_code);
 	var document = rt::json_parse(result.output);
@@ -24,6 +24,17 @@ fn configured_analysis_stays_idle_and_explicit_tests_import_mixed_library_interf
 		rt::test::expect(!edited_sessions->item(index)->member("compiling")->boolean());
 	};
 	var watch = root->member("watch");
+	var before_background = root->member("before_background");
+	i64 before_background_revision = -1;
+	i64 after_background_revision = -1;
+	i64 before_background_compilations = -1;
+	i64 after_background_compilations = -1;
+	@before_background_revision = before_background->member("source_revision")->integer();
+	@after_background_revision = watch->member("source_revision")->integer();
+	@before_background_compilations = root->member("before_background_compilations")->integer();
+	@after_background_compilations = root->member("after_background_compilations")->integer();
+	rt::test::expect(after_background_revision > before_background_revision);
+	rt::test::expect(after_background_compilations > before_background_compilations);
 	i64 current_test_sessions = 0;
 	@current_test_sessions = root->member("current_test_sessions")->integer();
 	rt::test::expect(current_test_sessions == 1);
