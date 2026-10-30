@@ -276,11 +276,12 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 	if (expression->kind() == semantic_kind::allocation && !(@this.prepare_lifetime(expression->type())).has<void>()) {
 		return compilation_error();
 	};
-	if (expression->kind() == semantic_kind::construction) {
+	if (expression->kind() == semantic_kind::construction || expression->kind() == semantic_kind::call) {
 		if (!(@this.prepare_lifetime(expression->type())).has<void>()) {
 			return compilation_error();
 		};
-
+	};
+	if (expression->kind() == semantic_kind::construction) {
 		if (!selected && expression->type()->kind() == type_kind::named && expression->type()->entity()->layout() != record_layout::overlapping) {
 			rt::buffer<var Entity*>& fields = expression->type()->entity()->fields();
 			usize field = expression->item(0)->size();

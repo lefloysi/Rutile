@@ -130,7 +130,17 @@ extern "C" int kiln_project_sources(const char* root, int (*add)(void*, const ch
 					continue;
 				}
 				const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-				for (const auto& record : rutile_interface_sources(bytes, kind == 4)) {
+				nlohmann::json records;
+				try {
+					records = rutile_interface_sources(bytes, kind == 4);
+				}
+				catch (const std::exception& error) {
+					if (diagnostic) {
+						diagnostic(context, ("Could not load interface '" + path + "': " + error.what()).c_str());
+					}
+					continue;
+				}
+				for (const auto& record : records) {
 					const auto owner = record.at("module").get<std::string>();
 					const auto original = record.at("path").get<std::string>();
 					const auto access = record.at("access").get<int>();
@@ -158,9 +168,9 @@ extern "C" int kiln_project_sources(const char* root, int (*add)(void*, const ch
 			}
 		}
 	}
-	catch (const std::exception&) {
+	catch (const std::exception& error) {
 		if (diagnostic) {
-			diagnostic(context, "Kiln returned malformed project source data.");
+			diagnostic(context, (std::string("Could not load Kiln project sources: ") + error.what()).c_str());
 		}
 		return 0;
 	}

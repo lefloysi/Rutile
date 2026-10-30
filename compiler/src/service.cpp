@@ -207,7 +207,7 @@ int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, con
 			throw std::runtime_error("An executable requires an explicit qualified entry function.");
 		}
 		source_paths.push_back("<rutile-runtime-entry>");
-		source_texts.push_back("fn __rutile_runtime_main(i32 count, char** arguments) -> i32 { try { var views = rt::buffer<rt::string_view>(); usize index = 1; while (index < static_cast<usize>(count)) { @views.push_back(rt::from_c_string(arguments[index])); @index = index + 1; }; rt::ExitCode result = " + entry + "(rt::span<rt::string_view>(views.data(), views.size())); return static_cast<i32>(result); } catch (rt::allocation_error& error) { return 1; }; };\n");
+		source_texts.push_back("fn __rutile_runtime_main(i32 count, char** arguments) -> i32 { return rt::runtime::run(count, arguments, &" + entry + "); };\n");
 		source_lengths.push_back(source_texts.back().size());
 	}
 	std::vector<const char*> paths;

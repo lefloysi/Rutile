@@ -1,3 +1,5 @@
+fn rutile_runtime_report_error(char* bytes, usize size);
+
 namespace rt {
 	export enum byte : [u08] {
 	};
@@ -37,8 +39,47 @@ namespace rt {
 		return grown;
 	};
 
-	export enum ExitCode : [i32] {
-		success;
-		failure;
+};
+
+namespace rt::runtime {
+	export struct error : [rt::error] {
+		fn error(var error& this) : [default];
+		fn error(var error& this, rt::string_view message);
+		fn description(error& this) -> rt::string_view : [override];
+		rt::string message;
+	};
+
+	export fn error::error(var error& this, rt::string_view message) {
+		@this.message = rt::string(message);
+	};
+
+	export fn error::description(error& this) -> rt::string_view {
+		return this.message.view();
+	};
+
+	export using result = void | error;
+	export using entry = ((rt::span<rt::string_view>) -> result)*;
+
+	fn report_error(rt::string_view description) -> i32 {
+		rutile_runtime_report_error(description.data(), description.size());
+		return 1;
+	};
+
+	export fn run(i32 count, char** arguments, entry application) -> i32 {
+		try {
+			var views = rt::buffer<rt::string_view>();
+			for (i32 index = 1; index < count; @index = index + 1) {
+				@views.push_back(rt::from_c_string(arguments[index]));
+			};
+			var argument_views = rt::span<rt::string_view>(views.data(), views.size());
+			application(argument_views);
+			return 0;
+		}
+		catch (rt::error& failure) {
+			return report_error(failure.description());
+		}
+		catch (...) {
+			return report_error("Unhandled non-standard exception.");
+		};
 	};
 };
