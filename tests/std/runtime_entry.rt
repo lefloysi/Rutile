@@ -1,0 +1,14 @@
+fn successful_entry(rt::span<rt::string_view> arguments) -> void | rt::error {
+	return;
+};
+
+fn failing_entry(rt::span<rt::string_view> arguments) -> void | rt::error {
+	return rt::error("entry failed");
+};
+
+[[test]]
+fn runtime_accepts_void_or_error_entries() {
+	var arguments = rt::buffer<char*>();
+	rt::test::expect(rt::runtime::run(0, arguments.data(), &successful_entry) == 0);
+	rt::test::expect(rt::runtime::run(0, arguments.data(), &failing_entry) == 1);
+};
