@@ -3,11 +3,22 @@ namespace rt {
 	};
 
 	export struct error {
+		fn error(var error& this) : [default];
+		fn error(var error& this, string_view message);
 		fn description(error& this) -> string_view : [virtual];
+	private:
+		string _message;
+	};
+
+	export fn error::error(var error& this, string_view message) {
+		@this._message = string(message);
 	};
 
 	export fn error::description(error& this) -> string_view {
-		return "Runtime error.";
+		if (this._message.empty()) {
+			return "Runtime error.";
+		};
+		return this._message.view();
 	};
 
 	export enum allocation_kind : [u08] {
