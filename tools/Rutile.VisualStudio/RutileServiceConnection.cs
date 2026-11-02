@@ -33,32 +33,50 @@ namespace Rutile.VisualStudio {
 		}
 
 		public static async Task<RutileServiceConnection> ConnectAsync(string root, CancellationToken token, Func<RutileServiceConnection, Task> onDisconnected, Action<string> log) {
+			return await ConnectAsync(root, token, onDisconnected, log, RutileProjectEnvironment.ConfigureAsync).ConfigureAwait(false);
+		}
+
+		internal static async Task<RutileServiceConnection> ConnectAsync(string root, CancellationToken token, Func<RutileServiceConnection, Task> onDisconnected, Action<string> log, Func<string, CancellationToken, Action<string>, Task> configure) {
 			var endpoint = Endpoint(root);
+			var existing = await TryConnectAsync(root, endpoint, 250, token, onDisconnected, log).ConfigureAwait(false);
+			if (existing != null) {
+				return existing;
+			}
+			await configure(root, token, log).ConfigureAwait(false);
 			var deadline = DateTime.UtcNow.AddSeconds(30);
 			while (DateTime.UtcNow < deadline) {
 				token.ThrowIfCancellationRequested();
-				const string prefix = @"\\.\pipe\";
-				if (!endpoint.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || endpoint.Length == prefix.Length) {
-					throw new IOException("Rutilec published an invalid Visual Studio language connection endpoint.");
-				}
-
-				var pipe = new NamedPipeClientStream(".", endpoint.Substring(prefix.Length), PipeDirection.InOut, PipeOptions.Asynchronous);
-				try {
-					await Task.Run(() => pipe.Connect(1000), token).ConfigureAwait(false);
-					return new RutileServiceConnection(root, pipe, token, onDisconnected, log);
-				}
-				catch (TimeoutException) {
-					pipe.Dispose();
-				}
-				catch (IOException) {
-					pipe.Dispose();
-				}
-				catch {
-					pipe.Dispose();
-					throw;
+				var connection = await TryConnectAsync(root, endpoint, 1000, token, onDisconnected, log).ConfigureAwait(false);
+				if (connection != null) {
+					return connection;
 				}
 			}
-			throw new TimeoutException("Rutilec did not accept the Visual Studio language connection within 30 seconds.");
+			throw new TimeoutException("Rutilec did not accept the Visual Studio language connection within 30 seconds after project configuration.");
+		}
+
+		private static async Task<RutileServiceConnection?> TryConnectAsync(string root, string endpoint, int timeout, CancellationToken token, Func<RutileServiceConnection, Task> onDisconnected, Action<string> log) {
+			token.ThrowIfCancellationRequested();
+			const string prefix = @"\\.\pipe\";
+			if (!endpoint.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || endpoint.Length == prefix.Length) {
+				throw new IOException("Rutilec published an invalid Visual Studio language connection endpoint.");
+			}
+
+			var pipe = new NamedPipeClientStream(".", endpoint.Substring(prefix.Length), PipeDirection.InOut, PipeOptions.Asynchronous);
+			try {
+				await pipe.ConnectAsync(timeout, token).ConfigureAwait(false);
+				return new RutileServiceConnection(root, pipe, token, onDisconnected, log);
+			}
+			catch (TimeoutException) {
+				pipe.Dispose();
+			}
+			catch (IOException) {
+				pipe.Dispose();
+			}
+			catch {
+				pipe.Dispose();
+				throw;
+			}
+			return null;
 		}
 
 		private static string Endpoint(string root) {

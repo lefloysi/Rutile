@@ -59,9 +59,11 @@ fi
 
 msbuild_win="$(cygpath -w "$msbuild")"
 project_win="$(cygpath -w "$script_dir/Rutile.VisualStudio.csproj")"
-MSYS2_ARG_CONV_EXCL='*' "$msbuild_win" "$project_win" /restore /p:NuGetAudit=false /p:RestoreIgnoreFailedSources=true '/t:Build;CreateVsixContainer' "/p:Configuration=$configuration" /p:DeployExtension=false
-
 vsix="$script_dir/bin/$configuration/Rutile.VisualStudio.vsix"
+mkdir -p -- "$(dirname -- "$vsix")"
+rm -f -- "$vsix"
+vsix_win="$(cygpath -w "$vsix")"
+MSYS2_ARG_CONV_EXCL='*' "$msbuild_win" "$project_win" /restore /p:NuGetAudit=false /p:RestoreIgnoreFailedSources=true '/t:Build;CreateVsixContainer' "/p:Configuration=$configuration" "/p:TargetVsixContainer=$vsix_win" /p:DeployExtension=false
 if [[ ! -f "$vsix" ]]; then
 	printf 'The Visual Studio SDK did not produce %s\n' "$vsix" >&2
 	exit 1

@@ -482,6 +482,9 @@ fn fact_affine(var FactValue& result, FactValue& base, u64 amount, bool subtract
 struct InferredFacts {
 	fn InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics);
 	fn validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult;
+	fn prepare(var InferredFacts& this, SemanticUnit& unit);
+	fn validate_function(var InferredFacts& this, var Entity& function) -> CompilationResult;
+	fn finish_contexts(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult;
 	fn analyze(var InferredFacts& this, var SemanticExpression* body) -> CompilationResult;
 	fn place(var InferredFacts& this, SemanticExpression* expression) -> usize;
 	fn transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version);
@@ -1941,19 +1944,32 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	};
 };
 
-fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+fn InferredFacts::prepare(var InferredFacts& this, SemanticUnit& unit) {
 	@this.summaries.validate(unit);
-	usize index = 0;
 	@this.context_requests.clear();
+};
+
+fn InferredFacts::validate_function(var InferredFacts& this, var Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	@this.analyzed_function = &@function;
+	return @this.analyze(function.body());
+};
+
+fn InferredFacts::finish_contexts(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+	return fact_build_contexts(@this, @unit.mutable_fact_contexts());
+};
+
+fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+	@this.prepare(unit);
+	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
-		if (entity->kind() == entity_kind::function && entity->body()) {
-			@this.analyzed_function = entity;
-			if (!(@this.analyze(entity->body())).has<void>()) {
-				return compilation_error();
-			};
+		if (!(@this.validate_function(@*entity)).has<void>()) {
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return fact_build_contexts(@this, @unit.mutable_fact_contexts());
+	return @this.finish_contexts(@unit);
 };

@@ -71,23 +71,8 @@ namespace kiln {
 		};
 	};
 
-	fn read_file(rt::string_view path) -> rt::string {
-		try {
-			rt::string contents = rt::fs::read(path);
-			return $contents;
-		}
-		catch (rt::fs::file_not_found_error failure) {
-			error(rt::string("File not found: ") + path);
-		}
-		catch (rt::fs::permission_denied_error failure) {
-			error(rt::string("Permission denied reading file: ") + path);
-		}
-		catch (rt::fs::file_io_error failure) {
-			error(rt::string("Cannot read file: ") + path);
-		};
-		configuration_error failure;
-		@failure.message = "Could not read the configuration file.";
-		throw $failure;
+	fn read_file(rt::string_view path) -> rt::string | rt::fs::file_not_found_error | rt::fs::permission_denied_error | rt::fs::file_io_error | rt::allocation_error {
+		return rt::fs::read(path);
 	};
 
 	fn profile(rt::string_view name, i32 optimization) -> void | configuration_error {

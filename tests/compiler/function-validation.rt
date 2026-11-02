@@ -1,0 +1,97 @@
+struct FunctionValidationFixture {
+	SourceFile source;
+	TypeStore types;
+	Diagnostics diagnostics;
+	rt::buffer<rt::unique<Syntax>> syntax;
+	rt::unique<SemanticUnit> unit;
+
+	fn FunctionValidationFixture(var FunctionValidationFixture& this, rt::string_view text);
+	fn function(FunctionValidationFixture& this, rt::string_view name) -> var Entity*;
+};
+
+fn FunctionValidationFixture::FunctionValidationFixture(var FunctionValidationFixture& this, rt::string_view text) {
+	@this.source.assign("function-validation.rt", text);
+	var lexer = Lexer(@this.source);
+	rt::test::expect((@lexer.scan()).has<void>());
+	var parser = Parser(this.source.tokens());
+	var parsed = @parser.parse();
+	rt::test::expect(parsed.has<rt::unique<Syntax>>());
+	var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+	@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
+	var analyzer = Analyzer(@this.types, @this.diagnostics, 64);
+	@this.unit = @analyzer.analyze(this.syntax);
+	rt::test::expect(this.unit.get());
+	rt::test::expect(!this.diagnostics.failed());
+};
+
+fn FunctionValidationFixture::function(FunctionValidationFixture& this, rt::string_view name) -> var Entity* {
+	usize index = 0;
+	while (index < this.unit.get()->entities().size()) {
+		var Entity* entity = this.unit.get()->entities().data()[index].get();
+		if (entity->kind() == entity_kind::function && entity->name() == name) {
+			return entity;
+		};
+		@index = index + 1;
+	};
+	rt::test::expect(false);
+	return nullptr;
+};
+
+fn expect_same_function_diagnostics(Diagnostics& selected, Diagnostics& complete) {
+	rt::test::expect(selected.failed());
+	rt::test::expect(selected.records().size() == complete.records().size());
+	usize index = 0;
+	while (index < selected.records().size()) {
+		DiagnosticRecord& first = selected.records().data()[index];
+		DiagnosticRecord& second = complete.records().data()[index];
+		rt::test::expect(first.message.view() == second.message.view());
+		rt::test::expect(first.location.begin == second.location.begin);
+		rt::test::expect(first.notes.size() == second.notes.size());
+		@index = index + 1;
+	};
+};
+
+[[test]]
+fn fact_validation_can_select_one_function_without_validating_another_body() {
+	var fixture = FunctionValidationFixture("fn good() -> i32 { return 1; }; fn bad() -> i32 { i32[2] values {}; return values[2]; };");
+	Diagnostics selected;
+	var facts = InferredFacts(@selected);
+	@facts.prepare(*fixture.unit.get());
+	rt::test::expect((@facts.validate_function(@*fixture.function("good"))).has<void>());
+	rt::test::expect(!selected.failed());
+	rt::test::expect((@facts.finish_contexts(@*fixture.unit.get())).has<void>());
+	rt::test::expect((@facts.validate_function(@*fixture.function("bad"))).has<compilation_error>());
+	Diagnostics complete;
+	var all = InferredFacts(@complete);
+	rt::test::expect((@all.validate(@*fixture.unit.get())).has<compilation_error>());
+	expect_same_function_diagnostics(selected, complete);
+};
+
+[[test]]
+fn lifetime_validation_can_select_one_function_without_validating_another_body() {
+	var fixture = FunctionValidationFixture("fn good() -> i32 { return 1; }; fn bad() -> i32 { i32 value = 42; i32 moved = $value; return value; };");
+	Diagnostics selected;
+	var lifetime = LifetimeAnalyzer(@selected);
+	rt::test::expect((@lifetime.validate_function(@*fixture.function("good"))).has<void>());
+	rt::test::expect(!selected.failed());
+	rt::test::expect((@lifetime.validate_function(@*fixture.function("bad"))).has<compilation_error>());
+	Diagnostics complete;
+	var all = LifetimeAnalyzer(@complete);
+	rt::test::expect((@all.validate(*fixture.unit.get())).has<compilation_error>());
+	expect_same_function_diagnostics(selected, complete);
+};
+
+[[test]]
+fn loan_validation_can_select_one_function_without_validating_another_body() {
+	var fixture = FunctionValidationFixture("fn retain(i32& value); fn good() -> i32 { return 1; }; fn bad() -> i32 { i32 owner = 42; i32& alias = owner; retain(alias); return alias; };");
+	Diagnostics selected;
+	var loans = ReferenceLoanAnalyzer(@selected);
+	rt::test::expect((@loans.prepare(*fixture.unit.get())).has<void>());
+	rt::test::expect((@loans.validate_function(*fixture.function("good"))).has<void>());
+	rt::test::expect(!selected.failed());
+	rt::test::expect((@loans.validate_function(*fixture.function("bad"))).has<compilation_error>());
+	Diagnostics complete;
+	var all = ReferenceLoanAnalyzer(@complete);
+	rt::test::expect((@all.validate(*fixture.unit.get())).has<compilation_error>());
+	expect_same_function_diagnostics(selected, complete);
+};

@@ -23,10 +23,12 @@ come from the compiler's own inventories and follow visible symbols. Completion 
 the current identifier, including when the caret is in the middle of it.
 
 Comments, strings, numbers, and operators receive basic fallback colors while disconnected.
-The extension connects directly to the existing process
-using the project directory identity; it does not start Kiln or Rutilec. Kiln owns project
-configuration and the service lifecycle. Install both extensions to get project-aware Rutile
-editing.
+The extension resolves each focused source file to its nearest `kiln.rt` project definition and
+connects using that directory's identity. If the service is unavailable, it runs `kiln configure`
+for the project before connecting. Kiln owns project configuration and the Rutilec lifecycle.
+An existing service is reused without reconfiguration. Kiln is found through `KILN_EXECUTABLE`,
+`PATH`, its Windows application registration, standard installation folders, or the project's
+`distro/windows-x64` directory.
 
 Customize Rutile classifications in Fonts and Colors. Language-server errors appear in the
 Rutile Output pane.
@@ -41,5 +43,5 @@ bash ./tools/Rutile.VisualStudio/Package.sh Release
 
 The package is written to `distro/windows-x64/Rutile.VisualStudio.vsix`. It contains the editor
 component only: no Kiln executable, Rutilec executable, LLVM runtime, or compiler toolchain.
-Install the VSIX, open a project managed by Kiln, and then open a `.rt` document. The extension
-connects to the project's running Rutilec service and reconnects when the workspace changes.
+Install the VSIX and open a `.rt` document beneath a `kiln.rt` project definition. The extension
+prepares that file's project when needed and reconnects when you switch between projects.

@@ -401,12 +401,19 @@ fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& func
 	@function.set_completion(completion);
 };
 
+fn LifetimeAnalyzer::validate_function(var LifetimeAnalyzer& this, var Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	return @this.graph_function(@function);
+};
+
 fn LifetimeAnalyzer::validate_graph(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();
 		@index = index + 1;
-		if (function->kind() == entity_kind::function && function->body() && !(@this.graph_function(@*function)).has<void>()) {
+		if (!(@this.validate_function(@*function)).has<void>()) {
 			return compilation_error();
 		};
 	};

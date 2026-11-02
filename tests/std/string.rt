@@ -56,9 +56,11 @@ fn compound_string_assignment_preserves_the_left_reference() {
 fn compound_string_assignment_captures_allocation_failure() {
 	var text = rt::string("retained");
 	var too_large = rt::string_view(text.data(), usize::max);
-	var result = (@text += too_large);
-	rt::test::expect(result.has<rt::allocation_error>());
-	rt::test::expect(result.get<rt::allocation_error>().requested_bytes == usize::max);
+	{
+		var result = (@text += too_large);
+		rt::test::expect(result.has<rt::allocation_error>());
+		rt::test::expect(result.get<rt::allocation_error>().requested_bytes == usize::max);
+	};
 	rt::test::expect(text == "retained");
 	var caught = false;
 	try {

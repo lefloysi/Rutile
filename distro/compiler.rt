@@ -297,7 +297,7 @@ struct Backend {
 
 	fn set_progress(var Backend& this, CompilerProgress progress);
 	fn initialize(var Backend& this, i32 optimization) -> CompilationResult;
-	fn emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult;
+	fn generate(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult;
 	fn write(var Backend& this, var File& output) -> CompilationResult;
 
 	fn pointer_bits(Backend& this) -> u32;
@@ -665,7 +665,7 @@ fn Backend::emit_fact_contexts(var Backend& this) -> CompilationResult {
 		var InferredFunctionContext* context = this.fact_context(index + 1);
 		var emitter = FunctionEmitter(@this, this.fact_symbol(index + 1), context->function->type()->signature().result());
 		@emitter.set_fact_context(context);
-		if (!(@emitter.emit(context->function)).has<void>()) {
+		if (!(@emitter.generate(context->function)).has<void>()) {
 			return compilation_error();
 		};
 		@index = index + 1;
@@ -1503,7 +1503,7 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> CompilationResult {
 
 };
 
-fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult {
+fn Backend::generate(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult {
 	if (output != output_kind::library) {
 		if (output == output_kind::tests) {
 			@entry = "__rutile_test_main";
@@ -1579,7 +1579,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 			diagnostic_entity(@detail, *entity);
 			this.progress.report("compiling-function", compiled_functions, function_count, detail.view());
 
-			if (!(@emitter.emit(entity)).has<void>()) {
+			if (!(@emitter.generate(entity)).has<void>()) {
 				if (!this.failed()) {
 					DiagnosticMessage failure;
 					@failure.text("native emission failed without a diagnostic while compiling '");
@@ -2895,6 +2895,13 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		return LLVMConstInt(type, inferred, 0);
 	};
 
+	if (expression->kind() == semantic_kind::binary) {
+		return @this.binary(expression);
+	};
+	return @this.evaluate_other(expression, type);
+};
+
+fn FunctionEmitter::evaluate_other(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueType* type) -> var LLVMOpaqueValue* {
 	switch (expression->kind()) {
 		case semantic_kind::sequence: {
 			var LLVMOpaqueValue* result;
@@ -3033,8 +3040,6 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			return value;
 		};
 
-		case semantic_kind::binary:
-			return @this.binary(expression);
 		case semantic_kind::unary: {
 			var SemanticExpression* operand = expression->item(0);
 			var LLVMOpaqueValue* value = @this.value(operand);
@@ -3199,7 +3204,7 @@ enum native_evaluation : [u08] {
 struct FunctionEmitter {
 	fn FunctionEmitter(var FunctionEmitter& this, var Backend& backend, var LLVMOpaqueValue* function, Type* result);
 
-	fn emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
+	fn generate(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
 	fn set_fact_context(var FunctionEmitter& this, InferredFunctionContext* context);
 	fn integer_fact(FunctionEmitter& this, SemanticExpression& expression, var u64& value) -> bool;
 	fn condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool;
@@ -3274,6 +3279,7 @@ private:
 	fn binding_live(var FunctionEmitter& this, var Entity* entity, bool live);
 
 	fn evaluate(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
+	fn evaluate_other(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueType* type) -> var LLVMOpaqueValue*;
 	fn call(var FunctionEmitter& this, var SemanticExpression* expression) -> var LLVMOpaqueValue*;
 	fn truth(var FunctionEmitter& this, var LLVMOpaqueValue* value, Type* type) -> var LLVMOpaqueValue*;
 	fn convert(var FunctionEmitter& this, var LLVMOpaqueValue* value, Type* source, Type* target) -> var LLVMOpaqueValue*;
@@ -3376,7 +3382,7 @@ fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LL
 	return this.backend->symbol(entity);
 };
 
-fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult {
+fn FunctionEmitter::generate(var FunctionEmitter& this, var Entity* function) -> CompilationResult {
 	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("entry"));
 	NativeHandler boundary;
 	if (function->nonthrowing() && native_windows_exceptions(*this.backend)) {
@@ -6311,6 +6317,9 @@ struct Analysis {
 
 	fn set_progress(var Analysis& this, CompilerProgress progress);
 	fn enable_tests(var Analysis& this);
+	fn add_declaration_filter(var Analysis& this, DeclarationFilter filter);
+	fn excluded_declarations(Analysis& this) -> rt::buffer<ExcludedDeclaration>&;
+	fn has_declaration_filters(Analysis& this) -> bool;
 	fn add_source(var Analysis& this, rt::string_view path, rt::string_view text);
 	fn load_source(var Analysis& this, rt::string_view path, FileOpener opener) -> CompilationResult;
 	fn set_source_module(var Analysis& this, usize index, rt::string_view name, i32 access);
@@ -6339,6 +6348,8 @@ private:
 	SourceManager sources;
 	TypeStore types;
 	rt::buffer<rt::unique<Syntax>> syntax;
+	rt::buffer<DeclarationFilter> declaration_filters;
+	rt::buffer<ExcludedDeclaration> excluded;
 	rt::unique<SemanticUnit> semantic_unit;
 	Diagnostics messages;
 	NavigationIndex index;
@@ -6456,6 +6467,18 @@ fn Analysis::enable_tests(var Analysis& this) {
 	@this.tests_enabled = true;
 };
 
+fn Analysis::add_declaration_filter(var Analysis& this, DeclarationFilter filter) {
+	@this.declaration_filters.push_back($filter);
+};
+
+fn Analysis::excluded_declarations(Analysis& this) -> rt::buffer<ExcludedDeclaration>& {
+	return this.excluded;
+};
+
+fn Analysis::has_declaration_filters(Analysis& this) -> bool {
+	return this.declaration_filters.size() != 0;
+};
+
 
 
 struct RuntimeMutex;
@@ -6545,6 +6568,8 @@ struct Compiler {
 
 	fn set_progress(var Compiler& this, CompilerProgress progress);
 	fn clear_modules(var Compiler& this);
+	fn clear_declaration_filters(var Compiler& this);
+	fn add_declaration_filter(var Compiler& this, DeclarationFilter filter);
 	fn add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access);
 	fn next_editor_revision(var Compiler& this) -> u64;
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> AnalysisExpectation;
@@ -6567,6 +6592,7 @@ private:
 
 	CompilerProgress progress;
 	rt::buffer<ModuleSource> module_sources;
+	rt::buffer<DeclarationFilter> declaration_filters;
 	var RuntimeMutex* operation_mutex;
 	var RuntimeMutex* publication_mutex;
 	u64 editor_revision;
@@ -6913,7 +6939,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 	};
 
 	@this.backend.get()->set_progress(this.progress);
-	if (!(@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)).has<void>()) {
+	if (!(@this.backend.get()->generate(*this.analysis->semantics(), entry, $kind)).has<void>()) {
 		if (!this.diagnostics.failed()) {
 			compiler_panic("native emission failed without a diagnostic");
 		};
@@ -7002,6 +7028,9 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> CompilationResult {
 	var errors = Diagnostics(diagnostics);
 	Token location;
+	for (usize index = 0; index < this.declaration_filters.size(); @index = index + 1) {
+		@analysis.get()->add_declaration_filter(this.declaration_filters.data()[index]);
+	};
 	if (kind == output_kind::tests) {
 		@analysis.get()->enable_tests();
 	};
@@ -7024,6 +7053,14 @@ fn Compiler::set_progress(var Compiler& this, CompilerProgress progress) {
 
 fn Compiler::clear_modules(var Compiler& this) {
 	@this.module_sources.clear();
+};
+
+fn Compiler::clear_declaration_filters(var Compiler& this) {
+	@this.declaration_filters.clear();
+};
+
+fn Compiler::add_declaration_filter(var Compiler& this, DeclarationFilter filter) {
+	@this.declaration_filters.push_back($filter);
 };
 
 fn Compiler::add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access) {
@@ -7076,6 +7113,76 @@ fn Compiler::compile_sources(var Compiler& this, rt::buffer<rt::string_view>& pa
 	return @this.finish_compilation($analysis, output_path, $opener, entry, $optimization, $diagnostics, $kind);
 };
 
+
+struct NativeDeclarationFilters;
+
+struct NativeDeclarationAttribute {
+	char* key;
+	usize key_size;
+	char* value;
+	usize value_size;
+};
+
+fn declaration_filters_open(char* json, usize size) -> var NativeDeclarationFilters*;
+fn declaration_filters_close(var NativeDeclarationFilters* filters);
+fn declaration_filters_apply(var NativeDeclarationFilters* filters, NativeDeclarationAttribute* attributes, usize count) -> i32;
+fn declaration_filters_error() -> char*;
+
+fn native_declaration_filter(Syntax& declaration, var void* context) -> i32 {
+	rt::buffer<NativeDeclarationAttribute> attributes;
+	for (usize index = 0; index < declaration.declaration_attributes().size(); @index = index + 1) {
+		Syntax& attribute = *declaration.declaration_attributes().data()[index].get();
+		rt::string_view key = attribute.token().text();
+		rt::string_view value;
+		if (attribute.token().source && attribute.source_end() > attribute.source_begin()) {
+			@value = attribute.token().source->text().slice(attribute.source_begin(), attribute.source_end() - attribute.source_begin()).trim();
+		};
+		NativeDeclarationAttribute item;
+		@item.key = key.data();
+		@item.key_size = key.size();
+		@item.value = value.data();
+		@item.value_size = value.size();
+		@attributes.push_back($item);
+	};
+	return declaration_filters_apply(reinterpret_cast<var NativeDeclarationFilters*>(context), attributes.data(), attributes.size());
+};
+
+fn "C" rutile_compiler_set_declaration_filters(var Compiler* compiler, var NativeDeclarationFilters* filters) -> i32 {
+	try {
+		@compiler->clear_declaration_filters();
+		if (filters) {
+			DeclarationFilter filter;
+			@filter.predicate = &native_declaration_filter;
+			@filter.context = reinterpret_cast<var void*>(filters);
+			@compiler->add_declaration_filter($filter);
+		};
+		return 0;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
+	};
+};
+
+fn "C" rutile_compiler_excluded_declarations(var Compiler* compiler, ((var void*, usize, usize, usize) -> void)* visit, var void* context) -> i32 {
+	if (!compiler || !visit) {
+		return 1;
+	};
+	var lease = @compiler->acquire_analysis();
+	var analysis = lease.get();
+	if (!analysis) {
+		return 1;
+	};
+	for (usize index = 0; index < analysis->excluded_declarations().size(); @index = index + 1) {
+		ExcludedDeclaration& excluded = analysis->excluded_declarations().data()[index];
+		Token location;
+		@location.source = excluded.source;
+		@location.begin = excluded.begin;
+		@location.length = excluded.end - excluded.begin;
+		var range = analysis->navigation().range(location);
+		visit(context, range.source, excluded.begin, excluded.end);
+	};
+	return 0;
+};
 
 fn fprintf(var NativeFile* file, char* format, ...) -> i32;
 
@@ -8171,6 +8278,85 @@ fn configure(i32 argument_count, char** arguments) -> ConfigurationResult {
 """);
 };
 
+using DeclarationFilterPredicate = ((Syntax&, var void*) -> i32)*;
+
+struct DeclarationFilter {
+	DeclarationFilterPredicate predicate;
+	var void* context;
+};
+
+struct ExcludedDeclaration {
+	var SourceFile* source;
+	usize begin;
+	usize end;
+};
+
+fn filterable_declaration(syntax_kind kind) -> bool {
+	switch (kind) {
+		case syntax_kind::variable:
+		case syntax_kind::function:
+		case syntax_kind::record:
+		case syntax_kind::enumeration:
+		case syntax_kind::namespace_body:
+		case syntax_kind::using_alias:
+		case syntax_kind::pack_signature_declaration:
+			return true;
+		default:
+			return false;
+	};
+};
+
+fn declaration_extent(Syntax& declaration) -> ExcludedDeclaration {
+	return ExcludedDeclaration(declaration.token().source, declaration.source_begin(), declaration.source_end());
+};
+
+fn apply_declaration_filters_to_syntax(var Syntax* syntax, rt::buffer<DeclarationFilter>& filters, var rt::buffer<ExcludedDeclaration>& excluded, bool inherited_exclusion = false) -> bool {
+	@syntax->set_excluded(false);
+	bool remove = inherited_exclusion;
+	bool success = true;
+	if (filterable_declaration(syntax->source_kind())) {
+		usize index = 0;
+		while (index < filters.size()) {
+			var filter = filters.data()[index];
+			i32 include = filter.predicate(*syntax, filter.context);
+			@success = success && include >= 0;
+			@remove = remove || !include;
+			@index = index + 1;
+		};
+		if (remove && !inherited_exclusion) {
+			@excluded.push_back(declaration_extent(*syntax));
+		};
+	};
+
+	usize index = 0;
+	while (index < syntax->size()) {
+		bool child_success = apply_declaration_filters_to_syntax(syntax->item(index), filters, @excluded, remove);
+		@success = success && child_success;
+		@index = index + 1;
+	};
+	if (syntax->source_kind() == syntax_kind::template_declaration) {
+		@remove = remove || syntax->item(1)->excluded();
+	}
+	else if (syntax->source_kind() == syntax_kind::ambiguity) {
+		@index = 0;
+		while (index < syntax->size()) {
+			if (filterable_declaration(syntax->item(index)->source_kind()) || syntax->item(index)->source_kind() == syntax_kind::template_declaration) {
+				@remove = remove || syntax->item(index)->excluded();
+			};
+			@index = index + 1;
+		};
+	};
+	if (remove && !inherited_exclusion && (syntax->source_kind() == syntax_kind::template_declaration || syntax->source_kind() == syntax_kind::ambiguity)) {
+		@excluded.push_back(declaration_extent(*syntax));
+	};
+	@syntax->set_excluded(remove);
+	return success;
+};
+
+fn apply_declaration_filters(var Syntax& syntax, rt::buffer<DeclarationFilter>& filters, var rt::buffer<ExcludedDeclaration>& excluded, bool inherited_exclusion) -> bool {
+	return apply_declaration_filters_to_syntax(&@syntax, filters, @excluded, inherited_exclusion);
+};
+
 struct Lexer {
 	fn Lexer(var Lexer& this, var SourceFile& source);
 
@@ -8292,6 +8478,8 @@ fn Lexer::digit(char value) -> bool {
 
 fn Lexer::keyword_spelling(token_kind kind) -> rt::string_view {
 	switch (kind) {
+		case token_kind::kw_emit:
+			return "emit";
 		case token_kind::kw_fn:
 			return "fn";
 		case token_kind::kw_using:
@@ -8368,6 +8556,9 @@ fn Lexer::keyword_spelling(token_kind kind) -> rt::string_view {
 };
 
 fn Lexer::identifier_kind(rt::string_view spelling) -> token_kind {
+	if (spelling == "emit") {
+		return token_kind::kw_emit;
+	};
 	i32 value = static_cast<i32>(token_kind::kw_fn);
 	while (value <= static_cast<i32>(token_kind::kw_sizeof)) {
 		var kind = static_cast<token_kind>(value);
@@ -8625,6 +8816,11 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
 		case '<':
 			@token.kind = token_kind::op_less;
 
+			if (next == '-') {
+				@token.kind = token_kind::op_left_arrow;
+				@width = 2;
+			};
+
 			if (next == '=') {
 				@token.kind = token_kind::op_less_equal;
 				@width = 2;
@@ -8849,6 +9045,7 @@ private:
 
 	fn attribute_declaration(var Parser& this) -> rt::unique<Syntax>;
 	fn statement_one(var Parser& this) -> rt::unique<Syntax>;
+	fn statement_untracked(var Parser& this) -> rt::unique<Syntax>;
 	fn statement(var Parser& this) -> rt::unique<Syntax>;
 	fn variable(var Parser& this) -> rt::unique<Syntax>;
 	fn parameters(var Parser& this) -> rt::unique<Syntax>;
@@ -8896,7 +9093,12 @@ fn Parser::error_token(Parser& this) -> Token {
 fn Parser::peek(Parser& this) -> Token {
 	if (this.pending_less) {
 		Token remainder := this.tokens->data()[this.offset - 1];
-		@remainder.kind = token_kind::op_less;
+		if (remainder.kind == token_kind::op_left_arrow) {
+			@remainder.kind = token_kind::op_minus;
+		}
+		else {
+			@remainder.kind = token_kind::op_less;
+		};
 		@remainder.begin = remainder.begin + 1;
 		@remainder.length = 1;
 		return $remainder;
@@ -8997,6 +9199,7 @@ fn Parser::precedence(token_kind& kind) -> i32 {
 		case token_kind::op_assign:
 		case token_kind::op_plus_assign:
 		case token_kind::op_copy:
+		case token_kind::op_left_arrow:
 			return 1;
 		case token_kind::op_or:
 			return 2;
@@ -9255,7 +9458,7 @@ fn Parser::open_template(var Parser& this) -> CompilationResult {
 	if (@this.accept(token_kind::op_less)) {
 		return;
 	};
-	if (@this.accept(token_kind::op_shift_left)) {
+	if (@this.accept(token_kind::op_shift_left) || @this.accept(token_kind::op_left_arrow)) {
 		@this.pending_less = 1;
 		return;
 	};
@@ -9420,7 +9623,7 @@ fn Parser::name_part(var Parser& this, name_role& role) -> rt::unique<Syntax> {
 		discard @this.add(@*result.get(), rt::unique<Syntax>(@operator_suffix.release()));
 	};
 
-	if (this.peek().kind != token_kind::op_less && this.peek().kind != token_kind::op_shift_left) {
+	if (this.peek().kind != token_kind::op_less && this.peek().kind != token_kind::op_shift_left && this.peek().kind != token_kind::op_left_arrow) {
 		return $result;
 	};
 
@@ -10398,6 +10601,10 @@ fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	discard @this.add(@*result.get(), @this.parameters());
+	var emission = @this.absent();
+	if (this.peek().kind == token_kind::kw_emit) {
+		@emission = @this.node(syntax_kind::name, @this.take());
+	};
 	var exception = @this.exception_spec();
 	var result_type = @this.absent();
 
@@ -10407,6 +10614,9 @@ fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 
 	discard @this.add(@*result.get(), rt::unique<Syntax>(@result_type.release()));
 	var attributes = @this.node(syntax_kind::attributes, this.peek());
+	if (emission.get()->kind() != syntax_kind::absent) {
+		discard @this.add(@*attributes.get(), $emission);
+	};
 	if (exception.get()->kind() != syntax_kind::absent) {
 		discard @this.add(@*attributes.get(), $exception);
 	};
@@ -10557,7 +10767,7 @@ fn Parser::template_declaration(var Parser& this) -> rt::unique<Syntax> {
 	var parameters = @this.node(syntax_kind::list, this.peek());
 	discard @this.open_template();
 
-	while (this.failure.empty()) {
+	while (this.failure.empty() && this.peek().kind != token_kind::op_greater && this.peek().kind != token_kind::op_shift_right) {
 		Token location = this.peek();
 		var parameter_type = @this.absent();
 		if (!@this.accept(token_kind::kw_typename)) {
@@ -10732,6 +10942,7 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 	discard @this.require(token_kind::identifier, "expected attribute name");
 	var attribute = @this.node(syntax_kind::declaration_attribute, key);
 	if (@this.accept(token_kind::punct_colon)) {
+		usize value_begin = this.peek().begin;
 		var value_parser = Parser(*this.tokens);
 		@value_parser.offset = this.offset;
 		var value = @value_parser.expression(1);
@@ -10756,9 +10967,11 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 			@this.fail("expected attribute value or type");
 			return rt::unique<Syntax>();
 		};
+		@attribute.get()->set_source_extent(value_begin, this.peek().begin);
 	}
 	else {
 		discard @this.add(@*attribute.get(), @this.absent());
+		@attribute.get()->set_source_extent(key.begin + key.length, key.begin + key.length);
 	};
 	discard @this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
 	discard @this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
@@ -10776,6 +10989,20 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 };
 
 fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
+	var begin = this.peek();
+	var result = @this.statement_untracked();
+	if (result.get()) {
+		usize end = begin.begin + begin.length;
+		if (this.offset) {
+			var last = this.tokens->data()[this.offset - 1];
+			@end = last.begin + last.length;
+		};
+		@result.get()->set_source_extent(begin.begin, end);
+	};
+	return $result;
+};
+
+fn Parser::statement_untracked(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
 
 	if (token.kind == token_kind::kw_export) {
@@ -10809,6 +11036,16 @@ fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	switch (token.kind) {
+		case token_kind::kw_emit: {
+			discard @this.take();
+			Token operation = token;
+			@operation.kind = token_kind::op_left_arrow;
+			var emitted = @this.node(syntax_kind::binary, operation);
+			discard @this.add(@*emitted.get(), @this.node(syntax_kind::name, token));
+			discard @this.add(@*emitted.get(), @this.expression(1));
+			discard @this.require(token_kind::punct_semicolon, "expected ';' after emitted expression");
+			return $emitted;
+		};
 		case token_kind::kw_try:
 			return @this.exception_statement();
 		case token_kind::kw_case:
@@ -11171,6 +11408,7 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 
 	if (compatible && difference != usize::max) {
 		var result = @this.node(first->kind(), first->token());
+		@result.get()->set_source_extent(first->source_begin(), first->source_end());
 		Token linkage = first->function_linkage();
 		@result.get()->set_function_linkage(linkage);
 		if (first->exported()) {
@@ -11203,6 +11441,7 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 	};
 
 	var result = @this.node(syntax_kind::ambiguity, first->token());
+	@result.get()->set_source_extent(first->source_begin(), first->source_end());
 	usize index = 0;
 
 	while (index < alternatives.size()) {
@@ -11520,6 +11759,8 @@ enum token_kind : [i32] {
 	op_relocate;
 	op_less;
 	op_greater;
+	op_left_arrow;
+	kw_emit;
 	eof;
 };
 
@@ -11586,6 +11827,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	@this.messages.set_cancellation(cancelled, context);
 	var cancellation_scope = AnalysisCancellationScope(@this.messages);
 	@this.target_pointer_bits = pointer_bits;
+	@this.excluded.clear();
 	@this.semantic_unit = rt::unique<SemanticUnit>::make();
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
@@ -11628,6 +11870,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		}
 		else {
 			var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+			if (!apply_declaration_filters(@*tree.get(), this.declaration_filters, @this.excluded, false)) {
+				@this.messages.error(tree.get()->token(), "declaration filter failed");
+				return compilation_error();
+			};
 			@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 		};
 		@index = index + 1;
@@ -11671,6 +11917,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			return compilation_error();
 		};
 		var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+		if (!apply_declaration_filters(@*tree.get(), this.declaration_filters, @this.excluded, false)) {
+			@this.messages.error(tree.get()->token(), "declaration filter failed");
+			return compilation_error();
+		};
 		@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);
@@ -12715,6 +12965,17 @@ private:
 
 fn kiln_project_source_load(char* path, ((var void*, char*, char*, usize, char*, i32) -> i32)* load, var void* context) -> i32;
 
+struct LanguageDeclarationFilters {
+	fn ~LanguageDeclarationFilters(var LanguageDeclarationFilters& this);
+	var NativeDeclarationFilters* context;
+};
+
+fn LanguageDeclarationFilters::~LanguageDeclarationFilters(var LanguageDeclarationFilters& this) {
+	if (this.context) {
+		declaration_filters_close(this.context);
+	};
+};
+
 fn language_load_interface_source(var void* context, char* path, char* text, usize size, char* module, i32 access) -> i32 {
 	var Analysis& analysis = @*reinterpret_cast<var Analysis*>(context);
 	@analysis.add_source(rt::from_c_string(path), rt::string_view(text, size));
@@ -12725,6 +12986,16 @@ fn language_load_interface_source(var void* context, char* path, char* text, usi
 fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32 kind) -> i32 {
 	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	usize index = 0;
+	if (kind == 7) {
+		while (index < workspace.groups.size() && workspace.groups.data()[index].name.view() != rt::from_c_string(name)) {
+			@index = index + 1;
+		};
+		if (index == workspace.groups.size()) {
+			return 0;
+		};
+		@(@workspace.groups).data()[index].filters = rt::string(rt::from_c_string(path));
+		return 1;
+	};
 	language_group_kind category = language_group_kind::target;
 	if (kind == 6) {
 		@category = language_group_kind::test_target;
@@ -12754,6 +13025,23 @@ fn LanguageWorkspace::project_error(var void* context, char* text) {
 	@workspace.discovery_error = rt::string(rt::from_c_string(text));
 };
 
+fn language_group_open(LanguageGroup& group, LanguageJob& job) -> bool {
+	usize path = 0;
+	while (path < group.paths.size()) {
+		rt::string key;
+		LanguageUri::key(group.paths.data()[path].view(), @key);
+		usize document = 0;
+		while (document < job.documents.size()) {
+			if (job.documents.data()[document].key.view() == key.view()) {
+				return true;
+			};
+			@document = document + 1;
+		};
+		@path = path + 1;
+	};
+	return false;
+};
+
 fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job) -> rt::unique<LanguageIndex> {
 	u64 started = runtime_clock_nanoseconds();
 	if (this.cached_configuration != job.configuration) {
@@ -12770,6 +13058,20 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 		};
 		@this.cached_configuration = job.configuration;
 	};
+	if (!job.target.empty()) {
+		usize selected = 0;
+		while (selected < this.groups.size()) {
+			LanguageGroup& candidate = this.groups.data()[selected];
+			if ((candidate.kind == language_group_kind::target || candidate.kind == language_group_kind::test_target) && candidate.name.view() == job.target.view()) {
+				break;
+			};
+			@selected = selected + 1;
+		};
+		if (selected == this.groups.size()) {
+			@this.report_failure(job, "The selected editor target is not present in the project configuration.");
+			return rt::unique<LanguageIndex>();
+		};
+	};
 
 	rt::unique<LanguageIndex> index = rt::unique<LanguageIndex>::make();
 	if (!index.get()) {
@@ -12777,13 +13079,27 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 	};
 	@index.get()->generation = job.generation;
 	rt::unordered_map<rt::string_view, bool> assigned;
+	rt::buffer<usize> selected;
 	usize group = 0;
 	while (group < this.groups.size()) {
-		var LanguageGroup& input = @(@this.groups).data()[group];
-		if (input.kind == language_group_kind::standard) {
-			@group = group + 1;
-			continue;
+		LanguageGroup& input = this.groups.data()[group];
+		if (input.kind == language_group_kind::analysis && language_group_open(input, job)) {
+			@selected.push_back(usize(group));
 		};
+		@group = group + 1;
+	};
+	@group = 0;
+	while (group < this.groups.size()) {
+		LanguageGroup& input = this.groups.data()[group];
+		if (input.kind != language_group_kind::standard && input.kind != language_group_kind::analysis && language_group_open(input, job) && (job.target.empty() || (input.kind != language_group_kind::target && input.kind != language_group_kind::test_target) || input.name.view() == job.target.view())) {
+			@selected.push_back(usize(group));
+		};
+		@group = group + 1;
+	};
+	usize selection = 0;
+	while (selection < selected.size()) {
+		@group = selected.data()[selection];
+		var LanguageGroup& input = @(@this.groups).data()[group];
 		if (!(@this.analyze_group(@input, @job, @*index.get())).has<void>()) {
 			return rt::unique<LanguageIndex>();
 		};
@@ -12802,7 +13118,7 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 			};
 			@path = path + 1;
 		};
-		@group = group + 1;
+		@selection = selection + 1;
 	};
 
 	LanguageGroup loose;
@@ -12839,9 +13155,20 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 };
 
 fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> CompilationResult {
+	LanguageDeclarationFilters filters;
+	if (!group.filters.empty()) {
+		@filters.context = declaration_filters_open(group.filters.c_str(), group.filters.size());
+		if (!filters.context) {
+			@this.report_failure(job, rt::from_c_string(declaration_filters_error()));
+			return compilation_error();
+		};
+	};
 	rt::unique<Analysis> analysis = rt::unique<Analysis>::make();
 	if (!analysis.get()) {
 		return compilation_error();
+	};
+	if (filters.context) {
+		@analysis.get()->add_declaration_filter(DeclarationFilter(&native_declaration_filter, filters.context));
 	};
 	if (group.kind == language_group_kind::test_target) {
 		@analysis.get()->enable_tests();
@@ -12910,7 +13237,8 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 
 	var build_lease = @this.compiler->acquire_analysis();
 	Analysis* build_analysis = build_lease.get();
-	bool reusable = build_analysis != nullptr
+	bool reusable = !filters.context && build_analysis != nullptr
+		&& !build_analysis->has_declaration_filters()
 		&& build_analysis->source_count() == analysis.get()->source_count()
 		&& build_analysis->pointer_bits() == 64
 		&& !build_analysis->diagnostics().failed()
@@ -12982,6 +13310,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@contextual = rt::unique<Analysis>::make();
 		if (!contextual.get()) {
 			return compilation_error();
+		};
+		if (filters.context) {
+			@contextual.get()->add_declaration_filter(DeclarationFilter(&native_declaration_filter, filters.context));
 		};
 		usize source = 0;
 		while (source < analysis.get()->source_count()) {
@@ -13825,6 +14156,9 @@ fn LanguageWorkspace::completion(var LanguageWorkspace& this, LanguageIndex& ind
 		if (!names.find(name) && language_completion_match(name, prefix)) {
 			@result.get()->append(language_completion_item(name, "Rutile keyword", 14, 100004, *current, begin, end));
 		};
+	};
+	if (!names.find("emit") && language_completion_match("emit", prefix)) {
+		@result.get()->append(language_completion_item("emit", "Rutile keyword", 14, 100004, *current, begin, end));
 	};
 	return $result;
 };
@@ -14766,7 +15100,7 @@ fn language_lexical_type(Analysis* analysis, Token& input) -> u32 {
 	if (input.kind == token_kind::literal_string) {
 		return 15;
 	};
-	if (input.kind >= token_kind::kw_return && input.kind <= token_kind::kw_continue) {
+	if (input.kind >= token_kind::kw_return && input.kind <= token_kind::kw_continue || input.kind == token_kind::kw_emit) {
 		return 18;
 	};
 	if (input.kind >= token_kind::kw_fn && input.kind <= token_kind::kw_sizeof) {
@@ -14881,7 +15215,7 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 		};
 		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[input->range.source]];
 		var present = source.token_offsets.find(input->range.begin);
-		if (present && source.tokens.data()[*present].range.end == input->range.end) {
+		if (present && source.tokens.data()[*present].range.end == input->range.end && source.tokens.data()[*present].type != 17) {
 			@(@source.tokens).data()[*present].type = input->type;
 			@(@source.tokens).data()[*present].modifiers = input->modifiers;
 		};
@@ -14899,7 +15233,7 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 			continue;
 		};
 		var LanguageSemanticToken& token = @(@source.tokens).data()[*found];
-		if (token.range.end != occurrence->range.end) {
+		if (token.range.end != occurrence->range.end || token.type == 17) {
 			continue;
 		};
 		@token.type = analysis.navigation().semantic_token_type(occurrence->symbol);
@@ -14920,6 +15254,26 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 		language_classify_template_names(@this, analysis, mapping, *roots.data()[root].get(), @parameters, true);
 		@root = root + 1;
 	};
+	rt::buffer<ExcludedDeclaration>& excluded = analysis.excluded_declarations();
+	for (usize declaration = 0; declaration < excluded.size(); @declaration = declaration + 1) {
+		ExcludedDeclaration& input = excluded.data()[declaration];
+		Token extent;
+		@extent.source = input.source;
+		@extent.begin = input.begin;
+		@extent.length = input.end - input.begin;
+		SourceRange range = analysis.navigation().range(extent);
+		if (range.source >= mapping.size()) {
+			continue;
+		};
+		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+		for (usize token = 0; token < source.tokens.size(); @token = token + 1) {
+			var LanguageSemanticToken& current = @(@source.tokens).data()[token];
+			if (current.range.begin >= range.begin && current.range.end <= range.end) {
+				@current.type = 20;
+				@current.modifiers = 0;
+			};
+		};
+	};
 };
 
 fn LanguageWorkspace::overlay_token(var LanguageWorkspace& this, LanguageIndex& index, rt::string_view key, SourceRange& current, LanguageText& text, var u32& type, var u32& modifiers) -> bool {
@@ -14939,7 +15293,7 @@ fn LanguageWorkspace::overlay_token(var LanguageWorkspace& this, LanguageIndex& 
 	};
 	LanguageSemanticToken& token = source.tokens.data()[*position];
 	SourceRange mapped;
-	if (token.type > 13 || !@this.mapped(index, token.range, @mapped) || mapped.begin != current.begin || mapped.end != current.end) {
+	if (token.type > 13 && token.type != 20 || !@this.mapped(index, token.range, @mapped) || mapped.begin != current.begin || mapped.end != current.end) {
 		return false;
 	};
 	if (token.range.end > source.text.view().size() || current.end > text.view().size()) {
@@ -15019,8 +15373,13 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 		};
 		u32 type = token.type;
 		u32 modifiers = token.modifiers;
-		if (type == u32::max && live) {
-			discard @this.overlay_token(index, source.key.view(), current, *text, @type, @modifiers);
+		if (live) {
+			u32 previous_type = type;
+			u32 previous_modifiers = modifiers;
+			if (@this.overlay_token(index, source.key.view(), current, *text, @previous_type, @previous_modifiers) && (type == u32::max || previous_type == 20)) {
+				@type = previous_type;
+				@modifiers = previous_modifiers;
+			};
 		};
 		if (type == u32::max && index.semantic_failed && this.highlight_fallback.get()) {
 			discard @this.overlay_token(*this.highlight_fallback.get(), source.key.view(), current, *text, @type, @modifiers);
@@ -15166,7 +15525,7 @@ fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code,
 };
 
 fn LanguageServer::description() -> rt::json_document {
-	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\",\"controlKeyword\",\"decorator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\",\"_\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
+	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\",\"controlKeyword\",\"decorator\",\"inactive\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\",\"_\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
 };
 
 fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) {
@@ -15272,6 +15631,13 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) {
 		@this.state = language_server_state::shutdown;
 		@this.workspace->cancel();
 		@this.send(LanguageJson::response(*id, rt::json_value::make_null()));
+		return;
+	};
+	if (method == "workspace/didChangeConfiguration") {
+		rt::json_value* settings = parameters->member("settings");
+		if (settings) {
+			discard @this.workspace->configure(*settings);
+		};
 		return;
 	};
 
@@ -16022,12 +16388,14 @@ struct LanguageGroup {
 	language_group_kind kind;
 	rt::string name;
 	rt::buffer<rt::string> paths;
+	rt::string filters;
 };
 
 struct LanguageJob {
 	u64 generation;
 	u64 configuration;
 	rt::string root;
+	rt::string target;
 	rt::buffer<LanguageDocument> documents;
 };
 
@@ -16183,6 +16551,7 @@ private:
 	var RuntimeAtomic* analysis_phase;
 	var RuntimeAtomic* phase_started;
 	rt::string root;
+	rt::string target;
 	u64 configuration;
 	u64 cached_configuration;
 	u64 sources_revision;
@@ -16465,6 +16834,7 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 		compiler_panic("language server schedule invariant failed");
 	};
 	@job.get()->root.append(this.root.view());
+	@job.get()->target.append(this.target.view());
 
 	u64 revision = @this.compiler->next_editor_revision();
 	if (!revision) {
@@ -16521,6 +16891,9 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 };
 
 fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
+	if (parameters.member("target")) {
+		@this.target = rt::string(LanguageJson::text(parameters, "target"));
+	};
 	var uri = LanguageJson::text(parameters, "rootUri");
 	if (!uri.empty()) {
 		rt::string path;
@@ -17751,6 +18124,9 @@ struct Analyzer {
 	fn accessible_at(Analyzer& this, Entity& entity, var Scope& scope, Token& use) -> bool;
 
 private:
+	fn return_emitter(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression>;
+	fn return_emitter_call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::string_view name, rt::unique<SemanticExpression> argument) -> rt::unique<SemanticExpression>;
+	fn return_emitter_body(var Analyzer& this, var Entity& entity, rt::unique<SemanticExpression> body) -> rt::unique<SemanticExpression>;
 	fn inline_record_type(var Analyzer& this, var Scope& scope, var Syntax& syntax) -> Type*;
 	fn collect_member_pack(var Analyzer& this, var Scope& scope, var Syntax& declaration) -> CompilationResult;
 	fn resolve_member_pack(var Analyzer& this, var Entity& members) -> CompilationResult;
@@ -19501,6 +19877,9 @@ fn Analyzer::call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::
 					@message.number(u64(arguments->size()));
 					@this.report(source->token(), message.view());
 
+					return rt::unique<SemanticExpression>();
+				};
+				if (!(@this.prepare_lifetime(owner)).has<void>()) {
 					return rt::unique<SemanticExpression>();
 				};
 
@@ -22163,6 +22542,9 @@ fn Analyzer::discarded(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 	if (syntax.kind() == syntax_kind::binary && (syntax.token().kind == token_kind::op_assign || syntax.token().kind == token_kind::op_copy)) {
 		return $value;
 	};
+	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_left_arrow && return_emitter_operand(*syntax.left())) {
+		return $value;
+	};
 	Type* nothing = this.types->find_primitive("void");
 	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_plus_assign) {
 		Type* result_type = value.get()->type();
@@ -22535,6 +22917,120 @@ fn Analyzer::editor_template_context(var Analyzer& this, var SemanticUnit& unit,
 	return compilation_error();
 };
 
+fn return_emitter_operand(Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::grouping || syntax.kind() == syntax_kind::unary && syntax.token().kind == token_kind::op_access) {
+		return return_emitter_operand(*syntax.operand());
+	};
+	return syntax.kind() == syntax_kind::name && (syntax.token().is("__return") || syntax.token().kind == token_kind::kw_emit);
+};
+
+fn TemplateEngine::return_emitter_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, Type& result) -> Type* {
+	var Entity* runtime = analyzer.semantic_unit()->root_scope()->local("rt");
+	var Entity* detail = nullptr;
+	var Entity* pattern = nullptr;
+	if (runtime && runtime->members()) {
+		@detail = runtime->members()->local("detail");
+	};
+	if (detail && detail->members()) {
+		@pattern = detail->members()->local("return_emitter");
+	};
+	if (!pattern || pattern->kind() != entity_kind::template_pattern) {
+		@analyzer.report(syntax.token(), "return emission requires the rt::detail::return_emitter standard library template declaration");
+		return nullptr;
+	};
+	rt::buffer<TemplateArgument> arguments;
+	TemplateArgument argument;
+	@argument.kind = template_argument_kind::type;
+	@argument.type = &result;
+	@arguments.push_back($argument);
+	var Entity* instance = @this.instantiate(@analyzer, @scope, @*pattern, TemplateInput(arguments, syntax.token()));
+	if (!instance) {
+		return nullptr;
+	};
+	return instance->type();
+};
+
+fn Analyzer::return_emitter_call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::string_view name, rt::unique<SemanticExpression> argument) -> rt::unique<SemanticExpression> {
+	var Entity* storage = this.function->return_storage();
+	var Entity* group = storage->type()->entity()->find_member(name);
+	if (!group || !(@this.resolve(group)).has<void>()) {
+		@this.error(&@syntax, "return emission storage is missing a required operation");
+		return rt::unique<SemanticExpression>();
+	};
+	rt::buffer<rt::unique<SemanticExpression>> arguments;
+	var receiver = @this.node(semantic_kind::name, storage->type(), &@syntax);
+	@receiver.get()->bind(storage, value_category::place);
+	@receiver.get()->set_mutable_access(true);
+	@arguments.push_back($receiver);
+	if (argument.get()) {
+		@arguments.push_back($argument);
+	};
+	var Entity* selected = @this.select(group, arguments, 0, conversion_mode::explicit_only, @syntax);
+	if (!selected) {
+		@this.error(&@syntax, "return emission storage has no applicable operation");
+		return rt::unique<SemanticExpression>();
+	};
+	var callable = @this.node(semantic_kind::name, selected->type(), &@syntax);
+	@callable.get()->bind(selected, value_category::place);
+	return @this.invoke(@syntax, selected, $callable, $arguments, rt::optional_ref<const Type>());
+};
+
+fn Analyzer::return_emitter(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	if (!this.function) {
+		@this.error(&@syntax, "__return requires an enclosing function");
+		return rt::unique<SemanticExpression>();
+	};
+	Type* result = this.function->type()->signature().result();
+	if (result->kind() == type_kind::void_type || result->kind() == type_kind::reference || result->kind() == type_kind::function || result->kind() == type_kind::array) {
+		@this.error(&@syntax, "__return requires an owning non-void function result type");
+		return rt::unique<SemanticExpression>();
+	};
+	if (!this.function->return_storage()) {
+		Type* type = @this.templates.return_emitter_type(@this, @scope, @syntax, *result);
+		if (!type) {
+			return rt::unique<SemanticExpression>();
+		};
+		var Scope* hidden = @this.unit->create_scope(this.function->members(), this.function);
+		var Entity* storage = @this.unit->create_entity(entity_kind::local, syntax.token(), &@syntax, hidden);
+		@storage->set_name("__return_storage");
+		@storage->set_origin(declaration_origin::compiler_supplied);
+		@storage->set_type(@this.types->qualified(*type, type_qualifier::mutable));
+		@storage->set_type_use(*@this.unit->canonical_use(*storage->type()));
+		@storage->set_state(entity_state::ready);
+		@this.function->set_return_storage(storage);
+	};
+	var value = @this.return_emitter_call(@scope, @syntax, "get", rt::unique<SemanticExpression>());
+	if (value.get()) {
+		@value.get()->set_mutable_access(false);
+	};
+	return @this.convert($value, expected, @syntax);
+};
+
+fn Analyzer::return_emitter_body(var Analyzer& this, var Entity& entity, rt::unique<SemanticExpression> body) -> rt::unique<SemanticExpression> {
+	var Entity* storage = entity.return_storage();
+	if (!storage) {
+		return $body;
+	};
+	var Syntax* source = entity.declaration()->function_body();
+	Type* nothing = this.types->find_primitive("void");
+	var initialized = @this.zero_initialize(@*source, storage->type());
+	var declaration = @this.node(semantic_kind::variable, nothing, source);
+	@declaration.get()->bind(storage, value_category::consumable);
+	if (!initialized.get() || !(@declaration.get()->append($initialized)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var result = @this.node(semantic_kind::statements, nothing, source);
+	if (!(@result.get()->append($declaration)).has<void>() || !(@result.get()->append($body)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var taken = @this.return_emitter_call(@*entity.members(), @*source, "take", rt::unique<SemanticExpression>());
+	var returned = @this.node(semantic_kind::return_value, nothing, source);
+	if (!taken.get() || !(@returned.get()->append($taken)).has<void>() || !(@result.get()->append($returned)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};
+
 struct TemplateInstantiation;
 struct TemplatePack;
 
@@ -22690,6 +23186,8 @@ struct Entity {
 	fn set_body_state(var Entity& this, entity_state state);
 	fn completion(Entity& this) -> function_completion;
 	fn set_completion(var Entity& this, function_completion completion);
+	fn return_storage(Entity& this) -> var Entity*;
+	fn set_return_storage(var Entity& this, var Entity* storage);
 
 	fn destructor(Entity& this) -> var Entity*;
 	fn set_destructor(var Entity& this, var Entity* function);
@@ -22756,6 +23254,7 @@ private:
 	record_resolution_phase record_resolution;
 	entity_state body_resolution;
 	function_completion body_completion;
+	var Entity* emitter_storage;
 	bool template_instance;
 	TemplateInstantiation* retained_arguments;
 	bool virtual_specified;
@@ -22984,6 +23483,14 @@ fn Entity::set_body_state(var Entity& this, entity_state state) {
 
 fn Entity::completion(Entity& this) -> function_completion {
 	return function_completion(this.body_completion);
+};
+
+fn Entity::return_storage(Entity& this) -> var Entity* {
+	return this.emitter_storage;
+};
+
+fn Entity::set_return_storage(var Entity& this, var Entity* storage) {
+	@this.emitter_storage = $storage;
 };
 
 fn Entity::set_completion(var Entity& this, function_completion completion) {
@@ -24350,6 +24857,9 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
 		Token token = syntax.token();
+		if (kind == syntax_kind::name && (token.is("__return") || token.kind == token_kind::kw_emit)) {
+			return @this.return_emitter(@scope, @syntax, expected);
+		};
 
 		if (token.is("true") || token.is("false")) {
 			var result = @this.node(semantic_kind::literal_integer, bool_type, &@syntax);
@@ -26682,12 +27192,19 @@ fn LifetimeAnalyzer::graph_function(var LifetimeAnalyzer& this, var Entity& func
 	@function.set_completion(completion);
 };
 
+fn LifetimeAnalyzer::validate_function(var LifetimeAnalyzer& this, var Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	return @this.graph_function(@function);
+};
+
 fn LifetimeAnalyzer::validate_graph(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();
 		@index = index + 1;
-		if (function->kind() == entity_kind::function && function->body() && !(@this.graph_function(@*function)).has<void>()) {
+		if (!(@this.validate_function(@*function)).has<void>()) {
 			return compilation_error();
 		};
 	};
@@ -27521,6 +28038,9 @@ fn fact_affine(var FactValue& result, FactValue& base, u64 amount, bool subtract
 struct InferredFacts {
 	fn InferredFacts(var InferredFacts& this, var Diagnostics& diagnostics);
 	fn validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult;
+	fn prepare(var InferredFacts& this, SemanticUnit& unit);
+	fn validate_function(var InferredFacts& this, var Entity& function) -> CompilationResult;
+	fn finish_contexts(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult;
 	fn analyze(var InferredFacts& this, var SemanticExpression* body) -> CompilationResult;
 	fn place(var InferredFacts& this, SemanticExpression* expression) -> usize;
 	fn transfer(var InferredFacts& this, var SemanticExpression* expression, var FactState& state, usize version);
@@ -28980,21 +29500,34 @@ fn InferredFacts::analyze(var InferredFacts& this, var SemanticExpression* body)
 	};
 };
 
-fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+fn InferredFacts::prepare(var InferredFacts& this, SemanticUnit& unit) {
 	@this.summaries.validate(unit);
-	usize index = 0;
 	@this.context_requests.clear();
+};
+
+fn InferredFacts::validate_function(var InferredFacts& this, var Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	@this.analyzed_function = &@function;
+	return @this.analyze(function.body());
+};
+
+fn InferredFacts::finish_contexts(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+	return fact_build_contexts(@this, @unit.mutable_fact_contexts());
+};
+
+fn InferredFacts::validate(var InferredFacts& this, var SemanticUnit& unit) -> CompilationResult {
+	@this.prepare(unit);
+	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* entity = unit.entities().data()[index].get();
-		if (entity->kind() == entity_kind::function && entity->body()) {
-			@this.analyzed_function = entity;
-			if (!(@this.analyze(entity->body())).has<void>()) {
-				return compilation_error();
-			};
+		if (!(@this.validate_function(@*entity)).has<void>()) {
+			return compilation_error();
 		};
 		@index = index + 1;
 	};
-	return fact_build_contexts(@this, @unit.mutable_fact_contexts());
+	return @this.finish_contexts(@unit);
 };
 
 fn Analyzer::resolve_bases(var Analyzer& this, var Entity* entity) -> CompilationResult {
@@ -29427,6 +29960,7 @@ struct LifetimeAnalyzer {
 
 	fn sequence(var LifetimeAnalyzer& this, var SemanticExpression& expression, var FlowState& state) -> CompilationResult;
 	fn validate(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn validate_function(var LifetimeAnalyzer& this, var Entity& function) -> CompilationResult;
 	fn validate_graph(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
 	fn validate_legacy(var LifetimeAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
 
@@ -30310,7 +30844,7 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 	if (!operand.get()) {
 		return rt::unique<SemanticExpression>();
 	};
-	if (operation.kind == token_kind::op_bang && variant_alternative(operand.get()->type(), this.types->find_primitive("bool"))) {
+	if (operation.kind == token_kind::op_bang) {
 		@operand = @this.convert(rt::unique<SemanticExpression>(@operand.release()), rt::optional_ref<const Type>(*this.types->find_primitive("bool")), @syntax);
 		if (!operand.get()) {
 			return rt::unique<SemanticExpression>();
@@ -30524,6 +31058,21 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (operation.kind == token_kind::op_left_arrow && return_emitter_operand(*syntax.left())) {
+		var emitted = @this.binary_values(@scope, @syntax, $left, $right, rt::optional_ref<const Type>());
+		if (!emitted.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (!emitted.get()->type()->equals(*this.function->type()->signature().result()) || emitted.get()->category() != value_category::consumable) {
+			@this.error(&@syntax, "return emission operator must produce an owning value of the function result type");
+			return rt::unique<SemanticExpression>();
+		};
+		var replacement = @this.return_emitter_call(@scope, @syntax, "replace", $emitted);
+		if (replacement.get()) {
+			@replacement.get()->set_mutable_access(false);
+		};
+		return @this.convert($replacement, expected, @syntax);
+	};
 	return @this.binary_values(@scope, @syntax, $left, $right, expected);
 };
 
@@ -30614,8 +31163,12 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 		return @this.overloaded(@scope, @syntax, $arguments, expected);
 	};
 
-	if (operation.kind == token_kind::op_plus_assign) {
-		diagnostic_binary_operands(@*this.diagnostics, @syntax, "operator += requires an applicable overload", *type, *other);
+	if (operation.kind == token_kind::op_plus_assign || operation.kind == token_kind::op_left_arrow) {
+		var message = rt::string_view("operator += requires an applicable overload");
+		if (operation.kind == token_kind::op_left_arrow) {
+			@message = "operator <- requires an applicable overload";
+		};
+		diagnostic_binary_operands(@*this.diagnostics, @syntax, message, *type, *other);
 		return rt::unique<SemanticExpression>();
 	};
 
@@ -31521,11 +32074,12 @@ fn Analyzer::prepare_expression(var Analyzer& this, var SemanticExpression* expr
 	if (expression->kind() == semantic_kind::allocation && !(@this.prepare_lifetime(expression->type())).has<void>()) {
 		return compilation_error();
 	};
-	if (expression->kind() == semantic_kind::construction) {
+	if (expression->kind() == semantic_kind::construction || expression->kind() == semantic_kind::call) {
 		if (!(@this.prepare_lifetime(expression->type())).has<void>()) {
 			return compilation_error();
 		};
-
+	};
+	if (expression->kind() == semantic_kind::construction) {
 		if (!selected && expression->type()->kind() == type_kind::named && expression->type()->entity()->layout() != record_layout::overlapping) {
 			rt::buffer<var Entity*>& fields = expression->type()->entity()->fields();
 			usize field = expression->item(0)->size();
@@ -33792,6 +34346,8 @@ fn ReferenceWalkTask::ReferenceWalkTask(var ReferenceWalkTask& this, reference_w
 struct ReferenceLoanAnalyzer {
 	fn ReferenceLoanAnalyzer(var ReferenceLoanAnalyzer& this, var Diagnostics& diagnostics);
 	fn validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn prepare(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn validate_function(var ReferenceLoanAnalyzer& this, Entity& function) -> CompilationResult;
 
 	private:
 	fn collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression);
@@ -34936,7 +35492,7 @@ fn ReferenceLoanAnalyzer::walk(var ReferenceLoanAnalyzer& this, var SemanticExpr
 	};
 };
 
-fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+fn ReferenceLoanAnalyzer::prepare(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	@this.prepare_stores(unit);
 	if ((@this.prepare_captures(unit)).has<void>()) {
 		@this.prepare_unknowns(unit);
@@ -34944,26 +35500,38 @@ fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit
 	else {
 		return compilation_error();
 	};
+};
+
+fn ReferenceLoanAnalyzer::validate_function(var ReferenceLoanAnalyzer& this, Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	@this.expressions.clear();
+	@this.loans.clear();
+	@this.stores.clear();
+	@this.function_body = function.body();
+	@this.return_type = function.type()->signature().result();
+	@this.phase = reference_loan_phase::collect;
+	@this.build_graph(function);
+	@this.collect(function.body());
+	if (!(@this.walk(function.body(), reference_loan_access::read)).has<void>()) {
+		return compilation_error();
+	};
+	@this.phase = reference_loan_phase::validate;
+	if (!(@this.retain_stores(@*function.body())).has<void>() || !(@this.refresh_array_aliases()).has<void>() || !(@this.collect_unknowns()).has<void>() || !(@this.retain_escapes()).has<void>() || !(@this.retain_special_escapes()).has<void>() || !(@this.walk(function.body(), reference_loan_access::read)).has<void>() || !(@this.validate_stores()).has<void>() || !(@this.validate_ends()).has<void>()) {
+		return compilation_error();
+	};
+};
+
+fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+	if (!(@this.prepare(unit)).has<void>()) {
+		return compilation_error();
+	};
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();
 		@index = index + 1;
-		if (function->kind() != entity_kind::function || !function->body()) {
-			continue;
-		};
-		@this.expressions.clear();
-		@this.loans.clear();
-		@this.stores.clear();
-		@this.function_body = function->body();
-		@this.return_type = function->type()->signature().result();
-		@this.phase = reference_loan_phase::collect;
-		@this.build_graph(*function);
-		@this.collect(function->body());
-		if (!(@this.walk(function->body(), reference_loan_access::read)).has<void>()) {
-			return compilation_error();
-		};
-		@this.phase = reference_loan_phase::validate;
-		if (!(@this.retain_stores(@*function->body())).has<void>() || !(@this.refresh_array_aliases()).has<void>() || !(@this.collect_unknowns()).has<void>() || !(@this.retain_escapes()).has<void>() || !(@this.retain_special_escapes()).has<void>() || !(@this.walk(function->body(), reference_loan_access::read)).has<void>() || !(@this.validate_stores()).has<void>() || !(@this.validate_ends()).has<void>()) {
+		if (!(@this.validate_function(*function)).has<void>()) {
 			return compilation_error();
 		};
 	};
@@ -35405,6 +35973,11 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 	var Entity* record = type->entity();
 	if (record->destructor() && !(@this.retain_effect_capture(@*record->destructor(), owner, nullptr, position, location)).has<void>()) {
 		return compilation_error();
+	};
+	// Union storage has no automatic member destruction. Its own destructor, if
+	// present, already contributes the effects of any explicitly destroyed field.
+	if (record->layout() == record_layout::overlapping) {
+		return;
 	};
 	usize index = 0;
 	while (index < record->bases().size()) {
@@ -36924,6 +37497,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 
 				@entity->set_conversion(conversion_mode::implicit_allowed);
 			}
+			else if (token.kind == token_kind::kw_emit) {
+				if (result->kind() == type_kind::void_type || result->kind() == type_kind::reference || result->kind() == type_kind::function || result->kind() == type_kind::array) {
+					@this.report(token, "emit function requires an owning non-void result type");
+					return compilation_error();
+				};
+			}
 			else if (token.is("virtual")) {
 				@entity->set_dispatch(function_dispatch::virtual_function);
 			}
@@ -37296,6 +37875,10 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 	if (!body.get()) {
 		return compilation_error();
 	};
+	@body = @this.return_emitter_body(@*entity, rt::unique<SemanticExpression>(@body.release()));
+	if (!body.get()) {
+		return compilation_error();
+	};
 
 	Type* void_type = this.types->find_primitive("void");
 	Type* result_type = entity->type()->signature().result();
@@ -37367,6 +37950,9 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		@pass = pass + 1;
 	};
 	@this.pending_declarations.clear();
+	if (!(@this.templates.validate_specializations(@this)).has<void>()) {
+		return compilation_error();
+	};
 
 	this.progress.report("validating", 0, this.unit->entities().size(), "");
 	@index = 0;
@@ -38062,6 +38648,415 @@ fn SwitchAnalysisScope::~SwitchAnalysisScope(var SwitchAnalysisScope& this) {
 	@*this.slot := this.previous;
 };
 
+struct TemplateSpecialization {
+	var Entity* primary;
+	var Entity* pattern;
+	var Syntax* arguments;
+};
+
+fn TemplateEngine::specialization_syntax(TemplateEngine& this, var Syntax& syntax, template_argument_kind kind) -> var Syntax* {
+	var Syntax* result = this.argument_syntax(@syntax, $kind);
+	while (result && result->kind() == syntax_kind::type_name) {
+		@result = result->designated_type();
+	};
+	return $result;
+};
+
+fn TemplateEngine::specialization_parameter(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters, template_argument_kind kind) -> usize {
+	if (syntax.kind() != syntax_kind::name) {
+		return parameters.size();
+	};
+	usize index = 0;
+	while (index < parameters.size()) {
+		var Syntax* parameter = parameters.item(index);
+		bool type_parameter = parameter->token().kind == token_kind::kw_typename;
+		if (type_parameter == (kind == template_argument_kind::type) && parameter->template_parameter_name()->token().text() == syntax.token().text()) {
+			return $index;
+		};
+		@index = index + 1;
+	};
+	return parameters.size();
+};
+
+fn TemplateEngine::specialization_mentions(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters) -> bool {
+	if (syntax.kind() == syntax_kind::name) {
+		usize index = 0;
+		while (index < parameters.size()) {
+			if (parameters.item(index)->template_parameter_name()->token().text() == syntax.token().text()) {
+				return true;
+			};
+			@index = index + 1;
+		};
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.specialization_mentions(@*syntax.item(index), @parameters)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateEngine::specialization_parameter_used(TemplateEngine& this, var Syntax& syntax, var Syntax& parameter) -> bool {
+	if (syntax.kind() == syntax_kind::name && syntax.token().text() == parameter.template_parameter_name()->token().text()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.specialization_parameter_used(@*syntax.item(index), @parameter)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateEngine::specialization_pattern_equal(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& first, var Syntax& second, var Syntax& parameters, template_argument_kind kind) -> bool {
+	var Syntax* left = this.specialization_syntax(@first, kind);
+	var Syntax* right = this.specialization_syntax(@second, kind);
+	if (!left || !right) {
+		return false;
+	};
+	if (!this.specialization_mentions(@*left, @parameters) && !this.specialization_mentions(@*right, @parameters)) {
+		if (kind == template_argument_kind::type) {
+			Type* first_type = @analyzer.type(@scope, @*left);
+			Type* second_type = @analyzer.type(@scope, @*right);
+			return first_type && first_type == second_type;
+		};
+		var first_value = @analyzer.expression(@scope, @*left, rt::optional_ref<const Type>());
+		var second_value = @analyzer.expression(@scope, @*right, rt::optional_ref<const Type>());
+		u64 first_integer = 0;
+		u64 second_integer = 0;
+		return first_value.get() && second_value.get() && @analyzer.constant_integer(*first_value.get(), @first_integer) && @analyzer.constant_integer(*second_value.get(), @second_integer) && first_integer == second_integer;
+	};
+	return this.same_parameter_expression(*left, *right, parameters, parameters);
+};
+
+fn TemplateEngine::specialization_pattern_covers(var TemplateEngine& this, var Analyzer& analyzer, var Scope& general_scope, var Syntax& general, var Syntax& general_parameters, var Scope& specific_scope, var Syntax& specific, var Syntax& specific_parameters, template_argument_kind kind, var rt::buffer<var Syntax*>& bindings) -> bool {
+	var Syntax* left = this.specialization_syntax(@general, kind);
+	var Syntax* right = this.specialization_syntax(@specific, kind);
+	if (!left || !right) {
+		return false;
+	};
+	usize parameter = this.specialization_parameter(@*left, @general_parameters, kind);
+	if (parameter < general_parameters.size()) {
+		var Syntax* bound = bindings.data()[parameter];
+		if (bound) {
+			return @this.specialization_pattern_equal(@analyzer, @specific_scope, @*bound, @*right, @specific_parameters, $kind);
+		};
+		@bindings.data()[parameter] = right;
+		return true;
+	};
+	if (this.specialization_parameter(@*right, @specific_parameters, kind) < specific_parameters.size()) {
+		return false;
+	};
+	bool left_dependent = this.specialization_mentions(@*left, @general_parameters);
+	bool right_dependent = this.specialization_mentions(@*right, @specific_parameters);
+	if (!left_dependent && !right_dependent) {
+		if (kind == template_argument_kind::type) {
+			Type* first_type = @analyzer.type(@general_scope, @*left);
+			Type* second_type = @analyzer.type(@specific_scope, @*right);
+			return first_type && first_type == second_type;
+		};
+		var first_value = @analyzer.expression(@general_scope, @*left, rt::optional_ref<const Type>());
+		var second_value = @analyzer.expression(@specific_scope, @*right, rt::optional_ref<const Type>());
+		u64 first_integer = 0;
+		u64 second_integer = 0;
+		return first_value.get() && second_value.get() && @analyzer.constant_integer(*first_value.get(), @first_integer) && @analyzer.constant_integer(*second_value.get(), @second_integer) && first_integer == second_integer;
+	};
+	var Syntax* first_application = this.unqualified(@*left);
+	var Syntax* second_application = this.unqualified(@*right);
+	if (first_application->kind() == syntax_kind::template_apply && second_application->kind() == syntax_kind::template_apply) {
+		var Entity* first_owner = @this.pattern_owner(@analyzer, @general_scope, @*left);
+		var Entity* second_owner = @this.pattern_owner(@analyzer, @specific_scope, @*right);
+		if (!first_owner || first_owner != second_owner || first_application->arguments()->size() != second_application->arguments()->size()) {
+			return false;
+		};
+		usize index = 0;
+		while (index < first_application->arguments()->size()) {
+			var Syntax* nested_parameter = this.parameter_at(@*first_owner, index);
+			if (!nested_parameter) {
+				return false;
+			};
+			template_argument_kind nested_kind = template_argument_kind::value;
+			if (nested_parameter->token().kind == token_kind::kw_typename) {
+				@nested_kind = template_argument_kind::type;
+			};
+			if (!@this.specialization_pattern_covers(@analyzer, @general_scope, @*first_application->arguments()->item(index), @general_parameters, @specific_scope, @*second_application->arguments()->item(index), @specific_parameters, $nested_kind, @bindings)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	if (left->kind() != right->kind()) {
+		return false;
+	};
+	if (left->kind() == syntax_kind::type_pointer || left->kind() == syntax_kind::type_reference || left->kind() == syntax_kind::type_const || left->kind() == syntax_kind::type_mutable || left->kind() == syntax_kind::type_array) {
+		if (!@this.specialization_pattern_covers(@analyzer, @general_scope, @*left->designated_type(), @general_parameters, @specific_scope, @*right->designated_type(), @specific_parameters, template_argument_kind::type, @bindings)) {
+			return false;
+		};
+		if (left->kind() == syntax_kind::type_array) {
+			return @this.specialization_pattern_covers(@analyzer, @general_scope, @*left->array_extent(), @general_parameters, @specific_scope, @*right->array_extent(), @specific_parameters, template_argument_kind::value, @bindings);
+		};
+		return true;
+	};
+	return this.same_parameter_expression(*left, *right, general_parameters, specific_parameters);
+};
+
+fn TemplateEngine::specialization_covers(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& general, var TemplateSpecialization& specific) -> bool {
+	if (general.arguments->size() != specific.arguments->size()) {
+		return false;
+	};
+	var Syntax* general_parameters = general.pattern->declaration()->template_parameters();
+	var Syntax* specific_parameters = specific.pattern->declaration()->template_parameters();
+	rt::buffer<var Syntax*> bindings;
+	usize index = 0;
+	while (index < general_parameters->size()) {
+		@bindings.push_back(nullptr);
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < general.arguments->size()) {
+		var Syntax* parameter = this.parameter_at(@*general.primary, index);
+		template_argument_kind kind = template_argument_kind::value;
+		if (parameter->token().kind == token_kind::kw_typename) {
+			@kind = template_argument_kind::type;
+		};
+		if (!@this.specialization_pattern_covers(@analyzer, @*general.pattern->resolution_scope(), @*general.arguments->item(index), @*general_parameters, @*specific.pattern->resolution_scope(), @*specific.arguments->item(index), @*specific_parameters, $kind, @bindings)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn TemplateEngine::collect_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source, var Syntax& name) -> CompilationResult {
+	var Entity* primary = @this.pattern_owner(@analyzer, @scope, @name);
+	if (!primary || primary->kind() != entity_kind::template_pattern || primary->declaration()->kind() != syntax_kind::template_declaration || primary->declaration()->template_declaration()->kind() != syntax_kind::record) {
+		@analyzer.error(&@name, "class template specialization requires a declared primary class template");
+		return compilation_error();
+	};
+	var Syntax* application = this.unqualified(@name);
+	usize primary_count = this.explicit_count(@*primary);
+	if (primary_count && this.parameter_at(@*primary, primary_count - 1)->kind() == syntax_kind::template_variadic_parameter) {
+		@analyzer.error(&@name, "class specializations of variadic templates are not supported");
+		return compilation_error();
+	};
+	if (application->arguments()->size() != this.explicit_count(@*primary)) {
+		@analyzer.error(&@name, "class template specialization must specify every primary template argument");
+		return compilation_error();
+	};
+	usize index = 0;
+	while (index < source.template_parameters()->size()) {
+		var Syntax* parameter = source.template_parameters()->item(index);
+		if (parameter->kind() == syntax_kind::template_variadic_parameter || parameter->template_parameter_default()->kind() != syntax_kind::absent) {
+			@analyzer.error(parameter, "class specialization parameters cannot have defaults or parameter packs");
+			return compilation_error();
+		};
+		if (!this.specialization_parameter_used(@*application->arguments(), @*parameter)) {
+			@analyzer.error(parameter, "class specialization parameter cannot be deduced from its arguments");
+			return compilation_error();
+		};
+		@index = index + 1;
+	};
+	var Scope* hidden = @analyzer.semantic_unit()->create_scope(&@scope, scope.owner());
+	var Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, application->callable()->token(), &@source, hidden);
+	@pattern->set_resolution_scope(&@scope);
+	@pattern->set_access(scope.access());
+	@pattern->set_state(entity_state::ready);
+	var specialization = rt::unique<TemplateSpecialization>(new TemplateSpecialization());
+	@specialization.get()->primary = primary;
+	@specialization.get()->pattern = pattern;
+	@specialization.get()->arguments = application->arguments();
+	@this.specializations.push_back($specialization);
+};
+
+fn TemplateEngine::validate_specializations(var TemplateEngine& this, var Analyzer& analyzer) -> CompilationResult {
+	usize index = 0;
+	while (index < this.specializations.size()) {
+		var TemplateSpecialization* current = this.specializations.data()[index].get();
+		var Syntax* parameters = current->pattern->declaration()->template_parameters();
+		rt::buffer<usize> unrestricted;
+		usize argument = 0;
+		while (argument < current->arguments->size()) {
+			var Syntax* primary_parameter = this.parameter_at(@*current->primary, argument);
+			template_argument_kind kind = template_argument_kind::value;
+			if (primary_parameter->token().kind == token_kind::kw_typename) {
+				@kind = template_argument_kind::type;
+			};
+			var Syntax* pattern = this.specialization_syntax(@*current->arguments->item(argument), kind);
+			usize parameter = parameters->size();
+			if (pattern) {
+				@parameter = this.specialization_parameter(@*pattern, @*parameters, kind);
+			};
+			if (parameter == parameters->size()) {
+				break;
+			};
+			usize previous = 0;
+			while (previous < unrestricted.size() && unrestricted.data()[previous] != parameter) {
+				@previous = previous + 1;
+			};
+			if (previous < unrestricted.size()) {
+				break;
+			};
+			@unrestricted.push_back(parameter);
+			@argument = argument + 1;
+		};
+		if (parameters->size() && unrestricted.size() == current->arguments->size()) {
+			@analyzer.error(current->pattern->declaration()->template_declaration()->record_name(), "class template specialization must constrain the primary template arguments");
+			return compilation_error();
+		};
+		usize other = index + 1;
+		while (other < this.specializations.size()) {
+			var TemplateSpecialization* next = this.specializations.data()[other].get();
+			if (current->primary != next->primary || !@this.specialization_covers(@analyzer, @*current, @*next) || !@this.specialization_covers(@analyzer, @*next, @*current)) {
+				@other = other + 1;
+				continue;
+			};
+			var Syntax* previous_record = current->pattern->declaration()->template_declaration();
+			var Syntax* record = next->pattern->declaration()->template_declaration();
+			if (previous_record->record_members()->kind() != syntax_kind::noop && record->record_members()->kind() != syntax_kind::noop) {
+				@analyzer.error(record->record_name(), "duplicate class template specialization");
+				@analyzer.note(current->pattern->token(), "previous specialization is declared here");
+				return compilation_error();
+			};
+			if (record->record_members()->kind() != syntax_kind::noop) {
+				@current->pattern = next->pattern;
+				@current->arguments = next->arguments;
+			};
+			usize last = this.specializations.size() - 1;
+			if (other != last) {
+				var rt::unique<TemplateSpecialization>* entries = (@this.specializations).data();
+				rt::swap(@entries[other], @entries[last]);
+			};
+			@this.specializations.pop_back();
+		};
+		@index = index + 1;
+	};
+	if (analyzer.failed()) {
+		return compilation_error();
+	};
+};
+
+fn TemplateEngine::specialization_type_match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual, var Syntax& parameters, var rt::buffer<TemplateArgument>& deduced) -> bool {
+	return @this.match(@analyzer, @scope, @syntax, actual, @parameters, @deduced, template_match_mode::exact);
+};
+
+fn TemplateEngine::match_specialization(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& specialization, rt::buffer<TemplateArgument>& actual, var rt::buffer<TemplateArgument>& deduced) -> bool {
+	if (specialization.arguments->size() != actual.size()) {
+		return false;
+	};
+	var Syntax* parameters = specialization.pattern->declaration()->template_parameters();
+	var Scope* scope = specialization.pattern->resolution_scope();
+	usize index = 0;
+	while (index < parameters->size()) {
+		TemplateArgument unbound;
+		@deduced.push_back($unbound);
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < actual.size()) {
+		TemplateArgument& argument = actual.data()[index];
+		var Syntax* source = this.specialization_syntax(@*specialization.arguments->item(index), argument.kind);
+		if (!source) {
+			return false;
+		};
+		if (argument.kind == template_argument_kind::type) {
+			TypeUse* use = argument.type_use.get();
+			if (!use) {
+				@use = @analyzer.semantic_unit()->canonical_use(*argument.type);
+			};
+			if (!use || !@this.specialization_type_match(@analyzer, @*scope, @*source, *use, @*parameters, @deduced)) {
+				return false;
+			};
+		}
+		else if (argument.kind == template_argument_kind::value) {
+			usize parameter = this.specialization_parameter(@*source, @*parameters, template_argument_kind::value);
+			if (parameter < parameters->size()) {
+				var TemplateArgument* bound = (@deduced).data() + parameter;
+				if (bound->kind != template_argument_kind::unbound && !bound->same(argument)) {
+					return false;
+				};
+				@*bound := argument;
+			}
+			else {
+				if (this.specialization_mentions(@*source, @*parameters)) {
+					return false;
+				};
+				TemplateArgument expected;
+				if (!(@this.argument(@analyzer, @*scope, @*source, @*this.parameter_at(@*specialization.primary, index), @*specialization.primary, index, @expected)).has<void>() || !expected.same(argument)) {
+					return false;
+				};
+			};
+		}
+		else {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	var Scope* bindings = @analyzer.semantic_unit()->create_scope(scope, scope->owner());
+	while (index < deduced.size()) {
+		if (deduced.data()[index].kind == template_argument_kind::unbound) {
+			return false;
+		};
+		if (!(@this.check_argument(@analyzer, @*bindings, @*parameters->item(index), deduced.data()[index])).has<void>() || !(@this.bind(@analyzer, @*bindings, @*parameters->item(index), deduced.data()[index])).has<void>()) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn TemplateEngine::select_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Entity& primary, rt::buffer<TemplateArgument>& arguments, Token& request, var rt::buffer<TemplateArgument>& deduced) -> var TemplateSpecialization* {
+	rt::buffer<var TemplateSpecialization*> matches;
+	usize index = 0;
+	while (index < this.specializations.size()) {
+		var TemplateSpecialization* specialization = this.specializations.data()[index].get();
+		@index = index + 1;
+		if (specialization->primary != &@primary) {
+			continue;
+		};
+		rt::buffer<TemplateArgument> candidate;
+		if (@this.match_specialization(@analyzer, @*specialization, arguments, @candidate)) {
+			@matches.push_back(specialization);
+		};
+		if (analyzer.failed()) {
+			return nullptr;
+		};
+	};
+	var TemplateSpecialization* selected = nullptr;
+	@index = 0;
+	while (index < matches.size()) {
+		var TemplateSpecialization* candidate = matches.data()[index];
+		@index = index + 1;
+		usize other = 0;
+		while (other < matches.size()) {
+			var TemplateSpecialization* competitor = matches.data()[other];
+			if (competitor != candidate && @this.specialization_covers(@analyzer, @*candidate, @*competitor) && !@this.specialization_covers(@analyzer, @*competitor, @*candidate)) {
+				break;
+			};
+			@other = other + 1;
+		};
+		if (other < matches.size()) {
+			continue;
+		};
+		if (selected) {
+			@analyzer.report(request, "ambiguous class template specialization");
+			@analyzer.note(selected->pattern->token(), "matching specialization is declared here");
+			@analyzer.note(candidate->pattern->token(), "matching specialization is declared here");
+			return nullptr;
+		};
+		@selected = candidate;
+	};
+	if (selected && !@this.match_specialization(@analyzer, @*selected, arguments, @deduced)) {
+		return nullptr;
+	};
+	return $selected;
+};
+
 enum template_validation_role : [u08] {
 	dependent_type;
 	template_type;
@@ -38119,6 +39114,12 @@ fn TemplateDeclarationValidator::dependent(TemplateDeclarationValidator& this, S
 };
 
 fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Syntax& name, template_validation_role role) -> CompilationResult {
+	if (name.kind() == syntax_kind::template_apply) {
+		return @this.remember(@analyzer, @*name.callable(), $role);
+	};
+	if (name.kind() == syntax_kind::qualified_name) {
+		return @this.remember(@analyzer, @*name.right(), $role);
+	};
 	if (name.kind() != syntax_kind::name) {
 		return;
 	};
@@ -38427,6 +39428,11 @@ enum template_input_kind : [u08] {
 	deduced_arguments;
 };
 
+enum template_match_mode : [u08] {
+	deduction;
+	exact;
+};
+
 union TemplateInputStorage {
 	var Syntax* explicit_arguments;
 	rt::buffer<TemplateArgument>* deduced_arguments;
@@ -38455,8 +39461,10 @@ fn TemplateInput::TemplateInput(var TemplateInput& this, rt::buffer<TemplateArgu
 
 struct TemplateInstance {
 	var Entity* pattern;
+	var Entity* definition;
 	var Entity* entity;
 	rt::buffer<TemplateArgument> arguments;
+	rt::buffer<TemplateArgument> definition_arguments;
 };
 
 struct TemplateMemberDefinition {
@@ -38466,6 +39474,7 @@ struct TemplateMemberDefinition {
 };
 
 struct TemplateEngine {
+	fn return_emitter_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, Type& result) -> Type*;
 	fn argument_syntax(TemplateEngine& this, var Syntax& source, template_argument_kind kind) -> var Syntax*;
 	fn aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax) -> Type*;
 	fn aggregate_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, syntax_kind operation, var TemplatePack& pack) -> Type*;
@@ -38477,6 +39486,7 @@ struct TemplateEngine {
 	fn bind_pack(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& name, var Syntax& source, var TemplatePack* pack) -> CompilationResult;
 
 	fn clear(var TemplateEngine& this);
+	fn validate_specializations(var TemplateEngine& this, var Analyzer& analyzer) -> CompilationResult;
 	fn collect(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source) -> CompilationResult;
 	fn editor_context(var TemplateEngine& this, var Analyzer& analyzer, var Entity& pattern, var Syntax& arguments) -> var Entity*;
 	fn apply(var TemplateEngine& this, var Analyzer& analyzer, var Scope& lookup_scope, var Scope& argument_scope, var Syntax& source) -> var Entity*;
@@ -38489,6 +39499,17 @@ struct TemplateEngine {
 	fn instance(TemplateEngine& this, var Entity& entity) -> var TemplateInstance*;
 
 private:
+	fn collect_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source, var Syntax& name) -> CompilationResult;
+	fn select_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Entity& primary, rt::buffer<TemplateArgument>& arguments, Token& request, var rt::buffer<TemplateArgument>& deduced) -> var TemplateSpecialization*;
+	fn match_specialization(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& specialization, rt::buffer<TemplateArgument>& actual, var rt::buffer<TemplateArgument>& deduced) -> bool;
+	fn specialization_covers(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& general, var TemplateSpecialization& specific) -> bool;
+	fn specialization_pattern_covers(var TemplateEngine& this, var Analyzer& analyzer, var Scope& general_scope, var Syntax& general, var Syntax& general_parameters, var Scope& specific_scope, var Syntax& specific, var Syntax& specific_parameters, template_argument_kind kind, var rt::buffer<var Syntax*>& bindings) -> bool;
+	fn specialization_pattern_equal(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& first, var Syntax& second, var Syntax& parameters, template_argument_kind kind) -> bool;
+	fn specialization_type_match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual, var Syntax& parameters, var rt::buffer<TemplateArgument>& deduced) -> bool;
+	fn specialization_parameter(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters, template_argument_kind kind) -> usize;
+	fn specialization_mentions(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters) -> bool;
+	fn specialization_parameter_used(TemplateEngine& this, var Syntax& syntax, var Syntax& parameter) -> bool;
+	fn specialization_syntax(TemplateEngine& this, var Syntax& syntax, template_argument_kind kind) -> var Syntax*;
 	fn signature_entity(TemplateEngine& this, var Scope& scope, var Syntax& name) -> var Entity*;
 	fn normalized_input(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, var Syntax& source, var rt::buffer<TemplateArgument>& result) -> CompilationResult;
 	fn check_argument(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& parameter, TemplateArgument& argument) -> CompilationResult;
@@ -38504,6 +39525,7 @@ private:
 	fn instantiate(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Entity& pattern, TemplateInput& input) -> var Entity*;
 	fn member_definitions(var TemplateEngine& this, var Analyzer& analyzer, var TemplateInstance& instance) -> CompilationResult;
 	fn match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual_use, var Syntax& parameters, var rt::buffer<TemplateArgument>& arguments) -> bool;
+	fn match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual_use, var Syntax& parameters, var rt::buffer<TemplateArgument>& arguments, template_match_mode mode) -> bool;
 
 	fn same_parameter_expression(TemplateEngine& this, Syntax& first, Syntax& second, Syntax& first_parameters, Syntax& second_parameters) -> bool;
 	fn auto_argument(TemplateEngine& this, var Syntax& syntax, TypeUse& actual) -> TypeUse*;
@@ -38520,11 +39542,13 @@ private:
 	fn unqualified(TemplateEngine& this, var Syntax& initial) -> var Syntax*;
 
 	rt::buffer<rt::unique<TemplateInstance>> instances;
+	rt::buffer<rt::unique<TemplateSpecialization>> specializations;
 	rt::buffer<TemplateMemberDefinition> definitions;
 };
 
 fn TemplateEngine::clear(var TemplateEngine& this) {
 	@this.instances.clear();
+	@this.specializations.clear();
 	@this.definitions.clear();
 };
 
@@ -38608,6 +39632,13 @@ fn TemplateEngine::collect(var TemplateEngine& this, var Analyzer& analyzer, var
 		@message.quoted(declaration->token().text());
 		@analyzer.report(declaration->token(), message.view());
 
+		return compilation_error();
+	};
+	if (declaration->kind() == syntax_kind::record && this.unqualified(@*name)->kind() == syntax_kind::template_apply) {
+		return @this.collect_specialization(@analyzer, @scope, @source, @*name);
+	};
+	if (source.kind() == syntax_kind::template_declaration && !source.template_parameters()->size()) {
+		@analyzer.error(&@source, "empty template parameter list requires a class template specialization");
 		return compilation_error();
 	};
 
@@ -39189,8 +40220,31 @@ fn TemplateEngine::instantiate(var TemplateEngine& this, var Analyzer& analyzer,
 	if (wrapper->kind() == syntax_kind::template_declaration) {
 		@declaration = wrapper->template_declaration();
 	};
+	@instance.get()->definition = &@pattern;
+	var TemplateSpecialization* specialization = nullptr;
+	if (declaration->kind() == syntax_kind::record) {
+		@specialization = @this.select_specialization(@analyzer, @pattern, instance.get()->arguments, input.request, @instance.get()->definition_arguments);
+		if (analyzer.failed()) {
+			return nullptr;
+		};
+	};
+	if (specialization) {
+		@instance.get()->definition = specialization->pattern;
+		@declaration = specialization->pattern->declaration()->template_declaration();
+		@bindings = @analyzer.semantic_unit()->create_scope(specialization->pattern->resolution_scope(), pattern.scope()->owner());
+		@index = 0;
+		while (index < instance.get()->definition_arguments.size()) {
+			if (!(@this.bind(@analyzer, @*bindings, @*this.parameter_at(@*specialization->pattern, index), instance.get()->definition_arguments.data()[index])).has<void>()) {
+				return nullptr;
+			};
+			@index = index + 1;
+		};
+	};
 
 	var Syntax* name = this.unqualified(@*this.declaration_name(@*declaration));
+	if (name->kind() == syntax_kind::template_apply) {
+		@name = name->callable();
+	};
 	entity_kind kind = entity_kind::record;
 
 	if (declaration->kind() == syntax_kind::function) {
@@ -39264,7 +40318,7 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 		TemplateMemberDefinition definition := this.definitions.data()[index];
 		@index = index + 1;
 
-		if (definition.owner != instance.pattern) {
+		if (definition.owner != instance.definition) {
 			continue;
 		};
 
@@ -39327,6 +40381,10 @@ fn TemplateEngine::member_definitions(var TemplateEngine& this, var Analyzer& an
 };
 
 fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual_use, var Syntax& parameters, var rt::buffer<TemplateArgument>& arguments) -> bool {
+	return @this.match(@analyzer, @scope, @syntax, actual_use, @parameters, @arguments, template_match_mode::deduction);
+};
+
+fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual_use, var Syntax& parameters, var rt::buffer<TemplateArgument>& arguments, template_match_mode mode) -> bool {
 	Type* actual = &@actual_use.type();
 	TypeUse* use = &@actual_use;
 
@@ -39334,28 +40392,43 @@ fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var S
 		Type* unqualified = @analyzer.type_store()->qualified(*actual, type_qualifier::mutable);
 		@use = @analyzer.semantic_unit()->retype_use(*use, *unqualified);
 
-		return use && @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
+		return use && @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments, $mode);
 	};
 
 	if (syntax.kind() == syntax_kind::type_name) {
-		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
+		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments, $mode);
 	};
 
 	if (syntax.kind() == syntax_kind::type_reference || (syntax.kind() == syntax_kind::type_const || syntax.kind() == syntax_kind::type_mutable)) {
+		if (mode == template_match_mode::exact) {
+			if (syntax.kind() == syntax_kind::type_reference) {
+				return actual->kind() == type_kind::reference && @this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments, $mode);
+			};
+			type_qualifier expected = type_qualifier::immutable;
+			if (syntax.kind() == syntax_kind::type_mutable) {
+				@expected = type_qualifier::mutable;
+			};
+			if (actual->qualifier() != expected) {
+				return false;
+			};
+			Type* unqualified = @analyzer.type_store()->qualified(*actual, type_qualifier::mutable);
+			@use = @analyzer.semantic_unit()->retype_use(*use, *unqualified);
+			return use && @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments, $mode);
+		};
 		if (actual->kind() == type_kind::reference) {
 			@actual = actual->element();
 			@use = &@use->element();
 		};
 
-		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments);
+		return @this.match(@analyzer, @scope, @*syntax.designated_type(), *use, @parameters, @arguments, $mode);
 	};
 
 	if (syntax.kind() == syntax_kind::type_pointer) {
-		return actual->kind() == type_kind::pointer && @this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments);
+		return actual->kind() == type_kind::pointer && (mode != template_match_mode::exact || actual->qualifier() == type_qualifier::mutable) && @this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments, $mode);
 	};
 
 	if (syntax.kind() == syntax_kind::type_array) {
-		if (actual->kind() != type_kind::array || !@this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments)) {
+		if (actual->kind() != type_kind::array || mode == template_match_mode::exact && actual->qualifier() != type_qualifier::mutable || !@this.match(@analyzer, @scope, @*syntax.designated_type(), use->element(), @parameters, @arguments, mode)) {
 			return false;
 		};
 
@@ -39417,6 +40490,12 @@ fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var S
 
 	if (syntax.kind() == syntax_kind::qualified_name) {
 		@application = syntax.right();
+	};
+	if (mode == template_match_mode::exact && application->kind() == syntax_kind::template_apply && actual->kind() != type_kind::named) {
+		return false;
+	};
+	if (mode == template_match_mode::exact && application->kind() == syntax_kind::template_apply && actual->qualifier() != type_qualifier::mutable) {
+		return false;
 	};
 
 	if (application->kind() == syntax_kind::template_apply && actual->kind() == type_kind::named) {
@@ -39524,7 +40603,7 @@ fn TemplateEngine::match(var TemplateEngine& this, var Analyzer& analyzer, var S
 					@argument_use = @analyzer.semantic_unit()->canonical_use(*argument.type);
 				};
 
-				if (!argument_use || !@this.match(@analyzer, @scope, @*argument_source, *argument_use, @parameters, @arguments)) {
+				if (!argument_use || !@this.match(@analyzer, @scope, @*argument_source, *argument_use, @parameters, @arguments, mode)) {
 					return false;
 				};
 			}
@@ -42875,10 +43954,8 @@ enum syntax_kind : [i32] {
 struct Syntax {
 	fn Syntax(var Syntax& this, syntax_kind kind, Token& token);
 	fn Syntax(var Syntax& this, Syntax& other) : [delete];
-	fn Syntax(var Syntax& this, Syntax other) : [default];
 
 	fn operator=(var Syntax& this, Syntax& other) -> var Syntax& : [delete];
-	fn operator=(var Syntax& this, Syntax other) -> var Syntax& : [default];
 	fn append(var Syntax& this, rt::unique<Syntax> child) -> CompilationResult;
 
 	fn declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>&;
@@ -42890,6 +43967,12 @@ struct Syntax {
 	fn function_linkage(Syntax& this) -> Token;
 	fn set_function_linkage(var Syntax& this, Token& linkage);
 	fn kind(Syntax& this) -> syntax_kind;
+	fn source_kind(Syntax& this) -> syntax_kind;
+	fn excluded(Syntax& this) -> bool;
+	fn set_excluded(var Syntax& this, bool excluded);
+	fn source_begin(Syntax& this) -> usize;
+	fn source_end(Syntax& this) -> usize;
+	fn set_source_extent(var Syntax& this, usize begin, usize end);
 	fn explicitly_qualified(Syntax& this) -> bool;
 	fn token(Syntax& this) -> Token;
 	fn size(Syntax& this) -> usize;
@@ -42901,6 +43984,9 @@ private:
 	syntax_kind category;
 	Token location;
 	bool is_exported;
+	bool is_excluded;
+	usize extent_begin;
+	usize extent_end;
 	Token linkage;
 	rt::buffer<rt::unique<Syntax>> metadata;
 	rt::buffer<rt::unique<Syntax>> children;
@@ -42908,8 +43994,11 @@ private:
 
 fn Syntax::Syntax(var Syntax& this, syntax_kind kind, Token& token) {
 	@this.is_exported = false;
+	@this.is_excluded = false;
 	@this.category = $kind;
 	@this.location := token;
+	@this.extent_begin = token.begin;
+	@this.extent_end = token.begin + token.length;
 };
 
 fn Syntax::declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>& {
@@ -42958,7 +44047,35 @@ fn Syntax::set_function_linkage(var Syntax& this, Token& linkage) {
 };
 
 fn Syntax::kind(Syntax& this) -> syntax_kind {
+	if (this.is_excluded) {
+		return syntax_kind::noop;
+	};
+	return this.source_kind();
+};
+
+fn Syntax::source_kind(Syntax& this) -> syntax_kind {
 	return syntax_kind(this.category);
+};
+
+fn Syntax::excluded(Syntax& this) -> bool {
+	return this.is_excluded;
+};
+
+fn Syntax::set_excluded(var Syntax& this, bool excluded) {
+	@this.is_excluded = $excluded;
+};
+
+fn Syntax::source_begin(Syntax& this) -> usize {
+	return this.extent_begin;
+};
+
+fn Syntax::source_end(Syntax& this) -> usize {
+	return this.extent_end;
+};
+
+fn Syntax::set_source_extent(var Syntax& this, usize begin, usize end) {
+	@this.extent_begin = $begin;
+	@this.extent_end = $end;
 };
 
 fn Syntax::explicitly_qualified(Syntax& this) -> bool {
@@ -43408,3 +44525,4 @@ fn Syntax::pack_signature_body(Syntax& this) -> var Syntax* {
 fn Syntax::pack_operand(Syntax& this) -> var Syntax* {
 	return this.item(0);
 };
+

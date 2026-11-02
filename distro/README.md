@@ -14,7 +14,6 @@ Build the compiler and run its tests from the repository root with Kiln:
 
 ```text
 kiln build rutilec --profile debug
-kiln test compiler --profile debug
 kiln test std --profile debug
 ```
 

@@ -13,6 +13,13 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 		return LLVMConstInt(type, inferred, 0);
 	};
 
+	if (expression->kind() == semantic_kind::binary) {
+		return @this.binary(expression);
+	};
+	return @this.evaluate_other(expression, type);
+};
+
+fn FunctionEmitter::evaluate_other(var FunctionEmitter& this, var SemanticExpression* expression, var LLVMOpaqueType* type) -> var LLVMOpaqueValue* {
 	switch (expression->kind()) {
 		case semantic_kind::sequence: {
 			var LLVMOpaqueValue* result;
@@ -151,8 +158,6 @@ fn FunctionEmitter::evaluate(var FunctionEmitter& this, var SemanticExpression* 
 			return value;
 		};
 
-		case semantic_kind::binary:
-			return @this.binary(expression);
 		case semantic_kind::unary: {
 			var SemanticExpression* operand = expression->item(0);
 			var LLVMOpaqueValue* value = @this.value(operand);

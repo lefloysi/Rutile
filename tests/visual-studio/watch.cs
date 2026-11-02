@@ -104,6 +104,32 @@ public static partial class EditorObservations {
 						await Task.Delay(100, timeout.Token).ConfigureAwait(false);
 					}
 				} while (watch == null || compiling > 0);
+				var beforeBackground = (JObject)watch.DeepClone();
+				var beforeBackgroundCompilations = status.Value<long>("compilations");
+				var compiledSession = watch.Value<string>("session");
+				var compiledRevision = watch.Value<long>("source_revision");
+				source = source.Replace("label.value = 1", "label.value = 2").Replace("label.value == 1", "label.value == 2");
+				File.WriteAllText(Path.Combine(root, "checks.rt"), source, new UTF8Encoding(false));
+				while (true) {
+					status = JObject.Parse(await RunAsync(compiler, root, "request hello").ConfigureAwait(false));
+					watch = null;
+					foreach (JObject session in status["sessions"] ?? new JArray()) {
+						if (session.Value<string>("session") == compiledSession) {
+							watch = session;
+							break;
+						}
+					}
+					if (
+						watch != null
+						&& watch.Value<long>("source_revision") > compiledRevision
+						&& watch.Value<long>("artifact_revision") == watch.Value<long>("source_revision")
+						&& watch.Value<bool>("artifacts_current")
+						&& !watch.Value<bool>("compiling")
+					) {
+						break;
+					}
+					await Task.Delay(100, timeout.Token).ConfigureAwait(false);
+				}
 				var progress = JObject.Parse(await RunAsync(compiler, root, "request progress").ConfigureAwait(false));
 				using (var connection = await RutileServiceConnection.ConnectAsync(root, timeout.Token, value => Task.CompletedTask, value => { }).ConfigureAwait(false))
 				using (var handler = new HeaderDelimitedMessageHandler(connection.Connection.Writer, connection.Connection.Reader))
@@ -140,6 +166,9 @@ public static partial class EditorObservations {
 						colors.Add(new JObject { ["text"] = source.Substring(token.Start, token.Length), ["classification"] = token.Classification });
 					}
 					return new JObject { ["watch"] = watch, ["native_watch_sessions"] = nativeWatchSessions,
+						["before_background"] = beforeBackground,
+						["before_background_compilations"] = beforeBackgroundCompilations,
+						["after_background_compilations"] = status.Value<long>("compilations"),
 						["current_test_sessions"] = currentTestSessions,
 						["before_configure"] = beforeConfigure, ["after_configure"] = afterConfigure, ["after_edit"] = afterEdit,
 						["progress"] = progress, ["diagnostics"] = diagnostics.For(uri), ["colors"] = colors }.ToString();

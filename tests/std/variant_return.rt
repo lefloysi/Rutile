@@ -1,0 +1,22 @@
+struct VariantReturnFailure {};
+
+fn variant_fallthrough(bool fail) -> void | VariantReturnFailure {
+	if (fail) { return VariantReturnFailure(); };
+};
+
+fn variant_bare_return(bool fail) -> void | VariantReturnFailure {
+	if (!fail) { return; };
+	return VariantReturnFailure();
+};
+
+[[test]]
+fn void_variant_returns_use_success_and_failure_alternatives() {
+	var fallthrough_success = variant_fallthrough(false);
+	var fallthrough_failure = variant_fallthrough(true);
+	var bare_success = variant_bare_return(false);
+	var bare_failure = variant_bare_return(true);
+	rt::test::expect(fallthrough_success.has<void>());
+	rt::test::expect(fallthrough_failure.has<VariantReturnFailure>());
+	rt::test::expect(bare_success.has<void>());
+	rt::test::expect(bare_failure.has<VariantReturnFailure>());
+};

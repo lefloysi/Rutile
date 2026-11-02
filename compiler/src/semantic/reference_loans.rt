@@ -118,6 +118,8 @@ fn ReferenceWalkTask::ReferenceWalkTask(var ReferenceWalkTask& this, reference_w
 struct ReferenceLoanAnalyzer {
 	fn ReferenceLoanAnalyzer(var ReferenceLoanAnalyzer& this, var Diagnostics& diagnostics);
 	fn validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn prepare(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult;
+	fn validate_function(var ReferenceLoanAnalyzer& this, Entity& function) -> CompilationResult;
 
 	private:
 	fn collect(var ReferenceLoanAnalyzer& this, var SemanticExpression* expression);
@@ -1262,7 +1264,7 @@ fn ReferenceLoanAnalyzer::walk(var ReferenceLoanAnalyzer& this, var SemanticExpr
 	};
 };
 
-fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+fn ReferenceLoanAnalyzer::prepare(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
 	@this.prepare_stores(unit);
 	if ((@this.prepare_captures(unit)).has<void>()) {
 		@this.prepare_unknowns(unit);
@@ -1270,26 +1272,38 @@ fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit
 	else {
 		return compilation_error();
 	};
+};
+
+fn ReferenceLoanAnalyzer::validate_function(var ReferenceLoanAnalyzer& this, Entity& function) -> CompilationResult {
+	if (function.kind() != entity_kind::function || !function.body()) {
+		return;
+	};
+	@this.expressions.clear();
+	@this.loans.clear();
+	@this.stores.clear();
+	@this.function_body = function.body();
+	@this.return_type = function.type()->signature().result();
+	@this.phase = reference_loan_phase::collect;
+	@this.build_graph(function);
+	@this.collect(function.body());
+	if (!(@this.walk(function.body(), reference_loan_access::read)).has<void>()) {
+		return compilation_error();
+	};
+	@this.phase = reference_loan_phase::validate;
+	if (!(@this.retain_stores(@*function.body())).has<void>() || !(@this.refresh_array_aliases()).has<void>() || !(@this.collect_unknowns()).has<void>() || !(@this.retain_escapes()).has<void>() || !(@this.retain_special_escapes()).has<void>() || !(@this.walk(function.body(), reference_loan_access::read)).has<void>() || !(@this.validate_stores()).has<void>() || !(@this.validate_ends()).has<void>()) {
+		return compilation_error();
+	};
+};
+
+fn ReferenceLoanAnalyzer::validate(var ReferenceLoanAnalyzer& this, SemanticUnit& unit) -> CompilationResult {
+	if (!(@this.prepare(unit)).has<void>()) {
+		return compilation_error();
+	};
 	usize index = 0;
 	while (index < unit.entities().size()) {
 		var Entity* function = unit.entities().data()[index].get();
 		@index = index + 1;
-		if (function->kind() != entity_kind::function || !function->body()) {
-			continue;
-		};
-		@this.expressions.clear();
-		@this.loans.clear();
-		@this.stores.clear();
-		@this.function_body = function->body();
-		@this.return_type = function->type()->signature().result();
-		@this.phase = reference_loan_phase::collect;
-		@this.build_graph(*function);
-		@this.collect(function->body());
-		if (!(@this.walk(function->body(), reference_loan_access::read)).has<void>()) {
-			return compilation_error();
-		};
-		@this.phase = reference_loan_phase::validate;
-		if (!(@this.retain_stores(@*function->body())).has<void>() || !(@this.refresh_array_aliases()).has<void>() || !(@this.collect_unknowns()).has<void>() || !(@this.retain_escapes()).has<void>() || !(@this.retain_special_escapes()).has<void>() || !(@this.walk(function->body(), reference_loan_access::read)).has<void>() || !(@this.validate_stores()).has<void>() || !(@this.validate_ends()).has<void>()) {
+		if (!(@this.validate_function(*function)).has<void>()) {
 			return compilation_error();
 		};
 	};
