@@ -80,6 +80,8 @@ namespace Rutile.VisualStudio {
 					return RutileClassification.Keyword;
 				case "controlKeyword":
 					return RutileClassification.Control;
+				case "inactive":
+					return "excluded code";
 				case "comment":
 				case "string":
 				case "number":

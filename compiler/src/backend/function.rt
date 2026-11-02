@@ -71,7 +71,7 @@ enum native_evaluation : [u08] {
 struct FunctionEmitter {
 	fn FunctionEmitter(var FunctionEmitter& this, var Backend& backend, var LLVMOpaqueValue* function, Type* result);
 
-	fn emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
+	fn generate(var FunctionEmitter& this, var Entity* function) -> CompilationResult;
 	fn set_fact_context(var FunctionEmitter& this, InferredFunctionContext* context);
 	fn integer_fact(FunctionEmitter& this, SemanticExpression& expression, var u64& value) -> bool;
 	fn condition_fact(FunctionEmitter& this, SemanticExpression& expression, var bool& value) -> bool;
@@ -248,7 +248,7 @@ fn FunctionEmitter::storage(FunctionEmitter& this, var Entity* entity) -> var LL
 	return this.backend->symbol(entity);
 };
 
-fn FunctionEmitter::emit(var FunctionEmitter& this, var Entity* function) -> CompilationResult {
+fn FunctionEmitter::generate(var FunctionEmitter& this, var Entity* function) -> CompilationResult {
 	LLVMPositionBuilderAtEnd(this.backend->builder(), @this.block("entry"));
 	NativeHandler boundary;
 	if (function->nonthrowing() && native_windows_exceptions(*this.backend)) {

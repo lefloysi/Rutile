@@ -85,6 +85,8 @@ struct Compiler {
 
 	fn set_progress(var Compiler& this, CompilerProgress progress);
 	fn clear_modules(var Compiler& this);
+	fn clear_declaration_filters(var Compiler& this);
+	fn add_declaration_filter(var Compiler& this, DeclarationFilter filter);
 	fn add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access);
 	fn next_editor_revision(var Compiler& this) -> u64;
 	fn expect_target(var Compiler& this, rt::string_view key, u64 revision) -> AnalysisExpectation;
@@ -107,6 +109,7 @@ private:
 
 	CompilerProgress progress;
 	rt::buffer<ModuleSource> module_sources;
+	rt::buffer<DeclarationFilter> declaration_filters;
 	var RuntimeMutex* operation_mutex;
 	var RuntimeMutex* publication_mutex;
 	u64 editor_revision;
@@ -453,7 +456,7 @@ fn Compilation::run(var Compilation& this, rt::string_view output_path, rt::stri
 	};
 
 	@this.backend.get()->set_progress(this.progress);
-	if (!(@this.backend.get()->emit(*this.analysis->semantics(), entry, $kind)).has<void>()) {
+	if (!(@this.backend.get()->generate(*this.analysis->semantics(), entry, $kind)).has<void>()) {
 		if (!this.diagnostics.failed()) {
 			compiler_panic("native emission failed without a diagnostic");
 		};
@@ -542,6 +545,9 @@ fn Compiler::compile(var Compiler& this, rt::buffer<rt::string_view>& paths, rt:
 fn Compiler::finish_compilation(var Compiler& this, rt::unique<Analysis> analysis, rt::string_view output_path, FileOpener opener, rt::string_view entry, i32 optimization, var NativeFile* diagnostics, output_kind kind) -> CompilationResult {
 	var errors = Diagnostics(diagnostics);
 	Token location;
+	for (usize index = 0; index < this.declaration_filters.size(); @index = index + 1) {
+		@analysis.get()->add_declaration_filter(this.declaration_filters.data()[index]);
+	};
 	if (kind == output_kind::tests) {
 		@analysis.get()->enable_tests();
 	};
@@ -564,6 +570,14 @@ fn Compiler::set_progress(var Compiler& this, CompilerProgress progress) {
 
 fn Compiler::clear_modules(var Compiler& this) {
 	@this.module_sources.clear();
+};
+
+fn Compiler::clear_declaration_filters(var Compiler& this) {
+	@this.declaration_filters.clear();
+};
+
+fn Compiler::add_declaration_filter(var Compiler& this, DeclarationFilter filter) {
+	@this.declaration_filters.push_back($filter);
 };
 
 fn Compiler::add_module_source(var Compiler& this, rt::string_view path, rt::string_view name, i32 access) {

@@ -73,7 +73,7 @@ fn Analyzer::unary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt:
 	if (!operand.get()) {
 		return rt::unique<SemanticExpression>();
 	};
-	if (operation.kind == token_kind::op_bang && variant_alternative(operand.get()->type(), this.types->find_primitive("bool"))) {
+	if (operation.kind == token_kind::op_bang) {
 		@operand = @this.convert(rt::unique<SemanticExpression>(@operand.release()), rt::optional_ref<const Type>(*this.types->find_primitive("bool")), @syntax);
 		if (!operand.get()) {
 			return rt::unique<SemanticExpression>();
@@ -287,6 +287,21 @@ fn Analyzer::binary(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt
 		return rt::unique<SemanticExpression>();
 	};
 
+	if (operation.kind == token_kind::op_left_arrow && return_emitter_operand(*syntax.left())) {
+		var emitted = @this.binary_values(@scope, @syntax, $left, $right, rt::optional_ref<const Type>());
+		if (!emitted.get()) {
+			return rt::unique<SemanticExpression>();
+		};
+		if (!emitted.get()->type()->equals(*this.function->type()->signature().result()) || emitted.get()->category() != value_category::consumable) {
+			@this.error(&@syntax, "return emission operator must produce an owning value of the function result type");
+			return rt::unique<SemanticExpression>();
+		};
+		var replacement = @this.return_emitter_call(@scope, @syntax, "replace", $emitted);
+		if (replacement.get()) {
+			@replacement.get()->set_mutable_access(false);
+		};
+		return @this.convert($replacement, expected, @syntax);
+	};
 	return @this.binary_values(@scope, @syntax, $left, $right, expected);
 };
 
@@ -377,8 +392,12 @@ fn Analyzer::binary_values(var Analyzer& this, var Scope& scope, var Syntax& syn
 		return @this.overloaded(@scope, @syntax, $arguments, expected);
 	};
 
-	if (operation.kind == token_kind::op_plus_assign) {
-		diagnostic_binary_operands(@*this.diagnostics, @syntax, "operator += requires an applicable overload", *type, *other);
+	if (operation.kind == token_kind::op_plus_assign || operation.kind == token_kind::op_left_arrow) {
+		var message = rt::string_view("operator += requires an applicable overload");
+		if (operation.kind == token_kind::op_left_arrow) {
+			@message = "operator <- requires an applicable overload";
+		};
+		diagnostic_binary_operands(@*this.diagnostics, @syntax, message, *type, *other);
 		return rt::unique<SemanticExpression>();
 	};
 

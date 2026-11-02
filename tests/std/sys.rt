@@ -1,0 +1,12 @@
+[[test]]
+fn command_views_are_null_terminated_before_execution() {
+	var command = rt::string_view("exit 07".data(), 6);
+	i32 status = rt::sys::cmd(command);
+	rt::test::expect(!status);
+};
+
+[[test]]
+fn command_allocation_failures_are_returned_before_execution() {
+	var result = rt::sys::cmd(rt::string_view("x".data(), usize::max));
+	rt::test::expect(result.has<rt::allocation_error>());
+};

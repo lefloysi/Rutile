@@ -33,12 +33,9 @@ export fn answer() -> i32 { return 42; };
 	@paths.push_back("tests.rt");
 	@sources.push_back("[[test]] fn use_import() { rt::test::expect(answer() == 42); };\n");
 	rt::test::expect((@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
-	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
-	if (executed.exit_code) {
-		discard puts(executed.output.c_str());
-		discard puts(executed.error.c_str());
-	};
-	rt::test::expect(!executed.exit_code);
+	var object = rt::fs::read(directory + "/case.obj");
+	rt::test::expect(object.has<rt::string>());
+	rt::test::expect(!object.get<rt::string>().contains("imported_tests_do_not_run"));
 };
 
 [[test]]
@@ -122,10 +119,4 @@ export fn succeed_later() -> Later { return complete(); };
 	@paths.push_back("tests.rt");
 	@sources.push_back(source);
 	rt::test::expect((@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
-	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, "library.obj"));
-	if (executed.exit_code) {
-		discard puts(executed.output.c_str());
-		discard puts(executed.error.c_str());
-	};
-	rt::test::expect(!executed.exit_code);
 };

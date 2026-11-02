@@ -1,3 +1,33 @@
+fn implicit_c_string_length(rt::string_view text) -> usize {
+	return text.size();
+};
+
+[[test]]
+fn c_strings_implicitly_convert_to_views() {
+	var storage = rt::string("hello");
+	char* text = storage.c_str();
+	rt::string_view view = text;
+	rt::test::expect(view.data() == text);
+	rt::test::expect(view == "hello");
+	rt::test::expect(implicit_c_string_length(text) == 5);
+	char* empty = nullptr;
+	rt::string_view empty_view = empty;
+	rt::test::expect(empty_view.empty());
+	rt::test::expect(!empty_view.data());
+};
+
+[[test]]
+fn string_views_implicitly_construct_owned_strings() {
+	rt::string_view view = "hello";
+	rt::string owned = view;
+	rt::test::expect(owned == view);
+	rt::test::expect(owned.data() != view.data());
+	rt::buffer<rt::string> candidates;
+	@candidates.push_back("clang-format");
+	rt::test::expect(candidates.size() == 1);
+	rt::test::expect(candidates.data()[0] == "clang-format");
+};
+
 [[test]]
 fn compound_string_assignment_preserves_the_left_reference() {
 	var text = rt::string("hello");

@@ -403,6 +403,12 @@ fn Analyzer::resolve_impl(var Analyzer& this, var Entity* entity) -> Compilation
 
 				@entity->set_conversion(conversion_mode::implicit_allowed);
 			}
+			else if (token.kind == token_kind::kw_emit) {
+				if (result->kind() == type_kind::void_type || result->kind() == type_kind::reference || result->kind() == type_kind::function || result->kind() == type_kind::array) {
+					@this.report(token, "emit function requires an owning non-void result type");
+					return compilation_error();
+				};
+			}
 			else if (token.is("virtual")) {
 				@entity->set_dispatch(function_dispatch::virtual_function);
 			}
@@ -775,6 +781,10 @@ fn Analyzer::function_body(var Analyzer& this, var Entity* entity) -> Compilatio
 	if (!body.get()) {
 		return compilation_error();
 	};
+	@body = @this.return_emitter_body(@*entity, rt::unique<SemanticExpression>(@body.release()));
+	if (!body.get()) {
+		return compilation_error();
+	};
 
 	Type* void_type = this.types->find_primitive("void");
 	Type* result_type = entity->type()->signature().result();
@@ -846,6 +856,9 @@ fn Analyzer::analyze_into(var Analyzer& this, var SemanticUnit& unit, rt::buffer
 		@pass = pass + 1;
 	};
 	@this.pending_declarations.clear();
+	if (!(@this.templates.validate_specializations(@this)).has<void>()) {
+		return compilation_error();
+	};
 
 	this.progress.report("validating", 0, this.unit->entities().size(), "");
 	@index = 0;

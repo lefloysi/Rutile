@@ -1,0 +1,113 @@
+struct FilterObservation {
+	usize visited;
+};
+
+fn exclude_other_attribute_value(Syntax& declaration, var void* context) -> i32 {
+	var observation = static_cast<var FilterObservation*>(context);
+	@observation->visited = observation->visited + 1;
+	usize index = 0;
+	while (index < declaration.declaration_attributes().size()) {
+		var attribute = declaration.declaration_attributes().data()[index].get();
+		if (attribute->token().is("flavor")) {
+			if (attribute->item(0)->token().is("chosen")) {
+				return 1;
+			};
+			return 0;
+		};
+		@index = index + 1;
+	};
+	return 1;
+};
+
+[[test]]
+fn declaration_filters_preserve_syntax_and_apply_to_nested_declarations() {
+	SourceFile source;
+	@source.assign("filter.rt", "[[flavor : other]] namespace hidden { fn child() -> Missing { return unknown; }; }; [[flavor : chosen]] struct Kept { [[flavor : other]] Missing field; fn kept(); };\n");
+	var lexer = Lexer(@source);
+	rt::test::expect((@lexer.scan()).has<void>());
+	var parser = Parser(source.tokens());
+	var parsed = @parser.parse();
+	rt::test::expect(parsed.has<rt::unique<Syntax>>());
+	FilterObservation first;
+	FilterObservation second;
+	rt::buffer<DeclarationFilter> filters;
+	@filters.push_back(DeclarationFilter(&exclude_other_attribute_value, &@first));
+	@filters.push_back(DeclarationFilter(&exclude_other_attribute_value, &@second));
+	rt::buffer<ExcludedDeclaration> excluded;
+	var tree = parsed.get<rt::unique<Syntax>>().get();
+	rt::test::expect(apply_declaration_filters(@*tree, filters, @excluded, false));
+	rt::test::expect(first.visited == 5);
+	rt::test::expect(second.visited == first.visited);
+	rt::test::expect(tree->item(0)->excluded());
+	rt::test::expect(tree->item(0)->kind() == syntax_kind::noop);
+	rt::test::expect(tree->item(0)->source_kind() == syntax_kind::namespace_body);
+	rt::test::expect(!tree->item(1)->excluded());
+	rt::test::expect(excluded.size() == 2);
+	rt::test::expect(excluded.data()[0].begin == 0);
+	rt::test::expect(rt::string_view(source.text().data() + excluded.data()[0].begin, excluded.data()[0].end - excluded.data()[0].begin).contains("return unknown"));
+	@filters.clear();
+	@excluded.clear();
+	rt::test::expect(apply_declaration_filters(@*tree, filters, @excluded, false));
+	rt::test::expect(!tree->item(0)->excluded());
+	rt::test::expect(tree->item(0)->kind() == syntax_kind::namespace_body);
+	rt::test::expect(!excluded.size());
+};
+
+[[test]]
+fn declaration_filters_exclude_before_semantic_registration() {
+	Analysis analysis;
+	FilterObservation observation;
+	@analysis.add_declaration_filter(DeclarationFilter(&exclude_other_attribute_value, &@observation));
+	@analysis.add_source("filter.rt", "[[flavor : other]] namespace hidden { fn missing() -> Unknown { return absent; }; }; [[flavor : other]] fn answer() -> Missing; [[flavor : chosen]] fn answer() -> i32 { return 42; }; struct Example { [[flavor : other]] Missing field; [[flavor : other]] fn missing() -> Missing; i32 kept; };\n");
+	rt::test::expect((@analysis.analyze(64, nullptr, nullptr)).has<void>());
+	rt::test::expect(analysis.excluded_declarations().size() == 4);
+	rt::test::expect(observation.visited == 8);
+};
+
+fn failing_declaration_filter(Syntax& declaration, var void* context) -> i32 {
+	var observation = static_cast<var FilterObservation*>(context);
+	@observation->visited = observation->visited + 1;
+	return -1;
+};
+
+[[test]]
+fn declaration_filter_failure_reports_a_diagnostic_before_semantics() {
+	Analysis analysis;
+	FilterObservation failed;
+	FilterObservation later;
+	@analysis.add_declaration_filter(DeclarationFilter(&failing_declaration_filter, &@failed));
+	@analysis.add_declaration_filter(DeclarationFilter(&exclude_other_attribute_value, &@later));
+	@analysis.add_source("filter-error.rt", "fn invalid() -> Missing; struct AlsoInvalid { Missing field; };\n");
+	rt::test::expect((@analysis.analyze(64, nullptr, nullptr)).has<compilation_error>());
+	rt::test::expect(failed.visited == 3);
+	rt::test::expect(later.visited == failed.visited);
+	rt::test::expect(analysis.diagnostics().records().size() == 1);
+	rt::test::expect(analysis.diagnostics().records().data()[0].message == "declaration filter failed");
+};
+
+[[test]]
+fn declaration_attributes_preserve_exact_lexical_value_extents() {
+	SourceFile source;
+	@source.assign("attribute-values.rt", "[[expression : (1 + 2)]] [[text : \"quoted\"]] [[marker]] fn tagged();\n");
+	var lexer = Lexer(@source);
+	rt::test::expect((@lexer.scan()).has<void>());
+	var parser = Parser(source.tokens());
+	var parsed = @parser.parse();
+	rt::test::expect(parsed.has<rt::unique<Syntax>>());
+	var attributes = parsed.get<rt::unique<Syntax>>().get()->item(0)->declaration_attributes().data();
+	usize index = 0;
+	while (index < 3) {
+		var attribute = attributes[index].get();
+		var value = rt::string_view(source.text().data() + attribute->source_begin(), attribute->source_end() - attribute->source_begin());
+		if (attribute->token().is("expression")) {
+			rt::test::expect(value == "(1 + 2)");
+		}
+		else if (attribute->token().is("text")) {
+			rt::test::expect(value == "\"quoted\"");
+		}
+		else {
+			rt::test::expect(value.empty());
+		};
+		@index = index + 1;
+	};
+};

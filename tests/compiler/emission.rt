@@ -1,0 +1,267 @@
+[[test]]
+fn return_emission_is_lazy_owns_its_result_and_obeys_ordinary_calls() {
+	var directory = compiler_directory("return-emission");
+	var subject = """i32 defaults;
+i32 alive;
+bool fail_default;
+bool fail_operator;
+struct Failure { i32 code; };
+struct End {};
+const End end;
+struct Accumulator {
+	i32 value;
+	fn Accumulator(var Accumulator& this) {
+		if (fail_default) { throw Failure(11); };
+		@defaults = defaults + 1;
+		@alive = alive + 1;
+	};
+	fn Accumulator(var Accumulator& this, i32 value) { @this.value = value; @alive = alive + 1; };
+	fn Accumulator(var Accumulator& this, Accumulator& other) : [delete];
+	fn ~Accumulator(var Accumulator& this) { @alive = alive - 1; };
+	fn operator<-(Accumulator& this, i32 value) -> Accumulator {
+		if (fail_operator) { throw Failure(23); };
+		return Accumulator(this.value + value);
+	};
+	fn operator<-(Accumulator& this, End marker) -> Accumulator { return Accumulator(this.value * 10); };
+	fn operator<-(Accumulator& this, Accumulator& other) -> Accumulator { return Accumulator(this.value + other.value); };
+};
+fn collect(bool enabled, bool bypass) emit -> Accumulator {
+	if (bypass) { return Accumulator(90); };
+	if (enabled) {
+		emit 1;
+		emit(2);
+		__return <- end;
+	};
+};
+fn direct_access() -> Accumulator { @__return.value = 7; };
+fn chained() emit -> Accumulator { __return <- __return <- 3; };
+fn override_result() emit -> Accumulator { emit 2; return Accumulator(19); };
+fn recover_operator() emit -> Accumulator {
+	try { emit 1; } catch (Failure& error) { @fail_operator = false; };
+	emit 2;
+};
+template<typename R> fn generic(i32 value) emit -> R { emit value; };
+template<i32 N> struct Count { fn value() -> i32 { return N; }; };
+template<typename T> struct Outer { fn value() -> i32 { return T::value(); }; };
+struct MutableAccumulator {
+	i32 value;
+	fn operator<-(var MutableAccumulator& this, i32 value) -> MutableAccumulator {
+		@this.value = this.value + value;
+		return MutableAccumulator(this.value);
+	};
+};
+fn mutable_receiver() emit -> MutableAccumulator { @__return <- 4; };
+struct Bucket {
+	rt::unique<i32> value;
+	fn Bucket(var Bucket& this) : [default];
+	fn Bucket(var Bucket& this, rt::unique<i32> value) { @this.value = $value; };
+	fn operator<-(Bucket& this, rt::unique<i32> value) -> Bucket { return Bucket($value); };
+};
+fn move_payload() emit -> Bucket {
+	var payload = rt::unique<i32>(new i32(31));
+	emit $payload;
+};
+i32 resources;
+bool fail_move;
+struct Resource {
+	fn Resource(var Resource& this) { @resources = resources + 1; };
+	fn ~Resource(var Resource& this) { @resources = resources - 1; };
+};
+struct MovingAccumulator {
+	rt::unique<Resource> value;
+	fn MovingAccumulator(var MovingAccumulator& this) { @this.value = rt::unique<Resource>(new Resource()); };
+	fn MovingAccumulator(var MovingAccumulator& this, MovingAccumulator& other) : [delete];
+	fn MovingAccumulator(var MovingAccumulator& this, MovingAccumulator other) {
+		if (fail_move) { throw Failure(37); };
+		@this.value = rt::unique<Resource>(@other.value.release());
+	};
+};
+fn throw_on_fallthrough() -> MovingAccumulator {
+	@fail_move = __return.value.get() != nullptr;
+};
+""";
+	var source = """[[test]] fn results_and_cleanup() {
+	{
+		var value = collect(true, false);
+		rt::test::expect(value.value == 30 && defaults == 1 && alive == 1);
+	};
+	rt::test::expect(!alive);
+	@defaults = 0;
+	{
+		var value = collect(true, true);
+		rt::test::expect(value.value == 90 && !defaults && alive == 1);
+	};
+	rt::test::expect(!alive);
+	{
+		var value = collect(false, false);
+		rt::test::expect(!value.value && defaults == 1 && alive == 1);
+	};
+	rt::test::expect(!alive);
+	{
+		var value = direct_access();
+		rt::test::expect(value.value == 7 && alive == 1);
+	};
+	{
+		var value = generic<Accumulator>(12);
+		rt::test::expect(value.value == 12 && alive == 1);
+	};
+	{
+		var value = chained();
+		rt::test::expect(value.value == 6 && alive == 1);
+	};
+	{
+		var value = override_result();
+		rt::test::expect(value.value == 19 && alive == 1);
+	};
+	rt::test::expect(!alive);
+	var mutable_value = mutable_receiver();
+	rt::test::expect(mutable_value.value == 4);
+	rt::test::expect(Count<-1>::value() == -1);
+	rt::test::expect(Outer<Count<-3>>::value() == -3);
+	var payload = move_payload();
+	rt::test::expect(*payload.value.get() == 31);
+	@fail_default = true;
+	var caught = false;
+	try { var value = collect(true, false); } catch (Failure& error) { @caught = error.code == 11; };
+	rt::test::expect(caught && !alive);
+	@fail_default = false;
+	@fail_operator = true;
+	@caught = false;
+	try { var value = collect(true, false); } catch (Failure& error) { @caught = error.code == 23; };
+	rt::test::expect(caught && !alive);
+	{
+		var value = recover_operator();
+		rt::test::expect(value.value == 2 && alive == 1 && !fail_operator);
+	};
+	rt::test::expect(!alive);
+	@caught = false;
+	try { var value = throw_on_fallthrough(); } catch (Failure& error) { @caught = error.code == 37; };
+	rt::test::expect(caught && !resources);
+	@fail_move = false;
+};
+""";
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("subject.rt");
+	@sources.push_back(subject);
+	@paths.push_back("tests.rt");
+	@sources.push_back(source);
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+};
+
+[[test]]
+fn return_emission_rejects_invalid_contexts_and_operator_results() {
+	var directory = compiler_directory("emission-rejected");
+	var path = directory + "/diagnostics.txt";
+	rt::test::expect(path.has<rt::string>());
+	rt::string& diagnostic_path = path.get<rt::string>();
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	rt::buffer<rt::string_view> cases;
+	rt::buffer<rt::string_view> expected;
+	@cases.push_back("fn invalid() { emit 1; };\n");
+	@expected.push_back("__return requires an owning non-void");
+	@cases.push_back("fn invalid() emit -> void {};\n");
+	@expected.push_back("emit function requires an owning non-void");
+	@cases.push_back("var value = __return;\n");
+	@expected.push_back("__return requires an enclosing function");
+	@cases.push_back("struct R { fn operator<-(R& this, i32 value) -> i32 { return value; }; }; fn invalid() -> R { emit 1; };\n");
+	@expected.push_back("return emission operator must produce an owning value");
+	@cases.push_back("struct R { fn operator<-(var R& this, i32 value) -> var R& { return @this; }; }; fn invalid() -> R { @__return <- 1; };\n");
+	@expected.push_back("return emission operator must produce an owning value");
+	@cases.push_back("struct R { fn R(var R& this) : [delete]; fn operator<-(R& this, i32 value) -> R; }; fn invalid() -> R { emit 1; };\n");
+	@expected.push_back("deleted");
+	@cases.push_back("struct R {}; fn invalid() -> R { emit 1; };\n");
+	@expected.push_back("no applicable operator");
+	@cases.push_back("struct R { fn operator<-(var R& this, i32 value) -> R { return R(); }; }; fn invalid() -> R { emit 1; };\n");
+	@expected.push_back("no applicable operator");
+	@cases.push_back("struct R {}; fn invalid() emit -> R {};\n");
+	@expected.push_back("non-void function reaches the end without a result");
+	@cases.push_back("fn invalid() -> i32 { __return <- 1; };\n");
+	@expected.push_back("operator <- requires an applicable overload");
+	for (usize index = 0; index < cases.size(); @index = index + 1) {
+		Compiler compiler;
+		rt::buffer<rt::string_view> paths;
+		rt::buffer<rt::string_view> sources;
+		append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+		@paths.push_back("rejected.rt");
+		@sources.push_back(cases.data()[index]);
+		var NativeFile* output = platform_open_utf8_file(diagnostic_path.c_str(), "wb\0".data());
+		var diagnostic_file = File(output);
+		rt::test::expect(diagnostic_file.is_open());
+		rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/rejected.obj", &platform_open_utf8_file, "", 0, output, output_kind::library)).has<compilation_error>());
+		rt::test::expect((@diagnostic_file.close()).has<void>());
+		var diagnostics = rt::fs::read(diagnostic_path);
+		rt::test::expect(diagnostics.has<rt::string>());
+		if (!diagnostics.get<rt::string>().contains(expected.data()[index])) {
+			discard puts(diagnostics.get<rt::string>().c_str());
+		};
+		rt::test::expect(diagnostics.get<rt::string>().contains(expected.data()[index]));
+	};
+};
+
+[[test]]
+fn emission_operator_has_assignment_precedence_and_is_right_associative() {
+	SourceFile source;
+	@source.assign("emission.rt", "fn build() emit -> R { emit(7); a <- b <- c + d; };\n");
+	var lexer = Lexer(@source);
+	rt::test::expect((@lexer.scan()).has<void>());
+	var parser = Parser(source.tokens());
+	var parsed = @parser.parse();
+	rt::test::expect(parsed.has<rt::unique<Syntax>>());
+	var Syntax* function = parsed.get<rt::unique<Syntax>>().get()->item(0);
+	rt::test::expect(function->function_attributes()->size() == 1);
+	rt::test::expect(function->function_attributes()->item(0)->token().kind == token_kind::kw_emit);
+	var Syntax* body = function->function_body();
+	rt::test::expect(body->item(0)->token().kind == token_kind::op_left_arrow);
+	rt::test::expect(return_emitter_operand(*body->item(0)->left()));
+	var Syntax* operation = body->item(1);
+	rt::test::expect(operation->token().kind == token_kind::op_left_arrow);
+	rt::test::expect(operation->left()->kind() == syntax_kind::name);
+	rt::test::expect(operation->right()->token().kind == token_kind::op_left_arrow);
+	rt::test::expect(operation->right()->right()->token().kind == token_kind::op_plus);
+};
+
+[[test]]
+fn emitting_functions_survive_interface_export_and_import() {
+	var directory = compiler_directory("emission-interface");
+	var library = """export struct Sum {
+	i32 value;
+	fn operator<-(Sum& this, i32 value) -> Sum { return Sum(this.value + value); };
+};
+export fn sum() emit -> Sum { emit 7; };
+""";
+	var standard = standard_sources();
+	rt::test::expect(standard.has<rt::buffer<InterfaceSource>>());
+	Compiler exporter;
+	rt::buffer<rt::string_view> library_paths;
+	rt::buffer<rt::string_view> library_sources;
+	append_import(@exporter, standard.get<rt::buffer<InterfaceSource>>(), @library_paths, @library_sources);
+	@library_paths.push_back("library.rt");
+	@library_sources.push_back(library);
+	@exporter.add_module_source("library.rt", "emission", 0);
+	rt::test::expect((@exporter.compile_sources(library_paths, library_sources, directory + "/library.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::library)).has<void>());
+	InterfaceSource declaration;
+	@declaration.path = rt::string("library.rt");
+	@declaration.text = rt::string(library);
+	@declaration.module = rt::string("emission");
+	rt::buffer<InterfaceSource> declarations;
+	@declarations.push_back($declaration);
+	var version = rt::from_c_string(rutile_compiler_version());
+	var encoded = encode_interface("emission", declarations, version, static_cast<u32>(sizeof(usize) * 8));
+	rt::test::expect(encoded.has<rt::string>());
+	var imported = decode_interface(encoded.get<rt::string>(), version, static_cast<u32>(sizeof(usize) * 8), false);
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler consumer;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@consumer, standard.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	append_import(@consumer, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("tests.rt");
+	@sources.push_back("[[test]] fn imported_result() { var result = sum(); rt::test::expect(result.value == 7); };\n");
+	rt::test::expect((@consumer.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+};

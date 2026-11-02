@@ -27,6 +27,9 @@ fn Analyzer::discarded(var Analyzer& this, var Scope& scope, var Syntax& syntax,
 	if (syntax.kind() == syntax_kind::binary && (syntax.token().kind == token_kind::op_assign || syntax.token().kind == token_kind::op_copy)) {
 		return $value;
 	};
+	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_left_arrow && return_emitter_operand(*syntax.left())) {
+		return $value;
+	};
 	Type* nothing = this.types->find_primitive("void");
 	if (syntax.kind() == syntax_kind::binary && syntax.token().kind == token_kind::op_plus_assign) {
 		Type* result_type = value.get()->type();

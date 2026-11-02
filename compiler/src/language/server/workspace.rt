@@ -53,12 +53,14 @@ struct LanguageGroup {
 	language_group_kind kind;
 	rt::string name;
 	rt::buffer<rt::string> paths;
+	rt::string filters;
 };
 
 struct LanguageJob {
 	u64 generation;
 	u64 configuration;
 	rt::string root;
+	rt::string target;
 	rt::buffer<LanguageDocument> documents;
 };
 
@@ -214,6 +216,7 @@ private:
 	var RuntimeAtomic* analysis_phase;
 	var RuntimeAtomic* phase_started;
 	rt::string root;
+	rt::string target;
 	u64 configuration;
 	u64 cached_configuration;
 	u64 sources_revision;
@@ -496,6 +499,7 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 		compiler_panic("language server schedule invariant failed");
 	};
 	@job.get()->root.append(this.root.view());
+	@job.get()->target.append(this.target.view());
 
 	u64 revision = @this.compiler->next_editor_revision();
 	if (!revision) {
@@ -552,6 +556,9 @@ fn LanguageWorkspace::schedule(var LanguageWorkspace& this) {
 };
 
 fn LanguageWorkspace::configure(var LanguageWorkspace& this, rt::json_value& parameters) -> LanguageRequestResult {
+	if (parameters.member("target")) {
+		@this.target = rt::string(LanguageJson::text(parameters, "target"));
+	};
 	var uri = LanguageJson::text(parameters, "rootUri");
 	if (!uri.empty()) {
 		rt::string path;

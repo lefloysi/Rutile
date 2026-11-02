@@ -38,6 +38,7 @@
   - [7.10 Explicit casts](#expr.cast)
   - [7.11 No-op expressions](#expr.noop)
   - [7.12 String literals](#expr.string)
+  - [7.13 Return emission](#expr.emit)
 - [8 Statements](#stmt)
   - [8.1 Conditional statements](#stmt.if)
   - [8.2 While statements](#stmt.while)
@@ -296,6 +297,7 @@ The following keyword list is the working inventory for this specification.
 | `discard` | [expr.discard](#expr.discard) |
 | `dynamic_cast` | [expr.cast](#expr.cast) |
 | `else` | [stmt.if](#stmt.if) |
+| `emit` | [expr.emit](#expr.emit) |
 | `enum` | [enum](#enum) |
 | `final` | [class.virtual](#class.virtual) |
 | `fn` | [dcl.fct](#dcl.fct) |
@@ -678,12 +680,55 @@ literal without a closing delimiter is ill-formed.
 
 **To define:** complete escape grammar; literal storage identity; and encoding guarantees.
 
+<a id="expr.emit"></a>
+
+## 7.13 Return emission [expr.emit]
+
+<sup>1</sup> Within a function with an owning non-void object result type `R`, the unqualified
+expression `__return` denotes that invocation's retained return object. The object is
+default-initialized on the first executed access. An access in an untaken branch does not
+initialize it. The expression is a borrowed place of type `R`; ordinary explicit mutable
+access and argument binding rules apply ([6.2](#basic.arguments), [7.7](#expr.access)).
+Using `__return` outside such a function is ill-formed.
+`R` shall support default initialization, relocation, and destruction by the standard-library
+return storage under ordinary access rules. Return emission grants no additional access to
+private or protected special functions.
+
+<sup>2</sup> The binary operator `<-` has assignment precedence and associates to the right.
+Overload selection and argument evaluation follow the ordinary rules. When its left operand
+is `__return`, optionally parenthesized or explicitly accessed with `@`, the selected operator
+shall produce an owning value of exactly `R`. After that call completes, this value replaces
+the retained return object, destroying its previous value. The whole expression denotes the
+retained object as a borrowed place and may be used as a statement. An ordinary left operand
+uses an ordinary overloaded call without updating the function's return object.
+
+<sup>3</sup> The statement `emit expression;` is shorthand for `__return <- expression;`.
+Parenthesizing its operand, as in `emit(value);`, does not declare or invoke an `emit` function.
+Mutable receivers still require explicit access, as in `@__return <- value;`.
+
+<sup>4</sup> If the body uses `__return` or an `emit` statement, reaching the end of the function
+returns the retained object by relocation. If no access has executed, it is default-initialized
+at that point. An explicit `return expression;` instead returns that expression and destroys
+any retained object already initialized. Normal scope cleanup applies when an exception exits
+the function. Initialization that throws does not leave an initialized retained object.
+
+<sup>5</sup> A function declaration may place `emit` after its parameter list and before its
+exception specification and return clause, as in `fn collect() emit -> R`. This marks the
+declaration as emitting and requires an owning non-void object result type. It adds no hidden
+parameter, changes no function type, and does not itself initialize a return object. The marker
+is not required to use `__return` within the body.
+
+> *Note:* Native return emission retains an ordinary place. In
+> `__return <- __return <- value`, the inner replacement updates the same object subsequently
+> observed by the outer call. It does not create an implicit snapshot or copy of that object.
+
 <a id="stmt"></a>
 
 # 8 Statements [stmt]
 
 <sup>1</sup> An expression used as a statement shall have type `void`, except for a variable
-declaration, an assignment expression, or explicit construction into an existing destination.
+declaration, an assignment expression, return emission ([7.13](#expr.emit)), or explicit
+construction into an existing destination.
 An unused ordinary return value is ill-formed.
 Parentheses around an assignment do not change its eligibility as a statement.
 
@@ -849,6 +894,7 @@ forms; initialization of built-in types; and restrictions on anonymous types.
 
 <p><i>function-signature:</i><br>
 &emsp;<code>(</code> <i>parameter-list</i><sub>opt</sub> <code>)</code>
+<code>emit</code><sub>opt</sub>
 <i>return-clause</i><sub>opt</sub></p>
 
 <p><i>return-clause:</i><br>
@@ -932,6 +978,39 @@ by default.
 **To define:** constructor ambiguity and deleted or inaccessible candidates; eligibility of
 implicit conversion operators; conversions without user-defined functions;
 and the result when an explicit cast has no applicable source conversion operator.
+
+<a id="dcl.attributes"></a>
+
+## 9.8 Declaration attributes and target filters [dcl.attributes]
+
+<sup>1</sup> An attribute of the form `[[key : value]]` attaches metadata to the following
+declaration. The key is an identifier. The value is parsed as an expression or type; attaching
+the attribute does not require resolving that expression or type. `[[key]]` has no value.
+An attribute does not itself execute code or decide whether its declaration is compiled.
+
+<sup>2</sup> Attributes may precede namespaces, record and enumeration declarations, functions,
+variables (including data members), aliases, and member-pack declarations. Attributes on a
+template declaration attach to the declaration being templated. Attribute attachment to other
+syntactic categories is not defined here.
+
+<sup>3</sup> A build target may supply declaration filters. After parsing and before test
+discovery, name registration, type checking, or code generation, each supplied filter is
+evaluated for each eligible declaration. All filters are evaluated, including for untagged
+declarations and declarations whose enclosing declaration or earlier filter excludes them.
+A declaration is retained only if every filter retains it and its enclosing declaration is
+retained. A filter failure makes compilation fail before semantic analysis.
+
+<sup>4</sup> Excluded declarations contribute no names, overloads, members, storage, or emitted
+code. Exclusion of a namespace or type excludes its contents. Excluded contents still require
+valid syntax, but their names and types are not resolved. Parsed source ranges remain available
+to the editor, which marks excluded code inactive using the selected target's filters.
+An emitted module interface preserves these exclusions; importing the module does not require
+the importing target to supply the producer's filters.
+
+<sup>5</sup> Filter metadata views expose keys and the original value spelling, with surrounding
+whitespace removed. Parentheses and quotes within that spelling are preserved; an identifier
+value such as `windows` is metadata and need not name an entity. No particular metadata key,
+including `platform`, has built-in filtering behavior.
 
 <a id="types.user"></a>
 

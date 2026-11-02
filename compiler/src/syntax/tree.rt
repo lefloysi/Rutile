@@ -107,6 +107,12 @@ struct Syntax {
 	fn function_linkage(Syntax& this) -> Token;
 	fn set_function_linkage(var Syntax& this, Token& linkage);
 	fn kind(Syntax& this) -> syntax_kind;
+	fn source_kind(Syntax& this) -> syntax_kind;
+	fn excluded(Syntax& this) -> bool;
+	fn set_excluded(var Syntax& this, bool excluded);
+	fn source_begin(Syntax& this) -> usize;
+	fn source_end(Syntax& this) -> usize;
+	fn set_source_extent(var Syntax& this, usize begin, usize end);
 	fn explicitly_qualified(Syntax& this) -> bool;
 	fn token(Syntax& this) -> Token;
 	fn size(Syntax& this) -> usize;
@@ -118,6 +124,9 @@ private:
 	syntax_kind category;
 	Token location;
 	bool is_exported;
+	bool is_excluded;
+	usize extent_begin;
+	usize extent_end;
 	Token linkage;
 	rt::buffer<rt::unique<Syntax>> metadata;
 	rt::buffer<rt::unique<Syntax>> children;
@@ -125,8 +134,11 @@ private:
 
 fn Syntax::Syntax(var Syntax& this, syntax_kind kind, Token& token) {
 	@this.is_exported = false;
+	@this.is_excluded = false;
 	@this.category = $kind;
 	@this.location := token;
+	@this.extent_begin = token.begin;
+	@this.extent_end = token.begin + token.length;
 };
 
 fn Syntax::declaration_attributes(Syntax& this) -> rt::buffer<rt::unique<Syntax>>& {
@@ -175,7 +187,35 @@ fn Syntax::set_function_linkage(var Syntax& this, Token& linkage) {
 };
 
 fn Syntax::kind(Syntax& this) -> syntax_kind {
+	if (this.is_excluded) {
+		return syntax_kind::noop;
+	};
+	return this.source_kind();
+};
+
+fn Syntax::source_kind(Syntax& this) -> syntax_kind {
 	return syntax_kind(this.category);
+};
+
+fn Syntax::excluded(Syntax& this) -> bool {
+	return this.is_excluded;
+};
+
+fn Syntax::set_excluded(var Syntax& this, bool excluded) {
+	@this.is_excluded = $excluded;
+};
+
+fn Syntax::source_begin(Syntax& this) -> usize {
+	return this.extent_begin;
+};
+
+fn Syntax::source_end(Syntax& this) -> usize {
+	return this.extent_end;
+};
+
+fn Syntax::set_source_extent(var Syntax& this, usize begin, usize end) {
+	@this.extent_begin = $begin;
+	@this.extent_end = $end;
 };
 
 fn Syntax::explicitly_qualified(Syntax& this) -> bool {

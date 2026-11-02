@@ -59,6 +59,23 @@ extern "C" std::uint64_t kiln_project_sources_revision() {
 	if (rutile_project_sources_manifest.is_object()) {
 		for (const auto& source : rutile_project_sources_manifest.value("sources", nlohmann::json::array())) {
 			const auto kind = source.value("kind", 0);
+			if (kind == 7) {
+				const auto descriptor = nlohmann::json::parse(source.at("path").get<std::string>(), nullptr, false);
+				if (descriptor.is_object() && descriptor.contains("filters") && descriptor["filters"].is_array()) {
+					for (const auto& filter : descriptor["filters"]) {
+						if (!filter.is_object() || !filter.contains("module") || !filter["module"].is_string()) {
+							continue;
+						}
+						const auto path = filter["module"].get<std::string>();
+						std::error_code error;
+						const auto stamp = std::filesystem::last_write_time(std::filesystem::u8path(path), error);
+						const auto revision = error ? 0 : stamp.time_since_epoch().count();
+						const auto size = std::filesystem::file_size(std::filesystem::u8path(path), error);
+						stamps[path] = { revision, error ? 0 : size };
+					}
+				}
+				continue;
+			}
 			if (kind < 3 || kind > 5) {
 				continue;
 			}

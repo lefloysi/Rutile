@@ -6,6 +6,7 @@ namespace rt {
 	export struct string_view {
 		fn string_view(var string_view& this) : [default];
 		fn string_view(var string_view& this, string& other) : [implicit];
+		fn string_view(var string_view& this, char* text) : [implicit];
 		fn string_view(var string_view& this, char* data, usize size);
 
 		fn data(string_view& this) -> char*;
@@ -62,12 +63,17 @@ namespace rt {
 		@this.length = $size;
 	};
 
-	export fn from_c_string(char* text) -> string_view {
+	export fn string_view::string_view(var string_view& this, char* text) {
 		usize length = 0;
 		while (text && text[length]) {
 			@length = length + 1;
 		};
-		return string_view(text, length);
+		@this.bytes = text;
+		@this.length = length;
+	};
+
+	export fn from_c_string(char* text) -> string_view {
+		return string_view(text);
 	};
 
 	export fn string_view::data(string_view& this) -> char* {
@@ -118,7 +124,7 @@ namespace rt {
 	export struct string {
 		fn string(var string& this) : [default];
 		fn string(var string& this, string& other);
-		fn string(var string& this, string_view other);
+		fn string(var string& this, string_view& other) : [implicit];
 		fn ~string(var string& this);
 
 		fn operator:=(var string& this, string& other) -> var string&;
@@ -253,7 +259,7 @@ namespace rt {
 		@this.append(other);
 	};
 
-	export fn string::string(var string& this, string_view other) {
+	export fn string::string(var string& this, string_view& other) {
 		@this.append(other);
 	};
 

@@ -14,7 +14,7 @@ fn language_lexical_type(Analysis* analysis, Token& input) -> u32 {
 	if (input.kind == token_kind::literal_string) {
 		return 15;
 	};
-	if (input.kind >= token_kind::kw_return && input.kind <= token_kind::kw_continue) {
+	if (input.kind >= token_kind::kw_return && input.kind <= token_kind::kw_continue || input.kind == token_kind::kw_emit) {
 		return 18;
 	};
 	if (input.kind >= token_kind::kw_fn && input.kind <= token_kind::kw_sizeof) {
@@ -129,7 +129,7 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 		};
 		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[input->range.source]];
 		var present = source.token_offsets.find(input->range.begin);
-		if (present && source.tokens.data()[*present].range.end == input->range.end) {
+		if (present && source.tokens.data()[*present].range.end == input->range.end && source.tokens.data()[*present].type != 17) {
 			@(@source.tokens).data()[*present].type = input->type;
 			@(@source.tokens).data()[*present].modifiers = input->modifiers;
 		};
@@ -147,7 +147,7 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 			continue;
 		};
 		var LanguageSemanticToken& token = @(@source.tokens).data()[*found];
-		if (token.range.end != occurrence->range.end) {
+		if (token.range.end != occurrence->range.end || token.type == 17) {
 			continue;
 		};
 		@token.type = analysis.navigation().semantic_token_type(occurrence->symbol);
@@ -168,6 +168,26 @@ fn LanguageIndex::classify_bindings(var LanguageIndex& this, Analysis& analysis,
 		language_classify_template_names(@this, analysis, mapping, *roots.data()[root].get(), @parameters, true);
 		@root = root + 1;
 	};
+	rt::buffer<ExcludedDeclaration>& excluded = analysis.excluded_declarations();
+	for (usize declaration = 0; declaration < excluded.size(); @declaration = declaration + 1) {
+		ExcludedDeclaration& input = excluded.data()[declaration];
+		Token extent;
+		@extent.source = input.source;
+		@extent.begin = input.begin;
+		@extent.length = input.end - input.begin;
+		SourceRange range = analysis.navigation().range(extent);
+		if (range.source >= mapping.size()) {
+			continue;
+		};
+		var LanguageIndexedSource& source = @(@this.sources).data()[mapping.data()[range.source]];
+		for (usize token = 0; token < source.tokens.size(); @token = token + 1) {
+			var LanguageSemanticToken& current = @(@source.tokens).data()[token];
+			if (current.range.begin >= range.begin && current.range.end <= range.end) {
+				@current.type = 20;
+				@current.modifiers = 0;
+			};
+		};
+	};
 };
 
 fn LanguageWorkspace::overlay_token(var LanguageWorkspace& this, LanguageIndex& index, rt::string_view key, SourceRange& current, LanguageText& text, var u32& type, var u32& modifiers) -> bool {
@@ -187,7 +207,7 @@ fn LanguageWorkspace::overlay_token(var LanguageWorkspace& this, LanguageIndex& 
 	};
 	LanguageSemanticToken& token = source.tokens.data()[*position];
 	SourceRange mapped;
-	if (token.type > 13 || !@this.mapped(index, token.range, @mapped) || mapped.begin != current.begin || mapped.end != current.end) {
+	if (token.type > 13 && token.type != 20 || !@this.mapped(index, token.range, @mapped) || mapped.begin != current.begin || mapped.end != current.end) {
 		return false;
 	};
 	if (token.range.end > source.text.view().size() || current.end > text.view().size()) {
@@ -267,8 +287,13 @@ fn LanguageWorkspace::tokens(var LanguageWorkspace& this, LanguageIndex& index, 
 		};
 		u32 type = token.type;
 		u32 modifiers = token.modifiers;
-		if (type == u32::max && live) {
-			discard @this.overlay_token(index, source.key.view(), current, *text, @type, @modifiers);
+		if (live) {
+			u32 previous_type = type;
+			u32 previous_modifiers = modifiers;
+			if (@this.overlay_token(index, source.key.view(), current, *text, @previous_type, @previous_modifiers) && (type == u32::max || previous_type == 20)) {
+				@type = previous_type;
+				@modifiers = previous_modifiers;
+			};
 		};
 		if (type == u32::max && index.semantic_failed && this.highlight_fallback.get()) {
 			discard @this.overlay_token(*this.highlight_fallback.get(), source.key.view(), current, *text, @type, @modifiers);

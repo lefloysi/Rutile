@@ -1,25 +1,23 @@
-fn puts(char* text) -> i32;
+fn editor_observation_invoke(char* assembly, char* method) -> char*;
+fn editor_observation_release(char* text);
 
-fn editor_observation(rt::string_view method) -> rt::sys::Result {
+fn editor_observation(rt::string_view method) -> rt::string {
 	rt::string driver = rt::environment("KILN_TEST_DRIVER");
-	var command = rt::sys::Command(driver);
-	@command.argument(method);
-	@command.timeout_ms = 90000;
-	rt::sys::Result result = rt::sys::cmd(command);
-	if (result.exit_code) {
-		discard puts(result.output.c_str());
-		discard puts(result.error.c_str());
-	};
+	rt::string name = rt::string(method);
+	var text = editor_observation_invoke(driver.c_str(), name.c_str());
+	rt::test::expect(text != nullptr);
+	rt::string result = rt::string(rt::from_c_string(text));
+	editor_observation_release(text);
 	return $result;
 };
 
 [[test]]
 fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers() {
 	var result = editor_observation("Lexical");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(root->member("emit_kind")->text() == "ControlKeyword");
 	i64 count = -1;
 	@count = root->member("identifier_tokens")->integer();
 	rt::test::expect(!count);
@@ -59,15 +57,33 @@ fn lexical_colors_cover_trivia_literals_and_utf16_without_guessing_identifiers()
 };
 
 [[test]]
+fn semantic_colors_dim_inactive_declarations() {
+	var result = editor_observation("Decoder");
+	var document = rt::json_parse(result);
+	rt::test::expect(document.has<rt::unique<rt::json_value>>());
+	var root = document.get<rt::unique<rt::json_value>>().get();
+	rt::test::expect(root->member("inactive_classification")->text() == "excluded code");
+	var function = root->member("inactive_function");
+	rt::test::expect(function->size() == 5);
+	for (usize index = 0; index < 4; @index = index + 1) {
+		rt::test::expect(function->item(index)->member("classification")->text() == "excluded code");
+	};
+	rt::test::expect(function->item(1)->member("text")->text() == "\t// comment");
+	rt::test::expect(function->item(2)->member("text")->text() == "\treturn unknown;");
+	rt::test::expect(function->item(3)->member("text")->text() == "};");
+	rt::test::expect(function->item(4)->member("text")->text() == "kept");
+	rt::test::expect(function->item(4)->member("classification")->text() == "rutile.function");
+};
+
+[[test]]
 fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 	var result = editor_observation("Decoder");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("classification")->text() == "rutile.control");
 	rt::test::expect(root->member("attribute_classification")->text() == "rutile.attribute");
-	rt::test::expect(root->member("namespace_foreground")->text() == "#FF4EC9B0");
+	rt::test::expect(root->member("namespace_foreground")->text() == "#FF909090");
 	rt::test::expect(root->member("attribute_foreground")->text() == "#FF909090");
 	var roles = root->member("roles");
 	rt::test::expect(roles->size() == 6);
@@ -101,8 +117,7 @@ fn semantic_colors_follow_the_server_legend_and_document_utf16_positions() {
 [[test]]
 fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 	var result = editor_observation("MiddleLayer");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(root->member("open_handled")->boolean());
@@ -119,8 +134,7 @@ fn editor_middle_layer_forwards_before_updating_semantic_document_state() {
 [[test]]
 fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 	var result = editor_observation("BraceEligibility");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	var accepted = root->member("accepted");
@@ -152,8 +166,7 @@ fn brace_completion_accepts_closed_trivia_and_suppresses_open_literals() {
 [[test]]
 fn classifier_attaches_once_when_its_document_becomes_available() {
 	var result = editor_observation("ClassifierLifetime");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(!root->member("before")->boolean());
@@ -170,8 +183,7 @@ fn classifier_attaches_once_when_its_document_becomes_available() {
 [[test]]
 fn semantic_client_reconnect_rejects_late_replies_and_preserves_authoritative_colors() {
 	var result = editor_observation("SemanticLifecycle");
-	rt::test::expect(!result.exit_code);
-	var document = rt::json_parse(result.output);
+	var document = rt::json_parse(result);
 	rt::test::expect(document.has<rt::unique<rt::json_value>>());
 	var root = document.get<rt::unique<rt::json_value>>().get();
 	rt::test::expect(!root->member("unavailable_authoritative")->boolean());

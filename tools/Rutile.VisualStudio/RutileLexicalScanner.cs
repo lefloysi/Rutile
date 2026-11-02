@@ -140,6 +140,7 @@ namespace Rutile.VisualStudio {
 				case "sizeof":
 					return LexicalKind.Keyword;
 				case "return":
+				case "emit":
 				case "try":
 				case "catch":
 				case "throw":

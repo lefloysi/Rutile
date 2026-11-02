@@ -1,0 +1,69 @@
+struct NativeDeclarationFilters;
+
+struct NativeDeclarationAttribute {
+	char* key;
+	usize key_size;
+	char* value;
+	usize value_size;
+};
+
+fn declaration_filters_open(char* json, usize size) -> var NativeDeclarationFilters*;
+fn declaration_filters_close(var NativeDeclarationFilters* filters);
+fn declaration_filters_apply(var NativeDeclarationFilters* filters, NativeDeclarationAttribute* attributes, usize count) -> i32;
+fn declaration_filters_error() -> char*;
+
+fn native_declaration_filter(Syntax& declaration, var void* context) -> i32 {
+	rt::buffer<NativeDeclarationAttribute> attributes;
+	for (usize index = 0; index < declaration.declaration_attributes().size(); @index = index + 1) {
+		Syntax& attribute = *declaration.declaration_attributes().data()[index].get();
+		rt::string_view key = attribute.token().text();
+		rt::string_view value;
+		if (attribute.token().source && attribute.source_end() > attribute.source_begin()) {
+			@value = attribute.token().source->text().slice(attribute.source_begin(), attribute.source_end() - attribute.source_begin()).trim();
+		};
+		NativeDeclarationAttribute item;
+		@item.key = key.data();
+		@item.key_size = key.size();
+		@item.value = value.data();
+		@item.value_size = value.size();
+		@attributes.push_back($item);
+	};
+	return declaration_filters_apply(reinterpret_cast<var NativeDeclarationFilters*>(context), attributes.data(), attributes.size());
+};
+
+fn "C" rutile_compiler_set_declaration_filters(var Compiler* compiler, var NativeDeclarationFilters* filters) -> i32 {
+	try {
+		@compiler->clear_declaration_filters();
+		if (filters) {
+			DeclarationFilter filter;
+			@filter.predicate = &native_declaration_filter;
+			@filter.context = reinterpret_cast<var void*>(filters);
+			@compiler->add_declaration_filter($filter);
+		};
+		return 0;
+	}
+	catch (rt::allocation_error& error) {
+		return 2;
+	};
+};
+
+fn "C" rutile_compiler_excluded_declarations(var Compiler* compiler, ((var void*, usize, usize, usize) -> void)* visit, var void* context) -> i32 {
+	if (!compiler || !visit) {
+		return 1;
+	};
+	var lease = @compiler->acquire_analysis();
+	var analysis = lease.get();
+	if (!analysis) {
+		return 1;
+	};
+	for (usize index = 0; index < analysis->excluded_declarations().size(); @index = index + 1) {
+		ExcludedDeclaration& excluded = analysis->excluded_declarations().data()[index];
+		Token location;
+		@location.source = excluded.source;
+		@location.begin = excluded.begin;
+		@location.length = excluded.end - excluded.begin;
+		var range = analysis->navigation().range(location);
+		visit(context, range.source, excluded.begin, excluded.end);
+	};
+	return 0;
+};

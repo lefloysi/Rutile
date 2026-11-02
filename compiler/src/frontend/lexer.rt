@@ -119,6 +119,8 @@ fn Lexer::digit(char value) -> bool {
 
 fn Lexer::keyword_spelling(token_kind kind) -> rt::string_view {
 	switch (kind) {
+		case token_kind::kw_emit:
+			return "emit";
 		case token_kind::kw_fn:
 			return "fn";
 		case token_kind::kw_using:
@@ -195,6 +197,9 @@ fn Lexer::keyword_spelling(token_kind kind) -> rt::string_view {
 };
 
 fn Lexer::identifier_kind(rt::string_view spelling) -> token_kind {
+	if (spelling == "emit") {
+		return token_kind::kw_emit;
+	};
 	i32 value = static_cast<i32>(token_kind::kw_fn);
 	while (value <= static_cast<i32>(token_kind::kw_sizeof)) {
 		var kind = static_cast<token_kind>(value);
@@ -451,6 +456,11 @@ fn Lexer::symbol(var Lexer& this, var Token& token) -> CompilationResult {
 			break;
 		case '<':
 			@token.kind = token_kind::op_less;
+
+			if (next == '-') {
+				@token.kind = token_kind::op_left_arrow;
+				@width = 2;
+			};
 
 			if (next == '=') {
 				@token.kind = token_kind::op_less_equal;

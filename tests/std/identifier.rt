@@ -1,0 +1,187 @@
+struct IdentifierTag {};
+
+using GenerationalID = rt::identifier<IdentifierTag, u08, u16>;
+using SimpleID = rt::identifier<IdentifierTag, u08, void>;
+
+[[test]]
+fn identifiers_encode_zero_based_indices_and_reserve_raw_zero_for_null() {
+	GenerationalID empty;
+	rt::test::expect(!empty);
+	rt::test::expect(empty.get() == 0 && empty.gen() == 0);
+	var null_id = GenerationalID::null();
+	rt::test::expect(empty == null_id);
+	var first = GenerationalID(0, 7);
+	rt::test::expect(first);
+	rt::test::expect(first.get() == 1 && first.gen() == 7);
+	rt::test::expect(static_cast<usize>(first) == 0);
+	usize first_index = first;
+	rt::test::expect(first_index == 0);
+	bool present = false;
+	if (first) {
+		@present = true;
+	};
+	rt::test::expect(present);
+	var last = GenerationalID(254, 9);
+	rt::test::expect(last.get() == u08::max);
+	rt::test::expect(static_cast<usize>(last) == 254);
+};
+
+[[test]]
+fn identifier_raw_round_trips_and_comparisons_include_generation() {
+	var first = GenerationalID(41, 7);
+	var same = GenerationalID::from_raw(42, 7);
+	var next = GenerationalID::from_raw(42, 8);
+	rt::test::expect(first == same);
+	rt::test::expect(first != next);
+	var copied := first;
+	rt::test::expect(copied == first);
+	var moved = $copied;
+	rt::test::expect(moved == first);
+	var tagged_null = GenerationalID::from_raw(0, 8);
+	GenerationalID empty;
+	rt::test::expect(!tagged_null);
+	rt::test::expect(tagged_null != empty);
+	using WideID = rt::identifier<IdentifierTag, u64, u32>;
+	var wide = WideID(usize::max - 1, 12);
+	rt::test::expect(wide.get() == u64::max);
+	rt::test::expect(static_cast<usize>(wide) == usize::max - 1);
+};
+
+[[test]]
+fn identifier_invalid_indices_and_null_index_access_throw_typed_errors() {
+	bool rejected = false;
+	try {
+		var invalid = GenerationalID(255, 0);
+	}
+	catch (rt::identifier_range_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+	@rejected = false;
+	try {
+		var invalid = GenerationalID(usize::max, 0);
+	}
+	catch (rt::identifier_range_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+	@rejected = false;
+	try {
+		GenerationalID empty;
+		var index = static_cast<usize>(empty);
+	}
+	catch (rt::null_identifier_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+};
+
+[[test]]
+fn identifier_keys_preserve_distinct_generations_in_maps() {
+	rt::unordered_map<GenerationalID, i32> values;
+	var first = GenerationalID(0, 1);
+	var next = GenerationalID(0, 2);
+	var added = @values.insert(first, 10);
+	rt::test::expect(added.get<bool>());
+	var second = @values.insert(next, 20);
+	rt::test::expect(second.get<bool>());
+	var duplicate = @values.insert(first, 30);
+	rt::test::expect(!duplicate.get<bool>());
+	rt::test::expect(values.size() == 2);
+	rt::test::expect(values.find(first) && *values.find(first) == 10);
+	rt::test::expect(values.find(next) && *values.find(next) == 20);
+	var same = GenerationalID::from_raw(1, 1);
+	rt::default_hash<GenerationalID> hash;
+	rt::test::expect(hash.hash(first) == hash.hash(same));
+	var empty = GenerationalID::null();
+	var tagged_null = GenerationalID::from_raw(0, 8);
+	var null_added = @values.insert(empty, 30);
+	rt::test::expect(null_added.get<bool>());
+	var tagged_null_added = @values.insert(tagged_null, 40);
+	rt::test::expect(tagged_null_added.get<bool>());
+	rt::test::expect(values.size() == 4);
+	rt::test::expect(values.find(empty) && *values.find(empty) == 30);
+	rt::test::expect(values.find(tagged_null) && *values.find(tagged_null) == 40);
+};
+
+[[test]]
+fn identifiers_without_generations_keep_only_their_index_storage() {
+	rt::test::expect(sizeof(SimpleID) == sizeof(u08));
+	rt::test::expect(sizeof(rt::identifier<IdentifierTag, u64, void>) == sizeof(u64));
+	rt::test::expect(sizeof(rt::identifier<IdentifierTag, u32, u32>) == sizeof(u32) * 2);
+	SimpleID empty;
+	rt::test::expect(!empty);
+	rt::test::expect(empty == SimpleID::null());
+	var first = SimpleID(0);
+	rt::test::expect(first);
+	rt::test::expect(!(!first));
+	rt::test::expect(first.get() == 1);
+	usize index = first;
+	rt::test::expect(index == 0);
+	var last = SimpleID(254);
+	rt::test::expect(last.get() == u08::max);
+	rt::test::expect(static_cast<usize>(last) == 254);
+	var raw = SimpleID::from_raw(42);
+	rt::test::expect(raw == SimpleID(41));
+	var copied := raw;
+	var moved = $copied;
+	rt::test::expect(moved == raw);
+	bool rejected = false;
+	try {
+		var invalid = SimpleID(255);
+	}
+	catch (rt::identifier_range_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+	@rejected = false;
+	try {
+		usize invalid = empty;
+	}
+	catch (rt::null_identifier_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+};
+
+[[test]]
+fn identifiers_without_generations_work_as_map_keys() {
+	rt::unordered_map<SimpleID, i32> values;
+	var first = SimpleID(0);
+	var second = SimpleID(1);
+	var inserted = @values.insert(first, 17);
+	rt::test::expect(inserted.get<bool>());
+	var next = @values.insert(second, 25);
+	rt::test::expect(next.get<bool>());
+	var duplicate = @values.insert(SimpleID::from_raw(1), 99);
+	rt::test::expect(!duplicate.get<bool>());
+	rt::test::expect(values.size() == 2);
+	rt::test::expect(values.find(first) && *values.find(first) == 17);
+	rt::test::expect(values.find(second) && *values.find(second) == 25);
+	rt::default_hash<SimpleID> hash;
+	var same = SimpleID::from_raw(1);
+	rt::test::expect(hash.hash(first) == hash.hash(same));
+	var empty = SimpleID::null();
+	var null_added = @values.insert(empty, 0);
+	rt::test::expect(null_added.get<bool>());
+	rt::test::expect(values.size() == 3);
+	rt::test::expect(values.find(empty) && *values.find(empty) == 0);
+};
+
+[[test]]
+fn identifiers_preserve_signed_raw_storage_and_check_signed_index_bounds() {
+	using SignedID = rt::identifier<IdentifierTag, i08, u08>;
+	var last = SignedID(126, 9);
+	rt::test::expect(last.get() == i08::max);
+	rt::test::expect(static_cast<usize>(last) == 126);
+	var raw = SignedID::from_raw(-1, 3);
+	rt::test::expect(raw.get() == -1 && raw.gen() == 3);
+	bool rejected = false;
+	try {
+		var invalid = SignedID(127, 0);
+	}
+	catch (rt::identifier_range_error& failure) {
+		@rejected = true;
+	};
+	rt::test::expect(rejected);
+};

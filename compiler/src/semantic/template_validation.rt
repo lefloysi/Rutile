@@ -55,6 +55,12 @@ fn TemplateDeclarationValidator::dependent(TemplateDeclarationValidator& this, S
 };
 
 fn TemplateDeclarationValidator::remember(var TemplateDeclarationValidator& this, var Analyzer& analyzer, var Syntax& name, template_validation_role role) -> CompilationResult {
+	if (name.kind() == syntax_kind::template_apply) {
+		return @this.remember(@analyzer, @*name.callable(), $role);
+	};
+	if (name.kind() == syntax_kind::qualified_name) {
+		return @this.remember(@analyzer, @*name.right(), $role);
+	};
 	if (name.kind() != syntax_kind::name) {
 		return;
 	};

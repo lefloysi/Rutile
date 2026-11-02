@@ -19,6 +19,7 @@ public static partial class EditorObservations {
 		var raw = "\"\"\"\r\n  return \\n // literal\r\n\"\"\" 42";
 		var rawTokens = RutileLexicalScanner.Scan(raw);
 		return JsonConvert.SerializeObject(new {
+			emit_kind = RutileLexicalScanner.Scan("emit")[0].Kind.ToString(),
 			raw_tokens = rawTokens.Count,
 			raw_kind = rawTokens[0].Kind.ToString(),
 			raw_text = raw.Substring(rawTokens[0].Start, rawTokens[0].Length),
@@ -42,11 +43,15 @@ public static partial class EditorObservations {
 		var roles = new[] { "controlKeyword", "comment", "string", "number", "operator", "keyword" };
 		var roleTokens = new JArray(0, 0, 1, 0, 0, 0, 2, 1, 1, 0, 0, 2, 1, 2, 0, 0, 2, 1, 3, 0, 0, 2, 1, 4, 0, 0, 2, 1, 5, 0);
 		var bindings = RutileSemanticDecoder.Decode("ns Item enumval fn method u08 variable", new JArray(0, 0, 2, 0, 0, 0, 3, 4, 1, 0, 0, 5, 7, 2, 0, 0, 8, 2, 3, 0, 0, 3, 6, 4, 0, 0, 7, 3, 5, 0, 0, 4, 8, 6, 0), new[] { "namespace", "type", "enumMember", "function", "method", "keyword", "variable" });
+		var inactiveSource = "fn hidden() {\r\n\t// comment\r\n\treturn unknown;\r\n};\r\nfn kept();";
+		var inactive = RutileSemanticDecoder.Decode(inactiveSource, new JArray(0, 0, 13, 0, 0, 1, 0, 11, 0, 0, 1, 0, 16, 0, 0, 1, 0, 2, 0, 0, 1, 3, 4, 1, 0), new[] { "inactive", "function" });
 		return JsonConvert.SerializeObject(new {
 			roles = RutileSemanticDecoder.Decode("a b c d e f", roleTokens, roles).Select(span => span.Classification).ToArray(),
 			bindings = bindings.Select(span => span.Classification).ToArray(),
 			classification = reordered[0].Classification,
 			attribute_classification = RutileSemanticDecoder.Decode("test", new JArray(0, 0, 4, 0, 0), new[] { "decorator" })[0].Classification,
+			inactive_classification = RutileSemanticDecoder.Decode("fn", new JArray(0, 0, 2, 0, 0), new[] { "inactive" })[0].Classification,
+			inactive_function = inactive.Select(span => new { text = inactiveSource.Substring(span.Start, span.Length), classification = span.Classification }).ToArray(),
 			namespace_foreground = new RutileNamespaceFormat().ForegroundColor.ToString(),
 			attribute_foreground = new RutileAttributeFormat().ForegroundColor.ToString(),
 			unicode_start = decoded[0].Start,

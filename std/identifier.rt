@@ -1,12 +1,148 @@
+namespace rt {
+	export struct identifier_range_error : [error] {
+		fn description(identifier_range_error& this) -> string_view : [override];
+	};
 
+	export struct null_identifier_error : [error] {
+		fn description(null_identifier_error& this) -> string_view : [override];
+	};
 
-template<typename Tag, typename vnum, typename gnum>
-struct identifier {
-	export fn identifier(var identifier& this) : [default];
-	
+	export fn identifier_range_error::description(identifier_range_error& this) -> string_view {
+		return "Identifier index is out of range.";
+	};
 
-	vnum value;
-	gnum generation;
+	export fn null_identifier_error::description(null_identifier_error& this) -> string_view {
+		return "Null identifier has no index.";
+	};
+
+	template<typename Tag, typename V, typename G>
+	export struct identifier {
+		using value_type = Tag;
+		using vnum_t = V;
+		using gnum_t = G;
+
+		fn identifier(var identifier& this) : [default];
+		fn identifier(var identifier& this, usize index, G generation);
+		fn null() -> identifier;
+		fn from_raw(V value, G generation) -> identifier;
+		fn get(identifier& this) -> V;
+		fn gen(identifier& this) -> G;
+		fn operator bool(identifier& this) -> bool : [implicit];
+		fn operator usize(identifier& this) -> usize : [implicit];
+		fn operator==(identifier& this, identifier& other) -> bool {
+			return this.get() == other.get() && this.gen() == other.gen();
+		};
+		fn operator!=(identifier& this, identifier& other) -> bool {
+			return !(this == other);
+		};
+
+	private:
+		V idx_value;
+		G gen_value;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::identifier(var identifier& this, usize index, G generation) {
+		if (static_cast<u64>(index) >= static_cast<u64>(V::max)) {
+			throw identifier_range_error();
+		};
+		@this.idx_value = static_cast<V>(static_cast<u64>(index) + 1);
+		@this.gen_value = $generation;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::null() -> identifier {
+		return identifier();
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::from_raw(V value, G generation) -> identifier {
+		identifier result;
+		@result.idx_value = $value;
+		@result.gen_value = $generation;
+		return $result;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::get(identifier& this) -> V {
+		return this.idx_value;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::gen(identifier& this) -> G {
+		return this.gen_value;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::operator bool(identifier& this) -> bool : [implicit] {
+		return this.idx_value != 0;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export fn identifier<Tag, V, G>::operator usize(identifier& this) -> usize : [implicit] {
+		if (!this.idx_value) {
+			throw null_identifier_error();
+		};
+		return static_cast<usize>(this.idx_value) - 1;
+	};
+
+	template<typename Tag, typename V>
+	export struct identifier<Tag, V, void> {
+		using value_type = Tag;
+		using vnum_t = V;
+		using gnum_t = void;
+
+		fn identifier(var identifier& this) : [default];
+		fn identifier(var identifier& this, usize index) {
+			if (static_cast<u64>(index) >= static_cast<u64>(V::max)) {
+				throw identifier_range_error();
+			};
+			@this.idx_value = static_cast<V>(static_cast<u64>(index) + 1);
+		};
+		fn null() -> identifier {
+			return identifier();
+		};
+		fn from_raw(V value) -> identifier {
+			identifier result;
+			@result.idx_value = $value;
+			return $result;
+		};
+		fn get(identifier& this) -> V {
+			return this.idx_value;
+		};
+		fn operator bool(identifier& this) -> bool : [implicit] {
+			return this.idx_value != 0;
+		};
+		fn operator usize(identifier& this) -> usize : [implicit] {
+			if (!this.idx_value) {
+				throw null_identifier_error();
+			};
+			return static_cast<usize>(this.idx_value) - 1;
+		};
+		fn operator==(identifier& this, identifier& other) -> bool {
+			return this.get() == other.get();
+		};
+		fn operator!=(identifier& this, identifier& other) -> bool {
+			return !(this == other);
+		};
+
+	private:
+		V idx_value;
+	};
+
+	template<typename Tag, typename V, typename G>
+	export struct default_hash<identifier<Tag, V, G>> {
+		fn hash(default_hash& this, identifier<Tag, V, G>& value) -> usize {
+			u64 index_hash = static_cast<u64>(mix_hash(static_cast<u64>(value.get())));
+			u64 generation_hash = static_cast<u64>(mix_hash(static_cast<u64>(value.gen())));
+			return mix_hash(index_hash ^ (generation_hash + fnv1a64_offset_basis));
+		};
+	};
+
+	template<typename Tag, typename V>
+	export struct default_hash<identifier<Tag, V, void>> {
+		fn hash(default_hash& this, identifier<Tag, V, void>& value) -> usize {
+			return mix_hash(static_cast<u64>(value.get()));
+		};
+	};
 };
-
-

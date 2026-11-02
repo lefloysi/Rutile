@@ -41,7 +41,7 @@ fn LanguageServer::error(var LanguageServer& this, rt::json_value& id, i64 code,
 };
 
 fn LanguageServer::description() -> rt::json_document {
-	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\",\"controlKeyword\",\"decorator\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\",\"_\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
+	return rt::json_parse("{\"capabilities\":{\"positionEncoding\":\"utf-16\",\"textDocumentSync\":{\"openClose\":true,\"change\":2,\"save\":{\"includeText\":false}},\"definitionProvider\":true,\"typeDefinitionProvider\":true,\"declarationProvider\":true,\"referencesProvider\":true,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\",\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"keyword\",\"comment\",\"string\",\"number\",\"operator\",\"controlKeyword\",\"decorator\",\"inactive\"],\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\",\"modification\",\"documentation\",\"defaultLibrary\"]},\"range\":true,\"full\":true},\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[\".\",\":\",\">\",\"_\"]},\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}},\"serverInfo\":{\"name\":\"Rutile Language Server\"}}");
 };
 
 fn LanguageServer::initialize(var LanguageServer& this, rt::json_value& id, rt::json_value& parameters) {
@@ -147,6 +147,13 @@ fn LanguageServer::dispatch(var LanguageServer& this, rt::json_value& message) {
 		@this.state = language_server_state::shutdown;
 		@this.workspace->cancel();
 		@this.send(LanguageJson::response(*id, rt::json_value::make_null()));
+		return;
+	};
+	if (method == "workspace/didChangeConfiguration") {
+		rt::json_value* settings = parameters->member("settings");
+		if (settings) {
+			discard @this.workspace->configure(*settings);
+		};
 		return;
 	};
 

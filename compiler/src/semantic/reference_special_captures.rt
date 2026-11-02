@@ -198,6 +198,11 @@ fn ReferenceLoanAnalyzer::retain_destructor_captures(var ReferenceLoanAnalyzer& 
 	if (record->destructor() && !(@this.retain_effect_capture(@*record->destructor(), owner, nullptr, position, location)).has<void>()) {
 		return compilation_error();
 	};
+	// Union storage has no automatic member destruction. Its own destructor, if
+	// present, already contributes the effects of any explicitly destroyed field.
+	if (record->layout() == record_layout::overlapping) {
+		return;
+	};
 	usize index = 0;
 	while (index < record->bases().size()) {
 		if (!(@this.retain_destructor_captures(record->bases().data()[index], owner, position, location, depth + 1)).has<void>()) {

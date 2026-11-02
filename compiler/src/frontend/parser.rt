@@ -87,6 +87,7 @@ private:
 
 	fn attribute_declaration(var Parser& this) -> rt::unique<Syntax>;
 	fn statement_one(var Parser& this) -> rt::unique<Syntax>;
+	fn statement_untracked(var Parser& this) -> rt::unique<Syntax>;
 	fn statement(var Parser& this) -> rt::unique<Syntax>;
 	fn variable(var Parser& this) -> rt::unique<Syntax>;
 	fn parameters(var Parser& this) -> rt::unique<Syntax>;
@@ -134,7 +135,12 @@ fn Parser::error_token(Parser& this) -> Token {
 fn Parser::peek(Parser& this) -> Token {
 	if (this.pending_less) {
 		Token remainder := this.tokens->data()[this.offset - 1];
-		@remainder.kind = token_kind::op_less;
+		if (remainder.kind == token_kind::op_left_arrow) {
+			@remainder.kind = token_kind::op_minus;
+		}
+		else {
+			@remainder.kind = token_kind::op_less;
+		};
 		@remainder.begin = remainder.begin + 1;
 		@remainder.length = 1;
 		return $remainder;
@@ -235,6 +241,7 @@ fn Parser::precedence(token_kind& kind) -> i32 {
 		case token_kind::op_assign:
 		case token_kind::op_plus_assign:
 		case token_kind::op_copy:
+		case token_kind::op_left_arrow:
 			return 1;
 		case token_kind::op_or:
 			return 2;
@@ -493,7 +500,7 @@ fn Parser::open_template(var Parser& this) -> CompilationResult {
 	if (@this.accept(token_kind::op_less)) {
 		return;
 	};
-	if (@this.accept(token_kind::op_shift_left)) {
+	if (@this.accept(token_kind::op_shift_left) || @this.accept(token_kind::op_left_arrow)) {
 		@this.pending_less = 1;
 		return;
 	};
@@ -658,7 +665,7 @@ fn Parser::name_part(var Parser& this, name_role& role) -> rt::unique<Syntax> {
 		discard @this.add(@*result.get(), rt::unique<Syntax>(@operator_suffix.release()));
 	};
 
-	if (this.peek().kind != token_kind::op_less && this.peek().kind != token_kind::op_shift_left) {
+	if (this.peek().kind != token_kind::op_less && this.peek().kind != token_kind::op_shift_left && this.peek().kind != token_kind::op_left_arrow) {
 		return $result;
 	};
 
@@ -1636,6 +1643,10 @@ fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	discard @this.add(@*result.get(), @this.parameters());
+	var emission = @this.absent();
+	if (this.peek().kind == token_kind::kw_emit) {
+		@emission = @this.node(syntax_kind::name, @this.take());
+	};
 	var exception = @this.exception_spec();
 	var result_type = @this.absent();
 
@@ -1645,6 +1656,9 @@ fn Parser::function(var Parser& this) -> rt::unique<Syntax> {
 
 	discard @this.add(@*result.get(), rt::unique<Syntax>(@result_type.release()));
 	var attributes = @this.node(syntax_kind::attributes, this.peek());
+	if (emission.get()->kind() != syntax_kind::absent) {
+		discard @this.add(@*attributes.get(), $emission);
+	};
 	if (exception.get()->kind() != syntax_kind::absent) {
 		discard @this.add(@*attributes.get(), $exception);
 	};
@@ -1795,7 +1809,7 @@ fn Parser::template_declaration(var Parser& this) -> rt::unique<Syntax> {
 	var parameters = @this.node(syntax_kind::list, this.peek());
 	discard @this.open_template();
 
-	while (this.failure.empty()) {
+	while (this.failure.empty() && this.peek().kind != token_kind::op_greater && this.peek().kind != token_kind::op_shift_right) {
 		Token location = this.peek();
 		var parameter_type = @this.absent();
 		if (!@this.accept(token_kind::kw_typename)) {
@@ -1970,6 +1984,7 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 	discard @this.require(token_kind::identifier, "expected attribute name");
 	var attribute = @this.node(syntax_kind::declaration_attribute, key);
 	if (@this.accept(token_kind::punct_colon)) {
+		usize value_begin = this.peek().begin;
 		var value_parser = Parser(*this.tokens);
 		@value_parser.offset = this.offset;
 		var value = @value_parser.expression(1);
@@ -1994,9 +2009,11 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 			@this.fail("expected attribute value or type");
 			return rt::unique<Syntax>();
 		};
+		@attribute.get()->set_source_extent(value_begin, this.peek().begin);
 	}
 	else {
 		discard @this.add(@*attribute.get(), @this.absent());
+		@attribute.get()->set_source_extent(key.begin + key.length, key.begin + key.length);
 	};
 	discard @this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
 	discard @this.require(token_kind::punct_right_bracket, "expected ']]' after declaration attribute");
@@ -2014,6 +2031,20 @@ fn Parser::attribute_declaration(var Parser& this) -> rt::unique<Syntax> {
 };
 
 fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
+	var begin = this.peek();
+	var result = @this.statement_untracked();
+	if (result.get()) {
+		usize end = begin.begin + begin.length;
+		if (this.offset) {
+			var last = this.tokens->data()[this.offset - 1];
+			@end = last.begin + last.length;
+		};
+		@result.get()->set_source_extent(begin.begin, end);
+	};
+	return $result;
+};
+
+fn Parser::statement_untracked(var Parser& this) -> rt::unique<Syntax> {
 	Token token = this.peek();
 
 	if (token.kind == token_kind::kw_export) {
@@ -2047,6 +2078,16 @@ fn Parser::statement_one(var Parser& this) -> rt::unique<Syntax> {
 	};
 
 	switch (token.kind) {
+		case token_kind::kw_emit: {
+			discard @this.take();
+			Token operation = token;
+			@operation.kind = token_kind::op_left_arrow;
+			var emitted = @this.node(syntax_kind::binary, operation);
+			discard @this.add(@*emitted.get(), @this.node(syntax_kind::name, token));
+			discard @this.add(@*emitted.get(), @this.expression(1));
+			discard @this.require(token_kind::punct_semicolon, "expected ';' after emitted expression");
+			return $emitted;
+		};
 		case token_kind::kw_try:
 			return @this.exception_statement();
 		case token_kind::kw_case:
@@ -2409,6 +2450,7 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 
 	if (compatible && difference != usize::max) {
 		var result = @this.node(first->kind(), first->token());
+		@result.get()->set_source_extent(first->source_begin(), first->source_end());
 		Token linkage = first->function_linkage();
 		@result.get()->set_function_linkage(linkage);
 		if (first->exported()) {
@@ -2441,6 +2483,7 @@ fn Parser::factor_group(var Parser& this, var rt::buffer<rt::unique<Syntax>>& al
 	};
 
 	var result = @this.node(syntax_kind::ambiguity, first->token());
+	@result.get()->set_source_extent(first->source_begin(), first->source_end());
 	usize index = 0;
 
 	while (index < alternatives.size()) {

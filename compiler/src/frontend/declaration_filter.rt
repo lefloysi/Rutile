@@ -1,0 +1,78 @@
+using DeclarationFilterPredicate = ((Syntax&, var void*) -> i32)*;
+
+struct DeclarationFilter {
+	DeclarationFilterPredicate predicate;
+	var void* context;
+};
+
+struct ExcludedDeclaration {
+	var SourceFile* source;
+	usize begin;
+	usize end;
+};
+
+fn filterable_declaration(syntax_kind kind) -> bool {
+	switch (kind) {
+		case syntax_kind::variable:
+		case syntax_kind::function:
+		case syntax_kind::record:
+		case syntax_kind::enumeration:
+		case syntax_kind::namespace_body:
+		case syntax_kind::using_alias:
+		case syntax_kind::pack_signature_declaration:
+			return true;
+		default:
+			return false;
+	};
+};
+
+fn declaration_extent(Syntax& declaration) -> ExcludedDeclaration {
+	return ExcludedDeclaration(declaration.token().source, declaration.source_begin(), declaration.source_end());
+};
+
+fn apply_declaration_filters_to_syntax(var Syntax* syntax, rt::buffer<DeclarationFilter>& filters, var rt::buffer<ExcludedDeclaration>& excluded, bool inherited_exclusion = false) -> bool {
+	@syntax->set_excluded(false);
+	bool remove = inherited_exclusion;
+	bool success = true;
+	if (filterable_declaration(syntax->source_kind())) {
+		usize index = 0;
+		while (index < filters.size()) {
+			var filter = filters.data()[index];
+			i32 include = filter.predicate(*syntax, filter.context);
+			@success = success && include >= 0;
+			@remove = remove || !include;
+			@index = index + 1;
+		};
+		if (remove && !inherited_exclusion) {
+			@excluded.push_back(declaration_extent(*syntax));
+		};
+	};
+
+	usize index = 0;
+	while (index < syntax->size()) {
+		bool child_success = apply_declaration_filters_to_syntax(syntax->item(index), filters, @excluded, remove);
+		@success = success && child_success;
+		@index = index + 1;
+	};
+	if (syntax->source_kind() == syntax_kind::template_declaration) {
+		@remove = remove || syntax->item(1)->excluded();
+	}
+	else if (syntax->source_kind() == syntax_kind::ambiguity) {
+		@index = 0;
+		while (index < syntax->size()) {
+			if (filterable_declaration(syntax->item(index)->source_kind()) || syntax->item(index)->source_kind() == syntax_kind::template_declaration) {
+				@remove = remove || syntax->item(index)->excluded();
+			};
+			@index = index + 1;
+		};
+	};
+	if (remove && !inherited_exclusion && (syntax->source_kind() == syntax_kind::template_declaration || syntax->source_kind() == syntax_kind::ambiguity)) {
+		@excluded.push_back(declaration_extent(*syntax));
+	};
+	@syntax->set_excluded(remove);
+	return success;
+};
+
+fn apply_declaration_filters(var Syntax& syntax, rt::buffer<DeclarationFilter>& filters, var rt::buffer<ExcludedDeclaration>& excluded, bool inherited_exclusion) -> bool {
+	return apply_declaration_filters_to_syntax(&@syntax, filters, @excluded, inherited_exclusion);
+};

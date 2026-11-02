@@ -29,23 +29,3 @@ fn append_import(var Compiler& compiler, rt::buffer<InterfaceSource>& imported, 
 		@compiler.add_module_source(source.path, source.module, source.access);
 	};
 };
-
-fn fixture_command(rt::string_view directory, rt::string_view objects) -> rt::sys::Command {
-	var configuration = rt::string("fn build(kiln::Options& options) {\n")
-		+ "\tvar fixture = kiln::add_target(\"fixture\", kiln::TargetType::executable);\n"
-		+ "\t@fixture.sources.add(\"case.obj\");\n"
-		+ "\t@fixture.import(\"std\");\n"
-		+ "\t@fixture.option(\"runtime\", \"MT\");\n"
-		+ "\t@fixture.option(\"objects\", \"" + objects + "\");\n"
-		+ "};\n";
-	rt::fs::write(rt::string(directory) + "/kiln.rt", configuration);
-	rt::string executable = rt::environment("KILN_EXECUTABLE");
-	var command = rt::sys::Command(executable);
-	@command.argument("run");
-	@command.argument("fixture");
-	rt::string modules = rt::environment("KILN_TEST_MODULE_PATH");
-	@command.environment("RUTILE_MODULE_PATH", modules);
-	@command.working_directory = rt::string(directory);
-	@command.timeout_ms = 120000;
-	return $command;
-};

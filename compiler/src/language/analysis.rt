@@ -26,6 +26,7 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 	@this.messages.set_cancellation(cancelled, context);
 	var cancellation_scope = AnalysisCancellationScope(@this.messages);
 	@this.target_pointer_bits = pointer_bits;
+	@this.excluded.clear();
 	@this.semantic_unit = rt::unique<SemanticUnit>::make();
 	Token location;
 	if (pointer_bits != 32 && pointer_bits != 64) {
@@ -68,6 +69,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 		}
 		else {
 			var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+			if (!apply_declaration_filters(@*tree.get(), this.declaration_filters, @this.excluded, false)) {
+				@this.messages.error(tree.get()->token(), "declaration filter failed");
+				return compilation_error();
+			};
 			@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 		};
 		@index = index + 1;
@@ -111,6 +116,10 @@ fn Analysis::analyze_impl(var Analysis& this, u32 pointer_bits, ((var void*) -> 
 			return compilation_error();
 		};
 		var rt::unique<Syntax>& tree = (@parsed).get<rt::unique<Syntax>>();
+		if (!apply_declaration_filters(@*tree.get(), this.declaration_filters, @this.excluded, false)) {
+			@this.messages.error(tree.get()->token(), "declaration filter failed");
+			return compilation_error();
+		};
 		@this.syntax.push_back(rt::unique<Syntax>(@tree.release()));
 	};
 	var analyzer = Analyzer(@this.types, @this.messages, $pointer_bits);

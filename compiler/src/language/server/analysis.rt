@@ -1,5 +1,16 @@
 fn kiln_project_source_load(char* path, ((var void*, char*, char*, usize, char*, i32) -> i32)* load, var void* context) -> i32;
 
+struct LanguageDeclarationFilters {
+	fn ~LanguageDeclarationFilters(var LanguageDeclarationFilters& this);
+	var NativeDeclarationFilters* context;
+};
+
+fn LanguageDeclarationFilters::~LanguageDeclarationFilters(var LanguageDeclarationFilters& this) {
+	if (this.context) {
+		declaration_filters_close(this.context);
+	};
+};
+
 fn language_load_interface_source(var void* context, char* path, char* text, usize size, char* module, i32 access) -> i32 {
 	var Analysis& analysis = @*reinterpret_cast<var Analysis*>(context);
 	@analysis.add_source(rt::from_c_string(path), rt::string_view(text, size));
@@ -10,6 +21,16 @@ fn language_load_interface_source(var void* context, char* path, char* text, usi
 fn LanguageWorkspace::add_project(var void* context, char* name, char* path, i32 kind) -> i32 {
 	var LanguageWorkspace& workspace = @*reinterpret_cast<var LanguageWorkspace*>(context);
 	usize index = 0;
+	if (kind == 7) {
+		while (index < workspace.groups.size() && workspace.groups.data()[index].name.view() != rt::from_c_string(name)) {
+			@index = index + 1;
+		};
+		if (index == workspace.groups.size()) {
+			return 0;
+		};
+		@(@workspace.groups).data()[index].filters = rt::string(rt::from_c_string(path));
+		return 1;
+	};
 	language_group_kind category = language_group_kind::target;
 	if (kind == 6) {
 		@category = language_group_kind::test_target;
@@ -55,6 +76,20 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 		};
 		@this.cached_configuration = job.configuration;
 	};
+	if (!job.target.empty()) {
+		usize selected = 0;
+		while (selected < this.groups.size()) {
+			LanguageGroup& candidate = this.groups.data()[selected];
+			if ((candidate.kind == language_group_kind::target || candidate.kind == language_group_kind::test_target) && candidate.name.view() == job.target.view()) {
+				break;
+			};
+			@selected = selected + 1;
+		};
+		if (selected == this.groups.size()) {
+			@this.report_failure(job, "The selected editor target is not present in the project configuration.");
+			return rt::unique<LanguageIndex>();
+		};
+	};
 
 	rt::unique<LanguageIndex> index = rt::unique<LanguageIndex>::make();
 	if (!index.get()) {
@@ -66,6 +101,10 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 	while (group < this.groups.size()) {
 		var LanguageGroup& input = @(@this.groups).data()[group];
 		if (input.kind == language_group_kind::standard) {
+			@group = group + 1;
+			continue;
+		};
+		if (!job.target.empty() && (input.kind == language_group_kind::target || input.kind == language_group_kind::test_target) && input.name.view() != job.target.view()) {
 			@group = group + 1;
 			continue;
 		};
@@ -124,9 +163,20 @@ fn LanguageWorkspace::analyze(var LanguageWorkspace& this, var LanguageJob& job)
 };
 
 fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGroup& group, var LanguageJob& job, var LanguageIndex& index) -> CompilationResult {
+	LanguageDeclarationFilters filters;
+	if (!group.filters.empty()) {
+		@filters.context = declaration_filters_open(group.filters.c_str(), group.filters.size());
+		if (!filters.context) {
+			@this.report_failure(job, rt::from_c_string(declaration_filters_error()));
+			return compilation_error();
+		};
+	};
 	rt::unique<Analysis> analysis = rt::unique<Analysis>::make();
 	if (!analysis.get()) {
 		return compilation_error();
+	};
+	if (filters.context) {
+		@analysis.get()->add_declaration_filter(DeclarationFilter(&native_declaration_filter, filters.context));
 	};
 	if (group.kind == language_group_kind::test_target) {
 		@analysis.get()->enable_tests();
@@ -195,7 +245,8 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 
 	var build_lease = @this.compiler->acquire_analysis();
 	Analysis* build_analysis = build_lease.get();
-	bool reusable = build_analysis != nullptr
+	bool reusable = !filters.context && build_analysis != nullptr
+		&& !build_analysis->has_declaration_filters()
 		&& build_analysis->source_count() == analysis.get()->source_count()
 		&& build_analysis->pointer_bits() == 64
 		&& !build_analysis->diagnostics().failed()
@@ -267,6 +318,9 @@ fn LanguageWorkspace::analyze_group(var LanguageWorkspace& this, var LanguageGro
 		@contextual = rt::unique<Analysis>::make();
 		if (!contextual.get()) {
 			return compilation_error();
+		};
+		if (filters.context) {
+			@contextual.get()->add_declaration_filter(DeclarationFilter(&native_declaration_filter, filters.context));
 		};
 		usize source = 0;
 		while (source < analysis.get()->source_count()) {

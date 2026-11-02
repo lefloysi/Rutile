@@ -1,0 +1,45 @@
+namespace rt::detail {
+	// The compiler owns this storage; R is constructed only on the first executed access.
+	template<typename R>
+	export struct return_emitter {
+		fn return_emitter(var return_emitter& this) : [default];
+		fn return_emitter(var return_emitter& this, return_emitter& other) : [delete];
+		fn ~return_emitter(var return_emitter& this) {
+			if (this.engaged) {
+				@this.engaged = false;
+				@this.storage.value.~R();
+			};
+		};
+
+		fn get(var return_emitter& this) -> var R& {
+			if (!this.engaged) {
+				@this.storage.value.R();
+				@this.engaged = true;
+			};
+			return @this.storage.value;
+		};
+
+		fn replace(var return_emitter& this, R value) -> var R& {
+			if (this.engaged) {
+				@this.engaged = false;
+				@this.storage.value.~R();
+			};
+			@this.storage.value.R($value);
+			@this.engaged = true;
+			return @this.storage.value;
+		};
+
+		fn take(var return_emitter& this) -> R {
+			var value = &@this.get();
+			@this.engaged = false;
+			return $*value;
+		};
+
+	private:
+		union Storage {
+			R value;
+		};
+		Storage storage;
+		bool engaged;
+	};
+};

@@ -1,3 +1,95 @@
+fn language_server_exclude_tagged_declarations(Syntax& declaration, var void* context) -> i32 {
+	if (declaration.declaration_attributes().size()) {
+		return 0;
+	};
+	return 1;
+};
+
+[[test]]
+fn language_server_target_configuration_keeps_filter_metadata_separate_from_sources() {
+	LspFiles files;
+	rt::test::expect(files.input && files.output);
+	Compiler compiler;
+	var protocol = LanguageProtocol(@*files.input, @*files.output);
+	var workspace = LanguageWorkspace(@compiler, @protocol, "/");
+	@workspace.cancel();
+	rt::string target = rt::string("filtered");
+	rt::string source = rt::string("/filtered.rt");
+	rt::string descriptor = rt::string("{\"filters\":[{\"module\":\"/configuration.dll\",\"offset\":16}],\"filter_context\":{\"root\":\"/\",\"os\":\"windows\",\"profile\":\"debug\",\"choices\":{}}}");
+	rt::test::expect(LanguageWorkspace::add_project(&@workspace, target.c_str(), source.c_str(), 6) == 1);
+	rt::test::expect(LanguageWorkspace::add_project(&@workspace, target.c_str(), descriptor.c_str(), 7) == 1);
+	rt::test::expect(workspace.groups.size() == 1);
+	LanguageGroup& group = workspace.groups.data()[0];
+	rt::test::expect(group.kind == language_group_kind::test_target);
+	rt::test::expect(group.paths.size() == 1 && group.paths.data()[0].view() == source.view());
+	rt::test::expect(group.filters.view() == descriptor.view());
+	var parameters = rt::json_value::make_object();
+	@parameters.get()->set("target", rt::json_value::make_string(target));
+	rt::test::expect((@workspace.configure(*parameters.get())).has<void>());
+	rt::test::expect(workspace.target.view() == target.view());
+	@parameters.get()->set("target", rt::json_value::make_string(""));
+	rt::test::expect((@workspace.configure(*parameters.get())).has<void>());
+	rt::test::expect(workspace.target.empty());
+};
+
+[[test]]
+fn language_server_filtered_declarations_are_inactive_without_resolving_their_contents() {
+	Analysis analysis;
+	@analysis.add_declaration_filter(DeclarationFilter(&language_server_exclude_tagged_declarations, nullptr));
+	@analysis.add_source("/filtered.rt", "[[selection : excluded]]\nfn unavailable() -> Missing {\n\t// inactive comment\n\t/* inactive block\n\t   comment */\n\treturn unknown;\n};\nfn kept() -> i32 { return 42; };\n");
+	rt::test::expect((@analysis.analyze_editor(64, nullptr, nullptr)).has<void>());
+	rt::test::expect(!analysis.diagnostics().failed());
+	LanguageIndex index;
+	LanguageJob job;
+	@index.append(analysis, job);
+	rt::test::expect(index.sources.size() == 1);
+	LanguageIndexedSource& source = index.sources.data()[0];
+	usize inactive = 0;
+	usize kept = 0;
+	usize comments = 0;
+	for (usize item = 0; item < source.tokens.size(); @item = item + 1) {
+		LanguageSemanticToken& token = source.tokens.data()[item];
+		if (token.range.end <= analysis.excluded_declarations().data()[0].end) {
+			rt::test::expect(token.type == 20);
+			@inactive = inactive + 1;
+			var text = source.text.view().slice(token.range.begin, token.range.end - token.range.begin);
+			if (text == "// inactive comment" || text == "/* inactive block\n\t   comment */") {
+				@comments = comments + 1;
+			};
+		}
+		else {
+			rt::test::expect(token.type != 20);
+		};
+		if (source.text.view().slice(token.range.begin, token.range.end - token.range.begin) == "kept") {
+			rt::test::expect(token.type == 11);
+			@kept = kept + 1;
+		};
+	};
+	rt::test::expect(inactive > 10 && kept == 1 && comments == 2);
+};
+
+[[test]]
+fn language_server_overloaded_operators_keep_operator_colors() {
+	Analysis analysis;
+	@analysis.add_source("/operators.rt", "struct Value { fn operator==(Value& left, Value& right) -> bool { return true; }; }; fn compare(Value& left, Value& right) -> bool { return left == right; };");
+	rt::test::expect((@analysis.analyze_editor(64, nullptr, nullptr)).has<void>());
+	rt::test::expect(!analysis.diagnostics().failed());
+	LanguageIndex index;
+	LanguageJob job;
+	@index.append(analysis, job);
+	rt::test::expect(index.sources.size() == 1);
+	LanguageIndexedSource& source = index.sources.data()[0];
+	usize operators = 0;
+	for (usize item = 0; item < source.tokens.size(); @item = item + 1) {
+		LanguageSemanticToken& token = source.tokens.data()[item];
+		if (source.text.view().slice(token.range.begin, token.range.end - token.range.begin) == "==") {
+			rt::test::expect(token.type == 17);
+			@operators = operators + 1;
+		};
+	};
+	rt::test::expect(operators == 2);
+};
+
 [[test]]
 fn language_server_initialization_legend_and_shutdown_use_json_rpc_frames() {
 	LspFiles files;
@@ -27,9 +119,10 @@ fn language_server_initialization_legend_and_shutdown_use_json_rpc_frames() {
 	var legend = provider->member("legend");
 	rt::test::expect(legend);
 	var token_types = legend->member("tokenTypes");
-	rt::test::expect(token_types && token_types->kind() == rt::json_kind::array && token_types->size() == 20);
+	rt::test::expect(token_types && token_types->kind() == rt::json_kind::array && token_types->size() == 21);
 	rt::test::expect(token_types->item(11)->text() == "function");
 	rt::test::expect(token_types->item(18)->text() == "controlKeyword");
+	rt::test::expect(token_types->item(20)->text() == "inactive");
 	var custom = lsp_response(@reader, 2);
 	rt::test::expect(custom.has<rt::unique<rt::json_value>>());
 	var custom_result = custom.get<rt::unique<rt::json_value>>().get()->member("result");

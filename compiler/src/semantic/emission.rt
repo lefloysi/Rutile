@@ -1,0 +1,113 @@
+fn return_emitter_operand(Syntax& syntax) -> bool {
+	if (syntax.kind() == syntax_kind::grouping || syntax.kind() == syntax_kind::unary && syntax.token().kind == token_kind::op_access) {
+		return return_emitter_operand(*syntax.operand());
+	};
+	return syntax.kind() == syntax_kind::name && (syntax.token().is("__return") || syntax.token().kind == token_kind::kw_emit);
+};
+
+fn TemplateEngine::return_emitter_type(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, Type& result) -> Type* {
+	var Entity* runtime = analyzer.semantic_unit()->root_scope()->local("rt");
+	var Entity* detail = nullptr;
+	var Entity* pattern = nullptr;
+	if (runtime && runtime->members()) {
+		@detail = runtime->members()->local("detail");
+	};
+	if (detail && detail->members()) {
+		@pattern = detail->members()->local("return_emitter");
+	};
+	if (!pattern || pattern->kind() != entity_kind::template_pattern) {
+		@analyzer.report(syntax.token(), "return emission requires the rt::detail::return_emitter standard library template declaration");
+		return nullptr;
+	};
+	rt::buffer<TemplateArgument> arguments;
+	TemplateArgument argument;
+	@argument.kind = template_argument_kind::type;
+	@argument.type = &result;
+	@arguments.push_back($argument);
+	var Entity* instance = @this.instantiate(@analyzer, @scope, @*pattern, TemplateInput(arguments, syntax.token()));
+	if (!instance) {
+		return nullptr;
+	};
+	return instance->type();
+};
+
+fn Analyzer::return_emitter_call(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::string_view name, rt::unique<SemanticExpression> argument) -> rt::unique<SemanticExpression> {
+	var Entity* storage = this.function->return_storage();
+	var Entity* group = storage->type()->entity()->find_member(name);
+	if (!group || !(@this.resolve(group)).has<void>()) {
+		@this.error(&@syntax, "return emission storage is missing a required operation");
+		return rt::unique<SemanticExpression>();
+	};
+	rt::buffer<rt::unique<SemanticExpression>> arguments;
+	var receiver = @this.node(semantic_kind::name, storage->type(), &@syntax);
+	@receiver.get()->bind(storage, value_category::place);
+	@receiver.get()->set_mutable_access(true);
+	@arguments.push_back($receiver);
+	if (argument.get()) {
+		@arguments.push_back($argument);
+	};
+	var Entity* selected = @this.select(group, arguments, 0, conversion_mode::explicit_only, @syntax);
+	if (!selected) {
+		@this.error(&@syntax, "return emission storage has no applicable operation");
+		return rt::unique<SemanticExpression>();
+	};
+	var callable = @this.node(semantic_kind::name, selected->type(), &@syntax);
+	@callable.get()->bind(selected, value_category::place);
+	return @this.invoke(@syntax, selected, $callable, $arguments, rt::optional_ref<const Type>());
+};
+
+fn Analyzer::return_emitter(var Analyzer& this, var Scope& scope, var Syntax& syntax, rt::optional_ref<const Type>& expected) -> rt::unique<SemanticExpression> {
+	if (!this.function) {
+		@this.error(&@syntax, "__return requires an enclosing function");
+		return rt::unique<SemanticExpression>();
+	};
+	Type* result = this.function->type()->signature().result();
+	if (result->kind() == type_kind::void_type || result->kind() == type_kind::reference || result->kind() == type_kind::function || result->kind() == type_kind::array) {
+		@this.error(&@syntax, "__return requires an owning non-void function result type");
+		return rt::unique<SemanticExpression>();
+	};
+	if (!this.function->return_storage()) {
+		Type* type = @this.templates.return_emitter_type(@this, @scope, @syntax, *result);
+		if (!type) {
+			return rt::unique<SemanticExpression>();
+		};
+		var Scope* hidden = @this.unit->create_scope(this.function->members(), this.function);
+		var Entity* storage = @this.unit->create_entity(entity_kind::local, syntax.token(), &@syntax, hidden);
+		@storage->set_name("__return_storage");
+		@storage->set_origin(declaration_origin::compiler_supplied);
+		@storage->set_type(@this.types->qualified(*type, type_qualifier::mutable));
+		@storage->set_type_use(*@this.unit->canonical_use(*storage->type()));
+		@storage->set_state(entity_state::ready);
+		@this.function->set_return_storage(storage);
+	};
+	var value = @this.return_emitter_call(@scope, @syntax, "get", rt::unique<SemanticExpression>());
+	if (value.get()) {
+		@value.get()->set_mutable_access(false);
+	};
+	return @this.convert($value, expected, @syntax);
+};
+
+fn Analyzer::return_emitter_body(var Analyzer& this, var Entity& entity, rt::unique<SemanticExpression> body) -> rt::unique<SemanticExpression> {
+	var Entity* storage = entity.return_storage();
+	if (!storage) {
+		return $body;
+	};
+	var Syntax* source = entity.declaration()->function_body();
+	Type* nothing = this.types->find_primitive("void");
+	var initialized = @this.zero_initialize(@*source, storage->type());
+	var declaration = @this.node(semantic_kind::variable, nothing, source);
+	@declaration.get()->bind(storage, value_category::consumable);
+	if (!initialized.get() || !(@declaration.get()->append($initialized)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var result = @this.node(semantic_kind::statements, nothing, source);
+	if (!(@result.get()->append($declaration)).has<void>() || !(@result.get()->append($body)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	var taken = @this.return_emitter_call(@*entity.members(), @*source, "take", rt::unique<SemanticExpression>());
+	var returned = @this.node(semantic_kind::return_value, nothing, source);
+	if (!taken.get() || !(@returned.get()->append($taken)).has<void>() || !(@result.get()->append($returned)).has<void>()) {
+		return rt::unique<SemanticExpression>();
+	};
+	return $result;
+};

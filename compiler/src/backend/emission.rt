@@ -62,7 +62,7 @@ fn Backend::entry(var Backend& this, var Entity* entity) -> CompilationResult {
 
 };
 
-fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult {
+fn Backend::generate(var Backend& this, SemanticUnit& unit, rt::string_view entry, output_kind output) -> CompilationResult {
 	if (output != output_kind::library) {
 		if (output == output_kind::tests) {
 			@entry = "__rutile_test_main";
@@ -138,7 +138,7 @@ fn Backend::emit(var Backend& this, SemanticUnit& unit, rt::string_view entry, o
 			diagnostic_entity(@detail, *entity);
 			this.progress.report("compiling-function", compiled_functions, function_count, detail.view());
 
-			if (!(@emitter.emit(entity)).has<void>()) {
+			if (!(@emitter.generate(entity)).has<void>()) {
 				if (!this.failed()) {
 					DiagnosticMessage failure;
 					@failure.text("native emission failed without a diagnostic while compiling '");

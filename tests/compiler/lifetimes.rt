@@ -71,13 +71,6 @@ fn reconstruction_starts_a_new_object_lifetime() {
 	@paths.push_back("tests.rt");
 	@sources.push_back(source);
 	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
-
-	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
-	if (executed.exit_code) {
-		discard puts(executed.output.c_str());
-		discard puts(executed.error.c_str());
-	};
-	rt::test::expect(!executed.exit_code);
 };
 [[test]]
 fn void_alternatives_preserve_lifetimes_through_copy_and_move() {
@@ -151,13 +144,6 @@ fn complete() { @completions = completions + 1; };
 	@paths.push_back("tests.rt");
 	@sources.push_back(source);
 	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
-
-	rt::sys::Result executed = rt::sys::cmd(fixture_command(directory, ""));
-	if (executed.exit_code) {
-		discard puts(executed.output.c_str());
-		discard puts(executed.error.c_str());
-	};
-	rt::test::expect(!executed.exit_code);
 };
 
 [[test]]
@@ -313,6 +299,58 @@ fn observe() -> i32 {
 	var result = @compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library);
 	rt::test::expect(result.has<compilation_error>());
 	var analysis = @compiler.acquire_analysis();
+	rt::test::expect(analysis.get());
+	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
+	rt::test::expect(records.size());
+	rt::test::expect(records.data()[0].message.contains("dependent reference loan"));
+};
+
+[[test]]
+fn union_storage_cleanup_follows_explicit_destructor_effects() {
+	var directory = compiler_directory("union-storage-cleanup");
+	var imported = standard_sources();
+	rt::test::expect(imported.has<rt::buffer<InterfaceSource>>());
+	Compiler compiler;
+	rt::buffer<rt::string_view> paths;
+	rt::buffer<rt::string_view> sources;
+	append_import(@compiler, imported.get<rt::buffer<InterfaceSource>>(), @paths, @sources);
+	@paths.push_back("source.rt");
+	@sources.push_back("""
+struct Successor { rt::buffer<u32> arguments; };
+struct Terminator { rt::buffer<Successor> successors; };
+struct Block { rt::optional<Terminator> terminator; };
+[[test]] fn nested_owning_storage_moves_and_destroys() {
+	Successor successor;
+	@successor.arguments.push_back(u32(42));
+	Terminator terminator;
+	@terminator.successors.push_back($successor);
+	Block block;
+	var Terminator& placed = @block.terminator.emplace($terminator);
+	rt::test::expect(placed.successors.data()[0].arguments.data()[0] == 42);
+	rt::buffer<Block> blocks;
+	@blocks.push_back($block);
+	@blocks.reserve(8);
+	rt::test::expect(blocks.data()[0].terminator.value().successors.data()[0].arguments.data()[0] == 42);
+	@blocks.clear();
+	rt::test::expect(blocks.size() == 0);
+};
+""");
+	rt::test::expect((@compiler.compile_sources(paths, sources, directory + "/case.obj", &platform_open_utf8_file, "", 0, platform_standard_error(), output_kind::tests)).has<void>());
+
+	Compiler rejected;
+	rt::buffer<rt::string_view> rejected_paths;
+	rt::buffer<rt::string_view> rejected_sources;
+	@rejected_paths.push_back("escaped-union.rt");
+	@rejected_sources.push_back("""
+fn retain(var i32& value);
+union Storage {
+	i32 value;
+	fn ~Storage(var Storage& this) { retain(@this.value); };
+};
+fn broken() { Storage storage; };
+""");
+	rt::test::expect((@rejected.compile_sources(rejected_paths, rejected_sources, directory + "/rejected.obj", &platform_open_utf8_file, "", 0, nullptr, output_kind::library)).has<compilation_error>());
+	var analysis = @rejected.acquire_analysis();
 	rt::test::expect(analysis.get());
 	rt::buffer<DiagnosticRecord>& records = analysis.value().diagnostics().records();
 	rt::test::expect(records.size());

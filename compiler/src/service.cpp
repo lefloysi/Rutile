@@ -1,5 +1,6 @@
 #include "service.hpp"
 #include "module_interface.hpp"
+#include "declaration_filters.hpp"
 
 #include "platform.hpp"
 #include "editor_sources.hpp"
@@ -116,7 +117,46 @@ std::FILE* rutile_service_open(const char* path, const char* mode) {
 	return platform_open_file(std::filesystem::u8path(path), mode);
 }
 
+struct RutileCompilationFilters {
+	Compiler* compiler;
+	std::unique_ptr<NativeDeclarationFilters, decltype(&declaration_filters_close)> filters{ nullptr, &declaration_filters_close };
+
+	RutileCompilationFilters(Compiler* owner, const nlohmann::json& request) : compiler(owner) {
+		if (request.contains("filters") && !request.at("filters").empty()) {
+			const auto descriptor = nlohmann::json{ { "filters", request.at("filters") }, { "filter_context", request.value("filter_context", nlohmann::json::object()) } }.dump();
+			filters.reset(declaration_filters_open(descriptor.data(), descriptor.size()));
+			if (!filters) {
+				throw std::runtime_error(declaration_filters_error());
+			}
+		}
+		if (rutile_compiler_set_declaration_filters(compiler, filters.get())) {
+			throw std::runtime_error("Could not configure declaration filters.");
+		}
+	}
+
+	~RutileCompilationFilters() {
+		rutile_compiler_set_declaration_filters(compiler, nullptr);
+	}
+};
+
+void rutile_interface_exclude_declaration(void* context, std::size_t source, std::size_t begin, std::size_t end) {
+	auto& records = *static_cast<nlohmann::json*>(context);
+	if (source >= records.size()) {
+		return;
+	}
+	auto& text = records[source].at("text").get_ref<std::string&>();
+	if (begin > end || end > text.size()) {
+		throw std::runtime_error("Invalid excluded declaration range in module interface.");
+	}
+	for (std::size_t index = begin; index < end; ++index) {
+		if (text[index] != '\n' && text[index] != '\r') {
+			text[index] = ' ';
+		}
+	}
+}
+
 int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, const std::vector<std::string>& names, const std::vector<std::string>& contents, std::FILE* diagnostics) {
+	RutileCompilationFilters filters(compiler, request);
 	std::vector<std::filesystem::path> destinations;
 	std::vector<std::string> inputs = names;
 	for (const auto& path : request.value("interfaces", std::vector<std::string>{})) {
@@ -231,6 +271,9 @@ int rutile_compile_module(Compiler* compiler, const nlohmann::json& request, con
 		}
 	}
 	if (request.contains("interface_output")) {
+		if (rutile_compiler_excluded_declarations(compiler, &rutile_interface_exclude_declaration, &records)) {
+			throw std::runtime_error("Could not preserve declaration filtering in module interface.");
+		}
 		const auto target = std::filesystem::u8path(request.at("interface_output").get<std::string>());
 		std::filesystem::create_directories(target.parent_path());
 		rutile_service_write(target, rutile_interface_encode(module, records));
@@ -863,7 +906,7 @@ int rutile_service_serve(const char* endpoint) {
 				for (const auto& [session, watch] : watches) {
 						sessions.push_back({ { "session", session }, { "target", watch.request.value("target", std::string{}) }, { "profile", watch.request.value("profile", std::string{}) }, { "kind", watch.request.value("kind", std::string{}) }, { "source_revision", watch.source_revision }, { "artifact_revision", watch.artifact_revision }, { "artifacts_current", watch.source_revision == watch.artifact_revision && !watch.compile_failed && rutile_service_artifacts_exist(watch.request) }, { "compiling", static_cast<bool>(watch.active_job) || watch.initial_pending } });
 				}
-				response = nlohmann::json{ { "service", "rutile" }, { "protocol", 2 }, { "pid", platform_process_id() }, { "version", software_version }, { "compilations", compilations.load() }, { "executable", rutile_service_path(executable) }, { "binary_stamp", binary_stamp }, { "language_endpoint", language_endpoint }, { "sessions", std::move(sessions) } }.dump();
+				response = nlohmann::json{ { "service", "rutile" }, { "protocol", 2 }, { "declaration_filters", 1 }, { "pid", platform_process_id() }, { "version", software_version }, { "compilations", compilations.load() }, { "executable", rutile_service_path(executable) }, { "binary_stamp", binary_stamp }, { "language_endpoint", language_endpoint }, { "sessions", std::move(sessions) } }.dump();
 			}
 			else if (text == "ping") {
 				response = "ready";

@@ -1,0 +1,408 @@
+struct TemplateSpecialization {
+	var Entity* primary;
+	var Entity* pattern;
+	var Syntax* arguments;
+};
+
+fn TemplateEngine::specialization_syntax(TemplateEngine& this, var Syntax& syntax, template_argument_kind kind) -> var Syntax* {
+	var Syntax* result = this.argument_syntax(@syntax, $kind);
+	while (result && result->kind() == syntax_kind::type_name) {
+		@result = result->designated_type();
+	};
+	return $result;
+};
+
+fn TemplateEngine::specialization_parameter(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters, template_argument_kind kind) -> usize {
+	if (syntax.kind() != syntax_kind::name) {
+		return parameters.size();
+	};
+	usize index = 0;
+	while (index < parameters.size()) {
+		var Syntax* parameter = parameters.item(index);
+		bool type_parameter = parameter->token().kind == token_kind::kw_typename;
+		if (type_parameter == (kind == template_argument_kind::type) && parameter->template_parameter_name()->token().text() == syntax.token().text()) {
+			return $index;
+		};
+		@index = index + 1;
+	};
+	return parameters.size();
+};
+
+fn TemplateEngine::specialization_mentions(TemplateEngine& this, var Syntax& syntax, var Syntax& parameters) -> bool {
+	if (syntax.kind() == syntax_kind::name) {
+		usize index = 0;
+		while (index < parameters.size()) {
+			if (parameters.item(index)->template_parameter_name()->token().text() == syntax.token().text()) {
+				return true;
+			};
+			@index = index + 1;
+		};
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.specialization_mentions(@*syntax.item(index), @parameters)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateEngine::specialization_parameter_used(TemplateEngine& this, var Syntax& syntax, var Syntax& parameter) -> bool {
+	if (syntax.kind() == syntax_kind::name && syntax.token().text() == parameter.template_parameter_name()->token().text()) {
+		return true;
+	};
+	usize index = 0;
+	while (index < syntax.size()) {
+		if (this.specialization_parameter_used(@*syntax.item(index), @parameter)) {
+			return true;
+		};
+		@index = index + 1;
+	};
+	return false;
+};
+
+fn TemplateEngine::specialization_pattern_equal(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& first, var Syntax& second, var Syntax& parameters, template_argument_kind kind) -> bool {
+	var Syntax* left = this.specialization_syntax(@first, kind);
+	var Syntax* right = this.specialization_syntax(@second, kind);
+	if (!left || !right) {
+		return false;
+	};
+	if (!this.specialization_mentions(@*left, @parameters) && !this.specialization_mentions(@*right, @parameters)) {
+		if (kind == template_argument_kind::type) {
+			Type* first_type = @analyzer.type(@scope, @*left);
+			Type* second_type = @analyzer.type(@scope, @*right);
+			return first_type && first_type == second_type;
+		};
+		var first_value = @analyzer.expression(@scope, @*left, rt::optional_ref<const Type>());
+		var second_value = @analyzer.expression(@scope, @*right, rt::optional_ref<const Type>());
+		u64 first_integer = 0;
+		u64 second_integer = 0;
+		return first_value.get() && second_value.get() && @analyzer.constant_integer(*first_value.get(), @first_integer) && @analyzer.constant_integer(*second_value.get(), @second_integer) && first_integer == second_integer;
+	};
+	return this.same_parameter_expression(*left, *right, parameters, parameters);
+};
+
+fn TemplateEngine::specialization_pattern_covers(var TemplateEngine& this, var Analyzer& analyzer, var Scope& general_scope, var Syntax& general, var Syntax& general_parameters, var Scope& specific_scope, var Syntax& specific, var Syntax& specific_parameters, template_argument_kind kind, var rt::buffer<var Syntax*>& bindings) -> bool {
+	var Syntax* left = this.specialization_syntax(@general, kind);
+	var Syntax* right = this.specialization_syntax(@specific, kind);
+	if (!left || !right) {
+		return false;
+	};
+	usize parameter = this.specialization_parameter(@*left, @general_parameters, kind);
+	if (parameter < general_parameters.size()) {
+		var Syntax* bound = bindings.data()[parameter];
+		if (bound) {
+			return @this.specialization_pattern_equal(@analyzer, @specific_scope, @*bound, @*right, @specific_parameters, $kind);
+		};
+		@bindings.data()[parameter] = right;
+		return true;
+	};
+	if (this.specialization_parameter(@*right, @specific_parameters, kind) < specific_parameters.size()) {
+		return false;
+	};
+	bool left_dependent = this.specialization_mentions(@*left, @general_parameters);
+	bool right_dependent = this.specialization_mentions(@*right, @specific_parameters);
+	if (!left_dependent && !right_dependent) {
+		if (kind == template_argument_kind::type) {
+			Type* first_type = @analyzer.type(@general_scope, @*left);
+			Type* second_type = @analyzer.type(@specific_scope, @*right);
+			return first_type && first_type == second_type;
+		};
+		var first_value = @analyzer.expression(@general_scope, @*left, rt::optional_ref<const Type>());
+		var second_value = @analyzer.expression(@specific_scope, @*right, rt::optional_ref<const Type>());
+		u64 first_integer = 0;
+		u64 second_integer = 0;
+		return first_value.get() && second_value.get() && @analyzer.constant_integer(*first_value.get(), @first_integer) && @analyzer.constant_integer(*second_value.get(), @second_integer) && first_integer == second_integer;
+	};
+	var Syntax* first_application = this.unqualified(@*left);
+	var Syntax* second_application = this.unqualified(@*right);
+	if (first_application->kind() == syntax_kind::template_apply && second_application->kind() == syntax_kind::template_apply) {
+		var Entity* first_owner = @this.pattern_owner(@analyzer, @general_scope, @*left);
+		var Entity* second_owner = @this.pattern_owner(@analyzer, @specific_scope, @*right);
+		if (!first_owner || first_owner != second_owner || first_application->arguments()->size() != second_application->arguments()->size()) {
+			return false;
+		};
+		usize index = 0;
+		while (index < first_application->arguments()->size()) {
+			var Syntax* nested_parameter = this.parameter_at(@*first_owner, index);
+			if (!nested_parameter) {
+				return false;
+			};
+			template_argument_kind nested_kind = template_argument_kind::value;
+			if (nested_parameter->token().kind == token_kind::kw_typename) {
+				@nested_kind = template_argument_kind::type;
+			};
+			if (!@this.specialization_pattern_covers(@analyzer, @general_scope, @*first_application->arguments()->item(index), @general_parameters, @specific_scope, @*second_application->arguments()->item(index), @specific_parameters, $nested_kind, @bindings)) {
+				return false;
+			};
+			@index = index + 1;
+		};
+		return true;
+	};
+	if (left->kind() != right->kind()) {
+		return false;
+	};
+	if (left->kind() == syntax_kind::type_pointer || left->kind() == syntax_kind::type_reference || left->kind() == syntax_kind::type_const || left->kind() == syntax_kind::type_mutable || left->kind() == syntax_kind::type_array) {
+		if (!@this.specialization_pattern_covers(@analyzer, @general_scope, @*left->designated_type(), @general_parameters, @specific_scope, @*right->designated_type(), @specific_parameters, template_argument_kind::type, @bindings)) {
+			return false;
+		};
+		if (left->kind() == syntax_kind::type_array) {
+			return @this.specialization_pattern_covers(@analyzer, @general_scope, @*left->array_extent(), @general_parameters, @specific_scope, @*right->array_extent(), @specific_parameters, template_argument_kind::value, @bindings);
+		};
+		return true;
+	};
+	return this.same_parameter_expression(*left, *right, general_parameters, specific_parameters);
+};
+
+fn TemplateEngine::specialization_covers(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& general, var TemplateSpecialization& specific) -> bool {
+	if (general.arguments->size() != specific.arguments->size()) {
+		return false;
+	};
+	var Syntax* general_parameters = general.pattern->declaration()->template_parameters();
+	var Syntax* specific_parameters = specific.pattern->declaration()->template_parameters();
+	rt::buffer<var Syntax*> bindings;
+	usize index = 0;
+	while (index < general_parameters->size()) {
+		@bindings.push_back(nullptr);
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < general.arguments->size()) {
+		var Syntax* parameter = this.parameter_at(@*general.primary, index);
+		template_argument_kind kind = template_argument_kind::value;
+		if (parameter->token().kind == token_kind::kw_typename) {
+			@kind = template_argument_kind::type;
+		};
+		if (!@this.specialization_pattern_covers(@analyzer, @*general.pattern->resolution_scope(), @*general.arguments->item(index), @*general_parameters, @*specific.pattern->resolution_scope(), @*specific.arguments->item(index), @*specific_parameters, $kind, @bindings)) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn TemplateEngine::collect_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& source, var Syntax& name) -> CompilationResult {
+	var Entity* primary = @this.pattern_owner(@analyzer, @scope, @name);
+	if (!primary || primary->kind() != entity_kind::template_pattern || primary->declaration()->kind() != syntax_kind::template_declaration || primary->declaration()->template_declaration()->kind() != syntax_kind::record) {
+		@analyzer.error(&@name, "class template specialization requires a declared primary class template");
+		return compilation_error();
+	};
+	var Syntax* application = this.unqualified(@name);
+	usize primary_count = this.explicit_count(@*primary);
+	if (primary_count && this.parameter_at(@*primary, primary_count - 1)->kind() == syntax_kind::template_variadic_parameter) {
+		@analyzer.error(&@name, "class specializations of variadic templates are not supported");
+		return compilation_error();
+	};
+	if (application->arguments()->size() != this.explicit_count(@*primary)) {
+		@analyzer.error(&@name, "class template specialization must specify every primary template argument");
+		return compilation_error();
+	};
+	usize index = 0;
+	while (index < source.template_parameters()->size()) {
+		var Syntax* parameter = source.template_parameters()->item(index);
+		if (parameter->kind() == syntax_kind::template_variadic_parameter || parameter->template_parameter_default()->kind() != syntax_kind::absent) {
+			@analyzer.error(parameter, "class specialization parameters cannot have defaults or parameter packs");
+			return compilation_error();
+		};
+		if (!this.specialization_parameter_used(@*application->arguments(), @*parameter)) {
+			@analyzer.error(parameter, "class specialization parameter cannot be deduced from its arguments");
+			return compilation_error();
+		};
+		@index = index + 1;
+	};
+	var Scope* hidden = @analyzer.semantic_unit()->create_scope(&@scope, scope.owner());
+	var Entity* pattern = @analyzer.semantic_unit()->create_entity(entity_kind::template_pattern, application->callable()->token(), &@source, hidden);
+	@pattern->set_resolution_scope(&@scope);
+	@pattern->set_access(scope.access());
+	@pattern->set_state(entity_state::ready);
+	var specialization = rt::unique<TemplateSpecialization>(new TemplateSpecialization());
+	@specialization.get()->primary = primary;
+	@specialization.get()->pattern = pattern;
+	@specialization.get()->arguments = application->arguments();
+	@this.specializations.push_back($specialization);
+};
+
+fn TemplateEngine::validate_specializations(var TemplateEngine& this, var Analyzer& analyzer) -> CompilationResult {
+	usize index = 0;
+	while (index < this.specializations.size()) {
+		var TemplateSpecialization* current = this.specializations.data()[index].get();
+		var Syntax* parameters = current->pattern->declaration()->template_parameters();
+		rt::buffer<usize> unrestricted;
+		usize argument = 0;
+		while (argument < current->arguments->size()) {
+			var Syntax* primary_parameter = this.parameter_at(@*current->primary, argument);
+			template_argument_kind kind = template_argument_kind::value;
+			if (primary_parameter->token().kind == token_kind::kw_typename) {
+				@kind = template_argument_kind::type;
+			};
+			var Syntax* pattern = this.specialization_syntax(@*current->arguments->item(argument), kind);
+			usize parameter = parameters->size();
+			if (pattern) {
+				@parameter = this.specialization_parameter(@*pattern, @*parameters, kind);
+			};
+			if (parameter == parameters->size()) {
+				break;
+			};
+			usize previous = 0;
+			while (previous < unrestricted.size() && unrestricted.data()[previous] != parameter) {
+				@previous = previous + 1;
+			};
+			if (previous < unrestricted.size()) {
+				break;
+			};
+			@unrestricted.push_back(parameter);
+			@argument = argument + 1;
+		};
+		if (parameters->size() && unrestricted.size() == current->arguments->size()) {
+			@analyzer.error(current->pattern->declaration()->template_declaration()->record_name(), "class template specialization must constrain the primary template arguments");
+			return compilation_error();
+		};
+		usize other = index + 1;
+		while (other < this.specializations.size()) {
+			var TemplateSpecialization* next = this.specializations.data()[other].get();
+			if (current->primary != next->primary || !@this.specialization_covers(@analyzer, @*current, @*next) || !@this.specialization_covers(@analyzer, @*next, @*current)) {
+				@other = other + 1;
+				continue;
+			};
+			var Syntax* previous_record = current->pattern->declaration()->template_declaration();
+			var Syntax* record = next->pattern->declaration()->template_declaration();
+			if (previous_record->record_members()->kind() != syntax_kind::noop && record->record_members()->kind() != syntax_kind::noop) {
+				@analyzer.error(record->record_name(), "duplicate class template specialization");
+				@analyzer.note(current->pattern->token(), "previous specialization is declared here");
+				return compilation_error();
+			};
+			if (record->record_members()->kind() != syntax_kind::noop) {
+				@current->pattern = next->pattern;
+				@current->arguments = next->arguments;
+			};
+			usize last = this.specializations.size() - 1;
+			if (other != last) {
+				var rt::unique<TemplateSpecialization>* entries = (@this.specializations).data();
+				rt::swap(@entries[other], @entries[last]);
+			};
+			@this.specializations.pop_back();
+		};
+		@index = index + 1;
+	};
+	if (analyzer.failed()) {
+		return compilation_error();
+	};
+};
+
+fn TemplateEngine::specialization_type_match(var TemplateEngine& this, var Analyzer& analyzer, var Scope& scope, var Syntax& syntax, TypeUse& actual, var Syntax& parameters, var rt::buffer<TemplateArgument>& deduced) -> bool {
+	return @this.match(@analyzer, @scope, @syntax, actual, @parameters, @deduced, template_match_mode::exact);
+};
+
+fn TemplateEngine::match_specialization(var TemplateEngine& this, var Analyzer& analyzer, var TemplateSpecialization& specialization, rt::buffer<TemplateArgument>& actual, var rt::buffer<TemplateArgument>& deduced) -> bool {
+	if (specialization.arguments->size() != actual.size()) {
+		return false;
+	};
+	var Syntax* parameters = specialization.pattern->declaration()->template_parameters();
+	var Scope* scope = specialization.pattern->resolution_scope();
+	usize index = 0;
+	while (index < parameters->size()) {
+		TemplateArgument unbound;
+		@deduced.push_back($unbound);
+		@index = index + 1;
+	};
+	@index = 0;
+	while (index < actual.size()) {
+		TemplateArgument& argument = actual.data()[index];
+		var Syntax* source = this.specialization_syntax(@*specialization.arguments->item(index), argument.kind);
+		if (!source) {
+			return false;
+		};
+		if (argument.kind == template_argument_kind::type) {
+			TypeUse* use = argument.type_use.get();
+			if (!use) {
+				@use = @analyzer.semantic_unit()->canonical_use(*argument.type);
+			};
+			if (!use || !@this.specialization_type_match(@analyzer, @*scope, @*source, *use, @*parameters, @deduced)) {
+				return false;
+			};
+		}
+		else if (argument.kind == template_argument_kind::value) {
+			usize parameter = this.specialization_parameter(@*source, @*parameters, template_argument_kind::value);
+			if (parameter < parameters->size()) {
+				var TemplateArgument* bound = (@deduced).data() + parameter;
+				if (bound->kind != template_argument_kind::unbound && !bound->same(argument)) {
+					return false;
+				};
+				@*bound := argument;
+			}
+			else {
+				if (this.specialization_mentions(@*source, @*parameters)) {
+					return false;
+				};
+				TemplateArgument expected;
+				if (!(@this.argument(@analyzer, @*scope, @*source, @*this.parameter_at(@*specialization.primary, index), @*specialization.primary, index, @expected)).has<void>() || !expected.same(argument)) {
+					return false;
+				};
+			};
+		}
+		else {
+			return false;
+		};
+		@index = index + 1;
+	};
+	@index = 0;
+	var Scope* bindings = @analyzer.semantic_unit()->create_scope(scope, scope->owner());
+	while (index < deduced.size()) {
+		if (deduced.data()[index].kind == template_argument_kind::unbound) {
+			return false;
+		};
+		if (!(@this.check_argument(@analyzer, @*bindings, @*parameters->item(index), deduced.data()[index])).has<void>() || !(@this.bind(@analyzer, @*bindings, @*parameters->item(index), deduced.data()[index])).has<void>()) {
+			return false;
+		};
+		@index = index + 1;
+	};
+	return true;
+};
+
+fn TemplateEngine::select_specialization(var TemplateEngine& this, var Analyzer& analyzer, var Entity& primary, rt::buffer<TemplateArgument>& arguments, Token& request, var rt::buffer<TemplateArgument>& deduced) -> var TemplateSpecialization* {
+	rt::buffer<var TemplateSpecialization*> matches;
+	usize index = 0;
+	while (index < this.specializations.size()) {
+		var TemplateSpecialization* specialization = this.specializations.data()[index].get();
+		@index = index + 1;
+		if (specialization->primary != &@primary) {
+			continue;
+		};
+		rt::buffer<TemplateArgument> candidate;
+		if (@this.match_specialization(@analyzer, @*specialization, arguments, @candidate)) {
+			@matches.push_back(specialization);
+		};
+		if (analyzer.failed()) {
+			return nullptr;
+		};
+	};
+	var TemplateSpecialization* selected = nullptr;
+	@index = 0;
+	while (index < matches.size()) {
+		var TemplateSpecialization* candidate = matches.data()[index];
+		@index = index + 1;
+		usize other = 0;
+		while (other < matches.size()) {
+			var TemplateSpecialization* competitor = matches.data()[other];
+			if (competitor != candidate && @this.specialization_covers(@analyzer, @*candidate, @*competitor) && !@this.specialization_covers(@analyzer, @*competitor, @*candidate)) {
+				break;
+			};
+			@other = other + 1;
+		};
+		if (other < matches.size()) {
+			continue;
+		};
+		if (selected) {
+			@analyzer.report(request, "ambiguous class template specialization");
+			@analyzer.note(selected->pattern->token(), "matching specialization is declared here");
+			@analyzer.note(candidate->pattern->token(), "matching specialization is declared here");
+			return nullptr;
+		};
+		@selected = candidate;
+	};
+	if (selected && !@this.match_specialization(@analyzer, @*selected, arguments, @deduced)) {
+		return nullptr;
+	};
+	return $selected;
+};

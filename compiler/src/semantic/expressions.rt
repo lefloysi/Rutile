@@ -536,6 +536,9 @@ fn Analyzer::expression_form(var Analyzer& this, var Scope& scope, var Syntax& s
 
 	if (kind == syntax_kind::name || kind == syntax_kind::qualified_name || kind == syntax_kind::template_apply) {
 		Token token = syntax.token();
+		if (kind == syntax_kind::name && (token.is("__return") || token.kind == token_kind::kw_emit)) {
+			return @this.return_emitter(@scope, @syntax, expected);
+		};
 
 		if (token.is("true") || token.is("false")) {
 			var result = @this.node(semantic_kind::literal_integer, bool_type, &@syntax);
