@@ -126,6 +126,17 @@ fn concatenation_returns_reserve_failure_without_reading_the_input() {
 };
 
 [[test]]
+fn named_string_views_concatenate_without_losing_binary_data() {
+	rt::string_view left = "a\0b";
+	rt::string_view right = "c\0d";
+	rt::string result = left + right;
+	rt::test::expect(result.size() == 6);
+	rt::test::expect(result.view() == rt::string_view("a\0bc\0d"));
+	rt::test::expect(left == rt::string_view("a\0b"));
+	rt::test::expect(right == rt::string_view("c\0d"));
+};
+
+[[test]]
 fn string_copies_own_independent_storage() {
 	var original = rt::string("abc");
 	rt::string copied := original;
